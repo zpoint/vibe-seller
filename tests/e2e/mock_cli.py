@@ -37,11 +37,61 @@ TOOL_CALLS = SCENARIO.get(
 THINKING = SCENARIO.get('thinking', 'Let me analyze the code...')
 SKIP_PLAN = SCENARIO.get('skip_plan', False)
 DELAY = SCENARIO.get('delay', 0.05)
+# The model the mock's API calls report. A Claude id on the default
+# profile is priced from the bundled models.dev snapshot (anthropic).
+MODEL = SCENARIO.get('model', 'claude-sonnet-4-5')
 
 
 def emit(event: dict):
     """Write a stream-json event to stdout."""
     print(json.dumps(event), flush=True)
+
+
+# Usage shape per mock API call, like the real CLI's partial messages:
+# message_start carries the prompt side (a cache-read context that
+# grows with every call), message_delta the final output count, and the
+# assistant event repeats the message id + a provisional usage.
+_calls = 0
+
+
+def _usage(n: int, output: int = 1) -> dict:
+    return {
+        'input_tokens': 800,
+        'cache_read_input_tokens': 12_000 * n,
+        'cache_creation_input_tokens': 2_000,
+        'output_tokens': output,
+    }
+
+
+def _begin_call() -> tuple[str, dict]:
+    global _calls
+    _calls += 1
+    msg_id = f'msg_mock_{os.getpid()}_{_calls}'
+    emit({
+        'type': 'stream_event',
+        'event': {
+            'type': 'message_start',
+            'message': {'id': msg_id, 'model': MODEL, 'usage': _usage(_calls)},
+        },
+    })
+    return msg_id, _usage(_calls)
+
+
+def _end_call() -> None:
+    emit({
+        'type': 'stream_event',
+        'event': {'type': 'message_delta', 'usage': {'output_tokens': 250}},
+    })
+
+
+def _message(msg_id: str, usage: dict, content: list) -> dict:
+    return {
+        'id': msg_id,
+        'model': MODEL,
+        'role': 'assistant',
+        'usage': usage,
+        'content': content,
+    }
 
 
 def emit_system():
@@ -58,13 +108,14 @@ def emit_thinking(text: str):
         })
         time.sleep(DELAY / 5)
     # Complete assistant event with thinking block
+    msg_id, usage = _begin_call()
     emit({
         'type': 'assistant',
-        'message': {
-            'role': 'assistant',
-            'content': [{'type': 'thinking', 'thinking': text}],
-        },
+        'message': _message(
+            msg_id, usage, [{'type': 'thinking', 'thinking': text}]
+        ),
     })
+    _end_call()
 
 
 def emit_tool_calls(tools: list[dict]):
@@ -78,10 +129,12 @@ def emit_tool_calls(tools: list[dict]):
             'id': f'tool_{hash(json.dumps(tc)) % 10000}',
         })
     if content:
+        msg_id, usage = _begin_call()
         emit({
             'type': 'assistant',
-            'message': {'role': 'assistant', 'content': content},
+            'message': _message(msg_id, usage, content),
         })
+        _end_call()
 
 
 def emit_text(text: str):
@@ -92,13 +145,12 @@ def emit_text(text: str):
             'delta': {'type': 'text_delta', 'text': chunk},
         })
         time.sleep(DELAY / 5)
+    msg_id, usage = _begin_call()
     emit({
         'type': 'assistant',
-        'message': {
-            'role': 'assistant',
-            'content': [{'type': 'text', 'text': text}],
-        },
+        'message': _message(msg_id, usage, [{'type': 'text', 'text': text}]),
     })
+    _end_call()
 
 
 def emit_exit_plan_mode(plan_text: str):

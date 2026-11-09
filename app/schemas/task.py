@@ -52,6 +52,18 @@ class TaskResponse(BaseModel):
     is_plan_only: bool = False
     ai_profile_id: str | None
     session_id: str | None = None
+    # Live usage meter (app/task_usage.py). Pushed during a run as the
+    # ``task_usage`` SSE event with the same field names.
+    cost_usd: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    context_tokens: int | None = None
+    context_window: int | None = None
+    usage_model: str | None = None
+    cost_basis: str | None = None
+    num_turns: int | None = None
     started_at: str | None
     completed_at: str | None
     created_by_name: str | None = None

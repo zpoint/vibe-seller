@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { api } from '../api'
-import type { Task, AgentMessage, TodoItem, ConversationItem } from '../types'
+import type { Task, AgentMessage, TodoItem, ConversationItem, TaskUsage } from '../types'
+import { TASK_USAGE_FIELDS } from '../types'
 import { uuid } from '../uuid'
 
 /** Finalize any streaming thinking block — set isStreaming to false. */
@@ -153,6 +154,19 @@ export function useSSE({
 
             return { ...prev, ...patch }
           })
+        }
+        if (data.type === 'task_usage') {
+          // Live usage meter: one event per API call update. Patch only
+          // the usage fields, wherever the task is on screen.
+          const patch: Partial<TaskUsage> = {}
+          for (const k of TASK_USAGE_FIELDS) {
+            if (k in data) (patch as Record<string, unknown>)[k] = data[k]
+          }
+          const apply = (t: Task) => t.id === data.task_id ? { ...t, ...patch } : t
+          setTasks(prev => prev.map(apply))
+          if (setScheduleTasks) setScheduleTasks(prev => prev.map(apply))
+          setSelectedTask(prev => prev && prev.id === data.task_id ? { ...prev, ...patch } : prev)
+          return
         }
         if (data.type === 'task_steps_created') {
           setSelectedTask(prev => {

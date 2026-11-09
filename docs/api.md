@@ -137,6 +137,8 @@ and the reveal endpoint below.
 
 `TaskResponse` includes `created_by_name: str | null` — the creator's display name resolved from the users table (defaults to `"admin"` if not found).
 
+`TaskResponse` also carries the usage meter's totals across every run: `cost_usd`, `input_tokens` (uncached), `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `num_turns`, plus the main agent's latest `context_tokens` / `context_window` / `usage_model`, and `cost_basis` (`catalog` = priced from the provider's per-token rates, `included` = plan / free model, `unpriced` = tokens only). The same fields stream live as the `task_usage` SSE event. See [subsystems.md § Task usage meter](subsystems.md#task-usage-meter--price-catalog-model_pricing).
+
 ## `agent_mcp/` — Hosted MCP endpoint (external agents)
 
 Serves the Model Context Protocol so an external agent (Claude Code,

@@ -53,6 +53,18 @@ TASK_KEYS = {
     'created_at',
     'started_at',
     'completed_at',
+    # Live usage meter (app/task_usage.py) — the same names as the
+    # ``task_usage`` SSE event.
+    'cost_usd',
+    'input_tokens',
+    'output_tokens',
+    'cache_read_tokens',
+    'cache_write_tokens',
+    'context_tokens',
+    'context_window',
+    'usage_model',
+    'cost_basis',
+    'num_turns',
 }
 
 TASK_MESSAGE_KEYS = {

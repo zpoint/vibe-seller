@@ -948,5 +948,23 @@
     "revealFailed": "Failed to reveal the stored secret",
     "copyFailed": "Copy failed — select and copy manually",
     "maskedHint": "Stored secrets are shown masked; leaving the field untouched keeps the stored value."
+  },
+  "usage": {
+    "context": "Context",
+    "contextOf": "{{used}} / {{window}}",
+    "title": "Usage",
+    "model": "Model",
+    "contextUsed": "Context used",
+    "input": "Input",
+    "cacheRead": "Cache read",
+    "cacheWrite": "Cache write",
+    "output": "Output",
+    "turns": "Turns",
+    "cost": "Cost",
+    "included": "Included in plan",
+    "unpriced": "No price for this model",
+    "estimateNote": "Estimated from the provider’s published per-token prices (models.dev). Your bill is the source of truth.",
+    "includedNote": "This provider’s plan has no per-token charge, so only tokens are counted.",
+    "unpricedNote": "This model isn’t in the price catalog, so only tokens are counted."
   }
 }

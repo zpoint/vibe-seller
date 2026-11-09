@@ -23,7 +23,7 @@ import logging
 import httpx
 
 from app import ads_skill, vision, vision_catalog_sync
-from app.ai import provider_presets_sync
+from app.ai import model_pricing_sync, provider_presets_sync
 from app.browser.daemon_reaper import reap_orphaned_daemons
 from app.plugins import registered_sync_jobs
 from app.scheduler.email_sync import sync_all_email_accounts
@@ -48,6 +48,7 @@ PRESETS_JOB = 'presets'
 EMAIL_JOB = 'email'
 REAPER_JOB = 'daemon_reaper'
 VISION_JOB = 'vision_catalog'
+PRICING_JOB = 'model_pricing'
 
 #: AppSettings key behind the skills toggle (Settings → General).
 #: Knowledge and provider presets have NO toggle — an explicit product
@@ -216,6 +217,27 @@ async def _run_vision(ctx: SyncContext) -> SyncResult:
     )
 
 
+# ── model pricing: per-token rates + context windows (models.dev) ─
+
+
+async def _run_pricing(ctx: SyncContext) -> SyncResult:
+    outcome = await model_pricing_sync.fetch_once()
+    status = {
+        'updated': STATUS_UPDATED,
+        'unchanged': STATUS_UNCHANGED,
+    }.get(str(outcome.get('status')), STATUS_FAILED)
+    return SyncResult(
+        status=status,
+        version=outcome.get('sha256'),
+        error=outcome.get('error'),
+        detail={
+            key: outcome[key]
+            for key in ('providers', 'models')
+            if key in outcome
+        },
+    )
+
+
 # ── email: one pass over the enabled accounts ──────────────────────
 
 
@@ -272,6 +294,11 @@ def core_jobs() -> list[SyncJob]:
             cadence=Cadence.DAILY,
             run=_run_vision,
             when=_vision_ready,
+        ),
+        SyncJob(
+            name=PRICING_JOB,
+            cadence=Cadence.DAILY,
+            run=_run_pricing,
         ),
         SyncJob(
             name=EMAIL_JOB,

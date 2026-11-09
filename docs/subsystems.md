@@ -271,7 +271,8 @@ Persistent per-account email storage with background sync and SMTP send capabili
 Every periodic "ask the network / re-read the world" job runs through
 one object: skills, knowledge, the ads skill bundle, the provider-preset
 catalog, the image-model catalog (`vision_catalog` — runs only when a
-kie.ai key is configured; see [vision.md](vision.md#kept-current-by-the-vision_catalog-sync-job)) (email and the browser daemon reaper are on their way in). It
+kie.ai key is configured; see [vision.md](vision.md#kept-current-by-the-vision_catalog-sync-job)),
+the per-token price catalog (`model_pricing` — see below) (email and the browser daemon reaper are on their way in). It
 exists because the same question used to be answered four different
 ways — a cooldown file per module, a `while True: sleep()` loop, an extra
 APScheduler job, fire-and-forget tasks at boot and at every task launch —
@@ -321,6 +322,46 @@ model list as a deny-list of delisted slugs. The run line carries one
 status per step (`catalog=… prices=… available=…`, plus
 `prices_priced` / `available_hidden`). Full design:
 [vision.md § Kept current](vision.md#kept-current-by-the-vision_catalog-sync-job).
+
+## Task usage meter + price catalog (`model_pricing`)
+
+The task footer shows, live, how full the agent's context window is and
+what the task has cost so far (`app/ai/usage_meter.py`,
+`app/task_usage.py`, `frontend/src/components/TaskUsageMeter.tsx`).
+
+- **Metered per API call, never per `result`.** The CLI's `result`
+  event carries `total_cost_usd` / `modelUsage` that are cumulative for
+  the PROCESS (a follow-up in the same process re-reports earlier
+  turns) and price every model as Claude. The meter reads the partial
+  messages instead (`stream_event` `message_start` for the prompt side,
+  `message_delta` for the final output count) plus each `assistant`
+  event, deduplicated by message id, every field taking `max` (MiniMax
+  reports zeros in `message_start` and the real counts only in the
+  delta). Each call update is one DB write onto the task row and one
+  `task_usage` SSE event.
+- **Context bar** = the main agent's latest call: input + cache read +
+  cache write + output. Subagent calls cost money but do not move it.
+  The window comes from the catalog; on api.anthropic.com the CLI's own
+  `modelUsage[…].contextWindow` overrides it (it knows 200K vs 1M).
+- **Price** = each bucket × its own rate, the way opencode / pi / Roo
+  price third-party models. Rates are a slice of
+  [models.dev](https://models.dev/api.json): `app/ai/model_pricing.py`
+  maps each provider preset to ONE models.dev provider
+  (`PRESET_PROVIDERS`) — plans (Kimi Code, Coding/Token Plans) are
+  their own providers with zero rates, shown as **included**; a model
+  the catalog lacks (custom profiles) shows tokens only (**unpriced**).
+  Long-context tiers apply to the whole call. Claude Code caches with
+  a one-hour TTL, billed at 2× input — models.dev's `cache_write` is
+  the five-minute rate, so one-hour writes are priced separately
+  (verified to match the CLI's own figure on api.anthropic.com).
+- **Kept current** by the DAILY `model_pricing` sync job
+  (`app/ai/model_pricing_sync.py`; env `MODEL_PRICING_URL`), cache
+  `~/.vibe-seller/cache/model_pricing.json`, served cache-or-bundled:
+  `app/ai/model_pricing_snapshot.py` is regenerated with
+  `scripts/gen_model_pricing_snapshot.py`. A body that does not look
+  like models.dev (fewer than half the tracked providers) is rejected
+  and the served catalog kept. A new preset needs a `PRESET_PROVIDERS`
+  entry — `tests/unit/test_model_pricing.py` fails until it has one.
 
 ## Provider-preset catalog sync
 

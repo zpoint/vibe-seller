@@ -1,0 +1,635 @@
+{
+ "anthropic_1h_cache_multi_call": {
+  "preset": "default",
+  "events": [
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_start",
+     "message": {
+      "id": "msg_01",
+      "model": "claude-opus-5-5",
+      "usage": {
+       "input_tokens": 2,
+       "cache_creation_input_tokens": 17470,
+       "cache_read_input_tokens": 13520,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 17470
+       },
+       "output_tokens": 16,
+       "service_tier": "standard",
+       "inference_geo": "global",
+       "speed": "standard"
+      }
+     }
+    }
+   },
+   {
+    "type": "assistant",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_01",
+     "model": "claude-opus-5-5",
+     "usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 17470,
+      "cache_read_input_tokens": 13520,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 17470
+      },
+      "output_tokens": 16,
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_01",
+       "name": "Bash",
+       "input": {
+        "command": "echo one"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_delta",
+     "usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 17470,
+      "cache_read_input_tokens": 13520,
+      "output_tokens": 72,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "iterations": [
+       {
+        "input_tokens": 2,
+        "output_tokens": 72,
+        "cache_read_input_tokens": 13520,
+        "cache_creation_input_tokens": 17470,
+        "cache_creation": {
+         "ephemeral_5m_input_tokens": 0,
+         "ephemeral_1h_input_tokens": 17470
+        },
+        "type": "message"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_start",
+     "message": {
+      "id": "msg_02",
+      "model": "claude-opus-5-5",
+      "usage": {
+       "input_tokens": 2,
+       "cache_creation_input_tokens": 3031,
+       "cache_read_input_tokens": 30990,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 3031
+       },
+       "output_tokens": 16,
+       "service_tier": "standard",
+       "inference_geo": "global",
+       "speed": "standard"
+      }
+     }
+    }
+   },
+   {
+    "type": "assistant",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_02",
+     "model": "claude-opus-5-5",
+     "usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3031,
+      "cache_read_input_tokens": 30990,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 3031
+      },
+      "output_tokens": 16,
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_02",
+       "name": "Bash",
+       "input": {
+        "command": "echo one"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_delta",
+     "usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3031,
+      "cache_read_input_tokens": 30990,
+      "output_tokens": 72,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "iterations": [
+       {
+        "input_tokens": 2,
+        "output_tokens": 72,
+        "cache_read_input_tokens": 30990,
+        "cache_creation_input_tokens": 3031,
+        "cache_creation": {
+         "ephemeral_5m_input_tokens": 0,
+         "ephemeral_1h_input_tokens": 3031
+        },
+        "type": "message"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_start",
+     "message": {
+      "id": "msg_03",
+      "model": "claude-opus-5-5",
+      "usage": {
+       "input_tokens": 2,
+       "cache_creation_input_tokens": 78,
+       "cache_read_input_tokens": 34021,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 78
+       },
+       "output_tokens": 3,
+       "service_tier": "standard",
+       "inference_geo": "global",
+       "speed": "standard"
+      }
+     }
+    }
+   },
+   {
+    "type": "assistant",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_03",
+     "model": "claude-opus-5-5",
+     "usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 78,
+      "cache_read_input_tokens": 34021,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 78
+      },
+      "output_tokens": 3,
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "done"
+      }
+     ]
+    }
+   },
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_delta",
+     "usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 78,
+      "cache_read_input_tokens": 34021,
+      "output_tokens": 3,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "iterations": [
+       {
+        "input_tokens": 2,
+        "output_tokens": 3,
+        "cache_read_input_tokens": 34021,
+        "cache_creation_input_tokens": 78,
+        "cache_creation": {
+         "ephemeral_5m_input_tokens": 0,
+         "ephemeral_1h_input_tokens": 78
+        },
+        "type": "message"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "type": "result",
+    "num_turns": 3,
+    "total_cost_usd": 0.1833022,
+    "usage": {
+     "input_tokens": 6,
+     "cache_creation_input_tokens": 20579,
+     "cache_read_input_tokens": 78531,
+     "output_tokens": 147,
+     "output_tokens_details": {
+      "thinking_tokens": 0
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 20579,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "global",
+     "iterations": [
+      {
+       "input_tokens": 2,
+       "output_tokens": 3,
+       "cache_read_input_tokens": 34021,
+       "cache_creation_input_tokens": 78,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 78
+       },
+       "type": "message"
+      }
+     ],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "claude-opus-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 147,
+      "cacheReadInputTokens": 78531,
+      "cacheCreationInputTokens": 20579,
+      "costUSD": 0.1833022,
+      "contextWindow": 1000000
+     }
+    }
+   }
+  ]
+ },
+ "minimax_usage_only_in_delta": {
+  "preset": "minimax",
+  "events": [
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_start",
+     "message": {
+      "id": "msg_01",
+      "model": "MiniMax-M3.1-Flash",
+      "usage": {
+       "input_tokens": 0,
+       "output_tokens": 0
+      }
+     }
+    }
+   },
+   {
+    "type": "assistant",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_01",
+     "model": "MiniMax-M3.1-Flash",
+     "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "done"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_01",
+     "model": "MiniMax-M3.1-Flash",
+     "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_03",
+       "name": "Bash",
+       "input": {
+        "command": "echo one"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_delta",
+     "usage": {
+      "input_tokens": 16417,
+      "output_tokens": 46
+     }
+    }
+   },
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_start",
+     "message": {
+      "id": "msg_02",
+      "model": "MiniMax-M3.1-Flash",
+      "usage": {
+       "input_tokens": 0,
+       "output_tokens": 0
+      }
+     }
+    }
+   },
+   {
+    "type": "assistant",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_02",
+     "model": "MiniMax-M3.1-Flash",
+     "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "done"
+      }
+     ]
+    }
+   },
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_delta",
+     "usage": {
+      "input_tokens": 961,
+      "output_tokens": 3,
+      "cache_read_input_tokens": 16256
+     }
+    }
+   },
+   {
+    "type": "result",
+    "num_turns": 2,
+    "total_cost_usd": 0.09624300000000001,
+    "usage": {
+     "input_tokens": 17378,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 16256,
+     "output_tokens": 49,
+     "output_tokens_details": {
+      "thinking_tokens": 0
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "",
+     "iterations": [],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "MiniMax-M3.1-Flash[1m]": {
+      "inputTokens": 17378,
+      "outputTokens": 49,
+      "cacheReadInputTokens": 16256,
+      "cacheCreationInputTokens": 0,
+      "costUSD": 0.09624300000000001,
+      "contextWindow": 1000000
+     }
+    }
+   }
+  ]
+ },
+ "mimo_token_plan": {
+  "preset": "mimo_token",
+  "events": [
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_start",
+     "message": {
+      "id": "msg_01",
+      "model": "mimo-v2.6-flash",
+      "usage": {
+       "input_tokens": 10327,
+       "output_tokens": 0,
+       "cache_read_input_tokens": 6144
+      }
+     }
+    }
+   },
+   {
+    "type": "assistant",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_01",
+     "model": "mimo-v2.6-flash",
+     "usage": {
+      "input_tokens": 10327,
+      "output_tokens": 0,
+      "cache_read_input_tokens": 6144
+     },
+     "content": [
+      {
+       "type": "thinking",
+       "thinking": "..."
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_01",
+     "model": "mimo-v2.6-flash",
+     "usage": {
+      "input_tokens": 10327,
+      "output_tokens": 0,
+      "cache_read_input_tokens": 6144
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_04",
+       "name": "Bash",
+       "input": {
+        "command": "echo one"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_delta",
+     "usage": {
+      "input_tokens": 10327,
+      "output_tokens": 52,
+      "cache_read_input_tokens": 6144
+     }
+    }
+   },
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_start",
+     "message": {
+      "id": "msg_02",
+      "model": "mimo-v2.6-flash",
+      "usage": {
+       "input_tokens": 816,
+       "output_tokens": 0,
+       "cache_read_input_tokens": 16448
+      }
+     }
+    }
+   },
+   {
+    "type": "assistant",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_02",
+     "model": "mimo-v2.6-flash",
+     "usage": {
+      "input_tokens": 816,
+      "output_tokens": 0,
+      "cache_read_input_tokens": 16448
+     },
+     "content": [
+      {
+       "type": "thinking",
+       "thinking": "..."
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_02",
+     "model": "mimo-v2.6-flash",
+     "usage": {
+      "input_tokens": 816,
+      "output_tokens": 0,
+      "cache_read_input_tokens": 16448
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "done"
+      }
+     ]
+    }
+   },
+   {
+    "type": "stream_event",
+    "parent_tool_use_id": null,
+    "event": {
+     "type": "message_delta",
+     "usage": {
+      "input_tokens": 816,
+      "output_tokens": 20,
+      "cache_read_input_tokens": 16448
+     }
+    }
+   },
+   {
+    "type": "result",
+    "num_turns": 2,
+    "total_cost_usd": 0.068811,
+    "usage": {
+     "input_tokens": 11143,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 22592,
+     "output_tokens": 72,
+     "output_tokens_details": {
+      "thinking_tokens": 0
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "",
+     "iterations": [],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "mimo-v2.6-flash[1m]": {
+      "inputTokens": 11143,
+      "outputTokens": 72,
+      "cacheReadInputTokens": 22592,
+      "cacheCreationInputTokens": 0,
+      "costUSD": 0.068811,
+      "contextWindow": 1000000
+     }
+    }
+   }
+  ]
+ }
+}

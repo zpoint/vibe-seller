@@ -49,7 +49,13 @@ from app.ai.claude_backend_utils import (
 )
 from app.ai.compaction import build_history_prompt, dump_history_file
 from app.ai.launch_artifacts import build_launch_artifacts
-from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
+from app.ai.model_pricing import ModelPrice, price_for, provider_for_preset
+from app.ai.profiles import (
+    DEFAULT_PROFILE_ID,
+    ProfileManager,
+    preset_id_for_env,
+)
+from app.ai.usage_meter import UsageMeter
 from app.auth import create_token
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
 from app.browser.manager import (
@@ -107,6 +113,10 @@ class AgentSession(
         # and dead-session-resume paths).
         self.persist_prompt = persist_prompt
         self.resume_session_id: str | None = None
+        # Live usage meter: models.dev provider for this launch's
+        # profile (set in start() once the env is resolved).
+        self._usage_provider: str | None = None
+        self._usage_meter = UsageMeter(self._price_of)
         self._proc: asyncio.subprocess.Process | None = None
         self._task: asyncio.Task | None = None
         self._result_text = ''
@@ -326,6 +336,7 @@ class AgentSession(
                 )
 
         env = ProfileManager.get_env_for_profile(self.profile_id)
+        self._usage_provider = provider_for_preset(preset_id_for_env(env))
         # ONE --settings file per launch. It always carries the
         # backend-owned settings (the CLI's auto-mode classifier off —
         # claude_backend_hooks are the ONE permission authority) and
@@ -546,6 +557,9 @@ class AgentSession(
         # close under a message the CLI is about to act on.
         self._last_activity_at = time.monotonic()
         return True
+
+    def _price_of(self, model: str | None) -> ModelPrice:
+        return price_for(self._usage_provider, model)
 
     async def _send_interrupt(self):
         """Send an SDK interrupt control request.

@@ -17,6 +17,7 @@ import { SubtaskList } from '../components/SubtaskList'
 import { MobileMenuButton } from '../components/MobileMenuButton'
 import { getUI, hasProgressingTask } from '../taskStates'
 import type { Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, Schedule, Store, ConversationItem, StagedAttachment } from '../types'
+import { TaskUsageMeter } from '../components/TaskUsageMeter'
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
@@ -701,6 +702,7 @@ export function TasksView({
                     </span>
                   )
                 })()}
+                <TaskUsageMeter usage={selectedTask} />
                 <div className="flex-1" />
                 <div
                   onClick={() => setDebugMode(d => !d)}

@@ -153,6 +153,7 @@ def _usage_props(task: Task) -> dict:
         'input_tokens': task.input_tokens,
         'output_tokens': task.output_tokens,
         'num_turns': task.num_turns,
+        'cost_basis': task.cost_basis,
     }
 
 
@@ -332,16 +333,20 @@ def result_usage(event: dict) -> tuple[float, int, int, int]:
 
 
 async def accumulate_run_usage(task_id: str, event: dict) -> None:
-    """Add one run's usage to the task row's totals (best-effort)."""
-    cost, in_tok, out_tok, turns = result_usage(event)
+    """Add one ``result``'s turn count to the task row (best-effort).
+
+    Tokens and cost are NOT taken from here: the result's
+    ``total_cost_usd`` is process-cumulative (a follow-up in the same
+    process reports earlier turns again) and prices every model as
+    Claude. They are metered per API call instead — see
+    app/ai/usage_meter.py.
+    """
+    _, _, _, turns = result_usage(event)
     try:
         async with async_session() as db:
             task = await db.get(Task, task_id)
             if not task:
                 return
-            task.cost_usd = (task.cost_usd or 0.0) + cost
-            task.input_tokens = (task.input_tokens or 0) + in_tok
-            task.output_tokens = (task.output_tokens or 0) + out_tok
             task.num_turns = (task.num_turns or 0) + turns
             await db.commit()
     except Exception:

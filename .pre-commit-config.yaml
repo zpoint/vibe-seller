@@ -56,5 +56,7 @@ repos:
         # The provider catalog is data, not a code module, and cannot be
         # split: the presets sync (app/ai/provider_presets_sync.py) on every
         # released client fetches this ONE file from main and requires both
-        # PROVIDER_PRESETS and PROVIDER_MODELS literals in it.
-        exclude: ^app/ai/provider_presets\.py$
+        # PROVIDER_PRESETS and PROVIDER_MODELS literals in it. The model
+        # pricing snapshot is generated data too (one literal, written by
+        # scripts/gen_model_pricing_snapshot.py).
+        exclude: ^app/ai/(provider_presets|model_pricing_snapshot)\.py$
