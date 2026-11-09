@@ -354,6 +354,10 @@ what the task has cost so far (`app/ai/usage_meter.py`,
   a one-hour TTL, billed at 2× input — models.dev's `cache_write` is
   the five-minute rate, so one-hour writes are priced separately
   (verified to match the CLI's own figure on api.anthropic.com).
+- **Display**: the footer chip shows `≈` + two decimals; the click-open
+  panel shows four. The Chinese UI shows RMB at a fixed
+  `USD_TO_CNY = 6.7` (`frontend/src/lib/usageFormat.ts`, stated in the
+  panel), English shows USD.
 - **Kept current** by the DAILY `model_pricing` sync job
   (`app/ai/model_pricing_sync.py`; env `MODEL_PRICING_URL`), cache
   `~/.vibe-seller/cache/model_pricing.json`, served cache-or-bundled:

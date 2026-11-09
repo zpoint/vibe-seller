@@ -8,16 +8,28 @@ import i18n from 'i18next'
 import enTranslation from '../i18n/locales/en/translation.json'
 import zhTranslation from '../i18n/locales/zh/translation.json'
 import { TaskUsageMeter } from '../components/TaskUsageMeter'
-import { contextPercent, formatCost, formatTokens } from '../lib/usageFormat'
+import {
+  USD_TO_CNY,
+  contextPercent,
+  currencyFor,
+  formatCost,
+  formatTokens,
+} from '../lib/usageFormat'
 import type { TaskUsage } from '../types'
 
-const i18nTestInstance = i18n.createInstance()
-i18nTestInstance.use(initReactI18next).init({
-  resources: { en: { translation: enTranslation } },
-  lng: 'en',
-  fallbackLng: 'en',
-  interpolation: { escapeValue: false },
-})
+function makeI18n(lng: 'en' | 'zh') {
+  const inst = i18n.createInstance()
+  inst.use(initReactI18next).init({
+    resources: {
+      en: { translation: enTranslation },
+      zh: { translation: zhTranslation },
+    },
+    lng,
+    fallbackLng: 'en',
+    interpolation: { escapeValue: false },
+  })
+  return inst
+}
 
 const METERED: TaskUsage = {
   cost_usd: 1.2345,
@@ -32,9 +44,9 @@ const METERED: TaskUsage = {
   num_turns: 7,
 }
 
-function renderMeter(usage: TaskUsage) {
+function renderMeter(usage: TaskUsage, lng: 'en' | 'zh' = 'en') {
   return render(
-    <I18nextProvider i18n={i18nTestInstance}>
+    <I18nextProvider i18n={makeI18n(lng)}>
       <TaskUsageMeter usage={usage} />
     </I18nextProvider>,
   )
@@ -55,12 +67,27 @@ describe('usage formatting', () => {
 
   it.each([
     [0, '$0.00'],
-    [0.004, '$0.0040'],
-    [0.00684, '$0.0068'],
+    [0.0067, '$0.01'],
     [1.2345, '$1.23'],
-    [250.4, '$250'],
-  ])('formatCost(%f) = %s', (n, out) => {
+    [250.4, '$250.40'],
+  ])('formatCost(%f) = %s — two decimals for the chip', (n, out) => {
     expect(formatCost(n)).toBe(out)
+  })
+
+  it('the panel gets four decimals', () => {
+    expect(formatCost(0.0067, 'USD', true)).toBe('$0.0067')
+    expect(formatCost(1.2345, 'USD', true)).toBe('$1.2345')
+  })
+
+  it('converts to RMB for the Chinese UI', () => {
+    expect(currencyFor('zh')).toBe('CNY')
+    expect(currencyFor('zh-CN')).toBe('CNY')
+    expect(currencyFor('en')).toBe('USD')
+    expect(currencyFor(undefined)).toBe('USD')
+    expect(formatCost(1, 'CNY')).toBe(`¥${USD_TO_CNY.toFixed(2)}`)
+    expect(formatCost(0.0067, 'CNY', true)).toBe(
+      `¥${(0.0067 * USD_TO_CNY).toFixed(4)}`,
+    )
   })
 
   it('clamps the context percent and needs a window', () => {
@@ -83,9 +110,25 @@ describe('TaskUsageMeter', () => {
     expect(screen.getByTestId('task-usage-cost')).toHaveTextContent('≈$1.23')
   })
 
-  it('shows a sub-cent cost instead of hiding it', () => {
-    renderMeter({ ...METERED, cost_usd: 0.00684 })
-    expect(screen.getByTestId('task-usage-cost')).toHaveTextContent('≈$0.0068')
+  it('chip rounds to two decimals; the panel shows the precise figure', () => {
+    renderMeter({ ...METERED, cost_usd: 0.0067 })
+    expect(screen.getByTestId('task-usage-cost')).toHaveTextContent('≈$0.01')
+    fireEvent.click(screen.getByTestId('task-usage-meter'))
+    const details = screen.getByTestId('task-usage-details')
+    expect(details).toHaveTextContent('$0.0067')
+    expect(details).not.toHaveTextContent('≈')
+  })
+
+  it('shows RMB in the Chinese UI, with the rate in the panel', () => {
+    renderMeter({ ...METERED, cost_usd: 1 }, 'zh')
+    expect(screen.getByTestId('task-usage-cost')).toHaveTextContent(
+      `≈¥${USD_TO_CNY.toFixed(2)}`,
+    )
+    expect(screen.queryByText(/\$/)).toBeNull()
+    fireEvent.click(screen.getByTestId('task-usage-meter'))
+    const details = screen.getByTestId('task-usage-details')
+    expect(details).toHaveTextContent(`¥${USD_TO_CNY.toFixed(4)}`)
+    expect(details).toHaveTextContent(`1 美元 ≈ ${USD_TO_CNY} 元人民币`)
   })
 
   it('says "included" for a plan run instead of a $0 cost', () => {
@@ -120,7 +163,7 @@ describe('TaskUsageMeter', () => {
       '6.9k', // cache write
       '3.4k', // output
       '7', // turns
-      '≈$1.23',
+      '$1.2345', // precise in the panel
       'models.dev',
     ]) {
       expect(details).toHaveTextContent(text)

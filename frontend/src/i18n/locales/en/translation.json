@@ -965,6 +965,7 @@
     "unpriced": "No price for this model",
     "estimateNote": "Estimated from the provider’s published per-token prices (models.dev). Your bill is the source of truth.",
     "includedNote": "This provider’s plan has no per-token charge, so only tokens are counted.",
-    "unpricedNote": "This model isn’t in the price catalog, so only tokens are counted."
+    "unpricedNote": "This model isn’t in the price catalog, so only tokens are counted.",
+    "cnyRateNote": "Converted at 1 USD ≈ {{rate}} CNY."
   }
 }

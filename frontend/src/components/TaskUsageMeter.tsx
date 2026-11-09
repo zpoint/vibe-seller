@@ -1,11 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TaskUsage } from '../types'
-import { contextPercent, formatCost, formatTokens } from '../lib/usageFormat'
+import {
+  type Currency,
+  USD_TO_CNY,
+  contextPercent,
+  currencyFor,
+  formatCost,
+  formatTokens,
+} from '../lib/usageFormat'
 
-/** The cost label: "≈$1.23", "Included in plan", or null (unpriced). */
-function costLabel(u: TaskUsage, t: (k: string) => string): string | null {
-  if (u.cost_basis === 'catalog') return `≈${formatCost(u.cost_usd ?? 0)}`
+/** The cost label — chip: "≈$1.23" / "≈¥8.76"; panel (``precise``):
+ *  "$1.2345". "Included in plan" for plans, null when unpriced. */
+function costLabel(
+  u: TaskUsage,
+  t: (k: string) => string,
+  currency: Currency,
+  precise = false,
+): string | null {
+  if (u.cost_basis === 'catalog') {
+    const amount = formatCost(u.cost_usd ?? 0, currency, precise)
+    return precise ? amount : `≈${amount}`
+  }
   if (u.cost_basis === 'included') return t('usage.included')
   return null
 }
@@ -15,7 +31,8 @@ function costLabel(u: TaskUsage, t: (k: string) => string): string | null {
  * nothing until the task has metered at least one API call.
  */
 export function TaskUsageMeter({ usage }: { usage: TaskUsage }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const currency = currencyFor(i18n.language)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -34,14 +51,17 @@ export function TaskUsageMeter({ usage }: { usage: TaskUsage }) {
   if (usage.context_tokens == null && tokens === 0) return null
 
   const pct = contextPercent(usage)
-  const cost = costLabel(usage, t)
+  const cost = costLabel(usage, t, currency)
+  const preciseCost = costLabel(usage, t, currency, true)
   const barColor =
     pct == null ? 'bg-gray-300'
       : pct >= 90 ? 'bg-red-500'
         : pct >= 70 ? 'bg-amber-500'
           : 'bg-indigo-500'
   const note =
-    usage.cost_basis === 'catalog' ? t('usage.estimateNote')
+    usage.cost_basis === 'catalog'
+      ? t('usage.estimateNote') +
+        (currency === 'CNY' ? ' ' + t('usage.cnyRateNote', { rate: USD_TO_CNY }) : '')
       : usage.cost_basis === 'included' ? t('usage.includedNote')
         : t('usage.unpricedNote')
 
@@ -59,7 +79,7 @@ export function TaskUsageMeter({ usage }: { usage: TaskUsage }) {
     [t('usage.cacheWrite'), formatTokens(usage.cache_write_tokens ?? 0)],
     [t('usage.output'), formatTokens(usage.output_tokens ?? 0)],
     [t('usage.turns'), String(usage.num_turns ?? 0)],
-    [t('usage.cost'), cost ?? t('usage.unpriced')],
+    [t('usage.cost'), preciseCost ?? t('usage.unpriced')],
   ]
 
   return (

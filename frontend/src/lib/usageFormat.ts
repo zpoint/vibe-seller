@@ -11,11 +11,30 @@ export function formatTokens(n: number): string {
   return `${trim((n / 1_000_000).toFixed(1))}M`
 }
 
-export function formatCost(usd: number): string {
-  // Sub-cent runs are common on cheap providers: two significant
-  // digits ($0.0068) say how cheap, where "<$0.01" hides it.
-  if (usd > 0 && usd < 0.01) return `$${usd.toPrecision(2)}`
-  return `$${usd < 100 ? usd.toFixed(2) : Math.round(usd)}`
+export type Currency = 'USD' | 'CNY'
+
+/** USD → CNY for display. Prices are estimates from USD catalog rates,
+ *  so a fixed rate is precise enough; the panel note states it. */
+export const USD_TO_CNY = 6.7
+
+/** Chinese UI shows RMB, everything else USD. */
+export function currencyFor(language: string | undefined): Currency {
+  return language?.toLowerCase().startsWith('zh') ? 'CNY' : 'USD'
+}
+
+/**
+ * A USD figure in the display currency.
+ * - default (the footer chip): two decimals, e.g. "$0.01" / "¥0.05";
+ * - ``precise`` (the details panel): four decimals, e.g. "$0.0067".
+ */
+export function formatCost(
+  usd: number,
+  currency: Currency = 'USD',
+  precise = false,
+): string {
+  const symbol = currency === 'CNY' ? '¥' : '$'
+  const amount = currency === 'CNY' ? usd * USD_TO_CNY : usd
+  return `${symbol}${amount.toFixed(precise ? 4 : 2)}`
 }
 
 /** Context fill in percent, clamped; null without a known window. */
