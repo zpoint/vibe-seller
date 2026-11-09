@@ -137,14 +137,10 @@ Filename: "{#AppExeTray}"; Parameters: """{app}\tray.py"" --open"; \
   Flags: nowait postinstall skipifsilent; \
   Check: VenvIsReady
 
-; A SILENT upgrade has no finish page, so the step above never runs and
-; the server PrepareToInstall stopped stayed down until the next login.
-; Bring back exactly what was running: the tray, which starts the
-; server (no --open: an unattended upgrade must not pop a browser).
-; Interactive installs keep the finish-page choice above instead.
-Filename: "{#AppExeTray}"; Parameters: """{app}\tray.py"""; \
-  Flags: nowait; \
-  Check: RelaunchAfterSilentUpgrade
+; A SILENT upgrade has no finish page, so the step above never runs. Its
+; relaunch lives in [Code] (RelaunchTrayAfterSilentUpgrade), NOT here: a
+; plain [Run] entry can run before CurStepChanged(ssPostInstall) builds
+; the venv, so it would find no pythonw.exe and skip — CI proved it.
 
 [Icons]
 ; Clickable shortcuts (Start Menu + optional desktop) launch with
@@ -442,6 +438,29 @@ begin
   Result := (Rc = 0) and VenvIsReady;
 end;
 
+// A silent upgrade has no finish page ("Open now"), so the server that
+// PrepareToInstall stopped would stay down until the next login. Bring
+// back exactly what was running: the tray, which starts the server (no
+// --open: an unattended upgrade must not pop a browser). Called last in
+// ssPostInstall, i.e. only after the venv was rebuilt AND verified.
+procedure RelaunchTrayAfterSilentUpgrade;
+var
+  Rc: Integer;
+begin
+  if not (WizardSilent and AppWasRunning and VenvIsReady) then begin
+    Log('No tray relaunch (silent=' + IntToStr(Ord(WizardSilent)) +
+      ', was running=' + IntToStr(Ord(AppWasRunning)) + ', venv ready=' +
+      IntToStr(Ord(VenvIsReady)) + ')');
+    exit;
+  end;
+  if Exec(ExpandConstant('{#AppExeTray}'),
+      '"' + ExpandConstant('{app}\tray.py') + '"',
+      ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, Rc) then
+    Log('Relaunched the tray after a silent upgrade')
+  else
+    Log('Tray relaunch failed: ' + SysErrorMessage(Rc));
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Rc: Integer;
@@ -488,6 +507,7 @@ begin
     Exec(ExpandConstant('{app}\.venv\Scripts\playwright.exe'),
       'install chromium', '', SW_HIDE, ewWaitUntilTerminated, Rc);
     Log('playwright install chromium exit code: ' + IntToStr(Rc));
+    RelaunchTrayAfterSilentUpgrade;
   end;
 end;
 
@@ -505,11 +525,6 @@ begin
     PsQuote(ExpandConstant('{app}') + '\*') +
     ' }).Count -gt 0) { exit 0 } else { exit 1 }"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
-end;
-
-function RelaunchAfterSilentUpgrade: Boolean;
-begin
-  Result := WizardSilent and AppWasRunning and VenvIsReady;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
