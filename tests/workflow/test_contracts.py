@@ -327,6 +327,7 @@ EMAIL_ACCOUNT_KEYS = {
     'smtp_host',
     'smtp_port',
     'smtp_use_tls',
+    'allow_send',
     'created_at',
     'updated_at',
 }

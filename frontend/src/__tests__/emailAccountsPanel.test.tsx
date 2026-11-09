@@ -120,3 +120,92 @@ describe('EmailAccountsPanel failure reasons', () => {
     ).toBeNull()
   })
 })
+
+const ACCOUNT = {
+  id: 'acct-1',
+  email: 'shop@example.com',
+  imap_host: 'imap.example.com',
+  imap_port: 993,
+  use_ssl: true,
+  smtp_host: 'smtp.example.com',
+  smtp_port: 465,
+  smtp_use_tls: false,
+  // What the API returns for a new mailbox: sending on by default.
+  allow_send: true,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+}
+
+function renderWithAccount(
+  account: typeof ACCOUNT,
+  lng: 'en' | 'zh' = 'en',
+  loadEmailAccounts = vi.fn(),
+) {
+  return render(
+    <I18nextProvider i18n={makeInstance(lng)}>
+      <EmailAccountsPanel
+        emailAccounts={[account]}
+        loadEmailAccounts={loadEmailAccounts}
+        stores={[]}
+        isAdmin={false}
+      />
+    </I18nextProvider>,
+  )
+}
+
+describe('EmailAccountsPanel send permission switch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApi.get.mockResolvedValue([])
+    mockApi.put.mockResolvedValue({ ...ACCOUNT, allow_send: false })
+  })
+
+  it('renders on by default with label and hint', () => {
+    renderWithAccount(ACCOUNT)
+    const sw = screen.getByRole('switch', {
+      name: 'Email sending permission',
+    })
+    expect(sw.getAttribute('aria-checked')).toBe('true')
+    screen.getByText((c) => c.startsWith('On by default'))
+  })
+
+  it('renders the zh label and hint', () => {
+    renderWithAccount(ACCOUNT, 'zh')
+    screen.getByRole('switch', { name: '发邮件权限' })
+    screen.getByText((c) => c.startsWith('默认开启'))
+  })
+
+  it('turning it off PUTs allow_send=false and reloads', async () => {
+    const reload = vi.fn()
+    renderWithAccount(ACCOUNT, 'en', reload)
+    fireEvent.click(screen.getByRole('switch'))
+    await waitFor(() =>
+      expect(mockApi.put).toHaveBeenCalledWith(
+        '/api/email-accounts/acct-1/send-permission',
+        { allow_send: false },
+      ),
+    )
+    // Once on mount, once after the save.
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(2))
+  })
+
+  it('turning it back on PUTs allow_send=true', async () => {
+    renderWithAccount({ ...ACCOUNT, allow_send: false })
+    const sw = screen.getByRole('switch')
+    expect(sw.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(sw)
+    await waitFor(() =>
+      expect(mockApi.put).toHaveBeenCalledWith(
+        '/api/email-accounts/acct-1/send-permission',
+        { allow_send: true },
+      ),
+    )
+  })
+
+  it('shows the server error when the save is refused', async () => {
+    mockApi.put.mockRejectedValue(new Error('Admin access required'))
+    renderWithAccount(ACCOUNT)
+    fireEvent.click(screen.getByRole('switch'))
+    await waitFor(() => screen.getByText('Admin access required'))
+  })
+})

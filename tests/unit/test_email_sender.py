@@ -6,7 +6,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.email.db import init_email_db, search_emails
-from app.email.sender import send_email
+from app.email.sender import (
+    SendNotAllowedError,
+    _do_send,  # noqa: PLC2701 - the socket-opening layer is the gate
+    ensure_send_allowed,
+    send_email,
+)
+from app.models.email_account import EmailAccount
 
 pytestmark = pytest.mark.unit
 
@@ -25,6 +31,7 @@ def mock_account():
     acct.smtp_host = 'smtp.example.com'
     acct.smtp_port = 465
     acct.smtp_use_tls = False
+    acct.allow_send = True
     return acct
 
 
@@ -36,6 +43,7 @@ def mock_account_starttls():
     acct.smtp_host = 'smtp.gmail.com'
     acct.smtp_port = 587
     acct.smtp_use_tls = True
+    acct.allow_send = True
     return acct
 
 
@@ -122,6 +130,7 @@ class TestSendEmail:
         acct.email = 'x@x.com'
         acct.smtp_host = None
         acct.smtp_port = None
+        acct.allow_send = True
 
         result = await send_email(
             account=acct,
@@ -169,3 +178,102 @@ class TestSendEmail:
         assert result['ok'] is True
         call_args = mock_smtp.sendmail.call_args
         assert call_args[0][1] == ['a@x.com', 'b@x.com']
+
+
+class TestSendPermission:
+    """``allow_send`` is the gate, and it sits before any SMTP."""
+
+    @pytest.mark.parametrize(
+        'value',
+        # The user's explicit off — as a bool and as SQLite stores it.
+        [False, 0],
+    )
+    @pytest.mark.asyncio
+    async def test_refused_before_any_smtp(self, mock_account, value):
+        mock_account.allow_send = value
+        with (
+            patch('smtplib.SMTP_SSL') as ssl_cls,
+            patch('smtplib.SMTP') as plain_cls,
+        ):
+            with pytest.raises(SendNotAllowedError) as exc_info:
+                await send_email(
+                    account=mock_account,
+                    password='pw',
+                    to='buyer@example.com',
+                    subject='Refused',
+                    body='x',
+                )
+        ssl_cls.assert_not_called()
+        plain_cls.assert_not_called()
+        message = str(exc_info.value)
+        assert 'sender@example.com' in message
+        assert 'Settings → Email' in message
+        assert '"Email sending permission"' in message
+        assert 'draft' in message
+
+    def test_sync_sender_refuses_too(self, mock_account):
+        """The function that opens the socket re-checks, so a caller
+        that reaches it without ``send_email`` is refused as well."""
+        mock_account.allow_send = False
+        with patch('smtplib.SMTP_SSL') as ssl_cls:
+            with pytest.raises(SendNotAllowedError):
+                _do_send(mock_account, 'pw', ['b@x.com'], 's', 'b', None, None)
+        ssl_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_refused_send_is_not_recorded_as_sent(self, mock_account):
+        init_email_db(mock_account.id)
+        mock_account.allow_send = False
+        with pytest.raises(SendNotAllowedError):
+            await send_email(
+                account=mock_account,
+                password='pw',
+                to='buyer@example.com',
+                subject='Never sent',
+                body='x',
+            )
+        assert (
+            search_emails(
+                'sender-001',
+                since='2020-01-01T00:00:00',
+                keywords=['Never sent'],
+            )
+            == []
+        )
+
+    @pytest.mark.parametrize(
+        'value',
+        # True, SQLite's 1, and None: "never decided" means the default,
+        # and the default is on (column NOT NULL DEFAULT 1).
+        [True, 1, None],
+    )
+    def test_on_or_undecided_is_allowed(self, mock_account, value):
+        mock_account.allow_send = value
+        ensure_send_allowed(mock_account)  # no raise
+
+    @pytest.mark.asyncio
+    async def test_unflushed_new_account_sends(self):
+        """A brand-new ORM object (allow_send still None until flush)
+        follows the column default: on."""
+        account = EmailAccount(
+            id='new-1',
+            email='shop@example.com',
+            encrypted_password='x',
+            imap_host='imap.example.com',
+            smtp_host='smtp.example.com',
+            smtp_port=465,
+            smtp_use_tls=False,
+            created_by='u1',
+        )
+        assert account.allow_send is None
+        init_email_db(account.id)
+        with patch('smtplib.SMTP_SSL') as ssl_cls:
+            result = await send_email(
+                account=account,
+                password='pw',
+                to='buyer@example.com',
+                subject='Hi',
+                body='x',
+            )
+        assert result['ok'] is True
+        ssl_cls.return_value.sendmail.assert_called_once()

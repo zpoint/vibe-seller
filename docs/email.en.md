@@ -7,6 +7,8 @@ description: Email integration — connect a mailbox in Vibe Seller so AI can re
 Connect your customer-service mailbox to Vibe Seller and the AI can pull
 up the inbox while running a task, sort messages the way you want, and
 draft and send replies — no more copying and pasting between windows.
+If you don't want the AI sending from a mailbox, turn off that
+mailbox's email sending permission.
 
 Everything runs over standard IMAP / SMTP. **You never type your email
 password** — 163 and QQ Mail use an *authorization code*, Gmail uses an
@@ -169,6 +171,39 @@ Three quick checks:
 3. Create a task asking "what's the latest mail in this mailbox?" —
    if the AI reports recent subjects and senders, you are done.
 
+## Turn off the email sending permission
+
+Every mailbox **can send** by default: the AI can read, sort, draft and
+send. If you don't want the AI sending from a mailbox (say, read and
+draft only), turn off its email sending permission **per mailbox**:
+
+1. Go to **Settings → Email** and find the mailbox in the list;
+2. Turn off the **"Email sending permission"** switch on its card
+   (grey means off);
+3. Each mailbox is separate: turning it off for mailbox A leaves
+   mailbox B sending as usual.
+
+To allow sending again, turn the same switch back on.
+
+![The "Email sending permission" switch: off for the top mailbox, on for the bottom one](images/email_allow_send_en.png)
+
+**Verify**: create a task asking the AI to "send a test email from this
+mailbox to me" (give it another inbox of yours). With the switch on, the
+mail arrives within a few minutes; with it off, the AI tells you sending
+from that mailbox has been turned off and shows you the draft instead.
+
+Changes take effect immediately. The rule is enforced on the server, not
+left to the AI: a mailbox with sending turned off cannot send, whatever
+the task says.
+
+Only you can change the switch, signed in to the web UI: neither the AI
+inside a task nor an external AI client using an API key can. **This
+holds while login is turned on** — if you turn login off in Settings,
+the server cannot tell the web UI apart from an AI's request that
+carries no credential, so the switch cannot stop an AI that sets out to
+get around it. Keep login on if several people use the instance or this
+matters to you.
+
 ## What the AI can do with it
 
 - **Read mail**: search the inbox by subject / sender / time, read
@@ -176,8 +211,14 @@ Three quick checks:
   5 minutes, and a task can trigger an immediate sync;
 - **Sort and summarise**: group messages by your rules, extract the
   key points, turn threads into tables or lists;
-- **Send mail**: draft replies and send them as instructed — asking
-  "show me before sending" in the task keeps you in the loop.
+- **Send mail**: draft replies and send them as instructed. Each
+  mailbox's "Email sending permission" switch is on by default and you
+  can turn it off per mailbox (see
+  [Turn off the email sending permission](#turn-off-the-email-sending-permission)).
+  While it is off, the AI
+  shows you the drafted email so you can send it yourself or turn the
+  switch back on and ask again. Asking "show me before sending" in
+  the task keeps you in the loop.
 
 Mail stays inside your own deployment: the mailbox password is stored
 encrypted, messages sync into a local database, and the AI accesses
@@ -223,6 +264,18 @@ Mail syncs automatically every 5 minutes — wait a moment or ask the
 task to "sync now" and check again. Also make sure the mailbox is
 **linked to the store**: unlinked mailboxes are invisible to that
 store's tasks.
+</details>
+
+<details markdown="1"><summary><b>The AI says it can't send email?</b></summary>
+
+If the AI replies that sending from a mailbox has been turned off, that
+mailbox's **"Email sending permission"** switch was turned off (mailboxes start with it on, so someone switched it off in
+Settings). Go to **Settings → Email**, turn it back on on that mailbox's
+card, and ask the task to send again.
+
+If the switch is on and sending still fails, check two things: the card
+shows an SMTP server (with "No SMTP" it cannot send), and the
+authorization code / app password is still valid (sending uses it too).
 </details>
 
 <details markdown="1"><summary><b>How do I rotate the code or remove a mailbox?</b></summary>

@@ -404,18 +404,45 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/email-accounts` | List email accounts |
-| POST | `/api/email-accounts` | Create email account (password encrypted) |
+| POST | `/api/email-accounts` | Create email account (password encrypted; `allow_send` always starts `true` — a body naming it is a 422) |
+| PUT | `/api/email-accounts/{id}` | Update email account (not `allow_send` — a body naming it is a 422 pointing at the route below) |
+| PUT | `/api/email-accounts/{id}/send-permission` | `{allow_send: bool}` — **interactive-only**: any machine credential gets 403 (see below) |
 | GET | `/api/email-accounts/discover` | Auto-discover IMAP settings |
 | GET | `/api/email-accounts/discover-smtp` | Auto-discover SMTP settings |
 | POST | `/api/email-accounts/{id}/test` | Test IMAP connection |
 | POST | `/api/email-accounts/{id}/test-smtp` | Test SMTP connection |
-| POST | `/api/email-accounts/{id}/send` | Send email via SMTP |
+| POST | `/api/email-accounts/{id}/send` | Send email via SMTP. **403** when the account's `allow_send` is off — refused before any SMTP connection, with a message telling the agent to draft instead |
 | DELETE | `/api/email-accounts/{id}` | Delete email account |
 | GET | `/api/email-accounts/info-by-store/{store_id}` | DB paths + schema for agent MCP tools |
 | GET | `/api/stores/{id}/emails` | List linked emails for store |
 | POST | `/api/stores/{id}/emails` | Link email account to store |
 | DELETE | `/api/stores/{id}/emails/{link_id}` | Unlink email from store |
 | POST | `/api/stores/{id}/emails/poll` | Poll emails (deprecated, use background sync) |
+
+**Send permission (`allow_send`).** Every email account carries a
+boolean `allow_send`, default `true` (also for accounts that predate
+it — `_ensure_added_columns` adds the column as `NOT NULL DEFAULT 1`,
+so upgrading changes nothing). The user can turn it off per mailbox;
+only an explicit off refuses (`None`, never stored, means the default).
+The gate is `ensure_send_allowed` in `app/email/sender.py`, called by
+`send_email` and again by the socket-opening `_do_send`, so every send
+path — this route, the in-task `vibe_seller_send_email` MCP tool (which
+POSTs here), and the external `/api/mcp` `manage_email_account(send)`
+(which calls this route in-process) — is refused the same way, and a
+future caller of the sender is too.
+
+The user flips it per mailbox with the "Email sending permission"
+(「发邮件权限」) switch in Settings → Email, through
+`PUT …/send-permission`. That route is in `INTERACTIVE_ONLY_ROUTES`
+(`app/interactive_only.py`), whose middleware refuses — by how the
+credential is presented — any `Authorization` header (a `vst_` token or
+a Bearer JWT), a `vst_` cookie, and the AI-bot JWT as a cookie (what
+the in-task MCP server presents). Only the web UI's session cookie and,
+on a server with login off, a credential-less request pass. Limit: with
+login off, an agent's credential-less request looks the same as the web
+UI, so the switch is agent-proof only when login is on. A drift guard
+(`tests/unit/test_interactive_only.py`) fails if any other route's body
+accepts `allow_send` or any other handler assigns it.
 
 ## `profiles.py` — AI Agent Profiles
 

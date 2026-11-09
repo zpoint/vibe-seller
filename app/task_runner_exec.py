@@ -25,6 +25,7 @@ from app.task_finalize import (
 )
 from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
 from app.task_runner import (
+    Mailbox,
     TaskHeader,
     build_system_extra,
     coalesce_history,
@@ -517,7 +518,7 @@ async def execute_woken_task(task_id: str, store: Store | None):
             await db.commit()
 
         # Build system prompt (MCP config only — no browser start)
-        store_emails: list[str] = []
+        store_emails: list[Mailbox] = []
         async with async_session() as db:
             await browser_manager.write_task_browser_config(store, db)
             if store:

@@ -12,7 +12,8 @@ Side effects worth naming in the tool descriptions (and here, so
 the drift guard on docs cannot lose them):
 
 * ``manage_email_account(send=…)`` sends a REAL email through the
-  account's SMTP;
+  account's SMTP — only when the mailbox's ``allow_send`` is on (the
+  gate is in ``app/email/sender.py``);
 * ``manage_chat_bot(send=…)`` posts a REAL message to the group.
 """
 
@@ -122,7 +123,10 @@ async def _stored_email_password(ctx: McpContext, account_id: str):
     'links. Actions: list, get, create, update, delete, test (IMAP '
     'login with raw credentials, BEFORE saving), test_smtp, send '
     '(SENDS A REAL EMAIL through the account — never use it '
-    'without your user asking), sync_now (pull new mail now), '
+    'without your user asking; refused if the user turned off that '
+    'mailbox\'s "Email sending permission" in Settings → Email — see each '
+    "account's allow_send, which only the user can change), "
+    'sync_now (pull new mail now), '
     'links (stores linked to an account), link / unlink (attach an '
     'account to a store), info_by_store (the per-account mail DB '
     'paths + query notes an agent uses to read mail). Passwords '

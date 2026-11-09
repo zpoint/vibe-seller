@@ -432,7 +432,7 @@ Vibe Seller 是个 **AI Agent 框架**，浏览器只是它的工具之一。Age
 |---|---|
 | **MCP 接入** | 在 Claude、Codex、WorkBuddy、Qoder、Hermes Agent、Pi 等 AI 工具里直接指挥 Vibe Seller：建任务、看进度、回答任务提问、审批计划，都在对话里完成。[接入步骤](docs/mcp.md) |
 | **Amazon Ads API** | 亚马逊广告任务直连接口，不再靠浏览器点卖家后台——实测同一个广告任务从 147 分钟缩短到 11 分钟。[绑定步骤和实测对比](docs/ads-api.md) |
-| **邮件**（IMAP/SMTP） | 读你绑定的店铺邮箱，分类、转发、起草回复。支持 163 / QQ / Gmail 等。[接入步骤](docs/email.md) |
+| **邮件**（IMAP/SMTP） | 读邮件、发邮件（可按邮箱关闭发邮件权限）：读你绑定的店铺邮箱，分类、整理、起草并发送回复。支持 163 / QQ / Gmail 等。[接入步骤](docs/email.md) |
 | **群机器人**（企业微信 / 钉钉 / 飞书 / Slack） | 在任务里让 AI 把结果、报表、提醒直接发进群；企业微信还能发文件。[接入步骤](docs/chat-bots.md) |
 | **滴答清单 / TickTick** | 自动建待办（追单、跟进、定期检查）。[接入步骤](docs/ticktick.md) |
 | **Google Workspace** | Gmail、Drive、Docs、Sheets、Slides、Calendar——读、写、改都行。[接入步骤](docs/google-workspace.md) |

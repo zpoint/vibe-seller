@@ -35,6 +35,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `utils/` | Shared utilities (crypto, etc.) |
 | `api_tokens.py` | Personal API tokens (`vst_…`): generation, SHA-256 hashing, expiry/revocation rules. Rows live in `api_tokens`; the plaintext is returned exactly once, at mint. |
 | `api_token_secrets.py` | The REST side of the write-only-secret contract for API-token callers: one ASGI middleware that masks secret-classified fields in JSON responses and restores masked echoes on write routes (`RESTORE_RULES`). See [api.md § API tokens](api.md#api-tokens-personal-access-tokens). |
+| `interactive_only.py` | Routes only a person at the web UI may call (today: `PUT /api/email-accounts/{id}/send-permission`). `INTERACTIVE_ONLY_ROUTES` + `InteractiveOnlyMiddleware`, registered in `main.py` next to the API-token scope middleware, refuse every machine credential (any `Authorization` header, a `vst_` cookie, the `ai_bot` cookie JWT). Agent-proof only while login is on. See [api.md § Email accounts](api.md). |
 | `uploads.py` | One definition of what may be uploaded and how big: MIME allow-list, extensions, `MAX_UPLOAD_SIZE` (100MB), the streaming `save_upload()` writer, and `UploadBodyLimitMiddleware`. Every multipart route imports from here — the limit used to live in four places and had already drifted. See [Upload limits](api.md#upload-limits). |
 | `text_utils.py` | Surrogate-safe text: `SafeStr` (request fields), `SafeText` (DB columns), `sanitize_text` (file writes). Agent text can carry a lone surrogate that no UTF-8 encode accepts — see [Lone surrogates](#lone-surrogates-in-agent-text). |
 | `platform.py` | Cross-platform abstractions (Windows/macOS/Linux) — psutil-based process management (`kill_process`, `find_processes_by_pattern`, `reap_task_agents`, `collect_agent_descendants`), venv path helpers (`Scripts/` vs `bin/`, `venv_python`, `venv_executable`), `prepend_to_path` (uses `os.pathsep`), `safe_chmod` (no-op on Windows). Centralises every platform difference so the rest of the code stays platform-agnostic. See [Cross-platform support](subsystems.md#cross-platform-support-native-windows). |
@@ -97,7 +98,7 @@ SQLAlchemy 2.0 ORM models. All extend `Base` from `app/database.py`.
 | `EventActivity` | `event_activities` | Activity timeline entries per event |
 | `Schedule` | `schedules` | Recurring task schedules (daily/weekly/monthly, store-specific or all-stores) |
 | `ScheduleState` | `schedule_state` | Agent-managed cross-run cursor per schedule (`schedule_id`, `key`) → `value`. Lets one scheduled run persist a watermark (e.g. last processed email date) for the next run to resume from. |
-| `EmailAccount` | `email_accounts` | Email accounts with Fernet-encrypted IMAP passwords |
+| `EmailAccount` | `email_accounts` | Email accounts with Fernet-encrypted IMAP passwords; `allow_send` (default true; the user can turn it off per mailbox) gates agent sends — enforced in `app/email/sender.py` |
 | `StoreEmailLink` | `store_email_links` | Many-to-many store↔email with watermark tracking |
 | `AIProfile` | `ai_profiles` | AI agent configuration profiles |
 

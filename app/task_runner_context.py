@@ -1,8 +1,10 @@
+from collections.abc import Sequence
 import functools
 import json
 import logging
 from pathlib import Path
 import re
+from typing import NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,6 +56,50 @@ PARALLEL_WORKER_PROMPT = (
     'still running. Do NOT set or regenerate `VIBE_TASK_ID`, and do not '
     'invent session names — the wrapper owns those.\n'
 )
+
+
+class Mailbox(NamedTuple):
+    """A linked email account as the prompt sees it."""
+
+    email: str
+    allow_send: bool = True
+
+
+def send_policy_note(mailboxes: Sequence[Mailbox]) -> str:
+    """Which mailboxes the agent may send from, in one line.
+
+    Advisory only — the server refuses a send from any other mailbox
+    (``app.email.sender.ensure_send_allowed``). Telling the agent up
+    front just saves it a refused call.
+    """
+    sendable = [m.email for m in mailboxes if m.allow_send]
+    blocked = [m.email for m in mailboxes if not m.allow_send]
+    if not blocked:
+        return 'Sending is allowed from: ' + ', '.join(sendable) + '.'
+    note = (
+        'Read/draft only (sending turned off by the user): '
+        + ', '.join(blocked)
+        + '. Do not call vibe_seller_send_email for these — it is '
+        'refused. Draft the email and show it to the user instead, and '
+        'tell them they can turn it back on with that mailbox\'s "Email '
+        'sending permission" switch in Settings → Email.'
+    )
+    if sendable:
+        note = 'Sending is allowed from: ' + ', '.join(sendable) + '. ' + note
+    return note
+
+
+async def get_store_emails(db: AsyncSession, store_id: str) -> list[Mailbox]:
+    """The mailboxes linked to a store, with their send permission."""
+    result = await db.execute(
+        select(EmailAccount.email, EmailAccount.allow_send)
+        .join(
+            StoreEmailLink,
+            StoreEmailLink.email_account_id == EmailAccount.id,
+        )
+        .where(StoreEmailLink.store_id == store_id)
+    )
+    return [Mailbox(email, bool(allow)) for email, allow in result.all()]
 
 
 # ── Context builders ────────────────────────────────────────
@@ -115,7 +161,7 @@ def _get_platform_sites() -> dict[str, dict[str, str]]:
 
 def build_store_context(
     store: Store,
-    email_addresses: list[str] | None = None,
+    mailboxes: Sequence[Mailbox] | None = None,
     task_platform: str | None = None,
     task_country: str | None = None,
 ) -> str:
@@ -333,9 +379,9 @@ def build_store_context(
         )
 
     # Inject email tool context
-    if email_addresses:
-        n = len(email_addresses)
-        emails_str = ', '.join(email_addresses)
+    if mailboxes:
+        n = len(mailboxes)
+        emails_str = ', '.join(m.email for m in mailboxes)
         ctx += (
             f'\n\n## Email System\n'
             f'This store has {n} connected email account(s): '
@@ -361,7 +407,8 @@ def build_store_context(
             f'**To send email**, call:\n'
             f'  vibe_seller_send_email('
             f'account_email="...", to="...", '
-            f'subject="...", body="...")\n\n'
+            f'subject="...", body="...")\n'
+            f'{send_policy_note(mailboxes)}\n\n'
             f'Prefer reading and analyzing email content '
             f'yourself using your language understanding '
             f'over writing scripts or regex to '
@@ -517,7 +564,11 @@ async def build_system_context(task: Task) -> str:
                     '  Use vibe_seller_sync_email_now('
                     'account_email=...) for immediate sync.\n'
                     '  Use vibe_seller_send_email(...) to '
-                    'send emails.'
+                    'send emails. '
+                    + send_policy_note([
+                        Mailbox(ea.email, bool(ea.allow_send))
+                        for ea in all_emails
+                    ])
                 )
 
     if integrations:

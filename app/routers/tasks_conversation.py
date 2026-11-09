@@ -34,6 +34,7 @@ from app.task_chat_context import build_chat_context
 from app.task_launch import schedule_or_run
 from app.task_outcome import clear_run_state
 from app.task_runner import (
+    Mailbox,
     TaskHeader,
     build_system_extra,
     get_store_emails,
@@ -372,7 +373,7 @@ async def send_task_message(
 
     # Build full system prompt with all context
     store = await db.get(Store, task.store_id) if task.store_id else None
-    store_emails: list[str] = []
+    store_emails: list[Mailbox] = []
     if store:
         store_emails = await get_store_emails(db, store.id)
 

@@ -29,6 +29,7 @@ from app.events_system.backends import (  # registers backends
     dida365 as dida365,
     google_calendar as google_calendar,
 )
+from app.interactive_only import InteractiveOnlyMiddleware
 from app.logging_setup import build_file_handler
 from app.models.app_settings import AppSettings
 from app.models.schedule import Schedule
@@ -346,8 +347,11 @@ app = FastAPI(title='Vibe Seller', version=get_version(), lifespan=lifespan)
 # The token SCOPE guard sits just outside it (added second): the
 # credential/user-management routes it refuses (403) are answered
 # before their bodies are parsed at all (app/api_token_scope.py).
+# Its sibling refuses EVERY machine credential on the few routes only a
+# person at the web UI may call (app/interactive_only.py).
 app.add_middleware(SecretGuardMiddleware)
 app.add_middleware(ApiTokenScopeMiddleware)
+app.add_middleware(InteractiveOnlyMiddleware)
 app.add_middleware(UploadBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,

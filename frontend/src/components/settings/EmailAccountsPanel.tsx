@@ -148,6 +148,22 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
     setSaving(false)
   }
 
+  // Per-mailbox send permission. On by default; the server refuses any
+  // agent send from a mailbox where this is off (app/email/sender.py).
+  const [sendSaving, setSendSaving] = useState<Record<string, boolean>>({})
+  const [sendError, setSendError] = useState<Record<string, string>>({})
+  const setAllowSend = async (id: string, value: boolean) => {
+    setSendSaving(prev => ({ ...prev, [id]: true }))
+    setSendError(prev => ({ ...prev, [id]: '' }))
+    try {
+      await api.put(`/api/email-accounts/${id}/send-permission`, { allow_send: value })
+      loadEmailAccounts()
+    } catch (e) {
+      setSendError(prev => ({ ...prev, [id]: e instanceof Error ? e.message : String(e) }))
+    }
+    setSendSaving(prev => ({ ...prev, [id]: false }))
+  }
+
   const deleteAccount = async (id: string) => {
     try { await api.del(`/api/email-accounts/${id}`); loadEmailAccounts() } catch { /* ignore */ }
   }
@@ -304,6 +320,28 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
                       {t('common.delete')}
                     </button>
                   </div>
+                </div>
+
+                {/* Send permission */}
+                <div className="mt-3 pt-3 border-t border-gray-100 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p id={`allow-send-label-${acct.id}`} className="text-xs font-medium text-gray-700">{t('email.allowSend')}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{t('email.allowSendHint')}</p>
+                    {sendError[acct.id] && (
+                      <p className="text-xs text-red-600 mt-1 break-all">{sendError[acct.id]}</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={acct.allow_send}
+                    aria-labelledby={`allow-send-label-${acct.id}`}
+                    disabled={!!sendSaving[acct.id]}
+                    onClick={() => setAllowSend(acct.id, !acct.allow_send)}
+                    className={`relative shrink-0 mt-0.5 w-8 h-4 rounded-full transition-colors disabled:opacity-50 ${acct.allow_send ? 'bg-indigo-500' : 'bg-gray-300'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform pointer-events-none ${acct.allow_send ? 'translate-x-4' : ''}`} />
+                  </button>
                 </div>
 
                 {/* Store links section */}

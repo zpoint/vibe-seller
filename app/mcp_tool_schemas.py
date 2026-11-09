@@ -231,8 +231,9 @@ TOOLS = [
     {
         'name': 'vibe_seller_send_email',
         'description': (
-            'Send an email via a configured email account. '
-            'Looks up account by email address. '
+            'Send email from a configured account (by address). If the '
+            'user turned off its "Email sending permission" (Settings → '
+            'Email), refused, nothing sent — draft it for the user. '
             'Returns {ok: true, message_id: ...} on success.'
         ),
         'inputSchema': {

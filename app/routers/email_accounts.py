@@ -6,7 +6,7 @@ import imaplib
 import logging
 import smtplib
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +20,7 @@ from app.channels.email_discovery import (
 from app.channels.email_poller import sync_account_emails
 from app.database import get_db
 from app.email.db import db_path_for_account, get_sync_state, init_email_db
-from app.email.sender import send_email
+from app.email.sender import SendNotAllowedError, send_email
 from app.models.email_account import EmailAccount
 from app.models.store import Store
 from app.models.store_email_link import StoreEmailLink
@@ -31,6 +31,7 @@ from app.schemas.email_account import (
     EmailAccountResponse,
     EmailAccountUpdate,
     ImapDiscoverResponse,
+    SendPermissionUpdate,
     SmtpDiscoverResponse,
     StoreEmailLinkCreate,
     StoreEmailLinkResponse,
@@ -227,7 +228,7 @@ async def update_email_account(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Update an email account."""
+    """Update an email account (not its send permission — see below)."""
     account = await db.get(EmailAccount, account_id)
     if not account:
         raise HTTPException(status_code=404, detail='Email account not found')
@@ -245,6 +246,40 @@ async def update_email_account(
     account.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
     await db.refresh(account)
+    return account
+
+
+@router.put(
+    '/api/email-accounts/{account_id}/send-permission',
+    response_model=EmailAccountResponse,
+)
+async def set_send_permission(
+    account_id: str,
+    data: SendPermissionUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Turn agent sending from this mailbox on or off.
+
+    Interactive-only: ``InteractiveOnlyMiddleware``
+    (``app/interactive_only.py``) refuses every machine credential here
+    before this handler runs, so only the user at the web UI reaches it.
+    """
+    account = await db.get(EmailAccount, account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail='Email account not found')
+    account.allow_send = data.allow_send
+    account.updated_at = datetime.now(UTC).isoformat()
+    await db.commit()
+    await db.refresh(account)
+    logger.info(
+        'email send permission: account=%s allow_send=%s user=%s via=%s',
+        account.id,
+        account.allow_send,
+        user.username,
+        getattr(request.state, 'auth_via', None),
+    )
     return account
 
 
@@ -372,20 +407,27 @@ async def send_email_endpoint(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Send an email via SMTP."""
+    """Send an email via SMTP.
+
+    403 when the mailbox's ``allow_send`` is off — the gate itself is in
+    ``app.email.sender.send_email``; this only maps it to HTTP.
+    """
     account = await db.get(EmailAccount, account_id)
     if not account:
         raise HTTPException(status_code=404, detail='Email account not found')
 
     password = decrypt_password(account.encrypted_password)
-    result = await send_email(
-        account=account,
-        password=password,
-        to=data.to,
-        subject=data.subject,
-        body=data.body,
-        body_html=data.body_html,
-    )
+    try:
+        result = await send_email(
+            account=account,
+            password=password,
+            to=data.to,
+            subject=data.subject,
+            body=data.body,
+            body_html=data.body_html,
+        )
+    except SendNotAllowedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     if not result.get('ok'):
         raise HTTPException(
             status_code=502,
@@ -504,6 +546,9 @@ async def email_info_by_store(
                 path.parent / f'email_{acct.id}_attachments'
             ),
             'smtp_configured': bool(acct.smtp_host),
+            # Whether vibe_seller_send_email will be accepted for this
+            # mailbox (the server refuses it otherwise).
+            'allow_send': bool(acct.allow_send),
         })
 
     return {

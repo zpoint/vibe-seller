@@ -154,7 +154,7 @@ description: 任务的结果、报表和告警直接发进群里——群机器�
 使用时注意：
 
 - 消息固定发到创建 Webhook 时选的那个频道，事后不能改；
-- 发出去的消息不能撤回；URL 本身就是凭证，泄露后 Slack 会吊销它；
+- 发出去的消息不能撤回；URL 本身就是凭证，泄露后 Slack 会撤销它；
 - 纯文本不超过 40 000 字符，Markdown（Block Kit）不超过 12 000 字符；
 - 不支持发文件；没有签名密钥，「签名密钥」栏不要填。
 
@@ -238,7 +238,7 @@ description: 任务的结果、报表和告警直接发进群里——群机器�
 | `invalid webhook url`（企业微信 93000） | 地址不对或机器人已删除 | 回群里重新复制地址 |
 | `token is not exist`（钉钉 300005） | access_token 不对或机器人已删除 | 回群里重新复制地址 |
 | `param invalid: incoming webhook access token invalid`（飞书 19001） | 地址不对或机器人已删除 | 回群里重新复制地址 |
-| `no_team`（Slack） | Webhook URL 不对或已被吊销 | 回应用设置重新复制 |
+| `no_team`（Slack） | Webhook URL 不对或已被撤销 | 回应用设置重新复制 |
 | `Key Words Not Found`（飞书 19024） | 开了关键词校验，消息里没有关键词 | 在「关键词」栏填对关键词，或改用签名校验 |
 | `keywords not in content`（钉钉 310000） | 开了关键词校验，消息里没有关键词 | 在「关键词」栏填你在平台上设置的关键词之一 |
 | `sign not match` / `invalid timestamp`（钉钉 310000） | 开了加签但密钥不对 | 核对「签名密钥」是否是这个机器人的 SEC… 密钥 |

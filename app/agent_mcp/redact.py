@@ -117,6 +117,7 @@ PLAINTEXT_FIELDS = frozenset({
     'smtp_host',
     'smtp_port',
     'smtp_use_tls',
+    'allow_send',
     # StoreEmailLinkResponse
     'store_id',
     'email_account_id',
