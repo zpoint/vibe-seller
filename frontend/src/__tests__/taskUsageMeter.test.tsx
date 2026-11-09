@@ -136,6 +136,10 @@ describe('TaskUsageMeter', () => {
     renderMeter({ ...METERED, cost_usd: 0, cost_basis: 'included' })
     expect(screen.getByTestId('task-usage-cost')).toHaveTextContent('Included in plan')
     expect(screen.queryByText(/\$0/)).toBeNull()
+    fireEvent.click(screen.getByTestId('task-usage-meter'))
+    const details = screen.getByTestId('task-usage-details')
+    expect(details).toHaveTextContent('Included in plan')
+    expect(details).not.toHaveTextContent('models.dev')
   })
 
   it('shows tokens but no price for an unpriced model', () => {
@@ -143,6 +147,7 @@ describe('TaskUsageMeter', () => {
     expect(screen.queryByTestId('task-usage-cost')).toBeNull()
     fireEvent.click(screen.getByTestId('task-usage-meter'))
     expect(screen.getByTestId('task-usage-details')).toHaveTextContent('No price for this model')
+    expect(screen.getByTestId('task-usage-details')).not.toHaveTextContent('models.dev')
   })
 
   it('falls back to a token count when the window is unknown', () => {

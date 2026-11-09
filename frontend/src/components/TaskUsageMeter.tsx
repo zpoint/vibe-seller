@@ -56,11 +56,9 @@ export function TaskUsageMeter({ usage }: { usage: TaskUsage }) {
       : pct >= 90 ? 'bg-red-500'
         : pct >= 70 ? 'bg-amber-500'
           : 'bg-indigo-500'
-  const note =
-    usage.cost_basis === 'catalog'
-      ? t('usage.estimateNote')
-      : usage.cost_basis === 'included' ? t('usage.includedNote')
-        : t('usage.unpricedNote')
+  // Only a priced figure needs a source; "included" / "no price" say
+  // everything on the cost row itself.
+  const note = usage.cost_basis === 'catalog' ? t('usage.estimateNote') : null
 
   const rows: [string, string][] = [
     [t('usage.model'), usage.usage_model || '—'],
@@ -118,7 +116,9 @@ export function TaskUsageMeter({ usage }: { usage: TaskUsage }) {
               </div>
             ))}
           </dl>
-          <p className="mt-2 text-[11px] text-gray-400 leading-snug">{note}</p>
+          {note && (
+            <p className="mt-2 text-[11px] text-gray-400 leading-snug">{note}</p>
+          )}
         </div>
       )}
     </div>

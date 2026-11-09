@@ -965,8 +965,6 @@
     "cost": "费用",
     "included": "套餐内",
     "unpriced": "暂无该模型价格",
-    "estimateNote": "按 models.dev 公开价格估算",
-    "includedNote": "该服务商套餐不按 token 计费，仅统计 token 数。",
-    "unpricedNote": "价格目录中没有该模型，仅统计 token 数。"
+    "estimateNote": "按 models.dev 公开价格估算"
   }
 }
