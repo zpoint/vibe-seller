@@ -302,9 +302,57 @@ and `history` shows who changed what and when.
 
 `manage_skill` manages the server's agent skills (the instructions
 its task agents load): `list`, `get`, `create`, `update` (a full
-SKILL.md), `delete`, and the built-in `sync`. Changing a skill
-changes how EVERY later task runs — treat it like editing production
-configuration, and only when the user asked for it.
+SKILL.md), `import`, `delete`, and the built-in `sync`. Changing a
+skill changes how EVERY later task runs — treat it like editing
+production configuration, and only when the user asked for it.
+
+### Importing a skill from this machine
+
+When the user has a skill locally ("add my codex skill to
+vibe-seller"), import it as an ARCHIVE — the bytes travel straight
+from your shell to the server, so nothing passes through you (no
+token cost, no corruption risk on long base64, no size ceiling that
+an LLM could never emit anyway):
+
+1. Find the skill directory (e.g. `~/.codex/skills/<name>/`).
+2. `manage_skill(action=begin_upload)` → `{upload_id, put_url, curl,
+   ...}`.
+3. Run the returned `curl` in your shell — it packs the skill dir
+   (`tar czf` or `zip`) and `PUT`s the archive to the signed
+   `put_url`. Keep the skill's own structure: `SKILL.md` at the root
+   (a single wrapping top-level folder is fine, the server strips
+   one). The URL is single-use and short-lived; re-mint if it expires.
+   If the `put_url` origin differs from the MCP URL you are
+   configured with (the server behind a reverse proxy), `PUT` to your
+   own MCP origin + `put_path` instead.
+4. `manage_skill(action=import, upload_id=…)`, `origin_url` set to
+   where the skill came from. Omit `slug` — it is derived from the
+   SKILL.md frontmatter `name`.
+5. Verify with `manage_skill(action=get)` and report what landed
+   (`files` lists the paths), including the `ignored` list from the
+   import result if there was one (macOS `._*` / `__MACOSX/` /
+   `.DS_Store` junk is skipped and reported, never installed).
+
+The server extracts the archive strictly (regular files only, safe
+names, byte-identical) and takes executable bits from the archive
+itself. Do NOT fall back to inline `files` / `files_bin` for a real
+skill: those exist for tiny text-only edits, and large or binary
+content through tool arguments is exactly the problem this flow
+solves.
+
+An `import` REPLACES the skill directory wholesale — files the new
+version does not carry are deleted (that is how a skill is re-imported
+after an edit; a failed import leaves the old skill untouched).
+`update` MERGES instead: it writes the files it is given and leaves
+the rest alone. Built-in skills are refused.
+
+**A same-slug skill the user already has is never replaced
+silently.** The import answers "a skill named X already exists
+(source=…)" and changes nothing. That refusal is a checkpoint: tell
+the user what you found, and only then re-call with
+`overwrite: true` (a deliberate re-import) — or import under another
+slug. Passing `overwrite` without the user's go-ahead destroys their
+current copy.
 
 `workspace_assistant` is the server's own organizer agent (per-user):
 `send` a message and the tool waits for its reply; a slow turn times

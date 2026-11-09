@@ -34,6 +34,7 @@ mistake it for the finalize task. The flag makes the contract
 explicit in the schema instead of in a fragile convention.
 """
 
+import asyncio
 import json
 import logging
 import uuid
@@ -330,8 +331,10 @@ async def _fire_finalize(batch_id: str, sched: Schedule) -> None:
     # Create the task dir (+ workspace symlinks) and drop the results
     # in BEFORE the agent could run.
     task_dir = await workspace_manager.prepare_task_workspace(finalize_id)
-    (task_dir / _BATCH_RESULTS_FILE).write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8'
+    await asyncio.to_thread(
+        (task_dir / _BATCH_RESULTS_FILE).write_text,
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding='utf-8',
     )
 
     logger.info(

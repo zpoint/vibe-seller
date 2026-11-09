@@ -9,6 +9,8 @@ import shutil
 import sys
 import tempfile
 
+from tests.collection_order import long_budget_order
+
 # Disable telemetry across the entire test suite. Set BEFORE any
 # `app.*` import so app.telemetry never opens a PostHog client when
 # the FastAPI lifespan runs under tests. Without this, every workflow
@@ -304,6 +306,19 @@ def pytest_collection_modifyitems(config, items):
     run_windows = config.getoption('--windows') or os.name == 'nt'
     if not run_windows:
         items[:] = [i for i in items if 'windows' not in i.keywords]
+
+    # Long-budget tests lead their worker's queue (worksteal's
+    # contiguous split gives each worker at most one) AND land on
+    # distinct provider keys when the map allows — two heavy
+    # generations sharing one key queue at the provider (CI 201i).
+    # See tests/collection_order.py.
+    workers = getattr(config.option, 'numprocesses', None) or 1
+    providers = [
+        p for p in os.environ.get('E2E_PROVIDER_MAP', '').split(',') if p
+    ]
+    items[:] = long_budget_order(
+        items, providers[:workers] if providers else None, workers=workers
+    )
 
 
 # Test database URL - in-memory SQLite for fast tests

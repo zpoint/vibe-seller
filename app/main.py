@@ -57,6 +57,7 @@ from app.routers.profiles import router as profiles_router
 from app.routers.schedules import router as schedules_router
 from app.routers.screenshots import router as screenshots_router
 from app.routers.secrets import router as secrets_router
+from app.routers.skill_uploads import router as skill_uploads_router
 from app.routers.sse import router as sse_router
 from app.routers.stores import router as stores_router
 from app.routers.sync import router as sync_router
@@ -377,6 +378,7 @@ app.include_router(screenshots_router)
 app.include_router(secrets_router)
 app.include_router(attachments_router)
 app.include_router(workspace_router)
+app.include_router(skill_uploads_router)
 app.include_router(channels_router)
 app.include_router(cron_router)
 app.include_router(schedules_router)

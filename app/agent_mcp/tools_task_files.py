@@ -12,6 +12,7 @@ contract they follow is documented there. Three tools:
   image-generation proposal is parked on.
 """
 
+import asyncio
 import os
 from urllib.parse import quote
 
@@ -199,7 +200,8 @@ async def task_files(ctx: McpContext, args: dict) -> dict:
             path,
             _user=ctx.user,
         )
-        return file_result(
+        return await asyncio.to_thread(
+            file_result,
             ctx,
             path=path,
             abs_path=response.path,

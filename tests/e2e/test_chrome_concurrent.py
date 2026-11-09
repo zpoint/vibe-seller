@@ -13,7 +13,6 @@ Run:
 
 import http.server
 import logging
-from pathlib import Path
 import threading
 import time
 
@@ -24,12 +23,11 @@ from tests.e2e.e2e_helpers import (
     create_store,
     create_task,
     poll_task_status,
+    server_log_path,
 )
 
 logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.e2e]
-
-SERVER_LOG = Path('logs/server_stdout.log')
 
 # -- Static test site --
 
@@ -96,22 +94,25 @@ def chrome_store(api_client):
 # ------------------------------------------------------------------
 
 
-def assert_cdp_proxy_used(log_path: Path, task_id: str):
-    """Assert CDPMuxProxy was used for the task."""
-    if not log_path.exists():
-        pytest.skip(f'Server log not found at {log_path}')
+def assert_cdp_proxy_used(task_id: str):
+    """Assert CDPMuxProxy was used for the task.
+
+    The log is the server's OWN (``e2e_helpers.server_log_path()``),
+    and its absence FAILS — never skips (the skip-on-missing pattern
+    let the same claim silently never run for months).
+    """
+    log_path = server_log_path()
     log_text = log_path.read_text()
     assert f'CDPMuxProxy client connected: {task_id}' in log_text, (
         f'CDPMuxProxy client {task_id[:8]} not found in server log'
     )
 
 
-def assert_interleaved(log_path: Path, id_a: str, id_b: str):
+def assert_interleaved(id_a: str, id_b: str):
     """Assert AGENT_DEBUG logs for two tasks are interleaved."""
+    log_path = server_log_path()
     prefix_a, prefix_b = id_a[:8], id_b[:8]
     entries: list[str] = []
-    if not log_path.exists():
-        pytest.skip(f'Server log not found at {log_path}')
     for line in log_path.read_text().splitlines():
         if f'AGENT_DEBUG [{prefix_a}]' in line:
             entries.append('A')
@@ -171,7 +172,7 @@ class TestChromeSingleTask:
         assert result['status'] == 'completed', (
             f'Task failed: {result.get("error")}'
         )
-        assert_cdp_proxy_used(SERVER_LOG, task['id'])
+        assert_cdp_proxy_used(task['id'])
 
 
 class TestChromeConcurrent:
@@ -230,11 +231,11 @@ class TestChromeConcurrent:
 
         # Verify both went through CDPMuxProxy
         for t in [task_a, task_b]:
-            assert_cdp_proxy_used(SERVER_LOG, t['id'])
+            assert_cdp_proxy_used(t['id'])
 
         # Prove concurrency via log interleaving
         if (
             result_a['status'] == 'completed'
             and result_b['status'] == 'completed'
         ):
-            assert_interleaved(SERVER_LOG, task_a['id'], task_b['id'])
+            assert_interleaved(task_a['id'], task_b['id'])

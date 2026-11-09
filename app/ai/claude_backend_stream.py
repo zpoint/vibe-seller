@@ -147,23 +147,17 @@ class _StreamMixin:
                 else:
                     await self._handle_event(event)
 
-            # stdout closed — close stdin
-            if self._proc and self._proc.stdin:
-                try:
-                    self._proc.stdin.close()
-                except Exception:
-                    pass
-            self._input_closed = True
+            # stdout closed — close stdin through the shared path (so
+            # the post-close clock is armed) and wait for the process
+            # with the SAME bound the watchdog enforces. The old inline
+            # close + unbounded ``_proc.wait()`` was the one place the
+            # "stdin closed + grace + alive = escalate" contract was
+            # not enforced: a CLI stalling after its final result wedged
+            # the task forever (see _wait_process_exit_after_close).
+            await self._close_stdin('stdout_eof', emit=False)
+            return_code = await self._wait_process_exit_after_close()
 
-            # Process finished
-            return_code = await self._proc.wait() if self._proc else -1
-
-            if return_code != 0:
-                self._is_error_result = True
-                await self._emit_message(
-                    'system',
-                    f'Agent exited with code {return_code}',
-                )
+            await self._apply_exit_code(return_code)
 
             # The LAST accepted result's error state is the turn's:
             # an intermediate error a later turn recovered from must

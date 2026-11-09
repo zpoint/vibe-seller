@@ -151,6 +151,7 @@ def _run_fanout(client, schedule_id: str, ours: set[str]) -> dict[str, dict]:
 
 @pytest.mark.e2e
 class TestMixedFanout:
+    @pytest.mark.long_budget(552)  # measured p50 over CI 201j + baseline
     def test_each_store_reads_its_ads_its_own_way(
         self, api_client, ads_service, console
     ):

@@ -6,6 +6,7 @@ They can be synced to external backends (Dida365, Google Calendar).
 Supports multi-day tracking with activity timeline.
 """
 
+import asyncio
 from datetime import UTC, datetime
 import json
 import logging
@@ -184,7 +185,7 @@ async def configure_backend(
         raise HTTPException(
             status_code=400, detail=f'Unknown backend: {body.backend}'
         )
-    save_backend_config(body.backend, body.config)
+    await asyncio.to_thread(save_backend_config, body.backend, body.config)
     return {'ok': True, 'backend': body.backend}
 
 

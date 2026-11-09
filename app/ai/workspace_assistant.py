@@ -13,9 +13,12 @@ import logging
 import os
 import sys
 
-from app.ai.agent_proxy import drop_dead_proxy
+from app.ai.agent_proxy import (
+    drop_dead_proxy,
+    launch_settings,
+)
 from app.ai.claude_backend import AgentSession
-from app.ai.claude_backend_utils import append_system_prompt
+from app.ai.launch_artifacts import build_launch_artifacts
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
 from app.env_options import Options
 from app.events.bus import event_bus
@@ -146,20 +149,15 @@ class WorkspaceAgentSession(AgentSession):
                 else:
                     await self._handle_event(event)
 
-            # stdout closed — close stdin
-            if self._proc and self._proc.stdin:
-                try:
-                    self._proc.stdin.close()
-                except Exception:
-                    pass
+            # stdout closed — close stdin through the shared path and
+            # wait BOUNDED: a CLI stalling after its final result must
+            # be escalated, not awaited forever (same contract as
+            # AgentSession's stream loop — see
+            # _wait_process_exit_after_close).
+            await self._close_stdin('stdout_eof', emit=False)
+            return_code = await self._wait_process_exit_after_close()
 
-            return_code = await self._proc.wait() if self._proc else -1
-
-            if return_code != 0:
-                await self._emit_message(
-                    'system',
-                    f'Agent exited with code {return_code}',
-                )
+            await self._apply_exit_code(return_code)
 
             await event_bus.emit(
                 'ws_assistant_done',
@@ -238,12 +236,6 @@ class WorkspaceAgentSession(AgentSession):
             'mcp__playwright__*,mcp__browser-use__*',
         ])
 
-        # By file: the store list grows with the account, and the
-        # Windows command line is capped (see append_system_prompt).
-        append_system_prompt(
-            cmd, self.system_prompt_extra or '', self.task_id, None
-        )
-
         logger.info(
             'Starting workspace assistant %s (profile=%s)',
             self.task_id,
@@ -251,8 +243,31 @@ class WorkspaceAgentSession(AgentSession):
         )
 
         env = ProfileManager.get_env_for_profile(self.profile_id)
+        # ONE --settings file per launch (auto-mode classifier off, see
+        # app.ai.agent_proxy.launch_settings), dead-proxy blanks merged
+        # into the same payload.
+        settings = launch_settings()
         # A proxy that refuses connections fails every model call (#168).
-        await drop_dead_proxy(cmd, env, self.task_id, None, self._emit_message)
+        await drop_dead_proxy(env, self.task_id, settings, self._emit_message)
+        # The launch artifacts (system-prompt file + --settings payload)
+        # are written in ONE thread hop — start() is async and the
+        # event loop must never touch the disk. By file: the store list
+        # grows with the account, and the Windows command line is
+        # capped (see build_launch_artifacts).
+        artifacts = await asyncio.to_thread(
+            build_launch_artifacts,
+            self.task_id,
+            None,
+            self.system_prompt_extra or '',
+            settings,
+            agents=False,
+        )
+        if artifacts['system_prompt'] is not None:
+            cmd.extend([
+                '--append-system-prompt-file',
+                str(artifacts['system_prompt']),
+            ])
+        cmd.extend(['--settings', str(artifacts['settings'])])
         venv_bin = venv_bin_dir(VIBE_SELLER_DIR / '.venv')
         if venv_bin.is_dir():
             prepend_to_path(env, venv_bin)

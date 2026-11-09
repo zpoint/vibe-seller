@@ -441,7 +441,8 @@ async def _upload_local_file(
     client: httpx.AsyncClient, path: Path, api_key: str
 ) -> str:
     """Base64-upload a local image to kie.ai, return its temp URL."""
-    data = base64.b64encode(path.read_bytes()).decode('ascii')
+    raw = await asyncio.to_thread(path.read_bytes)
+    data = base64.b64encode(raw).decode('ascii')
     ext = path.suffix.lstrip('.').lower() or 'png'
     resp = await client.post(
         f'{_KIE_UPLOAD_BASE}/api/file-base64-upload',

@@ -125,10 +125,14 @@ Reusable agent procedures with scripts, bundled in `app/skills/` and synced to `
 
 - **Three-tier sync**: local package → workspace `skills/`, remote GitHub via `MANIFEST.txt`, on-demand with 24h cooldown
 - **User skills**: created via UI at `~/.vibe-seller/.claude/skills/{slug}/` (same directory as built-in, distinguished by `.sync_meta.json`)
+- **Import via presigned archive upload**: importing a local skill is `manage_skill(begin_upload)` → raw `PUT` of a `.tar.gz`/`.tar`/`.zip` of the skill dir to the signed one-shot `put_url` (`PUT /api/skill-uploads/{upload_id}`, `app/skill_uploads.py`) → `manage_skill(import, upload_id=…)`. The file BYTES never pass through the agent's LLM (no token cost, no base64 corruption, no emit-size ceiling); the archive is extracted strictly (regular files only, safe names, one common top-level dir stripped, `SKILL.md` at the root) and installed byte-identical, executable bits taken from the archive. The slug derives from the SKILL.md frontmatter `name`
+- **Inline writes stay small**: `PUT /api/workspace/skills/{slug}` (and `update`) carry text `files` (stored as UTF-8), `files_bin` (base64) and `executables` for tiny text-only skills and edits — a real skill import goes through the archive flow above
+- **Replace vs merge vs overwrite**: `import` (`replace: true`) swaps the tree in wholesale — files the call does not carry are deleted, and a failure leaves the old skill untouched; `update` merges (files given are written, the rest stays). Replacing an EXISTING user skill is refused without `overwrite: true`, so a hand-made skill is never wiped silently
+- **Write contract**: paths and sizes are validated before any byte lands (no `..`/absolute/backslash, no `SKILL.md` collision, no symlink escapes; per-file/total/count caps) — the rules live in `app/workspace/skills_manager.py`
 - **Dep auto-install**: skill `requirements.txt` deps are auto-installed into the shared workspace venv (`~/.vibe-seller/.venv/`) during sync
 - **Source tracking**: `get_structured()` returns `source: 'builtin' | 'imported' | 'custom'`. Synced skill names tracked in `.sync_meta.json`; imported skills tracked in `skills.lock.json`
 - **Reserved slugs**: names starting with `_` are rejected by `create_skill()`
-- **API**: `POST /api/sync/skills/run`, `GET /api/sync/status`, `POST /api/workspace/skill`
+- **API**: `POST /api/sync/skills/run`, `GET /api/sync/status`, `POST /api/workspace/skill`, `PUT /api/workspace/skills/{slug}`
 - **Frontend**: skills panel in Workspace sidebar with sync button, builtin badges, and skill creation form
 
 ### Ads skill routing

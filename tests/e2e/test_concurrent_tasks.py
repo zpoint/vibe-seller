@@ -12,7 +12,6 @@ for log interleaving to prove concurrency.
 
 import http.server
 import logging
-from pathlib import Path
 import threading
 import time
 
@@ -24,14 +23,11 @@ from tests.e2e.e2e_helpers import (
     create_task,
     login,
     poll_task_status,
+    server_log_path,
 )
 
 logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.e2e]
-
-# Server log for interleaving assertions.
-# CI writes to logs/server_stdout.log; Docker writes there too.
-SERVER_LOG = Path('logs/server_stdout.log')
 
 
 # ------------------------------------------------------------------
@@ -137,23 +133,31 @@ def chrome_store_multi_platform(api_client):
 # ------------------------------------------------------------------
 
 
-def assert_interleaved(log_path: Path, id_a: str, id_b: str):
+def assert_interleaved(id_a: str, id_b: str):
     """Assert AGENT_DEBUG logs for two tasks are interleaved.
 
     Requires at least 2 transitions (A→B or B→A) to prove
     true concurrency, not just minimal overlap.
+
+    The log is the server's OWN log, resolved through the shared
+    ``e2e_helpers.server_log_path()`` (which FAILS when no log exists
+    — a missing log must fail the assertion, never skip it: this
+    check silently skipped for months on a name no CI server writes
+    and its core assertion never ran).
     """
+    log_path = server_log_path()
     prefix_a, prefix_b = id_a[:8], id_b[:8]
     entries: list[str] = []
-    if not log_path.exists():
-        pytest.skip(f'Server log not found at {log_path}')
     for line in log_path.read_text().splitlines():
         if f'AGENT_DEBUG [{prefix_a}]' in line:
             entries.append('A')
         elif f'AGENT_DEBUG [{prefix_b}]' in line:
             entries.append('B')
     assert 'A' in entries and 'B' in entries, (
-        'Both tasks must have AGENT_DEBUG log entries'
+        'Both tasks must have AGENT_DEBUG log entries — the evidence '
+        'is the AGENT_DEBUG stream, so the server must run with '
+        'AGENT_DEBUG=1 (as CI starts it). '
+        f'{log_path} holds none for {id_a[:8]}/{id_b[:8]}'
     )
     transitions = sum(
         1 for i in range(1, len(entries)) if entries[i] != entries[i - 1]
@@ -181,6 +185,7 @@ def _assert_no_daemon_conflict(result: dict):
 class TestConcurrentSamePlatformCountry:
     """Same store, same platform, same country → concurrent."""
 
+    @pytest.mark.long_budget(277)  # measured p50 over CI 201j + baseline
     def test_two_browser_tasks_both_complete(
         self, api_client, chrome_store_us_amazon, slow_site
     ):
@@ -228,7 +233,7 @@ class TestConcurrentSamePlatformCountry:
             result_a['status'] == 'completed'
             and result_b['status'] == 'completed'
         ):
-            assert_interleaved(SERVER_LOG, task_a['id'], task_b['id'])
+            assert_interleaved(task_a['id'], task_b['id'])
 
 
 class TestConcurrentDifferentPlatform:

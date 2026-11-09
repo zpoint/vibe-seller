@@ -295,7 +295,7 @@ async def purge_ignored_history(root: Path, lock: asyncio.Lock) -> bool:
             return False  # no commit yet — nothing to purge
         if not pending.exists():
             if not await _history_holds_purge_paths(root):
-                marker.write_text('clean\n')
+                await asyncio.to_thread(marker.write_text, 'clean\n')
                 return False
             logger.info(
                 'purge_ignored_history: rewriting workspace history without %s',
@@ -326,9 +326,11 @@ async def purge_ignored_history(root: Path, lock: asyncio.Lock) -> bool:
                 # filter-branch moves refs only at its very end: a failure
                 # leaves the history as it was, and the next boot retries.
                 raise PurgeError(f'filter-branch failed: {err.strip()[-500:]}')
-            pending.write_text('rewritten; reclaim pending\n')
+            await asyncio.to_thread(
+                pending.write_text, 'rewritten; reclaim pending\n'
+            )
         await _reclaim(root)
-        marker.write_text('purged\n')
+        await asyncio.to_thread(marker.write_text, 'purged\n')
         pending.unlink(missing_ok=True)
     logger.info('purge_ignored_history: done')
     return True

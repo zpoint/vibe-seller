@@ -134,7 +134,7 @@ def _ts(day: str, ms: str) -> datetime:
 def parse(log_path: Path, since: datetime | None = None) -> MuxTrace:
     """Parse mux activity out of a backend log.
 
-    ``since`` skips prior runs — backend.log is appended across
+    ``since`` skips prior runs — the per-port server log is appended across
     restarts, and a stale client id from an earlier task would
     otherwise look live.
     """

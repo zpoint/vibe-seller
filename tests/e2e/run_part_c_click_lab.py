@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import re
 import sqlite3
@@ -44,23 +43,23 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+# Must match the host the cookie was minted for: a jar saved against
+# 127.0.0.1 is NOT sent to "localhost", and the request then arrives
+# unauthenticated with no hint as to why.
+# The SERVER's home (see tests/conftest.py: E2E_VIBE_HOME / VIBE_HOME
+# resolve the test process's app.config onto the server's home).
+from app.config import DATABASE_URL, VIBE_SELLER_DIR  # noqa: E402
 from tests.e2e.click_lab import (  # noqa: E402
     SECTIONS,
     page_code,
     start_click_lab,
 )
+from tests.e2e.e2e_helpers import BASE_URL, server_log_path  # noqa: E402
 from tests.e2e.mux_probe import parse  # noqa: E402
 
-# Must match the host the cookie was minted for: a jar saved against
-# 127.0.0.1 is NOT sent to "localhost", and the request then arrives
-# unauthenticated with no hint as to why.
-BASE = os.environ.get('E2E_BASE_URL', 'http://127.0.0.1:7777')
-# The SERVER's home (see tests/conftest.py: E2E_VIBE_HOME / VIBE_HOME
-# resolve the test process's app.config onto the server's home).
-from app.config import DATABASE_URL, VIBE_SELLER_DIR  # noqa: E402
+BASE = BASE_URL
 
 DB = Path(DATABASE_URL.split('///', 1)[1])
-LOG = Path('logs/backend.log')
 PAGES = (1, 2, 3)
 
 
@@ -225,7 +224,7 @@ def verify(task_id: str, status: str, args) -> int:
         if re.search(rf'\b{p}(,{p})+\b', result) is None:
             print(f'  note: no clean trail for lab/{p} in the result text')
 
-    tr = parse(LOG)
+    tr = parse(server_log_path())
     fam = tr.for_task(task_id)
     slots = sorted(c.slot for c in fam.values() if c.slot is not None)
     mains = [c for c in fam.values() if c.slot is None]

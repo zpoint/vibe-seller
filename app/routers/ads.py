@@ -16,6 +16,7 @@ for anyone to point somewhere else.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 import logging
 from pathlib import Path
@@ -26,6 +27,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app import ads_client, ads_path_guard, ads_skill, telemetry
+from app.ai.ad_scope_access import ads_call_refusal
 from app.auth import get_current_user, require_admin
 from app.config import VIBE_SELLER_DIR
 from app.database import get_db
@@ -220,6 +222,21 @@ async def agent_call(
     barred = ads_path_guard.refusal(payload.task_id, path)
     if barred:
         raise HTTPException(status_code=400, detail=barred)
+    # Access-time scope: a campaign-narrowed declaration may not READ
+    # the excluded campaigns through this door either (CI 201i — the
+    # report gate ran too late to stop the read). The check reads the
+    # declaration file, so it runs off the loop (one thread hop).
+    scope_barred = await asyncio.to_thread(
+        ads_call_refusal,
+        payload.task_id,
+        {
+            'path': path,
+            'params': params,
+            'body': payload.body,
+        },
+    )
+    if scope_barred:
+        raise HTTPException(status_code=403, detail=scope_barred)
     try:
         result = await ads_client.call(
             db,
@@ -240,7 +257,12 @@ async def agent_call(
         payload.task_id, path, ads_path_guard.Outcome.ANSWERED
     )
     if isinstance(result, ads_client.AdsFile):
-        return {'result': _save_file(result, payload.task_id)}
+        # The file write (and its mkdir) is one thread hop.
+        return {
+            'result': await asyncio.to_thread(
+                _save_file, result, payload.task_id
+            )
+        }
     return {'result': result}
 
 

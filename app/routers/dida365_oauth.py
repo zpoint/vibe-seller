@@ -197,7 +197,7 @@ async def refresh_token_if_needed() -> bool:
     if tokens.get('refresh_token'):
         config['refresh_token_enc'] = encrypt_password(tokens['refresh_token'])
     config['expires_at'] = time.time() + tokens.get('expires_in', 3600)
-    save_backend_config('dida365', config)
+    await asyncio.to_thread(save_backend_config, 'dida365', config)
 
     # Re-register MCP with new token
     _register_ticktick_mcp(config)
@@ -267,7 +267,7 @@ async def authorize(
     config['base_url'] = urls['base_url']
     config['token_url'] = urls['token_url']
     config['auth_url'] = urls['auth_url']
-    save_backend_config('dida365', config)
+    await asyncio.to_thread(save_backend_config, 'dida365', config)
 
     # Generate single-use state and store callback URL for reuse
     # in /callback (ensures exact redirect_uri match).
@@ -389,7 +389,7 @@ async def oauth_callback(
     if tokens.get('refresh_token'):
         config['refresh_token_enc'] = encrypt_password(tokens['refresh_token'])
     config['expires_at'] = time.time() + tokens.get('expires_in', 3600)
-    save_backend_config('dida365', config)
+    await asyncio.to_thread(save_backend_config, 'dida365', config)
     telemetry.send(TelemetryEvent.DIDA365_AUTHORIZED)
 
     # Register MCP server
@@ -465,7 +465,7 @@ async def configure(
     """Save project ID configuration."""
     config = load_backend_config('dida365')
     config['project_id'] = body.project_id
-    save_backend_config('dida365', config)
+    await asyncio.to_thread(save_backend_config, 'dida365', config)
 
     # Re-register MCP with updated config
     if config.get('access_token_enc'):
@@ -488,7 +488,7 @@ async def disconnect(
         'expires_at',
     ]:
         config.pop(key, None)
-    save_backend_config('dida365', config)
+    await asyncio.to_thread(save_backend_config, 'dida365', config)
 
     # Remove ticktick from .mcp.json
     mcp_data = read_mcp_config()

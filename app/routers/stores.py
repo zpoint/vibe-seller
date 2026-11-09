@@ -112,12 +112,11 @@ async def create_store(
         store_dir.mkdir(parents=True, exist_ok=True)
         meta_file = store_dir / 'metadata.json'
         if not meta_file.exists():
-            meta_file.write_text(
-                json.dumps(
-                    {'platforms': data.platform_countries},
-                    indent=2,
-                )
+            payload = json.dumps(
+                {'platforms': data.platform_countries},
+                indent=2,
             )
+            await asyncio.to_thread(meta_file.write_text, payload)
         # Scaffold profile files (STORE.md, notes, logistics,
         # browser-routing for Ziniao)
         platform = data.platforms[0] if data.platforms else ''
