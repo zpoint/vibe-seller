@@ -508,6 +508,36 @@ platform-agnostic:
   **bash** per-store wrapper (`app/browser/wrapper.py`) works unchanged
   on every platform — there is no PowerShell wrapper.
 
+### Upgrade restart
+
+An upgrade replaces files on disk; a running server keeps the old code
+in memory until it is restarted. Both upgrade paths restart it.
+
+- **`vibe-seller upgrade` (macOS/Linux, `app/cli.py`)** — after the
+  package, browser and Claude CLI steps, `_restart_running_servers`
+  restarts each server `vibe-seller start` launched: found by its pid
+  file under `$VIBE_HOME/pids/` and confirmed against the process
+  command line (`app.main:app` + the port), so a recycled PID is never
+  touched. Servers run any other way (`--foreground`, launchd/systemd,
+  a clone's `start.sh`) have no pid file there and are left to whoever
+  supervises them. Stop and start run in a **fresh interpreter**
+  (`python -I -m app.cli`), because the upgrading process still has the
+  old `app` loaded; the original `--host`/`--port` are kept.
+- **Never kills live work.** Boot recovery marks `running`/`designing`
+  tasks failed (`server_restart`), so while any exist — or the task DB
+  can't be read — the server is left up and the restart command is
+  printed. Queued/pending/planned/waiting tasks survive a restart.
+- **Windows installer** — `PrepareToInstall` stops the server and tray.
+  Interactive installs restart them from the finish page ("Open now");
+  a silent install has no finish page, so it relaunches the tray (which
+  starts the server) when one was running before (`AppWasRunning`).
+- **`get_version()` is per process** (`app/version.py`): it reports the
+  code the process loaded, never the metadata installed since. Reading
+  it per call made an un-restarted server report the new version.
+
+The first upgrade *into* a version with this behaviour is performed by
+the previous version's CLI, so that one does not restart.
+
 ### Native Windows installer
 
 `installer/windows/` builds a self-contained `VibeSeller-Setup.exe`

@@ -96,6 +96,25 @@ standalone and read back over `/__counts`). See
 `tests/e2e/test_sync_scheduler_e2e.py` and
 `tests/releases/test_upgrade_sync_state.sh`.
 
+## Upgrade tests (release gates)
+
+Three reusable workflows gate `publish-testpypi` in `release.yml`; each
+also runs on its own (`workflow_dispatch`), and the first two on PRs that
+touch their surface.
+
+| Workflow | Script / steps | Proves |
+|----------|----------------|--------|
+| `cli-upgrade.yml` (ubuntu + macOS) | `tests/releases/test_cli_upgrade_restart.sh` | `vibe-seller upgrade` restarts the running server: builds the checkout as 99.0.1/99.0.2, `uv tool install`s the first, starts it, runs the real upgrade, and requires a **new process** serving 99.0.2 |
+| `sync-upgrade.yml` | `tests/releases/test_upgrade_sync_state.sh` | an older release's sync bookkeeping migrates into `sync_state` |
+| `windows-upgrade.yml` | inline pwsh | the native installer upgrades in place, including a silent upgrade over a running server that must come back on its own under a new PID |
+
+Assert on the **process**, not only on `/api/version`: that endpoint
+once re-read the package metadata from disk, so an un-restarted server
+reported the new version (see [subsystems.md](subsystems.md#upgrade-restart)).
+To see either restart test fail, build the parent commit's code — both
+versions are built from the same checkout, so the checkout's own
+`vibe-seller upgrade` is the one under test.
+
 ## Test Structure
 
 ```
