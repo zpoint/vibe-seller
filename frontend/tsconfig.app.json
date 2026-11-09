@@ -5,7 +5,9 @@
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "types": ["vite/client"],
+    /* "node": tests under src/ read files via fs/__dirname. vitest <3
+       pulled these types in implicitly; vitest 4 does not. */
+    "types": ["vite/client", "node"],
     "skipLibCheck": true,
 
     /* Bundler mode */
