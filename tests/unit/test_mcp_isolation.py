@@ -14,10 +14,12 @@ import json
 import os
 from unittest.mock import AsyncMock, MagicMock
 
+import jwt
 import pytest
 
 import app.ai.claude_backend as cb_mod
 from app.ai.claude_backend import AgentSession
+from app.config import AI_BOT_USER_ID, JWT_SECRET
 
 pytestmark = pytest.mark.unit
 
@@ -145,14 +147,14 @@ class TestMcpCommandIsolation:
 
     @pytest.mark.asyncio
     async def test_fallback_on_register_failure(self, tmp_path, monkeypatch):
-        """DB failure in _register_vibe_seller_mcp → fallback
+        """A failure in _register_vibe_seller_mcp → fallback
         empty .mcp.json → --strict-mcp-config still added."""
         captured_cmd = _apply_common_mocks(monkeypatch, tmp_path)
-        # Override async_session to raise
+        # Make the registration itself fail
         monkeypatch.setattr(
             cb_mod,
-            'async_session',
-            MagicMock(side_effect=RuntimeError('DB down')),
+            'read_mcp_config',
+            MagicMock(side_effect=RuntimeError('config unreadable')),
         )
 
         session = AgentSession(
@@ -171,3 +173,37 @@ class TestMcpCommandIsolation:
         assert mcp_json.exists()
         data = json.loads(mcp_json.read_text())
         assert data == {'mcpServers': {}}
+
+
+class TestMcpToken:
+    """The token handed to the in-task MCP server is the AI bot's —
+    never an admin-role JWT (app/interactive_only.py keys on the role
+    claim, and the agent process can read this file)."""
+
+    @pytest.mark.asyncio
+    async def test_mcp_json_token_is_ai_bot(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cb_mod, 'read_mcp_config', lambda: {})
+        monkeypatch.setattr(
+            cb_mod,
+            'atomic_write_json',
+            lambda path, data: path.write_text(json.dumps(data)),
+        )
+        # No DB at all: the identity must not depend on a lookup.
+        monkeypatch.setattr(
+            cb_mod, 'async_session', MagicMock(side_effect=AssertionError)
+        )
+        session = AgentSession(
+            task_id='test-mcp-token',
+            prompt='test',
+            mode='execute',
+            task_dir=tmp_path,
+        )
+        await session._register_vibe_seller_mcp(tmp_path)
+
+        args = json.loads((tmp_path / '.mcp.json').read_text())['mcpServers'][
+            'vibe-seller'
+        ]['args']
+        token = args[args.index('--token') + 1]
+        claims = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+        assert claims['role'] == 'ai_bot'
+        assert claims['sub'] == AI_BOT_USER_ID

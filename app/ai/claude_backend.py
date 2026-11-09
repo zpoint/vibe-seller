@@ -28,8 +28,6 @@ import sys
 import time
 import uuid
 
-from sqlalchemy import select
-
 from app.ai.agent_proxy import (
     drop_dead_proxy,
     launch_settings,
@@ -59,11 +57,10 @@ from app.browser.manager import (
     read_mcp_config,
 )
 from app.browser.process_utils import kill_with_escalation, taskkill_tree
-from app.config import BACKEND_PORT, BASE_DIR
+from app.config import AI_BOT_USER_ID, BACKEND_PORT, BASE_DIR
 from app.database import async_session
 from app.env_options import Options
 from app.models.task import Task
-from app.models.user import User
 from app.platform import IS_WINDOWS, find_processes_by_pattern
 from app.workspace.manager import (
     VIBE_SELLER_DIR,
@@ -470,15 +467,10 @@ class AgentSession(
     async def _register_vibe_seller_mcp(self, ws_dir):
         """Register the vibe-seller MCP server in .mcp.json."""
         try:
-            async with async_session() as db:
-                result = await db.execute(
-                    select(User).where(User.role == 'ai_bot')
-                )
-                bot = result.scalars().first()
-                if bot:
-                    token = create_token(bot.id, 'ai_bot')
-                else:
-                    token = create_token('system', 'admin')
+            # Always the AI-bot identity (seeded by init_db), never an
+            # admin-role fallback: this token is handed to an agent
+            # process, and app/interactive_only.py keys on its role.
+            token = create_token(AI_BOT_USER_ID, 'ai_bot')
 
             mcp_config = read_mcp_config()
             servers = mcp_config.get('mcpServers', {})
