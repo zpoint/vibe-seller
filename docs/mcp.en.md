@@ -25,6 +25,14 @@ and Pi. If you use another command-line tool (Claude Code CLI, Codex CLI, …) o
 want the technical details (the protocol, all 32 tools,
 curl examples), see [Connect an External Agent](agents.md).
 
+**Contents**
+
+- [First: create an API key](#first-create-an-api-key) (every tool needs this step)
+- Desktop apps: [Claude desktop](#claude-desktop) · [Codex desktop](#codex-desktop) ·
+  [WorkBuddy (Tencent)](#workbuddy-tencent) · [Qoder (Alibaba)](#qoder-alibaba)
+- Terminal agents: [Hermes Agent](#hermes-agent-nous-research) · [Pi](#pi)
+- [Troubleshooting](#troubleshooting)
+
 ## What you can ask
 
 Once connected, just talk to it like a colleague:
@@ -356,7 +364,7 @@ Send these one after another and watch it run an ad analysis for you:
 
 ### Install
 
-Install it as described on [pi.dev](https://pi.dev):
+Install it as described on the [Pi website](https://pi.dev):
 
 ```bash
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent

@@ -22,6 +22,14 @@ description: 在你已经在用的 AI 工具里直接指挥 Vibe Seller——MCP
 技术细节（协议、全部 32 个工具、curl 示例）的，请看
 [Connect an External Agent](agents.md)。
 
+**目录**
+
+- [第一步：创建 API Key](#第一步创建-api-key)（不管用哪个工具，都先做这一步）
+- 桌面端：[Claude 桌面版](#claude-桌面版) · [Codex 桌面版](#codex-桌面版) ·
+  [WorkBuddy（腾讯）](#workbuddy腾讯) · [Qoder（阿里）](#qoder阿里)
+- 终端里的 Agent：[Hermes Agent](#hermes-agentnous-research) · [Pi](#pi)
+- [常见问题](#常见问题)
+
 ## 可以这样用
 
 接好之后，像给同事交代工作一样说就行：
@@ -319,7 +327,7 @@ mcp_servers:
 
 ### 安装
 
-按 [pi.dev](https://pi.dev) 的说明安装：
+按 [Pi 官网](https://pi.dev) 的说明安装：
 
 ```bash
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
