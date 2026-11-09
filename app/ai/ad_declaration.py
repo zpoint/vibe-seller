@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+import re
 
 from app.ai.stop_gates import ad_scope
 from app.config import VIBE_SELLER_DIR
@@ -87,6 +88,66 @@ def normalise_scope(raw: object) -> dict:
             out[key] = vals
 
     return out
+
+
+# A scope entry NAMES something in scope. An entry that carries
+# negation or exclusion text ("... out of scope", "except X", "not X")
+# puts "what is NOT in scope" into the list of what IS — observed in CI
+# 201k: a follow-up declared ``products: ['widget-006 manual campaign
+# only — sprocket-009 manual explicitly out of scope']``, so the
+# declared scope CONTAINED the excluded product, the completeness
+# ground truth flagged it, and the scope renders back to the user as
+# if it were in scope. Exclusions are implied by omission. Shapes, not
+# values: any entry whose text names an exclusion or a negation is
+# refused at the tool boundary.
+_EXCLUSION_SHAPE = re.compile(
+    r'\b(?:'
+    r'except|excluding|exclude|excludes|excluded|exclusion'
+    r'|outside|out\s+of(?:\s+scope)?'
+    r'|without|minus'
+    r'|but\s+not|rather\s+than|not'
+    r'|not\s+(?:including|included|in|part\s+of)'
+    r'|explicitly\s+(?:out|excluded|omitted)'
+    r'|omit|omitted|leave\s+out'
+    r')\b',
+    re.IGNORECASE,
+)
+
+
+def scope_entry_error(value: str) -> str | None:
+    """Why *value* cannot be a scope entry, or ``None`` when it can.
+
+    An entry names ONE thing in scope ("WIDGET-006", "the widget-006
+    family", "widget-006 manual campaign"). It may never carry the
+    shape of an exclusion or a negation — those belong OUTSIDE the
+    scope, expressed by omission.
+    """
+    text = str(value or '')
+    hit = _EXCLUSION_SHAPE.search(text)
+    if hit is None:
+        return None
+    return (
+        f'scope entry {text!r} carries exclusion/negation text '
+        f'({hit.group(0)!r}). An entry NAMES what IS in scope: list '
+        'only the in-scope anchor (e.g. "widget-006 manual campaign"); '
+        'exclusions are implied by omission.'
+    )
+
+
+def validate_scope(scope: object) -> None:
+    """Refuse a scope whose entries carry exclusion text.
+
+    Raises ``ValueError`` with the offending entry and the rule. Runs
+    at the WRITE boundary (the declare tool) only — stored
+    declarations are read through ``normalise_scope`` unchanged.
+    """
+    if not isinstance(scope, dict):
+        return
+    for key in ('campaigns', 'products'):
+        for val in scope.get(key) or []:
+            err = scope_entry_error(val)
+            if err:
+                raise ValueError(err)
 
 
 def is_whole_store(scope: dict | None) -> bool:

@@ -126,7 +126,10 @@ AD_TOOLS = [
                                 'every campaign in the combos above. '
                                 'If the user named a product rather '
                                 'than a campaign, resolve it to ids '
-                                'first and list them here.'
+                                'first and list them here. Ids only — '
+                                'never exclusion text ("not X" is '
+                                'refused); what is out of scope is '
+                                'implied by omission.'
                             ),
                         },
                         'products': {
@@ -134,8 +137,12 @@ AD_TOOLS = [
                             'items': {'type': 'string'},
                             'description': (
                                 'The SKUs/products the user named, for '
-                                'the human reading the report. '
-                                'Does not narrow anything by itself.'
+                                'the human reading the report. Each '
+                                'entry NAMES one thing IN scope — '
+                                'exclusions are implied by omission, '
+                                'never written ("not X", "except X", '
+                                '"X out of scope" is refused). Does '
+                                'not narrow anything by itself.'
                             ),
                         },
                     },

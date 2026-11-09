@@ -728,3 +728,79 @@ class TestADeclaredTaskAlwaysHasAMenu:
         cat-ed it and spent turns on it."""
         ad_scope.write_declared_targets(tmp_path, {}, slug='acme')
         assert not (tmp_path / 'AUDIT_TARGETS.json').exists()
+
+
+class TestScopeEntriesNameWhatIsInScope:
+    """CI 201k: a follow-up declared
+    ``products: ['widget-006 manual campaign only — sprocket-009 manual
+    explicitly out of scope']`` — the EXCLUDED product landed in the
+    list of what IS in scope (and renders back to the user that way).
+    The axis is not free prose: an entry NAMES one thing in scope, and
+    exclusions are implied by omission.
+    """
+
+    def test_the_ci_shape_is_refused_with_a_helpful_message(self):
+        with pytest.raises(ValueError) as exc:
+            ad.validate_scope({
+                'campaigns': ['A1234567'],
+                'products': [
+                    'widget-006 manual campaign only — sprocket-009 '
+                    'manual explicitly out of scope'
+                ],
+            })
+        msg = str(exc.value)
+        assert 'sprocket-009' in msg, msg  # names the offending entry
+        assert 'exclusion/negation' in msg, msg
+        assert 'implied by omission' in msg, msg  # what to do instead
+
+    @pytest.mark.parametrize(
+        'entry',
+        [
+            'sprocket-009 manual explicitly out of scope',
+            'widget-006 except sprocket-009',
+            'widget-006 without sprocket-009',
+            'not including sprocket-009',
+            'all minus sprocket-009',
+            'widget-006, excluding the manual line',
+            'widget-006 but not sprocket-009',
+            'everything outside the manual line',
+            'not A7654321',  # bare negation
+        ],
+    )
+    def test_exclusion_shapes_are_refused(self, entry):
+        with pytest.raises(ValueError):
+            ad.validate_scope({'products': [entry]})
+
+    @pytest.mark.parametrize(
+        'entry',
+        [
+            'WIDGET-006',
+            'the widget-006 family',
+            'widget-006 manual campaign',
+            'sprocket-009 manual',
+            'widget-006 rollout line',  # "out" inside a word is not an
+            # exclusion shape
+        ],
+    )
+    def test_legitimate_anchors_are_accepted(self, entry):
+        ad.validate_scope({'products': [entry]})  # must not raise
+        ad.validate_scope({'campaigns': ['A1234567']})
+
+    def test_the_ratchet_behaviour_is_unchanged(self):
+        """Validation is at the boundary; the narrowing rules still
+        read the scope exactly as before."""
+        wide = {'combos': [{'platform': 'amazon', 'country': 'US'}]}
+        narrow = {
+            'combos': [{'platform': 'amazon', 'country': 'US'}],
+            'campaigns': ['A1234567'],
+            'products': ['widget-006 manual campaign'],
+        }
+        ad.validate_scope(narrow)  # a clean scope still validates
+        assert ad.is_narrowing(wide, narrow)
+        assert ad.supersedes('audit', wide, 'audit', narrow)
+        # and a refused entry never reaches the ratchet
+        with pytest.raises(ValueError):
+            ad.validate_scope({
+                'campaigns': ['A1234567'],
+                'products': ['not A7654321'],
+            })
