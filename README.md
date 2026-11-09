@@ -422,7 +422,7 @@ Vibe Seller 是个 **AI Agent 框架**，浏览器只是它的工具之一。Age
 | **邮件处理** | 给买家邮件分类，重要的转企微，起草回复草稿。|
 | **你想到的** | 写个 Skill（markdown 步骤说明），或者带 Agent 做一遍——它会自己记笔记，下次按你的习惯来。|
 
-一次广告调优大概 3–5 分钟，LLM 费用几块钱人民币（DeepSeek，看具体广告数量浮动）。
+一次广告调优大概 3–5 分钟，LLM 费用大概 1 人民币（DeepSeek，10 组广告以下；广告越多费用越高）。
 
 ## 集成的服务
 
@@ -476,7 +476,7 @@ Vibe Seller 是个 **AI Agent 框架**，浏览器只是它的工具之一。Age
 <details>
 <summary><b>要花多少钱？</b></summary>
 
-Vibe Seller 本身免费开源，花钱的只有你自己的 LLM API Key——直接给供应商付费。粗略量级：用 DeepSeek 跑一次广告调优大概几块钱人民币。
+Vibe Seller 本身免费开源，花钱的只有你自己的 LLM API Key——直接给供应商付费。粗略量级：用 DeepSeek 跑一次广告调优大概 1 人民币（10 组广告以下）。
 
 </details>
 

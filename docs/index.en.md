@@ -569,8 +569,8 @@ A few cross-border scenarios it's commonly used for:
 | **Email handling** | Sorts buyer messages, forwards important ones to the group chat, drafts replies. |
 | **Anything you add** | Write a Skill (a markdown file with steps) or teach the agent once — it'll remember next time. |
 
-A single ad-tuning run is ≈ 3–5 minutes and costs about $1 in LLM tokens
-(rough — depends on provider and campaign volume).
+A single ad-tuning run is ≈ 3–5 minutes and costs about 0.15 USD in LLM tokens
+(DeepSeek, 10 or fewer campaigns; more campaigns cost more).
 
 ## Integrations
 
@@ -646,8 +646,8 @@ To let teammates use the same instance, they open
 <summary><b>How much does it cost?</b></summary>
 
 Vibe Seller is free and open source. You pay your LLM provider
-directly. Rough scale: one ad-tuning run costs about $1 in DeepSeek
-tokens.
+directly. Rough scale: one ad-tuning run costs about 0.15 USD in DeepSeek
+tokens (10 or fewer campaigns).
 
 </details>
 
