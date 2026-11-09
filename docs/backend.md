@@ -18,7 +18,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `schemas/` | Pydantic request/response schemas |
 | `routers/` | FastAPI route handlers (API endpoints) |
 | `browser/` | Pluggable browser backends + session management |
-| `ai/` | AI agent abstraction (Claude Code CLI backend); provider-preset catalog (`provider_presets.py`) and its auto-sync from `main` (`provider_presets_sync.py`, cache `~/.vibe-seller/cache/provider_presets.json`, env `PROVIDER_PRESETS_URL`; see [Auto-synced preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy)) |
+| `ai/` | AI agent abstraction (Claude Code CLI backend); provider-preset catalog (`provider_presets.py`) and its auto-sync from `main` (`provider_presets_sync.py`, cache `~/.vibe-seller/cache/provider_presets.json`, env `PROVIDER_PRESETS_URL`; see [Auto-synced preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy)); per-model token prices + context windows for the usage meter (`model_pricing.py`, generated `model_pricing_snapshot.py`, `model_pricing_sync.py`) and the per-call meter itself (`usage_meter.py`; see [Model pricing & usage meter](#model-pricing--usage-meter-aimodel_pricingpy)) |
 | `vision.py` / `vision_catalog.py` / `vision_catalog_sync.py` / `vision_models.py` | Image generation via kie.ai: config + client + confirm registry (`vision.py`); the curated model catalog as literal data (`vision_models.py`); the served catalog — validation + served state (`vision_catalog.py`) and the network steps of its `vision_catalog` sync job (`vision_catalog_sync.py`) — catalog from `main` (literal parse + schema validation), live per-tier prices from kie.ai's public pricing table, availability via `GET /api/v1/models` (deny-list), cache `~/.vibe-seller/cache/vision_catalog.json`, env `VISION_CATALOG_URL`; runs only with a kie.ai key. See [vision.md § Kept current](vision.md#kept-current-by-the-vision_catalog-sync-job) |
 | `executor/` | Legacy browser task runner (deprecated — browser automation now via browser-use CLI) |
 | `events/` | SSE event bus for real-time streaming |
@@ -277,6 +277,33 @@ only ever seed **newly created** profiles, never retargeting saved ones.
 - `tests/ai/test_profile_validation_live.py` — `ai`-marked, against real vendor endpoints using CI's `{PROVIDER}_API_KEY` secrets: good key/model → ok, bad model → rejected or reports-a-different-model, bad key → rejected (each provider self-skips without a key).
 - `tests/unit/test_provider_presets_sync.py` — the bundled file round-trips through the literal parser, every bundled env key is allowlisted, each hostile-body case (non-https/userinfo URL, credential or proxy env key, `load_global_mcp=True`, control chars, non-literal code, oversize body, first-model mismatch, unknown fields) is dropped or rejected, the bundled-fallback/floor rules, cache re-validation, and the loop (mocked `httpx.MockTransport`, ~0.05 s interval: repeated ticks, changed-body update, unchanged-body no-op, 500/timeout/garbage keep the previous data, clean cancellation).
 - `tests/workflow/test_wf_presets_sync.py` — `GET /api/profiles/presets` serves the synced catalog, follows a changed body, and falls back to bundled on a corrupt cache or a rejected body.
+
+## Model pricing & usage meter (`ai/model_pricing.py`)
+
+Prices the live usage meter shown in the task footer. Same
+cache-or-bundled pattern as the [preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy).
+
+| Piece | Role |
+|---|---|
+| `ai/model_pricing.py` | Validation (`slice_catalog` / `normalize_catalog`), served state, lookup (`price_for`) and the cost math (`cost_usd`). `PRESET_PROVIDERS` maps every provider preset id (plus `default` → `anthropic`) to ONE models.dev provider; a test fails for a preset without an entry. |
+| `ai/model_pricing_snapshot.py` | Generated data: the models.dev slice this release ships (offline floor). Regenerate with `scripts/gen_model_pricing_snapshot.py`; excluded from the line-limit hook. |
+| `ai/model_pricing_sync.py` | The DAILY `model_pricing` job on the central sync scheduler: fetch `https://models.dev/api.json` (env `MODEL_PRICING_URL`), keep only tracked providers' `limit.context` + `cost`, cache to `~/.vibe-seller/cache/model_pricing.json`. A body with fewer than half the tracked providers is rejected; the served catalog is kept. |
+| `ai/usage_meter.py` | Per-process meter fed every stream-json event; returns the token / cost delta of each API call (deduplicated by message id). |
+| `task_usage.py` | Adds a delta to the task row and emits the `task_usage` SSE event. |
+
+**`cost_basis`** (on `TaskResponse` and `task_usage`):
+
+- `catalog` — priced from the run's provider rates. Each bucket is
+  charged at its own rate; a long-context tier applies to the whole
+  call; one-hour cache writes are charged at 2x input.
+- `included` — the provider's rates are all zero (a subscription plan:
+  Kimi Code, Coding / Token Plans). Tokens are counted, cost is 0.
+- `unpriced` — the model is not in the catalog (a custom profile).
+  Tokens only.
+
+Why per call and not the CLI's `total_cost_usd`: that figure is
+cumulative for the process and prices every model as Claude. Details:
+[subsystems.md § Task usage meter](subsystems.md#task-usage-meter--price-catalog-model_pricing).
 
 ## Plugin Framework
 
