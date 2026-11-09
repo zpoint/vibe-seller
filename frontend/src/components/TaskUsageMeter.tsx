@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import type { TaskUsage } from '../types'
 import {
   type Currency,
-  USD_TO_CNY,
   contextPercent,
   currencyFor,
   formatCost,
@@ -59,8 +58,7 @@ export function TaskUsageMeter({ usage }: { usage: TaskUsage }) {
           : 'bg-indigo-500'
   const note =
     usage.cost_basis === 'catalog'
-      ? t('usage.estimateNote') +
-        (currency === 'CNY' ? ' ' + t('usage.cnyRateNote', { rate: USD_TO_CNY }) : '')
+      ? t('usage.estimateNote')
       : usage.cost_basis === 'included' ? t('usage.includedNote')
         : t('usage.unpricedNote')
 

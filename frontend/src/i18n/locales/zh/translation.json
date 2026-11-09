@@ -965,9 +965,8 @@
     "cost": "费用",
     "included": "套餐内",
     "unpriced": "暂无该模型价格",
-    "estimateNote": "按服务商公开的每 token 价格（models.dev）估算，以实际账单为准。",
+    "estimateNote": "按 models.dev 公开价格估算",
     "includedNote": "该服务商套餐不按 token 计费，仅统计 token 数。",
-    "unpricedNote": "价格目录中没有该模型，仅统计 token 数。",
-    "cnyRateNote": "按 1 美元 ≈ {{rate}} 元人民币折算。"
+    "unpricedNote": "价格目录中没有该模型，仅统计 token 数。"
   }
 }

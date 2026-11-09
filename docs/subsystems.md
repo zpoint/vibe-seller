@@ -356,8 +356,8 @@ what the task has cost so far (`app/ai/usage_meter.py`,
   (verified to match the CLI's own figure on api.anthropic.com).
 - **Display**: the footer chip shows two decimals (no `≈`); the click-open
   panel shows four. The Chinese UI shows RMB at a fixed
-  `USD_TO_CNY = 6.7` (`frontend/src/lib/usageFormat.ts`, stated in the
-  panel), English shows USD.
+  `USD_TO_CNY = 6.7` (`frontend/src/lib/usageFormat.ts`), English
+  shows USD. The panel's note is one line: estimated from models.dev.
 - **Kept current** by the DAILY `model_pricing` sync job
   (`app/ai/model_pricing_sync.py`; env `MODEL_PRICING_URL`), cache
   `~/.vibe-seller/cache/model_pricing.json`, served cache-or-bundled:

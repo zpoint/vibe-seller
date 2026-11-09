@@ -120,7 +120,7 @@ describe('TaskUsageMeter', () => {
     expect(screen.queryByText(/≈/)).toBeNull()
   })
 
-  it('shows RMB in the Chinese UI, with the rate in the panel', () => {
+  it('shows RMB in the Chinese UI, with a one-line note', () => {
     renderMeter({ ...METERED, cost_usd: 1 }, 'zh')
     expect(screen.getByTestId('task-usage-cost')).toHaveTextContent(
       `¥${USD_TO_CNY.toFixed(2)}`,
@@ -129,7 +129,7 @@ describe('TaskUsageMeter', () => {
     fireEvent.click(screen.getByTestId('task-usage-meter'))
     const details = screen.getByTestId('task-usage-details')
     expect(details).toHaveTextContent(`¥${USD_TO_CNY.toFixed(4)}`)
-    expect(details).toHaveTextContent(`1 美元 ≈ ${USD_TO_CNY} 元人民币`)
+    expect(screen.getByText('按 models.dev 公开价格估算')).toBeInTheDocument()
   })
 
   it('says "included" for a plan run instead of a $0 cost', () => {
