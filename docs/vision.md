@@ -10,41 +10,82 @@ inline in the task stream and is saved in the task workspace.
 
 kie.ai is a unified aggregator — a **single** configured key reaches every
 image model through the same `POST /api/v1/jobs/createTask` endpoint. The
-selectable set is a curated, static catalog in `app/vision.py`
-(`IMAGE_MODELS`), one `ImageModel` per row: our stable `id` (the contract
-the agent/frontend/tool pass and we validate) → kie.ai's exact `slug`,
-plus the `provider`/`label` and a per-image `usd` price. The confirm card
-shows the price as **$** (English) or **¥** (Chinese, fixed `USD_CNY`
-rate — an illustrative hint, not a bill). Default is **Nano Banana Pro ·
-2K**.
+selectable set is a **curated** catalog in `app/vision_models.py`
+(`IMAGE_FAMILIES`, plain literals), flattened to one `ImageModel` per
+tier: our stable `id` (the contract the agent/frontend/tool pass and we
+validate) → kie.ai's exact `slug`, plus the `provider`/`label` and a
+per-image `usd` price. The confirm card shows the price as **$**
+(English) or **¥** (Chinese, fixed `USD_CNY` rate — an illustrative hint,
+not a bill). Default is the first tier of the first family, **Nano Banana
+Pro · 2K**.
 
-**One selectable option per resolution/quality tier.** The catalog is
-defined as per-family specs (`_FAMILIES`) and flattened to one
-`ImageModel` per tier, so the card shows the *real* price of each tier
-(GPT Image 2 at 1K/2K/4K = $0.03/$0.05/$0.08, etc.) instead of a single
-hand-picked number — the earlier bug that made cross-model prices look
-inconsistent (different models were shown at different, unlabeled
-resolutions). Each variant's `extra` injects its own kie param
-(`resolution` / `quality` / `rendering_speed`), so generation targets
-that tier; pinned by `test_tier_variants_carry_their_param`.
+**Curation rules** (do not import kie.ai's whole list — it has ~240
+models): image-to-image/editing only; each major vendor's current
+flagship plus at most one cheaper lane; nothing a sibling strictly
+dominates (same vendor, newer, no more expensive); a flat per-image
+price, because the card must show a price before the user confirms
+(token-priced GPT Image 2.6 Sunburst/Flare are therefore out). Pure
+utilities (Recraft bg-removal, Topaz upscale) take no prompt and don't
+fit the card.
 
-The other thing that differs per model is the **reference-image input**:
-field name and cardinality (`image_input`/`input_urls`/`image_urls`
-arrays, or a single `image_url`). `generate_image()` builds the `input`
-payload from each model's `ref_field`/`ref_array` + merged `extra`, so a
-non-nano model receives its references (and tier param) instead of
-silently dropping them. Prices/slugs/tier params verified against
-kie.ai's pricing API + docs (2026-07); refresh manually.
+Current set (tiers in parens): Google — Nano Banana Pro (2K/4K), Nano
+Banana 2.1 (1K/2K/4K); OpenAI — GPT Image 2.5 (1K/2K/4K), GPT Image 2.6
+Economy (1K); ByteDance — Seedream 5 Pro (1K/2K), Seedream 5 Flash (2K);
+Black Forest Labs — Flux-2 Pro (1K/2K), FLUX 3 Klein (1K/2K/4K); Qwen —
+Qwen Image 3.0 Pro (1K/2K); xAI — Grok Imagine Image 2.0; Ideogram — V3
+Remix (Turbo/Balanced/Quality). Ids that left the catalog are mapped to
+a successor in `RETIRED_MODEL_IDS` (`gpt-image-2-2k` → `gpt-image-2-5-2k`),
+so an agent, skill or saved schedule prompt naming an old id keeps its
+model line instead of falling to the default.
 
-Providers/models (image-to-image, tiers in parens): Google — Nano Banana
-Pro (2K/4K), Nano Banana 2 (1K/2K/4K), Nano Banana Edit; OpenAI — GPT
-Image 2 (1K/2K/4K), GPT Image 1.5 (Medium — cheapest OpenAI; its High
-tier is omitted as it costs more than the newer, better GPT Image 2·4K);
-ByteDance — Seedream 5
-Pro (Basic/High), Seedream 4.5; Black Forest — Flux-2 Pro (1K/2K), Flux 2
-Flex (1K/2K); Qwen — Image Edit; Ideogram — V3 Remix (Turbo/Balanced/
-Quality). Pure utilities (Recraft bg-removal, Topaz upscale) are
-intentionally excluded — they take no prompt and don't fit the card.
+**One selectable option per resolution/quality tier**, so the card shows
+the *real* price of each tier instead of one hand-picked number. Each
+tier's `extra` injects its own kie param (`resolution` / `quality` /
+`size` / `rendering_speed`), merged over the family's `extra` — which
+must carry every param the model's schema marks required (Seedream 5
+Pro rejects a request without `aspect_ratio`). The other per-model
+difference is the **reference-image input**: field name and cardinality
+(`image_input`/`input_urls`/`image_urls` arrays, or a single
+`image_url`); `generate_image()` builds the `input` from
+`ref_field`/`ref_array`, so every model receives its references.
+
+### Kept current by the `vision_catalog` sync job
+
+`app/vision_catalog.py` serves the catalog and refreshes it on the
+central sync scheduler (`vision_catalog`, daily) — **only on an install
+with a kie.ai key** (and never in `VISION_FAKE` mode): without a key no
+image can be generated, so there is nothing to refresh. Saving a key in
+Settings triggers a run at once. Three steps, each failing soft (the
+previous or bundled data keeps being served):
+
+1. **Catalog** — fetch `app/vision_models.py` from `main`
+   (`VISION_CATALOG_URL` overrides), parse it with `ast.literal_eval`
+   (never executed), validate every family (allowlisted reference
+   fields, no static `prompt`/reference params, slug/id shapes, price
+   ceiling). An invalid family falls back to its bundled copy; a body
+   with no valid family is rejected. Unlike provider presets, the
+   bundled list is **not** a floor: dropping a superseded model on main
+   is how curation reaches installs.
+2. **Prices** — kie.ai's public pricing table
+   (`POST /client/v1/model-pricing/page`, no key, paged). Each tier
+   names its own row: `price_key` (the row anchor's `model=` value, else
+   its path) plus `price_terms` (word sequences that must appear in the
+   row description). Only `per image` rows count; conflicting rows, no
+   row, or a price more than 4x from the bundled one keep the bundled
+   price. `test_every_bundled_tier_has_one_live_price` pins that every
+   tier resolves against a captured table.
+3. **Availability** — `GET /api/v1/models` with the user's key. A family
+   whose slug kie.ai no longer lists is hidden from the card and the
+   tool enum (an id for it resolves to the default); a response that
+   would hide *every* model is treated as an API change and ignored.
+
+Results are cached at `~/.vibe-seller/cache/vision_catalog.json`
+(re-validated on load). The request path never touches the network.
+The in-task MCP server reads the catalog at import, so each task's tool
+enum reflects the last sync. `tests/e2e/test_vision_catalog_live.py`
+(opt-in, `VISION_LIVE_E2E=1`, spends ~$0.3) runs the sync against the
+real kie.ai and generates one image per family through the real
+upload → confirm path.
 
 **Layering**: the MCP tool is platform-agnostic infrastructure. Platform
 knowledge lives in skills — `amazon-image-studio` (Amazon image
@@ -57,6 +98,8 @@ their own skills on top of the same tool.
 | Concern | Where |
 |---|---|
 | Config + kie.ai client + confirm registry | `app/vision.py` |
+| Model catalog (curated data) | `app/vision_models.py` |
+| Catalog sync: main + live prices + availability | `app/vision_catalog.py`, job `vision_catalog` in `app/sync/jobs.py` |
 | HTTP endpoints | `app/routers/vision.py` |
 | MCP tool `vibe_seller_generate_image` | `app/mcp_tool_schemas.py` + `app/mcp_server.py` |
 | Settings UI | `frontend/src/components/settings/VisionPanel.tsx` (Settings → AI → Vision) |

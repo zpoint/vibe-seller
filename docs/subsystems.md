@@ -270,7 +270,8 @@ Persistent per-account email storage with background sync and SMTP send capabili
 
 Every periodic "ask the network / re-read the world" job runs through
 one object: skills, knowledge, the ads skill bundle, the provider-preset
-catalog (email and the browser daemon reaper are on their way in). It
+catalog, the image-model catalog (`vision_catalog` — runs only when a
+kie.ai key is configured; see [vision.md](vision.md#kept-current-by-the-vision_catalog-sync-job)) (email and the browser daemon reaper are on their way in). It
 exists because the same question used to be answered four different
 ways — a cooldown file per module, a `while True: sleep()` loop, an extra
 APScheduler job, fire-and-forget tasks at boot and at every task launch —

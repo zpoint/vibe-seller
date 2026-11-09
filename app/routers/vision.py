@@ -17,6 +17,7 @@ event, and return the saved path to the agent.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import logging
@@ -37,6 +38,8 @@ from app.database import async_session
 from app.events.bus import event_bus
 from app.models.task_message import TaskMessage
 from app.models.user import User
+from app.sync import jobs as sync_jobs
+from app.sync.scheduler import REASON_EVENT, sync_scheduler, timers_armed
 from app.telemetry_events import TelemetryEvent
 from app.text_utils import sanitize_json
 from app.uploads import save_upload
@@ -84,6 +87,20 @@ def _safe_name(name: str) -> str:
 
 # ─────────────────────────── config ───────────────────────────
 
+# Strong refs to fire-and-forget tasks (asyncio keeps only weak ones).
+_BACKGROUND: set[asyncio.Task] = set()
+
+
+async def _refresh_catalog() -> None:
+    try:
+        await sync_scheduler.trigger(
+            sync_jobs.VISION_JOB, reason=REASON_EVENT, force=True
+        )
+    except Exception:
+        logger.warning(
+            'vision catalog refresh after key save failed', exc_info=True
+        )
+
 
 @router.get('/vision/config')
 async def get_vision_config(current_user: User = Depends(get_current_user)):
@@ -92,7 +109,7 @@ async def get_vision_config(current_user: User = Depends(get_current_user)):
         'kie_api_key_set': bool(key),
         'kie_api_key_masked': vision.mask_key(key),
         'models': vision.catalog_public(),
-        'default_model': vision.DEFAULT_MODEL,
+        'default_model': vision.default_model(),
         # Surfaced so e2e tests can refuse to run against a server that
         # would hit the real image API (they must be offline-only).
         'fake': vision.is_fake(),
@@ -110,6 +127,15 @@ async def put_vision_config(
     vision.save_vision_config(body.get('kie_api_key', ''))
     key = vision.get_kie_api_key()
     telemetry.send(TelemetryEvent.VISION_KEY_SAVED, {'key_set': bool(key)})
+    if key and timers_armed():
+        # The scheduled run skips while no key is set and re-arms a day
+        # out, so a freshly activated install would wait that long for
+        # live prices. Run it now, in the background: the save must not
+        # wait on kie.ai. Gated like the schedule itself, so a server
+        # with sync disarmed (tests) never reaches the network.
+        task = asyncio.create_task(_refresh_catalog())
+        _BACKGROUND.add(task)
+        task.add_done_callback(_BACKGROUND.discard)
     return {
         'kie_api_key_set': bool(key),
         'kie_api_key_masked': vision.mask_key(key),
@@ -153,9 +179,7 @@ async def generate_task_image(
     prompt = (body.get('prompt') or '').strip()
     if not prompt:
         raise HTTPException(status_code=400, detail='prompt is required')
-    model = body.get('model') or vision.DEFAULT_MODEL
-    if model not in vision.model_ids():
-        model = vision.DEFAULT_MODEL
+    model = vision.resolve_model_id(body.get('model'))
     reference_images = body.get('reference_images') or []
     output_name = _safe_name(body.get('output_name') or 'image.png')
     kind = body.get('kind') or ''  # optional label e.g. "main"/"infographic"
@@ -224,6 +248,8 @@ async def generate_task_image(
 
     # User-edited values win over the agent's proposal.
     final_prompt = (decision.get('prompt') or prompt).strip()
+    # The user picks from the card's list, so an id outside the current
+    # catalog means a stale card: keep the agent's (resolved) choice.
     final_model = decision.get('model') or model
     if final_model not in vision.model_ids():
         final_model = model

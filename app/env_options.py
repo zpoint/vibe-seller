@@ -139,6 +139,9 @@ class Options(enum.Enum):
     ENSURE_BROWSER_ENGINE = ('VIBE_ENSURE_BROWSER_ENGINE', 'true')
 
     PROVIDER_PRESETS_URL = ('PROVIDER_PRESETS_URL', '')
+    # Where the vision_catalog sync reads app/vision_models.py from
+    # (default: main on GitHub). See app/vision_catalog.py.
+    VISION_CATALOG_URL = ('VISION_CATALOG_URL', '')
 
     # Central sync scheduler (app/sync/scheduler.py) knobs. All three
     # exist for tests: DISABLED registers no job at all (so nothing
