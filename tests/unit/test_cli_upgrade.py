@@ -6,7 +6,6 @@ candidate path. Network + subprocess are mocked, so these run offline.
 
 import io
 import json
-import sqlite3
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -191,93 +190,79 @@ class TestUpgradeClaudeCli:
         assert cmds == [['uv', 'tool', 'upgrade', 'vibe-seller']]
 
 
-class TestRestartAfterUpgrade:
-    """An upgrade must not leave the old code serving. The running
-    server is restarted onto the new install — unless that would fail
-    a live task, or the PID is not ours."""
+class TestUpgradeWaitsForTheServer:
+    """`vibe-seller upgrade` does not finish while the old code serves:
+    it waits for each server it started to come back on the new version
+    (the server restarts itself — app/upgrade_restart.py)."""
 
     PORT = 7899
 
-    def _home(self, tmp_path, monkeypatch, *, pid=4242, statuses=()):
+    @pytest.fixture(autouse=True)
+    def _home(self, tmp_path, monkeypatch):
         monkeypatch.setenv('VIBE_HOME', str(tmp_path))
         (tmp_path / 'pids').mkdir()
-        (tmp_path / 'pids' / f'backend_{self.PORT}.pid').write_text(str(pid))
-        monkeypatch.setattr(cli, '_pid_alive', lambda p: p == pid)
-        (tmp_path / 'data').mkdir()
-        with sqlite3.connect(tmp_path / 'data' / 'vibe_seller.db') as db:
-            db.execute('CREATE TABLE tasks (id TEXT, status TEXT)')
-            db.executemany(
-                'INSERT INTO tasks VALUES (?, ?)',
-                [(str(i), s) for i, s in enumerate(statuses)],
-            )
+        (tmp_path / 'pids' / f'backend_{self.PORT}.pid').write_text('4242')
+        monkeypatch.setattr(cli, '_pid_alive', lambda p: p == 4242)
+        monkeypatch.setattr(cli, '_new_cli_version', lambda: '2.0.0')
+        monkeypatch.setattr(cli.time, 'sleep', lambda _s: None)
+        # A fake clock: each probe advances it, so the waits are bounded.
+        clock = iter(range(0, 100_000, 1))
+        monkeypatch.setattr(cli.time, 'monotonic', lambda: next(clock))
 
-    def _cmdline(self, argv):
-        proc = MagicMock()
-        proc.cmdline.return_value = argv
-        return patch('psutil.Process', return_value=proc)
-
-    def _server_argv(self, host='127.0.0.1'):
-        return [
-            '/x/python', '-m', 'uvicorn', 'app.main:app',
-            '--host', host, '--port', str(self.PORT),
-        ]  # fmt: skip
-
-    def _restart(self, *, new_version='2.0.0'):
-        with patch.object(cli.subprocess, 'run') as run:
-            run.return_value = MagicMock(returncode=0)
-            with patch.object(
-                cli, '_new_cli_version', return_value=new_version
-            ):
-                cli._restart_running_servers('1.0.0')
-        return [c[0][0] for c in run.call_args_list]
-
-    def test_restarts_an_idle_server_on_its_own_host_and_port(
-        self, tmp_path, monkeypatch, capsys
-    ):
-        self._home(
-            tmp_path, monkeypatch, statuses=('completed', 'queued', 'waiting')
+    def _serve(self, monkeypatch, *bodies):
+        """Probe answers in order; the last one repeats."""
+        seq = list(bodies)
+        monkeypatch.setattr(
+            cli,
+            '_probe_version',
+            lambda _port: seq.pop(0) if len(seq) > 1 else seq[0],
         )
-        with self._cmdline(self._server_argv(host='127.0.0.1')):
-            cmds = self._restart()
-        assert [c[4:] for c in cmds] == [
-            ['stop', '--port', str(self.PORT)],
-            ['start', '--host', '127.0.0.1', '--port', str(self.PORT)],
-        ]
-        # A fresh interpreter: this process still has the old app loaded.
-        assert all(c[1:4] == ['-I', '-m', 'app.cli'] for c in cmds)
 
-    @pytest.mark.parametrize('busy', ['running', 'designing'])
-    def test_a_live_task_keeps_the_server_up(
-        self, tmp_path, monkeypatch, capsys, busy
+    def test_returns_once_the_server_runs_the_new_version(
+        self, monkeypatch, capsys
     ):
-        self._home(tmp_path, monkeypatch, statuses=('completed', busy))
-        with self._cmdline(self._server_argv()):
-            cmds = self._restart()
-        assert cmds == []
-        out = capsys.readouterr().out
-        assert '1 task(s) are running' in out
-        assert f'vibe-seller stop --port {self.PORT}' in out
+        self._serve(
+            monkeypatch,
+            {'version': '1.0.0', 'pending_version': None},
+            {'version': '1.0.0', 'pending_version': '2.0.0'},
+            None,  # mid-restart: nothing answering
+            {'version': '2.0.0', 'pending_version': None},
+        )
+        assert cli._await_servers_upgraded('1.0.0') == 0
+        assert 'now running 2.0.0' in capsys.readouterr().out
 
-    def test_unreadable_task_db_counts_as_busy(self, tmp_path, monkeypatch):
-        self._home(tmp_path, monkeypatch)
-        (tmp_path / 'data' / 'vibe_seller.db').write_bytes(b'not sqlite')
-        with self._cmdline(self._server_argv()):
-            assert self._restart() == []
-
-    def test_a_recycled_pid_is_not_restarted(self, tmp_path, monkeypatch):
-        self._home(tmp_path, monkeypatch)
-        with self._cmdline(['/usr/bin/some-other-program']):
-            assert self._restart() == []
-
-    def test_nothing_to_reload_when_the_version_did_not_change(
-        self, tmp_path, monkeypatch
+    def test_a_server_that_never_picks_it_up_fails_the_upgrade(
+        self, monkeypatch, capsys
     ):
-        self._home(tmp_path, monkeypatch)
-        with self._cmdline(self._server_argv()):
-            assert self._restart(new_version='1.0.0') == []
+        self._serve(monkeypatch, {'version': '1.0.0', 'pending_version': None})
+        assert cli._await_servers_upgraded('1.0.0') == 1
+        assert f'vibe-seller stop --port {self.PORT}' in capsys.readouterr().err
+
+    def test_draining_for_running_tasks_is_reported_not_failed(
+        self, monkeypatch, capsys
+    ):
+        self._serve(
+            monkeypatch, {'version': '1.0.0', 'pending_version': '2.0.0'}
+        )
+        assert cli._await_servers_upgraded('1.0.0') == 0
+        assert 'restarts onto 2.0.0 by itself' in capsys.readouterr().out
+
+    def test_a_server_too_old_to_restart_itself_gets_the_command(
+        self, monkeypatch, capsys
+    ):
+        self._serve(monkeypatch, {'version': '1.0.0'})
+        assert cli._await_servers_upgraded('1.0.0') == 0
+        assert f'vibe-seller stop --port {self.PORT}' in capsys.readouterr().out
+
+    def test_nothing_to_wait_for_when_the_version_did_not_change(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(cli, '_new_cli_version', lambda: '1.0.0')
+        self._serve(monkeypatch, {'version': '1.0.0', 'pending_version': None})
+        assert cli._await_servers_upgraded('1.0.0') == 0
 
     def test_no_running_server_runs_nothing(self, tmp_path, monkeypatch):
-        monkeypatch.setenv('VIBE_HOME', str(tmp_path))
+        (tmp_path / 'pids' / f'backend_{self.PORT}.pid').unlink()
         with patch.object(cli.subprocess, 'run') as run:
-            cli._restart_running_servers('1.0.0')
+            assert cli._await_servers_upgraded('1.0.0') == 0
         run.assert_not_called()

@@ -64,11 +64,22 @@ class TaskQueueScheduler:
         self._lock = asyncio.Lock()
         self._tick_event = asyncio.Event()
         self._tick_task: asyncio.Task | None = None
+        # Set while the server drains for an upgrade restart: nothing new
+        # is dispatched, so the live agents can only go DOWN. Queued tasks
+        # stay queued (and in the DB as QUEUED), which `_recover_from_db`
+        # re-queues on the next boot — they lose nothing to the restart.
+        self._dispatch_paused = False
 
     @property
     def is_running(self) -> bool:
         """True if the tick loop is active."""
         return self._tick_task is not None and not self._tick_task.done()
+
+    def pause_dispatch(self) -> None:
+        """Stop starting queued tasks (see ``app.upgrade_restart``)."""
+        if not self._dispatch_paused:
+            logger.info('Task dispatch paused: draining for a restart')
+        self._dispatch_paused = True
 
     async def start(self):
         """Recover state from DB and start the tick loop."""
@@ -287,6 +298,8 @@ class TaskQueueScheduler:
 
     async def _tick(self):
         """Process all store queues, dispatching tasks that can run."""
+        if self._dispatch_paused:
+            return
         async with self._lock:
             store_ids = list(self._queues.keys())
 
@@ -298,6 +311,9 @@ class TaskQueueScheduler:
 
             # Process queue: check head for scheduling eligibility
             while True:
+                # Re-checked per task: a drain can begin at any await below.
+                if self._dispatch_paused:
+                    return
                 async with self._lock:
                     queue = self._queues.get(store_id, [])
                     if not queue:

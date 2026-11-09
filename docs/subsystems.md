@@ -510,33 +510,44 @@ platform-agnostic:
 
 ### Upgrade restart
 
-An upgrade replaces files on disk; a running server keeps the old code
-in memory until it is restarted. Both upgrade paths restart it.
+Invariant: **a server never keeps serving code the disk no longer has.**
+An upgrade replaces files on disk; without a restart the old process
+keeps the old code in memory, and its lazy imports start mixing in new
+modules. The server owns the restart (`app/upgrade_restart.py`), so it
+holds however the upgrade was run and however the server is supervised
+(`vibe-seller start`, `--foreground`, launchd/systemd, `start.sh`):
 
-- **`vibe-seller upgrade` (macOS/Linux, `app/cli.py`)** — after the
-  package, browser and Claude CLI steps, `_restart_running_servers`
-  restarts each server `vibe-seller start` launched: found by its pid
-  file under `$VIBE_HOME/pids/` and confirmed against the process
-  command line (`app.main:app` + the port), so a recycled PID is never
-  touched. Servers run any other way (`--foreground`, launchd/systemd,
-  a clone's `start.sh`) have no pid file there and are left to whoever
-  supervises them. Stop and start run in a **fresh interpreter**
-  (`python -I -m app.cli`), because the upgrading process still has the
-  old `app` loaded; the original `--host`/`--port` are kept.
-- **Never kills live work.** Boot recovery marks `running`/`designing`
-  tasks failed (`server_restart`), so while any exist — or the task DB
-  can't be read — the server is left up and the restart command is
-  printed. Queued/pending/planned/waiting tasks survive a restart.
-- **Windows installer** — `PrepareToInstall` stops the server and tray.
-  Interactive installs restart them from the finish page ("Open now");
-  a silent install has no finish page, so it relaunches the tray (which
-  starts the server) when one was running before (`AppWasRunning`).
-- **`get_version()` is per process** (`app/version.py`): it reports the
-  code the process loaded, never the metadata installed since. Reading
-  it per call made an un-restarted server report the new version.
+1. **Detect** — every 10 s, `watch()` compares the version this process
+   loaded (`app.version.get_version`, fixed per process) with the one
+   installed on disk now.
+2. **Drain** — when they differ, `task_queue_scheduler.pause_dispatch()`
+   stops starting queued tasks, so live agents can only go down. Queued
+   tasks stay `queued` and are re-queued on the next boot.
+   `GET /api/version` reports `pending_version` meanwhile.
+3. **Restart in place** — once `agent_manager.live_agent_count()` is 0
+   (the exact set a shutdown's `stop_all` would kill, so "safe to
+   restart?" and "what would it kill?" cannot disagree), it sends itself
+   SIGTERM for uvicorn's graceful shutdown, and the lifespan's last step
+   `os.execv`s the original command line (`sys.orig_argv`). Same PID —
+   pid files and supervisors keep tracking it — same environment,
+   host/port and log, new code. The check and the shutdown request run
+   with no `await` between them, so no agent can start in that window.
 
-The first upgrade *into* a version with this behaviour is performed by
-the previous version's CLI, so that one does not restart.
+`vibe-seller upgrade` (`app/cli.py`) only waits: for each server it
+started (pid files) it polls `/api/version` until the new version
+answers, reports a server still draining for running tasks, and exits
+non-zero if a server that can restart itself never picks the upgrade
+up. A server older than this mechanism has no `pending_version` and is
+told to restart once by hand — the one upgrade *into* this version is
+run by code that predates it.
+
+**Windows** is excluded (no in-place exec; uvicorn `--reload` workers
+are too). Upgrades there go through the installer: `PrepareToInstall`
+stops the server and tray, interactive installs restart them from the
+finish page ("Open now"), and a silent install relaunches the tray —
+which starts the server — when one was running before
+(`AppWasRunning`). The installer does stop running tasks; the tray's
+update dialog is the place it is started from.
 
 ### Native Windows installer
 

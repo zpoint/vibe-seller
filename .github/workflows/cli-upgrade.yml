@@ -4,8 +4,9 @@ name: CLI Upgrade Restart Test
 # version: tests/releases/test_cli_upgrade_restart.sh builds this
 # checkout as two versions, `uv tool install`s the older one (the
 # install.sh layout), starts it, runs the real `vibe-seller upgrade`,
-# and asserts a NEW process now serves the new version — with no manual
-# start in between.
+# and asserts the server booted again and serves the new version — with
+# no manual start in between (the server restarts itself:
+# app/upgrade_restart.py).
 #
 # A release gate (release.yml calls it via workflow_call), and also run
 # on PRs touching the upgrade/restart surface. macOS and Linux because
@@ -19,6 +20,9 @@ on:
     branches: [main]
     paths:
       - 'app/cli.py'
+      - 'app/upgrade_restart.py'
+      - 'app/main.py'
+      - 'app/scheduler/task_queue.py'
       - 'app/version.py'
       - 'app/platform.py'
       - 'tests/releases/test_cli_upgrade_restart.sh'
