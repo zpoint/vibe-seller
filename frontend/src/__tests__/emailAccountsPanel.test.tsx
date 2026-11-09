@@ -179,7 +179,7 @@ describe('EmailAccountsPanel send permission switch', () => {
     fireEvent.click(screen.getByRole('switch'))
     await waitFor(() =>
       expect(mockApi.put).toHaveBeenCalledWith(
-        '/api/email-accounts/acct-1',
+        '/api/email-accounts/acct-1/send-permission',
         { allow_send: true },
       ),
     )
@@ -194,7 +194,7 @@ describe('EmailAccountsPanel send permission switch', () => {
     fireEvent.click(sw)
     await waitFor(() =>
       expect(mockApi.put).toHaveBeenCalledWith(
-        '/api/email-accounts/acct-1',
+        '/api/email-accounts/acct-1/send-permission',
         { allow_send: false },
       ),
     )

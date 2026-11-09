@@ -404,8 +404,9 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/email-accounts` | List email accounts |
-| POST | `/api/email-accounts` | Create email account (password encrypted; `allow_send` always starts `false`) |
-| PUT | `/api/email-accounts/{id}` | Update email account, incl. `allow_send` (403 if an API token tries to change `allow_send`) |
+| POST | `/api/email-accounts` | Create email account (password encrypted; `allow_send` always starts `false` — a body naming it is a 422) |
+| PUT | `/api/email-accounts/{id}` | Update email account (not `allow_send` — a body naming it is a 422 pointing at the route below) |
+| PUT | `/api/email-accounts/{id}/send-permission` | `{allow_send: bool}` — **interactive-only**: any machine credential gets 403 (see below) |
 | GET | `/api/email-accounts/discover` | Auto-discover IMAP settings |
 | GET | `/api/email-accounts/discover-smtp` | Auto-discover SMTP settings |
 | POST | `/api/email-accounts/{id}/test` | Test IMAP connection |
@@ -426,8 +427,19 @@ The gate is `ensure_send_allowed` in `app/email/sender.py`, called by
 path — this route, the in-task `vibe_seller_send_email` MCP tool (which
 POSTs here), and the external `/api/mcp` `manage_email_account(send)`
 (which calls this route in-process) — is refused the same way, and a
-future caller of the sender is too. The user flips it per mailbox in
-Settings → Email; an API token cannot change it.
+future caller of the sender is too.
+
+The user flips it per mailbox in Settings → Email, through
+`PUT …/send-permission`. That route is in `INTERACTIVE_ONLY_ROUTES`
+(`app/interactive_only.py`), whose middleware refuses — by how the
+credential is presented — any `Authorization` header (a `vst_` token or
+a Bearer JWT), a `vst_` cookie, and the AI-bot JWT as a cookie (what
+the in-task MCP server presents). Only the web UI's session cookie and,
+on a server with login off, a credential-less request pass. Limit: with
+login off, an agent's credential-less request looks the same as the web
+UI, so the switch is agent-proof only when login is on. A drift guard
+(`tests/unit/test_interactive_only.py`) fails if any other route's body
+accepts `allow_send` or any other handler assigns it.
 
 ## `profiles.py` — AI Agent Profiles
 

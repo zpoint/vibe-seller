@@ -191,9 +191,15 @@ from that mailbox is turned off and shows you the draft instead.
 
 You can switch it off at any time and it takes effect immediately. The
 rule is enforced on the server, not left to the AI: a mailbox without
-the permission cannot send, whatever the task says. Only you can change
-the switch, in the web UI — an external AI client using an API key
-cannot.
+the permission cannot send, whatever the task says.
+
+Only you can change the switch, signed in to the web UI: neither the AI
+inside a task nor an external AI client using an API key can. **This
+holds while login is turned on** — if you turn login off in Settings,
+the server cannot tell the web UI apart from an AI's request that
+carries no credential, so the switch cannot stop an AI that sets out to
+get around it. Keep login on if several people use the instance or this
+matters to you.
 
 ## What the AI can do with it
 

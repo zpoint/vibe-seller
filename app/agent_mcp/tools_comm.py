@@ -293,7 +293,6 @@ async def manage_email_account(ctx: McpContext, args: dict) -> dict:
             email_route.update_email_account,
             account_id,
             EmailAccountUpdate(**fields),
-            request=ctx.request,
             db=ctx.db,
             _user=ctx.user,
         )

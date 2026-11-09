@@ -9,8 +9,12 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine as sqlalchemy_create_async_engine,
 )
 
+from app.auth import create_token
+from app.config import AI_BOT_USER_ID, DEFAULT_USER_ID
 from app.database import _ensure_added_columns  # noqa: PLC2701
+from app.models.app_settings import AppSettings
 from app.models.base import Base
+from app.models.user import User
 
 pytestmark = pytest.mark.workflow
 
@@ -209,8 +213,9 @@ class TestSendEndpoint:
         # past the permission gate to the missing-host check)
         await admin_client.put(
             f'/api/email-accounts/{acct_id}',
-            json={'smtp_host': '', 'allow_send': True},
+            json={'smtp_host': ''},
         )
+        await _permit(admin_client, acct_id, True)
 
         # The send should fail with 502
         # (smtp_host is empty string which is falsy)
@@ -259,6 +264,22 @@ async def _create_account(client, email='shop@example.com') -> dict:
     return r.json()
 
 
+def _permission_path(account_id: str) -> str:
+    return f'/api/email-accounts/{account_id}/send-permission'
+
+
+async def _permit(client, account_id: str, value: bool, **kwargs):
+    """Flip the switch the way the web UI does; return the response."""
+    return await client.put(
+        _permission_path(account_id), json={'allow_send': value}, **kwargs
+    )
+
+
+async def _allow_send_of(client, account_id: str) -> bool:
+    listed = (await client.get('/api/email-accounts')).json()
+    return next(a['allow_send'] for a in listed if a['id'] == account_id)
+
+
 class TestSendPermission:
     """``allow_send`` is off by default and refuses before any SMTP."""
 
@@ -268,9 +289,10 @@ class TestSendPermission:
         listed = (await admin_client.get('/api/email-accounts')).json()
         assert [a['allow_send'] for a in listed] == [False]
 
-    async def test_create_cannot_turn_it_on(self, admin_client):
-        """The create body has no such field: a new mailbox is always
-        read/draft-only until the user flips the switch."""
+    async def test_create_cannot_set_it(self, admin_client):
+        """A new mailbox is always read/draft-only until the user flips
+        the switch — a create body naming allow_send is refused, not
+        silently ignored."""
         r = await admin_client.post(
             '/api/email-accounts',
             json={
@@ -280,8 +302,19 @@ class TestSendPermission:
                 'allow_send': True,
             },
         )
-        assert r.status_code == 200
-        assert r.json()['allow_send'] is False
+        assert r.status_code == 422
+        assert '/send-permission' in r.text
+        listed = (await admin_client.get('/api/email-accounts')).json()
+        assert listed == []
+
+    async def test_general_update_rejects_it(self, admin_client):
+        acct = await _create_account(admin_client)
+        r = await admin_client.put(
+            f'/api/email-accounts/{acct["id"]}', json={'allow_send': True}
+        )
+        assert r.status_code == 422
+        assert 'PUT /api/email-accounts/{id}/send-permission' in r.text
+        assert await _allow_send_of(admin_client, acct['id']) is False
 
     async def test_send_refused_403_without_smtp(self, admin_client, smtp_spy):
         acct = await _create_account(admin_client)
@@ -297,11 +330,10 @@ class TestSendPermission:
         assert _smtp_untouched(smtp_spy)
 
     async def test_toggle_round_trip_and_send(self, admin_client, smtp_spy):
+        """The web UI's cookie session flips it, and it round-trips."""
         acct = await _create_account(admin_client)
-        on = await admin_client.put(
-            f'/api/email-accounts/{acct["id"]}', json={'allow_send': True}
-        )
-        assert on.status_code == 200
+        on = await _permit(admin_client, acct['id'], True)
+        assert on.status_code == 200, on.text
         assert on.json()['allow_send'] is True
         listed = (await admin_client.get('/api/email-accounts')).json()
         assert listed[0]['allow_send'] is True
@@ -316,9 +348,7 @@ class TestSendPermission:
 
         # Off again → refused again, no new SMTP connection.
         ssl_cls.reset_mock()
-        off = await admin_client.put(
-            f'/api/email-accounts/{acct["id"]}', json={'allow_send': False}
-        )
+        off = await _permit(admin_client, acct['id'], False)
         assert off.json()['allow_send'] is False
         r = await admin_client.post(
             f'/api/email-accounts/{acct["id"]}/send', json=SEND_BODY
@@ -328,9 +358,7 @@ class TestSendPermission:
 
     async def test_unrelated_update_keeps_permission(self, admin_client):
         acct = await _create_account(admin_client)
-        await admin_client.put(
-            f'/api/email-accounts/{acct["id"]}', json={'allow_send': True}
-        )
+        await _permit(admin_client, acct['id'], True)
         r = await admin_client.put(
             f'/api/email-accounts/{acct["id"]}',
             json={'smtp_port': 587},
@@ -341,37 +369,125 @@ class TestSendPermission:
         """Same role rule as every other email-account edit (any signed
         in user) — the permission adds no new role tier."""
         acct = await _create_account(member_client)
-        r = await member_client.put(
-            f'/api/email-accounts/{acct["id"]}', json={'allow_send': True}
-        )
+        r = await _permit(member_client, acct['id'], True)
         assert r.status_code == 200
         assert r.json()['allow_send'] is True
 
-    async def test_api_token_cannot_change_permission(
+    async def test_unknown_account_404(self, admin_client):
+        r = await _permit(admin_client, 'no-such-id', True)
+        assert r.status_code == 404
+
+
+class TestSendPermissionIsInteractiveOnly:
+    """Only the web UI's own session may flip the switch — every
+    credential an agent holds is refused (app/interactive_only.py)."""
+
+    async def _refused(self, admin_client, client, account_id, **kwargs):
+        r = await _permit(client, account_id, True, **kwargs)
+        assert r.status_code == 403, r.text
+        assert 'Only the user can change this' in r.json()['detail']
+        assert await _allow_send_of(admin_client, account_id) is False
+
+    async def test_vst_token_bearer_refused(
         self, admin_client, unauthed_client
     ):
-        """An external agent (vst_ token) must not open its own gate."""
         acct = await _create_account(admin_client)
         minted = await admin_client.post(
             '/api/auth/tokens', json={'name': 'agent'}
         )
-        headers = {'Authorization': f'Bearer {minted.json()["token"]}'}
-        r = await unauthed_client.put(
-            f'/api/email-accounts/{acct["id"]}',
-            json={'allow_send': True},
-            headers=headers,
+        token = minted.json()['token']
+        await self._refused(
+            admin_client,
+            unauthed_client,
+            acct['id'],
+            headers={'Authorization': f'Bearer {token}'},
         )
-        assert r.status_code == 403
-        assert 'API token' in r.json()['detail']
-        listed = (await admin_client.get('/api/email-accounts')).json()
-        assert listed[0]['allow_send'] is False
-        # Other edits by the token still work.
+        # Other edits by the token still work — the rule is per route.
         r = await unauthed_client.put(
             f'/api/email-accounts/{acct["id"]}',
             json={'smtp_port': 587},
-            headers=headers,
+            headers={'Authorization': f'Bearer {token}'},
         )
         assert r.status_code == 200
+
+    async def test_vst_token_cookie_refused(
+        self, admin_client, unauthed_client
+    ):
+        acct = await _create_account(admin_client)
+        minted = await admin_client.post(
+            '/api/auth/tokens', json={'name': 'agent'}
+        )
+        unauthed_client.cookies.set('auth_token', minted.json()['token'])
+        await self._refused(admin_client, unauthed_client, acct['id'])
+
+    async def test_service_jwt_bearer_refused(
+        self, admin_client, unauthed_client, admin_user
+    ):
+        """A JWT presented as Bearer (what the browser wrappers carry,
+        and what a task agent with a shell can replay) — even the
+        admin's own."""
+        acct = await _create_account(admin_client)
+        jwt_token = create_token(admin_user.id, 'admin')
+        await self._refused(
+            admin_client,
+            unauthed_client,
+            acct['id'],
+            headers={'Authorization': f'Bearer {jwt_token}'},
+        )
+
+    async def test_ai_bot_jwt_cookie_refused(
+        self, admin_client, unauthed_client
+    ):
+        """The in-task MCP server presents the AI-bot JWT as the cookie;
+        a task agent can replay it the same way."""
+        acct = await _create_account(admin_client)
+        unauthed_client.cookies.set(
+            'auth_token', create_token(AI_BOT_USER_ID, 'ai_bot')
+        )
+        await self._refused(admin_client, unauthed_client, acct['id'])
+
+    async def test_no_auth_server_without_credential_allowed(
+        self, admin_client, unauthed_client, override_async_session
+    ):
+        """Login turned off: a request with no credential is the web UI
+        (the documented limit — it is also an agent's bare curl)."""
+        acct = await _create_account(admin_client)
+        async with override_async_session() as db:
+            await db.merge(AppSettings(key='auth_required', value='false'))
+            await db.merge(
+                User(
+                    id=DEFAULT_USER_ID,
+                    username='default-admin',
+                    email='default-admin@example.com',
+                    password_hash='x',
+                    role='admin',
+                    is_active=True,
+                )
+            )
+            await db.commit()
+        r = await _permit(unauthed_client, acct['id'], True)
+        assert r.status_code == 200, r.text
+        assert r.json()['allow_send'] is True
+
+    async def test_send_still_refused_after_refused_toggle(
+        self, admin_client, unauthed_client, admin_user, smtp_spy, monkeypatch
+    ):
+        """The agent's story end to end: its toggle attempt is refused,
+        and its send through the in-task tool stays refused."""
+        acct = await _create_account(admin_client)
+        r = await _permit(
+            unauthed_client,
+            acct['id'],
+            True,
+            headers={
+                'Authorization': f'Bearer {create_token(admin_user.id, "admin")}'
+            },
+        )
+        assert r.status_code == 403
+        _route_mcp_call_api(admin_client, monkeypatch)
+        result = await _in_task_send()
+        assert 'turned off' in result['detail']
+        assert _smtp_untouched(smtp_spy)
 
     async def test_info_by_store_reports_permission(self, admin_client):
         store = (
@@ -390,48 +506,50 @@ class TestSendPermission:
         assert info['accounts'][0]['allow_send'] is False
 
 
+def _route_mcp_call_api(client, monkeypatch) -> None:
+    """Send the in-task MCP server's API calls through the real app."""
+
+    async def _call_api(method, path, body=None, timeout=60):
+        resp = await client.request(method, path, json=body)
+        return resp.json()
+
+    monkeypatch.setattr('app.mcp_server.call_api', _call_api)
+
+
+async def _in_task_send() -> dict:
+    """What a task agent's ``vibe_seller_send_email`` call returns."""
+    from app.mcp_server import handle_tool_call  # noqa: PLC0415
+
+    return json.loads(
+        await handle_tool_call(
+            'vibe_seller_send_email',
+            {
+                'account_email': 'shop@example.com',
+                'to': 'buyer@example.com',
+                'subject': 'Order update',
+                'body': 'It shipped.',
+            },
+        )
+    )
+
+
 class TestInTaskSendTool:
     """The in-task stdio MCP tool ``vibe_seller_send_email`` (what a
     task agent calls) — routed through the real app via ``call_api``."""
 
-    @pytest.fixture
-    def routed_call_api(self, admin_client, monkeypatch):
-        async def _call_api(method, path, body=None, timeout=60):
-            resp = await admin_client.request(method, path, json=body)
-            return resp.json()
-
-        monkeypatch.setattr('app.mcp_server.call_api', _call_api)
-
-    async def _send(self):
-        from app.mcp_server import handle_tool_call  # noqa: PLC0415
-
-        return json.loads(
-            await handle_tool_call(
-                'vibe_seller_send_email',
-                {
-                    'account_email': 'shop@example.com',
-                    'to': 'buyer@example.com',
-                    'subject': 'Order update',
-                    'body': 'It shipped.',
-                },
-            )
-        )
-
-    async def test_refused_when_off(
-        self, admin_client, routed_call_api, smtp_spy
-    ):
+    async def test_refused_when_off(self, admin_client, monkeypatch, smtp_spy):
         await _create_account(admin_client)
-        result = await self._send()
+        _route_mcp_call_api(admin_client, monkeypatch)
+        result = await _in_task_send()
         assert 'turned off' in result['detail']
         assert 'draft' in result['detail']
         assert _smtp_untouched(smtp_spy)
 
-    async def test_sends_when_on(self, admin_client, routed_call_api, smtp_spy):
+    async def test_sends_when_on(self, admin_client, monkeypatch, smtp_spy):
         acct = await _create_account(admin_client)
-        await admin_client.put(
-            f'/api/email-accounts/{acct["id"]}', json={'allow_send': True}
-        )
-        result = await self._send()
+        await _permit(admin_client, acct['id'], True)
+        _route_mcp_call_api(admin_client, monkeypatch)
+        result = await _in_task_send()
         assert result['ok'] is True
         smtp_spy[0].return_value.sendmail.assert_called_once()
 

@@ -1,7 +1,30 @@
-from pydantic import BaseModel, ConfigDict
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, model_validator
+
+SEND_PERMISSION_ROUTE = 'PUT /api/email-accounts/{id}/send-permission'
 
 
-class EmailAccountCreate(BaseModel):
+class _NoSendPermission(BaseModel):
+    """Refuses ``allow_send`` in a general create/update body.
+
+    The send permission has its own route, which only an interactive
+    web login may call (``app/interactive_only.py``). Silently ignoring
+    the field here would let a caller believe it had been set.
+    """
+
+    @model_validator(mode='before')
+    @classmethod
+    def _refuse_allow_send(cls, data: Any) -> Any:
+        if isinstance(data, dict) and 'allow_send' in data:
+            raise ValueError(
+                'allow_send cannot be set here; the user sets it with '
+                f'{SEND_PERMISSION_ROUTE} (Settings → Email in the web UI)'
+            )
+        return data
+
+
+class EmailAccountCreate(_NoSendPermission):
     email: str
     password: str
     imap_host: str | None = None
@@ -12,7 +35,7 @@ class EmailAccountCreate(BaseModel):
     smtp_use_tls: bool = True
 
 
-class EmailAccountUpdate(BaseModel):
+class EmailAccountUpdate(_NoSendPermission):
     email: str | None = None
     password: str | None = None
     imap_host: str | None = None
@@ -21,7 +44,12 @@ class EmailAccountUpdate(BaseModel):
     smtp_host: str | None = None
     smtp_port: int | None = None
     smtp_use_tls: bool | None = None
-    allow_send: bool | None = None
+
+
+class SendPermissionUpdate(BaseModel):
+    """Body of the interactive-only send-permission route."""
+
+    allow_send: bool
 
 
 class EmailAccountResponse(BaseModel):

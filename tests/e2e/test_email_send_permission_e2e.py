@@ -96,7 +96,9 @@ def mailbox(api_client: httpx.Client):
 
 def _set_allow_send(client: httpx.Client, account_id: str, value: bool):
     r = client.put(
-        f'{BASE_URL}/api/email-accounts/{account_id}',
+        # The interactive-only route: api_client logs in like the web
+        # UI does (session cookie), so it is allowed here.
+        f'{BASE_URL}/api/email-accounts/{account_id}/send-permission',
         json={'allow_send': value},
     )
     r.raise_for_status()

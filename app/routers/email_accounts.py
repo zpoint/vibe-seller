@@ -31,6 +31,7 @@ from app.schemas.email_account import (
     EmailAccountResponse,
     EmailAccountUpdate,
     ImapDiscoverResponse,
+    SendPermissionUpdate,
     SmtpDiscoverResponse,
     StoreEmailLinkCreate,
     StoreEmailLinkResponse,
@@ -224,30 +225,15 @@ async def list_email_accounts(
 async def update_email_account(
     account_id: str,
     data: EmailAccountUpdate,
-    request: Request,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Update an email account."""
+    """Update an email account (not its send permission — see below)."""
     account = await db.get(EmailAccount, account_id)
     if not account:
         raise HTTPException(status_code=404, detail='Email account not found')
 
     update_data = data.model_dump(exclude_unset=True)
-    # The send permission is the user's decision, made in the web UI.
-    # An API token is how an external agent acts, and an agent that
-    # could switch the gate on for itself would make the gate moot.
-    if (
-        'allow_send' in update_data
-        and getattr(request.state, 'auth_via', None) == 'api_token'
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                'An API token cannot change whether a mailbox may send '
-                '— sign in to the web UI to do this'
-            ),
-        )
     # Handle password encryption separately
     if 'password' in update_data:
         raw_pw = update_data.pop('password')
@@ -260,6 +246,40 @@ async def update_email_account(
     account.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
     await db.refresh(account)
+    return account
+
+
+@router.put(
+    '/api/email-accounts/{account_id}/send-permission',
+    response_model=EmailAccountResponse,
+)
+async def set_send_permission(
+    account_id: str,
+    data: SendPermissionUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Turn agent sending from this mailbox on or off.
+
+    Interactive-only: ``InteractiveOnlyMiddleware``
+    (``app/interactive_only.py``) refuses every machine credential here
+    before this handler runs, so only the user at the web UI reaches it.
+    """
+    account = await db.get(EmailAccount, account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail='Email account not found')
+    account.allow_send = data.allow_send
+    account.updated_at = datetime.now(UTC).isoformat()
+    await db.commit()
+    await db.refresh(account)
+    logger.info(
+        'email send permission: account=%s allow_send=%s user=%s via=%s',
+        account.id,
+        account.allow_send,
+        user.username,
+        getattr(request.state, 'auth_via', None),
+    )
     return account
 
 

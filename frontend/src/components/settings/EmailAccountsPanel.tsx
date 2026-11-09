@@ -156,7 +156,7 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
     setSendSaving(prev => ({ ...prev, [id]: true }))
     setSendError(prev => ({ ...prev, [id]: '' }))
     try {
-      await api.put(`/api/email-accounts/${id}`, { allow_send: value })
+      await api.put(`/api/email-accounts/${id}/send-permission`, { allow_send: value })
       loadEmailAccounts()
     } catch (e) {
       setSendError(prev => ({ ...prev, [id]: e instanceof Error ? e.message : String(e) }))
