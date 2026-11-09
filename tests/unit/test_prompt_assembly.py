@@ -761,7 +761,7 @@ class TestPromptOrdering:
         sys = bundle.system_extra
 
         # Base prompt (design_system) comes first
-        base_pos = sys.find('task design agent')
+        base_pos = sys.find("You carry out a user's task")
         # Waiting instruction comes after base
         wait_pos = sys.find('Waiting for External Responses')
         # Store context (store name in browser section)
