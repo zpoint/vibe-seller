@@ -154,6 +154,17 @@ describe('ApiTokensPanel', () => {
       'Bearer vst_secret',
     )
     expect(qoderParsed.mcpServers['vibe-seller'].url).toContain('/api/mcp')
+
+    const hermes = screen.getByTestId('api-token-snippet-hermes')
+    expect(hermes.textContent).toContain('mcp_servers:')
+    expect(hermes.textContent).toContain('/api/mcp"')
+    expect(hermes.textContent).toContain(
+      'Authorization: "Bearer vst_secret"',
+    )
+
+    const pi = screen.getByTestId('api-token-snippet-pi')
+    expect(pi.textContent).toContain('pi mcp add vibe-seller --url ')
+    expect(pi.textContent).toContain('--header "Authorization=Bearer vst_secret"')
   })
 
   it('drops the plaintext when the dialog is closed', async () => {

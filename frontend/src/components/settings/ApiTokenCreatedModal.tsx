@@ -193,6 +193,24 @@ export function ApiTokenCreatedModal({ token, onClose }: Props) {
           onCopy={copy}
         />
 
+        <SnippetBlock
+          id="hermes"
+          label={t('apiTokens.hermes')}
+          hint={t('apiTokens.hermesHint')}
+          text={snippets.hermes}
+          copied={copied === 'hermes'}
+          onCopy={copy}
+        />
+
+        <SnippetBlock
+          id="pi"
+          label={t('apiTokens.pi')}
+          hint={t('apiTokens.piHint')}
+          text={snippets.pi}
+          copied={copied === 'pi'}
+          onCopy={copy}
+        />
+
         <div className="mt-6 flex justify-end">
           <button
             onClick={onClose}

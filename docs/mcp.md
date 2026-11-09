@@ -1,11 +1,11 @@
 ---
-description: 在你已经在用的 AI 工具里直接指挥 Vibe Seller——MCP 接入：建 API Key、Claude / Codex / WorkBuddy / Qoder 桌面端接入、验证和试用。
+description: 在你已经在用的 AI 工具里直接指挥 Vibe Seller——MCP 接入：建 API Key、Claude / Codex（桌面版和命令行）、WorkBuddy、Qoder、Hermes Agent、Pi 接入、验证和试用。
 ---
 
 # MCP 接入
 
-平时习惯用 Claude、Codex、WorkBuddy 或 Qoder 处理工作？现在可以直接在这些
-AI 工具里指挥 Vibe Seller 了。
+平时习惯用 Claude、Codex、WorkBuddy、Qoder、Hermes Agent 或 Pi 处理工作？
+现在可以直接在这些 AI 工具里指挥 Vibe Seller 了。
 
 接好之后，在对话框里说一句「帮我看看 acme 上周的广告」，它就会去 Vibe Seller
 里建好任务、盯着进度，跑完把结论带回给你。任务中途有问题要问你、有计划要你
@@ -17,9 +17,21 @@ AI 工具里指挥 Vibe Seller 了。
 > 你的浏览器，也没法直接改店铺。计划审批、广告改动范围检查这些把关，和你在
 > 网页上操作时完全一样。
 
-本文只介绍桌面端怎么接。用命令行（Claude Code CLI、Codex CLI 等），或者想看
-技术细节（协议、全部 32 个工具、curl 示例）的，请看
+本文介绍上面六个工具怎么接。Claude 和 Codex 的桌面版、命令行版配置是同一份，
+配一次两边都能用。用别的支持 MCP 的工具，或者想看技术细节（协议、全部 32 个工具、curl 示例）的，请看
 [Connect an External Agent](agents.md)。
+
+**目录**
+
+- [第一步：创建 API Key](#第一步创建-api-key)（不管用哪个工具，都先做这一步）
+- 第二步，接入你用的工具：
+    - [Claude（桌面版和 Claude Code）](#claude桌面版和-claude-code)
+    - [Codex（桌面版和命令行）](#codex桌面版和命令行)
+    - [WorkBuddy（腾讯）](#workbuddy腾讯)
+    - [Qoder（阿里）](#qoder阿里)
+    - [Hermes Agent（Nous Research）](#hermes-agentnous-research)
+    - [Pi](#pi)
+- [常见问题](#常见问题)
 
 ## 可以这样用
 
@@ -69,16 +81,17 @@ AI 工具里指挥 Vibe Seller 了。
 - 即使你的 Vibe Seller 没开登录验证，也建议照样创建一个。以后开了验证，
   工具也不会突然连不上。
 
-## Claude 桌面版
+## Claude（桌面版和 Claude Code）
 
 ### 安装
 
-到 [claude.com/download](https://claude.com/download) 下载对应系统的版本，装好即可。
+到 [claude.com/download](https://claude.com/download) 下载对应系统的桌面版，装好即可。
+只在终端里用的话，装 Claude Code 就行（`npm install -g @anthropic-ai/claude-code`）。
 
 ### 接入
 
-Claude 桌面版的 **Code 标签页**用的就是 Claude Code，所以只要在终端里跑一次
-弹窗给的命令，桌面版就能用上：
+Claude 桌面版的 **Code 标签页**用的就是 Claude Code，两边读的是同一份配置。
+在终端里跑一次弹窗给的命令，桌面版和命令行就都能用了：
 
 ```bash
 # 默认连本机；Vibe Seller 在另一台电脑上时，把 localhost 换成那台电脑的地址
@@ -101,7 +114,8 @@ claude mcp add --scope user --transport http vibe-seller \
 ### 验证
 
 新开一个 Code 会话，问一句「vibe-seller 里有几个店铺」。它能答出店铺列表，
-或者工具列表里能看到 `list_stores`、`create_task`，就说明接好了。
+或者工具列表里能看到 `list_stores`、`create_task`，就说明接好了。在终端里也
+可以跑 `claude mcp list`，`vibe-seller` 后面显示 `✓ Connected` 即可。
 
 ![Claude 的 Code 标签页里能看到 vibe-seller 的工具](images/mcp_claude_verify_zh.png)
 
@@ -115,18 +129,19 @@ claude mcp add --scope user --transport http vibe-seller \
 3. 「这个任务现在在干什么，到哪一步了？」
 4. 「好，继续跟进，跑完了给我总结。」
 
-## Codex 桌面版
+## Codex（桌面版和命令行）
 
 ### 安装
 
 到 [chatgpt.com/codex](https://chatgpt.com/codex) 下载对应系统的桌面应用。Codex
 已经并入 ChatGPT 桌面应用，装好后在应用里切到 Codex 即可。第一次打开需要
-登录 ChatGPT 账号。
+登录 ChatGPT 账号。只在终端里用的话，装 Codex 命令行就行
+（`npm install -g @openai/codex`）。
 
 ### 接入
 
-Codex 桌面版的配置文件是 `~/.codex/config.toml`（和 Codex 命令行共用）。把弹窗
-给的这段贴进去：
+Codex 桌面版和命令行共用一个配置文件 `~/.codex/config.toml`，配一次两边都能用。
+把弹窗给的这段贴进去：
 
 ```toml
 [mcp_servers.vibe-seller]
@@ -135,7 +150,7 @@ url = "http://localhost:7777/api/mcp"
 http_headers = { "Authorization" = "Bearer vst_…" }
 ```
 
-保存后重启 Codex。
+保存后重启 Codex（命令行的话，新开一个 `codex` 会话即可）。
 
 > 请把 Key 直接写在配置里，不要用 `bearer_token_env_var` 读环境变量：从桌面图标、
 > 程序坞或开始菜单打开的桌面应用，读不到你在终端里设置的环境变量，会一直连不上。
@@ -147,7 +162,8 @@ http_headers = { "Authorization" = "Bearer vst_…" }
 ### 验证
 
 在 Codex 里问一句「vibe-seller 里有几个店铺」，或者打开 **Settings → Plugins →
-MCPs**（设置里搜 mcp 也能找到），看到 `vibe-seller` 已打开开关就说明接好了。
+MCPs**（设置里搜 mcp 也能找到），看到 `vibe-seller` 已打开开关就说明接好了。在终端里也可以跑 `codex mcp list`
+确认 `vibe-seller` 在列表里。
 
 ![Codex 的 MCP 列表里已启用 vibe-seller](images/mcp_codex_verify_zh.png)
 
@@ -272,6 +288,89 @@ MCP Server Management 里显示 `vibe-seller · 32/32 tools enabled`，就说明
 4. 「好，继续跟进，跑完了给我总结。」
 
 ![演示：在 Qoder 里指挥 Vibe Seller（等待过程已加速）](images/mcp_qoder_demo_zh.gif)
+
+## Hermes Agent（Nous Research）
+
+### 安装
+
+按 [Hermes Agent 官方安装说明](https://hermes-agent.nousresearch.com/docs/getting-started/installation)
+装好，macOS、Linux、Windows 都支持。
+
+### 接入
+
+Hermes 的 MCP 配置在 `~/.hermes/config.yaml` 的 `mcp_servers` 下。把弹窗给的
+这段加进去：
+
+```yaml
+mcp_servers:
+  vibe-seller:
+    # 默认连本机；Vibe Seller 在另一台电脑上时，把 localhost 换成那台电脑的地址
+    url: "http://localhost:7777/api/mcp"
+    headers:
+      Authorization: "Bearer vst_…"
+```
+
+文件里已经有 `mcp_servers:` 的话，只把 `vibe-seller:` 这一段放到它下面，
+不要再写一个 `mcp_servers:`。保存后在 Hermes 的会话里执行 `/reload-mcp`，
+或者重开 Hermes。
+
+### 验证
+
+在终端里执行 `hermes mcp test vibe-seller`，看到 `✓ Connected` 和
+`Tools discovered: 32` 就说明接好了。再到对话里问一句「vibe-seller 里有几个
+店铺」试试。
+
+### 试一试
+
+依次发这几句，看看它怎么帮你跑完一个广告分析：
+
+1. 「现在 vibe-seller 里有几个店铺？」
+2. 「帮我看看 acme 过去一周的广告花费，给点优化建议，按常见标准来就行，
+   不用问我，先别改任何东西。」
+3. 「这个任务现在在干什么，到哪一步了？」
+4. 「好，继续跟进，跑完了给我总结。」
+
+## Pi
+
+### 安装
+
+按 [Pi 官网](https://pi.dev) 的说明安装：
+
+```bash
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+```
+
+Pi 自带 MCP 支持，不用另装扩展。
+
+### 接入
+
+在终端里执行弹窗给的这条命令：
+
+```bash
+# 默认连本机；Vibe Seller 在另一台电脑上时，把 localhost 换成那台电脑的地址
+pi mcp add vibe-seller --url http://localhost:7777/api/mcp --header "Authorization=Bearer vst_…"
+```
+
+它会写进 `~/.pi/agent/mcp.json`。注意 `--header` 用的是 `名称=值` 的写法，
+不是 `名称: 值`。已经开着的 Pi 会话里执行一次 `/reload` 就能用上。
+
+### 验证
+
+在终端里执行 `pi mcp list`，看到 `vibe-seller: connected, 32 tools` 就说明
+接好了。再到对话里问一句「vibe-seller 里有几个店铺」试试。
+
+Pi 默认让模型写一小段脚本来调用这些工具（Pi 叫它 codemode），所以对话里看到
+的是脚本调用，而不是一个个工具名，这是正常的。
+
+### 试一试
+
+依次发这几句，看看它怎么帮你跑完一个广告分析：
+
+1. 「现在 vibe-seller 里有几个店铺？」
+2. 「帮我看看 acme 过去一周的广告花费，给点优化建议，按常见标准来就行，
+   不用问我，先别改任何东西。」
+3. 「这个任务现在在干什么，到哪一步了？」
+4. 「好，继续跟进，跑完了给我总结。」
 
 ## 常见问题
 
