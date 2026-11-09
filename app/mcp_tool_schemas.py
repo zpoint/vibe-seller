@@ -6,7 +6,7 @@ the matching dispatch branches in ``handle_tool_call``.
 """
 
 from app import vision
-from app.mcp_ad_tool_schemas import AD_TOOLS
+from app.mcp_ad_tool_schemas import _ALWAYS_LOADED, AD_TOOLS
 
 # Agent-facing image-model enum + a CONCISE guidance line, both derived
 # from the single source of truth in ``app/vision.py`` so the tool schema
@@ -27,20 +27,20 @@ _IMAGE_MODEL_GUIDE = (
     f'Default {_IMAGE_MODEL_DEFAULT}'
 )
 
-# The tools that END a task stay in the prompt, never deferred behind
-# Claude Code's tool search. Observed in CI, twice: a model that had
-# loaded only ``vibe_seller_write_workspace_file`` said "now record the
-# result" and called THAT, again and again (empty, then identical
-# rewrites), until the loop breaker stopped a session whose work was
-# done. A tool the model must reach at the end of every task cannot be
-# one it has to remember to search for first. Per-tool ``_meta`` key read
-# by the CLI; other MCP clients ignore it.
-_ALWAYS_LOADED = {'_meta': {'anthropic/alwaysLoad': True}}
+# The tools that END a task stay in the prompt (``_ALWAYS_LOADED``,
+# defined beside the ad tools that must be LOADED at its start), never
+# deferred behind Claude Code's tool search. Observed in CI, twice: a
+# model that had loaded only ``vibe_seller_write_workspace_file`` said
+# "now record the result" and called THAT, again and again (empty,
+# then identical rewrites), until the loop breaker stopped a session
+# whose work was done. A tool the model must reach at a fixed point of
+# every task cannot be one it has to remember to search for first.
 
 TOOLS = [
     *AD_TOOLS,
     {
         'name': 'vibe_seller_ads_call',
+        **_ALWAYS_LOADED,
         'description': (
             'Call the bound Amazon Ads service. Use this for every '
             'advertising read or write on an API-authorized store: '

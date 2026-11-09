@@ -302,7 +302,8 @@ async def workspace_file(ctx: McpContext, args: dict) -> dict:
             )
             text = decode_text(head[:-16])
             if text is None:
-                return file_result(
+                return await asyncio.to_thread(
+                    file_result,
                     ctx,
                     path=path,
                     abs_path=raw.path,
@@ -332,7 +333,8 @@ async def workspace_file(ctx: McpContext, args: dict) -> dict:
             # same shape as task_files.read (URL + optional blob).
             if 'Binary file' not in str(exc.detail):
                 raise
-            return file_result(
+            return await asyncio.to_thread(
+                file_result,
                 ctx,
                 path=path,
                 abs_path=raw.path,

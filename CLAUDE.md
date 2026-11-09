@@ -153,6 +153,43 @@ green." See [.claude/skills/debug-ci/SKILL.md § Fix from design,
 not from symptom](.claude/skills/debug-ci/SKILL.md) for the full
 checklist and worked examples.
 
+### Fixing a failing test — the standard (applies to reviews too)
+
+**A test's intention never changes, and a failure is never bypassed.**
+The test is the specification; the product or harness is what gets
+fixed. This is also the bar for reviewing anyone's fix (a subagent's,
+a teammate's, your own): a fix that breaks a rule below is rejected,
+however green it makes CI.
+
+Never, to make a failing test pass:
+- edit what the test asserts, the task prompt it sends, or the
+  behaviour an existing test pins — and never "repair" an existing
+  test by injecting a new precondition so it passes against changed
+  behaviour (that is changing its intention);
+- raise a timeout (per-test budget or CI step `timeout-minutes`), add
+  retries, sleeps, `skip`/`xfail`, or swap/pin the model;
+- call a failure "flaky", "model variance" or "unrelated" — those
+  describe a symptom; the conclusion is a root cause in code, config,
+  prompts or harness design.
+
+Every fix must carry:
+- **Log evidence** that it addresses the observed failure (the server
+  log lines, the task timeline), not a plausible story.
+- **A negative control**: the new or pinned test fails on the pre-fix
+  code and passes on the fix (`git checkout <parent> -- <files>`, not
+  `git stash` on a clean tree).
+- **No new blocking I/O on the event loop** and no `# blocking-ok` to
+  get green (`scripts/check_blocking_async.py`); copy the existing
+  one-`to_thread`-per-operation patterns.
+
+Before asking for an e2e approval: run the affected e2e tests locally
+on your own server (free port, never someone else's), each test alone
+as well as together, and do not request the gate while a test you
+touched still fails locally — a run with a known failure only spends
+provider credits. Tests must establish their own preconditions; one
+that only passes after another test (or on a particular xdist worker)
+is a harness bug to fix, not an ordering to rely on.
+
 ## Claude Workflows
 
 ### Adding Translations

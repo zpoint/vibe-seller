@@ -591,26 +591,82 @@ the same knowledge; this one is the write-capable superset.
 ## manage_skill
 
 **Purpose.** Manage the server's agent skills — the instructions its
-task agents load. What the Workspace → Skills view manages.
+task agents load. What the Workspace → Skills view manages. TO IMPORT
+A LOCAL SKILL (a codex or Claude skill directory on this machine) use
+the presigned archive upload: `begin_upload` → `curl` the archive from
+your own shell → `import`. The skill's bytes travel as a plain HTTP
+upload straight to the server — they never pass through you, so a
+binary-carrying skill costs no tokens and cannot be corrupted in
+transit.
 
 **Arguments.**
 
 | Name | Type | Notes |
 | --- | --- | --- |
-| `action` | string | Required. `list`, `get`, `create`, `update`, `delete`, `sync`, `sync_meta`. |
-| `slug` | string | Required for `get` / `update` / `delete`. |
+| `action` | string | Required. `list`, `get`, `create`, `update`, `begin_upload`, `import`, `delete`, `sync`, `sync_meta`. |
+| `upload_id` | string | `import` only: the id from `begin_upload` — the staged archive (`.tar.gz` / `.tar` / `.zip` of the skill directory) is extracted and installed. THE way to import a real skill; mutually exclusive with `files` / `files_bin`. |
+| `slug` | string | Required for `get` / `update` / `delete`. Optional for `import` — derived from the SKILL.md frontmatter `name` when omitted. |
 | `name` | string | Required for `create`. Letters, digits, hyphens; must not start with `_`. |
 | `description` | string | Optional for `create`. One line. |
-| `origin_url` | string | Optional for `create`. Where the skill came from. |
-| `skill_md` | string | Required for `update`. The FULL new SKILL.md (frontmatter included). |
-| `files` | object | Optional for `update`. Extra files: relative path → content (not SKILL.md). |
+| `origin_url` | string | Optional for `create` / `import`. Where the skill came from (a URL or a local path). |
+| `skill_md` | string | `update` / inline `import` only: the full SKILL.md (frontmatter included) — stored as written, whatever its frontmatter holds. |
+| `files` | object | `update` / inline `import` only: relative path → TEXT content (not SKILL.md). For tiny text-only skills and edits. |
+| `files_bin` | object | `update` only: relative path → **base64** content. Small inline binaries only — a real import goes through `begin_upload`, because base64 tool arguments push every byte through your model. |
+| `executables` | array | `update` / inline `import` only: which of the files above land with the executable bit. An archive carries its own bits (tar mode / zip attributes). |
+| `overwrite` | boolean | `import` only. Required to replace a user skill that already exists under the same slug — the call is refused without it, so a hand-made skill is never destroyed silently. |
+
+**Importing a local skill (the archive flow).**
+
+1. `action=begin_upload` → `{upload_id, put_url, put_path,
+   expires_at, max_bytes, formats, curl}`. The `put_url` is signed,
+   single-use and short-lived; the signature IS the authorization, so
+   no API token belongs in any shell command. If the `put_url` origin
+   differs from the MCP URL you are configured with (a reverse proxy
+   in front of the server), `PUT` to **your own MCP origin +
+   `put_path`** — the path and its signature are the contract, the
+   origin is just a hint.
+2. Run the returned `curl` in YOUR shell — `tar czf` (or `zip`) of the
+   skill directory, `PUT` as the request body. A
+   `multipart/form-data` POST with one `file` field works too (it
+   must declare `Content-Length`; a chunked body is refused with 411);
+   the raw `PUT` is the documented default. Format is decided by magic
+   bytes (`.tar.gz`, `.tar`, `.zip`), and the size cap is enforced
+   while streaming.
+3. `action=import` with the `upload_id`. The server extracts the
+   archive strictly — regular files only (no symlinks, hardlinks,
+   devices or FIFOs), safe relative names, no duplicates, one common
+   top-level directory stripped, `SKILL.md` required at the resulting
+   root (exactly that name) — and installs it through the one write
+   path every save uses. Everything is stored byte-identical. macOS
+   packaging junk (`._*`, `__MACOSX/`, `.DS_Store`) is skipped and
+   listed under `ignored` in the result — the server never silently
+   installs a different tree than the one you packed.
+
+**Writes.** Every path and size is checked before the first byte
+lands, so a refused call leaves nothing behind and there is no
+half-imported state. `import` **replaces** the skill directory
+wholesale (stale scripts from a previous version are deleted — the
+tree is staged and swapped in, so a failed import leaves the old
+skill untouched), while `update` **merges** (it writes the files
+given and leaves the rest of the skill alone). A replace over an
+EXISTING user skill needs `overwrite` (a re-import after an edit
+passes it): without it the call answers "a skill named X already
+exists (source=…)" and changes nothing — confirm with your user
+first. Paths are relative to the skill directory; `..`, absolute
+paths, `SKILL.md` itself and symlink escapes are refused.
+
+Inline `files` / `files_bin` remain for TINY text-only skills and
+edits. Do not carry large or binary content through tool arguments —
+that is exactly what the archive upload exists for.
 
 **Returns.** Per action: the skills with `slug`, `name`,
 `description`, `source` (`builtin` skills are read-only) and
 `updatable` (`list`); one skill with its full `skill_md` and `files`
-(`get`); the created path (`create`); the upsert result (`update`);
-`{slug, status}` (`delete`); the sync result and its metadata
-(`sync` / `sync_meta`).
+(`get`); the created path (`create`); the upsert result (`update` /
+`import` — `{slug, path, action}`); the presigned upload
+(`begin_upload` — `{upload_id, put_url, put_path, expires_at,
+max_bytes, formats, curl}`); `{slug, status}` (`delete`); the sync result and its
+metadata (`sync` / `sync_meta`).
 
 ## workspace_assistant
 

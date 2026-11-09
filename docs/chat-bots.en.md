@@ -1,5 +1,5 @@
 ---
-description: Push task results, reports and alerts straight into a group chat — chat-bot setup for WeCom / DingTalk / Feishu / Slack: create the bot, security settings, test-send and FAQ.
+description: 'Push task results, reports and alerts straight into a group chat — chat-bot setup for WeCom / DingTalk / Feishu / Slack: create the bot, security settings, test-send and FAQ.'
 ---
 
 # Chat bots (WeCom / DingTalk / Feishu / Slack)

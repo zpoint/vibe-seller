@@ -19,10 +19,25 @@ class SkillCreateRequest(BaseModel):
 
 
 class SkillSaveRequest(BaseModel):
-    """Upsert a user-space skill: full SKILL.md + optional bundles."""
+    """Upsert a user-space skill: full SKILL.md + optional bundles.
+
+    ``files`` holds text (path -> content, stored as UTF-8);
+    ``files_bin`` holds base64 (path -> base64) for anything that is
+    not valid UTF-8 — those round-trip byte-identical.
+    ``executables`` names written files that get the executable bit.
+    ``origin_url`` records provenance (the skill lists as imported).
+    ``replace`` swaps in the tree wholesale instead of merging (the
+    import flow), and replacing an EXISTING user skill needs
+    ``overwrite``. One call writes the whole skill.
+    """
 
     skill_md: SafeStr
     files: dict[str, SafeStr] = {}
+    files_bin: dict[str, SafeStr] = {}
+    executables: list[SafeStr] = []
+    origin_url: SafeStr = ''
+    replace: bool = False
+    overwrite: bool = False
 
 
 class StoreProfileCreateRequest(BaseModel):

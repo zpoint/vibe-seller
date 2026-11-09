@@ -107,10 +107,13 @@ shape; if the report you're about to write doesn't match the
 skill's format spec, you didn't load the right reference yet.
 
 `metadata.json` (and the "platform-countries" list derived from it)
-is a post-task cache written by earlier runs, not a gate. If the
-task targets a platform or country not listed there, proceed. A
+is a post-task cache maintained after the task ends, not a gate. If
+the task targets a platform or country not listed there, proceed. A
 brief confirmation with the user is fine, but don't block on the
-mismatch.
+mismatch — and do NOT read or write `metadata.json` during the task.
+Maintenance duties (metadata, knowledge notes) never run before your
+deliverable is recorded: when the user's request is answered, record
+it and end the turn.
 
 CRITICAL: You MUST read all relevant knowledge files from the catalog
 BEFORE opening any browser or taking action. Do NOT guess platform URLs

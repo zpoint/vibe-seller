@@ -255,6 +255,7 @@ def _assert_total(text, total):
 # only skills its own tasks wrote, and cleanup deletes exactly those
 # (see created_skills_cleanup / _skills_saved_by).
 class TestSaveAndReuseSkill:
+    @pytest.mark.long_budget(547)  # measured p50 over CI 201j + baseline
     def test_create_then_extend(
         self, api_client, orders_csv, wecom_stub, created_skills_cleanup
     ):

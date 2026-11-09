@@ -208,15 +208,18 @@ the wizard, or open <http://localhost:7777> yourself.
 
 ### 2. Add your LLM key
 
-`Settings → AI` → pick a provider (DeepSeek bills per token,
-Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
-work), paste your API key, save. Keys are encrypted at rest.
+`Settings → AI` → pick a provider ([DeepSeek](docs/llm-keys.en.md#deepseek)
+bills per token, [Claude](docs/llm-keys.en.md#claude) has the highest
+ceiling, [Kimi](docs/llm-keys.en.md#kimi) / [MiniMax](docs/llm-keys.en.md#minimax)
+/ [GLM](docs/llm-keys.en.md#zhipu-glm) / [Qwen](docs/llm-keys.en.md#qwen-alibaba-cloud-model-studio)
+/ [MiMo](docs/llm-keys.en.md#xiaomi-mimo) all work), paste your API key,
+save. Keys are encrypted at rest.
 
-> **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
-> the path of least resistance — sign up, top up $2–3,
-> pay-as-you-go per token (cost per task scales with task size).
-> The other providers usually sell prepaid monthly token packs;
-> pick a plan that fits your usage.
+> **No key yet?** [DeepSeek](docs/llm-keys.en.md#deepseek) is the easiest
+> start — sign up, top up $2–3, pay per token (cost per task scales
+> with task size). The others sell both pay-as-you-go and monthly
+> plans (cheaper for heavy use). For where to get each key and which
+> preset to pick, see [Get an API Key](docs/llm-keys.en.md).
 
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
@@ -312,15 +315,18 @@ default).
 
 ### 5. Add your LLM key
 
-`Settings → AI` → pick a provider (DeepSeek bills per token,
-Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
-work), paste your API key, save. Keys are encrypted at rest.
+`Settings → AI` → pick a provider ([DeepSeek](docs/llm-keys.en.md#deepseek)
+bills per token, [Claude](docs/llm-keys.en.md#claude) has the highest
+ceiling, [Kimi](docs/llm-keys.en.md#kimi) / [MiniMax](docs/llm-keys.en.md#minimax)
+/ [GLM](docs/llm-keys.en.md#zhipu-glm) / [Qwen](docs/llm-keys.en.md#qwen-alibaba-cloud-model-studio)
+/ [MiMo](docs/llm-keys.en.md#xiaomi-mimo) all work), paste your API key,
+save. Keys are encrypted at rest.
 
-> **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
-> the path of least resistance — sign up, top up $2–3,
-> pay-as-you-go per token (cost per task scales with task size).
-> The other providers usually sell prepaid monthly token packs;
-> pick a plan that fits your usage.
+> **No key yet?** [DeepSeek](docs/llm-keys.en.md#deepseek) is the easiest
+> start — sign up, top up $2–3, pay per token (cost per task scales
+> with task size). The others sell both pay-as-you-go and monthly
+> plans (cheaper for heavy use). For where to get each key and which
+> preset to pick, see [Get an API Key](docs/llm-keys.en.md).
 
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
@@ -449,15 +455,18 @@ default).
 
 ### 5. Add your LLM key
 
-`Settings → AI` → pick a provider (DeepSeek bills per token,
-Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
-work), paste your API key, save. Keys are encrypted at rest.
+`Settings → AI` → pick a provider ([DeepSeek](docs/llm-keys.en.md#deepseek)
+bills per token, [Claude](docs/llm-keys.en.md#claude) has the highest
+ceiling, [Kimi](docs/llm-keys.en.md#kimi) / [MiniMax](docs/llm-keys.en.md#minimax)
+/ [GLM](docs/llm-keys.en.md#zhipu-glm) / [Qwen](docs/llm-keys.en.md#qwen-alibaba-cloud-model-studio)
+/ [MiMo](docs/llm-keys.en.md#xiaomi-mimo) all work), paste your API key,
+save. Keys are encrypted at rest.
 
-> **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
-> the path of least resistance — sign up, top up $2–3,
-> pay-as-you-go per token (cost per task scales with task size).
-> The other providers usually sell prepaid monthly token packs;
-> pick a plan that fits your usage.
+> **No key yet?** [DeepSeek](docs/llm-keys.en.md#deepseek) is the easiest
+> start — sign up, top up $2–3, pay per token (cost per task scales
+> with task size). The others sell both pay-as-you-go and monthly
+> plans (cheaper for heavy use). For where to get each key and which
+> preset to pick, see [Get an API Key](docs/llm-keys.en.md).
 
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
@@ -565,8 +574,8 @@ A few cross-border scenarios it's commonly used for:
 | **Email handling** | Sorts buyer messages, forwards important ones to the group chat, drafts replies. |
 | **Anything you add** | Write a Skill (a markdown file with steps) or teach the agent once — it'll remember next time. |
 
-A single ad-tuning run is ≈ 3–5 minutes and costs about $1 in LLM tokens
-(rough — depends on provider and campaign volume).
+A single ad-tuning run is ≈ 3–5 minutes and costs about 0.15 USD in LLM tokens
+(DeepSeek, 10 or fewer campaigns; more campaigns cost more).
 
 ## Integrations
 
@@ -642,8 +651,8 @@ To let teammates use the same instance, they open
 <summary><b>How much does it cost?</b></summary>
 
 Vibe Seller is free and open source. You pay your LLM provider
-directly. Rough scale: one ad-tuning run costs about $1 in DeepSeek
-tokens.
+directly. Rough scale: one ad-tuning run costs about 0.15 USD in DeepSeek
+tokens (10 or fewer campaigns).
 
 </details>
 

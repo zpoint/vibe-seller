@@ -13,6 +13,7 @@ import os
 from urllib.parse import urlsplit
 
 from app.ads_client import SERVICE_URL
+from app.ai.ad_scope_access import refusal as ad_scope_refusal
 from app.ai.mcp_args_guard import missing_args_deny
 from app.ai.reflection_guard import reflection_deny
 from app.ai.source_guard import source_access_deny
@@ -123,13 +124,34 @@ _ALWAYS_LOADED = sorted(
     for t in TOOLS
     if (t.get('_meta') or {}).get('anthropic/alwaysLoad') is True
 )
+
+
+def _stems_for(name: str, all_names: tuple[str, ...]) -> tuple[str, ...]:
+    """The query fragments that identify *name* as already loaded.
+
+    Its own suffix (plus a spaced spelling, so "declare ad task" is
+    recognised as well as "declare_ad_task") and the stem it shares
+    with each other loaded tool — the pair of finishing tools shares
+    ``set_task``, so a search for that half-word is refused with the
+    whole loaded set instead of coming back empty.
+    """
+    suffix = name.removeprefix('vibe_seller_')
+    stems = [suffix, suffix.replace('_', ' ')]
+    for other in all_names:
+        if other == name:
+            continue
+        shared = (
+            os.path.commonprefix([name, other])
+            .removeprefix('vibe_seller_')
+            .rstrip('_')
+        )
+        if shared:
+            stems.append(shared)
+    return tuple(dict.fromkeys(s for s in stems if s))
+
+
 _LOADED_STEMS: dict[str, tuple[str, ...]] = {
-    f'mcp__vibe-seller__{n}': (
-        n.removeprefix('vibe_seller_'),
-        os.path.commonprefix(_ALWAYS_LOADED)
-        .removeprefix('vibe_seller_')
-        .rstrip('_'),
-    )
+    f'mcp__vibe-seller__{n}': _stems_for(n, tuple(_ALWAYS_LOADED))
     for n in _ALWAYS_LOADED
 }
 _LOADED_STEMS['AskUserQuestion'] = ('askuser', 'ask_user')
@@ -155,6 +177,28 @@ def loaded_tool_search_deny(tool_name: str, tool_input) -> str | None:
     )
 
 
+def ad_scope_access_deny(
+    session, tool_name: str, tool_input: dict
+) -> str | None:
+    """A browser-use command may not open an out-of-scope campaign.
+
+    The declared scope was enforced only on the report; at ACCESS time
+    nothing stopped a narrowed turn from reading the excluded campaign
+    (CI 201i: an "OTHER ROUTES PROBE" fetched ``/campaign/A7654321``
+    under ``campaigns: [A1234567]``). Only browser-use commands are
+    the product's ad surface here — an id in ordinary shell text is
+    never a target. The chain runs in a thread hop (the hook handler
+    awaits it via ``asyncio.to_thread``) because the scope check reads
+    the declaration file.
+    """
+    if tool_name != 'Bash':
+        return None
+    command = (tool_input or {}).get('command', '')
+    if 'browser-use' not in command:
+        return None
+    return ad_scope_refusal(getattr(session, 'task_id', None), command)
+
+
 def tool_call_deny(session, hook_input: dict) -> str | None:
     """First refusal for this PreToolUse call, else ``None``.
 
@@ -169,6 +213,7 @@ def tool_call_deny(session, hook_input: dict) -> str | None:
         or source_access_deny(tool_name, tool_input)
         or planning_deny(session, tool_name)
         or ads_service_deny(tool_name, tool_input)
+        or ad_scope_access_deny(session, tool_name, tool_input)
         or reflection_deny(session, tool_name, tool_input)
         or loaded_tool_search_deny(tool_name, tool_input)
     )

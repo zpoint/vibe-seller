@@ -1,17 +1,21 @@
-"""E2E: the sync scheduler, against a real server on :7811.
+"""E2E: the sync scheduler, against a server this module OWNS.
 
-The server under test must be started ONCE for this file, isolated and
-pointed at the fake GitHub this module serves:
+Companion to ``test_sync_mirror_e2e.py`` — and like it, this file owns
+its whole stack: its own fake GitHub (free port) and its own server on
+a dedicated free port with a dedicated temp ``VIBE_HOME`` (a scratch
+directory the fixture creates), started and stopped by the module
+fixture through ``tests/e2e/own_server.py``. It never touches the
+shared e2e server or the shared home — this suite needs a specially
+configured server (compressed cadences, jitter off, the GitHub URLs
+pointed at the fake), and a shared server has none of that.
 
-    VIBE_HOME=$HOME/agent-briefs/sync-scheduler/vibe-home ./start.sh 7811
-
-with (the e2e harness passes these through the server's environment):
+The server is started with exactly:
 
     VIBE_SYNC_JITTER=0
     VIBE_SYNC_CADENCE_OVERRIDE='skills=20,knowledge=20,presets=30'
-    VIBE_GITHUB_API_BASE=http://127.0.0.1:<fake port>/api
-    SKILLS_REPO_URL=http://127.0.0.1:<fake port>/raw/app/skills_v2
-    KNOWLEDGE_REPO_URL=http://127.0.0.1:<fake port>/raw/app/knowledge
+    VIBE_GITHUB_API_BASE=<own fake>/api
+    SKILLS_REPO_URL=<own fake>/raw/app/skills_v2
+    KNOWLEDGE_REPO_URL=<own fake>/raw/app/knowledge
 
 What these pin is the observable contract: every run leaves exactly one
 ``sync:<name> reason=… status=…`` line in the server log, the compressed
@@ -28,33 +32,24 @@ import time
 import httpx
 import pytest
 
-from tests.fixtures.fake_github import client_for
+from tests.e2e.own_server import OwnServer, pick_free_port
+from tests.fixtures.fake_github import FakeGitHub, client_for
 
 pytestmark = pytest.mark.e2e
 
-BASE_URL = os.environ.get('E2E_BASE_URL', 'http://127.0.0.1:7811')
-VIBE_HOME = Path(
-    os.environ.get('E2E_VIBE_HOME') or os.environ.get('VIBE_HOME') or ''
-)
+# Set by the module fixture (owned_stack) to THIS suite's own stack.
+BASE_URL = ''
+VIBE_HOME = Path()
+_OWNED: OwnServer | None = None
+_FAKE = ''
 
 
 def log_path() -> Path:
-    """The server's own log file.
-
-    ``LOG_DIR`` defaults to the repo's ``logs/`` (not the runtime home),
-    so the runner passes the exact path; the fallbacks keep the test
-    working for anyone who starts the server by hand.
-    """
-    explicit = os.environ.get('E2E_SERVER_LOG')
-    if explicit:
-        path = Path(explicit)
-        assert path.is_file(), path
-        return path
-    for root in (VIBE_HOME / 'logs', Path('logs')):
-        candidates = sorted(root.glob('backend_*.log'))
-        if candidates:
-            return candidates[-1]
-    raise AssertionError('no server log found')
+    """The owned server's own log file."""
+    assert _OWNED is not None, 'owned_stack fixture did not run'
+    path = _OWNED.log
+    assert path.is_file(), path
+    return path
 
 
 #: One run line of ours — ``sync:<name> reason=… status=…``. Deliberately
@@ -70,16 +65,54 @@ def sync_lines(text: str, name: str | None = None) -> list[str]:
     return out
 
 
-@pytest.fixture(scope='module')
-def fake():
-    """A handle on the fake GitHub the server under test is pointed at.
+@pytest.fixture(scope='module', autouse=True)
+def owned_stack(tmp_path_factory):
+    """THIS suite's own fake GitHub and configured server.
 
-    The fake runs OUT-OF-PROCESS (it has to — the server fetches from
-    it over HTTP), so counts come back over ``/__counts``.
+    The compressed-cadence + jitter-off + fake-URL env the tests need
+    belongs to the SERVER — so this fixture starts one of ours (free
+    port, temp ``VIBE_HOME``) instead of assuming the shared e2e
+    server carries it. The shared server and home are never touched.
     """
-    return client_for(
-        os.environ.get('E2E_FAKE_GITHUB_URL', 'http://127.0.0.1:7812')
+    global _OWNED, _FAKE, BASE_URL, VIBE_HOME
+
+    fake = FakeGitHub()
+    _FAKE = fake.start().rstrip('/')
+    # Seed what the sync jobs fetch: with an empty fake every run 404s
+    # on MANIFEST.txt and "did the cadence fire" degenerates into "did
+    # a failure line appear". The old shared fake only had a manifest
+    # because a neighbouring module's control() calls put one there.
+    fake.set_manifest('app/skills_v2', ['widget-006/SKILL.md'])
+    fake.files['app/skills_v2/widget-006/SKILL.md'] = b'seed bytes'
+    fake.set_manifest('app/knowledge', ['notes.md'])
+    fake.files['app/knowledge/notes.md'] = b'seed notes'
+    home = tmp_path_factory.mktemp('sync-scheduler-home')
+    server = OwnServer(
+        port=pick_free_port(),
+        home=home,
+        env={
+            **fake.urls(),
+            'VIBE_SYNC_JITTER': '0',
+            'VIBE_SYNC_CADENCE_OVERRIDE': ('skills=20,knowledge=20,presets=30'),
+        },
     )
+    _OWNED = server
+    BASE_URL = server.base_url
+    VIBE_HOME = server.home
+    server.start()
+    yield server
+    server.stop()
+    fake.stop()
+
+
+@pytest.fixture(scope='module')
+def fake(owned_stack):
+    """A handle on the fake GitHub THIS module's server is pointed at.
+
+    The fake is served in-process on its own port (the server fetches
+    from it over HTTP), so counts come back over ``/__counts``.
+    """
+    return client_for(_FAKE)
 
 
 @pytest.fixture(scope='module')
@@ -101,7 +134,7 @@ def status(client) -> dict:
 
 
 @pytest.fixture(scope='module', autouse=True)
-def log_start() -> int:
+def log_start(owned_stack) -> int:
     """Where THIS run's log lines begin.
 
     The server log accumulates across runs (and across servers), so

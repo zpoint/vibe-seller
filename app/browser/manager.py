@@ -657,7 +657,8 @@ class BrowserManager:
             proxy_port = await self._web_proxy_port(db)
             token = create_token(AI_BOT_USER_ID, 'ai_bot')
             headless = await self._read_headless_setting(db)
-            write_web_browser_use_wrapper(
+            await asyncio.to_thread(
+                write_web_browser_use_wrapper,
                 proxy_port,
                 api_token=token,
                 headless=headless,

@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import sys
+import uuid
 
 from sqlalchemy import func, select
 
@@ -140,12 +141,26 @@ def append_system_prompt(
     the inline form would bring back the cap this exists to remove.
     An empty prompt adds nothing.
     """
+    prompt_file = write_system_prompt_file(system_prompt, task_id, task_dir)
+    if prompt_file is not None:
+        cmd.extend(['--append-system-prompt-file', str(prompt_file)])
+
+
+def write_system_prompt_file(
+    system_prompt: str, task_id: str, task_dir: Path | None
+) -> Path | None:
+    """Write the system-prompt file; return its path (None when empty).
+
+    Split out of ``append_system_prompt`` so the write can ride the
+    ONE launch-artifact thread hop (:func:`build_launch_artifacts`)
+    while the cmd flag stays a pure extension of the caller's argv.
+    """
     if not system_prompt.strip():
-        return
+        return None
     prompt_file = system_prompt_file(task_id, task_dir)
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     prompt_file.write_text(system_prompt, encoding='utf-8')
-    cmd.extend(['--append-system-prompt-file', str(prompt_file)])
+    return prompt_file
 
 
 # A `browser-use` that always ERRORS — sits on the agent PATH just below
@@ -305,6 +320,51 @@ DRAIN_TIMEOUT = 2  # for _task to finish after force-kill
 
 # Hook callback IDs for control protocol
 TOOL_APPROVAL_CALLBACK = 'tool_approval'
+
+
+def sdk_initialize_request(mode: str, skip_reflection: bool) -> dict:
+    """The SDK ``initialize`` control request registering this launch's
+    hooks.
+
+    One builder for both hook sets (the CLI evaluates matchers in
+    order, first match wins):
+
+    * ``plan_then_execute`` — ExitPlanMode + AskUserQuestion go to
+      interactive approval (``tool_approval``); everything else is
+      auto-approved.
+    * ``auto`` / ``execute`` — AskUserQuestion goes to the interactive
+      path; everything else is auto-approved with the circuit breaker
+      (no ExitPlanMode hook).
+
+    ``skip_reflection`` drops the Stop hook (the reflection pass).
+    """
+    if mode == 'plan_then_execute':
+        interactive = '^(ExitPlanMode|AskUserQuestion)$'
+        everything_else = '^(?!ExitPlanMode$|AskUserQuestion$).*'
+    else:
+        interactive = '^AskUserQuestion$'
+        everything_else = '^(?!AskUserQuestion$).*'
+    hooks = {
+        'PreToolUse': [
+            {
+                'matcher': interactive,
+                'hookCallbackIds': [TOOL_APPROVAL_CALLBACK],
+            },
+            {
+                'matcher': everything_else,
+                'hookCallbackIds': [AUTO_APPROVE_CALLBACK],
+            },
+        ],
+    }
+    if not skip_reflection:
+        hooks['Stop'] = [{'hookCallbackIds': [STOP_REFLECTION_CALLBACK]}]
+    return {
+        'type': 'control_request',
+        'request_id': str(uuid.uuid4()),
+        'request': {'subtype': 'initialize', 'hooks': hooks},
+    }
+
+
 AUTO_APPROVE_CALLBACK = 'auto_approve'
 STOP_REFLECTION_CALLBACK = 'stop_reflection'
 

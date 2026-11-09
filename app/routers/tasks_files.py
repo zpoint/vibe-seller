@@ -80,6 +80,7 @@ def apply_report_reviewer_gate(task_id, task_root, final_result):
         task_root,
         review_writers=getattr(session, '_review_file_writers', None),
         skill_reviews=skill_reviews,
+        result_text=final_result,
     )
     if not deny:
         return None, final_result

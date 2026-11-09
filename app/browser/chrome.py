@@ -140,7 +140,7 @@ class ChromeBackend(BrowserBackend):
         _clear_singleton_locks(user_data_dir)
         # Must run before EVERY launch (Chrome clobbers Preferences on
         # exit) so Taobao-style session-cookie logins survive restarts.
-        _enable_session_restore(user_data_dir)
+        await asyncio.to_thread(_enable_session_restore, user_data_dir)
 
         # Allocate a free port for Chrome's CDP debugging endpoint.
         debug_port = _free_port()

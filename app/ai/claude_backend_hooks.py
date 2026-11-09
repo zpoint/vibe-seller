@@ -271,7 +271,7 @@ class _HookMixin:
                 self._catalog_read = True
             barred = ads_routing.refusal_for(
                 self.task_id, inner_name, inner_input
-            ) or tool_call_deny(self, tool_input)
+            ) or await asyncio.to_thread(tool_call_deny, self, tool_input)
             if barred:  # routed away, malformed MCP args, or app source
                 await self._deny_pre_tool_use(request_id, barred)
                 return

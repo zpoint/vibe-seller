@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -97,7 +98,7 @@ async def configure_channel(
         'config': body.config,
         'auto_create_events': body.auto_create_events,
     }
-    _save_configs(saved)
+    await asyncio.to_thread(_save_configs, saved)
 
     return {
         'channel_id': channel_id,

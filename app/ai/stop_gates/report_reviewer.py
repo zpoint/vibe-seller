@@ -31,6 +31,8 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
+from app.ai import ad_declaration
+from app.ai.reviewer_agent import REVIEWER_AGENT_NAME
 from app.ai.stop_gates import AD_REVIEW_ROUNDS
 from app.config import DATA_DIR
 
@@ -401,8 +403,65 @@ def skill_dod_addendum(skill_reviews) -> str:
     )
 
 
+def _dod_loop_path(task_dir) -> str:
+    """The DoD review loop that governs this deliverable."""
+    root = Path(task_dir) / '.claude' / 'skills'
+    try:
+        for pattern in ('*/references/dod-review-loop.md',):
+            found = sorted(root.glob(pattern))
+            if found:
+                return str(found[0])
+        shared = root / 'amazon-ads' / 'references' / 'reviewer-loop.md'
+        if shared.is_file():
+            return str(shared)
+    except OSError:
+        pass
+    return '(no loop file found — verify against the manifest alone)'
+
+
+def turn_manifest(task_dir, result_text: str | None = None) -> str:
+    """The reviewer's entire input — server-built, never improvised.
+
+    What THIS turn produced: the result text (when the caller has
+    it), the deliverable files on the workspace top level (prior
+    turns' verdicts are moved to ``.prev_turns`` at turn start), the
+    ad declaration if any, the DoD review loop that governs the
+    deliverable, and the absolute path the verdict must take. The
+    reviewer verifies what the manifest names — that bound is the
+    point: an improvised brief made "done" unbounded.
+    """
+    ws = str(Path(task_dir).resolve())
+    decl = ad_declaration.load_declaration(Path(task_dir).name)
+    if decl:
+        decl_line = (
+            f'{decl.get("kind")} '
+            f'scope={ad_declaration.scope_summary(decl.get("scope"))}'
+        )
+    else:
+        decl_line = 'none'
+    try:
+        written = sorted(
+            p.name
+            for p in Path(task_dir).glob('*.md')
+            if not p.name.startswith('.')
+        )
+    except OSError:
+        written = []
+    return (
+        'MANIFEST (server-built — this is your entire input):\n'
+        f'- result text: {result_text or "(not recorded at gate time — the deliverable the turn describes)"}\n'
+        f'- files written this turn: {", ".join(written) or "(none)"}\n'
+        f'- ad declaration: {decl_line}\n'
+        f'- DoD review loop: {_dod_loop_path(task_dir)}\n'
+        f'- verdict path (absolute): {ws}/REVIEW_<YYYY-MM-DD>_iter1.md'
+    )
+
+
 def _verdict_reason(
-    task_dir, subagent_ran=None, review_writers=None
+    task_dir,
+    subagent_ran=None,
+    review_writers=None,
+    result_text: str | None = None,
 ) -> str | None:
     """Deny reason if the reviewer hasn't signed off; else ``None``.
 
@@ -453,17 +512,14 @@ def _verdict_reason(
     if not review_files:
         return (
             'Reviewer never ran. Before finalizing, spawn the DoD '
-            'verification reviewer (the ``ads-report-review`` subagent, '
-            'subagent_type="general-purpose") — it '
-            'OPENS the live source of truth (console / page / export / '
-            'file) and cross-verifies your deliverable per your skill'
-            "'s DoD review loop (its ``references/dod-review-loop.md``, "
-            'or ``amazon-ads/references/reviewer-loop.md`` for ads). If '
-            'there was nothing substantive to review, it signs off fast. '
-            f'Write its result to ``{ws}/REVIEW_<YYYY-MM-DD>_iter1.md`` '
-            '(that absolute path -- not your current directory); re-run '
-            'until Status: ok or iter '
-            f'{REVIEW_MAX_ITERS} with Status: incomplete.'
+            f'verification reviewer — a REGISTERED agent type, '
+            f'subagent_type="{REVIEWER_AGENT_NAME}" (its brief is the '
+            'product’s review contract; do not improvise one) — and '
+            'give it this manifest VERBATIM as its input, nothing '
+            'else:\n\n'
+            + turn_manifest(task_dir, result_text)
+            + f'\n\nRe-run it until Status: ok or iter {REVIEW_MAX_ITERS} '
+            'with Status: incomplete; it writes the verdict file itself.'
         )
 
     def _iter_of(p):
@@ -531,9 +587,9 @@ def _verdict_reason(
                 'and make sure it writes '
                 f'{ws}/REVIEW_<date>_iter{iter_num + 1}.md itself; if it '
                 'already finished without writing one, spawn it again '
-                '(Agent tool, subagent_type="general-purpose") and '
-                'instruct it to open the live sources and write the '
-                'verdict file before returning.'
+                f'(Agent tool, subagent_type="{REVIEWER_AGENT_NAME}") '
+                'with the same manifest; it writes the verdict file '
+                'itself.'
             )
     # Weak signal fallback: ``subagent_ran is False`` means the stream
     # saw no review-subagent spawn since the last user turn, so an
@@ -546,7 +602,8 @@ def _verdict_reason(
             f'{latest.name} says Status: {status}, but NO DoD reviewer '
             'subagent ran this turn — a verdict you write yourself does '
             'not count. Actually spawn the reviewer (Agent tool, '
-            'subagent_type="general-purpose") so it OPENS the live sources '
+            f'subagent_type="{REVIEWER_AGENT_NAME}") so it OPENS the '
+            'live sources '
             "(the processing report AND the TARGET marketplace's Manage "
             'Inventory, over the same store browser) and writes the '
             f'verdict to {ws}/REVIEW_<date>_iter{iter_num + 1}.md.'
@@ -578,7 +635,11 @@ def _verdict_reason(
 
 
 def reviewer_verdict(
-    task_dir, subagent_ran=None, review_writers=None, skill_reviews=None
+    task_dir,
+    subagent_ran=None,
+    review_writers=None,
+    skill_reviews=None,
+    result_text: str | None = None,
 ) -> str | None:
     """Deny reason if the reviewer hasn't signed off; else ``None``.
 
@@ -600,7 +661,7 @@ def reviewer_verdict(
     # and still gate a follow-up's live writes.
     if task_dir is not None and is_followup(Path(task_dir).name):
         return None
-    deny = _verdict_reason(task_dir, subagent_ran, review_writers)
+    deny = _verdict_reason(task_dir, subagent_ran, review_writers, result_text)
     if deny is None:
         return None
     return deny + skill_dod_addendum(skill_reviews) + REVIEW_LOOP_CONDUCT

@@ -15,7 +15,12 @@ import socket
 import pytest
 
 from app.ai import agent_proxy
-from app.ai.agent_proxy import drop_dead_proxy, resolve_agent_proxy
+from app.ai.agent_proxy import (
+    drop_dead_proxy,
+    launch_settings,
+    launch_settings_file,
+    resolve_agent_proxy,
+)
 from app.ai.external_config import claude_settings_path
 
 pytestmark = pytest.mark.unit
@@ -66,31 +71,40 @@ class Recorder:
 
 async def test_env_dead_proxy_is_dropped(settings, dead_url, tmp_path):
     env = {'HTTPS_PROXY': dead_url, 'http_proxy': dead_url, 'PATH': 'x'}
-    cmd = ['claude']
+    payload = launch_settings()
     notify = Recorder()
 
-    proxy = await drop_dead_proxy(cmd, env, 't1', tmp_path, notify)
+    proxy = await drop_dead_proxy(env, 't1', payload, notify)
 
     assert proxy is not None and proxy.source == 'environment'
     assert env == {'PATH': 'x'}
-    assert cmd[1] == '--settings'
+    # the blanks merge into the ONE launch settings payload, whose
+    # backend-owned keys survive
+    assert payload['env'] == {
+        'HTTPS_PROXY': '',
+        'https_proxy': '',
+        'http_proxy': '',
+        'HTTP_PROXY': '',
+    }
+    assert payload['disableAutoMode'] == 'disable'
     assert notify.calls and notify.calls[0][0] == 'system'
     assert dead_url in notify.calls[0][1]
 
 
-async def test_settings_dead_proxy_is_blanked_by_flag_settings(
+async def test_settings_dead_proxy_is_blanked_in_launch_settings(
     settings, dead_url, tmp_path
 ):
     path = settings({'HTTPS_PROXY': dead_url})
-    cmd = ['claude']
+    payload = launch_settings()
 
-    proxy = await drop_dead_proxy(cmd, {}, 't1', tmp_path)
+    proxy = await drop_dead_proxy({}, 't1', payload)
 
     assert proxy is not None and proxy.source == str(path)
-    assert cmd[1] == '--settings'
-    override = json.loads(Path(cmd[2]).read_text())
+    written = launch_settings_file('t1', tmp_path, payload)
+    override = json.loads(written.read_text())
     assert override['env']['HTTPS_PROXY'] == ''
     assert override['env']['https_proxy'] == ''
+    assert override['disableAutoMode'] == 'disable'
     # The user's own settings.json is never edited.
     assert json.loads(path.read_text()) == {'env': {'HTTPS_PROXY': dead_url}}
 
@@ -100,10 +114,11 @@ async def test_settings_outranks_env_like_claude_code(
 ):
     settings({'HTTPS_PROXY': dead_url})
     env = {'HTTPS_PROXY': live_url}
-    cmd = ['claude']
+    payload = launch_settings()
 
-    assert await drop_dead_proxy(cmd, env, 't1', tmp_path) is not None
-    assert 'HTTPS_PROXY' not in env and '--settings' in cmd
+    assert await drop_dead_proxy(env, 't1', payload) is not None
+    assert 'HTTPS_PROXY' not in env
+    assert payload['env']['HTTPS_PROXY'] == ''
 
 
 async def test_dead_primary_drops_every_source(settings, dead_url, tmp_path):
@@ -111,20 +126,25 @@ async def test_dead_primary_drops_every_source(settings, dead_url, tmp_path):
     # HTTPS_PROXY is dropped.
     settings({'HTTP_PROXY': dead_url})
     env = {'HTTPS_PROXY': dead_url}
-    cmd = ['claude']
+    payload = launch_settings()
 
-    await drop_dead_proxy(cmd, env, 't1', tmp_path)
+    await drop_dead_proxy(env, 't1', payload)
 
     assert env == {}
-    assert '--settings' in cmd
+    assert set(payload['env']) == {
+        'https_proxy',
+        'HTTPS_PROXY',
+        'http_proxy',
+        'HTTP_PROXY',
+    }
 
 
 async def test_live_proxy_is_kept(settings, live_url, tmp_path):
     env = {'HTTPS_PROXY': live_url}
-    cmd = ['claude']
+    payload = launch_settings()
 
-    assert await drop_dead_proxy(cmd, env, 't1', tmp_path) is None
-    assert env == {'HTTPS_PROXY': live_url} and cmd == ['claude']
+    assert await drop_dead_proxy(env, 't1', payload) is None
+    assert env == {'HTTPS_PROXY': live_url} and payload == launch_settings()
 
 
 async def test_notice_never_carries_credentials(settings, dead_url, tmp_path):
@@ -132,7 +152,7 @@ async def test_notice_never_carries_credentials(settings, dead_url, tmp_path):
     notify = Recorder()
 
     await drop_dead_proxy(
-        ['claude'], {'HTTPS_PROXY': secret}, 't1', tmp_path, notify
+        {'HTTPS_PROXY': secret}, 't1', launch_settings(), notify
     )
 
     text = notify.calls[0][1]
@@ -153,13 +173,13 @@ async def test_profile_config_dir_is_the_settings_file_read(
         json.dumps({'env': {'HTTPS_PROXY': dead_url}})
     )
     env = {'CLAUDE_CONFIG_DIR': str(custom)}
-    cmd = ['claude']
+    payload = launch_settings()
 
-    proxy = await drop_dead_proxy(cmd, env, 't1', tmp_path)
+    proxy = await drop_dead_proxy(env, 't1', payload)
 
     assert proxy is not None
     assert proxy.source == str(custom / 'settings.json')
-    assert '--settings' in cmd
+    assert payload['env']['HTTPS_PROXY'] == ''
 
 
 def test_settings_path_follows_claude_config_dir(monkeypatch, tmp_path):
@@ -181,7 +201,7 @@ async def test_timeout_is_not_proof_of_death(monkeypatch, settings, tmp_path):
     monkeypatch.setattr(agent_proxy.asyncio, 'open_connection', hang)
     env = {'HTTPS_PROXY': 'http://proxy.corp.example:3128'}
 
-    assert await drop_dead_proxy(['claude'], env, 't1', tmp_path) is None
+    assert await drop_dead_proxy(env, 't1', launch_settings()) is None
     assert 'HTTPS_PROXY' in env
 
 

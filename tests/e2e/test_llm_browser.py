@@ -111,6 +111,7 @@ def test_site():
 class TestLLMConnectivity:
     """Verify LLM responds through the full task pipeline."""
 
+    @pytest.mark.long_budget(289)  # measured p50 over CI 201j + baseline
     def test_llm_responds(self, api_client, test_site):
         """Create a store task, agent completes it."""
         ts = int(time.time())

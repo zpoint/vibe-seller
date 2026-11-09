@@ -142,6 +142,7 @@ def test_store(api_client):
 class TestBrowserSessionReuse:
     """Cookie set by Task A persists into Task B on the same store."""
 
+    @pytest.mark.long_budget(296)  # measured p50 over CI 201j + baseline
     def test_cookie_persists_across_tasks_same_store(
         self,
         api_client,

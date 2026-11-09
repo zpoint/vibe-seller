@@ -640,7 +640,8 @@ class SkillsSyncManager(SkillMirrorMixin):
 
             # Skip if requirements.txt content hasn't changed
             try:
-                content_hash = hashlib.md5(req.read_bytes()).hexdigest()
+                raw = await asyncio.to_thread(req.read_bytes)
+                content_hash = hashlib.md5(raw).hexdigest()
             except Exception:
                 content_hash = ''
             if installed.get(skill_dir.name) == content_hash:

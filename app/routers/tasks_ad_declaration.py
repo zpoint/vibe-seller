@@ -129,6 +129,14 @@ async def declare_ad_task(
             ),
         )
 
+    # A scope entry NAMES what is in scope; exclusion/negation text in
+    # an entry would put "what is not" into the list of what is (CI
+    # 201k). Refused at the tool boundary — the agent just re-declares
+    # with the clean anchor.
+    try:
+        ad_declaration.validate_scope(body.scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     scope = ad_declaration.normalise_scope(body.scope)
     turns = await _user_turns(db, task_id)
     prev = await _latest(db, task_id)

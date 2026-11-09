@@ -95,41 +95,78 @@ class TestProfileCrud:
         presets = r.json()['presets']
         for name in (
             'kimi',
+            'kimi_paygo',
+            'kimi_paygo_intl',
             'minimax',
+            'minimax_intl',
             'glm',
             'glm_intl',
             'deepseek',
             'qwen',
             'qwen_intl',
             'qwen_coding',
+            'qwen_coding_intl',
             'qwen_token',
+            'qwen_token_intl',
             'mimo',
             'mimo_token',
+            'mimo_token_sgp',
+            'mimo_token_ams',
         ):
             assert name in presets
             assert 'name' in presets[name]
             assert 'env' in presets[name]
 
     async def test_grouped_presets_expose_group_and_variant(self, admin_client):
-        """The Alibaba Cloud and GLM variants carry group + variant so
-        the UI can render them under one collapsible top-level entry."""
+        """Every provider whose region / payment path needs a different
+        host is a group whose variants carry their own label, so the UI
+        renders one top-level entry and the user just picks a variant —
+        nobody hand-edits ANTHROPIC_BASE_URL."""
         r = await admin_client.get('/api/profiles/presets')
         presets = r.json()['presets']
-        alibaba = {
-            pid
-            for pid, p in presets.items()
-            if p.get('group') == 'Alibaba Cloud'
+
+        def group(name):
+            return {pid for pid, p in presets.items() if p.get('group') == name}
+
+        expected = {
+            'Kimi': {'kimi', 'kimi_paygo', 'kimi_paygo_intl'},
+            'MiniMax': {'minimax', 'minimax_intl'},
+            'GLM': {'glm', 'glm_intl'},
+            'Alibaba Cloud': {
+                'qwen',
+                'qwen_intl',
+                'qwen_coding',
+                'qwen_coding_intl',
+                'qwen_token',
+                'qwen_token_intl',
+            },
+            'MiMo': {'mimo', 'mimo_token', 'mimo_token_sgp', 'mimo_token_ams'},
         }
-        assert alibaba == {'qwen', 'qwen_intl', 'qwen_coding', 'qwen_token'}
-        glm = {pid for pid, p in presets.items() if p.get('group') == 'GLM'}
-        assert glm == {'glm', 'glm_intl'}
-        mimo = {pid for pid, p in presets.items() if p.get('group') == 'MiMo'}
-        assert mimo == {'mimo', 'mimo_token'}
-        for pid in alibaba | glm | mimo:
-            assert presets[pid]['variant'], f'{pid} missing variant label'
+        for name, ids in expected.items():
+            assert group(name) == ids, name
+            labels = [presets[pid]['variant'] for pid in ids]
+            assert all(labels), f'{name}: variant missing'
+            assert len(set(labels)) == len(labels), f'{name}: dup variant'
+        # The existing ids stay the FIRST variant of their group, so a
+        # click on the group lands where it always did.
+        firsts = {}
+        for pid, p in presets.items():
+            firsts.setdefault(p.get('group'), pid)
+        assert firsts['Kimi'] == 'kimi'
+        assert firsts['MiniMax'] == 'minimax'
         # Standalone providers stay ungrouped.
-        assert not presets['kimi'].get('group')
         assert not presets['deepseek'].get('group')
+
+    async def test_preset_base_urls_are_unique_and_concrete(self, admin_client):
+        """profile_kind() maps a profile back to its preset by base URL,
+        so two presets may never share one; and no preset may ship a
+        ``{placeholder}`` host the user has to edit by hand."""
+        r = await admin_client.get('/api/profiles/presets')
+        presets = r.json()['presets']
+        urls = [p['env']['ANTHROPIC_BASE_URL'] for p in presets.values()]
+        assert len(urls) == len(set(urls))
+        for pid, url in zip(presets, urls, strict=True):
+            assert '{' not in url, f'{pid} base URL needs hand-editing'
 
     async def test_presets_expose_model_options(self, admin_client):
         """Every preset ships a non-empty model dropdown whose first
@@ -233,12 +270,41 @@ class TestProfileCrud:
         assert kimi['CLAUDE_CODE_EFFORT_LEVEL'] == 'high'
         assert kimi['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] == '1048576'
 
+        # Kimi open platform (pay-as-you-go): moonshot hosts per region,
+        # kimi-k3[1m] in every slot — HAIKU too, because the guide's
+        # kimi-k2.7-code is thinking-only.
+        for pid, host in (
+            ('kimi_paygo', 'https://api.moonshot.cn/anthropic'),
+            ('kimi_paygo_intl', 'https://api.moonshot.ai/anthropic'),
+        ):
+            env = presets[pid]['env']
+            assert env['ANTHROPIC_BASE_URL'] == host
+            for key in (
+                'ANTHROPIC_MODEL',
+                'ANTHROPIC_DEFAULT_FABLE_MODEL',
+                'ANTHROPIC_DEFAULT_OPUS_MODEL',
+                'ANTHROPIC_DEFAULT_SONNET_MODEL',
+                'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+                'CLAUDE_CODE_SUBAGENT_MODEL',
+            ):
+                assert env[key] == 'kimi-k3[1m]', (pid, key)
+            assert env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] == '1000000'
+            assert env['CLAUDE_CODE_EFFORT_LEVEL'] == 'max'
+
         mm = presets['minimax']['env']
         assert mm['ANTHROPIC_BASE_URL'] == 'https://api.minimax.cn/anthropic'
         assert mm['ANTHROPIC_MODEL'] == 'MiniMax-M3.1-Flash[1m]'
         assert mm['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == ('MiniMax-M3.1-Flash[1m]')
         assert mm['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] == '524288'
         assert mm['CLAUDE_CODE_EFFORT_LEVEL'] == 'max'
+        # International: same config, international host.
+        mm_intl = presets['minimax_intl']['env']
+        assert mm_intl['ANTHROPIC_BASE_URL'] == (
+            'https://api.minimax.io/anthropic'
+        )
+        assert {
+            k: v for k, v in mm_intl.items() if k != 'ANTHROPIC_BASE_URL'
+        } == {k: v for k, v in mm.items() if k != 'ANTHROPIC_BASE_URL'}
 
         glm = presets['glm']['env']
         assert glm['ANTHROPIC_MODEL'] == 'glm-5.3[1m]'
@@ -308,19 +374,37 @@ class TestProfileCrud:
         assert qwen_tp['CLAUDE_CODE_SUBAGENT_MODEL'] == 'auto'
         assert qwen_tp['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] == '983616'
 
-        # International pay-go carries the per-workspace placeholder host.
+        # International (Singapore): pay-go on the shared intl host (no
+        # {WorkspaceId} to hand-edit), and both plans on their own intl
+        # hosts with the same model blocks as China.
         qwen_intl = presets['qwen_intl']['env']
-        assert '{WorkspaceId}' in qwen_intl['ANTHROPIC_BASE_URL']
+        assert qwen_intl['ANTHROPIC_BASE_URL'] == (
+            'https://dashscope-intl.aliyuncs.com/apps/anthropic'
+        )
         assert qwen_intl['ANTHROPIC_MODEL'] == 'qwen3.7-max'
+        qwen_cp_intl = presets['qwen_coding_intl']['env']
+        assert qwen_cp_intl['ANTHROPIC_BASE_URL'] == (
+            'https://coding-intl.dashscope.aliyuncs.com/apps/anthropic'
+        )
+        qwen_tp_intl = presets['qwen_token_intl']['env']
+        assert qwen_tp_intl['ANTHROPIC_BASE_URL'] == (
+            'https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic'
+        )
+        for china, intl in ((qwen_cp, qwen_cp_intl), (qwen_tp, qwen_tp_intl)):
+            assert {
+                k: v for k, v in intl.items() if k != 'ANTHROPIC_BASE_URL'
+            } == {k: v for k, v in china.items() if k != 'ANTHROPIC_BASE_URL'}
 
-        # The four Alibaba plans MUST all diverge on base URL.
+        # The six Alibaba variants MUST all diverge on base URL.
         bases = {
             qwen['ANTHROPIC_BASE_URL'],
             qwen_cp['ANTHROPIC_BASE_URL'],
             qwen_tp['ANTHROPIC_BASE_URL'],
             qwen_intl['ANTHROPIC_BASE_URL'],
+            qwen_cp_intl['ANTHROPIC_BASE_URL'],
+            qwen_tp_intl['ANTHROPIC_BASE_URL'],
         }
-        assert len(bases) == 4
+        assert len(bases) == 6
 
         # MiMo: two products on two hosts; the flagship in every tier,
         # carrying the vendor-documented [1m] 1M tag.
@@ -344,6 +428,22 @@ class TestProfileCrud:
         assert 'CLAUDE_CODE_SUBAGENT_MODEL' not in mimo_tp
         # The two MiMo products MUST diverge on base URL.
         assert mimo['ANTHROPIC_BASE_URL'] != mimo_tp['ANTHROPIC_BASE_URL']
+        # Token Plan clusters: one preset each, same config, own host.
+        for pid, host in (
+            (
+                'mimo_token_sgp',
+                'https://token-plan-sgp.xiaomimimo.com/anthropic',
+            ),
+            (
+                'mimo_token_ams',
+                'https://token-plan-ams.xiaomimimo.com/anthropic',
+            ),
+        ):
+            env = presets[pid]['env']
+            assert env['ANTHROPIC_BASE_URL'] == host
+            assert {
+                k: v for k, v in env.items() if k != 'ANTHROPIC_BASE_URL'
+            } == {k: v for k, v in mimo_tp.items() if k != 'ANTHROPIC_BASE_URL'}
 
     async def test_profile_env_injection_roundtrip(self, admin_client):
         """Env vars round-trip into storage — but secret-classified

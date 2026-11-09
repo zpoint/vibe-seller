@@ -129,6 +129,8 @@ claude mcp add --scope user --transport http vibe-seller \
 3. 「这个任务现在在干什么，到哪一步了？」
 4. 「好，继续跟进，跑完了给我总结。」
 
+![演示：在 Claude 里指挥 Vibe Seller（等待过程已加速）](images/mcp_claude_demo_zh.gif)
+
 ## Codex（桌面版和命令行）
 
 ### 安装
@@ -176,6 +178,8 @@ MCPs**（设置里搜 mcp 也能找到），看到 `vibe-seller` 已打开开关
    不用问我，先别改任何东西。」
 3. 「这个任务现在在干什么，到哪一步了？」
 4. 「好，继续跟进，跑完了给我总结。」
+
+![演示：在 Codex 里指挥 Vibe Seller（等待过程已加速）](images/mcp_codex_demo_zh.gif)
 
 ## WorkBuddy（腾讯）
 
