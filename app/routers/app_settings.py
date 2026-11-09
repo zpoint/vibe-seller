@@ -117,9 +117,11 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
         settings['browser_headless'] = 'false'
     if 'skills_auto_sync_enabled' not in settings:
         settings['skills_auto_sync_enabled'] = SKILLS_AUTO_SYNC_DEFAULT
-    # Reflect env-var opt-out in the value the frontend reads, so it
-    # doesn't init PostHog while the backend stays silent.
-    if telemetry._disabled_via_env():
+    # The browser follows the backend: when the backend is not sending
+    # (env opt-out, CI, pytest, or the user's switch), the frontend must
+    # not init PostHog either — a CI job that forgot the env var would
+    # otherwise ship Playwright sessions as installs.
+    if not telemetry.is_enabled():
         settings['telemetry_enabled'] = 'false'
     # Server capability, not a stored setting — same shape as
     # max_agent_concurrency above. The upload dialog derives both its
