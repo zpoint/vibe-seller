@@ -19,7 +19,7 @@ let esInstances: { onmessage: Listener; close: ReturnType<typeof vi.fn> }[] = []
 
 beforeEach(() => {
   esInstances = []
-  const MockES = vi.fn().mockImplementation(() => {
+  const MockES = vi.fn().mockImplementation(function () {
     const inst = { onmessage: null as Listener, close: vi.fn() }
     esInstances.push(inst)
     return inst

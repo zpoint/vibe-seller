@@ -44,31 +44,39 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 })
 
-// Mock ResizeObserver
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}))
+// Mock ResizeObserver. Constructor mocks need a `function`
+// implementation: vitest 3+ mocks keep `new` semantics, and an arrow
+// function is not constructible.
+globalThis.ResizeObserver = vi.fn().mockImplementation(function () {
+  return {
+    observe: vi.fn(),
+    unobserve: vi.fn(),
+    disconnect: vi.fn(),
+  }
+})
 
 // Mock Element.scrollIntoView (not available in jsdom)
 Element.prototype.scrollIntoView = vi.fn()
 
 // Mock IntersectionObserver
-global.IntersectionObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}))
+globalThis.IntersectionObserver = vi.fn().mockImplementation(function () {
+  return {
+    observe: vi.fn(),
+    unobserve: vi.fn(),
+    disconnect: vi.fn(),
+  }
+})
 
 // Mock EventSource for SSE tests
-if (!global.EventSource) {
-  global.EventSource = vi.fn().mockImplementation(() => ({
-    close: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    onmessage: null,
-    onerror: null,
-    onopen: null,
-  })) as unknown as typeof EventSource
+if (!globalThis.EventSource) {
+  globalThis.EventSource = vi.fn().mockImplementation(function () {
+    return {
+      close: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onmessage: null,
+      onerror: null,
+      onopen: null,
+    }
+  }) as unknown as typeof EventSource
 }

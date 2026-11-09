@@ -21,8 +21,10 @@ describe('SSE Hook', () => {
       onopen: null,
     }
 
-    EventSourceMock = vi.fn(() => mockEventSource)
-    global.EventSource = EventSourceMock as unknown as typeof EventSource
+    EventSourceMock = vi.fn(function () {
+      return mockEventSource
+    })
+    globalThis.EventSource = EventSourceMock as unknown as typeof EventSource
   })
 
   afterEach(() => {
