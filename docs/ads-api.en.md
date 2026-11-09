@@ -30,10 +30,20 @@ One store (acme, AE marketplace), one report-only ad-optimization task, one mode
 | Assistant turns | **130** | 710 | 5.5× |
 | Tool calls (of which browser / ads API) | 69 (0 / **21**) | 361 (**123** browser commands / 0) | 5.2× |
 | Tokens (in / out / cache-read) | 0.68M / 0.19M / 15.4M | 2.34M / 0.99M / **151.6M** | cache-read 9.8× |
-| Estimated model cost | **≈ ¥3 CNY** | ≈ ¥21 CNY | 7× |
+| Estimated model cost | **≈ $0.45** | ≈ $3.2 | 7× |
 | Campaign coverage | every campaign (incl. zero-spend/paused) | same complete list, all drilled | **equal** |
 | Report output | one 24 KB report | 103 KB report + PDF (full per-target / per-term tables) | richer |
 | Interruptions | none | 1 operator question (breakeven-ACOS) + 1 model-quota pause (36 min) | |
+
+Cost is estimated at MiniMax-M3.1-Flash's official pay-as-you-go prices (per
+1M tokens: $0.15 input, $0.60 output, $0.015 cache read). On a MiniMax
+subscription plan, the run uses plan quota instead of being billed per token.
+
+This was a heavy run: the store has 20-plus campaigns and about 450 search
+terms, and the task drilled into every campaign and every term over the past
+14 days. Cost grows roughly with the number of campaigns and terms; for a
+typical store with 10 campaigns or fewer, one API-path run comes to roughly
+$0.20 at the same prices.
 
 ![One ad-optimization task: where the time goes](images/ads_time_en.png)
 
