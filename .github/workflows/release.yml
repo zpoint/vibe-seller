@@ -13,6 +13,10 @@ name: Release
 #                         bookkeeping is imported into sync_state and a
 #                         second boot changes nothing. Also gates
 #                         publish-testpypi.
+#   1c. cli-upgrade-test    Calls cli-upgrade.yml (reusable). Proves
+#                         `vibe-seller upgrade` restarts the running
+#                         server onto the new version (macOS + Linux).
+#                         Also gates publish-testpypi.
 #   2. build              Produces TWO wheels in the same checkout:
 #                         - dist-pypi/      canonical (version from tag)
 #                         - dist-testpypi/  dev-versioned (`<tag>.devYYYYMMDDHHMMSS`)
@@ -20,8 +24,9 @@ name: Release
 #                         across runs without colliding with previous
 #                         uploads (PyPI/TestPyPI versions are immutable).
 #   3. publish-testpypi   Publish the dev-versioned wheel. Needs
-#                         `build` and both upgrade gates
-#                         (`windows-upgrade-test`, `sync-upgrade-test`).
+#                         `build` and all three upgrade gates
+#                         (`windows-upgrade-test`, `sync-upgrade-test`,
+#                         `cli-upgrade-test`).
 #   4. verify-testpypi    Fresh runner: install via `install.sh --test-pypi
 #                         --version <dev>`, start server, run
 #                         `tests/releases/verify_install.sh <dev>` — asserts
@@ -76,6 +81,10 @@ jobs:
     # release — before #205 it never had, and would have failed on the
     # runner (zsh script, no uv) at the next release tag.
     uses: ./.github/workflows/sync-upgrade.yml
+
+  cli-upgrade-test:
+    name: CLI upgrade restart test (gate)
+    uses: ./.github/workflows/cli-upgrade.yml
 
   build:
     name: Build wheels (canonical + testpypi-dev)
@@ -184,7 +193,7 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI (dev-versioned)
-    needs: [build, windows-upgrade-test, sync-upgrade-test]
+    needs: [build, windows-upgrade-test, sync-upgrade-test, cli-upgrade-test]
     runs-on: ubuntu-latest
     environment:
       name: test-pypi

@@ -15,7 +15,7 @@ daemonization is the equivalent for the wheel-installed path.
 
 import argparse
 import asyncio
-from contextlib import suppress
+from contextlib import closing, suppress
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 import json
 import os
@@ -546,11 +546,146 @@ def _install_browser_after_upgrade() -> None:
 
 
 def _cmd_upgrade(args: argparse.Namespace) -> int:
+    before = _resolve_version()
     rc = _upgrade_package(args)
     if rc != 0:
         return rc
     _install_browser_after_upgrade()
-    return _upgrade_claude_cli()
+    rc = _upgrade_claude_cli()
+    # Last, so the restarted server also picks up the new Claude CLI.
+    # Even when that step failed: the package itself is upgraded, and a
+    # server left on the old code is the bigger mismatch.
+    _restart_running_servers(before)
+    return rc
+
+
+#: Task states whose agent dies with the server — boot recovery
+#: (`TaskQueue._recover_from_db`) marks them FAILED/server_restart.
+#: Queued/pending/planned/waiting tasks survive a restart.
+_RESTART_UNSAFE_STATUSES = ('running', 'designing')
+
+
+def _active_task_count() -> int | None:
+    """Tasks a restart would kill, or None when it can't be read."""
+    db = _vibe_home() / 'data' / 'vibe_seller.db'
+    if not db.exists():
+        return 0
+    marks = ','.join('?' * len(_RESTART_UNSAFE_STATUSES))
+    try:
+        import sqlite3  # noqa: PLC0415
+
+        with closing(
+            sqlite3.connect(f'{db.as_uri()}?mode=ro', uri=True, timeout=5)
+        ) as conn:
+            row = conn.execute(
+                f'SELECT count(*) FROM tasks WHERE status IN ({marks})',  # noqa: S608
+                _RESTART_UNSAFE_STATUSES,
+            ).fetchone()
+    except Exception:  # noqa: BLE001 — unknown means "don't restart"
+        return None
+    return int(row[0])
+
+
+def _daemon_servers() -> list[tuple[int, str]]:
+    """``(port, host)`` of each live server `vibe-seller start` launched.
+
+    Read from the pid files, then confirmed against the process itself:
+    a recycled PID must not get a stranger restarted. Servers run any
+    other way (``--foreground``, launchd/systemd, a clone's start.sh)
+    have no pid file here and are left to whoever supervises them.
+    """
+    import psutil  # noqa: PLC0415
+
+    servers = []
+    for f in sorted(_pid_dir().glob('backend_*.pid')):
+        try:
+            port = int(f.stem.removeprefix('backend_'))
+        except ValueError:
+            continue
+        pid = _read_pid(port)
+        if pid is None:
+            continue
+        try:
+            argv = psutil.Process(pid).cmdline()
+        except (psutil.Error, OSError):
+            continue
+        if 'app.main:app' not in argv or str(port) not in argv:
+            continue
+        host = '0.0.0.0'
+        if '--host' in argv[:-1]:
+            host = argv[argv.index('--host') + 1]
+        servers.append((port, host))
+    return servers
+
+
+def _restart_running_servers(before: str) -> None:
+    """Restart the servers still running the pre-upgrade code.
+
+    An upgrade only replaces files on disk; a running server keeps the
+    old code in memory, so without this the UI keeps reporting the old
+    version and the upgrade looks like it did nothing. Stop and start
+    run in a FRESH interpreter — this process still has the old `app`
+    loaded (same reason as `_install_browser_after_upgrade`).
+
+    Never kills live work: a restart fails every running/designing task
+    (`server_restart`), so while any exist the server is left up and
+    the command to run later is printed instead.
+    """
+    servers = _daemon_servers()
+    if not servers:
+        return
+    after = _new_cli_version()
+    if after is not None and after == before:
+        return  # nothing changed on disk; nothing to reload
+    active = _active_task_count()
+    if active != 0:
+        why = (
+            f'{active} task(s) are running'
+            if active
+            else 'running tasks could not be checked'
+        )
+        for port, host in servers:
+            print(
+                f'The server on port {port} is still running the old '
+                f'version: {why}, and a restart would fail them. When '
+                f'they finish, run:\n'
+                f'  vibe-seller stop --port {port} && '
+                f'vibe-seller start --host {host} --port {port}'
+            )
+        return
+    for port, host in servers:
+        print(f'==> restarting the server on port {port}')
+        cli = [sys.executable, '-I', '-m', 'app.cli']
+        subprocess.run([*cli, 'stop', '--port', str(port)])
+        rc = subprocess.run([
+            *cli,
+            'start',
+            '--host',
+            host,
+            '--port',
+            str(port),
+        ]).returncode
+        if rc != 0:
+            print(
+                f'Restart failed — run `vibe-seller start --host {host} '
+                f'--port {port}`.',
+                file=sys.stderr,
+            )
+
+
+def _new_cli_version() -> str | None:
+    """The version now installed on disk (not the one loaded here)."""
+    try:
+        out = subprocess.run(
+            [sys.executable, '-I', '-m', 'app.cli', '--version'],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    words = out.stdout.split()
+    return words[-1] if out.returncode == 0 and words else None
 
 
 def _upgrade_package(args: argparse.Namespace) -> int:

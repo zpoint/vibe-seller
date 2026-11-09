@@ -120,7 +120,7 @@ vibe-seller start
 vibe-seller upgrade
 ```
 
-会一并升级它使用的 Claude Code。
+会一并升级它使用的 Claude Code，并把正在运行的服务重启到新版本。如果有任务正在执行，服务会保持运行，并提示任务结束后要运行的重启命令。
 
 卸载：
 

@@ -137,6 +137,15 @@ Filename: "{#AppExeTray}"; Parameters: """{app}\tray.py"" --open"; \
   Flags: nowait postinstall skipifsilent; \
   Check: VenvIsReady
 
+; A SILENT upgrade has no finish page, so the step above never runs and
+; the server PrepareToInstall stopped stayed down until the next login.
+; Bring back exactly what was running: the tray, which starts the
+; server (no --open: an unattended upgrade must not pop a browser).
+; Interactive installs keep the finish-page choice above instead.
+Filename: "{#AppExeTray}"; Parameters: """{app}\tray.py"""; \
+  Flags: nowait; \
+  Check: RelaunchAfterSilentUpgrade
+
 [Icons]
 ; Clickable shortcuts (Start Menu + optional desktop) launch with
 ; --open so double-clicking starts the server AND opens the browser.
@@ -321,6 +330,9 @@ var
   // PrepareToInstall before [InstallDelete] removes .venv. Empty on a
   // fresh install (or when the old venv was broken).
   PrevPlaywrightVersion: String;
+  // Whether a Vibe Seller server or tray was running when this install
+  // started (PrepareToInstall stops them). Decides the silent relaunch.
+  AppWasRunning: Boolean;
 
 function InstalledPlaywrightVersion: String;
 var
@@ -479,6 +491,27 @@ begin
   end;
 end;
 
+// True when a python/pythonw from the install dir is running: the
+// server (uvicorn) or the tray. Exit code carries the answer.
+function AppProcessRunning: Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec('powershell.exe',
+    '-NoProfile -ExecutionPolicy Bypass -Command "' +
+    'if (@(Get-CimInstance Win32_Process | Where-Object { ' +
+    '($_.Name -eq ''python.exe'' -or $_.Name -eq ''pythonw.exe'') ' +
+    '-and $_.ExecutablePath -like ' +
+    PsQuote(ExpandConstant('{app}') + '\*') +
+    ' }).Count -gt 0) { exit 0 } else { exit 1 }"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+function RelaunchAfterSilentUpgrade: Boolean;
+begin
+  Result := WizardSilent and AppWasRunning and VenvIsReady;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
@@ -493,6 +526,7 @@ begin
   // Record the outgoing Playwright version first — [InstallDelete]
   // wipes .venv right after this returns.
   PrevPlaywrightVersion := InstalledPlaywrightVersion;
+  AppWasRunning := AppProcessRunning;
   Exec(ExpandConstant('{app}\.venv\Scripts\vibe-seller.exe'), 'stop',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   KillAppProcesses('');
