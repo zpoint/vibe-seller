@@ -15,7 +15,6 @@ import pytest
 
 from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import STOP_REFLECTION_CALLBACK
-from app.env_options import Options
 from app.prompts import REFLECTION_PROMPT
 
 
@@ -184,46 +183,3 @@ class TestStopHookRegistration:
         session._send_stdin = fake_send
         await session._send_sdk_initialize_auto()
         assert 'Stop' not in captured['hooks']
-
-
-@pytest.mark.unit
-class TestReflectionSwitch:
-    """VIBE_TASK_REFLECTION — default on, off skips the reflection
-    turn only (the result save and the review gates stand either way).
-    """
-
-    @pytest.mark.asyncio
-    async def test_off_approves_at_the_first_stop(self, monkeypatch):
-        monkeypatch.setenv('VIBE_TASK_REFLECTION', 'off')
-        session = _make_session()
-        await session._handle_hook_callback(
-            'req-off',
-            {'callback_id': STOP_REFLECTION_CALLBACK, 'input': {}},
-        )
-        session._send_hook_response.assert_awaited_once_with(
-            'req-off', {'decision': 'approve'}
-        )
-        events = [c.args[1] for c in session._emit_message.await_args_list]
-        assert not any('reflection_started' in e for e in events), events
-
-    @pytest.mark.asyncio
-    async def test_on_still_blocks_with_the_reflection_prompt(
-        self, monkeypatch
-    ):
-        monkeypatch.setenv('VIBE_TASK_REFLECTION', 'on')
-        session = _make_session()
-        await session._handle_hook_callback(
-            'req-on',
-            {'callback_id': STOP_REFLECTION_CALLBACK, 'input': {}},
-        )
-        session._send_hook_response.assert_awaited_once_with(
-            'req-on',
-            {'decision': 'block', 'reason': REFLECTION_PROMPT},
-        )
-
-    def test_the_default_is_on(self, monkeypatch):
-        """A guard: production behavior is unchanged unless the env
-        explicitly turns reflection off."""
-        monkeypatch.delenv('VIBE_TASK_REFLECTION', raising=False)
-
-        assert Options.TASK_REFLECTION.get() == 'on'

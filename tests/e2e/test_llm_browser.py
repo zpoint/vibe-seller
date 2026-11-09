@@ -37,22 +37,7 @@ logger = logging.getLogger(__name__)
 
 pytestmark = [pytest.mark.e2e]
 
-
-@pytest.fixture(scope='module', autouse=True)
-def reflection_server(tmp_path_factory):
-    """This module asserts the reflection contract itself
-    (reflection_started / reflection_completed), so it owns a server
-    with the reflection turn ON — the shared CI e2e server runs with
-    it off. Same hook, same prompts, same assertions.
-    """
-    from tests.e2e.own_server import owned_e2e_server
-
-    with owned_e2e_server(tmp_path_factory.mktemp('reflection-home')) as s:
-        yield s
-
-
 # -- Static site content --
-
 
 INDEX_HTML = """\
 <!DOCTYPE html>

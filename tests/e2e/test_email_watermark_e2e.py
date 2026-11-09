@@ -42,19 +42,6 @@ logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.e2e]
 
 
-@pytest.fixture(scope='module', autouse=True)
-def reflection_server(tmp_path_factory):
-    """The schedule_state watermark nudge rides the reflection turn
-    (scheduled_watermark is appended to the reflection prompt), so
-    this module owns a server with reflection ON — the shared CI e2e
-    server runs with it off. Same hook, same prompts, same assertions.
-    """
-    from tests.e2e.own_server import owned_e2e_server
-
-    with owned_e2e_server(tmp_path_factory.mktemp('reflection-home')) as s:
-        yield s
-
-
 SECRET_1 = 'sekret-alpha-42'
 SECRET_2 = 'sekret-bravo-99'
 

@@ -46,22 +46,6 @@ pytestmark = [
     ),
 ]
 
-
-@pytest.fixture(scope='module', autouse=True)
-def reflection_server(tmp_path_factory):
-    """Skill saving is reflection's job, so this module owns a server
-    with reflection ON (the shared CI e2e server runs with it off).
-    Same hook, same prompts, same assertions.
-    """
-    from tests.e2e.own_server import owned_e2e_server
-
-    with owned_e2e_server(
-        tmp_path_factory.mktemp('reflection-home'),
-        env={'VIBE_ALLOW_LOOPBACK_WEBHOOKS': '1'},
-    ) as s:
-        yield s
-
-
 # Live browser export + report generation is slow; give it headroom.
 LIVE_TIMEOUT = max(PIPELINE_TIMEOUT, 1800)
 

@@ -12,12 +12,10 @@ refuses the shared server's port outright, so no caller — including
 the helpers below — can ever stop or restart it.
 """
 
-from contextlib import contextmanager
 import os
 from pathlib import Path
 import socket
 import subprocess
-import sys
 import time
 
 import httpx
@@ -146,56 +144,3 @@ class OwnServer:
         """Stop this server — only ever its own pid file."""
         assert_owned_port(self.port)
         self._stop_own()
-
-
-def _swap_base_url(url: str) -> dict:
-    """Point every ``tests.e2e`` module's from-imported BASE_URL at
-    *url* (each module holds its own binding; the sweep catches all).
-    """
-    saved = {}
-    for name, mod in sorted(sys.modules.items()):
-        if name.startswith('tests.e2e.') and isinstance(
-            getattr(mod, 'BASE_URL', None), str
-        ):
-            saved[name] = mod.BASE_URL
-            mod.BASE_URL = url
-    return saved
-
-
-@contextmanager
-def owned_e2e_server(home: Path, env: dict | None = None):
-    """An OWNED e2e server whose reflection turn is ON.
-
-    Reflection is the product default (``VIBE_TASK_REFLECTION`` is
-    "on" unless set); the SHARED CI e2e server runs with it off, so a
-    module whose INTENTION is reflection / knowledge / skill saving
-    owns its server here instead — the way the sync suites own theirs.
-    Nothing about the reflection contract is altered: the same hook,
-    the same prompt, the same assertions.
-
-    Boots the server, points every ``tests.e2e`` BASE_URL binding at
-    it (so ``api_client`` and friends follow), seeds the worker's
-    provider profile on it, and restores everything on exit.
-    """
-    from tests.e2e.conftest import seed_worker_profile
-
-    server = OwnServer(
-        port=pick_free_port(),
-        home=home,
-        env={'VIBE_TASK_REFLECTION': 'on', **(env or {})},
-    )
-    server.start()
-    saved = _swap_base_url(server.base_url)
-    try:
-        seed_worker_profile()
-        yield server
-    finally:
-        _swap_base_url_values(saved)
-        server.stop()
-
-
-def _swap_base_url_values(saved: dict) -> None:
-    for name, url in saved.items():
-        mod = sys.modules.get(name)
-        if mod is not None:
-            mod.BASE_URL = url

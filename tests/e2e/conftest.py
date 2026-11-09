@@ -268,20 +268,15 @@ def _sse_auto_answer():
     answer_client.close()
 
 
-def seed_worker_profile() -> str | None:
-    """Assign the running xdist worker its provider profile.
+@pytest.fixture(scope='session', autouse=True)
+def _setup_worker_profile():
+    """Assign each xdist worker a provider profile.
 
     Controlled by E2E_PROVIDER_MAP env var (comma-separated
     provider names, one per worker).  Example: kimi,kimi,minimax
 
     Spreads rate-limit load across providers so parallel workers
     don't all hammer the same API.
-
-    Seeded against the CURRENT ``BASE_URL``: the shared server for
-    most tests, and the owned server a reflection-intention module
-    boots (``own_server.owned_e2e_server`` swaps every ``tests.e2e``
-    binding first). Returns the profile id, or ``None`` when no map
-    is configured (local runs fall through to the user's default).
     """
     provider_map_str = os.environ.get('E2E_PROVIDER_MAP', '')
     if not provider_map_str:
@@ -387,13 +382,6 @@ def seed_worker_profile() -> str | None:
                     )
     finally:
         client2.close()
-    return profile_id
-
-
-@pytest.fixture(scope='session', autouse=True)
-def _setup_worker_profile():
-    """Seed the worker's provider profile on the shared server."""
-    seed_worker_profile()
 
 
 @pytest.fixture(scope='module')

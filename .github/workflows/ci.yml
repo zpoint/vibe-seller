@@ -372,12 +372,6 @@ jobs:
           # without promising a stream burst the providers never see.
           MAX_AGENT_CONCURRENCY: 16
           AGENT_DEBUG: '1'
-          # The e2e profile showed reflection + review ate 44% of
-          # agent wall AFTER set_task_result. The shared e2e server
-          # skips the reflection turn (default is on — production is
-          # unchanged); tests whose intention IS reflection/knowledge/
-          # skill-saving own a server with it on (own_server).
-          VIBE_TASK_REFLECTION: 'off'
           VIBE_SELLER_TELEMETRY: '0'
           # Vision e2e must be offline + deterministic: fake image
           # generation. The vision test module skips itself unless the
