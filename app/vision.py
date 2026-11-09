@@ -73,26 +73,36 @@ def model_ids() -> list[str]:
     return [m.id for m in image_models()]
 
 
+def is_known_model(model_id: str | None) -> bool:
+    """Whether ``model_id`` is in the catalog, hidden tiers included."""
+    return any(m.id == model_id for m in vision_catalog.all_models())
+
+
 def resolve_model_id(model_id: str | None) -> str:
     """A requested id → the id to use.
 
-    An id that left the catalog maps to its named successor (agents and
-    saved prompts may still say ``gpt-image-2-2k``); an unknown or
-    hidden id falls back to the default.
+    A catalog id is kept as-is, EVEN if the availability check has
+    since hidden it: an id here was already chosen (proposed, confirmed
+    on a card, or named by a resume after a timeout), and silently
+    swapping it would generate — and bill — a different model than the
+    one shown, or orphan an in-flight job. kie.ai rejecting a truly
+    delisted slug is an honest error; a substitution is not. An id that
+    left the catalog maps to its named successor (agents and saved
+    prompts may still say ``gpt-image-2-2k``); anything else is the
+    default.
     """
-    ids = model_ids()
-    if model_id in ids:
+    if is_known_model(model_id):
         return model_id
     successor = vision_catalog.retired_successor(model_id or '')
-    if successor in ids:
+    if is_known_model(successor):
         return successor
-    return ids[0]
+    return default_model()
 
 
 def get_model(model_id: str | None) -> ImageModel:
     """Resolve a model id to its ``ImageModel`` (see resolve_model_id)."""
     wanted = resolve_model_id(model_id)
-    return next(m for m in image_models() if m.id == wanted)
+    return next(m for m in vision_catalog.all_models() if m.id == wanted)
 
 
 def catalog_public() -> list[dict]:

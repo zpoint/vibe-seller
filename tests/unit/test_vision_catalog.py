@@ -141,6 +141,42 @@ def test_body_with_no_valid_family_is_rejected():
         vc.resolve_catalog([family(id=f'f{i}') for i in range(31)], {})
 
 
+def test_families_that_flatten_to_one_model_id_keep_the_first():
+    a = family(
+        id='acme',
+        slug='acme/a',
+        tiers=[
+            {'suffix': '1k', 'label': '1K', 'usd': 0.02, 'extra': {}},
+        ],
+    )
+    b = family(
+        id='acme-1k',
+        slug='acme/b',
+        tiers=[
+            {'suffix': '', 'label': '', 'usd': 0.02, 'extra': {}},
+        ],
+    )
+    fams, _ = vc.resolve_catalog([a, b], {})
+    assert [f['id'] for f in fams] == ['acme']
+    ids = [m.id for m in vc.flatten(fams)]
+    assert len(ids) == len(set(ids))
+
+
+def test_a_blank_price_term_is_rejected():
+    """A blank term tokenizes to nothing and would match every row."""
+    tier = {'suffix': '2k', 'label': '2K', 'usd': 0.09, 'extra': {}}
+    for bad in (' ', '', '  2k', '2k '):
+        assert vc._validate_tier({**tier, 'price_terms': [bad]}) is None
+    assert vc._validate_tier({**tier, 'price_terms': ['image to image']})
+
+
+async def test_a_non_object_models_body_fails_cleanly():
+    transport = httpx.MockTransport(lambda r: httpx.Response(200, json=[1]))
+    async with httpx.AsyncClient(transport=transport) as c:
+        with pytest.raises(ValueError, match='unexpected models body'):
+            await vc.fetch_available_slugs(c, 'k')
+
+
 def test_retired_map_only_points_at_served_models():
     fams, retired = vc.resolve_catalog(
         [family()],
@@ -223,8 +259,13 @@ def test_unmatchable_tiers_keep_the_bundled_price():
     assert vc.match_prices(models, rows) == {}
 
 
+def _live(model_id: str, usd: float) -> dict:
+    m = next(x for x in bundled_models() if x.id == model_id)
+    return {model_id: (usd, vc.price_ref(m))}
+
+
 def test_live_price_is_what_the_card_shows():
-    vc._commit(prices={'nano-banana-pro-2k': 0.08})
+    vc._commit(prices=_live('nano-banana-pro-2k', 0.08))
     card = {m['id']: m for m in vision.catalog_public()}
     assert card['nano-banana-pro-2k']['usd'] == 0.08
     assert card['nano-banana-pro-2k']['cny'] == round(0.08 * vision.USD_CNY, 2)
@@ -235,20 +276,70 @@ def test_live_price_is_what_the_card_shows():
 # ── Availability ─────────────────────────────────────────────────
 
 
-def test_delisted_models_are_hidden_and_resolve_elsewhere():
-    slugs = {m.slug for m in bundled_models()} - {'nano-banana-pro'}
-    vc._commit(available=frozenset(slugs))
+def test_delisted_models_are_hidden_but_never_swapped():
+    vc._commit(hidden=frozenset({'nano-banana-pro'}))
     ids = vision.model_ids()
     assert not any(i.startswith('nano-banana-pro') for i in ids)
-    # The default moves to the first visible model, and an agent asking
-    # for the hidden one gets that default rather than a failing call.
+    # The default moves to the first visible model…
     assert vision.default_model() == ids[0] == 'nano-banana-2-1-1k'
-    assert vision.resolve_model_id('nano-banana-pro-4k') == ids[0]
+    # …but an id someone already chose (a confirmed card, a timed-out job
+    # being resumed) is kept: swapping it would bill a different model
+    # than the one shown and orphan the in-flight job.
+    assert vision.resolve_model_id('nano-banana-pro-4k') == 'nano-banana-pro-4k'
+    assert vision.get_model('nano-banana-pro-4k').slug == 'nano-banana-pro'
 
 
 def test_availability_never_empties_the_card():
-    vc._commit(available=frozenset({'something-else'}))
+    vc._commit(hidden=frozenset(m.slug for m in bundled_models()))
     assert len(vision.model_ids()) == len(bundled_models())
+
+
+def test_a_model_added_after_the_availability_check_is_visible():
+    """Availability is a deny-list: a family main adds later (or a
+    release bundles) shows up without waiting for the next good check."""
+    vc._commit(hidden=frozenset({'ideogram/v3-remix'}))
+    new = family(id='acme-image', slug='acme/image-edit')
+    raw = [*vision_models.IMAGE_FAMILIES, new]
+    vc._commit(raw_families=raw, raw_retired={}, catalog_sha='s1')
+    ids = vision.model_ids()
+    assert 'acme-image-2k' in ids
+    assert not any(i.startswith('ideogram') for i in ids)
+
+
+def test_an_upgrade_re_judges_the_cached_catalog(monkeypatch):
+    """The cache keeps main's RAW body: a family this release rejects
+    must come back after an upgrade that accepts it, without waiting for
+    main's file to change (its sha short-circuits every later sync)."""
+    new = family(id='acme-image', slug='acme/image-edit', ref_field='ref_imgs')
+    vc._commit(
+        raw_families=[*vision_models.IMAGE_FAMILIES, new],
+        raw_retired={},
+        catalog_sha='s1',
+    )
+    assert 'acme-image-2k' not in vision.model_ids()
+    # "Upgrade": the next release knows the field. Restart = reload.
+    monkeypatch.setattr(vc, 'REF_FIELDS', vc.REF_FIELDS | {'ref_imgs'})
+    vc.reset()
+    assert 'acme-image-2k' in vision.model_ids()
+
+
+def test_a_price_matched_under_old_terms_stops_applying():
+    """main fixes a tier's price_terms: the live price found by the old
+    terms must not keep overriding the newly curated price."""
+    vc._commit(prices={'nano-banana-pro-2k': (0.5, 'nano-banana-pro|old')})
+    assert vision.get_model('nano-banana-pro-2k').usd == 0.09
+
+
+async def test_a_tier_that_stops_matching_drops_its_live_price():
+    fake = FakeKie()
+    await run(fake)
+    vc._commit(
+        prices={**vc._current().prices, **_live('flux-3-klein-1k', 0.01)}
+    )
+    fake.pricing = [r for r in PRICING if 'Klein' not in r['modelDescription']]
+    await run(fake)
+    assert 'flux-3-klein-1k' not in vc._current().prices
+    assert vision.get_model('flux-3-klein-1k').usd == 0.008  # catalog
 
 
 # ── sync_once over a mocked network ──────────────────────────────
@@ -380,8 +471,11 @@ def test_corrupt_cache_serves_bundled(tmp_path):
     path.write_text(
         json.dumps({
             'catalog': {'sha256': 'x', 'families': [{'id': 'evil'}]},
-            'prices': {'nano-banana-pro-2k': 99, 'flux-3-klein-1k': 'x'},
-            'available': 'not-a-list',
+            'prices': {
+                'nano-banana-pro-2k': [99, 'nano-banana-pro|2k'],
+                'flux-3-klein-1k': 'x',
+            },
+            'hidden': 'not-a-list',
         }),
         encoding='utf-8',
     )

@@ -248,10 +248,10 @@ async def generate_task_image(
 
     # User-edited values win over the agent's proposal.
     final_prompt = (decision.get('prompt') or prompt).strip()
-    # The user picks from the card's list, so an id outside the current
-    # catalog means a stale card: keep the agent's (resolved) choice.
+    # The user picks from the card's list, so an id outside the catalog
+    # means a stale or forged card: keep the agent's (resolved) choice.
     final_model = decision.get('model') or model
-    if final_model not in vision.model_ids():
+    if not vision.is_known_model(final_model):
         final_model = model
     # References the user added in the confirm card (uploaded files →
     # workspace-relative paths, or pasted URLs) are appended.

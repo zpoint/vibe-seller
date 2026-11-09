@@ -83,7 +83,8 @@ _ID_RE = re.compile(r'[a-z0-9][a-z0-9.-]{0,39}')
 _SUFFIX_RE = re.compile(r'[a-z0-9.]{0,12}')
 _SLUG_RE = re.compile(r'[a-z0-9][a-z0-9._/-]{0,79}')
 _PARAM_RE = re.compile(r'[a-z][a-z0-9_]{0,31}')
-_TERM_RE = re.compile(r'[a-z0-9. ]{1,32}')
+# Space-separated words; a blank term would match every row.
+_TERM_RE = re.compile(r'[a-z0-9.]+(?: [a-z0-9.]+)*')
 _CONTROL_RE = re.compile(r'[\x00-\x1f\x7f]')
 _TOKEN_RE = re.compile(r'[a-z0-9.]+')
 
@@ -178,7 +179,10 @@ def _validate_tier(tier: object) -> dict | None:
     terms = tier.get('price_terms', [])
     if not isinstance(terms, list | tuple) or len(terms) > _MAX_TERMS:
         return None
-    if not all(isinstance(t, str) and _TERM_RE.fullmatch(t) for t in terms):
+    if not all(
+        isinstance(t, str) and len(t) <= 32 and _TERM_RE.fullmatch(t)
+        for t in terms
+    ):
         return None
     return {
         'suffix': suffix,
@@ -265,6 +269,7 @@ def resolve_catalog(families: object, retired: object) -> tuple[list, dict]:
     bundled = {f['id']: f for f in _bundled_families()}
     out: list[dict] = []
     seen: set[str] = set()
+    seen_models: set[str] = set()
     for raw in families:
         fam = validate_family(raw)
         if fam is None:
@@ -277,7 +282,19 @@ def resolve_catalog(families: object, retired: object) -> tuple[list, dict]:
             )
         if fam is None or fam['id'] in seen:
             continue
+        # Two families can flatten to one model id (``flux-2`` tier
+        # ``1k`` and a lone-tier ``flux-2-1k``): the card would show two
+        # rows with one id and bill the first for both. Keep the first.
+        tier_ids = {m.id for m in flatten([fam])}
+        if tier_ids & seen_models:
+            logger.warning(
+                'vision catalog: family %r reuses model ids %s — dropped',
+                fam['id'],
+                sorted(tier_ids & seen_models),
+            )
+            continue
         seen.add(fam['id'])
+        seen_models |= tier_ids
         out.append(fam)
     if not out:
         raise CatalogSourceError('no valid family in body')
@@ -434,68 +451,105 @@ def match_prices(
 # ── Served state ─────────────────────────────────────────────────
 
 
+def price_ref(m: ImageModel) -> str:
+    """How a tier's live price was found. A stored price applies only
+    while the tier still names the same row: when main edits a tier's
+    ``price_key`` / ``price_terms`` (e.g. to fix a mismatched row), the
+    price matched under the old terms stops applying at once."""
+    return '|'.join((m.price_key, *m.price_terms))
+
+
 @dataclasses.dataclass(frozen=True)
 class _State:
+    """What the last syncs learned. Everything served is DERIVED from it
+    by :func:`_derive` against THIS release's validator and bundled
+    catalog — so an upgrade re-judges a cached body instead of serving
+    the previous release's verdict on it."""
+
+    #: main's IMAGE_FAMILIES / RETIRED_MODEL_IDS as fetched (raw literal
+    #: data), or None = serve bundled.
+    raw_families: list | None = None
+    raw_retired: dict | None = None
+    catalog_sha: str | None = None
+    #: model id -> (live usd, price_ref it was matched under)
+    prices: dict = dataclasses.field(default_factory=dict)
+    #: kie slugs kie.ai did NOT list on the last good check. A deny-list,
+    #: not an allow-list: a model added after that check is visible.
+    hidden: frozenset = frozenset()
+
+
+@dataclasses.dataclass(frozen=True)
+class _Served:
     families: list
     retired: dict
-    prices: dict  # model id -> live usd
-    available: frozenset | None  # kie slugs, or None = unknown
-    catalog_sha: str | None = None
+    models: list  # every tier, live price applied
+    visible: list  # minus hidden slugs; never empty
+
+
+def _resolved(state: _State) -> tuple[list, dict]:
+    if state.raw_families is not None:
+        try:
+            return resolve_catalog(state.raw_families, state.raw_retired)
+        except CatalogSourceError:
+            pass
+    return _bundled_families(), dict(vision_models.RETIRED_MODEL_IDS)
+
+
+def _derive(state: _State) -> _Served:
+    families, retired = _resolved(state)
+    models = []
+    for m in flatten(families):
+        live = state.prices.get(m.id)
+        if live is not None and live[1] == price_ref(m) and _usd_ok(live[0]):
+            m = dataclasses.replace(m, usd=live[0])
+        models.append(m)
+    visible = [m for m in models if m.slug not in state.hidden]
+    return _Served(families, retired, models, visible or models)
 
 
 _state: _State | None = None
+_served: _Served | None = None
 
 
 def _cache_path() -> Path:
     return VIBE_SELLER_DIR / 'cache' / 'vision_catalog.json'
 
 
-def _bundled_state() -> _State:
-    return _State(
-        families=_bundled_families(),
-        retired=dict(vision_models.RETIRED_MODEL_IDS),
-        prices={},
-        available=None,
-    )
-
-
 def _load_cache() -> _State:
-    """Cache-or-bundled, re-validated: a corrupt or hand-edited file is
-    a miss for that part, never a source of config."""
-    state = _bundled_state()
+    """The persisted state; any malformed part is dropped (bundled /
+    catalog price / visible wins), never trusted. The catalog part is
+    re-validated by ``_derive`` on every load."""
     try:
         blob = json.loads(_cache_path().read_text(encoding='utf-8'))
     except (OSError, ValueError):
-        return state
+        return _State()
     if not isinstance(blob, dict):
-        return state
+        return _State()
+    state = _State()
     cat = blob.get('catalog')
-    if isinstance(cat, dict):
-        try:
-            fams, retired = resolve_catalog(
-                cat.get('families'), cat.get('retired')
-            )
-            state = dataclasses.replace(
-                state,
-                families=fams,
-                retired=retired,
-                catalog_sha=cat.get('sha256')
-                if isinstance(cat.get('sha256'), str)
-                else None,
-            )
-        except CatalogSourceError:
-            pass
+    if isinstance(cat, dict) and isinstance(cat.get('sha256'), str):
+        state = dataclasses.replace(
+            state,
+            raw_families=cat.get('families'),
+            raw_retired=cat.get('retired'),
+            catalog_sha=cat['sha256'],
+        )
     prices = blob.get('prices')
     if isinstance(prices, dict):
         state = dataclasses.replace(
             state,
-            prices={k: float(v) for k, v in prices.items() if _usd_ok(v)},
+            prices={
+                k: (float(v[0]), v[1])
+                for k, v in prices.items()
+                if isinstance(v, list)
+                and len(v) == 2
+                and _usd_ok(v[0])
+                and isinstance(v[1], str)
+            },
         )
-    available = blob.get('available')
-    if isinstance(available, list) and all(
-        isinstance(s, str) for s in available
-    ):
-        state = dataclasses.replace(state, available=frozenset(available))
+    hidden = blob.get('hidden')
+    if isinstance(hidden, list) and all(isinstance(s, str) for s in hidden):
+        state = dataclasses.replace(state, hidden=frozenset(hidden))
     return state
 
 
@@ -505,15 +559,13 @@ def _write_cache(state: _State) -> None:
     blob = {
         'catalog': {
             'sha256': state.catalog_sha,
-            'families': state.families,
-            'retired': state.retired,
+            'families': state.raw_families,
+            'retired': state.raw_retired,
         }
         if state.catalog_sha
         else None,
-        'prices': state.prices,
-        'available': sorted(state.available)
-        if state.available is not None
-        else None,
+        'prices': {k: list(v) for k, v in state.prices.items()},
+        'hidden': sorted(state.hidden),
     }
     tmp = path.parent / f'{path.name}.tmp'
     tmp.write_text(json.dumps(blob, indent=2), encoding='utf-8')
@@ -527,35 +579,44 @@ def _current() -> _State:
     return _state
 
 
+def _served_now() -> _Served:
+    global _served
+    if _served is None:
+        _served = _derive(_current())
+    return _served
+
+
+def _commit(**changes) -> None:
+    """Swap in a new state (and its derived view) and persist it."""
+    global _state, _served
+    _state = dataclasses.replace(_current(), **changes)
+    _served = _derive(_state)
+    _write_cache(_state)
+
+
 def reset() -> None:
     """Drop the in-memory state (tests / manual recovery)."""
-    global _state
+    global _state, _served
     _state = None
+    _served = None
 
 
 def all_models() -> list[ImageModel]:
-    """Every catalog tier with its served price, hidden ones included."""
-    st = _current()
-    return [
-        dataclasses.replace(m, usd=st.prices.get(m.id, m.usd))
-        for m in flatten(st.families)
-    ]
+    """Every catalog tier with its served price, hidden ones included —
+    the lookup set for an id someone already chose (a confirmed card, a
+    timed-out job being resumed), which must never silently change."""
+    return _served_now().models
 
 
 def current_models() -> list[ImageModel]:
     """The selectable tiers: catalog order, live prices, minus models
     kie.ai no longer lists. Never empty — if availability would hide
     everything, the availability data is what's wrong."""
-    models = all_models()
-    available = _current().available
-    if available is None:
-        return models
-    visible = [m for m in models if m.slug in available]
-    return visible or models
+    return _served_now().visible
 
 
 def retired_successor(model_id: str) -> str | None:
-    return _current().retired.get(model_id)
+    return _served_now().retired.get(model_id)
 
 
 # ── Fetch steps ──────────────────────────────────────────────────
@@ -578,16 +639,26 @@ async def _fetch_catalog(client: httpx.AsyncClient, force: bool) -> dict:
             chunks.append(chunk)
     raw = b''.join(chunks)
     sha = hashlib.sha256(raw).hexdigest()
+    # Same body as cached: nothing to do. Safe across upgrades because
+    # the cache keeps the RAW body, which every load re-validates.
     if sha == _current().catalog_sha and not force:
         return {'status': 'unchanged'}
     try:
-        fams, retired = resolve_catalog(
-            *parse_catalog_source(raw.decode('utf-8'))
-        )
+        raw_families, raw_retired = parse_catalog_source(raw.decode('utf-8'))
+        fams, _ = resolve_catalog(raw_families, raw_retired)
     except (CatalogSourceError, UnicodeDecodeError) as e:
         return {'status': 'rejected', 'error': str(e)}
-    changed = (fams, retired) != (_current().families, _current().retired)
-    _commit(families=fams, retired=retired, catalog_sha=sha)
+    before = _served_now()
+    _commit(
+        raw_families=raw_families,
+        raw_retired=raw_retired if isinstance(raw_retired, dict) else {},
+        catalog_sha=sha,
+    )
+    after = _served_now()
+    changed = (before.families, before.retired) != (
+        after.families,
+        after.retired,
+    )
     return {
         'status': 'updated' if changed else 'unchanged',
         'families': len(fams),
@@ -624,10 +695,15 @@ async def _fetch_prices(client: httpx.AsyncClient) -> dict:
     # Match against the catalog's own prices, not the live ones already
     # served: the drift check must compare a fresh row to the price a
     # maintainer verified, or one bad row would ratchet the anchor.
-    catalog = flatten(_current().families)
-    prices = match_prices(catalog, records)
-    if not prices:
+    catalog = flatten(_served_now().families)
+    matched = match_prices(catalog, records)
+    if not matched:
         return {'status': 'failed', 'error': 'no price matched'}
+    # Replace, don't merge: a tier that no longer matches falls back to
+    # its catalog price rather than keeping last week's live one.
+    prices = {
+        m.id: (matched[m.id], price_ref(m)) for m in catalog if m.id in matched
+    }
     changed = prices != _current().prices
     _commit(prices=prices)
     return {
@@ -647,7 +723,9 @@ async def fetch_available_slugs(
     )
     resp.raise_for_status()
     body = resp.json()
-    data = body.get('data') if isinstance(body, dict) else None
+    if not isinstance(body, dict):
+        raise ValueError(f'unexpected models body: {str(body)[:200]}')
+    data = body.get('data')
     models = data.get('models') if isinstance(data, dict) else None
     if body.get('code') != 200 or not isinstance(models, list) or not models:
         raise ValueError(f'unexpected models body: {str(body)[:200]}')
@@ -665,28 +743,23 @@ async def fetch_available_slugs(
 
 async def _fetch_available(client: httpx.AsyncClient, api_key: str) -> dict:
     slugs = await fetch_available_slugs(client, api_key)
-    ours = {m.slug for m in flatten(_current().families)}
-    missing = sorted(ours - slugs)
-    if missing == sorted(ours):
+    ours = {m.slug for m in _served_now().models}
+    missing = ours - slugs
+    if missing == ours:
         # Every one of our models gone at once is an API change, not a
         # mass delisting. Keep serving what we have.
         return {'status': 'failed', 'error': 'none of our slugs listed'}
-    available = frozenset(slugs & ours)
-    changed = available != _current().available
-    _commit(available=available)
+    hidden = frozenset(missing)
+    changed = hidden != _current().hidden
+    _commit(hidden=hidden)
     if missing:
-        logger.warning('vision catalog: kie.ai no longer lists %s', missing)
+        logger.warning(
+            'vision catalog: kie.ai no longer lists %s', sorted(missing)
+        )
     return {
         'status': 'updated' if changed else 'unchanged',
         'hidden': len(missing),
     }
-
-
-def _commit(**changes) -> None:
-    """Swap in a new state and persist it."""
-    global _state
-    _state = dataclasses.replace(_current(), **changes)
-    _write_cache(_state)
 
 
 async def sync_once(
