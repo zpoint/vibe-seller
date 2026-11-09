@@ -66,6 +66,17 @@ class Options(enum.Enum):
     TURN_LINGER_QUIET_S = ('VIBE_TURN_LINGER_QUIET_S', '5')
     TURN_HARD_IDLE_S = ('VIBE_TURN_HARD_IDLE_S', '600')
 
+    # Post-task reflection: the Stop hook's one reflection turn (the
+    # knowledge/notes + CATALOG maintenance the reflection prompt
+    # drives). ON by default — production behavior is unchanged. The
+    # e2e suite runs its shared server with it OFF (the profile showed
+    # reflection + review ate 44% of agent wall AFTER the result was
+    # already delivered); tests whose INTENTION is reflection,
+    # knowledge or skill saving own a server with it ON. Read in
+    # exactly one place: the Stop-hook handler in
+    # app/ai/claude_backend_hooks.py.
+    TASK_REFLECTION = ('VIBE_TASK_REFLECTION', 'on')
+
     # Wall clock a review gate may spend re-driving the agent before it
     # fails open with the UNVERIFIED banner. Counted from the FIRST
     # re-drive, alongside (not instead of) the attempt cap in

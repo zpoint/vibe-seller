@@ -11,6 +11,7 @@ import json
 import logging
 
 from app import ads_routing
+from app.ai import stop_reflection
 from app.ai.background_wait import long_sleep_deny
 from app.ai.bash_safety import (
     check_catalog_first_tool_args,
@@ -33,7 +34,6 @@ from app.ai.image_guards import (
     check_image_read_without_vision,
 )
 from app.ai.profiles import ProfileManager, model_sees_images
-from app.ai.reflection_guard import begin_reflection, end_reflection
 from app.ai.skill_gate_utils import find_skill_md, unloaded_skill_read_hint
 from app.ai.stop_gates import record_skill_load
 from app.ai.tool_call_guards import tool_call_deny
@@ -42,11 +42,6 @@ from app.events.bus import event_bus
 from app.models.schedule import Schedule
 from app.models.task import Task
 from app.plan_states import PlanStatus
-from app.prompts import (
-    REFLECTION_PROMPT,
-    SCHEDULED_WATERMARK_PROMPT,
-    render_prompt,
-)
 from app.question_answers import expand_free_text_answers
 from app.task_states import TaskStatus
 from app.telemetry_tasks import (
@@ -357,64 +352,10 @@ class _HookMixin:
                 request_id, {'hookSpecificOutput': allow}
             )
         elif callback_id == STOP_REFLECTION_CALLBACK:
-            # Stop hook: block to force reflection, approve on retry.
-            # Claude Code sends stop_hook_active=true on the retry
-            # after a block, preventing infinite loops.
-            if tool_input.get('stop_hook_active'):
-                end_reflection(self)  # bracket-end; see reflection_started
-                _ev = json.dumps({'event': 'reflection_completed'})
-                await self._emit_message('agent_event', _ev)
-                await self._send_hook_response(
-                    request_id, {'decision': 'approve'}
-                )
-            else:
-                if await self._deny_stop_if_tasklist_open(request_id):
-                    return
-                if await self._deny_stop_if_async_agents_running(request_id):
-                    return
-                if await self._deny_stop_if_review_unsatisfied(request_id):
-                    return
-                if await self._deny_stop_if_exec_review_unsatisfied(request_id):
-                    return
-                # Save real result before reflection overwrites it.
-                # Prefer full exec-phase transcript (agent may emit
-                # the full report then a brief "Done." closing — the
-                # Stop-hook payload's ``last_assistant_message`` only
-                # contains the closing). Fall back to that field if
-                # we have no accumulated text.
-                pre = '\n\n'.join(p for p in self._exec_phase_text_parts if p)
-                if not pre:
-                    pre = tool_input.get('last_assistant_message', '')
-                # Always set (even to '') so the result handler can
-                # detect that Stop-hook reflection fired. If pre is
-                # empty, the post-reflection text in the next
-                # ``result`` event is reflection content (e.g. 'No
-                # transferable learning…') and MUST NOT become the
-                # user-facing answer.
-                self._pre_reflection_result = pre
-                if pre:
-                    await self._save_result(pre)
-                # Reflection tool calls run after the turn's work is
-                # done — they must not count as progress in the Q&A
-                # finalize check, nor start new work (reflection_guard).
-                begin_reflection(self)
-                # Structured marker — makes the reflection PHASE
-                # observable independently of model wording.
-                _ev = json.dumps({'event': 'reflection_started'})
-                await self._emit_message('agent_event', _ev)
-                reason = render_prompt(
-                    REFLECTION_PROMPT,
-                    store_slug=self.store_slug,
-                )
-                if await self._is_scheduled_task():
-                    reason += '\n\n' + SCHEDULED_WATERMARK_PROMPT
-                await self._send_hook_response(
-                    request_id,
-                    {
-                        'decision': 'block',
-                        'reason': reason,
-                    },
-                )
+            # Stop hook: block to force reflection, approve on retry
+            # (and the VIBE_TASK_REFLECTION switch) — the branch lives
+            # in app/ai/stop_reflection.py.
+            await stop_reflection.handle(self, request_id, tool_input)
         elif callback_id == 'tool_approval':
             # Legacy format — extract inner tool info
             inner_tool = tool_input.get('tool_name', '')

@@ -152,37 +152,64 @@ def _simulate():
         fn = it.split('::')[-1]
         est = _p50(MEASURED.get(fn, (0, 0)))
         wrap.append(_Item(it, round(est) if fn in marked else 0))
-    order = [w.name for w in long_budget_order(wrap, None, workers=4)]
-    p50 = _loads(order, lambda n: _p50(MEASURED.get(n.split('::')[-1], (0, 0))))
+    workers = _e2e_workers()
+    order = [
+        w.name
+        for w in long_budget_order(wrap, _e2e_provider_map(), workers=workers)
+    ]
+    p50 = _loads(
+        order,
+        lambda n: _p50(MEASURED.get(n.split('::')[-1], (0, 0))),
+        workers,
+    )
     worst = _loads(
-        order, lambda n: _worst(MEASURED.get(n.split('::')[-1], (0, 0)))
+        order,
+        lambda n: _worst(MEASURED.get(n.split('::')[-1], (0, 0))),
+        workers,
     )
     return p50, worst
 
 
+def _ci() -> str:
+    ci = Path(__file__).resolve().parents[2] / '.github/workflows/ci.yml'
+    return ci.read_text(encoding='utf-8')
+
+
 def _e2e_step_budget_s() -> int:
     """The CI 'Run E2E tests' step's timeout-minutes, in seconds."""
-    ci = Path(__file__).resolve().parents[2] / '.github/workflows/ci.yml'
-    text = ci.read_text(encoding='utf-8')
+    text = _ci()
     step = text.split('- name: Run E2E tests', 1)[1]
     minutes = re.search(r'timeout-minutes:\s*(\d+)', step)
     assert minutes, 'Run E2E tests step has no timeout-minutes'
     return int(minutes.group(1)) * 60
 
 
+def _e2e_workers() -> int:
+    """E2E_WORKERS from ci.yml — the width the simulation models."""
+    match = re.search(r'E2E_WORKERS:\s*(\d+)', _ci())
+    assert match, 'ci.yml has no E2E_WORKERS'
+    return int(match.group(1))
+
+
+def _e2e_provider_map() -> list:
+    """E2E_PROVIDER_MAP from ci.yml — one entry per worker."""
+    match = re.search(r'E2E_PROVIDER_MAP:\s*(\S+)', _ci())
+    assert match, 'ci.yml has no E2E_PROVIDER_MAP'
+    return [p for p in match.group(1).split(',') if p]
+
+
 def test_the_scheduled_critical_path_matches_the_documented_numbers():
     """The scheduling claim, pinned.
 
     The docstring/report figures are produced by THIS calculation on
-    the recorded suite: p50 path 1907s (31.8 min) and max-duration
-    path 2112s (35.2 min). Both must fit the CI e2e step budget, read
-    from ci.yml (40 min since the old 32 min was shown too tight by
-    exactly these numbers). A collection that differs in shape (platform
-    filters) shifts the absolute loads — CI's Linux collection came out
-    [1650, 1901, 1584, 1420], also fitting — so what is pinned is the
-    INVARIANT every collection must keep plus the marker set, and the
-    exact recorded figures are asserted when the suite is the recorded
-    one.
+    the recorded suite at the ci.yml width: p50 path 1089s (18.1 min)
+    and max-duration path 1256s (20.9 min). Both must fit the CI e2e
+    step budget, read from ci.yml (40 min since the old 32 min was
+    shown too tight by the 4-worker figures 1907s/2112s). A collection
+    that differs in shape (platform filters) shifts the absolute
+    loads, so what is pinned is the INVARIANT every collection must
+    keep plus the marker set, and the exact recorded figures are
+    asserted when the suite and width are the recorded ones.
     """
     p50, worst = _simulate()
     marked = {it.split('::')[-1] for it in _collect(['-m', 'long_budget'])}
@@ -192,5 +219,14 @@ def test_the_scheduled_critical_path_matches_the_documented_numbers():
     assert max(worst) <= step, (
         f'the worst-case path no longer fits {step}s: {worst}'
     )
-    if p50 == [1892, 1907, 1584, 1420]:
-        assert worst == [2112, 2050, 1441, 1229], worst
+    if _e2e_workers() == 8 and p50 == [
+        1089,
+        1078,
+        1039,
+        898,
+        856,
+        532,
+        461,
+        852,
+    ]:
+        assert worst == [1256, 1167, 1102, 863, 834, 483, 311, 816], worst

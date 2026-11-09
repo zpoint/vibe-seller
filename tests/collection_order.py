@@ -35,11 +35,13 @@ pre-#200 baseline that is nine tests: the two ad-scoping ones (602s,
 followup-review-scoping (382s), session-reuse (296s), llm-responds
 (289s), two-browser-tasks (277s) and conversation-lifecycle E4
 (268s). The simulation lives in ``tests/unit/test_schedule_sim.py``
-(run it to reproduce these): with all nine marked and LPT placement
-the p50 critical path is 1907s (31.8 min) and the MAX-duration path
-2112s (35.2 min). The old 32-min step could not hold the latter, so
-the step budget in ci.yml was raised to 40 min; the test reads that
-number and requires both paths to fit it.
+(run it to reproduce these — it reads the width, the provider map and
+the step budget from ci.yml): with all nine marked and LPT placement
+at the 8-worker width, the p50 critical path is 1089s (18.1 min) and
+the MAX-duration path 1256s (20.9 min), both inside the 2400s
+(40-min) step. At the old 4-worker width the same calculation gave
+1907s/2112s against a 1920s step — the numbers that showed 32 min too
+tight and moved the budget.
 
 ``xdist``'s initial split (for the pins' simulation)::
 

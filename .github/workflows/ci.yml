@@ -367,8 +367,17 @@ jobs:
           # to the worker profile, so even UI-created tasks use it.
           API_TIMEOUT_MS: 3000000
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
-          MAX_AGENT_CONCURRENCY: 9
+          # 8 workers each run one task, and the concurrency e2e
+          # tests briefly run three — 16 keeps every slot prompt
+          # without promising a stream burst the providers never see.
+          MAX_AGENT_CONCURRENCY: 16
           AGENT_DEBUG: '1'
+          # The e2e profile showed reflection + review ate 44% of
+          # agent wall AFTER set_task_result. The shared e2e server
+          # skips the reflection turn (default is on — production is
+          # unchanged); tests whose intention IS reflection/knowledge/
+          # skill-saving own a server with it on (own_server).
+          VIBE_TASK_REFLECTION: 'off'
           VIBE_SELLER_TELEMETRY: '0'
           # Vision e2e must be offline + deterministic: fake image
           # generation. The vision test module skips itself unless the
@@ -423,10 +432,13 @@ jobs:
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
           GLM_BASE_URL: ${{ secrets.GLM_BASE_URL }}
           GLM_MODEL: ${{ secrets.GLM_MODEL }}
-          E2E_WORKERS: 4
-          # The two-model tests (profile switch, compaction) take the first
-          # two DISTINCT providers here, so one glm worker is enough.
-          E2E_PROVIDER_MAP: minimax,minimax,minimax,glm
+          E2E_WORKERS: 8
+          # 8 workers over 4 provider keys (2 streams per key — under
+          # the 3/key ever observed, and no rate-limit event exists in
+          # any run's logs). The two-model tests (profile switch,
+          # compaction) take the first two DISTINCT providers here, so
+          # minimax and glm lead the map.
+          E2E_PROVIDER_MAP: minimax,glm,deepseek,kimi,minimax,glm,deepseek,kimi
           VIBE_ADS_SERVICE_URL: http://127.0.0.1:7791
         run: |
           E2E_N="${E2E_WORKERS:-0}"
