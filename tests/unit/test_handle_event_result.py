@@ -17,6 +17,7 @@ from app.ai.claude_backend_utils import (
     REVIEW_REDRIVE_MAX,
 )
 from app.ai.review_redrive import RedriveClock
+from app.ai.stop_gates import record_skill_load
 
 pytestmark = pytest.mark.unit
 
@@ -345,6 +346,43 @@ class TestHandleEventResultTurns:
                 'result': 'done',
             })
         assert session._input_closed is False
+
+
+class TestAQuestionAboutAnAdTaskEndsTheTurn:
+    """Observed in production: on a failed ad-audit task the user asked
+    "where are the report files stored?"; the agent answered in 11 s and
+    the result was then held by an unsatisfied DoD review gate, which
+    re-drove the agent back into six more minutes of ad work. With no
+    reviewer gate, an answered question ends the turn — an audit report
+    and a bound ad skill on disk are not open work."""
+
+    async def test_answer_is_the_result_and_nothing_is_redriven(self, tmp_path):
+        task_dir = tmp_path / 'ad-task'
+        task_dir.mkdir()
+        (task_dir / 'AD_AUDIT_2026-01-01.md').write_text('## amazon AE\n')
+        session = _make_session('auto')
+        session.task_dir = task_dir
+        record_skill_load(session.task_id, 'amazon-ads')
+        emitted: list[tuple[str, str]] = []
+        sent: list[str] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        async def _mock_send(msg):
+            sent.append(msg)
+
+        with (
+            patch.object(session, '_emit_message', _mock_emit),
+            patch.object(session, 'send_user_message', _mock_send),
+        ):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'The report is at store-data/acme/ads/...',
+            })
+
+        assert sent == []
+        assert ('result', 'The report is at store-data/acme/ads/...') in emitted
 
 
 class TestReviewGateRedrive:
