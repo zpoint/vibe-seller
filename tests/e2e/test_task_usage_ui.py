@@ -125,7 +125,7 @@ def test_chip_renders_and_updates_live(api, authenticated_page):
         re.compile(rf'^{pct}% · .+ / 1M$')
     )
     cost = page.get_by_test_id('task-usage-cost')
-    expect(cost).to_have_text(f'· ≈${planned["cost_usd"]:.2f}')
+    expect(cost).to_have_text(f'· ${planned["cost_usd"]:.2f}')
 
     # Execute with the page open: the figures must move by SSE alone
     # (execution continues the same CLI process, so the mock's context
@@ -137,7 +137,7 @@ def test_chip_renders_and_updates_live(api, authenticated_page):
     expect(page.get_by_test_id('task-usage-context')).to_have_text(
         re.compile(rf'^{done_pct}% · '), timeout=15_000
     )
-    expect(cost).to_have_text(f'· ≈${done["cost_usd"]:.2f}', timeout=15_000)
+    expect(cost).to_have_text(f'· ${done["cost_usd"]:.2f}', timeout=15_000)
 
     chip.click()
     details = page.get_by_test_id('task-usage-details')

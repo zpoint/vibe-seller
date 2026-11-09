@@ -107,22 +107,23 @@ describe('TaskUsageMeter', () => {
   it('shows context fill and an estimated cost for a priced run', () => {
     renderMeter(METERED)
     expect(screen.getByTestId('task-usage-context')).toHaveTextContent('45% · 452k / 1M')
-    expect(screen.getByTestId('task-usage-cost')).toHaveTextContent('≈$1.23')
+    expect(screen.getByTestId('task-usage-cost')).toHaveTextContent('$1.23')
   })
 
   it('chip rounds to two decimals; the panel shows the precise figure', () => {
     renderMeter({ ...METERED, cost_usd: 0.0067 })
-    expect(screen.getByTestId('task-usage-cost')).toHaveTextContent('≈$0.01')
+    expect(screen.getByTestId('task-usage-cost')).toHaveTextContent('$0.01')
     fireEvent.click(screen.getByTestId('task-usage-meter'))
     const details = screen.getByTestId('task-usage-details')
     expect(details).toHaveTextContent('$0.0067')
-    expect(details).not.toHaveTextContent('≈')
+    // No approximation sign anywhere: two decimals on the chip say it.
+    expect(screen.queryByText(/≈/)).toBeNull()
   })
 
   it('shows RMB in the Chinese UI, with the rate in the panel', () => {
     renderMeter({ ...METERED, cost_usd: 1 }, 'zh')
     expect(screen.getByTestId('task-usage-cost')).toHaveTextContent(
-      `≈¥${USD_TO_CNY.toFixed(2)}`,
+      `¥${USD_TO_CNY.toFixed(2)}`,
     )
     expect(screen.queryByText(/\$/)).toBeNull()
     fireEvent.click(screen.getByTestId('task-usage-meter'))

@@ -10,7 +10,7 @@ import {
   formatTokens,
 } from '../lib/usageFormat'
 
-/** The cost label — chip: "≈$1.23" / "≈¥8.76"; panel (``precise``):
+/** The cost label — chip: "$1.23" / "¥8.27"; panel (``precise``):
  *  "$1.2345". "Included in plan" for plans, null when unpriced. */
 function costLabel(
   u: TaskUsage,
@@ -19,8 +19,7 @@ function costLabel(
   precise = false,
 ): string | null {
   if (u.cost_basis === 'catalog') {
-    const amount = formatCost(u.cost_usd ?? 0, currency, precise)
-    return precise ? amount : `≈${amount}`
+    return formatCost(u.cost_usd ?? 0, currency, precise)
   }
   if (u.cost_basis === 'included') return t('usage.included')
   return null
