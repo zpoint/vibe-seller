@@ -765,6 +765,11 @@ class TestScopeEntriesNameWhatIsInScope:
             'widget-006 but not sprocket-009',
             'everything outside the manual line',
             'not A7654321',  # bare negation
+            'widget-006 手动广告（sprocket-009 除外）',
+            '不包括 sprocket-009',
+            'widget-006，不含手动组',
+            '排除 A7654321',
+            '除了 sprocket-009 以外的全部',
         ],
     )
     def test_exclusion_shapes_are_refused(self, entry):
@@ -780,6 +785,8 @@ class TestScopeEntriesNameWhatIsInScope:
             'sprocket-009 manual',
             'widget-006 rollout line',  # "out" inside a word is not an
             # exclusion shape
+            'widget-006 手动广告',
+            'widget-006 全系列',
         ],
     )
     def test_legitimate_anchors_are_accepted(self, entry):

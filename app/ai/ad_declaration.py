@@ -112,6 +112,11 @@ _EXCLUSION_SHAPE = re.compile(
     r')\b',
     re.IGNORECASE,
 )
+# The same shapes in Chinese — users (and so agents) often state scope
+# in Chinese. CJK has no word boundaries, so these match as substrings.
+_EXCLUSION_SHAPE_ZH = re.compile(
+    r'除外|除了|以外|之外|不包括|不包含|不含|排除|不在|不要|不算|剔除|去掉'
+)
 
 
 def scope_entry_error(value: str) -> str | None:
@@ -123,7 +128,7 @@ def scope_entry_error(value: str) -> str | None:
     scope, expressed by omission.
     """
     text = str(value or '')
-    hit = _EXCLUSION_SHAPE.search(text)
+    hit = _EXCLUSION_SHAPE.search(text) or _EXCLUSION_SHAPE_ZH.search(text)
     if hit is None:
         return None
     return (
