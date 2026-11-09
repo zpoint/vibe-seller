@@ -34,11 +34,12 @@ pre-#200 baseline that is nine tests: the two ad-scoping ones (602s,
 530s), ads-mixed-fanout (552s), skill-save-reuse (547s),
 followup-review-scoping (382s), session-reuse (296s), llm-responds
 (289s), two-browser-tasks (277s) and conversation-lifecycle E4
-(268s). The simulation lives in ``tests/schedule_sim.py`` (run it to
-reproduce these): with all nine marked and LPT placement the p50
-critical path is 1907s (31.8 min) inside the 1920s step, and the
-MAX-duration path is 2112s (35.2 min) — over the step, which is input
-for the budget decision, not something the ordering can hide.
+(268s). The simulation lives in ``tests/unit/test_schedule_sim.py``
+(run it to reproduce these): with all nine marked and LPT placement
+the p50 critical path is 1907s (31.8 min) and the MAX-duration path
+2112s (35.2 min). The old 32-min step could not hold the latter, so
+the step budget in ci.yml was raised to 40 min; the test reads that
+number and requires both paths to fit it.
 
 ``xdist``'s initial split (for the pins' simulation)::
 

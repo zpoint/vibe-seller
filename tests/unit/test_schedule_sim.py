@@ -160,13 +160,24 @@ def _simulate():
     return p50, worst
 
 
+def _e2e_step_budget_s() -> int:
+    """The CI 'Run E2E tests' step's timeout-minutes, in seconds."""
+    ci = Path(__file__).resolve().parents[2] / '.github/workflows/ci.yml'
+    text = ci.read_text(encoding='utf-8')
+    step = text.split('- name: Run E2E tests', 1)[1]
+    minutes = re.search(r'timeout-minutes:\s*(\d+)', step)
+    assert minutes, 'Run E2E tests step has no timeout-minutes'
+    return int(minutes.group(1)) * 60
+
+
 def test_the_scheduled_critical_path_matches_the_documented_numbers():
     """The scheduling claim, pinned.
 
     The docstring/report figures are produced by THIS calculation on
-    the recorded suite: p50 path 1907s (31.8 min, inside the 1920s
-    step) and max-duration path 2112s (35.2 min, over it — input for
-    the budget decision). A collection that differs in shape (platform
+    the recorded suite: p50 path 1907s (31.8 min) and max-duration
+    path 2112s (35.2 min). Both must fit the CI e2e step budget, read
+    from ci.yml (40 min since the old 32 min was shown too tight by
+    exactly these numbers). A collection that differs in shape (platform
     filters) shifts the absolute loads — CI's Linux collection came out
     [1650, 1901, 1584, 1420], also fitting — so what is pinned is the
     INVARIANT every collection must keep plus the marker set, and the
@@ -176,6 +187,10 @@ def test_the_scheduled_critical_path_matches_the_documented_numbers():
     p50, worst = _simulate()
     marked = {it.split('::')[-1] for it in _collect(['-m', 'long_budget'])}
     assert marked == RECORDED_MARKERS, sorted(marked)
-    assert max(p50) <= 1920, f'the p50 path no longer fits: {p50}'
+    step = _e2e_step_budget_s()
+    assert max(p50) <= step, f'the p50 path no longer fits {step}s: {p50}'
+    assert max(worst) <= step, (
+        f'the worst-case path no longer fits {step}s: {worst}'
+    )
     if p50 == [1892, 1907, 1584, 1420]:
         assert worst == [2112, 2050, 1441, 1229], worst

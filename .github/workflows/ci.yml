@@ -314,7 +314,8 @@ jobs:
     # As in e2e-mock-cli: the hang guard belongs on the test step.
     # `install.sh` fetches Playwright's apt deps, and a slow Ubuntu mirror
     # (observed: 25.9 MB in 9m18s) left the suite 20 of these 30 minutes.
-    timeout-minutes: 50
+    # Job = the 40-min test step + the same 18 min of setup headroom.
+    timeout-minutes: 58
     steps:
       - uses: actions/checkout@v6
 
@@ -402,9 +403,11 @@ jobs:
           exit 1
 
       - name: Run E2E tests
-        # The suite's own budget: the old 30-minute job minus a normal
-        # install, kept as tight as before (see the job-level note).
-        timeout-minutes: 32
+        # The suite's own budget, from measured durations: the ordered
+        # suite's critical path is ~31.8 min at p50 and ~35.2 min at each
+        # test's worst observed duration (tests/unit/test_schedule_sim.py
+        # computes both and pins them inside this number).
+        timeout-minutes: 40
         env:
           API_TIMEOUT_MS: 3000000
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
