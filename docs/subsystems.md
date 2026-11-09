@@ -307,6 +307,21 @@ toggle (`skills_auto_sync_enabled`, Settings → General) gates the
 scheduled `skills` job only; knowledge and provider presets have no
 toggle.
 
+## Image-model catalog sync (`vision_catalog`)
+
+A DAILY job gated by `when` (a kie.ai key is configured and
+`VISION_FAKE` is off) — not a user toggle: without a key no image can be
+generated, so nothing is fetched. Saving a key in Settings triggers a
+run at once (only while sync timers are armed, so tests stay offline).
+Three fail-soft steps against the served state in
+`app/vision_catalog.py`: `app/vision_models.py` from `main` (literal
+parse, schema-validated, cached RAW and re-validated on every load),
+per-tier live prices from kie.ai's public pricing table, and kie.ai's
+model list as a deny-list of delisted slugs. The run line carries one
+status per step (`catalog=… prices=… available=…`, plus
+`prices_priced` / `available_hidden`). Full design:
+[vision.md § Kept current](vision.md#kept-current-by-the-vision_catalog-sync-job).
+
 ## Provider-preset catalog sync
 
 The AI provider presets (Settings → AI) auto-sync from `main` every 48 h: fetch `app/ai/provider_presets.py` → literal-only `ast` parse (never executed) → per-preset validation (env-key allowlist, https-only base URL, `load_global_mcp` forced off; a rejected preset falls back to the bundled copy, which is also the floor for omitted ids) → sha256-keyed atomic cache → served cache-first, bundled on a miss. Presets only seed newly created profiles. Full design, env vars and trust model: [backend.md § Auto-synced preset catalog](backend.md#auto-synced-preset-catalog-aiprovider_presets_syncpy).

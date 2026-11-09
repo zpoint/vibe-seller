@@ -19,6 +19,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `routers/` | FastAPI route handlers (API endpoints) |
 | `browser/` | Pluggable browser backends + session management |
 | `ai/` | AI agent abstraction (Claude Code CLI backend); provider-preset catalog (`provider_presets.py`) and its auto-sync from `main` (`provider_presets_sync.py`, cache `~/.vibe-seller/cache/provider_presets.json`, env `PROVIDER_PRESETS_URL`; see [Auto-synced preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy)) |
+| `vision.py` / `vision_catalog.py` / `vision_models.py` | Image generation via kie.ai: config + client + confirm registry (`vision.py`); the curated model catalog as literal data (`vision_models.py`); the served catalog and its `vision_catalog` sync job — catalog from `main` (literal parse + schema validation), live per-tier prices from kie.ai's public pricing table, availability via `GET /api/v1/models` (deny-list), cache `~/.vibe-seller/cache/vision_catalog.json`, env `VISION_CATALOG_URL`; runs only with a kie.ai key. See [vision.md § Kept current](vision.md#kept-current-by-the-vision_catalog-sync-job) |
 | `executor/` | Legacy browser task runner (deprecated — browser automation now via browser-use CLI) |
 | `events/` | SSE event bus for real-time streaming |
 | `events_system/` | Business event extraction + sync backends |
