@@ -405,3 +405,36 @@ def test_a_re_freeze_before_anything_ran_replaces_the_approval(task):
     task.declare('execute')
     task.execution([_done(to_bid='1.20')])
     assert any('approved 1.35' in g for g in _gaps(task)), _gaps(task)
+
+
+def test_a_blank_ad_group_still_finds_its_target(task):
+    """CHANGES.tsv without an ad_group, the drilled TSV and the log with
+    one: the same keyword. A correct execution is not 'unapproved', and
+    the proposal is judged on the drilled numbers (ACOS 20, converting),
+    not its own copy (ACOS 45)."""
+    task.drill(
+        'A1234567',
+        [
+            {
+                'ad_group': 'g1',
+                'target': 'widget',
+                'match_type': 'exact',
+                'bid': '1.20',
+                'acos': '20',
+            }
+        ],
+        [],
+    )
+    cut = change(
+        ad_group='',
+        action='lower',
+        acos='45',
+        current_bid='1.20',
+        target_bid='1.10',
+    )
+    task.changes([cut])
+    assert any('under 25% ACOS' in g for g in _gaps(task)), _gaps(task)
+    _approve(task, [cut])
+    task.declare('execute')
+    task.execution([_done(action='lower', from_bid='1.20', to_bid='1.10')])
+    assert not any('not in the approved' in g for g in _gaps(task))

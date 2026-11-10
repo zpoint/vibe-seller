@@ -1,9 +1,10 @@
 """Gate: proposed and executed ad changes obey the store's rules.
 
 Reads the fixed-header TSVs (``ad_tables``), never the report prose.
-Everything here concerns money, so every finding is a *contradiction*:
-refused repeatedly, and banner-marked rather than silently accepted if a
-run ends without resolving it (see ``routers/tasks.set_task_result``).
+One round, like every check (``task_submission.apply_round``): refused
+once, then through with caveats. Execution that differs from the
+approval, and an unreadable table, are *contradictions*: also marked
+with a banner at the top of the result.
 
 1. **Owner rules on CHANGES.tsv** — thresholds from ``ad_rules``
    (store notes override the defaults):
@@ -58,6 +59,21 @@ from app.models.ad_declaration import KIND_EXECUTE, KIND_INVESTIGATE
 GATE_NAME = 'ad_changes'
 APPROVED_DIR = DATA_DIR / 'approved_changes'
 BID_TOLERANCE = 0.01
+
+
+def _same_target(a: dict, b: dict) -> bool:
+    """Whether two rows name the same keyword/target.
+
+    The ad group may be blank on one side (a keyword in a single ad
+    group needs none, and the drilled TSV usually records it): a blank
+    then matches any — otherwise a correctly applied change read as
+    "not approved", and a proposal was judged on its own copied numbers
+    because its drilled row could not be found.
+    """
+    ka, kb = _key(a), _key(b)
+    if (ka[0], ka[2], ka[3]) != (kb[0], kb[2], kb[3]):
+        return False
+    return not ka[1] or not kb[1] or ka[1] == kb[1]
 
 
 def _key(row: dict) -> tuple[str, str, str, str]:
@@ -202,7 +218,7 @@ def _recently_applied(
         return None
     now = datetime.now(UTC)
     for t in table.rows:
-        if _key({**t, 'campaign_id': row['campaign_id']}) != _key(row):
+        if not _same_target({**t, 'campaign_id': row['campaign_id']}, row):
             continue
         stamp = t.get('applied_at', '')
         try:
@@ -227,7 +243,7 @@ def _drilled(slug: str | None, row: dict) -> dict | None:
     if not table or table.error:
         return None
     for t in table.rows:
-        if _key({**t, 'campaign_id': row['campaign_id']}) == _key(row):
+        if _same_target({**t, 'campaign_id': row['campaign_id']}, row):
             return t
     return None
 
@@ -286,12 +302,14 @@ def rule_violations(
     (observed: an execution refused because its own change was "inside
     the cooldown").
     """
-    done = {_key(r) for r in executed}
+    done = tuple(executed)
     acos_floor = rules['acos_no_lower']
     roas_equiv = 100.0 / acos_floor if acos_floor else None
     out = []
     for row in rows:
-        if _key(row) in done or _changed_since(_drilled(slug, row), since):
+        if any(_same_target(row, d) for d in done) or _changed_since(
+            _drilled(slug, row), since
+        ):
             # Already executed — by this task, or since it started by an
             # execution child of it: no longer a proposal, and its
             # campaign TSV now carries the new bid, so judging it again
@@ -410,16 +428,13 @@ def execution_violations(
     executed each round under its own freeze — and is reported against
     the latest one for its target when none does.
     """
-    by_key: dict[tuple, list[dict]] = {}
-    for r in approved:
-        by_key.setdefault(_key(r), []).append(r)
     out = []
     for row in executed:
         action = row['action'].lower()
         wants = [
             w
-            for w in by_key.get(_key(row), ())
-            if w['action'].lower() == action
+            for w in approved
+            if _same_target(w, row) and w['action'].lower() == action
         ]
         if not wants:
             out.append(
@@ -450,7 +465,7 @@ def _writeback_mismatch(slug: str | None, want: dict, row: dict) -> list[str]:
     if not table or table.error:
         return []
     for t in table.rows:
-        if _key({**t, 'campaign_id': want['campaign_id']}) != _key(row):
+        if not _same_target({**t, 'campaign_id': want['campaign_id']}, row):
             continue
         if t.get('applied_action', '').lower() != row['action'].lower():
             return [
@@ -480,11 +495,11 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
     if changes is None and executed is None:
         return None
     slug = store_slug_for(task_id)
-    # Two weights. A broken store rule in a PROPOSAL spends nothing —
-    # the user sees it and decides (their value wins over a default) — so
-    # it is asked about once and then ships beside the proposal. What
-    # touches money already, or a file the checks cannot read, keeps
-    # being refused.
+    # Same round for all; two weights for what is left after it. A broken
+    # store rule in a PROPOSAL spends nothing — the user sees it and
+    # decides (their value wins over a default) — so it ships beside the
+    # proposal. What touched money already, or a file the checks cannot
+    # read, is a contradiction: it also gets the banner.
     problems: list[str] = []
     advisories: list[str] = []
     for table in (changes, executed):
