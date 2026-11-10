@@ -24,6 +24,11 @@ export interface LoadTaskDeps {
   setPendingQuestions: (v: PendingQuestions | null) => void
   setConversationItems: (v: ConversationItem[]) => void
   setSteps: (v: TaskStep[]) => void
+  /** The task itself loaded (it is now `selectedTask`). */
+  onLoaded?: () => void
+  /** The task could not be loaded — error, unreachable, or past the
+   *  request deadline. Only reported while this load is still current. */
+  onLoadError?: (err: unknown) => void
 }
 
 /**
@@ -46,7 +51,14 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
   const fresh = () => deps.seqRef.current === seq
 
   let fullTask: Task
-  try { fullTask = (await api.get(`/api/tasks/${taskId}`)) as Task } catch { return }
+  try {
+    fullTask = (await api.get(`/api/tasks/${taskId}`)) as Task
+  } catch (err) {
+    // Report it: returning silently left the previous task (or the
+    // empty hint) on screen, as if the click had done nothing.
+    if (fresh()) deps.onLoadError?.(err)
+    return
+  }
   if (!fresh()) return
   // Switch the selection AND clear ALL of the previous task's detail up
   // front — conversation and steps included. On a high-latency link the
@@ -55,6 +67,7 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
   // as "nothing happened" until the new data lands. Clear now → the pane
   // flips to the new task immediately and fills in as data arrives.
   deps.setSelectedTask(fullTask)
+  deps.onLoaded?.()
   deps.setLogs([]); deps.setScreenshots({}); deps.setAgentMessages([])
   deps.setConversationItems([]); deps.setSteps([])
   if (fullTask.todos) { try { deps.setTodoItems(JSON.parse(fullTask.todos)) } catch { deps.setTodoItems([]) } } else { deps.setTodoItems([]) }

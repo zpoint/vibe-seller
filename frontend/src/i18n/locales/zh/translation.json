@@ -209,7 +209,11 @@
     "attachmentUnsupported": "{{name}}：不支持的文件类型，未添加",
     "attachmentTooLarge": "{{name}}：超过 {{size}}，未添加",
     "attachmentClipboardItem": "剪贴板内容",
-    "startFailed": "任务已创建，但未能启动。附件可能未上传成功——请打开任务后重试。"
+    "startFailed": "任务已创建，但未能启动。附件可能未上传成功——请打开任务后重试。",
+    "openingTask": "正在打开任务…",
+    "openFailed": "无法打开此任务：{{error}}",
+    "openTimeout": "无法打开此任务：服务器未及时响应。",
+    "tryAgain": "重试"
   },
   "events": {
     "title": "事件",

@@ -19,6 +19,7 @@ import { MobileMenuButton } from '../components/MobileMenuButton'
 import { getUI, hasProgressingTask } from '../taskStates'
 import type { Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, Schedule, Store, ConversationItem, StagedAttachment } from '../types'
 import { TaskUsageMeter } from '../components/TaskUsageMeter'
+import { isRequestTimeout } from '../lib/requestDeadline'
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
@@ -35,6 +36,9 @@ export interface TasksViewProps {
   tasks: Task[]
   tasksLoading: boolean
   selectedTask: Task | null
+  /** The task being opened (error null) or that failed to open. */
+  taskLoad?: { taskId: string; error: unknown } | null
+  onRetryTaskLoad?: () => void
   steps: TaskStep[]
   screenshots: Record<string, string>
   logs: string[]
@@ -105,6 +109,8 @@ export function TasksView({
   tasks,
   tasksLoading,
   selectedTask,
+  taskLoad = null,
+  onRetryTaskLoad,
   steps,
   screenshots,
   logs,
@@ -233,7 +239,10 @@ export function TasksView({
   // Mobile drill-down: the list and detail are separate full-screen
   // steps. Show detail (task or schedule) full-width and hide the list
   // once something is selected; otherwise the list fills the screen.
-  const mobileShowDetail = isMobile && (!!selectedTask || !!selectedSchedule)
+  // A task being opened (or that failed to open) takes the detail pane
+  // over whatever was open before, so the click visibly did something.
+  const openingTask = taskLoad && selectedTask?.id !== taskLoad.taskId ? taskLoad : null
+  const mobileShowDetail = isMobile && (!!selectedTask || !!selectedSchedule || !!openingTask)
   const onMobileBack = () => {
     if (selectedTask) setSelectedTask(null)
     else setSelectedSchedule(null)
@@ -372,7 +381,28 @@ export function TasksView({
             {t('common.back', 'Back')}
           </button>
         )}
-        {selectedSchedule && !selectedTask ? (
+        {openingTask ? (
+          openingTask.error == null ? (
+            <div data-testid="task-opening" className="flex items-center justify-center h-full gap-3 text-sm text-gray-500">
+              <div className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+              {t('tasks.openingTask')}
+            </div>
+          ) : (
+            <div role="alert" data-testid="task-open-error" className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
+              <p className="text-sm text-red-600">
+                {isRequestTimeout(openingTask.error)
+                  ? t('tasks.openTimeout')
+                  : t('tasks.openFailed', { error: openingTask.error instanceof Error ? openingTask.error.message : String(openingTask.error) })}
+              </p>
+              <button
+                onClick={onRetryTaskLoad}
+                className="px-3 py-1.5 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100"
+              >
+                {t('tasks.tryAgain')}
+              </button>
+            </div>
+          )
+        ) : selectedSchedule && !selectedTask ? (
           <ScheduleDetailView
             schedule={selectedSchedule}
             scheduleTasks={scheduleTasks}

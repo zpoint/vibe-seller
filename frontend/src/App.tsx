@@ -80,6 +80,10 @@ export default function App() {
   // its fetched state (stale-response-wins guard for fast task switches).
   const loadTaskSeqRef = useRef(0)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  // The task the route asks for, while it is loading (error null) or
+  // after it failed to load. TasksView shows a pending or error state
+  // for it instead of whatever was open before.
+  const [taskLoad, setTaskLoad] = useState<{ taskId: string; error: unknown } | null>(null)
   const [steps, setSteps] = useState<TaskStep[]>([])
   const [screenshots, setScreenshots] = useState<Record<string, string>>({})
   const [logs, setLogs] = useState<string[]>([])
@@ -283,8 +287,16 @@ export default function App() {
     if (!currentUser) return
     if (routeTaskId) {
       if (selectedTask?.id !== routeTaskId) loadTaskById(routeTaskId)
-    } else if (selectedTask) {
-      setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
+      else {
+        // Back on the open task: retire any load still in flight (it
+        // would switch the pane away) and drop a failed one's error.
+        loadTaskSeqRef.current++
+        setTaskLoad(null)
+      }
+    } else {
+      loadTaskSeqRef.current++
+      setTaskLoad(null)
+      if (selectedTask) { setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([]) }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeTaskId, currentUser])
@@ -443,13 +455,17 @@ export default function App() {
         })
       : navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
 
-  const loadTaskById = (taskId: string) =>
-    loadTaskByIdHandler(taskId, {
+  const loadTaskById = (taskId: string) => {
+    setTaskLoad({ taskId, error: null })
+    return loadTaskByIdHandler(taskId, {
       api, seqRef: loadTaskSeqRef,
+      onLoaded: () => setTaskLoad(null),
+      onLoadError: (error) => setTaskLoad({ taskId, error }),
       setSelectedTask, setLogs, setScreenshots, setAgentMessages, setTodoItems,
       setSelectedAnswers, setOtherInputs, setShowOtherInput, setChatInput,
       setChatAttachments, setPendingQuestions, setConversationItems, setSteps,
     })
+  }
 
   const stopAgent = async () => { if (!selectedTask) return; try { await api.post(`/api/tasks/${selectedTask.id}/agent/stop`) } catch { /* ignore */ }; setPendingQuestions(null) }
   const handlerDeps = {
@@ -643,7 +659,8 @@ export default function App() {
           onOpenVisionSetup={() => { setAppView('settings'); setSettingsTab('aiAgent') }}
           isMobile={isMobile} onOpenNav={() => setNavOpen(true)}
           taskPanelActive={!!taskPanelActive} taskPanelTitle={taskPanelTitle}
-          tasks={tasks} tasksLoading={tasksLoading} selectedTask={selectedTask} steps={steps} screenshots={screenshots} logs={logs}
+          tasks={tasks} tasksLoading={tasksLoading} selectedTask={selectedTask} steps={steps}
+          taskLoad={taskLoad} onRetryTaskLoad={() => { if (taskLoad) loadTaskById(taskLoad.taskId) }} screenshots={screenshots} logs={logs}
           agentMessages={agentMessages} todoItems={todoItems} pendingQuestions={pendingQuestions}
           conversationItems={conversationItems}
           selectedAnswers={selectedAnswers} otherInputs={otherInputs} showOtherInput={showOtherInput}
