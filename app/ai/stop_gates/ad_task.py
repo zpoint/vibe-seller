@@ -18,22 +18,37 @@ def task_dir(task_id: str) -> Path:
 
 
 def _query(sql: str, args: tuple) -> tuple | None:
+    rows = _query_rows(sql, args)
+    return rows[0] if rows else None
+
+
+def _query_rows(sql: str, args: tuple) -> list[tuple]:
     db = DATA_DIR / 'vibe_seller.db'
     if not db.exists():
-        return None
+        return []
     try:
         con = sqlite3.connect(f'file:{db}?mode=ro', uri=True, timeout=2)
         try:
-            return con.execute(sql, args).fetchone()
+            return list(con.execute(sql, args).fetchall())
         finally:
             con.close()
     except sqlite3.Error:
-        return None
+        return []
 
 
 def parent_task_id(task_id: str) -> str | None:
     row = _query('SELECT parent_task_id FROM tasks WHERE id = ?', (task_id,))
     return row[0] if row and row[0] else None
+
+
+def child_task_ids(task_id: str) -> tuple[str, ...]:
+    """Tasks spawned *from* this one (an audit's execution child)."""
+    return tuple(
+        row[0]
+        for row in _query_rows(
+            'SELECT id FROM tasks WHERE parent_task_id = ?', (task_id,)
+        )
+    )
 
 
 def store_slug_for(task_id: str) -> str | None:

@@ -36,13 +36,34 @@ class AdTask:
         self.slug = f'acme-{task_id}'
         self.dir = VIBE_SELLER_DIR / 'tasks' / task_id
         self.dir.mkdir(parents=True, exist_ok=True)
+        self.children: list[str] = []
         for mod in (ad_changes, ad_coverage):
             monkeypatch.setattr(mod, 'store_slug_for', lambda _t: self.slug)
         monkeypatch.setattr(ad_changes, 'parent_task_id', lambda _t: None)
         monkeypatch.setattr(
+            ad_changes,
+            'child_task_ids',
+            lambda t: tuple(self.children) if t == task_id else (),
+        )
+        monkeypatch.setattr(
             ad_changes, 'task_started_at', lambda _t: started_at
         )
         self.started_at = started_at
+
+    def execution_child(self, rows: list[dict]) -> Path:
+        """A task this one spawned, and the log it executed under.
+
+        The audit that approves and the execution that applies are
+        separate tasks: the child stamps the campaign TSV and writes
+        EXECUTION_LOG.tsv in its own dir.
+        """
+        child = f'{self.id}-exec'
+        self.children.append(child)
+        return write_tsv(
+            VIBE_SELLER_DIR / 'tasks' / child / 'EXECUTION_LOG.tsv',
+            EXECUTION_COLUMNS,
+            rows,
+        )
 
     def declare(self, kind: str, scope: dict | None = None) -> None:
         (self.dir / 'AD_TASK.json').write_text(

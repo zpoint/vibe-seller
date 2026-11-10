@@ -337,14 +337,16 @@ def test_a_target_changed_since_the_task_started_is_not_re_judged(
     monkeypatch,
 ):
     """A parent audit whose execution child applied its proposal: the
-    child rewrote the campaign TSV (new bid, fresh applied_at), so the
-    parent's proposal row now reads as a cut inside the cooldown and a
-    'raise' that does not go up. A target changed after this task began
-    is no longer this task's proposal to judge."""
+    child rewrote the campaign TSV (new bid, fresh applied_at) and logged
+    the change, so the parent's proposal row now reads as a cut inside
+    the cooldown and a 'raise' that does not go up. A target changed by
+    an execution since this task began is no longer this task's proposal
+    to judge."""
     start = datetime.now(UTC) - timedelta(hours=1)
     t = AdTask(f'chg-{uuid.uuid4().hex[:8]}', monkeypatch, start.isoformat())
     t.declare('audit')
     t.changes([change(target_bid='1.35')])
+    t.execution_child([_done(action='raise', to_bid='1.35')])
     t.drill(
         'A1234567',
         [
@@ -377,6 +379,51 @@ def test_a_target_changed_since_the_task_started_is_not_re_judged(
         [],
     )
     assert any('cooldown' in g for g in _gaps(t)), _gaps(t)
+
+
+def test_a_stamp_no_execution_log_backs_is_still_judged(monkeypatch):
+    """The writeback columns are the agent's own text: stamping
+    ``applied_at`` after the task began used to exempt the target from
+    EVERY store rule, without any bid being moved. The same cut — ACOS 5
+    under the floor, 0.40 under CPC 2.00 x 1.1 — is refused on its own
+    numbers, and the stamp excuses it only once an execution log (this
+    task's or a child's) records the change it claims."""
+    start = datetime.now(UTC) - timedelta(hours=1)
+    t = AdTask(f'chg-{uuid.uuid4().hex[:8]}', monkeypatch, start.isoformat())
+    t.declare('audit')
+    t.changes([
+        change(
+            action='lower',
+            acos='5',
+            cpc='2.00',
+            current_bid='1.00',
+            target_bid='0.40',
+        )
+    ])
+    t.drill(
+        'A1234567',
+        [
+            {
+                'ad_group': 'g1',
+                'target': 'widget',
+                'match_type': 'exact',
+                'bid': '0.40',
+                'clicks': '10',
+                'spend': '20.00',
+                'acos': '5',
+                'applied_action': 'lower',
+                'applied_at': datetime.now(UTC).isoformat(),
+            }
+        ],
+        [],
+    )
+    gaps = _gaps(t)
+    assert any('under 25% ACOS' in g for g in gaps), gaps
+    assert any('below CPC' in g for g in gaps), gaps
+    # Backed by the execution that made it, the same stamp is a done
+    # change and the proposal is not re-judged.
+    t.execution_child([_done(action='lower', from_bid='1.00', to_bid='0.40')])
+    assert _gaps(t) == [], _gaps(t)
 
 
 def test_a_second_approval_keeps_the_first_rounds_changes_approved(task):
