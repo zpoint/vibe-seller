@@ -429,10 +429,13 @@ prose, format or language.
 The ad checks read fixed-header TSVs (`app/ai/stop_gates/ad_tables.py`),
 not the report; the agent-facing contract is
 `app/skills_v2/amazon-ads/references/data-contract.md` (`noon-ads` ships
-a byte-identical copy). When an `audit`
-result is accepted, its `CHANGES.tsv` is frozen to
-`data/approved_changes/<task_id>.tsv`, and execution phases are checked
-against that copy, so the approved list cannot be edited mid-execution.
+a byte-identical copy). When a phase
+declares `execute` (which needs a new user message), the `CHANGES.tsv` it
+starts from (its own, or its parent audit's) is frozen to
+`data/approved_changes/<task_id>.tsv`, and the execution is checked
+against that copy: the agent first brings `CHANGES.tsv` in line with
+what the user approved, amended values included, and cannot edit the
+list once execution has begun.
 
 ### Why at the MCP tool call, not the Stop hook
 

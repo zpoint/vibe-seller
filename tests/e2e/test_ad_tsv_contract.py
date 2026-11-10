@@ -128,9 +128,6 @@ def test_audit_then_apply_exactly_what_was_approved(api_client, console):
         f'campaign list read incompletely (Load more?): {sorted(listed)}'
     )
     _rows(task['id'], 'CHANGES.tsv', CHANGE_COLUMNS)
-    assert ad_changes.approved_path(task['id']).exists(), (
-        'accepted audit did not freeze its CHANGES.tsv'
-    )
     assert console.writes == [], f'audit changed the console: {console.writes}'
 
     # ── 2. Apply one approved change, exactly ───────────────────────
@@ -151,6 +148,16 @@ def test_audit_then_apply_exactly_what_was_approved(api_client, console):
     assert [(r['target'], r['to_bid']) for r in executed] == [
         ('widget red', '1.35')
     ], executed
+    # Execution was held to what the user approved, not the audit's
+    # own proposal for that keyword.
+    frozen = read_table(ad_changes.approved_path(task['id']), CHANGE_COLUMNS)
+    assert frozen is not None, 'execution started without freezing approval'
+    approved = {
+        r['target']: r['target_bid']
+        for r in frozen.rows
+        if r['action'].lower() != 'hold'
+    }
+    assert approved == {'widget red': '1.35'}, approved
     assert ad_changes.check('', task['id']) is None
 
 

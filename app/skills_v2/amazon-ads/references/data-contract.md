@@ -60,8 +60,8 @@ platform country campaign_id ad_group target match_type action current_bid targe
 `action` is one of `raise`, `lower`, `pause`, `negate`, `hold`.
 `target_bid` is required for `raise`/`lower`. `cpc` is the row's actual
 cost per click (spend / clicks). This file is the decision the user
-approves; once the audit result is accepted the server keeps a frozen
-copy, and execution is checked against that copy.
+approves; when a phase declares `execute`, the server freezes a copy, and
+execution is checked against that copy.
 
 An `investigate` task proposes nothing: no `CHANGES.tsv` rows other than
 `hold`.

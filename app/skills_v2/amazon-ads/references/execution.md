@@ -14,26 +14,28 @@ the console, and records it. File and column definitions:
 ## What is approved
 
 When the user replies with the changes to make ("do 1, 3, 5", "all of
-campaign X", "execute the plan"), declare `execute` with
-`vibe_seller_declare_ad_task`, scoped to those campaigns.
+campaign X", "execute the plan"):
 
-The approved list is the audit's `CHANGES.tsv` as it stood when the audit
-result was accepted — the server keeps a frozen copy of it, from this
-task or its parent, and checks execution against that copy. Editing
-`CHANGES.tsv` now changes nothing. Read the audit's report and
-`CHANGES.tsv` to map the user's numbers to rows, and execute exactly
-those rows at exactly their `target_bid`.
+1. Bring `CHANGES.tsv` (this task's, or the parent audit's) in line with
+   what they approved. Map their words to rows using the audit's report.
+   If they named a different value ("lower 2 to 0.95 instead"), set that
+   row's `target_bid` to it. Rows they did not approve become `hold`.
+2. Declare `execute` with `vibe_seller_declare_ad_task`, scoped to those
+   campaigns. The server freezes `CHANGES.tsv` at that moment and checks
+   the execution against the frozen copy. Editing it afterwards changes
+   nothing.
+3. Execute exactly the approved rows at exactly their `target_bid`.
 
 Applying ad changes spends the user's money and is hard to undo, so
 never apply a change the user did not approve — not a neighbouring row,
 not a "while I'm here" tidy-up, not a different bid than the approved
-one.
+one. If the approval is unclear (which row, which value), ask before
+declaring.
 
-- **The user wants a different value** ("lower 2 to 0.95 instead"): that
-  is a new decision, not an approval. Treat it as an `audit` phase for
-  that campaign: update the row in `CHANGES.tsv`, submit the report
-  again so the new list is frozen, and confirm with the user before
-  executing.
+- **What is live differs from what was approved** (a change went in at
+  the wrong value, or a check flags it): do not make another live change
+  to fix it. Tell the user what is live, and keep or revert it as they
+  decide.
 - **The approval names proposals outside `CHANGES.tsv`** (harvest a term,
   budget, placement modifier, bidding strategy, campaign pause): apply
   them as approved, verify them the same way, and list them in your

@@ -134,16 +134,16 @@ def contradiction_banner(contradictions) -> str:
 
     Prepended by ``set_task_result`` when an agent never resolved a
     contradiction. The report still ships — trapping the run helps nobody
-    — but it may not ship looking clean, because the affected rows carry
-    bid recommendations computed from figures that cannot be right.
+    — but it may not ship looking clean. Each item states its own
+    problem, so the header stays generic: it once explained one specific
+    check (search-term vs targeting spend) and mislabelled every other
+    gap, such as a bid applied at a different value than approved.
     """
     items = '\n'.join(f'- {c}' for c in contradictions)
     return (
-        '> ⚠️ **本报告有未解决的对账矛盾——以下活动的数字不可信，'
-        '请勿直接执行它们的出价建议。**\n>\n'
-        '> 搜索词层花费不可能超过该活动定向层的花费（同窗口下实测比值'
-        '上限为 1.00）。出现这种情况通常是两层数据取自不同活动，因此'
-        '这些活动的花费/ROAS/建议都可能是错的。其余活动不受影响。\n>\n'
+        '> ⚠️ **本报告有未解决的问题，请先核对以下各项，再据此操作：**\n'
+        '> **This report has unresolved problems — check each item '
+        'below before acting on it:**\n>\n'
         f'{items}\n\n'
     )
 

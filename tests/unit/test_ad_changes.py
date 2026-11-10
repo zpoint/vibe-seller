@@ -202,13 +202,16 @@ def test_per_campaign_record_must_agree_with_the_log(task):
 
 
 def test_approval_is_inherited_by_an_execution_child(task, monkeypatch):
-    _approve(task, [change()])
+    """An execution task spawned from an audit freezes, when it declares
+    ``execute``, the parent audit's CHANGES.tsv — and is held to it."""
+    task.changes([change()])
     child = AdTask(f'{task.id}-exec', monkeypatch, None)
     monkeypatch.setattr(
         ad_changes,
         'parent_task_id',
         lambda t: task.id if t == child.id else None,
     )
+    assert ad_changes.freeze_approved_changes(child.id) is not None
     child.execution([_done()])
     assert ad_changes.check('', child.id) is None
     child.execution([_done(to_bid='2.00')])

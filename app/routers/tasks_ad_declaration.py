@@ -21,6 +21,7 @@ Both were prose-only in the first draft of this design, which is exactly
 the class of contract this codebase keeps learning to move into code.
 """
 
+import asyncio
 import json
 from typing import Annotated
 
@@ -30,9 +31,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import ad_declaration
+from app.ai.stop_gates.ad_changes import freeze_approved_changes
 from app.auth import get_current_user
 from app.database import get_db
-from app.models.ad_declaration import AD_TASK_KINDS, AdTaskDeclaration
+from app.models.ad_declaration import (
+    AD_TASK_KINDS,
+    KIND_EXECUTE,
+    AdTaskDeclaration,
+)
 from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.models.user import User
@@ -220,5 +226,11 @@ async def declare_ad_task(
     # Mirror for the stop gates, which run synchronously without a DB
     # session. The row above is the authority; this is a copy.
     ad_declaration.write_declaration_file(task_id, kind, scope)
+
+    # Execution starts here, on a new user message: freeze the approval
+    # it will be held to. Only on a new turn — an in-turn narrowing must
+    # not re-freeze edits made after execution began.
+    if kind == KIND_EXECUTE:
+        await asyncio.to_thread(freeze_approved_changes, task_id)
 
     return _as_dict(row)

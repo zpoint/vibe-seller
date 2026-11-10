@@ -14,12 +14,10 @@ the columns are in [`data-contract.md`](data-contract.md).
 
 ## Before you click
 
-- **Only rows the user approved.** The approved list is the audit's
-  `CHANGES.tsv`; the user's reply picks which of its rows to run. If the
-  user changes a value ("2a at 0.95 instead"), that is a new decision, so
-  it goes back through `CHANGES.tsv` in an audit phase before you apply
-  it — the server checks every logged bid against the approved
-  `target_bid`.
+- **Only rows the user approved.** Before declaring `execute`, bring
+  `CHANGES.tsv` in line with the user's reply, a changed value ("2a at
+  0.95 instead") included; the server freezes it at the declaration and
+  checks every logged bid against the frozen `target_bid`.
 - **Navigate by campaign id.** Open
   `…/en-{cc}/campaign/details/{C_ID}?mpCode=noon&project=PRJ{project_id}`;
   the targets grid is `…&tab=target&target_filter=all`. Report names

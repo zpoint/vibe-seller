@@ -19,8 +19,8 @@ run ends without resolving it (see ``routers/tasks.set_task_result``).
 2. **investigate proposes nothing** — a phase declared read-only owes no
    coverage, so it may not hand out decisions.
 3. **Execution matches the approval** — every EXECUTION_LOG.tsv row is
-   an approved CHANGES.tsv row (frozen when the audit was accepted, so it
-   cannot be edited mid-execution), bids within 0.01 (the live
+   an approved CHANGES.tsv row (frozen when the task declared
+   ``execute``, so it cannot be edited mid-execution), bids within 0.01 (the live
    ``1.30 → 11.3`` 10x overspend), and the per-campaign TSV's
    ``applied_*`` columns agree with the log.
 """
@@ -78,33 +78,48 @@ def approved_path(task_id: str) -> Path:
     return APPROVED_DIR / f'{task_id}.tsv'
 
 
-def freeze_approved_changes(task_id: str) -> Path | None:
-    """Copy the task's CHANGES.tsv out of the agent's reach.
+def _changes_source(task_id: str) -> Path | None:
+    """The CHANGES.tsv an execution works from: this task's or the
+    nearest ancestor's (an execution task spawned from an audit)."""
+    seen: set[str] = set()
+    cur: str | None = task_id
+    while cur and cur not in seen and len(seen) < 5:
+        seen.add(cur)
+        p = task_dir(cur) / CHANGES_FILE
+        if p.exists():
+            return p
+        cur = parent_task_id(cur)
+    return None
 
-    Called when an audit's result is accepted: that is the list the user
-    reviews and approves. Execution is checked against this copy, so
-    editing CHANGES.tsv during execution changes nothing.
+
+def freeze_approved_changes(task_id: str) -> Path | None:
+    """Copy the CHANGES.tsv execution starts from out of the agent's reach.
+
+    Called when the task declares ``execute``, which takes a new user
+    message: the user has just said what to apply, and the agent has
+    brought ``CHANGES.tsv`` in line with it — including a value the user
+    amended ("do it, but at 1.35"). Freezing at the audit instead held
+    execution to the audit's proposal, and the gate then steered the
+    agent into moving a live bid the user had set to a value they had
+    overruled. From here on, editing ``CHANGES.tsv`` changes nothing.
+
+    With no ``CHANGES.tsv`` to start from, any earlier freeze is removed,
+    so an execution can never be checked against a stale approval.
     """
-    src = task_dir(task_id) / CHANGES_FILE
-    if not src.exists():
+    dest = approved_path(task_id)
+    src = _changes_source(task_id)
+    if src is None:
+        dest.unlink(missing_ok=True)
         return None
     APPROVED_DIR.mkdir(parents=True, exist_ok=True)
-    dest = approved_path(task_id)
     shutil.copyfile(src, dest)
     return dest
 
 
 def find_approved(task_id: str) -> Path | None:
-    """The frozen approval for this task, or its nearest ancestor's."""
-    seen: set[str] = set()
-    cur: str | None = task_id
-    while cur and cur not in seen and len(seen) < 5:
-        seen.add(cur)
-        p = approved_path(cur)
-        if p.exists():
-            return p
-        cur = parent_task_id(cur)
-    return None
+    """The approval frozen when this task's execution started."""
+    p = approved_path(task_id)
+    return p if p.exists() else None
 
 
 # ── checks ──────────────────────────────────────────────────────────
@@ -277,7 +292,9 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
         if approved_file is None:
             problems.append(
                 f'{EXECUTION_LOG_FILE} records changes but no approved '
-                f'{CHANGES_FILE} exists for this task or its parent'
+                f'{CHANGES_FILE} was frozen: declare kind "execute" after '
+                f'the user approves, with {CHANGES_FILE} matching what '
+                'they approved'
             )
         else:
             approved = read_table(approved_file, CHANGE_COLUMNS)
@@ -291,9 +308,12 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
     return GateDeny(
         gate=GATE_NAME,
         reason=(
-            'These ad changes break a store rule or the approval. Fix the '
-            'TSV (or revert the live change and correct the log), then call '
-            'set_task_result again:\n'
+            'These ad changes break a store rule or the approval. If a '
+            'file is wrong, correct it to what is true and call '
+            'set_task_result again. Never make another live change to '
+            'satisfy this check: when what is live differs from what was '
+            'approved, ask the user whether to keep or revert it, and '
+            'record what they decide.\n'
             + '\n'.join(f'- {p}' for p in problems[:20])
         ),
         gaps=tuple(problems),
