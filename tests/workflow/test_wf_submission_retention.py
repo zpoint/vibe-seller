@@ -313,6 +313,48 @@ class TestGateTelemetry:
         gate.set()
         await wait_for_task(admin_client, task_id)
 
+    async def test_a_banner_marked_result_is_reported_once(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        """Past the contradiction cap the result ships banner-marked: one
+        banner_marked event, no failed_open on top, and each gap once."""
+        events = _capture_telemetry(monkeypatch)
+
+        class ContradictingGate:
+            @staticmethod
+            def check(result, task_id, rules):
+                return GateDeny(
+                    gate='fake_money',
+                    reason='bad numbers',
+                    gaps=('x', 'note'),
+                    contradictions=('x',),
+                )
+
+            @staticmethod
+            def is_stalled(task_id):
+                return True
+
+        monkeypatch.setattr(
+            'app.routers.tasks.resolve_skill_gates',
+            lambda loaded, workspace: [('fake_money', ContradictingGate)],
+        )
+        monkeypatch.setattr(
+            'app.routers.task_submission.CONTRADICTION_MAX_DENIALS', 0
+        )
+        task_id, gate = await _running_task(
+            admin_client, install_fake_agent, 'Banner Gate Store'
+        )
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result', json={'result': CLEAN}
+        )
+        assert r.status_code == 200, r.text
+        gated = [p['outcome'] for e, p in events if e == 'task_result_gated']
+        assert gated == ['banner_marked'], gated
+        gate.set()
+        done = await wait_for_task(admin_client, task_id)
+        caveats = json.loads(done.get('review_gaps') or '[]')
+        assert sorted(caveats) == ['note', 'x'], caveats
+
     async def test_stalled_skill_gate_fails_open(
         self, admin_client, install_fake_agent, monkeypatch
     ):

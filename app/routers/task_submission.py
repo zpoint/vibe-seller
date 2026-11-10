@@ -292,14 +292,20 @@ async def apply_skill_gates(
             ' | '.join(g[:110] for g in (deny.gaps or ())[:4])
             or deny.reason[:160],
         )
-        send_result_gated(
-            task_id,
-            gate_name,
-            GateOutcome.FAILED_OPEN,
-            attempt=review_rounds_spent(task_id, gate_name),
-            gap_count=len(deny.gaps or (deny.reason,)),
-        )
+        if not deny.contradictions:
+            # A banner-marked result was already reported above.
+            send_result_gated(
+                task_id,
+                gate_name,
+                GateOutcome.FAILED_OPEN,
+                attempt=review_rounds_spent(task_id, gate_name),
+                gap_count=len(deny.gaps or (deny.reason,)),
+            )
         # Failed open on a stall: the result ships, but the unmet gaps
         # ride along as caveats instead of vanishing into a log line.
-        stalled_gaps.extend(deny.gaps or (deny.reason,))
+        stalled_gaps.extend(
+            g
+            for g in (deny.gaps or (deny.reason,))
+            if g not in deny.contradictions
+        )
     return final_result, tuple(stalled_gaps)
