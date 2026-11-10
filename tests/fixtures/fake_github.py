@@ -28,6 +28,7 @@ import http.server
 import json
 import re
 import threading
+import uuid
 
 import httpx
 
@@ -118,8 +119,13 @@ class FakeGitHub:
         self.files[f'{prefix}/MANIFEST.txt'] = '\n'.join(paths).encode()
 
     def upstream_changed(self, commit: str | None = None) -> str:
-        """Move upstream: a new commit, and a new validator for it."""
-        self.commit = commit or ('b' * 40)
+        """Move upstream: a new commit, and a new validator for it.
+
+        Every call is a NEW commit: a fixed default made the second move
+        on one fake a no-op (same sha, same ETag → 304), so a test passed
+        only when no earlier test on its worker had moved upstream.
+        """
+        self.commit = commit or uuid.uuid4().hex + uuid.uuid4().hex[:8]
         self.etag = f'W/"{self.commit[:8]}"'
         self.path_etags.clear()
         self.changed = True

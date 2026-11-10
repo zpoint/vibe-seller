@@ -256,3 +256,23 @@ async def test_probe_keeps_the_stored_validator_on_a_304(fake):
     assert probe['ok'] is True
     assert probe['not_modified'] is True
     assert probe['etag'] == fake.etag
+
+
+async def test_every_upstream_move_is_a_new_commit(fake):
+    """A second move on one fake must still look like a move.
+
+    Observed: the default commit was fixed, so after one test moved
+    upstream a later test's move kept the same sha and ETag, the probe
+    got 304, and the run looked unchanged — the test passed only when it
+    was the first on its worker to move upstream.
+    """
+    fake.upstream_changed()
+    async with fake.client() as client:
+        first = await github_probe.probe_commit(client, 'app/skills_v2')
+        fake.upstream_changed()
+        second = await github_probe.probe_commit(
+            client, 'app/skills_v2', etag=first['etag']
+        )
+    assert second['ok'] is True
+    assert second['not_modified'] is False
+    assert second['commit'] != first['commit']
