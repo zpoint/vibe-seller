@@ -634,6 +634,25 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
                     logged,
                 )
             )
+    if changes is not None and not changes.error:
+        # The log is the only record of a live change the server can
+        # read (observed: a phase applied the bid, stamped the campaign
+        # TSV, said it had logged it, and had not). A target stamped
+        # applied since the task began, with no log row behind it, is
+        # a change without a record.
+        since = _started(task_id)
+        for r in changes.rows:
+            if r['action'].lower() == 'hold':
+                continue
+            if not _changed_since(_drilled(slug, r), since):
+                continue
+            if any(_matched(slug, e, r) for e in logged):
+                continue
+            problems.append(
+                f'{_label(r)} is stamped applied on its campaign file but '
+                f'{EXECUTION_LOG_FILE} has no row for it: write the row '
+                'for the change you made'
+            )
     if executed is not None and not executed.error and executed.rows:
         files = approval_files(task_id)
         if not files:

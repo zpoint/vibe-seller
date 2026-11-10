@@ -152,6 +152,39 @@ def test_investigate_after_execution_does_not_count_what_was_done(task):
     assert any('investigate' in g for g in _gaps(task)), _gaps(task)
 
 
+def test_a_stamped_change_needs_its_log_row(monkeypatch):
+    """The execution log is the money record; the browser write is not
+    visible to the server.
+
+    Observed: an execute phase applied the approved bid, stamped the
+    campaign TSV, said "wrote row to EXECUTION_LOG.tsv" -- and never
+    wrote it. The submit went through and the change had no record.
+    """
+    start = datetime.now(UTC) - timedelta(hours=1)
+    t = AdTask(f'chg-{uuid.uuid4().hex[:8]}', monkeypatch, start.isoformat())
+    _approve(t, [change(target_bid='1.20')])
+    t.declare('execute')
+    assert _contradictions(t) == []  # nothing applied, nothing owed
+    t.drill(
+        'A1234567',
+        [
+            {
+                'ad_group': 'g1',
+                'target': 'widget',
+                'match_type': 'exact',
+                'bid': '1.20',
+                'applied_action': 'raise',
+                'applied_at': datetime.now(UTC).isoformat(),
+            }
+        ],
+        [],
+    )
+    found = _contradictions(t)
+    assert any('EXECUTION_LOG.tsv has no row' in c for c in found), found
+    t.execution([_done()])
+    assert _gaps(t) == []
+
+
 def test_unreadable_changes_file_is_reported(task):
     (task.dir / 'CHANGES.tsv').write_text('a|b|c\n1|2|3\n')
     assert any('not tab-separated' in g for g in _gaps(task))
