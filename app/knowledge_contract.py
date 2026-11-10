@@ -28,9 +28,11 @@ only ever runs because an upgrade recorded that one is due.
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 import posixpath
 
+from app.ai.stop_gates.ad_rules import is_rule_line
 from app.models.app_settings import AppSettings
 
 # Bump when a harness change makes notes written before it misleading
@@ -196,8 +198,10 @@ def deletion_only_error(old: str, new: str) -> str | None:
     """Refuse a cleanup write that adds or rewords anything.
 
     Every non-blank line of *new* must appear in *old*, in the same
-    order — the write may only remove lines. Returns the reason, or
-    None when the write is a pure deletion.
+    order — the write may only remove lines — and a store-rule line
+    (``acos_no_lower: 20``) is never among them: it records a standard
+    the user set. Returns the reason, or None when the write is a pure
+    deletion of notes.
     """
     old_lines = [ln.rstrip() for ln in old.splitlines() if ln.strip()]
     i = 0
@@ -212,4 +216,13 @@ def deletion_only_error(old: str, new: str) -> str | None:
                 'back with only the outdated passages removed.'
             )
         i += 1
+    kept = Counter(ln.rstrip() for ln in new.splitlines())
+    for line in (ln.rstrip() for ln in old.splitlines()):
+        if is_rule_line(line):
+            if kept[line] <= 0:
+                return (
+                    f'"{line.strip()}" is a store standard the user set, '
+                    'not a note about the platform: keep it.'
+                )
+            kept[line] -= 1
     return None

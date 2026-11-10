@@ -70,6 +70,12 @@ class TestAdRules:
         assert r['scale_roas'] == 6.0
         assert r['acos_no_lower'] == 28.0
 
+    def test_the_last_line_for_a_key_wins(self):
+        """Notes grow by appending: a standard restated later replaces
+        the earlier one."""
+        r = resolve_rules('acos_no_lower: 30\nnotes...\nacos_no_lower: 18\n')
+        assert r['acos_no_lower'] == 18.0
+
     def test_resolve_partial_override(self):
         r = resolve_rules('scale_roas: 7.5')
         assert r['scale_roas'] == 7.5

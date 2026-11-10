@@ -50,6 +50,22 @@ class TestDeletionOnly:
         err = kc.deletion_only_error(NOTE, NOTE.replace('40', '30'))
         assert err and 'margin: 30' in err
 
+    def test_a_store_standard_is_never_deleted(self):
+        notes = NOTE + 'acos_no_lower: 20\n'
+        err = kc.deletion_only_error(notes, NOTE)
+        assert err and 'acos_no_lower: 20' in err
+        # Removing the platform note beside it is still fine.
+        assert (
+            kc.deletion_only_error(
+                notes,
+                notes.replace(
+                    'The first submit is refused by the reviewer; that is normal.\n',
+                    '',
+                ),
+            )
+            is None
+        )
+
     def test_reordering_is_refused(self):
         lines = NOTE.splitlines(keepends=True)
         swapped = ''.join(lines[:2] + [lines[3], lines[2]] + lines[4:])

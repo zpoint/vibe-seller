@@ -104,11 +104,19 @@ _OVERRIDE_RES: dict[str, re.Pattern[str]] = {
 def resolve_rules(notes_text: str | None = None) -> dict[str, float]:
     """Return effective thresholds: ``DEFAULT_RULES`` overlaid with any
     overrides found in ``notes_text`` (a store's notes.md contents).
+
+    A key written more than once takes its LAST line: notes grow by
+    appending, so the later line is the standard the user stated since.
     """
     rules = dict(DEFAULT_RULES)
     if notes_text:
         for key, rx in _OVERRIDE_RES.items():
-            m = rx.search(notes_text)
-            if m:
-                rules[key] = float(m.group(1))
+            found = rx.findall(notes_text)
+            if found:
+                rules[key] = float(found[-1])
     return rules
+
+
+def is_rule_line(line: str) -> bool:
+    """Whether *line* is a store-rule override line."""
+    return any(rx.fullmatch(line.rstrip('\n')) for rx in _OVERRIDE_RES.values())
