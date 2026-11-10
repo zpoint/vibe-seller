@@ -87,9 +87,12 @@ if lsof -ti:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
     exit 1
 fi
 
-# Build frontend
+# Build frontend. `pnpm build` empties frontend/dist before writing it, so
+# every other server running from this checkout serves 404s meanwhile —
+# a second server on the same checkout (an e2e test's own server) sets
+# VIBE_SKIP_FRONTEND_BUILD=1 and serves the build that is already there.
 FRONTEND_DIR="$SCRIPT_DIR/frontend"
-if [ -f "$FRONTEND_DIR/package.json" ]; then
+if [ -z "${VIBE_SKIP_FRONTEND_BUILD:-}" ] && [ -f "$FRONTEND_DIR/package.json" ]; then
     echo "Building frontend SPA..."
 
     # Install/update dependencies if package.json is newer than node_modules

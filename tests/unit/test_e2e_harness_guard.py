@@ -24,6 +24,8 @@ from contextlib import contextmanager
 import importlib
 import os
 from pathlib import Path
+import re
+import subprocess
 
 import pytest
 
@@ -394,3 +396,59 @@ def test_no_skip_on_a_missing_server_log():
         'a missing file (a server log in particular) must FAIL, not '
         f'skip: {bad}'
     )
+
+
+def _start_sh_build_block() -> str:
+    """start.sh's frontend-build block, exactly as written."""
+    text = (E2E_DIR.parents[1] / 'start.sh').read_text(encoding='utf-8')
+    m = re.search(r'^FRONTEND_DIR=.*?^fi\n', text, re.M | re.S)
+    assert m, 'start.sh frontend build block not found'
+    return m.group(0)
+
+
+def _builds(tmp_path: Path, env: dict) -> bool:
+    """Run the block against a fake checkout; did it call ``pnpm build``?"""
+    (tmp_path / 'frontend' / 'node_modules').mkdir(parents=True)
+    (tmp_path / 'frontend' / 'package.json').write_text('{}')
+    calls = tmp_path / 'pnpm.calls'
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    pnpm = fake_bin / 'pnpm'
+    pnpm.write_text(f'#!/bin/sh\necho "$@" >> {calls}\n')
+    pnpm.chmod(0o755)
+    subprocess.run(
+        ['bash', '-c', _start_sh_build_block()],
+        env={
+            'PATH': f'{fake_bin}:/usr/bin:/bin',
+            'SCRIPT_DIR': str(tmp_path),
+            **env,
+        },
+        check=True,
+        capture_output=True,
+    )
+    return calls.exists() and 'build' in calls.read_text()
+
+
+def test_an_owned_server_never_rebuilds_the_shared_frontend(
+    tmp_path, monkeypatch
+):
+    """A test's own server must not empty the frontend the shared one serves.
+
+    Observed in CI: ``pnpm build`` (run by ``start.sh``) empties
+    ``frontend/dist`` before writing it; a sync e2e restarted its own
+    server on the same checkout and a UI test on another worker loaded
+    ``/`` from the shared server inside that window — 404.
+    """
+    assert _builds(tmp_path / 'plain', {})
+    assert not _builds(tmp_path / 'skip', {'VIBE_SKIP_FRONTEND_BUILD': '1'})
+
+    seen = {}
+
+    def fake_run(argv, env=None, **_):
+        seen.update(env or {})
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    monkeypatch.setattr(OwnServer, 'wait_health', lambda self: None)
+    server = OwnServer(port=4242, home=tmp_path / 'home')
+    server.start(env={'VIBE_SKIP_FRONTEND_BUILD': ''})
+    assert seen.get('VIBE_SKIP_FRONTEND_BUILD') == '1'

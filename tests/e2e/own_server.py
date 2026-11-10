@@ -122,6 +122,10 @@ class OwnServer:
                 'VIBE_HOME': str(self.home),
                 **self.extra_env,
                 **(env or {}),
+                # Rebuilding would empty the frontend the shared server
+                # serves from this same checkout (observed: a UI test's
+                # page load got 404 during a restart here).
+                'VIBE_SKIP_FRONTEND_BUILD': '1',
             },
             check=False,
             capture_output=True,
