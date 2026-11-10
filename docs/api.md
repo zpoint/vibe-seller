@@ -175,7 +175,8 @@ source of truth; do not restate it.
   `key: value` line in `stores/<slug>/notes.md`); an `investigate` phase
   proposes nothing; every `EXECUTION_LOG.tsv` row matches an approved
   change (bid within 0.01) and the per-campaign `applied_*` columns agree.
-- **Approval freeze**: when an `audit` result is accepted, its
+- **Approval freeze**: when the phase declares `execute` — which takes a
+  new user message answering a prior audit's proposals — its
   `CHANGES.tsv` is copied to `data/approved_changes/<task_id>.tsv`, out of
   the agent's reach. Execution is checked against that copy (this task's
   or its nearest ancestor's), so editing `CHANGES.tsv` mid-execution

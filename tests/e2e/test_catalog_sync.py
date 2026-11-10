@@ -460,11 +460,9 @@ class TestCatalogSystem:
         # The agent is judged on its answer, not on its route to it. Two
         # stricter checks lived here — a cap of 8 total turns, then "no
         # search between reading the catalog and opening the file" — and
-        # both tracked model habit instead: GLM passed by trying a grep
-        # first (refused by the server's catalog guard), MiniMax failed for
-        # re-checking its answer and narrating. What the catalog system
-        # owes is asserted above: the secret's file is in store A's
-        # catalog (``l2_file in l3_a``). Searching before the catalog is
-        # refused server-side (``catalog_guard``), not here.
+        # both tracked model habit instead: MiniMax failed for re-checking
+        # its answer and narrating. What the catalog system owes is
+        # asserted above: the secret's file is in store A's catalog
+        # (``l2_file in l3_a``).
         messages = get_messages(api_client, task['id'])
         _warn_if_glob_grep_on_symlinks(messages, 'find_secret')

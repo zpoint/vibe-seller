@@ -442,7 +442,6 @@ sqlite3 ~/.vibe-seller/data/vibe_seller.db \
 | `app/workspace/knowledge_sync.py` | Catalog generation (L1/L2/L3), path resolution |
 | `app/browser/manager.py` | Browser config, wrapper scripts, startup logic |
 | `app/skills/` | Built-in skills, skill manifest, skill sync |
-| `app/prompts/reflection.md` | Post-task reflection prompt for knowledge capture |
 | `app/prompts/design_system.md` | Planning agent instructions, catalog usage |
 | `~/.vibe-seller/` | Runtime: `data/`, `tasks/`, `.claude/skills/`, `bin/` |
 
@@ -462,7 +461,7 @@ sqlite3 ~/.vibe-seller/data/vibe_seller.db \
 | Catalog path wrong | L1 paths missing `project/` prefix in L3 catalog | `knowledge_sync.py` |
 | Duplicate catalog header | `_filter_l1_for_store` + `_build_store_catalog` double header | `knowledge_sync.py` |
 | Agent guesses files | System prompt doesn't enforce catalog-only reads | `design_system.md` |
-| Reflection misses failures | Prompt doesn't force sequential log review | `reflection.md` |
+| Knowledge not updated after a run | No reflection turn — the agent keeps knowledge correct in-task | `design_system.md` § Keeping knowledge correct |
 
 ## Quick commands
 

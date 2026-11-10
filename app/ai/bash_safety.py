@@ -127,8 +127,9 @@ def check_skill_file_write(tool_name: str, tool_input: dict) -> str | None:
 # typed value is visible in the Bash command, so we deny the value-SHAPE
 # pathology before it goes live. This guard does NOT know the report
 # target (index→keyword map isn't in the command) — catching the wrong
-# target is the ``ad_execution_fidelity`` exit gate's job; this is purely
-# the absurd-magnitude / multi-decimal catch. The value appears in a
+# target is the ``ad_changes`` exit gate's job (every EXECUTION_LOG row
+# against the approved CHANGES); this is purely the absurd-magnitude /
+# multi-decimal catch. The value appears in a
 # legacy ``browser-use input <idx> "1.30"``, a 0.13 helper
 # (``type_text``/``fill_input``), or a JS ``el.value = "1.30"`` assign.
 _BID_INPUT_RE = re.compile(
