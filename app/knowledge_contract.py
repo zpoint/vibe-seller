@@ -148,28 +148,42 @@ def snapshot_tier(root: Path, store_slug: str | None) -> dict[Path, str]:
 # Files written through the workspace endpoint by someone other than a
 # running cleanup (another task, the user in the editor), per cleanup
 # task id. The cleanup's restore leaves them alone: it cannot tell their
-# edits from its own agent's, and must not undo them.
-_written_by_others: dict[str, set[str]] = {}
+# edits from its own agent's, and must not undo them. Keyed by the
+# RESOLVED file — see :func:`note_write`.
+_written_by_others: dict[str, set[Path]] = {}
 
 
 def watch_writes(cleanup_task_id: str) -> None:
     _written_by_others[cleanup_task_id] = set()
 
 
-def note_write(path: str, writer_task_id: str | None) -> None:
-    """Record an endpoint write against every other running cleanup."""
-    rel = posixpath.normpath(path).lower()
+def note_write(path: Path, writer_task_id: str | None) -> None:
+    """Record an endpoint write against every other running cleanup.
+
+    *path* is the FILE the write landed on, resolved: a shield keyed on
+    the caller's spelling shielded nothing. `./stores/<s>/notes.md`, the
+    absolute spelling and `stores/<s>/../<s>/notes.md` are one file and
+    all protect it; a bare `notes.md` spelled like a store's was the
+    other failure — it matched every `*/notes.md` in the tree, so the
+    cleanup's own illegal rewrites survived under someone else's shield.
+    """
+    path = Path(path)
+    if not path.is_absolute():
+        raise ValueError(
+            f'note_write takes the file the write landed on, not {path}'
+        )
+    resolved = path.resolve()
     for task_id, seen in _written_by_others.items():
         if task_id != writer_task_id:
-            seen.add(rel)
+            seen.add(resolved)
 
 
-def end_watch(cleanup_task_id: str) -> set[str]:
+def end_watch(cleanup_task_id: str) -> set[Path]:
     return _written_by_others.pop(cleanup_task_id, set())
 
 
 def undo_non_deletions(
-    snapshot: dict[Path, str], written_by_others: set[str] = frozenset()
+    snapshot: dict[Path, str], written_by_others: set[Path] = frozenset()
 ) -> list[Path]:
     """Restore every snapshotted file the run changed by more than
     deleting lines; return the restored paths.
@@ -196,8 +210,7 @@ def undo_non_deletions(
     restored: list[Path] = []
     failed: list[Path] = []
     for path, old in snapshot.items():
-        tail = path.as_posix().lower()
-        if any(tail.endswith('/' + rel) for rel in written_by_others):
+        if path.resolve() in written_by_others:
             continue
         try:
             new = path.read_text(encoding='utf-8')

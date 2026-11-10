@@ -163,6 +163,11 @@ class TestFloorAtBoot:
             assert not await kc.needs_cleanup(db, kc.L2_SCOPE)
 
 
+def _wrote(root, spelling: str, by: str) -> None:
+    """What the write endpoint hands ``note_write``: the file it landed on."""
+    kc.note_write((root / spelling).resolve(), by)
+
+
 class TestOutcomeIsHeldToDeletions:
     """Observed: a cleanup run edited a note directly with a Python script,
     trimming half-lines out of wrapped paragraphs. The endpoint never saw
@@ -192,8 +197,8 @@ class TestOutcomeIsHeldToDeletions:
         kc.watch_writes('cleaner')
         snap = kc.snapshot_tier(tmp_path, 'acme-x')
         (store / 'notes.md').write_text(NOTE + 'acos_no_lower: 30\n')
-        kc.note_write('stores/acme-x/notes.md', 'other-task')
-        kc.note_write('stores/acme-x/notes.md', 'cleaner')  # its own: no
+        _wrote(tmp_path, 'stores/acme-x/notes.md', 'other-task')
+        _wrote(tmp_path, 'stores/acme-x/notes.md', 'cleaner')  # its own: no
         others = kc.end_watch('cleaner')
         assert kc.undo_non_deletions(snap, others) == []
         assert 'acos_no_lower: 30' in (store / 'notes.md').read_text()
@@ -206,9 +211,45 @@ class TestOutcomeIsHeldToDeletions:
         kc.watch_writes('cleaner')
         snap = kc.snapshot_tier(tmp_path, 'acme-x')
         (store / 'notes.md').write_text(NOTE + 'margin: 30\n')
-        kc.note_write('stores/acme-x/notes.md', 'cleaner')  # its own: no
+        _wrote(tmp_path, 'stores/acme-x/notes.md', 'cleaner')  # its own: no
         others = kc.end_watch('cleaner')
         assert others == set()
+        assert kc.undo_non_deletions(snap, others) == [store / 'notes.md']
+        assert (store / 'notes.md').read_text() == NOTE
+
+    def test_the_shield_names_a_file_not_a_spelling(self, tmp_path):
+        """Every spelling of the written file shields it, and a path that
+        merely ENDS LIKE one does not shield it.
+
+        Observed both ways: the user's edit made through the absolute
+        spelling was rolled back anyway (the recorded string did not end
+        the same), and one write of a bare `notes.md` shielded every
+        `*/notes.md` in the tree, so the cleanup's own illegal rewrites
+        survived under a shield nobody wrote."""
+        store = self._tier(tmp_path)
+        for spelling in (
+            'stores/acme-x/notes.md',
+            './stores/acme-x/notes.md',
+            'stores/acme-x/../acme-x/notes.md',
+            'stores//acme-x/notes.md',
+            f'{store}/notes.md',
+            f'{tmp_path}/stores/acme-x/./notes.md',
+        ):
+            (store / 'notes.md').write_text(NOTE)
+            kc.watch_writes('cleaner')
+            snap = kc.snapshot_tier(tmp_path, 'acme-x')
+            (store / 'notes.md').write_text(NOTE + 'margin: 30\n')
+            _wrote(tmp_path, spelling, 'other-task')
+            assert kc.undo_non_deletions(snap, kc.end_watch('cleaner')) == []
+            assert 'margin: 30' in (store / 'notes.md').read_text(), spelling
+        # The same NAME at another path is another file: no shield.
+        (store / 'notes.md').write_text(NOTE)
+        kc.watch_writes('cleaner')
+        snap = kc.snapshot_tier(tmp_path, 'acme-x')
+        (store / 'notes.md').write_text(NOTE + 'margin: 30\n')
+        _wrote(tmp_path, 'notes.md', 'other-task')
+        others = kc.end_watch('cleaner')
+        assert others == {(tmp_path / 'notes.md').resolve()}
         assert kc.undo_non_deletions(snap, others) == [store / 'notes.md']
         assert (store / 'notes.md').read_text() == NOTE
 

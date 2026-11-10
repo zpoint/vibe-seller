@@ -181,7 +181,12 @@ async def write_file(
             if not content_errors:
                 forget_attempt(writer, gate)
         await workspace_manager.write_file(path, body.content)
-        knowledge_contract.note_write(path, task_id)
+        # The FILE the write landed on, not the string that asked for it:
+        # a cleanup's shield is only as good as the file it names (see
+        # app/knowledge_contract.note_write).
+        knowledge_contract.note_write(
+            workspace_manager.resolve_file(path), task_id
+        )
         return {'path': path, 'status': 'ok'}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -243,7 +248,7 @@ async def delete_lines(
         if err:
             raise HTTPException(status_code=400, detail=err)
     await workspace_manager.write_file(path, new)
-    knowledge_contract.note_write(path, task_id)
+    knowledge_contract.note_write(workspace_manager.resolve_file(path), task_id)
     return {'path': path, 'status': 'ok', 'deleted_lines': len(drop)}
 
 
