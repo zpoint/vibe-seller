@@ -147,11 +147,24 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         pass  # keep CI output readable
 
 
-def serve() -> AdsService:
-    """Start the service on its fixed port."""
-    server = AdsService(('127.0.0.1', PORT), _Handler)
+def serve(port: int = PORT) -> AdsService:
+    """Start the service — on the fixed port by default.
+
+    The fixed port belongs to the SHARED e2e server, which reads
+    ``VIBE_ADS_SERVICE_URL`` once at boot, so only tests on that server
+    use it. A suite that starts its own server passes ``port=0`` and
+    points its server at :func:`url_of` instead: two suites on one fixed
+    port collide whenever xdist runs them at the same time (observed: the
+    second bind failed with "Address already in use").
+    """
+    server = AdsService(('127.0.0.1', port), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
+
+
+def url_of(server: AdsService) -> str:
+    """The base URL a started service answers on."""
+    return f'http://127.0.0.1:{server.server_address[1]}'
 
 
 if __name__ == '__main__':  # standalone: the e2e runner starts this

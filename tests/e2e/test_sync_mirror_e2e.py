@@ -163,23 +163,10 @@ def owned_stack(tmp_path_factory):
 
     fake = FakeGitHub()
     fake_url = fake.start().rstrip('/')
-    ads = None
-    try:
-        # Only a real 200 means "already served": a proxy in front of
-        # loopback answers 502 for a port nothing listens on.
-        running = (
-            httpx.get(
-                f'{fake_ads_service.URL}/skill/version', timeout=2
-            ).status_code
-            == 200
-        )
-    except httpx.HTTPError:
-        running = False
-    if not running:
-        try:
-            ads = fake_ads_service.serve()
-        except OSError:
-            ads = None  # another test's fake owns the fixed port now
+    # Its own ads fake on a free port, for its own server: the fixed port
+    # belongs to the shared server's tests (see fake_ads_service.serve).
+    ads = fake_ads_service.serve(port=0)
+    ads_url = fake_ads_service.url_of(ads)
 
     home = tmp_path_factory.mktemp('sync-mirror-home')
     server = OwnServer(
@@ -188,7 +175,7 @@ def owned_stack(tmp_path_factory):
         env={
             **fake.urls(),
             **SYNC_SWITCHES_ON,
-            'VIBE_ADS_SERVICE_URL': fake_ads_service.URL,
+            'VIBE_ADS_SERVICE_URL': ads_url,
         },
     )
     _OWNED = server
@@ -200,7 +187,7 @@ def owned_stack(tmp_path_factory):
     previous_log = os.environ.get('E2E_SERVER_LOG')
     previous_ads = os.environ.get('VIBE_ADS_SERVICE_URL')
     os.environ['E2E_SERVER_LOG'] = str(server.log)
-    os.environ['VIBE_ADS_SERVICE_URL'] = fake_ads_service.URL
+    os.environ['VIBE_ADS_SERVICE_URL'] = ads_url
 
     server.start(
         env={'VIBE_SYNC_CADENCE_OVERRIDE': LONG, 'VIBE_SYNC_JITTER': '0'}
@@ -209,8 +196,8 @@ def owned_stack(tmp_path_factory):
 
     server.stop()
     fake.stop()
-    if ads is not None:
-        ads.shutdown()
+    ads.shutdown()
+    ads.server_close()
     if previous_log is None:
         os.environ.pop('E2E_SERVER_LOG', None)
     else:
