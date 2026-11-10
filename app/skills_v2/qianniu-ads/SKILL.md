@@ -1,6 +1,6 @@
 ---
 name: qianniu-ads
-description: "Taobao/Tmall 万相台无界 (one.alimama.com) ad analysis + campaign (计划) CRUD for a 千牛 store. Load before any browser-use action that reviews, audits, tunes, or reports on 万相台 计划 — 广告优化 / 每日(每周)广告优化 / 'review the ads' / adjust 计划. Analysis is bulk-first: download 报表 exports and parse them, rather than scraping the UI. Plan create/edit/delete is surfaced for HUMAN review, never auto-executed. Decision thresholds live in the store's ads-rules.md, never in this skill. Requires qianniu-shared for login + navigation."
+description: "Taobao/Tmall 万相台无界 (one.alimama.com) ad analysis + campaign (计划) CRUD for a 千牛 store. Load before any browser-use action that reviews, audits, tunes, or reports on 万相台 计划 — 广告优化 / 每日(每周)广告优化 / 'review the ads' / adjust 计划. Analysis is bulk-first: download 报表 exports and parse them, rather than scraping the UI. Plan create/edit/delete is surfaced for HUMAN review, never auto-executed. Decision thresholds live in the store's notes.md, never in this skill. Requires qianniu-shared for login + navigation."
 allowed-tools: Bash(browser-use:*)
 requires: [qianniu-shared]
 ---
@@ -41,9 +41,10 @@ report lacks, not the primary data path.
 ## Decision thresholds are per-store, not here
 
 What counts as "scale" (加投) or "cut" (删除) — ROI floors, spend caps,
-lookback — is store-specific and lives in `stores/<slug>/ads-rules.md`.
-This skill carries mechanics only; read the store's rules for the numbers.
-If the file is missing, say which thresholds you assumed in the report.
+lookback — is store-specific and lives as `key: value` lines in
+`stores/<slug>/notes.md`, the same home every ad skill uses. This skill
+carries mechanics only; read the store's notes for the numbers. Where
+none is set, say which thresholds you assumed in the report.
 
 ## Safety rails
 

@@ -1,6 +1,6 @@
 ---
 name: amazon-ads
-description: "Amazon Sponsored Products / Sponsored Brands / Sponsored Display ads + Coupons on Seller Central / advertising console. ONE catalog covering BOTH mechanics (URLs, click paths, modal patterns, kat-* component gotchas, field input ranges) AND workflows (tuning existing campaigns, weekly review, search-term harvest, ACOS improvement). Load this skill BEFORE any browser-use action that creates, edits, captures, archives, or downloads campaigns / ad-groups / keywords / product targets / coupons on amazon.<tld> or advertising.amazon.<tld>. The catalog below points to topical references — load whichever ones the task needs. Defaults to last 30 days for tuning analysis but accepts any user-specified window."
+description: "Amazon advertising for a store — Sponsored Products / Brands / Display campaigns and coupons. Load for any of the store's Amazon ad work (review, audit, tune, create, apply approved changes), wherever its ad console is reached: it carries the data contract and the change rules the server checks. References cover console mechanics (URLs, click paths, kat-* component gotchas, input ranges) and workflows (weekly review, search-term harvest, ACOS tuning); load the ones the task needs. Tuning analysis defaults to the last 30 days unless the user names a window."
 allowed-tools: Bash(browser-use:*)
 requires: [amazon-shared]
 gates: [ad_changes, ad_coverage]

@@ -91,5 +91,5 @@ a trusted `cdp('Input.dispatchMouseEvent', ...)` at the X's centre.
 Toggling 状态, editing 每日预算 / 出价, adding/removing a product or keyword,
 新建计划, and 自动规则 changes are all writes that spend the store's money.
 During an audit, produce a recommendation instead (which 计划, what change,
-why, per the store's `ads-rules.md`) and let the human apply it in the
+why, per the store's rules in `notes.md`) and let the human apply it in the
 visible window.

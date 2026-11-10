@@ -65,6 +65,8 @@ defines the output for this kind of task, use its format.
 `metadata.json` (the store's platform/country list) is a cache the
 server maintains after each task — not a gate, and not yours to edit.
 A task on a platform or country it does not list simply proceeds.
+`CATALOG.md` files are rebuilt by the scheduled catalog sync; leave
+them to it.
 
 ## Keeping knowledge correct
 
