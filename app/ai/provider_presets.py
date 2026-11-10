@@ -35,6 +35,18 @@ PROVIDER_PRESETS = {
         'group': 'Kimi',
         'variant': 'Kimi Code (membership)',
         'description': 'Kimi K3.1 Pro (1M context) via Kimi Code membership',
+        'purchase_url': ('https://www.kimi.com/membership/pricing'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#kimi',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#kimi',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'Kimi',
+                'group': 'Kimi',
+                'variant': 'Kimi Code（会员）',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.kimi.ai/coding/',
@@ -71,6 +83,18 @@ PROVIDER_PRESETS = {
         'group': 'Kimi',
         'variant': 'Pay-as-you-go (China)',
         'description': 'Kimi K3 (1M context) via the Kimi API open platform',
+        'purchase_url': ('https://platform.kimi.com/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#kimi',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#kimi',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'Kimi（按量付费，国内）',
+                'group': 'Kimi',
+                'variant': '按量付费（国内）',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.moonshot.cn/anthropic',
@@ -93,6 +117,18 @@ PROVIDER_PRESETS = {
         'description': (
             'Kimi K3 (1M context) via the Kimi API platform (platform.kimi.ai)'
         ),
+        'purchase_url': ('https://platform.kimi.ai/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#kimi',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#kimi',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'Kimi（按量付费，国际）',
+                'group': 'Kimi',
+                'variant': '按量付费（国际）',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.moonshot.ai/anthropic',
@@ -124,6 +160,18 @@ PROVIDER_PRESETS = {
         'group': 'MiniMax',
         'variant': 'China',
         'description': 'MiniMax M3.1 Flash (1M context), China (minimax.cn)',
+        'purchase_url': ('https://platform.minimax.cn/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#minimax',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#minimax',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'MiniMax（国内）',
+                'group': 'MiniMax',
+                'variant': '国内',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.minimax.cn/anthropic',
@@ -147,6 +195,18 @@ PROVIDER_PRESETS = {
         'description': (
             'MiniMax M3.1 Flash (1M context), international (minimax.io)'
         ),
+        'purchase_url': ('https://platform.minimax.io/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#minimax',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#minimax',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'MiniMax（国际）',
+                'group': 'MiniMax',
+                'variant': '国际',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.minimax.io/anthropic',
@@ -174,6 +234,18 @@ PROVIDER_PRESETS = {
         'group': 'GLM',
         'variant': 'China',
         'description': 'GLM-5.3 (1M context) via ZhiPu BigModel',
+        'purchase_url': ('https://open.bigmodel.cn/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#国内智谱开放平台',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#china-zhipu-bigmodel',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'GLM（国内）',
+                'group': 'GLM',
+                'variant': '国内',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://open.bigmodel.cn/api/anthropic',
@@ -194,6 +266,18 @@ PROVIDER_PRESETS = {
         'group': 'GLM',
         'variant': 'International',
         'description': 'GLM-5.3 (1M context) via Z.AI',
+        'purchase_url': ('https://z.ai/model-api'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#海外zai',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#international-zai',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'GLM（国际）',
+                'group': 'GLM',
+                'variant': '国际',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.z.ai/api/anthropic',
@@ -218,6 +302,16 @@ PROVIDER_PRESETS = {
     'deepseek': {
         'name': 'DeepSeek',
         'description': 'DeepSeek Flash (1M context) via DeepSeek API',
+        'purchase_url': ('https://platform.deepseek.com/top_up'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#deepseek',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#deepseek',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'DeepSeek',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.deepseek.com/anthropic',
@@ -247,6 +341,20 @@ PROVIDER_PRESETS = {
             'Qwen3.7-Max via Alibaba Cloud Bailian, pay-as-you-go billing '
             '(Beijing region)'
         ),
+        'purchase_url': (
+            'https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'Qwen（按量付费，国内）',
+                'group': '阿里云',
+                'variant': '按量付费（国内）',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -280,6 +388,18 @@ PROVIDER_PRESETS = {
             'Qwen3.7-Max via Alibaba Cloud Model Studio, pay-as-you-go '
             '(Singapore)'
         ),
+        'purchase_url': ('https://modelstudio.console.alibabacloud.com/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'Qwen（按量付费，国际）',
+                'group': '阿里云',
+                'variant': '按量付费（国际）',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -297,6 +417,93 @@ PROVIDER_PRESETS = {
             'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
         },
     },
+    # Token Plan (个人版 and 团队版 share this config; they differ only by
+    # which sk- key you use) on a distinct MaaS base URL. Alibaba's
+    # current recommendation routes the main + subagent slots through
+    # ``auto`` with explicit tier defaults (haiku qwen3.6-flash, sonnet
+    # qwen3.8-flash, opus qwen3.8-max — the preview id graduated to
+    # GA). The ~960K context budget is set explicitly per the doc.
+    # https://help.aliyun.com/zh/model-studio/claude-code
+    'qwen_token': {
+        'name': 'Qwen (Token Plan, China)',
+        'group': 'Alibaba Cloud',
+        'variant': 'Token Plan (China)',
+        'description': (
+            'Qwen3.8-Max via Alibaba Cloud Bailian Token Plan (个人版 / 团队版)'
+        ),
+        'purchase_url': (
+            'https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'Qwen（Token Plan，国内）',
+                'group': '阿里云',
+                'variant': 'Token Plan（国内）',
+            },
+        },
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'auto',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-flash',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.8-flash',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.8-max',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'auto',
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '983616',
+        },
+    },
+    # International (Singapore) Token Plan: same model block as China on
+    # the ap-southeast-1 Token Plan host, per the international doc.
+    # https://www.alibabacloud.com/help/en/model-studio/claude-code
+    'qwen_token_intl': {
+        'name': 'Qwen (Token Plan, International)',
+        'group': 'Alibaba Cloud',
+        'variant': 'Token Plan (International)',
+        'description': (
+            'Qwen3.8-Max via Alibaba Cloud Model Studio Token Plan (Singapore)'
+        ),
+        'purchase_url': (
+            'https://modelstudio.console.alibabacloud.com/subscription/token-plan/personal'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'Qwen（Token Plan，国际）',
+                'group': '阿里云',
+                'variant': 'Token Plan（国际）',
+            },
+        },
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://token-plan.ap-southeast-1.maas.aliyuncs.com'
+                '/apps/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'auto',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-flash',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.8-flash',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.8-max',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'auto',
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '983616',
+        },
+    },
+    # Coding Plan is closed to new subscribers (Alibaba stopped selling
+    # it); only existing subscribers can still use it, so it sits last in
+    # the Alibaba Cloud row. The label stays plain: subscribers recognise
+    # their plan, and new users cannot buy it anyway.
     'qwen_coding': {
         'name': 'Qwen (Coding Plan, China)',
         'group': 'Alibaba Cloud',
@@ -305,6 +512,20 @@ PROVIDER_PRESETS = {
             'Qwen3.7-Plus via Alibaba Cloud Bailian Coding Plan '
             '(monthly subscription)'
         ),
+        'purchase_url': (
+            'https://bailian.console.aliyun.com/cn-beijing/subscription/coding-plan'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'Qwen（Coding Plan，国内）',
+                'group': '阿里云',
+                'variant': 'Coding Plan（国内）',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -332,6 +553,20 @@ PROVIDER_PRESETS = {
             'Qwen3.7-Plus via Alibaba Cloud Model Studio Coding Plan '
             '(Singapore)'
         ),
+        'purchase_url': (
+            'https://modelstudio.console.alibabacloud.com/ap-southeast-1/subscription/coding-plan'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'Qwen（Coding Plan，国际）',
+                'group': '阿里云',
+                'variant': 'Coding Plan（国际）',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -345,61 +580,6 @@ PROVIDER_PRESETS = {
             'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.7-plus',
             'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-plus',
             'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
-        },
-    },
-    # Token Plan (个人版 and 团队版 share this config; they differ only by
-    # which sk- key you use) on a distinct MaaS base URL. Alibaba's
-    # current recommendation routes the main + subagent slots through
-    # ``auto`` with explicit tier defaults (haiku qwen3.6-flash, sonnet
-    # qwen3.8-flash, opus qwen3.8-max — the preview id graduated to
-    # GA). The ~960K context budget is set explicitly per the doc.
-    # https://help.aliyun.com/zh/model-studio/claude-code
-    'qwen_token': {
-        'name': 'Qwen (Token Plan, China)',
-        'group': 'Alibaba Cloud',
-        'variant': 'Token Plan (China)',
-        'description': (
-            'Qwen3.8-Max via Alibaba Cloud Bailian Token Plan (个人版 / 团队版)'
-        ),
-        'load_global_mcp': False,
-        'env': {
-            'ANTHROPIC_BASE_URL': (
-                'https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic'
-            ),
-            'API_TIMEOUT_MS': '3000000',
-            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-            'ANTHROPIC_MODEL': 'auto',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-flash',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.8-flash',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.8-max',
-            'CLAUDE_CODE_SUBAGENT_MODEL': 'auto',
-            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '983616',
-        },
-    },
-    # International (Singapore) Token Plan: same model block as China on
-    # the ap-southeast-1 Token Plan host, per the international doc.
-    # https://www.alibabacloud.com/help/en/model-studio/claude-code
-    'qwen_token_intl': {
-        'name': 'Qwen (Token Plan, International)',
-        'group': 'Alibaba Cloud',
-        'variant': 'Token Plan (International)',
-        'description': (
-            'Qwen3.8-Max via Alibaba Cloud Model Studio Token Plan (Singapore)'
-        ),
-        'load_global_mcp': False,
-        'env': {
-            'ANTHROPIC_BASE_URL': (
-                'https://token-plan.ap-southeast-1.maas.aliyuncs.com'
-                '/apps/anthropic'
-            ),
-            'API_TIMEOUT_MS': '3000000',
-            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-            'ANTHROPIC_MODEL': 'auto',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-flash',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.8-flash',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.8-max',
-            'CLAUDE_CODE_SUBAGENT_MODEL': 'auto',
-            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '983616',
         },
     },
     # Xiaomi MiMo — Anthropic-Messages-compatible endpoint, documented
@@ -424,6 +604,18 @@ PROVIDER_PRESETS = {
         'group': 'MiMo',
         'variant': 'Pay-as-you-go',
         'description': 'MiMo V2.6 Pro (1M context) via Xiaomi MiMo',
+        'purchase_url': ('https://platform.xiaomimimo.com/#/console/balance'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#小米-mimo',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#xiaomi-mimo',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'MiMo（按量付费）',
+                'group': 'MiMo',
+                'variant': '按量付费',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.xiaomimimo.com/anthropic',
@@ -448,6 +640,20 @@ PROVIDER_PRESETS = {
             'MiMo V2.6 Pro (1M context) via Xiaomi MiMo Token Plan '
             '(个人版 / 团队版)'
         ),
+        'purchase_url': (
+            'https://platform.xiaomimimo.com/#/console/plan-manage'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#小米-mimo',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#xiaomi-mimo',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'MiMo（Token Plan）',
+                'group': 'MiMo',
+                'variant': 'Token Plan（国内集群）',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -469,6 +675,20 @@ PROVIDER_PRESETS = {
             'MiMo V2.6 Pro (1M context) via Xiaomi MiMo Token Plan, '
             'Singapore cluster'
         ),
+        'purchase_url': (
+            'https://platform.xiaomimimo.com/#/console/plan-manage'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#小米-mimo',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#xiaomi-mimo',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'MiMo（Token Plan，新加坡）',
+                'group': 'MiMo',
+                'variant': 'Token Plan（新加坡集群）',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -490,6 +710,20 @@ PROVIDER_PRESETS = {
             'MiMo V2.6 Pro (1M context) via Xiaomi MiMo Token Plan, '
             'Europe cluster'
         ),
+        'purchase_url': (
+            'https://platform.xiaomimimo.com/#/console/plan-manage'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#小米-mimo',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#xiaomi-mimo',
+        },
+        'i18n': {
+            'zh': {
+                'name': 'MiMo（Token Plan，欧洲）',
+                'group': 'MiMo',
+                'variant': 'Token Plan（欧洲集群）',
+            },
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -512,8 +746,12 @@ PROVIDER_PRESETS = {
 #
 # Each entry: ``id`` (exact API string), ``label`` (UI text), and
 # best-effort ``context`` / ``vision`` metadata shown as badges. The
-# FIRST entry is the default and MUST equal the preset's
-# ``ANTHROPIC_MODEL`` (pinned by a test). The UI always also offers a
+# preset's ``ANTHROPIC_MODEL`` MUST be one of the entries (pinned by a
+# test); the UI highlights it. Labels are the VENDOR's model names, never
+# our own tags ("flagship", "fast", ...) — only a window term ("1M
+# context") where two ids of one model differ in nothing else. Order:
+# 1M-window options first, then sub-1M; newest version first within
+# each (tests/unit/test_preset_model_order.py). The UI always also offers a
 # free-text "Custom" entry, and every choice is endpoint-validated on
 # save, so this is a convenience shortlist — not an exhaustive or
 # load-bearing catalog. Vendors rev these often; stale entries are
@@ -529,8 +767,8 @@ PROVIDER_PRESETS = {
 # Code to advertise the window).
 PROVIDER_MODELS = {
     # Model dropdown options per provider (id + label + optional context
-    # / vision badges). First entry is the default and MUST equal the
-    # preset's ANTHROPIC_MODEL (pinned by a test). The UI also offers a
+    # / vision badges). The preset's ANTHROPIC_MODEL must be one of the
+    # options (pinned by a test). The UI also offers a
     # free-text field, and every choice is endpoint-validated on save.
     #
     # VISION LABELS ARE LIVE-VERIFIED where a key exists: each id below
@@ -554,37 +792,49 @@ PROVIDER_MODELS = {
         {
             'id': 'k3.1-pro[1m]',
             'label': 'K3.1 Pro (1M context)',
+            'i18n': {'zh': {'label': 'K3.1 Pro（1M 上下文）'}},
             'context': '1M',
-            'vision': True,
-        },
-        {
-            'id': 'k3.1-pro',
-            'label': 'K3.1 Pro (256K)',
-            'context': '256K',
             'vision': True,
         },
         {
             'id': 'k3.1-pro-highspeed',
-            'label': 'K3.1 Pro Highspeed (1M)',
+            'label': 'K3.1 Pro Highspeed',
+            'i18n': {'zh': {'label': 'K3.1 Pro Highspeed'}},
             'context': '1M',
             'vision': True,
         },
-        {'id': 'k3[1m]', 'label': 'K3 (1M)', 'context': '1M', 'vision': True},
         {
-            'id': 'k3-256k',
-            'label': 'K3 (256K)',
-            'context': '256K',
+            'id': 'k3[1m]',
+            'label': 'K3 (1M context)',
+            'i18n': {'zh': {'label': 'K3（1M 上下文）'}},
+            'context': '1M',
             'vision': True,
         },
         {
             'id': 'kimi-for-coding',
             'label': 'K2.8 Preview',
+            'i18n': {'zh': {'label': 'K2.8 Preview'}},
             'context': '1M',
             'vision': True,
         },
         {
+            'id': 'k3.1-pro',
+            'label': 'K3.1 Pro (256K context)',
+            'i18n': {'zh': {'label': 'K3.1 Pro（256K 上下文）'}},
+            'context': '256K',
+            'vision': True,
+        },
+        {
+            'id': 'k3-256k',
+            'label': 'K3 (256K context)',
+            'i18n': {'zh': {'label': 'K3（256K 上下文）'}},
+            'context': '256K',
+            'vision': True,
+        },
+        {
             'id': 'kimi-for-coding-highspeed',
-            'label': 'K2.8 Preview — high-speed',
+            'label': 'K2.8 Preview Highspeed',
+            'i18n': {'zh': {'label': 'K2.8 Preview Highspeed'}},
             'context': '256K',
             'vision': True,
         },
@@ -600,22 +850,31 @@ PROVIDER_MODELS = {
         {
             'id': 'MiniMax-M3.1-Flash[1m]',
             'label': 'M3.1 Flash (1M context)',
-            'context': '1M',
-            'vision': True,
-        },
-        {
-            'id': 'MiniMax-M3.1-Flash',
-            'label': 'M3.1 Flash',
+            'i18n': {'zh': {'label': 'M3.1 Flash（1M 上下文）'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'MiniMax-M3[1m]',
             'label': 'M3 (1M context)',
+            'i18n': {'zh': {'label': 'M3（1M 上下文）'}},
             'context': '1M',
             'vision': True,
         },
-        {'id': 'MiniMax-M3', 'label': 'M3', 'context': '1M', 'vision': True},
+        {
+            'id': 'MiniMax-M3.1-Flash',
+            'label': 'M3.1 Flash (200K context)',
+            'i18n': {'zh': {'label': 'M3.1 Flash（200K 上下文）'}},
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'MiniMax-M3',
+            'label': 'M3 (200K context)',
+            'i18n': {'zh': {'label': 'M3（200K 上下文）'}},
+            'context': '1M',
+            'vision': True,
+        },
     ],
     # GLM-5.3 is text-only (LIVE-verified 2026-10-29 on Z.AI: it
     # misnamed a red/blue image, matching Zhipu's own doc note that
@@ -630,37 +889,43 @@ PROVIDER_MODELS = {
     'glm': [
         {
             'id': 'glm-5.3[1m]',
-            'label': 'GLM-5.3 (1M context)',
+            'label': 'GLM-5.3',
+            'i18n': {'zh': {'label': 'GLM-5.3'}},
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'glm-5.3-flash[1m]',
-            'label': 'GLM-5.3-Flash (1M, vision)',
+            'label': 'GLM-5.3-Flash',
+            'i18n': {'zh': {'label': 'GLM-5.3-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'glm-5.2[1m]',
-            'label': 'GLM-5.2 (1M context)',
+            'label': 'GLM-5.2',
+            'i18n': {'zh': {'label': 'GLM-5.2'}},
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'glm-5.1',
             'label': 'GLM-5.1',
+            'i18n': {'zh': {'label': 'GLM-5.1'}},
             'context': '200K',
             'vision': False,
         },
         {
             'id': 'glm-4.7',
             'label': 'GLM-4.7',
+            'i18n': {'zh': {'label': 'GLM-4.7'}},
             'context': '200K',
             'vision': False,
         },
         {
             'id': 'glm-4.6',
             'label': 'GLM-4.6',
+            'i18n': {'zh': {'label': 'GLM-4.6'}},
             'context': '200K',
             'vision': False,
         },
@@ -668,37 +933,43 @@ PROVIDER_MODELS = {
     'glm_intl': [
         {
             'id': 'glm-5.3[1m]',
-            'label': 'GLM-5.3 (1M context)',
+            'label': 'GLM-5.3',
+            'i18n': {'zh': {'label': 'GLM-5.3'}},
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'glm-5.3-flash[1m]',
-            'label': 'GLM-5.3-Flash (1M, vision)',
+            'label': 'GLM-5.3-Flash',
+            'i18n': {'zh': {'label': 'GLM-5.3-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'glm-5.2[1m]',
-            'label': 'GLM-5.2 (1M context)',
+            'label': 'GLM-5.2',
+            'i18n': {'zh': {'label': 'GLM-5.2'}},
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'glm-5.1',
             'label': 'GLM-5.1',
+            'i18n': {'zh': {'label': 'GLM-5.1'}},
             'context': '200K',
             'vision': False,
         },
         {
             'id': 'glm-4.7',
             'label': 'GLM-4.7',
+            'i18n': {'zh': {'label': 'GLM-4.7'}},
             'context': '200K',
             'vision': False,
         },
         {
             'id': 'glm-4.6',
             'label': 'GLM-4.6',
+            'i18n': {'zh': {'label': 'GLM-4.6'}},
             'context': '200K',
             'vision': False,
         },
@@ -711,25 +982,29 @@ PROVIDER_MODELS = {
     'deepseek': [
         {
             'id': 'deepseek-flash[1m]',
-            'label': 'Flash V4.1 (1M, vision)',
-            'context': '1M',
-            'vision': True,
-        },
-        {
-            'id': 'deepseek-flash',
-            'label': 'Flash V4.1 (fast, vision)',
+            'label': 'Flash V4.1 (1M context)',
+            'i18n': {'zh': {'label': 'Flash V4.1（1M 上下文）'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'deepseek-v4-pro[1m]',
             'label': 'V4 Pro (1M context)',
+            'i18n': {'zh': {'label': 'V4 Pro（1M 上下文）'}},
             'context': '1M',
             'vision': False,
         },
         {
+            'id': 'deepseek-flash',
+            'label': 'Flash V4.1 (200K context)',
+            'i18n': {'zh': {'label': 'Flash V4.1（200K 上下文）'}},
+            'context': '1M',
+            'vision': True,
+        },
+        {
             'id': 'deepseek-v4-pro',
-            'label': 'V4 Pro',
+            'label': 'V4 Pro (200K context)',
+            'i18n': {'zh': {'label': 'V4 Pro（200K 上下文）'}},
             'context': '1M',
             'vision': False,
         },
@@ -743,75 +1018,87 @@ PROVIDER_MODELS = {
     # the Bailian console's 视觉理解 capability.
     'qwen': [
         {
-            'id': 'qwen3.7-max',
-            'label': 'Qwen3.7-Max (flagship)',
-            'context': '1M',
-            'vision': False,
-        },
-        {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (newer flagship, vision)',
+            'label': 'Qwen3.8-Max',
+            'i18n': {'zh': {'label': 'Qwen3.8-Max'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast, vision)',
+            'label': 'Qwen3.8-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.8-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
+            'id': 'qwen3.7-max',
+            'label': 'Qwen3.7-Max',
+            'i18n': {'zh': {'label': 'Qwen3.7-Max'}},
+            'context': '1M',
+            'vision': False,
+        },
+        {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
+            'i18n': {'zh': {'label': 'Qwen3.7-Plus'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast, vision)',
+            'label': 'Qwen3.6-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.6-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3-vl-plus',
-            'label': 'Qwen3-VL-Plus (vision)',
+            'label': 'Qwen3-VL-Plus',
+            'i18n': {'zh': {'label': 'Qwen3-VL-Plus'}},
             'vision': True,
         },
     ],
     'qwen_intl': [
         {
-            'id': 'qwen3.7-max',
-            'label': 'Qwen3.7-Max (flagship)',
-            'context': '1M',
-            'vision': False,
-        },
-        {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (newer flagship, vision)',
+            'label': 'Qwen3.8-Max',
+            'i18n': {'zh': {'label': 'Qwen3.8-Max'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast, vision)',
+            'label': 'Qwen3.8-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.8-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
+            'id': 'qwen3.7-max',
+            'label': 'Qwen3.7-Max',
+            'i18n': {'zh': {'label': 'Qwen3.7-Max'}},
+            'context': '1M',
+            'vision': False,
+        },
+        {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
+            'i18n': {'zh': {'label': 'Qwen3.7-Plus'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast, vision)',
+            'label': 'Qwen3.6-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.6-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3-vl-plus',
-            'label': 'Qwen3-VL-Plus (vision)',
+            'label': 'Qwen3-VL-Plus',
+            'i18n': {'zh': {'label': 'Qwen3-VL-Plus'}},
             'vision': True,
         },
     ],
@@ -820,7 +1107,8 @@ PROVIDER_MODELS = {
     'qwen_coding': [
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
+            'i18n': {'zh': {'label': 'Qwen3.7-Plus'}},
             'context': '1M',
             'vision': True,
         },
@@ -831,41 +1119,48 @@ PROVIDER_MODELS = {
     # 2026-11-10 (red+blue, 3x): auto, qwen3.8-max, qwen3.8-flash and
     # qwen3.6-flash all 6/6 -> vision. The console lists auto as
     # text/reasoning only, but the router hands image requests to a
-    # vision model. The international Token Plan has no key to probe, so
-    # its auto stays unlabelled.
+    # vision model. The international Token Plan is the same product and
+    # router on a Singapore host, so its auto carries the same label: one
+    # model, one capability, whichever region the key was bought in.
     'qwen_token': [
         {
             'id': 'auto',
-            'label': 'Auto (provider-routed, vision)',
+            'label': 'Auto',
+            'i18n': {'zh': {'label': '自动'}},
             'vision': True,
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (flagship, vision)',
+            'label': 'Qwen3.8-Max',
+            'i18n': {'zh': {'label': 'Qwen3.8-Max'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast, vision)',
+            'label': 'Qwen3.8-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.8-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.7-max',
             'label': 'Qwen3.7-Max',
+            'i18n': {'zh': {'label': 'Qwen3.7-Max'}},
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
+            'i18n': {'zh': {'label': 'Qwen3.7-Plus'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast, vision)',
+            'label': 'Qwen3.6-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.6-Flash'}},
             'context': '1M',
             'vision': True,
         },
@@ -882,19 +1177,22 @@ PROVIDER_MODELS = {
     'mimo': [
         {
             'id': 'mimo-v2.6-pro[1m]',
-            'label': 'V2.6 Pro (1M context, flagship)',
+            'label': 'V2.6 Pro',
+            'i18n': {'zh': {'label': 'V2.6 Pro'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-flash[1m]',
-            'label': 'V2.6 Flash (1M, cheap)',
+            'label': 'V2.6 Flash',
+            'i18n': {'zh': {'label': 'V2.6 Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-pro-ultraspeed[1m]',
-            'label': 'V2.6 Pro Ultraspeed (1M, fastest)',
+            'label': 'V2.6 Pro Ultraspeed',
+            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed'}},
             'context': '1M',
             'vision': True,
         },
@@ -903,19 +1201,22 @@ PROVIDER_MODELS = {
     'mimo_token': [
         {
             'id': 'mimo-v2.6-pro[1m]',
-            'label': 'V2.6 Pro (1M context, flagship)',
+            'label': 'V2.6 Pro',
+            'i18n': {'zh': {'label': 'V2.6 Pro'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-flash[1m]',
-            'label': 'V2.6 Flash (1M, cheap)',
+            'label': 'V2.6 Flash',
+            'i18n': {'zh': {'label': 'V2.6 Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-pro-ultraspeed[1m]',
-            'label': 'V2.6 Pro Ultraspeed (1M, fastest)',
+            'label': 'V2.6 Pro Ultraspeed',
+            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed'}},
             'context': '1M',
             'vision': True,
         },
@@ -932,41 +1233,83 @@ PROVIDER_MODELS = {
     # kimi-k2.7-code is left out: it is thinking-only and 400s when
     # Claude Code sends a request with thinking off.
     'kimi_paygo': [
+        # K3.1 Pro / Highspeed are 1M models (1,048,576); the bare ids
+        # get Claude Code's 200K default, so the [1m] ids come first.
+        # Claude Code strips [1m] before the API call
+        # (normalizeModelStringForAPI), so the endpoint sees the bare id.
+        {
+            'id': 'kimi-k3.1-pro[1m]',
+            'label': 'K3.1 Pro (1M context)',
+            'i18n': {'zh': {'label': 'K3.1 Pro（1M 上下文）'}},
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'kimi-k3.1-pro-highspeed[1m]',
+            'label': 'K3.1 Pro Highspeed (1M context)',
+            'i18n': {'zh': {'label': 'K3.1 Pro Highspeed（1M 上下文）'}},
+            'context': '1M',
+            'vision': True,
+        },
         {
             'id': 'kimi-k3[1m]',
-            'label': 'K3 (1M context)',
+            'label': 'K3',
+            'i18n': {'zh': {'label': 'K3'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'kimi-k3.1-pro',
-            'label': 'K3.1 Pro',
+            'label': 'K3.1 Pro (200K context)',
+            'i18n': {'zh': {'label': 'K3.1 Pro（200K 上下文）'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'kimi-k3.1-pro-highspeed',
-            'label': 'K3.1 Pro Highspeed',
+            'label': 'K3.1 Pro Highspeed (200K context)',
+            'i18n': {'zh': {'label': 'K3.1 Pro Highspeed（200K 上下文）'}},
             'context': '1M',
             'vision': True,
         },
     ],
     'kimi_paygo_intl': [
+        # K3.1 Pro / Highspeed are 1M models (1,048,576); the bare ids
+        # get Claude Code's 200K default, so the [1m] ids come first.
+        # Claude Code strips [1m] before the API call
+        # (normalizeModelStringForAPI), so the endpoint sees the bare id.
+        {
+            'id': 'kimi-k3.1-pro[1m]',
+            'label': 'K3.1 Pro (1M context)',
+            'i18n': {'zh': {'label': 'K3.1 Pro（1M 上下文）'}},
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'kimi-k3.1-pro-highspeed[1m]',
+            'label': 'K3.1 Pro Highspeed (1M context)',
+            'i18n': {'zh': {'label': 'K3.1 Pro Highspeed（1M 上下文）'}},
+            'context': '1M',
+            'vision': True,
+        },
         {
             'id': 'kimi-k3[1m]',
-            'label': 'K3 (1M context)',
+            'label': 'K3',
+            'i18n': {'zh': {'label': 'K3'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'kimi-k3.1-pro',
-            'label': 'K3.1 Pro',
+            'label': 'K3.1 Pro (200K context)',
+            'i18n': {'zh': {'label': 'K3.1 Pro（200K 上下文）'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'kimi-k3.1-pro-highspeed',
-            'label': 'K3.1 Pro Highspeed',
+            'label': 'K3.1 Pro Highspeed (200K context)',
+            'i18n': {'zh': {'label': 'K3.1 Pro Highspeed（200K 上下文）'}},
             'context': '1M',
             'vision': True,
         },
@@ -976,27 +1319,37 @@ PROVIDER_MODELS = {
         {
             'id': 'MiniMax-M3.1-Flash[1m]',
             'label': 'M3.1 Flash (1M context)',
-            'context': '1M',
-            'vision': True,
-        },
-        {
-            'id': 'MiniMax-M3.1-Flash',
-            'label': 'M3.1 Flash',
+            'i18n': {'zh': {'label': 'M3.1 Flash（1M 上下文）'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'MiniMax-M3[1m]',
             'label': 'M3 (1M context)',
+            'i18n': {'zh': {'label': 'M3（1M 上下文）'}},
             'context': '1M',
             'vision': True,
         },
-        {'id': 'MiniMax-M3', 'label': 'M3', 'context': '1M', 'vision': True},
+        {
+            'id': 'MiniMax-M3.1-Flash',
+            'label': 'M3.1 Flash (200K context)',
+            'i18n': {'zh': {'label': 'M3.1 Flash（200K 上下文）'}},
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'MiniMax-M3',
+            'label': 'M3 (200K context)',
+            'i18n': {'zh': {'label': 'M3（200K 上下文）'}},
+            'context': '1M',
+            'vision': True,
+        },
     ],
     'qwen_coding_intl': [
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
+            'i18n': {'zh': {'label': 'Qwen3.7-Plus'}},
             'context': '1M',
             'vision': True,
         },
@@ -1004,35 +1357,42 @@ PROVIDER_MODELS = {
     'qwen_token_intl': [
         {
             'id': 'auto',
-            'label': 'Auto (provider-routed)',
+            'label': 'Auto',
+            'i18n': {'zh': {'label': '自动'}},
+            'vision': True,
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (flagship, vision)',
+            'label': 'Qwen3.8-Max',
+            'i18n': {'zh': {'label': 'Qwen3.8-Max'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast, vision)',
+            'label': 'Qwen3.8-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.8-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.7-max',
             'label': 'Qwen3.7-Max',
+            'i18n': {'zh': {'label': 'Qwen3.7-Max'}},
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
+            'i18n': {'zh': {'label': 'Qwen3.7-Plus'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast, vision)',
+            'label': 'Qwen3.6-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.6-Flash'}},
             'context': '1M',
             'vision': True,
         },
@@ -1040,19 +1400,22 @@ PROVIDER_MODELS = {
     'mimo_token_sgp': [
         {
             'id': 'mimo-v2.6-pro[1m]',
-            'label': 'V2.6 Pro (1M context, flagship)',
+            'label': 'V2.6 Pro',
+            'i18n': {'zh': {'label': 'V2.6 Pro'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-flash[1m]',
-            'label': 'V2.6 Flash (1M, cheap)',
+            'label': 'V2.6 Flash',
+            'i18n': {'zh': {'label': 'V2.6 Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-pro-ultraspeed[1m]',
-            'label': 'V2.6 Pro Ultraspeed (1M, fastest)',
+            'label': 'V2.6 Pro Ultraspeed',
+            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed'}},
             'context': '1M',
             'vision': True,
         },
@@ -1060,19 +1423,22 @@ PROVIDER_MODELS = {
     'mimo_token_ams': [
         {
             'id': 'mimo-v2.6-pro[1m]',
-            'label': 'V2.6 Pro (1M context, flagship)',
+            'label': 'V2.6 Pro',
+            'i18n': {'zh': {'label': 'V2.6 Pro'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-flash[1m]',
-            'label': 'V2.6 Flash (1M, cheap)',
+            'label': 'V2.6 Flash',
+            'i18n': {'zh': {'label': 'V2.6 Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-pro-ultraspeed[1m]',
-            'label': 'V2.6 Pro Ultraspeed (1M, fastest)',
+            'label': 'V2.6 Pro Ultraspeed',
+            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed'}},
             'context': '1M',
             'vision': True,
         },
