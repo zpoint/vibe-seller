@@ -40,7 +40,25 @@ dependencies = [
     # skills_v2 tree are all migrated to it. The `browser-use` entry point
     # is unchanged, so the wrapper still resolves after an in-place
     # upgrade. See docs/browser-use-0.13-migration.md.
-    "browser-use>=0.13.14",
+    #
+    # Capped below 0.14: the wrapper, reaper and skills_v2 are written
+    # against the 0.13 interface above, and a newer uv resolves a bare
+    # `>=` to a pre-release (uv 0.13 picked browser-use 1.0.0rc5, which
+    # drops the 0.13 dependency set). Raising the cap is a migration —
+    # freeze skills_v2 and audit docs/browser.md first, as for 0.13.
+    "browser-use>=0.13.14,<0.14",
+    # Imported directly by the Chrome/Ziniao/winchrome backends and the
+    # CDP mux upstream. It used to arrive only through browser-use, so a
+    # browser-use release that dropped it broke every import of
+    # app.browser.chrome at startup.
+    "aiohttp>=3.9",
+    # Also imported directly, and also only transitive before:
+    # websockets (CDP mux, via uvicorn[standard]), starlette (via
+    # fastapi), google-auth (google.oauth2, via the API client).
+    # tests/unit/test_declared_imports.py keeps this list complete.
+    "websockets",
+    "starlette",
+    "google-auth",
     "python-multipart",
     # The completeness gate opens the Amazon bulk export to check the
     # report against the platform's own figures — the campaign count
