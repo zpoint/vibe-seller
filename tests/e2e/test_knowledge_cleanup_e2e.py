@@ -25,7 +25,7 @@ import pytest
 from app.browser.manager import store_slug as _store_slug
 from app.config import VIBE_SELLER_DIR
 from app.knowledge_contract import KNOWLEDGE_CONTRACT, store_scope
-from tests.e2e.e2e_helpers import create_store
+from tests.e2e.e2e_helpers import create_store, own_the_catalog_sync
 from tests.e2e.test_catalog_sync import (
     STORES_DIR,
     login_client,
@@ -36,6 +36,14 @@ from tests.e2e.test_catalog_sync import (
 pytestmark = [pytest.mark.e2e]
 
 DB_PATH = VIBE_SELLER_DIR / 'data' / 'vibe_seller.db'
+
+
+@pytest.fixture(autouse=True)
+def _one_catalog_sync_driver():
+    """Two syncs that must see no one else's knowledge change between."""
+    with own_the_catalog_sync():
+        yield
+
 
 OUTDATED = [
     'After every set_task_result the platform runs a reviewer pass; the '

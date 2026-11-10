@@ -46,6 +46,13 @@ KNOWLEDGE_DIR = VIBE_SELLER_DIR / 'knowledge'
 STORES_DIR = VIBE_SELLER_DIR / 'stores'
 
 
+@pytest.fixture(autouse=True)
+def _one_catalog_sync_driver():
+    """This module writes shared knowledge and runs the global sync."""
+    with e2e_helpers.own_the_catalog_sync():
+        yield
+
+
 @pytest.fixture(scope='module')
 def api_client():
     client = httpx.Client(timeout=30)
@@ -167,6 +174,7 @@ def trigger_catalog_sync(
     store tasks and *others* are tasks for unrelated stores
     (expected to skip via staleness check).
     """
+    e2e_helpers.assert_owns_the_catalog_sync()
     base = f'{BASE_URL}/api/schedules/{SYSTEM_CATALOG_SYNC_ID}'
 
     # Snapshot the batch ids that already exist, so the trigger below can

@@ -5,9 +5,12 @@ Consolidates duplicated login, polling, task creation, and
 question-answering code that was copy-pasted across 5+ files.
 """
 
+from contextlib import contextmanager
+import fcntl
 import logging
 import os
 from pathlib import Path
+import tempfile
 import time
 from urllib.parse import urlparse
 
@@ -399,3 +402,41 @@ def answer_question(
     )
     resp.raise_for_status()
     return resp.json()
+
+
+# ── The global catalog sync: one driver at a time ───────────────
+#
+# The catalog sync is one server-wide job over the shared knowledge/
+# tree: a rebuild rotates (deletes) the catalogs it regenerates, and any
+# new file under knowledge/ makes every store catalog stale. Observed in
+# CI: one worker's catalog test added a knowledge file and ran a sync
+# while another's knowledge-cleanup test sat between its two syncs, so
+# the store it expected to be skipped was rebuilt. A test that triggers
+# the sync or writes shared knowledge must hold this lock for its whole
+# run; ``trigger_catalog_sync`` refuses to run without it.
+
+_catalog_lock_depth = 0
+
+
+@contextmanager
+def own_the_catalog_sync():
+    """Hold the cross-worker lock on the shared catalog sync."""
+    global _catalog_lock_depth
+    path = Path(tempfile.gettempdir()) / f'vibe-e2e-catalog-{SHARED_PORT}.lock'
+    with open(path, 'w') as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        _catalog_lock_depth += 1
+        try:
+            yield
+        finally:
+            _catalog_lock_depth -= 1
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def assert_owns_the_catalog_sync() -> None:
+    if _catalog_lock_depth <= 0:
+        raise AssertionError(
+            'this test drives the shared catalog sync without holding '
+            'own_the_catalog_sync() — another worker can change shared '
+            'knowledge or rebuild catalogs under it'
+        )

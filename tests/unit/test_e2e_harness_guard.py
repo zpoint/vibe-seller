@@ -26,9 +26,11 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 import pytest
 
+from tests.e2e import e2e_helpers, test_catalog_sync
 from tests.e2e.own_server import OwnServer, assert_owned_port, shared_port
 
 pytestmark = pytest.mark.unit
@@ -452,3 +454,36 @@ def test_an_owned_server_never_rebuilds_the_shared_frontend(
     server = OwnServer(port=4242, home=tmp_path / 'home')
     server.start(env={'VIBE_SKIP_FRONTEND_BUILD': ''})
     assert seen.get('VIBE_SKIP_FRONTEND_BUILD') == '1'
+
+
+def test_one_catalog_sync_driver_at_a_time(tmp_path):
+    """The shared catalog sync has one driver across xdist workers.
+
+    Observed in CI: a catalog test on one worker added a knowledge file
+    and synced while the knowledge-cleanup test on another sat between
+    its two syncs, so the store it expected to be skipped was rebuilt.
+    The lock excludes another process, and the sync trigger refuses to
+    run without it.
+    """
+    probe = (
+        'import fcntl, sys\n'
+        'h = open(sys.argv[1], "w")\n'
+        'try:\n'
+        '    fcntl.flock(h, fcntl.LOCK_EX | fcntl.LOCK_NB)\n'
+        'except BlockingIOError:\n'
+        '    sys.exit(3)\n'
+    )
+    lock = (
+        Path(e2e_helpers.tempfile.gettempdir())
+        / f'vibe-e2e-catalog-{e2e_helpers.SHARED_PORT}.lock'
+    )
+    with e2e_helpers.own_the_catalog_sync():
+        held = subprocess.run(
+            [sys.executable, '-c', probe, str(lock)], check=False
+        )
+    assert held.returncode == 3, 'another worker could take the lock'
+    free = subprocess.run([sys.executable, '-c', probe, str(lock)], check=False)
+    assert free.returncode == 0, 'the lock was not released'
+
+    with pytest.raises(AssertionError, match='own_the_catalog_sync'):
+        test_catalog_sync.trigger_catalog_sync(None, set())
