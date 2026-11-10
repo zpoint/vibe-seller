@@ -292,6 +292,12 @@ def _validate_models(entries: object, expected_first_id: str) -> list | None:
             if not isinstance(entry['vision'], bool):
                 return None
             item['vision'] = entry['vision']
+        if 'i18n' in entry:
+            i18n = _validate_i18n(entry['i18n'], ('label',))
+            if i18n is None:
+                return None
+            if i18n:
+                item['i18n'] = i18n
         out.append(item)
     if out[0]['id'] != expected_first_id:
         return None
@@ -299,6 +305,37 @@ def _validate_models(entries: object, expected_first_id: str) -> list | None:
 
 
 _GUIDE_LANGS = ('zh', 'en')
+
+#: UI languages a catalog entry may carry translations for (English is
+#: the entry's own text).
+_I18N_LANGS = ('zh',)
+
+
+def _validate_i18n(value: object, fields: tuple[str, ...]) -> dict | None:
+    """Validate an entry's ``i18n`` block: ``{lang: {field: text}}``.
+
+    Only known languages and the entry's own display fields are kept;
+    anything else is dropped. Returns ``None`` when a kept value is not
+    sane text, so the caller rejects the entry.
+    """
+    if not isinstance(value, dict):
+        return None
+    out: dict = {}
+    for lang in _I18N_LANGS:
+        texts = value.get(lang)
+        if texts is None:
+            continue
+        if not isinstance(texts, dict):
+            return None
+        kept = {}
+        for field in fields:
+            if field in texts:
+                if not _text_ok(texts[field], _MAX_LABEL):
+                    return None
+                kept[field] = texts[field]
+        if kept:
+            out[lang] = kept
+    return out
 
 
 def _valid_link(url: object) -> bool:
@@ -372,6 +409,12 @@ def _validate_preset(preset_id: object, preset: object) -> dict | None:
         out[field] = value
     if not _validate_links(preset, out):
         return None
+    if 'i18n' in preset:
+        i18n = _validate_i18n(preset['i18n'], ('name', 'group', 'variant'))
+        if i18n is None:
+            return None
+        if i18n:
+            out['i18n'] = i18n
     return out
 
 

@@ -21,6 +21,7 @@ interface ModelOption {
   label: string
   context?: string
   vision?: boolean
+  i18n?: Record<string, { label?: string }>
 }
 
 interface ProviderPreset {
@@ -35,6 +36,8 @@ interface ProviderPreset {
   variant?: string
   purchase_url?: string
   guide_url?: Record<string, string>
+  // Per-language display text from the catalog ({zh: {name, ...}}).
+  i18n?: Record<string, Partial<Record<'name' | 'group' | 'variant', string>>>
 }
 
 interface ProfileModalProps {
@@ -130,7 +133,7 @@ function ProfileForm({
   ) => void | Promise<void>
   isAdmin?: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   const [name, setName] = useState(editingProfile?.name ?? '')
   // Track manual name edits so auto-naming ("Kimi - K3") never
@@ -149,7 +152,10 @@ function ProfileForm({
     {},
   )
   // Display strings follow the UI language; the server copy is English.
-  const presets = useMemo(() => localizePresets(rawPresets, t), [rawPresets, t])
+  const presets = useMemo(
+    () => localizePresets(rawPresets, i18n.language),
+    [rawPresets, i18n.language],
+  )
   const [selectedPreset, setSelectedPreset] = useState('')
   // Which grouped provider's variant row is expanded (e.g. "Alibaba
   // Cloud"). Empty when a standalone/custom top-level entry is active.

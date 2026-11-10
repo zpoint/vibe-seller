@@ -1,58 +1,50 @@
-import type { TFunction } from 'i18next'
-
-/** Localise the server's provider-preset display strings.
+/** Show provider-preset display strings in the UI's language.
  *
- *  The server keeps one canonical English copy of every preset (it is
- *  data shared by the API, MCP tools and telemetry). Display strings
- *  follow a small grammar — `Head` or `Head (term, term, ...)`, e.g.
- *  "Pay-as-you-go (China)", "Qwen3.8-Flash (fast, vision)" — so the UI
- *  translates the head and each term through `profiles.presetTerms`
- *  and re-joins them with the locale's own brackets and separator.
- *  Anything without a translation (model ids, brand and product names
- *  such as "Token Plan") passes through unchanged, so a new preset
- *  still renders before its terms are translated.
+ *  Everything about a preset (order, values, links, and the
+ *  translations of its name / group / variant and model labels) comes
+ *  from the server's preset catalog, which syncs from the project's
+ *  `main`, so a catalog update changes what users see without a
+ *  frontend release. Each entry carries its English text plus an
+ *  optional `i18n: {<lang>: {field: text}}`. This picks the field for
+ *  the current language and falls back to the English text. No
+ *  translation table lives in the frontend.
  */
-const PAREN = /^(.*?)\s*\((.+)\)$/
 
-export function localizePresetText(text: string, t: TFunction): string {
-  const term = (s: string) =>
-    t(`profiles.presetTerms.${s}`, { defaultValue: s }) as string
-  const m = text.match(PAREN)
-  if (!m) return term(text)
-  const parts = m[2].split(/\s*,\s*/).map(term)
-  return t('profiles.presetParen', {
-    defaultValue: '{{head}} ({{parts}})',
-    head: term(m[1]),
-    parts: parts.join(
-      t('profiles.presetSep', { defaultValue: ', ' }) as string,
-    ),
-  }) as string
-}
+type I18n<F extends string> = Partial<
+  Record<string, Partial<Record<F, string>>>
+>
 
 interface LocalizablePreset {
   name: string
   group?: string
   variant?: string
-  models?: { label: string }[]
+  i18n?: I18n<'name' | 'group' | 'variant'>
+  models?: { label: string; i18n?: I18n<'label'> }[]
 }
 
-/** Return the presets with every display string localised. `group`
- *  stays the stable grouping key; its display text goes in
- *  `groupLabel`. */
+/** `zh-CN` / `zh` -> `zh`; the catalog keys translations by base language. */
+export function baseLang(language: string | undefined): string {
+  return (language || 'en').split('-')[0].toLowerCase()
+}
+
+/** Return the presets with display strings in `language`. `group` stays
+ *  the stable grouping key; its display text goes in `groupLabel`. */
 export function localizePresets<P extends LocalizablePreset>(
   presets: Record<string, P>,
-  t: TFunction,
+  language: string | undefined,
 ): Record<string, P & { groupLabel?: string }> {
+  const lang = baseLang(language)
   const out: Record<string, P & { groupLabel?: string }> = {}
   for (const [id, p] of Object.entries(presets)) {
+    const tr = p.i18n?.[lang] ?? {}
     out[id] = {
       ...p,
-      name: localizePresetText(p.name, t),
-      variant: p.variant && localizePresetText(p.variant, t),
-      groupLabel: p.group && localizePresetText(p.group, t),
+      name: tr.name ?? p.name,
+      variant: tr.variant ?? p.variant,
+      groupLabel: tr.group ?? p.group,
       models: p.models?.map((m) => ({
         ...m,
-        label: localizePresetText(m.label, t),
+        label: m.i18n?.[lang]?.label ?? m.label,
       })),
     }
   }

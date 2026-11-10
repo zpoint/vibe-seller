@@ -1,66 +1,44 @@
-"""Every English descriptor a provider preset shows has a Chinese term.
+"""Every preset display string ships its Chinese text in the catalog.
 
-The UI localises preset display strings (``frontend/src/components/
-presetI18n.ts``): ``Head`` or ``Head (term, term)``, each piece looked
-up in ``profiles.presetTerms``. A descriptor added here without a zh
-term would render in English in a Chinese UI — this test names it.
+The catalog (app/ai/provider_presets.py) syncs from main, and the UI
+renders ``i18n[lang]`` from it, falling back to English. A preset
+or model added without a ``zh`` entry would show English in a Chinese
+UI; one carrying a stale translation would show the wrong text. This
+pins both, and that the sync validator serves the translations.
 """
-
-import json
-import pathlib
-import re
 
 import pytest
 
+from app.ai import provider_presets_sync as sync
 from app.ai.provider_presets import PROVIDER_MODELS, PROVIDER_PRESETS
 
 pytestmark = pytest.mark.unit
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
-ZH = ROOT / 'frontend/src/i18n/locales/zh/translation.json'
-PAREN = re.compile(r'^(.*?)\s*\((.+)\)$')
 
-# Heads that are brand, product or model names: shown as-is in every
-# language. A head is a name when it carries a digit (model ids) or is
-# listed here.
-NAMES = {
-    'Kimi',
-    'Kimi Code',
-    'MiniMax',
-    'GLM',
-    'DeepSeek',
-    'Qwen',
-    'MiMo',
-    'Token Plan',
-    'Coding Plan',
-    'M3',
-    'V4 Pro',
-}
-
-
-def _pieces():
+def test_every_preset_has_zh_for_each_display_field():
     for pid, p in PROVIDER_PRESETS.items():
+        zh = p.get('i18n', {}).get('zh', {})
         for field in ('name', 'group', 'variant'):
             if p.get(field):
-                yield f'{pid}.{field}', p[field]
+                assert zh.get(field), (pid, field)
+
+
+def test_every_model_has_a_zh_label():
     for pid, models in PROVIDER_MODELS.items():
         for m in models:
-            yield f'{pid}:{m["id"]}', m['label']
+            assert m.get('i18n', {}).get('zh', {}).get('label'), (pid, m['id'])
 
 
-def _terms(text):
-    m = PAREN.match(text)
-    if not m:
-        return [text]
-    return [m.group(1)] + re.split(r'\s*,\s*', m.group(2))
+def test_the_sync_validator_serves_translations():
+    presets, models = sync.validate(PROVIDER_PRESETS, PROVIDER_MODELS)
+    assert presets['qwen']['i18n']['zh']['group'] == '阿里云'
+    assert models['deepseek'][0]['i18n']['zh']['label']
 
 
-def test_every_preset_descriptor_has_a_zh_term():
-    terms = json.loads(ZH.read_text())['profiles']['presetTerms']
-    missing = []
-    for where, text in _pieces():
-        for term in _terms(text):
-            if term in terms or term in NAMES or re.search(r'\d', term):
-                continue
-            missing.append(f'{term!r} ({where})')
-    assert not missing, 'no zh presetTerms entry for: ' + ', '.join(missing)
+def test_the_validator_drops_unknown_languages_and_rejects_bad_text():
+    base = dict(PROVIDER_PRESETS['deepseek'])
+    base['i18n'] = {'zh': {'name': 'DeepSeek', 'evil': 'x'}, 'xx': {}}
+    served = sync._validate_preset('deepseek', base)
+    assert served['i18n'] == {'zh': {'name': 'DeepSeek'}}
+    base['i18n'] = {'zh': {'name': 123}}
+    assert sync._validate_preset('deepseek', base) is None

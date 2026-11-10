@@ -84,21 +84,15 @@ Translations stored in `src/i18n/locales/`:
 
 Usage: `const { t } = useTranslation(); t('key')` or `t('key', { count: 5 })`
 
-**Provider-preset strings come from the server in English.** The preset
-catalog (`app/ai/provider_presets.py`) is English-only because the API,
-MCP tools and telemetry share it. `components/presetI18n.ts` translates it
-when the profile modal renders. Every preset `name`, `group`, `variant`
-and model `label` is written as `Head` or `Head (term, term)`. Each
-piece is looked up in `profiles.presetTerms`, then re-joined with the
-locale's own `profiles.presetParen` brackets and `profiles.presetSep`
-separator. Anything with no entry passes through unchanged, so brand,
-product and model names stay as written. `group` remains the stable
-grouping key; the translated text goes in `groupLabel`.
-
-**Adding or renaming a preset:** keep that grammar, and give every new
-English term a `zh` `presetTerms` entry. `tests/unit/test_preset_i18n.py`
-walks every shipped preset string and fails, naming the term, when one is
-missing. Brand and product names go in that test's `NAMES` set instead.
+**Provider-preset strings come from the server, already translated.**
+Everything about a preset comes from the catalog (`app/ai/provider_presets.py`,
+synced from `main`): order, values, links, and the translations. That means a
+catalog update changes what users see without a frontend release. Each preset
+carries `i18n: {zh: {name, group, variant}}` and each model `i18n: {zh: {label}}`.
+`components/presetI18n.ts` only picks the current language's text and falls
+back to the English fields. `group` stays the stable grouping key; its display
+text goes in `groupLabel`. The frontend keeps no preset translation table, and
+`presetI18n.test.ts` pins that.
 
 ## SSE Integration
 
