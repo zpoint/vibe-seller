@@ -437,13 +437,15 @@ jobs:
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
           GLM_BASE_URL: ${{ secrets.GLM_BASE_URL }}
           GLM_MODEL: ${{ secrets.GLM_MODEL }}
-          E2E_WORKERS: 6
-          # 6 workers on the two providers this suite has always been
-          # proven on: minimax x4, glm x2 (no rate-limit event exists in
-          # any run's logs). The two-model tests (profile switch,
-          # compaction) take the first two DISTINCT providers here, so
-          # minimax and glm lead the map.
-          E2E_PROVIDER_MAP: minimax,glm,minimax,glm,minimax,minimax
+          # Alibaba Token Plan (qwen_token preset), main model pinned to
+          # qwen3.8-flash.
+          QWEN_TOKEN_API_KEY: ${{ secrets.QWEN_TOKEN_API_KEY }}
+          QWEN_TOKEN_MODEL: qwen3.8-flash
+          E2E_WORKERS: 8
+          # 8 workers: minimax x4, glm x2, qwen3.8-flash x2. The
+          # two-model tests (profile switch, compaction) take the first
+          # two DISTINCT providers here, so minimax and glm lead the map.
+          E2E_PROVIDER_MAP: minimax,glm,minimax,glm,qwen_token,minimax,qwen_token,minimax
           VIBE_ADS_SERVICE_URL: http://127.0.0.1:7791
         run: |
           E2E_N="${E2E_WORKERS:-0}"
