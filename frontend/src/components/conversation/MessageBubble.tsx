@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -35,7 +36,7 @@ function parseUserContent(content: string) {
   return { text, images }
 }
 
-export function MessageBubble({ role, content, onOpenVisionSetup }: MessageBubbleProps) {
+function MessageBubbleView({ role, content, onOpenVisionSetup }: MessageBubbleProps) {
   if (role === 'user') {
     const { text, images } = parseUserContent(content)
     return (
@@ -94,3 +95,11 @@ export function MessageBubble({ role, content, onOpenVisionSetup }: MessageBubbl
     </div>
   )
 }
+
+// Re-render only when the message itself changes. The vision-setup
+// callback is a fixed action recreated inline on every app render, so
+// comparing it would defeat the memo (typing lagged on long tasks).
+export const MessageBubble = memo(
+  MessageBubbleView,
+  (a, b) => a.role === b.role && a.content === b.content,
+)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 interface ThinkingBlockProps {
@@ -6,7 +6,7 @@ interface ThinkingBlockProps {
   isStreaming: boolean
 }
 
-export function ThinkingBlock({ content, isStreaming }: ThinkingBlockProps) {
+function ThinkingBlockView({ content, isStreaming }: ThinkingBlockProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
 
@@ -66,3 +66,5 @@ export function WorkingIndicator() {
     </div>
   )
 }
+
+export const ThinkingBlock = memo(ThinkingBlockView)

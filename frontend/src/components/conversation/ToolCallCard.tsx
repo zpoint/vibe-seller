@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 interface ToolCallProps {
@@ -61,7 +61,7 @@ interface ToolCallGroupProps {
   items: ToolCallProps[]
 }
 
-export function ToolCallGroup({ items }: ToolCallGroupProps) {
+function ToolCallGroupView({ items }: ToolCallGroupProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
 
@@ -98,3 +98,11 @@ export function ToolCallGroup({ items }: ToolCallGroupProps) {
     </div>
   )
 }
+
+// The group's array is rebuilt on every stream render; its calls are not.
+export const ToolCallGroup = memo(
+  ToolCallGroupView,
+  (a, b) =>
+    a.items.length === b.items.length &&
+    a.items.every((item, i) => item === b.items[i]),
+)

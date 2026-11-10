@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
+import { memo, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import { TaskFileTree } from './TaskFileTree'
 import type { TaskFileEntry } from './fileTree'
 import { useTranslation } from 'react-i18next'
@@ -175,6 +175,24 @@ interface ConversationStreamProps {
   onOpenVisionSetup?: () => void
 }
 
+// The task result, often a long report: parsed as markdown only when its
+// text changes, not on every re-render of the stream.
+const ResultCard = memo(function ResultCard({ result, label }: { result: string; label: string }) {
+  return (
+    <div>
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 sm:p-6">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-green-600">{label}</span>
+        </div>
+        <div className={`text-gray-800 ${PROSE_RESULT} overflow-x-auto`}>
+          <Markdown remarkPlugins={[remarkGfm]}>{result}</Markdown>
+        </div>
+      </div>
+    </div>
+  )
+})
+
 export function ConversationStream({
   items,
   todoItems,
@@ -210,6 +228,11 @@ export function ConversationStream({
   }, [items.length, streamingContent, userNearBottom])
 
   const hasExecutionSep = items.some(i => i.type === 'execution_separator')
+  // Memoized on `items`: the composer's draft lives at the app root, so
+  // every keystroke re-renders this component. A long task (≈1000 items,
+  // a 200 KB report) made typing lag when each key re-grouped and
+  // re-rendered all of it; with stable groups the leaves below skip.
+  const displayItems = useMemo(() => groupItems(items), [items])
 
   return (
     <div className="space-y-5">
@@ -281,21 +304,8 @@ export function ConversationStream({
                 isStreaming={item.thinking!.isStreaming}
               />
             )
-          case 'result': {
-            return (
-              <div key={item.id}>
-                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 sm:p-6">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-green-600">{t('tasks.result')}</span>
-                  </div>
-                  <div className={`text-gray-800 ${PROSE_RESULT} overflow-x-auto`}>
-                    <Markdown remarkPlugins={[remarkGfm]}>{item.result || ''}</Markdown>
-                  </div>
-                </div>
-              </div>
-            )
-          }
+          case 'result':
+            return <ResultCard key={item.id} result={item.result || ''} label={t('tasks.result')} />
           case 'question': {
             const isActive = pendingQuestions?.request_id === item.questions?.request_id
             if (isActive) {
@@ -368,7 +378,7 @@ export function ConversationStream({
               di.item.type === 'streaming' ||
               di.item.type === 'thinking'))
 
-        const dis = groupItems(items)
+        const dis = displayItems
         const out: ReactNode[] = []
         let turnBuf: { di: DisplayItem; idx: number }[] = []
         const flushTurn = (live: boolean) => {
