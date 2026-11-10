@@ -468,3 +468,43 @@ class TestDeleteLines:
         )
         assert r.status_code == 400
         assert 'another tier' in r.text
+
+
+class TestTheEndpointNotesWhoWrote:
+    """The restore leaves alone what another writer touched, and that
+    list is only as good as the write endpoints' record of WHO wrote: a
+    write carrying the cleanup's own task id is its own, one carrying
+    another task's is somebody else's."""
+
+    NOTE = TestCleanupWritesOnlyDelete.NOTE  # 5 lines
+
+    async def test_write_and_delete_lines_record_the_writer(
+        self, admin_client, mock_workspace
+    ):
+        path = 'stores/wire-store/notes.md'
+        r = await admin_client.put(
+            f'/api/workspace/file?path={path}', json={'content': self.NOTE}
+        )
+        assert r.status_code == 200, r.text
+
+        mine = uuid.uuid4().hex
+        knowledge_contract.watch_writes(mine)
+        r = await admin_client.put(
+            f'/api/workspace/file?path={path}&task_id={mine}',
+            json={'content': self.NOTE},
+        )
+        assert r.status_code == 200, r.text
+        r = await admin_client.post(
+            f'/api/workspace/file/delete-lines?path={path}&task_id={mine}',
+            json={'line_count': 5, 'ranges': [[4, 4]]},
+        )
+        assert r.status_code == 200, r.text
+        assert knowledge_contract.end_watch(mine) == set()
+
+        knowledge_contract.watch_writes(mine)
+        r = await admin_client.put(
+            f'/api/workspace/file?path={path}&task_id={uuid.uuid4().hex}',
+            json={'content': self.NOTE},
+        )
+        assert r.status_code == 200, r.text
+        assert knowledge_contract.end_watch(mine) == {path}

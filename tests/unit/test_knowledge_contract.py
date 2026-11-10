@@ -196,6 +196,20 @@ class TestOutcomeIsHeldToDeletions:
         assert kc.undo_non_deletions(snap, others) == []
         assert 'acos_no_lower: 30' in (store / 'notes.md').read_text()
 
+    def test_the_cleanups_own_write_is_put_back(self, tmp_path):
+        """Only the cleanup wrote through the endpoint — its own write
+        is nobody else's, so nothing shields the file from the restore,
+        and the non-deletion is undone."""
+        store = self._tier(tmp_path)
+        kc.watch_writes('cleaner')
+        snap = kc.snapshot_tier(tmp_path, 'acme-x')
+        (store / 'notes.md').write_text(NOTE + 'margin: 30\n')
+        kc.note_write('stores/acme-x/notes.md', 'cleaner')  # its own: no
+        others = kc.end_watch('cleaner')
+        assert others == set()
+        assert kc.undo_non_deletions(snap, others) == [store / 'notes.md']
+        assert (store / 'notes.md').read_text() == NOTE
+
     def test_line_deletions_and_untouched_files_stay(self, tmp_path):
         store = self._tier(tmp_path)
         snap = kc.snapshot_tier(tmp_path, 'acme-x')
