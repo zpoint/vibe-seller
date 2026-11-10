@@ -87,7 +87,12 @@ category targets) is in [`references/ads-tuning.md`](references/ads-tuning.md).
 
 **URL**: `https://admanager.noon.partners/en-{cc}/home?mpCode=noon&project=PRJ{project_id}`
 
-The Ad Manager is per country: the `/en-{cc}/` segment selects it.
+The Ad Manager is per country: the `/en-{cc}/` segment selects it. One
+advertiser account serves every country, so the `advertiserCode` the
+page adds to the URL stays the same when you switch; it is not the
+country switch. Add `&tab=campaigns` for the campaign list (without it
+the page is the Overview). If a page shows the other country's
+campaigns, reopen this URL with the country you want.
 
 The left nav is an icon rail — **Campaigns**, **Budget**, **Billing**,
 **Vantage**, **Access Management**, **Settings** — whose labels render as
