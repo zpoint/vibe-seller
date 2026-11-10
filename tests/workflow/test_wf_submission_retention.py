@@ -349,6 +349,81 @@ class TestGateTelemetry:
         caveats = json.loads(done.get('review_gaps') or '[]')
         assert sorted(caveats) == ['note', 'x'], caveats
 
+    async def test_only_the_fresh_check_is_a_refusal(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        """Two checks whose rounds are one submit apart.
+
+        gate_a reports on submits 1 and 2, gate_b only from submit 2.
+        Submit 2 is refused once — for gate_b, the check spending its
+        round — and gate_a is counted failed_open rather than as a
+        second refusal. Submit 3 goes through with both findings as
+        caveats, banner-marked for gate_b's contradiction.
+
+        The gate names are two the telemetry knows (``_GATES``), so the
+        two events can be told apart.
+        """
+        events = _capture_telemetry(monkeypatch)
+        calls = {'b': 0}
+
+        class GateA:
+            @staticmethod
+            def check(result, task_id, rules):
+                return GateDeny(
+                    gate='ad_changes', reason='a gap', gaps=('a gap',)
+                )
+
+        class GateB:
+            @staticmethod
+            def check(result, task_id, rules):
+                calls['b'] += 1
+                if calls['b'] < 2:
+                    return None
+                return GateDeny(
+                    gate='ad_coverage',
+                    reason='spend disagrees',
+                    gaps=('spend disagrees',),
+                    contradictions=('spend disagrees',),
+                )
+
+        monkeypatch.setattr(
+            'app.routers.tasks.resolve_skill_gates',
+            lambda loaded, workspace: [
+                ('ad_changes', GateA),
+                ('ad_coverage', GateB),
+            ],
+        )
+        task_id, release = await _running_task(
+            admin_client, install_fake_agent, 'Fresh Refusal Store'
+        )
+        url = f'/api/tasks/{task_id}/result'
+        for code in (400, 400):
+            r = await admin_client.post(url, json={'result': CLEAN})
+            assert r.status_code == code, r.text
+        r = await admin_client.post(url, json={'result': CLEAN})
+        assert r.status_code == 200, r.text
+
+        gated = [
+            (p['gate'], p['outcome'], p['attempt'])
+            for e, p in events
+            if e == 'task_result_gated'
+        ]
+        assert gated == [
+            ('ad_changes', 'refused', 1),
+            ('ad_changes', 'failed_open', 2),
+            ('ad_coverage', 'refused', 1),
+            ('ad_changes', 'failed_open', 2),
+            ('ad_coverage', 'banner_marked', 2),
+        ], gated
+
+        release.set()
+        done = await wait_for_task(admin_client, task_id)
+        shown = done.get('result') or done.get('submitted_result') or ''
+        assert shown.lstrip().startswith('>'), shown[:200]
+        assert 'spend disagrees' in shown
+        caveats = json.loads(done.get('review_gaps') or '[]')
+        assert 'a gap' in caveats and 'spend disagrees' in caveats
+
     async def test_an_unverified_upload_is_one_round(
         self, admin_client, install_fake_agent, monkeypatch
     ):

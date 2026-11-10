@@ -197,8 +197,13 @@ async def apply_round(
         send_result_gated(
             task.id,
             d.gate,
+            # Only the check that is spending its round is a refusal.
+            # The others had theirs already: what is left of them is a
+            # caveat (banner-marked when it contradicts), and counting
+            # them as refusals made one fresh check look like every
+            # check refusing at once.
             GateOutcome.REFUSED
-            if fresh
+            if d.gate in fresh
             else GateOutcome.BANNER_MARKED
             if d.contradictions
             else GateOutcome.FAILED_OPEN,
