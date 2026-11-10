@@ -15,6 +15,7 @@ from sqlalchemy import select
 from app.ai import stop_gates
 from app.ai.stop_gates import ad_changes
 import app.database as _db
+from app.models.ad_declaration import AdTaskDeclaration
 from app.models.task import Task
 from app.models.user import User
 from app.task_states import TaskStatus
@@ -47,8 +48,11 @@ def _freeze(task_id: str):
 
 
 def _spend_round(task_id: str) -> None:
-    assert stop_gates.take_review_round(task_id, 'ad_coverage')
-    assert stop_gates.review_rounds_spent(task_id, 'ad_coverage') == 1
+    assert stop_gates.record_attempt(task_id, 'ad_coverage') == 1
+
+
+def _rounds(task_id: str) -> int:
+    return stop_gates._attempts.get((task_id, 'ad_coverage'), 0)  # noqa: SLF001
 
 
 async def test_terminal_state_drops_review_rounds(admin_client):
@@ -58,7 +62,7 @@ async def test_terminal_state_drops_review_rounds(admin_client):
         task = await db.get(Task, task_id)
         task.status = TaskStatus.COMPLETED
         await db.commit()
-    assert stop_gates.review_rounds_spent(task_id, 'ad_coverage') == 0
+    assert _rounds(task_id) == 0
 
 
 async def test_delete_drops_review_rounds_and_approval(admin_client):
@@ -68,7 +72,7 @@ async def test_delete_drops_review_rounds_and_approval(admin_client):
 
     r = await admin_client.delete(f'/api/tasks/{task_id}')
     assert r.status_code == 200, r.text
-    assert stop_gates.review_rounds_spent(task_id, 'ad_coverage') == 0
+    assert _rounds(task_id) == 0
     assert not approved.exists()
 
 
@@ -79,3 +83,25 @@ async def test_retry_drops_the_approval(admin_client):
     r = await admin_client.post(f'/api/tasks/{task_id}/retry', json={})
     assert r.status_code == 200, r.text
     assert not approved.exists()
+
+
+async def test_retry_drops_the_ad_declarations(admin_client):
+    """A retry clears the run's messages; its declarations must go too.
+    Left behind, the fresh run (no user turns) read as the same turn as
+    the old "execute" and could execute with no user reply."""
+    task_id = await _seed(TaskStatus.FAILED)
+    async with _db.async_session() as db:
+        db.add(
+            AdTaskDeclaration(
+                task_id=task_id,
+                seq=1,
+                kind='execute',
+                scope='{}',
+                user_turn=1,
+            )
+        )
+        await db.commit()
+    r = await admin_client.post(f'/api/tasks/{task_id}/retry', json={})
+    assert r.status_code == 200, r.text
+    r = await admin_client.get(f'/api/tasks/{task_id}/ad-declarations')
+    assert r.json() == []

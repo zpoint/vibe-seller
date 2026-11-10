@@ -18,6 +18,7 @@ from app.auth import get_current_user
 from app.browser.manager import browser_manager
 from app.database import get_db
 from app.events.bus import event_bus
+from app.models.ad_declaration import AdTaskDeclaration
 from app.models.schedule import Schedule
 from app.models.store import Store
 from app.models.task import Task
@@ -637,6 +638,12 @@ async def retry_task(
         )
     )
     await db.execute(delete(TaskLog).where(TaskLog.task_id == task_id))
+    # The run's ad declarations go with its messages: left behind, the
+    # fresh run (zero user turns) read as the same turn as the old
+    # "execute", so it could execute without the user answering.
+    await db.execute(
+        delete(AdTaskDeclaration).where(AdTaskDeclaration.task_id == task_id)
+    )
 
     # Retry = a truly fresh start: wipe on-disk runtime state (workspace +
     # Claude Code's per-task Task/todo store + project transcripts) so a
