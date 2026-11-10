@@ -487,3 +487,22 @@ def test_one_catalog_sync_driver_at_a_time(tmp_path):
 
     with pytest.raises(AssertionError, match='own_the_catalog_sync'):
         test_catalog_sync.trigger_catalog_sync(None, set())
+
+
+def test_e2e_helpers_import_without_posix_only_modules():
+    """The Windows installer smoke loads the e2e conftest, which imports
+    e2e_helpers; a top-level ``import fcntl`` (absent on Windows) failed
+    that job before any test ran."""
+    code = (
+        'import sys\n'
+        'sys.modules["fcntl"] = None\n'
+        'import tests.e2e.e2e_helpers\n'
+    )
+    done = subprocess.run(
+        [sys.executable, '-c', code],
+        cwd=E2E_DIR.parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr

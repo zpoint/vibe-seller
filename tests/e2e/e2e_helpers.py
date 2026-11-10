@@ -6,7 +6,6 @@ question-answering code that was copy-pasted across 5+ files.
 """
 
 from contextlib import contextmanager
-import fcntl
 import logging
 import os
 from pathlib import Path
@@ -420,7 +419,14 @@ _catalog_lock_depth = 0
 
 @contextmanager
 def own_the_catalog_sync():
-    """Hold the cross-worker lock on the shared catalog sync."""
+    """Hold the cross-worker lock on the shared catalog sync.
+
+    ``fcntl`` is imported here, not at the top: this module is loaded by
+    the e2e conftest on the Windows installer smoke too, where it does
+    not exist (and no catalog-sync test runs).
+    """
+    import fcntl  # noqa: PLC0415 — POSIX only; see above
+
     global _catalog_lock_depth
     path = Path(tempfile.gettempdir()) / f'vibe-e2e-catalog-{SHARED_PORT}.lock'
     with open(path, 'w') as handle:
