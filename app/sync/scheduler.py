@@ -237,7 +237,7 @@ def _is_strong(reason: str, force: bool) -> bool:
 
 
 def _switched_off(option) -> bool:
-    return option.get().strip().lower() in ('off', '0', 'false')
+    return option.get().strip().lower() in ('off', '0', 'false', 'no')
 
 
 def warn_retired_switch() -> bool:

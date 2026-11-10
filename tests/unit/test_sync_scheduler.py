@@ -586,7 +586,7 @@ def test_each_job_names_its_outside_sources():
     assert jobs['daemon_reaper'] == frozenset()
 
 
-@pytest.mark.parametrize('value', ['off', 'OFF', '0', 'false'])
+@pytest.mark.parametrize('value', ['off', 'OFF', '0', 'false', 'no'])
 def test_github_main_switch_stops_only_github_main_pulls(
     switches_on, monkeypatch, value
 ):
@@ -611,7 +611,7 @@ def test_no_env_var_can_stop_the_products_own_work(monkeypatch):
     option the app reads to every 'off' spelling and they still tick."""
     own = [j for j in sync_jobs.core_jobs() if not j.sources]
     assert {j.name for j in own} == {'email', 'daemon_reaper'}
-    for off in ('off', '0', 'false', '1'):
+    for off in ('off', '0', 'false', 'no', '1'):
         for opt in Options:
             monkeypatch.setenv(opt.value[0], off)
         assert all(timers_armed(j) for j in own), off
