@@ -737,8 +737,10 @@ PROVIDER_MODELS = {
     # Qwen (live-verified earlier on the pay-go endpoint): qwen3.7-max
     # rejects images (400) -> text-only; qwen3.7-plus / qwen3.6-flash /
     # the VL series read red+blue correctly -> vision. qwen3.8-max /
-    # qwen3.8-flash are new since that probe with no key to verify —
-    # vision omitted rather than guessed.
+    # qwen3.8-flash read red+blue correctly 6/6 each on the pay-go
+    # endpoint (2026-11-10; give max_tokens room — max thinks first and
+    # a 300-token budget can end before the answer) -> vision, matching
+    # the Bailian console's 视觉理解 capability.
     'qwen': [
         {
             'id': 'qwen3.7-max',
@@ -748,13 +750,15 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (newer flagship)',
+            'label': 'Qwen3.8-Max (newer flagship, vision)',
             'context': '1M',
+            'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast)',
+            'label': 'Qwen3.8-Flash (fast, vision)',
             'context': '1M',
+            'vision': True,
         },
         {
             'id': 'qwen3.7-plus',
@@ -783,13 +787,15 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (newer flagship)',
+            'label': 'Qwen3.8-Max (newer flagship, vision)',
             'context': '1M',
+            'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast)',
+            'label': 'Qwen3.8-Flash (fast, vision)',
             'context': '1M',
+            'vision': True,
         },
         {
             'id': 'qwen3.7-plus',
@@ -821,22 +827,29 @@ PROVIDER_MODELS = {
     ],
     # Token Plan flagship routes through ``auto`` (Alibaba's own
     # default); qwen3.8-max graduated from preview to GA. The 3.7/3.6
-    # ids reuse the pay-go-verified labels. qwen3.8 ids and auto have
-    # no key to probe -> vision omitted.
+    # ids reuse the pay-go-verified labels. Probed on this endpoint
+    # 2026-11-10 (red+blue, 3x): auto, qwen3.8-max, qwen3.8-flash and
+    # qwen3.6-flash all 6/6 -> vision. The console lists auto as
+    # text/reasoning only, but the router hands image requests to a
+    # vision model. The international Token Plan has no key to probe, so
+    # its auto stays unlabelled.
     'qwen_token': [
         {
             'id': 'auto',
-            'label': 'Auto (provider-routed)',
+            'label': 'Auto (provider-routed, vision)',
+            'vision': True,
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (flagship)',
+            'label': 'Qwen3.8-Max (flagship, vision)',
             'context': '1M',
+            'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast)',
+            'label': 'Qwen3.8-Flash (fast, vision)',
             'context': '1M',
+            'vision': True,
         },
         {
             'id': 'qwen3.7-max',
@@ -995,13 +1008,15 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (flagship)',
+            'label': 'Qwen3.8-Max (flagship, vision)',
             'context': '1M',
+            'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast)',
+            'label': 'Qwen3.8-Flash (fast, vision)',
             'context': '1M',
+            'vision': True,
         },
         {
             'id': 'qwen3.7-max',
