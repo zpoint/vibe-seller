@@ -3,6 +3,7 @@ import { api } from '../api'
 import type { Task, AgentMessage, TodoItem, ConversationItem, TaskUsage } from '../types'
 import { TASK_USAGE_FIELDS } from '../types'
 import { uuid } from '../uuid'
+import { patchById } from '../lib/patchById'
 
 /** Finalize any streaming thinking block — set isStreaming to false. */
 function _finalizeThinking(items: ConversationItem[]): ConversationItem[] {
@@ -115,9 +116,9 @@ export function useSSE({
         if (data.type === 'task_update') {
           const patch: Partial<Task> = { status: data.status, error: data.error }
           if (data.plan !== undefined) patch.plan = data.plan
-          setTasks(prev => prev.map(t => t.id === data.task_id ? { ...t, ...patch } : t))
+          setTasks(prev => patchById(prev, data.task_id, t => ({ ...t, ...patch })))
           if (setScheduleTasks) {
-            setScheduleTasks(prev => prev.map(t => t.id === data.task_id ? { ...t, ...patch } : t))
+            setScheduleTasks(prev => patchById(prev, data.task_id, t => ({ ...t, ...patch })))
           }
 
           setSelectedTask(prev => {
@@ -162,9 +163,9 @@ export function useSSE({
           for (const k of TASK_USAGE_FIELDS) {
             if (k in data) (patch as Record<string, unknown>)[k] = data[k]
           }
-          const apply = (t: Task) => t.id === data.task_id ? { ...t, ...patch } : t
-          setTasks(prev => prev.map(apply))
-          if (setScheduleTasks) setScheduleTasks(prev => prev.map(apply))
+          const apply = (t: Task) => ({ ...t, ...patch })
+          setTasks(prev => patchById(prev, data.task_id, apply))
+          if (setScheduleTasks) setScheduleTasks(prev => patchById(prev, data.task_id, apply))
           setSelectedTask(prev => prev && prev.id === data.task_id ? { ...prev, ...patch } : prev)
           return
         }
@@ -197,9 +198,11 @@ export function useSSE({
             t.status === 'queued' || t.status === 'pending'
               ? { ...t, status: t.plan_mode ? 'designing' : 'running' }
               : t
-          setTasks(prev => prev.map(t => t.id === data.task_id ? promoteActive(t) : t))
+          // Per streamed token: keep the lists' identity unless a row
+          // was actually promoted (see patchById).
+          setTasks(prev => patchById(prev, data.task_id, promoteActive))
           if (setScheduleTasks) {
-            setScheduleTasks(prev => prev.map(t => t.id === data.task_id ? promoteActive(t) : t))
+            setScheduleTasks(prev => patchById(prev, data.task_id, promoteActive))
           }
           setSelectedTask(prev => (prev && prev.id === data.task_id ? promoteActive(prev) : prev))
           setSelectedTask(prev => {
@@ -544,9 +547,9 @@ export function useSSE({
             // Refresh task state for both success and failure
             api.get(`/api/tasks/${data.task_id}`).then((t: Task) => {
               setSelectedTask(t)
-              setTasks(p => p.map(pt => pt.id === t.id ? t : pt))
+              setTasks(p => patchById(p, t.id, () => t))
               if (setScheduleTasks) {
-                setScheduleTasks(p => p.map(pt => pt.id === t.id ? t : pt))
+                setScheduleTasks(p => patchById(p, t.id, () => t))
               }
               // Update current plan card content if plan changed
               if (t.plan && selectedTaskIdRef.current === data.task_id) {
