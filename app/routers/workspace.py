@@ -3,9 +3,15 @@ import mimetypes
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import knowledge_contract
 from app.auth import get_current_user
 from app.browser.wrapper import validate_store_slug
+from app.database import get_db
+from app.models.schedule import Schedule
+from app.models.schedule_constants import StalenessCheck
+from app.models.task import Task
 from app.models.user import User
 from app.schemas.workspace import (
     FileResetRequest,
@@ -83,13 +89,49 @@ async def read_file_raw(
     )
 
 
+async def _cleanup_write_error(
+    db: AsyncSession, task_id: str, path: str, content: str
+) -> str | None:
+    """Hold a knowledge-cleanup run to deleting lines.
+
+    A catalog-sync task whose scope still owes the one-time cleanup
+    (app/knowledge_contract.py) may rewrite notes — but only to remove
+    outdated passages, never to add or reword. Any other writer is
+    unaffected.
+    """
+    task = await db.get(Task, task_id)
+    if task is None or not task.schedule_id:
+        return None
+    schedule = await db.get(Schedule, task.schedule_id)
+    if not schedule or schedule.staleness_check != StalenessCheck.CATALOG:
+        return None
+    if not await knowledge_contract.needs_cleanup(
+        db, knowledge_contract.cleanup_scope(task.store_id)
+    ):
+        return None
+    try:
+        old = await workspace_manager.read_file(path)
+    except (FileNotFoundError, ValueError):
+        return (
+            'This one-time cleanup only removes passages from existing '
+            f'files; {path} does not exist.'
+        )
+    return knowledge_contract.deletion_only_error(old, content)
+
+
 @router.put('/file')
 async def write_file(
     path: str = Query(...),
     body: FileWriteRequest = ...,
+    task_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
     try:
+        if task_id and not path.endswith('CATALOG.md'):
+            err = await _cleanup_write_error(db, task_id, path, body.content)
+            if err:
+                raise ValueError(err)
         # Enforce the catalog contract at the write boundary: a tier
         # CATALOG.md that drops a file, breaks the table format,
         # carries another store's rows, or stubs a substantive file is

@@ -23,6 +23,7 @@ import uuid
 
 from sqlalchemy import select
 
+from app import knowledge_contract
 from app.ai.profiles import resolve_schedule_profile
 from app.browser.manager import store_slug as _store_slug
 from app.config import DEFAULT_USER_ID
@@ -419,6 +420,11 @@ async def _run_l2_phase(
     speculative abstraction.
     """
     l2_stale, _ = knowledge_sync.catalog_needs_update(None)
+    if not l2_stale:
+        async with async_session() as db:
+            l2_stale = await knowledge_contract.needs_cleanup(
+                db, knowledge_contract.L2_SCOPE
+            )
     if not l2_stale:
         logger.info('L2 catalog up-to-date, skipping Phase 1')
         return

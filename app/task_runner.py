@@ -7,10 +7,11 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import vision
+from app import knowledge_contract, vision
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
 from app.events.bus import event_bus
+from app.knowledge_contract import cleanup_scope
 from app.models.schedule import Schedule
 from app.models.schedule_constants import StalenessCheck
 from app.models.store import Store
@@ -21,6 +22,7 @@ from app.prompts import (
     CATALOG_RESTRICTION_PROMPT_L3,
     DESIGN_SYSTEM_PROMPT,
     DESIGN_SYSTEM_PROMPT_AUTO,
+    KNOWLEDGE_CLEANUP_PROMPT,
     SCHEDULED_PRETASK_PROMPT,
     VISION_SETUP_BREADCRUMB,
     WAITING_INSTRUCTION_PROMPT,
@@ -158,6 +160,11 @@ async def build_system_extra(
             if task.store_id is None
             else CATALOG_RESTRICTION_PROMPT_L3
         )
+        async with async_session() as db:
+            if await knowledge_contract.needs_cleanup(
+                db, cleanup_scope(task.store_id)
+            ):
+                guidance += '\n\n' + KNOWLEDGE_CLEANUP_PROMPT
     else:
         guidance = ''
     base = base.replace('{workspace_guidance}', guidance)

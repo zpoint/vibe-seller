@@ -217,9 +217,13 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 {'account_email': arguments['account_email']},
             )
         elif name == 'vibe_seller_write_workspace_file':
+            # The task id lets the server hold a knowledge-cleanup run
+            # to deletion-only edits (app/knowledge_contract.py).
+            tid = _config['task_id']
             result = await call_api(
                 'PUT',
-                f'/api/workspace/file?path={arguments["path"]}',
+                f'/api/workspace/file?path={arguments["path"]}'
+                + (f'&task_id={tid}' if tid else ''),
                 {'content': arguments['content']},
             )
         elif name == 'vibe_seller_set_task_error':

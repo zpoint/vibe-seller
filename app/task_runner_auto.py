@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 import json
 import logging
 
+from app import knowledge_contract
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.external_config import (
     ExternalConfigOverrideError,
@@ -13,6 +14,7 @@ from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
 from app.env_options import Options
 from app.events.bus import event_bus
+from app.knowledge_contract import cleanup_scope
 from app.models.schedule import Schedule
 from app.models.schedule_constants import StalenessCheck
 from app.models.store import Store
@@ -63,6 +65,7 @@ async def auto_run_task(task_id: str, store: Store | None):
     # nowhere else. See reset_ledger.
     reset_ledger(task_id)
     catalog_backups: dict = {}
+    cleanup_pending: str | None = None
     schedule: Schedule | None = None
     try:
         # Check task wasn't cancelled while queued.  Also load the
@@ -138,9 +141,17 @@ async def auto_run_task(task_id: str, store: Store | None):
             schedule is not None
             and schedule.staleness_check == StalenessCheck.CATALOG
         ):
+            # A scope still owing the one-time knowledge cleanup runs
+            # even when its catalog is current (app/knowledge_contract).
+            async with async_session() as db:
+                if await knowledge_contract.needs_cleanup(
+                    db, cleanup_scope(task.store_id)
+                ):
+                    cleanup_pending = cleanup_scope(task.store_id)
             if task.store_id is None:
                 # L2: global catalog only
                 l2_stale, _ = knowledge_sync.catalog_needs_update(None)
+                l2_stale = l2_stale or cleanup_pending is not None
                 if not l2_stale:
                     async with async_session() as db:
                         task = await db.get(Task, task_id)
@@ -169,6 +180,7 @@ async def auto_run_task(task_id: str, store: Store | None):
                 _, l3_stale = knowledge_sync.catalog_needs_update(
                     store_slug,
                 )
+                l3_stale = l3_stale or cleanup_pending is not None
                 if not l3_stale:
                     async with async_session() as db:
                         task = await db.get(Task, task_id)
@@ -352,6 +364,24 @@ async def auto_run_task(task_id: str, store: Store | None):
                 task_id,
             )
     finally:
+        if cleanup_pending is not None:
+            # Recorded only on COMPLETED: a failed run (out of credits,
+            # a crash) leaves the scope owing, so the next catalog sync
+            # runs the cleanup again.
+            try:
+                async with async_session() as db_kc:
+                    t = await db_kc.get(Task, task_id)
+                    if t and t.status == TaskStatus.COMPLETED:
+                        await knowledge_contract.mark_cleaned(
+                            db_kc, cleanup_pending
+                        )
+                        await db_kc.commit()
+            except Exception:
+                logger.warning(
+                    'Recording knowledge cleanup failed for %s',
+                    task_id,
+                    exc_info=True,
+                )
         if catalog_backups:
             try:
                 async with async_session() as db_cat:

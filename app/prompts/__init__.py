@@ -79,6 +79,26 @@ CATALOG_RESTRICTION_PROMPT_L3: str = (
     'knowledge correct" below: this run edits nothing else.'
 )
 
+# Appended to the catalog restriction once per scope after an upgrade
+# that changes the harness (app/knowledge_contract.py). The server
+# refuses any write in this run that adds or rewords a line.
+KNOWLEDGE_CLEANUP_PROMPT: str = (
+    'One-time cleanup first: this app was upgraded. Notes written '
+    'before may describe how the platform itself checked or reviewed '
+    'work — a review pass or reviewer subagent, what a gate refused, '
+    'when an approval froze, freshness or completeness checks, which '
+    'file a check reads. Those descriptions are now wrong, and the '
+    'skills describe the current behaviour. In the files you catalog, '
+    'delete exactly those passages and nothing else: keep store '
+    'facts, business rules, standards the user stated (`key: value` '
+    'lines), page paths, UI and data gotchas for the marketplaces. '
+    'When unsure, keep it. For this cleanup you may write those files '
+    'with vibe_seller_write_workspace_file, removing lines only — '
+    'the server refuses a write that adds or changes a line. Then '
+    'build the catalog, and list in your result each file you '
+    'changed and what you removed.'
+)
+
 # The result format both catalog sync prompts point to. One source so
 # the L2/L3 prompts and the server-side gate (catalog_validation)
 # cannot drift apart: the gate enforces exactly this table.
