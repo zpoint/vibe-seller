@@ -9,11 +9,12 @@
  *   `ziniao:<status>[:<base64 message>]`  — structured backend status
  *   `no_profiles` | `connect_error` | `api_error:<msg>` | `restart_failed:<msg>`
  */
+import { LONG_TIMEOUT_MS, type RequestOptions } from '../lib/requestDeadline'
 import type { ZiniaoBrowserProfile } from '../types'
 
 export interface BrowserProfilesApi {
-  get(url: string): Promise<ZiniaoBrowserProfile[]>
-  post(url: string, body?: unknown): Promise<unknown>
+  get(url: string, opts?: RequestOptions): Promise<ZiniaoBrowserProfile[]>
+  post(url: string, body?: unknown, opts?: RequestOptions): Promise<unknown>
 }
 
 export interface BrowserProfilesDeps {
@@ -46,7 +47,7 @@ export async function fetchBrowserProfiles(
   // Reset retry state unless this is a retry from running_normal
   if (!wasNormalMode) setZiniaoRetried(false)
   try {
-    const browsers = await api.get(`/api/ziniao-accounts/${accountId}/browsers`)
+    const browsers = await api.get(`/api/ziniao-accounts/${accountId}/browsers`, { timeoutMs: LONG_TIMEOUT_MS })
     setZiniaoBrowsers(browsers)
     setZiniaoRetried(false)
     if (browsers.length === 0) setBrowserFetchError('no_profiles')
@@ -87,7 +88,7 @@ export async function restartZiniao(
   const { api, setFetchingBrowsers, setBrowserFetchError, setZiniaoRetried } = deps
   setFetchingBrowsers(true); setBrowserFetchError('')
   try {
-    await api.post(`/api/ziniao-accounts/${accountId}/restart`)
+    await api.post(`/api/ziniao-accounts/${accountId}/restart`, undefined, { timeoutMs: LONG_TIMEOUT_MS })
     setZiniaoRetried(false)
     await fetchBrowserProfiles(accountId, deps)
   } catch (e) {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
+import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 
 interface AdsStoreRow {
   local_id: string
@@ -55,7 +56,7 @@ export function AmazonAdsPanel() {
     try {
       // Nothing to configure: the first sync registers this installation
       // with the service, and a store's owner authorizes it from its row.
-      const body = (await api.post('/api/ads/stores/sync', {})) as { stores: AdsStoreRow[] }
+      const body = (await api.post('/api/ads/stores/sync', {}, { timeoutMs: LONG_TIMEOUT_MS })) as { stores: AdsStoreRow[] }
       const rows = body.stores ?? []
       setStores(rows)
       return rows
