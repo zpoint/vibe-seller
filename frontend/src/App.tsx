@@ -19,6 +19,7 @@ import { WorkspaceView } from './views/WorkspaceView'
 import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
 import { SettingsView, type SettingsTab } from './views/SettingsView'
 import { useSSE } from './hooks/useSSE'
+import { createDraftStore } from './lib/draftStore'
 import { parseNav, settingsTabToSlug } from './lib/route'
 import { registerUserHash, unregisterUserHash } from './lib/telemetry'
 import { loadTaskById as loadTaskByIdHandler } from './handlers/loadTaskById'
@@ -107,7 +108,11 @@ export default function App() {
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({})
   const [otherInputs, setOtherInputs] = useState<Record<string, string>>({})
   const [showOtherInput, setShowOtherInput] = useState<Record<string, boolean>>({})
-  const [chatInput, setChatInput] = useState('')
+  // The composer draft lives in a store, not App state: as state, every
+  // keystroke re-rendered the whole app. App clears it (task open /
+  // create / send) and reads it on send; only the composer subscribes.
+  const [chatDraft] = useState(() => createDraftStore())
+  const setChatInput = chatDraft.set
   const [chatAttachments, setChatAttachments] = useState<StagedAttachment[]>([])
   const [conversationItems, setConversationItems] = useState<ConversationItem[]>([])
   const questionBannerRef = useRef<HTMLDivElement>(null)
@@ -492,7 +497,7 @@ export default function App() {
   const sendingRef = useRef(false)
   const sendChatMessage = () =>
     sendChatMessageHandler({
-      api, selectedTask, chatInput, attachments: chatAttachments,
+      api, selectedTask, chatInput: chatDraft.get(), attachments: chatAttachments,
       profileId: selectedProfileId, conversationItems, sendingRef,
       setChatInput, setAttachments: setChatAttachments, setAgentMessages,
       setConversationItems, setSelectedTask, setTasks,
@@ -642,7 +647,7 @@ export default function App() {
           agentMessages={agentMessages} todoItems={todoItems} pendingQuestions={pendingQuestions}
           conversationItems={conversationItems}
           selectedAnswers={selectedAnswers} otherInputs={otherInputs} showOtherInput={showOtherInput}
-          chatInput={chatInput} setChatInput={setChatInput}
+          chatDraft={chatDraft}
           chatAttachments={chatAttachments} setChatAttachments={setChatAttachments} debugMode={debugMode} setDebugMode={setDebugMode}
           profiles={profiles} selectedProfileId={selectedProfileId} setSelectedProfileId={setSelectedProfileId}
           currentUser={currentUser} showAllTasks={showAllTasks}

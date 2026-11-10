@@ -7,7 +7,8 @@ import { formatScheduleBadge } from '../lib/scheduleBadge'
 import { StatusBadge } from '../components/ui'
 import { ConversationStream } from '../components/conversation/ConversationStream'
 import { useChatUploads } from '../hooks/useChatUploads'
-import { ChatComposer } from '../components/conversation/ChatComposer'
+import { TaskComposer } from '../components/conversation/TaskComposer'
+import type { DraftStore } from '../lib/draftStore'
 import { isAwaitingUser } from '../handlers/composerGate'
 import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
@@ -44,8 +45,9 @@ export interface TasksViewProps {
   selectedAnswers: Record<string, string>
   otherInputs: Record<string, string>
   showOtherInput: Record<string, boolean>
-  chatInput: string
-  setChatInput: (v: string) => void
+  /** The composer's draft. Only the composer subscribes to it, so
+   *  typing does not re-render this view. */
+  chatDraft: DraftStore
   chatAttachments: StagedAttachment[]
   setChatAttachments: React.Dispatch<React.SetStateAction<StagedAttachment[]>>
   debugMode: boolean
@@ -112,8 +114,7 @@ export function TasksView({
   selectedAnswers,
   otherInputs,
   showOtherInput,
-  chatInput,
-  setChatInput,
+  chatDraft,
   chatAttachments,
   setChatAttachments,
   debugMode,
@@ -184,14 +185,9 @@ export function TasksView({
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const userNearBottom = useRef(true)
 
-  // Auto-grow chat textarea up to ~8 lines, then scroll
+  // The composer's textarea (TaskComposer auto-grows it); "request
+  // changes" on a plan focuses it.
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
-  useEffect(() => {
-    const el = chatInputRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 192)}px`
-  }, [chatInput, selectedTask?.id])
 
   const { chatFileInputRef, chatUploading, uploadChatFiles, removeAttachment } =
     useChatUploads(selectedTask?.id ?? null, setChatAttachments)
@@ -202,8 +198,6 @@ export function TasksView({
   // Unified send bar state
   const canSend = taskCfg?.canSendMessage ?? false
   const isActive = taskCfg?.isActive ?? false
-  // A message may be text-only, attachment-only, or both.
-  const hasText = chatInput.trim().length > 0 || chatAttachments.length > 0
 
   // The agent is parked awaiting the user (live confirm card, or a
   // pending question) → a follow-up REDIRECTS it rather than queueing.
@@ -726,11 +720,11 @@ export function TasksView({
                 </div>
               )}
 
-              <ChatComposer
+              <TaskComposer
+                draft={chatDraft} taskId={selectedTask.id}
                 fileInputRef={chatFileInputRef} uploading={chatUploading}
                 uploadFiles={uploadChatFiles} attachments={chatAttachments}
                 onRemoveAttachment={removeAttachment} inputRef={chatInputRef}
-                input={chatInput} setInput={setChatInput} hasContent={hasText}
                 canSend={canSend} isActive={isActive} awaitingUser={awaitingUser}
                 onSend={sendChatMessage} placeholder={getPlaceholder()}
               />
