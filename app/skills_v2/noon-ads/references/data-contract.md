@@ -51,6 +51,10 @@ The search terms' spend should add up to the targeting spend for the
 same window, and `CAMPAIGNS.tsv`'s spend to the targeting total. Leave
 `applied_*` blank in an audit — execution fills them.
 
+`ad_group` is the ad group's name as the console shows it, the same in
+every file. Leave it blank when the console shows none: a blank names
+the keyword while it sits in one ad group of the campaign.
+
 ## CHANGES.tsv — what you propose
 
 ```
