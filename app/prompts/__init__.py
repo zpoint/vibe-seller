@@ -88,9 +88,8 @@ CATALOG_RESTRICTION_PROMPT_L3: str = (
 def _catalog_cleanup_prompt(catalog: str, files: str, also: str) -> str:
     return (
         f'You are regenerating the catalog {catalog}, after a one-time '
-        'cleanup of the notes it lists. Do not launch subagents or '
-        f'create skills{also}, and skip "Keeping knowledge correct" '
-        'below.\n\n'
+        f'cleanup of the notes it lists. Do not launch subagents{also} '
+        'or create skills; skip "Keeping knowledge correct" below.\n\n'
         'Cleanup first: this app was upgraded. Notes written before may '
         'describe how the platform itself checked or reviewed work — a '
         'review pass or reviewer subagent, what a gate refused, when an '
@@ -118,7 +117,7 @@ CATALOG_CLEANUP_PROMPT_L3: str = _catalog_cleanup_prompt(
     'stores/<slug>/CATALOG.md (L3, this store)',
     'files under stores/<slug>/; shared knowledge/ files are cleaned '
     'by the global run, not this one',
-    ', and do not modify anything under knowledge/',
+    ', modify anything under knowledge/',
 )
 
 # The result format both catalog sync prompts point to. One source so
