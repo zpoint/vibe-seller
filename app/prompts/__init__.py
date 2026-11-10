@@ -99,7 +99,7 @@ def _catalog_cleanup_prompt(catalog: str, files: str, also: str) -> str:
         f"tier's own files — {files} — delete exactly those passages "
         'and nothing else. Keep store facts, business rules, standards '
         'the user stated (`key: value` lines), page paths, and UI and '
-        'data gotchas for the marketplaces. When unsure, keep it.\n\n'
+        'data gotchas for the marketplaces.\n\n'
         'Write each changed file with vibe_seller_write_workspace_file, '
         'removing lines only; the server refuses a write that adds or '
         'changes a line, or touches a file outside this tier, and after '
