@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { bootApp } from '../test/appHarness'
-import { DEFAULT_TIMEOUT_MS } from '../lib/requestDeadline'
+import { LONG_TIMEOUT_MS } from '../lib/requestDeadline'
 
 vi.mock('../lib/telemetry', () => ({
   sendEvent: vi.fn(), lengthBucket: () => 'small', ageBucket: () => 'new',
@@ -50,7 +50,8 @@ describe('follow-up send feedback', () => {
     expect(screen.getByTestId('chat-sending')).toBeDisabled()
     expect(input.value).toBe('')
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(DEFAULT_TIMEOUT_MS) })
+    // A follow-up waits the long deadline (it may switch profile).
+    await act(async () => { await vi.advanceTimersByTimeAsync(LONG_TIMEOUT_MS) })
 
     expect(screen.getByTestId('chat-send-error')).toHaveTextContent(/did not answer in time/i)
     expect(input.value).toBe('please re-check the example listing')

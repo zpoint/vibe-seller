@@ -162,7 +162,8 @@ describe('sendChatMessage: text / attachment / both combinations', () => {
     await sendChatMessage(deps as any)
     expect(post).toHaveBeenCalledWith('/api/tasks/task-1/messages', {
       content: 'hello', profile_id: 'default', attachment_ids: [],
-    })
+
+    }, expect.anything())
   })
 
   it('sends attachments only (empty content)', async () => {
@@ -174,7 +175,8 @@ describe('sendChatMessage: text / attachment / both combinations', () => {
     await sendChatMessage(deps as any)
     expect(post).toHaveBeenCalledWith('/api/tasks/task-1/messages', {
       content: '', profile_id: 'default', attachment_ids: ['id1'],
-    })
+
+    }, expect.anything())
     // Clears input + staged attachments after send.
     expect(deps.setChatInput).toHaveBeenCalledWith('')
     expect(deps.setAttachments).toHaveBeenCalledWith([])
@@ -190,7 +192,8 @@ describe('sendChatMessage: text / attachment / both combinations', () => {
     await sendChatMessage(deps as any)
     expect(post).toHaveBeenCalledWith('/api/tasks/task-1/messages', {
       content: 'look', profile_id: 'default', attachment_ids: ['id1', 'id2'],
-    })
+
+    }, expect.anything())
   })
 })
 

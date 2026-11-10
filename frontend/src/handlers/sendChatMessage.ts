@@ -1,6 +1,7 @@
 import { sendEvent, lengthBucket } from '../lib/telemetry'
 import { FrontendEvent } from '../lib/telemetryEvents'
 import type { Task, AgentMessage, ConversationItem, StagedAttachment } from '../types'
+import { LONG_TIMEOUT_MS } from '../lib/requestDeadline'
 
 interface SendChatResponse {
   woken?: boolean
@@ -12,7 +13,11 @@ interface SendChatResponse {
 }
 
 export interface SendChatApi {
-  post(url: string, body: unknown): Promise<SendChatResponse>
+  post(
+    url: string,
+    body: unknown,
+    opts?: { timeoutMs?: number },
+  ): Promise<SendChatResponse>
 }
 
 export interface SendChatDeps {
@@ -62,6 +67,10 @@ export async function sendChatMessage(deps: SendChatDeps): Promise<void> {
     const response = await deps.api.post(
       `/api/tasks/${selectedTask.id}/messages`,
       { content, profile_id: deps.profileId, attachment_ids: attachmentIds },
+      // Stored server-side before it answers, and a profile switch can
+      // take a while: a short deadline reported a delivered message as
+      // failed, and resending it duplicated it.
+      { timeoutMs: LONG_TIMEOUT_MS },
     )
     // Render the server's canonical content (falls back to prose if the
     // response predates this field). SSE will dedup its own copy by content.
