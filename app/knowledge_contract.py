@@ -28,6 +28,8 @@ only ever runs because an upgrade recorded that one is due.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.models.app_settings import AppSettings
 
 # Bump when a harness change makes notes written before it misleading
@@ -107,6 +109,53 @@ def tier_error(path: str, store_slug: str | None) -> str | None:
         f'This one-time cleanup only edits files under {tier}; {path} '
         'belongs to another tier and is cleaned by its own run.'
     )
+
+
+def _tier_files(root: Path, store_slug: str | None) -> list[Path]:
+    if store_slug is None:
+        base = root / 'knowledge'
+        files = [
+            f
+            for f in base.rglob('*.md')
+            if 'project' not in f.relative_to(base).parts[:1]
+        ]
+    else:
+        files = list((root / 'stores' / store_slug).rglob('*.md'))
+    return [f for f in files if f.is_file() and f.name != 'CATALOG.md']
+
+
+def snapshot_tier(root: Path, store_slug: str | None) -> dict[Path, str]:
+    """The tier's notes as they stand before a cleanup run."""
+    out: dict[Path, str] = {}
+    for f in _tier_files(root, store_slug):
+        try:
+            out[f] = f.read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError):
+            continue
+    return out
+
+
+def undo_non_deletions(snapshot: dict[Path, str]) -> list[Path]:
+    """Restore every snapshotted file the run changed by more than
+    deleting lines; return the restored paths.
+
+    The write endpoint refuses such writes, but an agent with a shell
+    can edit the file directly — observed: a run trimmed half-lines out
+    of wrapped paragraphs with a Python script, leaving fragments. The
+    outcome, not the write path, is what the cleanup is held to.
+    """
+    restored: list[Path] = []
+    for path, old in snapshot.items():
+        try:
+            new = path.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            new = ''
+        except (OSError, UnicodeDecodeError):
+            continue
+        if new != old and deletion_only_error(old, new):
+            path.write_text(old, encoding='utf-8')
+            restored.append(path)
+    return restored
 
 
 def deletion_only_error(old: str, new: str) -> str | None:

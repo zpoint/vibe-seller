@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 import json
 import logging
@@ -11,6 +12,7 @@ from app.ai.external_config import (
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.turn_hold_budget import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
+from app.config import VIBE_SELLER_DIR
 from app.database import async_session
 from app.env_options import Options
 from app.events.bus import event_bus
@@ -66,6 +68,7 @@ async def auto_run_task(task_id: str, store: Store | None):
     reset_ledger(task_id)
     catalog_backups: dict = {}
     cleanup_pending: str | None = None
+    cleanup_snapshot: dict = {}
     schedule: Schedule | None = None
     try:
         # Check task wasn't cancelled while queued.  Also load the
@@ -148,6 +151,14 @@ async def auto_run_task(task_id: str, store: Store | None):
                     db, cleanup_scope(task.store_id)
                 ):
                     cleanup_pending = cleanup_scope(task.store_id)
+            if cleanup_pending is not None:
+                cleanup_snapshot = await asyncio.to_thread(
+                    knowledge_contract.snapshot_tier,
+                    VIBE_SELLER_DIR,
+                    None
+                    if task.store_id is None
+                    else _store_slug(store.name, store.id),
+                )
             if task.store_id is None:
                 # L2: global catalog only
                 l2_stale, _ = knowledge_sync.catalog_needs_update(None)
@@ -365,13 +376,25 @@ async def auto_run_task(task_id: str, store: Store | None):
             )
     finally:
         if cleanup_pending is not None:
-            # Recorded only on COMPLETED: a failed run (out of credits,
-            # a crash) leaves the scope owing, so the next catalog sync
-            # runs the cleanup again.
+            # Held to the outcome: any tier file changed by more than
+            # deleting lines — by whatever means — is put back, and the
+            # scope stays owing. Recorded only on COMPLETED: a failed run
+            # (out of credits, a crash) also leaves it owing, so the next
+            # catalog sync runs the cleanup again.
             try:
+                restored = await asyncio.to_thread(
+                    knowledge_contract.undo_non_deletions, cleanup_snapshot
+                )
+                if restored:
+                    logger.warning(
+                        'Knowledge cleanup %s changed more than lines; '
+                        'restored %s and left the scope owing',
+                        task_id,
+                        ', '.join(str(p) for p in restored),
+                    )
                 async with async_session() as db_kc:
                     t = await db_kc.get(Task, task_id)
-                    if t and t.status == TaskStatus.COMPLETED:
+                    if t and t.status == TaskStatus.COMPLETED and not restored:
                         await knowledge_contract.mark_cleaned(
                             db_kc, cleanup_pending
                         )

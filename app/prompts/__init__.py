@@ -102,7 +102,8 @@ def _catalog_cleanup_prompt(catalog: str, files: str, also: str) -> str:
         'data gotchas for the marketplaces. When unsure, keep it.\n\n'
         'Write each changed file with vibe_seller_write_workspace_file, '
         'removing lines only; the server refuses a write that adds or '
-        'changes a line, or touches a file outside this tier. Write no '
+        'changes a line, or touches a file outside this tier, and after '
+        'the run puts back any file changed some other way. Write no '
         'other file. Then build the catalog, and list in your result '
         'each file you changed and what you removed.'
     )

@@ -135,3 +135,43 @@ class TestFloorAtBoot:
         maker = await _db(monkeypatch)
         async with maker() as db:
             assert not await kc.needs_cleanup(db, kc.L2_SCOPE)
+
+
+class TestOutcomeIsHeldToDeletions:
+    """Observed: a cleanup run edited a note directly with a Python script,
+    trimming half-lines out of wrapped paragraphs. The endpoint never saw
+    the write; the outcome check must."""
+
+    def _tier(self, tmp_path):
+        store = tmp_path / 'stores' / 'acme-x'
+        store.mkdir(parents=True)
+        (store / 'notes.md').write_text(NOTE)
+        (store / 'other.md').write_text('# Other\n\nkeep me\n')
+        (store / 'CATALOG.md').write_text('| File |\n')
+        return store
+
+    def test_a_mid_line_trim_is_put_back(self, tmp_path):
+        store = self._tier(tmp_path)
+        snap = kc.snapshot_tier(tmp_path, 'acme-x')
+        assert store / 'CATALOG.md' not in snap
+        (store / 'notes.md').write_text(NOTE.replace('Business Reports', ''))
+        assert kc.undo_non_deletions(snap) == [store / 'notes.md']
+        assert (store / 'notes.md').read_text() == NOTE
+
+    def test_line_deletions_and_untouched_files_stay(self, tmp_path):
+        store = self._tier(tmp_path)
+        snap = kc.snapshot_tier(tmp_path, 'acme-x')
+        cleaned = NOTE.replace(
+            'The first submit is refused by the reviewer; that is normal.\n',
+            '',
+        )
+        (store / 'notes.md').write_text(cleaned)
+        assert kc.undo_non_deletions(snap) == []
+        assert (store / 'notes.md').read_text() == cleaned
+
+    def test_global_tier_skips_the_shipped_project_tree(self, tmp_path):
+        (tmp_path / 'knowledge' / 'project').mkdir(parents=True)
+        (tmp_path / 'knowledge' / 'notes.md').write_text(NOTE)
+        (tmp_path / 'knowledge' / 'project' / 'a.md').write_text('x\n')
+        snap = kc.snapshot_tier(tmp_path, None)
+        assert set(snap) == {tmp_path / 'knowledge' / 'notes.md'}

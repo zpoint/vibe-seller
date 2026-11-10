@@ -364,3 +364,39 @@ class TestCleanupWritesOnlyDelete:
             json={'content': self.NOTE + 'A new fact.\n'},
         )
         assert r.status_code == 200, r.text
+
+
+async def test_an_edit_made_around_the_tool_is_put_back(
+    admin_client,
+    install_fake_agent,
+    override_async_session,
+    mock_knowledge_sync,
+    catalog_schedule,
+    upgraded,
+    admin_user,
+):
+    """Observed live: a run rewrote a note with a shell script instead of
+    the write tool, so the endpoint's check never saw it, and it left
+    half-sentences behind. The run's outcome is checked: the note is put
+    back and the store stays owing, so the next catalog sync retries."""
+    from app.config import VIBE_SELLER_DIR
+
+    r = await admin_client.post('/api/stores', json={'name': 'AroundStore'})
+    store = r.json()
+    notes = VIBE_SELLER_DIR / 'stores' / store_slug(store['name']) / 'notes.md'
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    original = TestCleanupWritesOnlyDelete.NOTE
+    notes.write_text(original, encoding='utf-8')
+
+    install_fake_agent.default_scenario = FakeAgentScenario(
+        result='Cleaned and cataloged', skip_plan=True, complete_delay=1.0
+    )
+    t = await _fire(override_async_session, [store], admin_user.id)
+    await real_sleep(0.3)  # the run is in progress
+    notes.write_text(
+        original.replace('margin: 40', 'margin: 4'), encoding='utf-8'
+    )
+    data = await wait_for_task(admin_client, t[store['id']], timeout=10)
+    assert data['status'] == 'completed'
+    assert notes.read_text(encoding='utf-8') == original
+    assert await _owes(override_async_session, store['id'])
