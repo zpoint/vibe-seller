@@ -169,9 +169,10 @@ class TestProfileCrud:
             assert '{' not in url, f'{pid} base URL needs hand-editing'
 
     async def test_presets_expose_model_options(self, admin_client):
-        """Every preset ships a non-empty model dropdown whose first
-        (default) option matches the env's ANTHROPIC_MODEL — the UI and
-        the injected env must agree on the default model."""
+        """Every preset ships a non-empty model dropdown that offers the
+        env's ANTHROPIC_MODEL — the UI and the injected env must agree
+        on the default model (the list is ordered newest first, so the
+        default need not lead it)."""
         r = await admin_client.get('/api/profiles/presets')
         presets = r.json()['presets']
         for pid, preset in presets.items():
@@ -179,8 +180,9 @@ class TestProfileCrud:
             assert models, f'{pid} has no model options'
             for opt in models:
                 assert opt['id'] and opt['label']
-            assert models[0]['id'] == preset['env']['ANTHROPIC_MODEL'], (
-                f'{pid}: default model option must equal ANTHROPIC_MODEL'
+            ids = [opt['id'] for opt in models]
+            assert preset['env']['ANTHROPIC_MODEL'] in ids, (
+                f'{pid}: ANTHROPIC_MODEL must be one of the model options'
             )
 
     async def test_vision_labels_match_live_probe(self, admin_client):
@@ -205,8 +207,8 @@ class TestProfileCrud:
         - qwen3.8-max / qwen3.8-flash live-probed 2026-11-10 on the
           pay-go endpoint (red+blue, 3x each) -> True on every Qwen
           plan that lists them.
-        - Token Plan (China) ``auto`` live-probed 2026-11-10 -> True;
-          the international Token Plan has no key -> OMITTED (None).
+        - Token Plan ``auto`` live-probed 2026-11-10 on China -> True;
+          the international plan is the same router -> True as well.
         """
         r = await admin_client.get('/api/profiles/presets')
         presets = r.json()['presets']
@@ -242,9 +244,9 @@ class TestProfileCrud:
         for pid in ('qwen', 'qwen_intl', 'qwen_token', 'qwen_token_intl'):
             assert vis(pid, 'qwen3.8-max') is True, pid
             assert vis(pid, 'qwen3.8-flash') is True, pid
-        # Token Plan router: live-verified on China, no intl key.
+        # Token Plan router: live-verified on China; same router intl.
         assert vis('qwen_token', 'auto') is True
-        assert vis('qwen_token_intl', 'auto') is None
+        assert vis('qwen_token_intl', 'auto') is True
 
     async def test_presets_match_vendor_docs(self, admin_client):
         """Pin the load-bearing values for the vendor-doc-aligned

@@ -14,13 +14,17 @@ export interface PresetEntry {
   id?: string
   label?: string
   group?: string
+  groupLabel?: string
 }
 
 /** Top-level provider entries: standalone presets stay as-is; presets
  *  sharing a `group` collapse into one entry (first occurrence wins
  *  ordering). */
 function useProviderEntries(
-  presets: Record<string, { name: string; group?: string }>,
+  presets: Record<
+    string,
+    { name: string; group?: string; groupLabel?: string }
+  >,
 ): PresetEntry[] {
   return useMemo(() => {
     const seen = new Set<string>()
@@ -29,7 +33,11 @@ function useProviderEntries(
       if (p.group) {
         if (!seen.has(p.group)) {
           seen.add(p.group)
-          entries.push({ kind: 'group', group: p.group })
+          entries.push({
+            kind: 'group',
+            group: p.group,
+            groupLabel: p.groupLabel || p.group,
+          })
         }
       } else {
         entries.push({ kind: 'preset', id, label: p.name })
@@ -47,7 +55,10 @@ export function ProfileModalPresets({
   applyPreset,
   selectCustom,
 }: {
-  presets: Record<string, { name: string; group?: string; variant?: string }>
+  presets: Record<
+    string,
+    { name: string; group?: string; groupLabel?: string; variant?: string }
+  >
   selectedPreset: string
   selectedGroup: string
   setSelectedGroup: (group: string) => void
@@ -102,7 +113,7 @@ export function ProfileModalPresets({
               }}
               className={btn(selectedGroup === entry.group)}
             >
-              {entry.group} ›
+              {entry.groupLabel} ›
             </button>
           )
         )}

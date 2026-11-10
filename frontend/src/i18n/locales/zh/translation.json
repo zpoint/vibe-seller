@@ -649,7 +649,11 @@
     "validating": "正在测试连接…",
     "validationFailed": "连接测试失败",
     "validationFailedHint": "无法验证该接口。请修正下方配置，或检查 API 密钥、Base URL 与模型。",
-    "validationError": "无法执行连接测试"
+    "validationError": "无法执行连接测试",
+    "purchaseLink": "前往官网购买 / 获取 Key",
+    "guideLink": "查看获取教程",
+    "contextBadgeTitle": "Claude Code 在此配置下实际使用的上下文窗口：模型 id 带 [1m] 或设置了 CLAUDE_CODE_MAX_CONTEXT_TOKENS 才能用到 1M，否则默认 200K；不会超过模型本身的上限。",
+    "contextBadgeHint": "模型旁的 1M / 200K 是 Claude Code 实际可用的上下文：同一模型，带 [1m] 的版本用 1M，不带的默认 200K（上下文越小越早压缩，但更省 token）。"
   },
   "errors": {
     "externalConfigOverride": {

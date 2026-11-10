@@ -260,13 +260,14 @@ def _validate_env(env: object) -> dict | None:
     return out
 
 
-def _validate_models(entries: object, expected_first_id: str) -> list | None:
+def _validate_models(entries: object, default_id: str) -> list | None:
     """Validate one preset's model dropdown; ``None`` when invalid.
 
-    Unknown fields are dropped. The first entry must be the preset's
-    own ``ANTHROPIC_MODEL`` — the contract the catalog comments pin —
-    so a model list that disagrees with its preset is rejected with
-    the preset rather than served incoherently.
+    Unknown fields are dropped. The preset's own ``ANTHROPIC_MODEL``
+    must be one of the options (anywhere: the list is ordered newest
+    first, and the UI highlights the default) — so a model list that
+    disagrees with its preset is rejected with the preset rather than
+    served incoherently.
     """
     if not isinstance(entries, list) or not entries:
         return None
@@ -292,10 +293,88 @@ def _validate_models(entries: object, expected_first_id: str) -> list | None:
             if not isinstance(entry['vision'], bool):
                 return None
             item['vision'] = entry['vision']
+        if 'i18n' in entry:
+            i18n = _validate_i18n(entry['i18n'], ('label',))
+            if i18n is None:
+                return None
+            if i18n:
+                item['i18n'] = i18n
         out.append(item)
-    if out[0]['id'] != expected_first_id:
+    if default_id not in {item['id'] for item in out}:
         return None
     return out
+
+
+_GUIDE_LANGS = ('zh', 'en')
+
+#: UI languages a catalog entry may carry translations for (English is
+#: the entry's own text).
+_I18N_LANGS = ('zh',)
+
+
+def _validate_i18n(value: object, fields: tuple[str, ...]) -> dict | None:
+    """Validate an entry's ``i18n`` block: ``{lang: {field: text}}``.
+
+    Only known languages and the entry's own display fields are kept;
+    anything else is dropped. Returns ``None`` when a kept value is not
+    sane text, so the caller rejects the entry.
+    """
+    if not isinstance(value, dict):
+        return None
+    out: dict = {}
+    for lang in _I18N_LANGS:
+        texts = value.get(lang)
+        if texts is None:
+            continue
+        if not isinstance(texts, dict):
+            return None
+        kept = {}
+        for field in fields:
+            if field in texts:
+                if not _text_ok(texts[field], _MAX_LABEL):
+                    return None
+                kept[field] = texts[field]
+        if kept:
+            out[lang] = kept
+    return out
+
+
+def _valid_link(url: object) -> bool:
+    """Whether ``url`` may be shown to the user as a clickable link.
+
+    ``https`` only, a host, no credentials-in-URL, no whitespace and no
+    ``{Placeholder}``: unlike a base URL, a link is followed as-is.
+    """
+    if not _text_ok(url, _MAX_ENV_VALUE) or '{' in url:
+        return False
+    return _valid_base_url(url)
+
+
+def _validate_links(preset: dict, out: dict) -> bool:
+    """Copy the optional ``purchase_url`` / ``guide_url`` into ``out``.
+
+    ``guide_url`` maps a UI language to our docs section; unknown
+    languages are dropped. Returns False when a present link is
+    malformed, so the caller drops the preset.
+    """
+    buy = preset.get('purchase_url')
+    if buy is not None:
+        if not _valid_link(buy):
+            return False
+        out['purchase_url'] = buy
+    guide = preset.get('guide_url')
+    if guide is not None:
+        if not isinstance(guide, dict):
+            return False
+        kept = {}
+        for lang in _GUIDE_LANGS:
+            if lang in guide:
+                if not _valid_link(guide[lang]):
+                    return False
+                kept[lang] = guide[lang]
+        if kept:
+            out['guide_url'] = kept
+    return True
 
 
 def _validate_preset(preset_id: object, preset: object) -> dict | None:
@@ -329,6 +408,14 @@ def _validate_preset(preset_id: object, preset: object) -> dict | None:
         if not _text_ok(value, cap):
             return None
         out[field] = value
+    if not _validate_links(preset, out):
+        return None
+    if 'i18n' in preset:
+        i18n = _validate_i18n(preset['i18n'], ('name', 'group', 'variant'))
+        if i18n is None:
+            return None
+        if i18n:
+            out['i18n'] = i18n
     return out
 
 
@@ -354,9 +441,9 @@ def validate(presets: object, models: object) -> tuple[dict, dict] | None:
             continue
         entries = models.get(preset_id)
         if entries is not None:
-            # A preset and its dropdown are one contract (the first
-            # entry IS the preset's ANTHROPIC_MODEL); a mismatched
-            # pair falls back to the bundled copy together.
+            # A preset and its dropdown are one contract (the list
+            # offers the preset's ANTHROPIC_MODEL); a mismatched pair
+            # falls back to the bundled copy together.
             dropdown = _validate_models(
                 entries, validated['env']['ANTHROPIC_MODEL']
             )

@@ -354,13 +354,25 @@ def test_unknown_preset_fields_are_dropped():
         [{'label': 'no id'}],
         [{'id': 'acme-1', 'label': 'x' * 1000}],
         [{'id': 'acme-1', 'label': 'A', 'vision': 'yes'}],
-        [{'id': 'other-1', 'label': 'A'}, {'id': 'acme-1', 'label': 'B'}],
+        # The preset's ANTHROPIC_MODEL (acme-1) is not offered at all.
+        [{'id': 'other-1', 'label': 'A'}, {'id': 'other-2', 'label': 'B'}],
     ],
     ids=['not-a-list', 'empty', 'dict', 'no-id', 'long', 'vision', 'mismatch'],
 )
 def test_malformed_model_lists_drop_their_preset(models):
     """A preset and its dropdown are one contract: both or neither."""
     assert_dropped(make_preset(), models=models)
+
+
+def test_the_default_need_not_lead_the_list():
+    # Lists are ordered newest first; the default is highlighted, not
+    # pinned to the top.
+    models = [
+        {'id': 'acme-2', 'label': 'Acme Two'},
+        {'id': 'acme-1', 'label': 'A'},
+    ]
+    result = sync.validate({'acme_test': make_preset()}, {'acme_test': models})
+    assert [m['id'] for m in result[1]['acme_test']] == ['acme-2', 'acme-1']
 
 
 def test_model_lists_for_unknown_presets_are_ignored():
@@ -896,3 +908,45 @@ def test_profile_kind_and_vision_follow_the_synced_catalog():
     sync._apply(*resolve(acme_source(models=make_models({'vision': False}))))
     assert model_sees_images('acme-1') is False
     assert model_sees_images('acme-1[1m]') is False
+
+
+# ── purchase / guide links ───────────────────────────
+
+
+def test_links_pass_through_and_unknown_languages_drop():
+    preset = make_preset(
+        purchase_url='https://console.example.com/buy',
+        guide_url={
+            'zh': 'https://docs.example.com/keys/#acme',
+            'en': 'https://docs.example.com/en/keys/#acme',
+            'fr': 'https://docs.example.com/fr/keys/#acme',
+        },
+    )
+    result = sync.validate({'acme_test': preset}, {'acme_test': make_models()})
+    served = result[0]['acme_test']
+    assert served['purchase_url'] == 'https://console.example.com/buy'
+    assert set(served['guide_url']) == {'zh', 'en'}
+
+
+@pytest.mark.parametrize(
+    'links',
+    [
+        {'purchase_url': 'http://console.example.com/buy'},
+        {'purchase_url': 'https://user:pw@console.example.com/'},
+        {'purchase_url': 'javascript:alert(1)'},
+        {'purchase_url': 'https://{WorkspaceId}.example.com/'},
+        {'purchase_url': 123},
+        {'guide_url': 'https://docs.example.com/'},
+        {'guide_url': {'zh': 'http://docs.example.com/'}},
+    ],
+)
+def test_a_bad_link_drops_the_preset(links):
+    preset = make_preset(**links)
+    assert sync._validate_preset('acme_test', preset) is None
+
+
+def test_every_bundled_preset_links_somewhere_valid():
+    presets, models = sync._bundled()
+    for pid, preset in presets.items():
+        assert sync._valid_link(preset.get('purchase_url')), pid
+        assert set(preset.get('guide_url', {})) == {'zh', 'en'}, pid

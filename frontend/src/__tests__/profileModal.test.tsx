@@ -280,11 +280,65 @@ describe('ProfileModal', () => {
     expect(await screen.findByText('Plus (vision)')).toBeInTheDocument()
     expect(screen.getByText('VL-Plus (vision)')).toBeInTheDocument()
     expect(screen.getAllByText('Vision').length).toBeGreaterThan(0)
-    expect(screen.getByText('1M')).toBeInTheDocument()
+    // The window badge is what Claude Code will use, not the model's
+    // documented 1M: a bare id with no CLAUDE_CODE_MAX_CONTEXT_TOKENS
+    // gets the 200K default.
+    expect(screen.getByTestId('context-badge-qwen3.7-plus')).toHaveTextContent('200K')
 
     // Auto-named "Provider - <default model label>".
     expect((screen.getByPlaceholderText('e.g., MiniMax') as HTMLInputElement).value)
       .toBe('Qwen - Plus (vision)')
+  })
+
+  it('links to the provider console and the key guide for the chosen preset', async () => {
+    mockPresets({
+      qwen: {
+        ...VISION_PRESET,
+        purchase_url: 'https://console.example.com/buy',
+        guide_url: {
+          zh: 'https://docs.example.com/llm-keys/#qwen-zh',
+          en: 'https://docs.example.com/en/llm-keys/#qwen',
+        },
+      },
+      deepseek: DEEPSEEK_PRESET,
+    })
+    renderModal()
+
+    // No preset chosen yet, and a preset without links: nothing shown.
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek' }))
+    expect(screen.queryByTestId('profile-modal-links')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Qwen' }))
+    const buy = await screen.findByRole('link', { name: /official site/ })
+    expect(buy).toHaveAttribute('href', 'https://console.example.com/buy')
+    expect(buy).toHaveAttribute('target', '_blank')
+    expect(buy).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(screen.getByRole('link', { name: /guide/ })).toHaveAttribute(
+      'href',
+      'https://docs.example.com/en/llm-keys/#qwen',
+    )
+  })
+
+  it('badges the window Claude Code uses: [1m] vs bare twin, and the env override', async () => {
+    mockPresets({
+      minimax: {
+        name: 'MiniMax',
+        env: {
+          ANTHROPIC_BASE_URL: 'https://api.minimax.example/anthropic',
+          ANTHROPIC_MODEL: 'M-Flash[1m]',
+        },
+        models: [
+          { id: 'M-Flash[1m]', label: 'M Flash (1M context)', context: '1M', vision: true },
+          { id: 'M-Flash', label: 'M Flash (200K context)', context: '1M', vision: true },
+        ],
+      },
+    })
+    renderModal()
+    fireEvent.click(await screen.findByRole('button', { name: 'MiniMax' }))
+
+    expect(await screen.findByTestId('context-badge-M-Flash[1m]')).toHaveTextContent('1M')
+    expect(screen.getByTestId('context-badge-M-Flash')).toHaveTextContent('200K')
+    expect(screen.getByText(/the same model with \[1m\] uses 1M/)).toBeInTheDocument()
   })
 
   it('shows a text-only badge and syncs model + name when another chip is picked', async () => {

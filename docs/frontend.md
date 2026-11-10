@@ -84,6 +84,16 @@ Translations stored in `src/i18n/locales/`:
 
 Usage: `const { t } = useTranslation(); t('key')` or `t('key', { count: 5 })`
 
+**Provider-preset strings come from the server, already translated.**
+Everything about a preset comes from the catalog (`app/ai/provider_presets.py`,
+synced from `main`): order, values, links, and the translations. That means a
+catalog update changes what users see without a frontend release. Each preset
+carries `i18n: {zh: {name, group, variant}}` and each model `i18n: {zh: {label}}`.
+`components/presetI18n.ts` only picks the current language's text and falls
+back to the English fields. `group` stays the stable grouping key; its display
+text goes in `groupLabel`. The frontend keeps no preset translation table, and
+`presetI18n.test.ts` pins that.
+
 ## SSE Integration
 
 `useSSE` hook in `hooks/useSSE.ts` connects to `/api/sse` and dispatches events:
