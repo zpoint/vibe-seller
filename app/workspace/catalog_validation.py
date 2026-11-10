@@ -34,6 +34,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+import posixpath
 import re
 
 from app.workspace.fs_walk import tolerant_rglob
@@ -204,6 +205,29 @@ def _read_optional(resolve_file: Callable[[str], Path], rel: str) -> str | None:
     try:
         return resolve_file(rel).read_text(encoding='utf-8')
     except (OSError, ValueError):
+        return None
+
+
+def _read_reference(
+    resolve_file: Callable[[str], Path], rel: str
+) -> list[CatalogRow] | None:
+    """The on-disk catalog a write is compared against, or None.
+
+    Missing AND unparseable both mean "no reference", like
+    :func:`_read_optional` means "no file". The row that fails to parse
+    belongs to the reference, not to the writer: an error quoting it
+    sends the agent to fix a table it was told to copy verbatim, and
+    because this fires before the one-round accounting it is a permanent
+    wall — one stray ``|`` in a shared summary stopped the catalog sync
+    of every store on the install. Nothing is copied from a catalog that
+    cannot be read, so the write is judged on what it does owe.
+    """
+    text = _read_optional(resolve_file, rel)
+    if text is None:
+        return None
+    try:
+        return parse_catalog(text)
+    except ValueError:
         return None
 
 
@@ -386,9 +410,8 @@ def _validate_l3(
     errors.extend(_duplicate_errors(rows))
 
     # Accumulation: every L2 row, path and Relevance unchanged.
-    l2_text = _read_optional(resolve_file, 'knowledge/CATALOG.md')
-    if l2_text is not None:
-        l2_rows = parse_catalog(l2_text)
+    l2_rows = _read_reference(resolve_file, 'knowledge/CATALOG.md')
+    if l2_rows is not None:
         have = {r.path: r.relevance.lower() for r in rows}
         for row in l2_rows:
             if row.path not in have:
@@ -418,6 +441,26 @@ def _validate_l3(
     return hard, errors
 
 
+def canonical_rel(path: str) -> str | None:
+    """The workspace-relative spelling of *path*, or None if it escapes.
+
+    The gate decides WHICH file a write is by this spelling, and the
+    write itself lands by the resolved path
+    (``WorkspacePaths.safe_path``) — the two must agree, or a tier
+    catalog written as ``./stores/<slug>/CATALOG.md`` or
+    ``stores//<slug>/CATALOG.md`` slips through unvalidated (and one
+    round key per spelling would turn the "exactly one round" rule into
+    one round per spelling). A ``..`` that leaves the workspace, or an
+    absolute path, names a tier this function cannot work out from the
+    string; callers refuse those the way
+    ``knowledge_contract.tier_error`` does.
+    """
+    rel = posixpath.normpath(path.replace('\\', '/'))
+    if rel.startswith('../') or rel == '..' or posixpath.isabs(rel):
+        return None
+    return rel
+
+
 def catalog_problems(
     path: str,
     content: str,
@@ -436,7 +479,9 @@ def catalog_problems(
     Dispatches on the exact tier path — ``knowledge/CATALOG.md`` (L2)
     and ``stores/<slug>/CATALOG.md`` (L3). Any other path (including
     ``knowledge/project/CATALOG.md``, whose write the manager refuses
-    as read-only L1) is not a tier catalog and passes through.
+    as read-only L1) is not a tier catalog and passes through. Callers
+    on a request path pass :func:`canonical_rel`, so the dispatch and
+    the file the write lands on name the same tier.
 
     Pure sync filesystem/string work; callers on the event loop wrap
     this in ``asyncio.to_thread``.

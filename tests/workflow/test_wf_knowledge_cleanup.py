@@ -502,9 +502,20 @@ class TestTheEndpointNotesWhoWrote:
         assert knowledge_contract.end_watch(mine) == set()
 
         knowledge_contract.watch_writes(mine)
-        r = await admin_client.put(
-            f'/api/workspace/file?path={path}&task_id={uuid.uuid4().hex}',
-            json={'content': self.NOTE},
-        )
-        assert r.status_code == 200, r.text
-        assert knowledge_contract.end_watch(mine) == {path}
+        other = uuid.uuid4().hex
+        for spelling in (
+            path,
+            f'./{path}',
+            'stores//wire-store/notes.md',
+            f'{mock_workspace.root}/{path}',
+        ):
+            r = await admin_client.put(
+                f'/api/workspace/file?path={spelling}&task_id={other}',
+                json={'content': self.NOTE},
+            )
+            assert r.status_code == 200, (spelling, r.text)
+        # One FILE, however it was spelled: the shield the restore reads
+        # has to name it, not the string the writer sent.
+        assert knowledge_contract.end_watch(mine) == {
+            (mock_workspace.root / path).resolve()
+        }

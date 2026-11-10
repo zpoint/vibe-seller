@@ -16,6 +16,8 @@ then mutates exactly one thing — the failing case must name that
 thing, the unmutated form must pass.
 """
 
+import importlib.resources
+
 import pytest
 
 from app.workspace.catalog_validation import (
@@ -23,6 +25,7 @@ from app.workspace.catalog_validation import (
     find_wrongly_stubbed,
     is_near_empty,
     is_task_output_name,
+    parse_catalog,
     reject_wrong_stubs,
     validate_catalog_write,
 )
@@ -251,6 +254,18 @@ class TestParseCatalog:
         content = '# Store Catalog — acme-x\n<!-- comment -->\n\n' + L3_CATALOG
         gate('stores/acme-x/CATALOG.md', content)  # no raise
 
+    def test_the_shipped_knowledge_catalog_parses(self):
+        """The repo's own catalog is the reference tiers are copied from.
+
+        Every writer is told to copy its rows verbatim, so a row of it
+        that does not parse is refused by every store's sync — and a
+        maintainer's stray ``|`` in a summary is exactly that.
+        """
+        text = (
+            importlib.resources.files('app') / 'knowledge' / 'CATALOG.md'
+        ).read_text(encoding='utf-8')
+        assert parse_catalog(text), 'the shipped catalog lists no rows'
+
 
 class TestFormatPrefixes:
     def test_l2_row_with_store_path_rejected(self, ws):
@@ -379,6 +394,29 @@ class TestL3Accumulation:
         demand a file that does not exist)."""
         _root, gate = ws
         gate('stores/acme-x/CATALOG.md', L3_CATALOG)  # no raise
+
+    def test_an_unparseable_l2_is_no_reference(self, ws):
+        """One 4-cell row in the shared catalog is a row of SOMEONE
+        ELSE's file: quoting it refused every store's clean L3 write
+        forever, and told the writer to fix a table it was ordered to
+        copy verbatim. An unparseable reference behaves like an absent
+        one — the write is judged on what it does owe."""
+        _root, gate = ws
+        (ws[0] / 'knowledge' / 'CATALOG.md').write_text(
+            L2_CATALOG + '| knowledge/a.md | amazon | extra | cell |\n'
+        )
+        gate('stores/acme-x/CATALOG.md', L3_CATALOG)  # no raise
+        # Only the copy-from-L2 rule goes: what the store owes its own
+        # files is still refused.
+        _rejects(
+            gate,
+            'stores/acme-x/CATALOG.md',
+            L3_CATALOG.replace(
+                '| stores/acme-x/notes.md | amazon | Store-specific notes |\n',
+                '',
+            ),
+            naming='missing row(s)',
+        )
 
     def test_full_l2_copy_passes(self, ws):
         _root, gate = ws

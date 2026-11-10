@@ -190,3 +190,95 @@ class TestCatalogGateOnWritePath:
             json={'content': '# Plain\n\nAny content at all.\n'},
         )
         assert r.status_code == 200, r.text
+
+
+STORE_SPELLINGS = [
+    'stores/gate-store/CATALOG.md',
+    './stores/gate-store/CATALOG.md',
+    'stores/gate-store/./CATALOG.md',
+    'stores/gate-store/../gate-store/CATALOG.md',
+    'stores//gate-store/CATALOG.md',
+]
+
+
+class TestSpellingDoesNotChooseTheGate:
+    """The tier is the FILE the write lands on, not the request string.
+
+    Every one of these spellings resolves to ``stores/gate-store/
+    CATALOG.md`` (``WorkspacePaths.safe_path``), so every one owes the
+    same check — and owes it as the same episode, not one round per
+    spelling.
+    """
+
+    @pytest.mark.parametrize('spelling', STORE_SPELLINGS)
+    async def test_another_stores_row_is_refused_under_every_spelling(
+        self, admin_client, mock_workspace, spelling
+    ):
+        _seed(mock_workspace.root)
+        (mock_workspace.root / 'knowledge' / 'CATALOG.md').write_text(L2)
+        leak = L3 + '| stores/other-store/notes.md | | leaked |\n'
+        url = f'/api/workspace/file?path={spelling}'
+        for _ in range(2):
+            r = await admin_client.put(url, json={'content': leak})
+            assert r.status_code == 400, (spelling, r.text)
+            assert 'stores/other-store/notes.md' in r.json()['detail']
+        assert not (
+            mock_workspace.root / 'stores' / 'gate-store' / 'CATALOG.md'
+        ).exists()
+
+    @pytest.mark.parametrize(
+        'spelling', ['knowledge/CATALOG.md', './knowledge/CATALOG.md']
+    )
+    async def test_a_store_row_in_the_shared_catalog_is_refused(
+        self, admin_client, mock_workspace, spelling
+    ):
+        _seed(mock_workspace.root)
+        leak = L2 + '| stores/other-store/notes.md | | leaked |\n'
+        r = await admin_client.put(
+            f'/api/workspace/file?path={spelling}', json={'content': leak}
+        )
+        assert r.status_code == 400, (spelling, r.text)
+        assert 'stores/other-store/notes.md' in r.json()['detail']
+
+    async def test_a_content_rule_is_one_round_per_file_not_per_spelling(
+        self, admin_client, mock_workspace
+    ):
+        """Refused once under one spelling, the same content then goes
+        through under another: the spent round belongs to the tier file.
+        Two episodes — one per spelling — would refuse an agent that
+        alternated spellings over and over."""
+        _seed(mock_workspace.root)
+        (mock_workspace.root / 'knowledge' / 'CATALOG.md').write_text(L2)
+        partial = L3.replace(
+            '| knowledge/notes.md | amazon | Shared pricing notes |\n', ''
+        )
+        r = await admin_client.put(
+            '/api/workspace/file?path=./stores/gate-store/CATALOG.md',
+            json={'content': partial},
+        )
+        assert r.status_code == 400, r.text
+        r = await admin_client.put(
+            '/api/workspace/file?path=stores//gate-store/CATALOG.md',
+            json={'content': partial},
+        )
+        assert r.status_code == 200, r.text
+
+    async def test_a_path_that_does_not_name_a_tier_is_refused(
+        self, admin_client, mock_workspace
+    ):
+        """An absolute spelling resolves inside the workspace, so it
+        used to reach the same file with no check at all — and no tier
+        can be read off the string, so it is refused, not waved through."""
+        _seed(mock_workspace.root)
+        (mock_workspace.root / 'knowledge' / 'CATALOG.md').write_text(L2)
+        leak = L3 + '| stores/other-store/notes.md | | leaked |\n'
+        root = mock_workspace.root
+        for spelling in (
+            f'{root}/stores/gate-store/CATALOG.md',
+            '../gate-store/CATALOG.md',
+        ):
+            r = await admin_client.put(
+                f'/api/workspace/file?path={spelling}', json={'content': leak}
+            )
+            assert r.status_code == 400, (spelling, r.text)
+            assert not (root / 'stores' / 'gate-store' / 'CATALOG.md').exists()

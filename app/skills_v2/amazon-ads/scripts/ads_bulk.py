@@ -72,6 +72,7 @@ import argparse
 import csv
 import datetime
 import json
+import math
 import sys
 
 try:
@@ -381,7 +382,12 @@ def _approved_bids(path):
     """``{(campaign_id, keyword, match_type): [(ad_group, bid), ...]}``
     for the raise/lower rows of a CHANGES.tsv — each at its own value.
     The ad group is kept: one keyword can sit in several ad groups of a
-    campaign, and only the named one may move."""
+    campaign, and only the named one may move.
+
+    A raise/lower row whose bid is missing, blank or not a number stops
+    the tool naming that row, before anything is written: this is the
+    money path reading an agent-authored file, and a bare traceback was
+    the observed pivot into typing bids into the console by hand."""
     out = {}
     with open(path, encoding='utf-8', newline='') as f:
         for row in csv.DictReader(f, delimiter='\t'):
@@ -396,7 +402,17 @@ def _approved_bids(path):
                 str(row.get('match_type') or '').strip().lower(),
             )
             ad_group = str(row.get('ad_group') or '').strip().lower()
-            out.setdefault(key, []).append((ad_group, float(row['target_bid'])))
+            raw = str(row.get('target_bid') or '').strip()
+            try:
+                bid = float(raw)
+            except ValueError:
+                bid = math.nan
+            if not math.isfinite(bid):
+                sys.exit(
+                    f'error: {key[0]}/{key[1]}: target_bid "{raw}" '
+                    'is not a number'
+                )
+            out.setdefault(key, []).append((ad_group, bid))
     return out
 
 

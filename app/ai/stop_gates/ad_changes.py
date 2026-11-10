@@ -48,6 +48,7 @@ from app.ai.stop_gates.ad_tables import (
     read_table,
 )
 from app.ai.stop_gates.ad_task import (
+    child_task_ids,
     parent_task_id,
     store_slug_for,
     task_dir,
@@ -214,10 +215,30 @@ def freeze_approved_changes(task_id: str) -> Path | None:
 
 def execution_logged(task_id: str) -> bool:
     """True once this task's EXECUTION_LOG.tsv records a change."""
+    return bool(_execution_rows(task_id))
+
+
+def _execution_rows(task_id: str) -> tuple[dict, ...]:
+    """The changes recorded in one task's EXECUTION_LOG.tsv."""
     table = read_table(
         task_dir(task_id) / EXECUTION_LOG_FILE, EXECUTION_COLUMNS
     )
-    return bool(table and not table.error and table.rows)
+    if table is None or table.error:
+        return ()
+    return table.rows
+
+
+def family_execution_rows(task_id: str) -> tuple[dict, ...]:
+    """This task's EXECUTION_LOG rows plus its children's.
+
+    The log a parent audit's execution child wrote is the only record
+    that a stamped ``applied_at`` on the campaign TSV is a change that
+    really happened: the parent's own dir has no log of it.
+    """
+    rows = _execution_rows(task_id)
+    for child in child_task_ids(task_id):
+        rows += _execution_rows(child)
+    return rows
 
 
 def approved_summary(task_id: str) -> list[str]:
@@ -338,6 +359,7 @@ def rule_violations(
     slug: str | None,
     executed: tuple[dict, ...] = (),
     since: datetime | None = None,
+    logged: tuple[dict, ...] = (),
 ) -> list[str]:
     """Owner rules on proposed changes.
 
@@ -346,19 +368,28 @@ def rule_violations(
     proposal off a target changed recently — does not apply to them
     (observed: an execution refused because its own change was "inside
     the cooldown").
+
+    *logged* are the EXECUTION_LOG rows that can back a stamp this task
+    did not write itself — its own plus its children's (an audit whose
+    execution child applied the change and rewrote the campaign TSV).
+    A target stamped applied after *since* is excused only while one of
+    them records it: the stamp is text in the agent's own file, and an
+    unbacked one would exempt the row from every rule below.
     """
     done = tuple(executed)
+    backing = tuple(logged) or done
     acos_floor = rules['acos_no_lower']
     roas_equiv = 100.0 / acos_floor if acos_floor else None
     out = []
     for row in rows:
-        if any(_matched(slug, row, d) for d in done) or _changed_since(
-            _drilled(slug, row), since
+        if any(_matched(slug, row, d) for d in done) or (
+            _changed_since(_drilled(slug, row), since)
+            and any(_matched(slug, row, d) for d in backing)
         ):
             # Already executed — by this task, or since it started by an
-            # execution child of it: no longer a proposal, and its
-            # campaign TSV now carries the new bid, so judging it again
-            # would compare the change with itself.
+            # execution child of it whose log backs the stamp: no longer
+            # a proposal, and its campaign TSV now carries the new bid,
+            # so judging it again would compare the change with itself.
             continue
         action = row['action'].lower()
         if action not in ACTIONS:
@@ -578,7 +609,12 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
             )
             advisories.extend(
                 rule_violations(
-                    changes.rows, rules, slug, done, _started(task_id)
+                    changes.rows,
+                    rules,
+                    slug,
+                    done,
+                    _started(task_id),
+                    family_execution_rows(task_id),
                 )
             )
     if executed is not None and not executed.error and executed.rows:

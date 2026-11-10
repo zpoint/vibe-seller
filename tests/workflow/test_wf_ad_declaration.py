@@ -480,6 +480,24 @@ class TestTheDeclarationNamesTheAdSkill:
         assert r.status_code == 200, r.text
         assert 'amazon-ads' in r.json()['load_skill']
 
+    async def test_the_hint_names_only_the_skills_that_keep_the_tsvs(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        """`qianniu-ads` documents no CAMPAIGNS.tsv and declares no
+        gates: telling a 千牛 run to follow that contract sends it after
+        a rule nothing checks and its own skill cannot satisfy."""
+        monkeypatch.setattr(
+            'app.routers.tasks_ad_declaration.agent_manager.'
+            'loaded_skills_and_workspace',
+            lambda _t: (set(), None),
+        )
+        task_id = await _make_task(admin_client)
+        r = await _declare(admin_client, task_id, 'audit', _ONE_MARKET)
+        assert r.status_code == 200, r.text
+        note = r.json()['load_skill']
+        assert 'amazon-ads' in note and 'noon-ads' in note
+        assert 'qianniu' not in note, note
+
     async def test_with_the_ad_skill_loaded_nothing_is_added(
         self, admin_client, install_fake_agent, monkeypatch
     ):
@@ -487,6 +505,23 @@ class TestTheDeclarationNamesTheAdSkill:
             'app.routers.tasks_ad_declaration.agent_manager.'
             'loaded_skills_and_workspace',
             lambda _t: ({'amazon-ads'}, None),
+        )
+        task_id = await _make_task(admin_client)
+        r = await _declare(admin_client, task_id, 'audit', _ONE_MARKET)
+        assert r.status_code == 200, r.text
+        assert 'load_skill' not in r.json()
+
+    @pytest.mark.parametrize('skill', ['amazon-ads', 'noon-ads', 'qianniu-ads'])
+    async def test_an_ad_skill_loaded_is_no_nag_whatever_the_platform(
+        self, admin_client, install_fake_agent, monkeypatch, skill
+    ):
+        """AD_SKILLS still counts qianniu-ads: an ad skill loaded is an
+        ad skill loaded, and a 千牛 run must not be told to load
+        another platform's skill."""
+        monkeypatch.setattr(
+            'app.routers.tasks_ad_declaration.agent_manager.'
+            'loaded_skills_and_workspace',
+            lambda _t: ({skill}, None),
         )
         task_id = await _make_task(admin_client)
         r = await _declare(admin_client, task_id, 'audit', _ONE_MARKET)

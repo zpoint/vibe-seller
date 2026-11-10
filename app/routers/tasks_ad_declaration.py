@@ -254,8 +254,12 @@ async def _declare(
     await db.refresh(row)
 
     # Mirror for the stop gates, which run synchronously without a DB
-    # session. The row above is the authority; this is a copy.
-    ad_declaration.write_declaration_file(task_id, kind, scope)
+    # session. The row above is the authority; this is a copy. It is a
+    # JSON write plus ensure_targets_file, so it goes off the loop like
+    # the reads on either side of it.
+    await asyncio.to_thread(
+        ad_declaration.write_declaration_file, task_id, kind, scope
+    )
     note = await _skill_note(task_id)
 
     # Execution starts here: freeze the approval it will be checked
@@ -277,6 +281,13 @@ async def _skill_note(task_id: str) -> str | None:
     CHANGES.tsv, how a user's standard is written in notes.md); an agent
     that declared and then browsed with only the browser skill wrote the
     user's standard as a sentence and no CHANGES.tsv at all.
+
+    Only the skills that DO keep that contract are named. `qianniu-ads`
+    counts as an ad skill above — a 千牛 store with its skill loaded must
+    not be nagged to load another platform's — but it documents no
+    TSVs and declares no gates, so pointing it at
+    CAMPAIGNS.tsv would send the agent to satisfy a contract its own
+    skill cannot meet.
     """
     loaded, _workspace = await asyncio.to_thread(
         agent_manager.loaded_skills_and_workspace, task_id
@@ -284,8 +295,8 @@ async def _skill_note(task_id: str) -> str | None:
     if AD_SKILLS & set(loaded or ()):
         return None
     return (
-        "Load the ad skill for this store's platform now (amazon-ads, "
-        'noon-ads or qianniu-ads) and follow its data contract: '
+        "Load the ad skill for this store's platform now (amazon-ads or "
+        'noon-ads) and follow its data contract: '
         'CAMPAIGNS.tsv, CHANGES.tsv, EXECUTION_LOG.tsv, and a standard the '
         'user states written as a `key: value` line in the store notes.'
     )

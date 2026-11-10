@@ -25,6 +25,7 @@ from app.schemas.workspace import (
     StoreProfileCreateRequest,
 )
 from app.workspace.catalog_validation import (
+    canonical_rel,
     catalog_problems,
     catalog_rejection,
 )
@@ -151,18 +152,28 @@ async def write_file(
         # carries another store's rows, or stubs a substantive file is
         # rejected naming the rows to fix. See catalog_validation.
         if path.endswith('CATALOG.md'):
+            # The tier is decided by the file the write lands on, not by
+            # how the caller spelled it: `./stores/<s>/CATALOG.md` and
+            # `stores//<s>/CATALOG.md` are the same tier catalog, and a
+            # round key per spelling would be one round per spelling.
+            rel = canonical_rel(path)
+            if rel is None:
+                raise ValueError(
+                    f'{path} cannot be read as a tier catalog: write it as '
+                    'knowledge/CATALOG.md or stores/<slug>/CATALOG.md.'
+                )
             hard, content_errors = await asyncio.to_thread(
                 catalog_problems,
-                path,
+                rel,
                 body.content,
                 root=workspace_manager.root,
                 resolve_file=workspace_manager.resolve_file,
             )
             # Rows outside the tier are always refused; the content rules
             # are told once, and a second write goes through as written.
-            writer, gate = task_id or 'workspace', f'catalog:{path}'
+            writer, gate = task_id or 'workspace', f'catalog:{rel}'
             if hard or (content_errors and record_attempt(writer, gate) == 1):
-                raise ValueError(catalog_rejection(path, hard + content_errors))
+                raise ValueError(catalog_rejection(rel, hard + content_errors))
             # A write that only went through because its round was spent
             # keeps the round spent: forgetting it here told the same
             # content rule again on the third write. Only a write the
@@ -170,7 +181,13 @@ async def write_file(
             if not content_errors:
                 forget_attempt(writer, gate)
         await workspace_manager.write_file(path, body.content)
-        knowledge_contract.note_write(path, task_id)
+        # The FILE the write landed on, not the string that asked for it:
+        # a cleanup's shield is only as good as the file it names (see
+        # app/knowledge_contract.note_write).
+        knowledge_contract.note_write(
+            await asyncio.to_thread(workspace_manager.resolve_file, path),
+            task_id,
+        )
         return {'path': path, 'status': 'ok'}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -232,7 +249,9 @@ async def delete_lines(
         if err:
             raise HTTPException(status_code=400, detail=err)
     await workspace_manager.write_file(path, new)
-    knowledge_contract.note_write(path, task_id)
+    knowledge_contract.note_write(
+        await asyncio.to_thread(workspace_manager.resolve_file, path), task_id
+    )
     return {'path': path, 'status': 'ok', 'deleted_lines': len(drop)}
 
 

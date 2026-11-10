@@ -355,6 +355,48 @@ class TestBidUpdate:
                 self._args(tmp_path, from_changes=str(changes))
             )
 
+    @pytest.mark.parametrize(
+        'cell',
+        ['', '-', 'as cheap as possible', None],
+        ids=['blank', 'dash', 'prose', 'column missing'],
+    )
+    def test_from_changes_names_the_row_whose_bid_is_no_number(
+        self, tmp_path, cell
+    ):
+        """Observed: `float(row['target_bid'])` raised a bare
+        ValueError/KeyError traceback naming no row, mid-execution — and
+        the pivot away from a crashing script is typing bids into the
+        console by hand, where only the crude magnitude guard is left.
+        The approval is agent-authored: refuse it, naming the row, before
+        anything is written."""
+        _make_export(tmp_path / 'export.xlsx')
+        cols = [
+            'campaign_id',
+            'ad_group',
+            'target',
+            'match_type',
+            'action',
+            'current_bid',
+            'target_bid',
+        ]
+        cells = ['C1', 'ag1', 'blue widget', 'exact', 'lower', '3.00']
+        if cell is None:  # a CHANGES.tsv without the column at all
+            cols = cols[:-1]
+        else:
+            cells.append(cell)
+        changes = tmp_path / 'CHANGES.tsv'
+        changes.write_text(
+            '\t'.join(cols) + '\n' + '\t'.join(cells) + '\n', encoding='utf-8'
+        )
+
+        with pytest.raises(SystemExit) as ei:
+            ads_bulk.cmd_bid_update(
+                self._args(tmp_path, from_changes=str(changes))
+            )
+        assert 'C1/blue widget' in str(ei.value), str(ei.value)
+        assert 'is not a number' in str(ei.value)
+        assert not (tmp_path / 'bid.xlsx').exists()
+
     def test_from_changes_moves_only_the_named_ad_group(self, tmp_path):
         """The same keyword in two ad groups of one campaign: approving
         it in ag1 must not move the ag2 copy."""
