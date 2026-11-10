@@ -331,3 +331,49 @@ def test_a_proposed_cpc_of_zero_is_no_evidence(task):
 def test_pausing_a_converting_target_is_flagged(task):
     task.changes([change(action='pause', acos='20', target_bid='')])
     assert any('pause with ACOS 20' in g for g in _gaps(task))
+
+
+def test_a_target_changed_since_the_task_started_is_not_re_judged(
+    monkeypatch,
+):
+    """A parent audit whose execution child applied its proposal: the
+    child rewrote the campaign TSV (new bid, fresh applied_at), so the
+    parent's proposal row now reads as a cut inside the cooldown and a
+    'raise' that does not go up. A target changed after this task began
+    is no longer this task's proposal to judge."""
+    start = datetime.now(UTC) - timedelta(hours=1)
+    t = AdTask(f'chg-{uuid.uuid4().hex[:8]}', monkeypatch, start.isoformat())
+    t.declare('audit')
+    t.changes([change(target_bid='1.35')])
+    t.drill(
+        'A1234567',
+        [
+            {
+                'ad_group': 'g1',
+                'target': 'widget',
+                'match_type': 'exact',
+                'bid': '1.35',
+                'applied_action': 'raise',
+                'applied_at': datetime.now(UTC).isoformat(),
+            }
+        ],
+        [],
+    )
+    assert _gaps(t) == []
+    # Control: the same change applied BEFORE the task began is still a
+    # target inside the cooldown.
+    t.drill(
+        'A1234567',
+        [
+            {
+                'ad_group': 'g1',
+                'target': 'widget',
+                'match_type': 'exact',
+                'bid': '1.35',
+                'applied_action': 'raise',
+                'applied_at': (start - timedelta(days=1)).isoformat(),
+            }
+        ],
+        [],
+    )
+    assert any('cooldown' in g for g in _gaps(t)), _gaps(t)

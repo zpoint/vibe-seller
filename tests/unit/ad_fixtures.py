@@ -39,9 +39,9 @@ class AdTask:
         for mod in (ad_changes, ad_coverage):
             monkeypatch.setattr(mod, 'store_slug_for', lambda _t: self.slug)
         monkeypatch.setattr(ad_changes, 'parent_task_id', lambda _t: None)
-        monkeypatch.setattr(
-            ad_coverage, 'task_started_at', lambda _t: started_at
-        )
+        for mod in (ad_changes, ad_coverage):
+            monkeypatch.setattr(mod, 'task_started_at', lambda _t: started_at)
+        self.started_at = started_at
 
     def declare(self, kind: str, scope: dict | None = None) -> None:
         (self.dir / 'AD_TASK.json').write_text(

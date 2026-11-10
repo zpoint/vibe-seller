@@ -46,7 +46,12 @@ from app.ai.stop_gates.ad_tables import (
     number,
     read_table,
 )
-from app.ai.stop_gates.ad_task import parent_task_id, store_slug_for, task_dir
+from app.ai.stop_gates.ad_task import (
+    parent_task_id,
+    store_slug_for,
+    task_dir,
+    task_started_at,
+)
 from app.config import DATA_DIR
 from app.models.ad_declaration import KIND_EXECUTE, KIND_INVESTIGATE
 
@@ -223,11 +228,25 @@ def _evidence(slug: str | None, row: dict) -> dict:
     }
 
 
+def _changed_since(drilled: dict | None, since: datetime | None) -> bool:
+    """Whether the drilled target was applied at or after *since*."""
+    if since is None or not drilled:
+        return False
+    try:
+        when = datetime.fromisoformat(drilled.get('applied_at') or '')
+    except ValueError:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return when >= since
+
+
 def rule_violations(
     rows: tuple[dict, ...],
     rules: dict,
     slug: str | None,
     executed: tuple[dict, ...] = (),
+    since: datetime | None = None,
 ) -> list[str]:
     """Owner rules on proposed changes.
 
@@ -242,10 +261,11 @@ def rule_violations(
     roas_equiv = 100.0 / acos_floor if acos_floor else None
     out = []
     for row in rows:
-        if _key(row) in done:
-            # Already executed by this task: no longer a proposal, and
-            # its campaign TSV now carries the new bid, so judging it
-            # again would compare the change with itself.
+        if _key(row) in done or _changed_since(_drilled(slug, row), since):
+            # Already executed — by this task, or since it started by an
+            # execution child of it: no longer a proposal, and its
+            # campaign TSV now carries the new bid, so judging it again
+            # would compare the change with itself.
             continue
         action = row['action'].lower()
         if action not in ACTIONS:
@@ -392,6 +412,17 @@ def _writeback_mismatch(slug: str | None, want: dict, row: dict) -> list[str]:
     return []
 
 
+def _started(task_id: str) -> datetime | None:
+    raw = task_started_at(task_id)
+    try:
+        when = datetime.fromisoformat(raw) if raw else None
+    except ValueError:
+        return None
+    if when is not None and when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return when
+
+
 def check(final_result: str, task_id: str, rules: dict | None = None):
     rules = {**DEFAULT_RULES, **(rules or {})}
     d = task_dir(task_id)
@@ -429,7 +460,11 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
                 if executed is not None and not executed.error
                 else ()
             )
-            advisories.extend(rule_violations(changes.rows, rules, slug, done))
+            advisories.extend(
+                rule_violations(
+                    changes.rows, rules, slug, done, _started(task_id)
+                )
+            )
     if executed is not None and not executed.error and executed.rows:
         approved_file = find_approved(task_id)
         if approved_file is None:
