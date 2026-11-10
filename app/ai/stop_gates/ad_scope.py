@@ -77,31 +77,25 @@ def write_declared_targets(
 ) -> None:
     """Write the SERVER's combo obligation for a task (best-effort).
 
-    The agent-authored scope file (retired ``AUDIT_SCOPE.json``)
-    grounded *how many* campaigns a combo owes, but the agent also
-    wrote *which combos exist* — so the one number it could still
-    shrink was the combo count itself. Observed live: a store
-    configured for 5 combos got a one-combo scope, the gate agreed the
-    report was complete, and four marketplaces were never audited.
+    Which combos exist is the server's fact, not the agent's: an agent
+    that chose its own combo set could shrink it (observed live: a
+    store configured for 5 combos audited one, and four marketplaces
+    went unaudited). ``Store.platform_countries`` — user-configured in
+    Settings, and a monotonic union of what past tasks observed, so it
+    never shrinks — is written into the workspace at task start, where
+    the coverage gate checks ``CAMPAIGNS.tsv`` against it and the agent
+    can read what it owes.
 
-    The server already knows the answer (``Store.platform_countries`` —
-    user-configured in Settings, and a monotonic union of what past tasks
-    observed, so it never shrinks). Writing it into the workspace at task
-    start makes it BOTH halves of the contract: the gates check the
-    scope against it, and the agent can read it to see what it owes
-    instead of inferring the list from "reference only" prompt context.
-
-    The agent may still declare a combo EMPTY (``active_ids: []`` /
-    ``total_active: 0``) — "no live campaigns here" is a legitimate
-    finding. What it can no longer do is omit the combo silently, nor
-    assert emptiness for a marketplace that recently had campaigns (see
-    :func:`prior_campaign_tsvs`).
+    A combo with no live campaigns is a legitimate finding (one row with
+    an empty ``campaign_id`` and a note). What the agent cannot do is
+    omit the combo silently, nor list far fewer campaigns than recent
+    history without a note (see :func:`prior_campaign_tsvs`).
 
     ``slug`` is recorded so the audit can find this store's own history
     without globbing ``stores/*`` and borrowing another store's.
 
-    Best-effort: an unwritable workspace degrades to the previous
-    behaviour (agent-chosen combo set) rather than blocking the task.
+    Best-effort: an unwritable workspace leaves the gate with no store
+    combos to demand, rather than blocking the task.
     """
     combos = [
         {'platform': str(p).strip().lower(), 'country': str(c).strip().upper()}
