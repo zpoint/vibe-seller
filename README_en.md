@@ -22,7 +22,7 @@
 
 <img width="3200" height="1800" alt="1_combined" src="docs/images/1_combined_en.png" />
 
-<img width="2981" height="1360" alt="2_combined" src="docs/images/2_combined_en.png" />
+<img width="1991" height="1552" alt="2_combined" src="docs/images/2_combined.png" />
 
 🔥 *News* 🔥
 
