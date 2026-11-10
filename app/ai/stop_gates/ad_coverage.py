@@ -206,8 +206,12 @@ def audit_findings(
             continue
         real = [r for r in rows if r.get('campaign_id')]
         prior = prior_campaign_tsvs(slug, platform, country) if slug else 0
+        # A declared campaign subset lists only those campaigns; history
+        # counts the whole market, so the comparison only fits a phase
+        # that owes every campaign in it.
         if (
             prior
+            and not (scope or {}).get('campaigns')
             and len(real) * 2 < prior
             and not any(r.get('note') for r in rows)
         ):

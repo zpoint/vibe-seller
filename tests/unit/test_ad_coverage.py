@@ -266,3 +266,30 @@ def test_missing_declaration_names_the_loaded_tool():
     assert 'mcp__vibe-seller__vibe_seller_declare_ad_task' in msg
     assert 'already in your tool list' in msg
     assert 'cannot be back-filled' not in msg
+
+
+def test_a_named_campaign_scope_is_not_a_shrinking_market(task):
+    """Naming two campaigns is not under-reading the marketplace.
+
+    The shrink check compares a combo's listed campaigns with the
+    store's recent history (6 TSVs here) and caught real lazy lists —
+    but a phase that DECLARED a campaign subset lists only those.
+    Observed live: "just the widget-006 family on Amazon SA" read as a
+    collapse, and the agent was told to re-enumerate a market nobody
+    asked about.
+    """
+    old = time.time() - 3 * 86400
+    for i in range(6):
+        for p in task.drill(f'A90000{i:02d}', [{'target': 'x'}], []):
+            os.utime(p, (old, old))
+    task.declare(
+        'audit',
+        {
+            'combos': [{'platform': 'amazon', 'country': 'SA'}],
+            'campaigns': ['A1234567'],
+        },
+    )
+    task.campaigns([campaign()])
+    full_drill(task)
+    gaps, _ = findings(task)
+    assert not any('in the last weeks' in g for g in gaps), gaps

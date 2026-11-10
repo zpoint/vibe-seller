@@ -137,6 +137,9 @@ async def write_file(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
+    busy = knowledge_contract.busy_error(path, task_id)
+    if busy:
+        raise HTTPException(status_code=409, detail=busy)
     try:
         if task_id and not path.endswith('CATALOG.md'):
             err = await _cleanup_write_error(db, task_id, path, body.content)
@@ -175,6 +178,16 @@ async def delete_lines(
     server deletes the named 1-based inclusive ranges itself, and only
     from the file as the caller read it.
     """
+    busy = knowledge_contract.busy_error(path, task_id)
+    if busy:
+        raise HTTPException(status_code=409, detail=busy)
+    if path.endswith('CATALOG.md'):
+        # A catalog is rewritten whole and validated as a table; line
+        # deletion would bypass that check.
+        raise HTTPException(
+            status_code=400,
+            detail='Write CATALOG.md with vibe_seller_write_workspace_file.',
+        )
     try:
         old = await workspace_manager.read_file(path)
     except FileNotFoundError:

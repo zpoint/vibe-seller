@@ -84,12 +84,16 @@ DEFAULT_RULES: dict[str, float] = {
     'margin': 25.0,
 }
 
-# Per-store override patterns — ``key: value`` anywhere in notes.md;
-# an underscore in the key may also be written as a space.
+# Per-store override patterns — a ``key: value`` line of its own in
+# notes.md (optionally a list item); an underscore in the key may also be
+# written as a space. A mention inside prose ("we once tried
+# cpc_floor_multiplier: 0 and it failed") is not a standard.
 _OVERRIDE_RES: dict[str, re.Pattern[str]] = {
     key: re.compile(
-        key.replace('_', '[_ ]?') + r'\s*[:=]\s*(\d+(?:\.\d+)?)',
-        re.IGNORECASE,
+        r'^[ \t]*(?:[-*][ \t]+)?'
+        + key.replace('_', '[_ ]?')
+        + r'[ \t]*[:=][ \t]*(\d+(?:\.\d+)?)[ \t]*%?[ \t]*$',
+        re.IGNORECASE | re.MULTILINE,
     )
     for key in DEFAULT_RULES
 }

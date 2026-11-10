@@ -222,7 +222,7 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
             tid = _config['task_id']
             result = await call_api(
                 'PUT',
-                f'/api/workspace/file?path={arguments["path"]}'
+                f'/api/workspace/file?path={quote(arguments["path"], safe="/")}'
                 + (f'&task_id={tid}' if tid else ''),
                 {'content': arguments['content']},
             )
@@ -230,7 +230,7 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
             tid = _config['task_id']
             result = await call_api(
                 'POST',
-                f'/api/workspace/file/delete-lines?path={arguments["path"]}'
+                f'/api/workspace/file/delete-lines?path={quote(arguments["path"], safe="/")}'
                 + (f'&task_id={tid}' if tid else ''),
                 {
                     'line_count': arguments.get('line_count'),

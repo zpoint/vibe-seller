@@ -152,12 +152,14 @@ async def auto_run_task(task_id: str, store: Store | None):
                 ):
                     cleanup_pending = cleanup_scope(task.store_id)
             if cleanup_pending is not None:
-                cleanup_snapshot = await asyncio.to_thread(
-                    knowledge_contract.snapshot_tier,
-                    VIBE_SELLER_DIR,
+                tier_slug = (
                     None
                     if task.store_id is None
-                    else _store_slug(store.name, store.id),
+                    else _store_slug(store.name, store.id)
+                )
+                knowledge_contract.begin_cleanup(task_id, tier_slug)
+                cleanup_snapshot = await asyncio.to_thread(
+                    knowledge_contract.snapshot_tier, VIBE_SELLER_DIR, tier_slug
                 )
             if task.store_id is None:
                 # L2: global catalog only
@@ -385,6 +387,7 @@ async def auto_run_task(task_id: str, store: Store | None):
                 restored = await asyncio.to_thread(
                     knowledge_contract.undo_non_deletions, cleanup_snapshot
                 )
+                knowledge_contract.end_cleanup(task_id)
                 if restored:
                     logger.warning(
                         'Knowledge cleanup %s changed more than lines; '
@@ -400,6 +403,7 @@ async def auto_run_task(task_id: str, store: Store | None):
                         )
                         await db_kc.commit()
             except Exception:
+                knowledge_contract.end_cleanup(task_id)
                 logger.warning(
                     'Recording knowledge cleanup failed for %s',
                     task_id,

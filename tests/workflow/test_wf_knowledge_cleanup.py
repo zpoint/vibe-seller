@@ -468,3 +468,43 @@ class TestDeleteLines:
         )
         assert r.status_code == 400
         assert 'another tier' in r.text
+
+
+class TestATierBeingCleanedIsLocked:
+    """While a run cleans a tier, its outcome check restores any file
+    changed by more than deletions — so another writer's edit in that
+    tier would be swept away. Other writers are refused until it ends."""
+
+    async def test_other_writers_wait_while_the_tier_is_cleaned(
+        self, admin_client, mock_workspace
+    ):
+        path = 'stores/lock-store/notes.md'
+        body = {'content': '# Notes\n\nfact\n'}
+        knowledge_contract.begin_cleanup('cleanup-task', 'lock-store')
+        try:
+            r = await admin_client.put(
+                f'/api/workspace/file?path={path}', json=body
+            )
+            assert r.status_code == 409
+            assert 'cleanup is running' in r.text
+            other = 'stores/other-store/notes.md'
+            r = await admin_client.put(
+                f'/api/workspace/file?path={other}', json=body
+            )
+            assert r.status_code == 200, r.text
+        finally:
+            knowledge_contract.end_cleanup('cleanup-task')
+        r = await admin_client.put(
+            f'/api/workspace/file?path={path}', json=body
+        )
+        assert r.status_code == 200, r.text
+
+    async def test_line_deletion_never_touches_a_catalog(
+        self, admin_client, mock_workspace
+    ):
+        path = 'stores/lock-store/CATALOG.md'
+        r = await admin_client.post(
+            f'/api/workspace/file/delete-lines?path={path}',
+            json={'line_count': 1, 'ranges': [[1, 1]]},
+        )
+        assert r.status_code == 400
