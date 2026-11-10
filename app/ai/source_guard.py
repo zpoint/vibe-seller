@@ -14,9 +14,13 @@ agent is told to use lives here: skills, knowledge and wrappers are
 copies under the vibe-seller home, never paths into the package.
 
 Protected: the ``app`` package, and when it runs from a source checkout,
-that checkout's ``tests/`` (they describe the gates just as well). Paths
-are compared as written, not resolved, so a symlinked skill copy that
-happens to point into the package still reads normally.
+that checkout's ``tests/`` (they describe the gates just as well). Also the
+app's own data dir: observed, a planner spent its first six minutes in
+``vibe_seller.db`` and the mailbox databases instead of planning — and the
+frozen ad approvals live there too. Mail is read through the email MCP
+tools; nothing a task needs is under it. Paths are compared as written, not
+resolved, so a symlinked skill copy that happens to point into the package
+still reads normally.
 """
 
 import os
@@ -24,12 +28,14 @@ from pathlib import Path
 import re
 
 import app
+from app.config import DATA_DIR
 
 _APP_DIR = Path(app.__file__).resolve().parent
 _CHECKOUT = _APP_DIR.parent
-PROTECTED_DIRS = (_APP_DIR,) + (
+SOURCE_DIRS = (_APP_DIR,) + (
     (_CHECKOUT / 'tests',) if (_CHECKOUT / 'pyproject.toml').is_file() else ()
 )
+PROTECTED_DIRS = SOURCE_DIRS + (DATA_DIR,)
 
 _HOME = str(Path.home())
 
@@ -47,6 +53,12 @@ _PROTECTED_IN_CMD = re.compile(
     + r""")(?=$|[/\s'";|&)])"""
 )
 
+_DATA_DENY = (
+    "Blocked: `{path}` is vibe-seller's own data, not data for this task. "
+    'Mail is read with the email tools, store files and knowledge are in '
+    'your working directory, and other tasks are not yours to read.'
+)
+
 _DENY = (
     "Blocked: `{path}` is vibe-seller's own source code, not data for this "
     'task. The checks your result must pass are enforced on what you '
@@ -56,11 +68,14 @@ _DENY = (
 )
 
 
-def _inside(path: str) -> bool:
+def _under(path: str, dirs: tuple[Path, ...]) -> bool:
     p = os.path.normpath(os.path.expanduser(path))
-    return any(
-        p == str(d) or p.startswith(str(d) + os.sep) for d in PROTECTED_DIRS
-    )
+    return any(p == str(d) or p.startswith(str(d) + os.sep) for d in dirs)
+
+
+def _deny(path: str) -> str:
+    data = _under(path, (DATA_DIR,))
+    return (_DATA_DENY if data else _DENY).format(path=path)
 
 
 def source_access_deny(tool_name: str, tool_input) -> str | None:
@@ -70,7 +85,7 @@ def source_access_deny(tool_name: str, tool_input) -> str | None:
     if tool_name == 'Bash':
         cmd = str(tool_input.get('command', ''))
         m = _PROTECTED_IN_CMD.search(cmd)
-        return _DENY.format(path=m.group(0)) if m else None
+        return _deny(m.group(0)) if m else None
     if tool_name in ('Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'):
         path = tool_input.get('file_path') or tool_input.get('notebook_path')
     elif tool_name in ('Grep', 'Glob'):
@@ -80,7 +95,7 @@ def source_access_deny(tool_name: str, tool_input) -> str | None:
     if (
         path
         and os.path.isabs(os.path.expanduser(str(path)))
-        and _inside(str(path))
+        and _under(str(path), PROTECTED_DIRS)
     ):
-        return _DENY.format(path=path)
+        return _deny(str(path))
     return None

@@ -16,6 +16,7 @@ import pytest
 from app.ai import source_guard as sg
 from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import AUTO_APPROVE_CALLBACK
+from app.config import DATA_DIR
 
 pytestmark = pytest.mark.unit
 
@@ -38,6 +39,31 @@ class TestSourceAccessDeny:
     def test_reaching_into_the_package_is_refused(self, tool, tool_input):
         deny = sg.source_access_deny(tool, tool_input)
         assert deny and 'source code' in deny
+
+    @pytest.mark.parametrize(
+        ('tool', 'tool_input'),
+        [
+            (
+                'Bash',
+                {'command': f'sqlite3 {DATA_DIR}/vibe_seller.db .tables'},
+            ),
+            (
+                'Bash',
+                {'command': f'cd /tmp && sqlite3 -json {DATA_DIR / "x.db"}'},
+            ),
+            ('Bash', {'command': f'ls -la {DATA_DIR}/ 2>/dev/null'}),
+            ('Read', {'file_path': str(DATA_DIR / 'email_dbs' / 'a.db')}),
+            (
+                'Write',
+                {'file_path': str(DATA_DIR / 'approved_changes' / 'x')},
+            ),
+        ],
+    )
+    def test_the_apps_own_data_is_refused(self, tool, tool_input):
+        """Observed: a planner spent six minutes in the app DB and the
+        mailbox DBs instead of planning."""
+        deny = sg.source_access_deny(tool, tool_input)
+        assert deny and "vibe-seller's own data" in deny
 
     def test_checkout_tests_are_protected_when_present(self):
         tests_dir = APP.parent / 'tests'
