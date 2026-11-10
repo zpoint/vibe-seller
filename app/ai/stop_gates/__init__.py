@@ -211,7 +211,7 @@ def clear_skill_bindings(task_id: str) -> None:
 # ── Skill-declared gate registry ────────────────────────────────────
 #
 # Domain gates run only when a skill the session loaded DECLARES them
-# in its SKILL.md frontmatter (``gates: [ad_completeness_review]``).
+# in its SKILL.md frontmatter (``gates: [ad_changes, ad_coverage]``).
 # This keeps ``set_task_result`` free of task-type special cases: a
 # task that loaded no gate-declaring skill gets none. Names below are the public contract skills use.
 

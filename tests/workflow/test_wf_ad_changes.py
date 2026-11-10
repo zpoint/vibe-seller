@@ -10,12 +10,17 @@ Pins how the two ad gates are enforced at the endpoint:
 
 import asyncio
 from datetime import UTC, datetime
+import uuid
 
 import pytest
 
 from app.ai.stop_gates import CONTRADICTION_MAX_DENIALS, ad_changes, ad_coverage
 from app.ai.stop_gates.ad_tables import CHANGE_COLUMNS, read_table
+import app.database as _db
+from app.models.task import Task
+from app.models.task_message import TaskMessage
 import app.routers.tasks as tasks_router
+from app.task_states import TaskStatus
 from tests.unit.ad_fixtures import AdTask, change
 from tests.workflow.fake_agent import FakeAgentScenario
 
@@ -62,6 +67,19 @@ async def _declare(admin_client, task, kind, scope=None):
     )
 
 
+async def _user_answered_an_audit(admin_client, task_id):
+    """An audit was declared, then the user sent a message after it —
+    what execution needs before it may start."""
+    r = await admin_client.post(
+        f'/api/tasks/{task_id}/ad-declaration',
+        json={'kind': 'audit', 'scope': {}},
+    )
+    assert r.status_code == 200, r.text
+    async with _db.async_session() as db:
+        db.add(TaskMessage(task_id=task_id, role='user', content='go ahead'))
+        await db.commit()
+
+
 def _frozen_bids(task):
     table = read_table(ad_changes.approved_path(task.id), CHANGE_COLUMNS)
     return [r['target_bid'] for r in table.rows]
@@ -101,6 +119,7 @@ async def test_execution_is_held_to_the_value_the_user_approved(
     task = await _running(admin_client, install_fake_agent, monkeypatch, 'A5')
     task.changes([change(target_bid='1.32')])  # the audit's proposal
     task.changes([change(target_bid='1.35')])  # amended to the user's value
+    await _user_answered_an_audit(admin_client, task.id)
     r = await _declare(admin_client, task, 'execute')
     assert r.status_code == 200, r.text
     assert _frozen_bids(task) == ['1.35']
@@ -147,6 +166,7 @@ async def test_declaring_again_before_any_change_refreezes(
     response shows what froze, so the mismatch is visible up front."""
     task = await _running(admin_client, install_fake_agent, monkeypatch, 'A6')
     task.changes([change(action='hold', target_bid='', reason='audit')])
+    await _user_answered_an_audit(admin_client, task.id)
     r = await _declare(admin_client, task, 'execute')
     assert r.status_code == 200, r.text
     assert r.json()['approved'] == []
@@ -162,6 +182,7 @@ async def test_no_refreeze_once_a_change_is_logged(
 ):
     task = await _running(admin_client, install_fake_agent, monkeypatch, 'A8')
     task.changes([change(target_bid='1.35')])
+    await _user_answered_an_audit(admin_client, task.id)
     r = await _declare(admin_client, task, 'execute')
     assert r.status_code == 200, r.text
     task.execution([_LOGGED])
@@ -179,6 +200,7 @@ async def test_the_executed_change_is_not_its_own_cooldown(
     made put its own target "inside the 7-day cooldown"."""
     task = await _running(admin_client, install_fake_agent, monkeypatch, 'A9')
     task.changes([change(target_bid='1.35')])
+    await _user_answered_an_audit(admin_client, task.id)
     r = await _declare(admin_client, task, 'execute')
     assert r.status_code == 200, r.text
     task.execution([_LOGGED])
@@ -212,6 +234,7 @@ async def test_execute_with_nothing_to_start_from_clears_an_old_freeze(
     task.changes([change(target_bid='1.35')])
     ad_changes.freeze_approved_changes(task.id)
     (task.dir / 'CHANGES.tsv').unlink()
+    await _user_answered_an_audit(admin_client, task.id)
     r = await _declare(admin_client, task, 'execute')
     assert r.status_code == 200, r.text
     assert not ad_changes.approved_path(task.id).exists()
@@ -324,3 +347,66 @@ async def test_a_short_answer_is_not_swapped_for_an_old_audit(
     assert r.status_code == 200, r.text
     data = (await admin_client.get(f'/api/tasks/{task.id}')).json()
     assert data['result'].startswith('Amazon SA ACOS over the last 7 days')
+
+
+async def test_execute_needs_the_user_to_answer_an_audit(
+    admin_client, install_fake_agent, monkeypatch
+):
+    """Execution may start only after the user saw proposals and replied.
+
+    Without this a phase could apply changes nobody was shown: an agent
+    acting on its own audit in the same turn, or declaring execute
+    straight away on "lower X to 1.35"."""
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A11')
+    task.changes([change(target_bid='1.35')])
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 409, r.text
+    assert 'audit' in r.text
+    r = await _declare(admin_client, task, 'audit')
+    assert r.status_code == 200, r.text
+    r = await _declare(admin_client, task, 'execute')  # same turn
+    assert r.status_code == 409, r.text
+    async with _db.async_session() as db:
+        db.add(TaskMessage(task_id=task.id, role='user', content='ok, do it'))
+        await db.commit()
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 200, r.text
+
+
+async def test_a_child_executes_only_after_the_user_answered_the_parent(
+    admin_client, install_fake_agent, monkeypatch
+):
+    """An orchestrator's child cannot approve its own execution: the user
+    must have answered the parent's audit."""
+    parent = await _running(
+        admin_client, install_fake_agent, monkeypatch, 'A12'
+    )
+    r = await _declare(admin_client, parent, 'audit')
+    assert r.status_code == 200, r.text
+    child_id = str(uuid.uuid4())
+    async with _db.async_session() as db:
+        p = await db.get(Task, parent.id)
+        db.add(
+            Task(
+                id=child_id,
+                parent_task_id=parent.id,
+                store_id=p.store_id,
+                created_by=p.created_by,
+                title='apply',
+                status=TaskStatus.RUNNING,
+            )
+        )
+        await db.commit()
+    r = await admin_client.post(
+        f'/api/tasks/{child_id}/ad-declaration',
+        json={'kind': 'execute', 'scope': {}},
+    )
+    assert r.status_code == 409, r.text
+    async with _db.async_session() as db:
+        db.add(TaskMessage(task_id=parent.id, role='user', content='go ahead'))
+        await db.commit()
+    r = await admin_client.post(
+        f'/api/tasks/{child_id}/ad-declaration',
+        json={'kind': 'execute', 'scope': {}},
+    )
+    assert r.status_code == 200, r.text

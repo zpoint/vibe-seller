@@ -43,6 +43,12 @@ declaring.
   them as approved, verify them the same way, and list them in your
   result. They don't go in `EXECUTION_LOG.tsv`, which takes only
   `CHANGES.tsv` rows.
+- **The user asks for a change directly** ("lower widget red to 1.35")
+  with no audit before it: execution only opens after the user has seen
+  a proposal and answered. Declare `audit` for that campaign, put the
+  change in `CHANGES.tsv` (their value, even one the store rules would
+  not have proposed), and end your turn showing it — "lower widget red
+  1.50 → 1.35; reply to apply". Their reply opens `execute`.
 - **No audit to execute against** (no report or `CHANGES.tsv` in this
   task or its parent): ask with `AskUserQuestion` whether to run an audit
   first, rather than re-auditing silently.

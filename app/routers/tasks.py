@@ -614,7 +614,9 @@ async def set_task_result(
     if deny:
         await _refuse(db, task, deny, declared)
 
-    await apply_soft_gates(db, task, task_id, final_result, declared)
+    soft_gaps = await apply_soft_gates(
+        db, task, task_id, final_result, declared
+    )
 
     # Skill-declared domain gates: the session's loaded skills name WHICH
     # gates apply (``gates: [...]`` in SKILL.md → get_registered_gates).
@@ -629,7 +631,7 @@ async def set_task_result(
         resolve_skill_gates, loaded, workspace or VIBE_SELLER_DIR
     )
 
-    stalled_gaps: list[str] = []
+    stalled_gaps: list[str] = list(soft_gaps)
     for gate_name, gate in skill_gates:
         deny = await asyncio.to_thread(gate.check, final_result, task_id, rules)
         if not deny:

@@ -243,3 +243,31 @@ class TestIncompleteExit:
         final = await wait_for_task(admin_client, task_id)
         assert final['status'] == 'completed'
         assert 'let me out' in final['result']
+
+    async def test_a_soft_gate_let_through_ships_its_gap(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        """Past its one refusal a soft gate lets the result through —
+        with its gap among the result's caveats, not only in a log line."""
+        gap = 'reports_2026-01: fee report missing'
+
+        async def short_delivery(db, task, task_root, **kw):
+            return GateDeny(
+                gate='deliverable_manifest', reason=gap, gaps=(gap,)
+            )
+
+        monkeypatch.setattr(
+            task_submission, 'check_deliverables', short_delivery
+        )
+        task_id, gate = await _running_task(
+            admin_client, install_fake_agent, 'Soft Gap Store'
+        )
+        body = {'result': PARTIAL}
+        r = await admin_client.post(f'/api/tasks/{task_id}/result', json=body)
+        assert r.status_code == 400
+        r = await admin_client.post(f'/api/tasks/{task_id}/result', json=body)
+        assert r.status_code == 200
+        data = (await admin_client.get(f'/api/tasks/{task_id}')).json()
+        assert gap in (data.get('review_gaps') or '')
+        gate.set()
+        await wait_for_task(admin_client, task_id)

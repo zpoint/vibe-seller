@@ -155,13 +155,15 @@ async def apply_soft_gates(
     task_id: str,
     final_result: str,
     declared: tuple[str, ...],
-) -> None:
+) -> tuple[str, ...]:
     """The gates every task gets, regardless of which skills it loaded.
 
     Each gate gets at most ``SOFT_GATE_MAX_DENIALS`` refusals per task;
     past the cap the text is allowed through so a stubborn failure cannot
-    trap the agent in a loop it has no way to exit. Run here rather than
-    from the Stop hook because some agent backends never emit Stop.
+    trap the agent in a loop it has no way to exit — and its gaps are
+    returned, to ship as the result's caveats rather than vanish into a
+    log line. Run here rather than from the Stop hook because some agent
+    backends never emit Stop.
     """
     denials = []
     deliverable_deny = await check_deliverables(
@@ -170,10 +172,12 @@ async def apply_soft_gates(
     if deliverable_deny:
         denials.append(deliverable_deny)
 
+    allowed_gaps: list[str] = []
     for deny in denials:
         attempt = record_attempt(task_id, deny.gate)
         if attempt <= SOFT_GATE_MAX_DENIALS:
             await refuse(db, task, deny.reason, declared + deny.gaps)
+        allowed_gaps.extend(deny.gaps or (deny.reason,))
         logger.warning(
             'Soft gate %s exceeded %d denials for task %s — allowing '
             'result through anyway. Reason: %s',
@@ -182,3 +186,4 @@ async def apply_soft_gates(
             task_id,
             deny.reason[:200],
         )
+    return tuple(allowed_gaps)

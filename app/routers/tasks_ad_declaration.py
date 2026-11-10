@@ -40,6 +40,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models.ad_declaration import (
     AD_TASK_KINDS,
+    KIND_AUDIT,
     KIND_EXECUTE,
     AdTaskDeclaration,
 )
@@ -70,6 +71,33 @@ async def _user_turns(db: AsyncSession, task_id: str) -> int:
             )
         )
     ) or 0
+
+
+async def _user_replied_to_an_audit(db: AsyncSession, task: Task) -> bool:
+    """Whether the user has answered proposals they were shown.
+
+    Execution may start only after an ``audit`` phase (this task's, or
+    the parent's for an execution task spawned from it) and a USER
+    message that came after that audit's turn. Without it a phase could
+    apply changes nobody saw: an agent acting on its own audit in the
+    same turn, or an orchestrator's child executing a plan the user was
+    never asked about. Whether the reply means yes is still the agent's
+    reading of it; that the user saw the list and answered is enforced.
+    """
+    for owner_id in (task.id, task.parent_task_id):
+        if not owner_id:
+            continue
+        audit_turn = await db.scalar(
+            select(func.max(AdTaskDeclaration.user_turn)).where(
+                AdTaskDeclaration.task_id == owner_id,
+                AdTaskDeclaration.kind == KIND_AUDIT,
+            )
+        )
+        if audit_turn is not None and (
+            await _user_turns(db, owner_id) > audit_turn
+        ):
+            return True
+    return False
 
 
 async def _latest(db: AsyncSession, task_id: str) -> AdTaskDeclaration | None:
@@ -232,6 +260,17 @@ async def declare_ad_task(
                 'scope needs a new message from the USER. Work within '
                 'what you declared, or say in your result why it does '
                 'not fit and let them redirect you.'
+            ),
+        )
+
+    if kind == KIND_EXECUTE and not await _user_replied_to_an_audit(db, task):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                'Nothing the user has seen and answered is approved yet. '
+                'Declare kind="audit", list the changes in CHANGES.tsv, '
+                'and end your turn showing them to the user; declare '
+                '"execute" once they reply.'
             ),
         )
 

@@ -198,3 +198,46 @@ def test_a_stated_standard_is_recorded_and_honoured(api_client, console):
         tuple(proposals), resolve_rules(None), None
     ), 'fixture no longer exercises the override'
     assert console.writes == []
+
+
+def test_a_direct_instruction_is_confirmed_then_done_as_the_user_said(
+    api_client, console
+):
+    """The user asks for a cut the store's default rules would never
+    propose — "gizmo mini" converts (ACOS 25%, under the 30% floor) and
+    1.00 is under CPC 1.00 x 1.1. Nothing changes until the user has seen
+    the change and answered; then exactly their value goes in, with no
+    warning banner, because the user's decision wins over a default."""
+    store = _amazon_store(api_client, 'e2e-adask')
+    task = create_task(
+        api_client,
+        'Lower the gizmo mini bid to 1.00',
+        store_id=store['id'],
+        description=(
+            f'Our ad console is at {console.base}. Lower the bid on '
+            '"gizmo mini" to 1.00. I know it converts well; I still want '
+            'it lower.'
+        ),
+    )
+    _finish(api_client, task['id'])
+    assert console.writes == [], (
+        f'changed before the user saw it: {console.writes}'
+    )
+    proposed = [
+        r
+        for r in _rows(task['id'], 'CHANGES.tsv', CHANGE_COLUMNS)
+        if r['target'] == 'gizmo mini'
+    ]
+    assert proposed and proposed[0]['target_bid'] == '1.00', proposed
+
+    _say(api_client, task['id'], 'Yes, apply it.')
+    done = _finish(api_client, task['id'])
+    assert [(w['keyword'], w['to']) for w in console.writes] == [
+        ('gizmo mini', '1.00')
+    ], console.writes
+    executed = _rows(task['id'], 'EXECUTION_LOG.tsv', EXECUTION_COLUMNS)
+    assert [(r['target'], r['to_bid']) for r in executed] == [
+        ('gizmo mini', '1.00')
+    ], executed
+    assert not done.get('review_gaps'), done.get('review_gaps')
+    assert ad_changes.check('', task['id']) is None

@@ -151,8 +151,8 @@ async def resolve_store_rules(db, store_id: str | None) -> dict | None:
 
     Defaults from ``ad_rules.DEFAULT_RULES`` overlaid with any override
     lines found in ``stores/<slug>/notes.md`` (e.g. ``scale_roas: 6``).
-    Used by ``set_task_result`` so the completeness gate and the
-    folded-in bid-rule gates honor per-store tuning.
+    Used by ``set_task_result`` so the ad gates honour per-store
+    tuning.
     """
     if not store_id:
         return None

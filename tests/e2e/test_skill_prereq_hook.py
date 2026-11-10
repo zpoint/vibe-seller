@@ -37,6 +37,21 @@ pytestmark = [pytest.mark.e2e]
 NOON_SHARED_MARKER = 'https://login.noon.partners/en/'
 
 
+def _skill_load_order(messages: list[dict]) -> list[str]:
+    """Skill names in the order the agent loaded them."""
+    order: list[str] = []
+    for m in messages:
+        if m.get('role') != 'tool_use':
+            continue
+        hit = re.search(r'"skill":\s*"([^"]+)"', m.get('content', ''))
+        if hit and '"Skill"' in m.get('content', ''):
+            order.append(hit.group(1))
+    for name in ('noon-ads', 'noon-shared'):
+        if name not in order:
+            order.append(name)
+    return order
+
+
 def _hint_logged(task_id_prefix: str) -> bool:
     """Whether the hook logged a prerequisite hint for this task."""
     pat = re.compile(
@@ -86,10 +101,13 @@ def test_prerequisite_is_loaded_and_used(api_client: httpx.Client):
     )
     answer = transcript + ' ' + (result.get('result') or '')
     assert NOON_SHARED_MARKER in answer, answer[:800]
-    # The question is about noon ads, so the agent reaches for noon-ads
-    # first — the production failure. The hook must have hinted then.
-    assert _hint_logged(task['id'][:8]), (
-        'no prerequisite hint was logged for this task: either the hook '
-        'never attached one, or the agent loaded noon-shared before '
-        f'noon-ads. Logs searched: {[str(p) for p in server_log_candidates()]}'
-    )
+    # When the agent reached for noon-ads first — the production failure
+    # — the hook must have hinted. Loading noon-shared first needs no
+    # hint (the hook itself is pinned by tests/unit/test_skill_prereq_hint).
+    order = _skill_load_order(messages)
+    if order.index('noon-ads') < order.index('noon-shared'):
+        assert _hint_logged(task['id'][:8]), (
+            'noon-ads was loaded before noon-shared but no prerequisite '
+            'hint was logged. Logs searched: '
+            f'{[str(p) for p in server_log_candidates()]}'
+        )
