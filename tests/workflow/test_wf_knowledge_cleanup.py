@@ -21,6 +21,7 @@ import pytest_asyncio
 
 from app import knowledge_contract
 from app.browser.manager import store_slug
+from app.config import VIBE_SELLER_DIR
 from app.models.app_settings import AppSettings
 from app.models.schedule import Schedule
 from app.models.schedule_constants import (
@@ -379,8 +380,6 @@ async def test_an_edit_made_around_the_tool_is_put_back(
     the write tool, so the endpoint's check never saw it, and it left
     half-sentences behind. The run's outcome is checked: the note is put
     back and the store stays owing, so the next catalog sync retries."""
-    from app.config import VIBE_SELLER_DIR
-
     r = await admin_client.post('/api/stores', json={'name': 'AroundStore'})
     store = r.json()
     notes = VIBE_SELLER_DIR / 'stores' / store_slug(store['name']) / 'notes.md'
