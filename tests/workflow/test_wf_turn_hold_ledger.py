@@ -91,7 +91,11 @@ async def test_a_follow_up_turn_starts_with_a_fresh_ledger(
     ).json()
     made = await admin_client.post(
         '/api/tasks',
-        json={'title': 'first turn', 'description': 'x', 'store_id': store['id']},
+        json={
+            'title': 'first turn',
+            'description': 'x',
+            'store_id': store['id'],
+        },
     )
     task_id = made.json()['id']
     await wait_for_task(admin_client, task_id)
