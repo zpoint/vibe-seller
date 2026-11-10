@@ -48,7 +48,7 @@ from app.ai.stop_gates.ad_tables import (
 )
 from app.ai.stop_gates.ad_task import parent_task_id, store_slug_for, task_dir
 from app.config import DATA_DIR
-from app.models.ad_declaration import KIND_INVESTIGATE
+from app.models.ad_declaration import KIND_EXECUTE, KIND_INVESTIGATE
 
 GATE_NAME = 'ad_changes'
 APPROVED_DIR = DATA_DIR / 'approved_changes'
@@ -181,6 +181,46 @@ def _recently_applied(
     return None
 
 
+def _drilled(slug: str | None, row: dict) -> dict | None:
+    """The target's row in its campaign's own TSV, if drilled."""
+    if not slug:
+        return None
+    path, _ = campaign_files(
+        slug, row['platform'], row['country'], row['campaign_id']
+    )
+    table = read_table(path, TARGETING_COLUMNS) if path else None
+    if not table or table.error:
+        return None
+    for t in table.rows:
+        if _key({**t, 'campaign_id': row['campaign_id']}) == _key(row):
+            return t
+    return None
+
+
+def _evidence(slug: str | None, row: dict) -> dict:
+    """The numbers a proposal is judged on.
+
+    Each one comes from the campaign's own TSV when the drilled row has
+    it, and only otherwise from the copy the proposal carries — the
+    copy is what a mistaken or motivated row gets wrong (observed class:
+    a ``lower 1.30 → 0.05`` with blank metrics skipped every check).
+    CPC from the drilled row is spend / clicks.
+    """
+    t = _drilled(slug, row) or {}
+    spend, clicks = number(t.get('spend')), number(t.get('clicks'))
+    drilled_cpc = spend / clicks if spend is not None and clicks else None
+
+    def pick(drilled, proposed):
+        return drilled if drilled is not None else proposed
+
+    return {
+        'acos': pick(number(t.get('acos')), number(row.get('acos'))),
+        'roas': pick(number(t.get('roas')), number(row.get('roas'))),
+        'cpc': pick(drilled_cpc, number(row.get('cpc'))),
+        'bid': pick(number(t.get('bid')), number(row.get('current_bid'))),
+    }
+
+
 def rule_violations(
     rows: tuple[dict, ...],
     rules: dict,
@@ -200,6 +240,11 @@ def rule_violations(
     roas_equiv = 100.0 / acos_floor if acos_floor else None
     out = []
     for row in rows:
+        if _key(row) in done:
+            # Already executed by this task: no longer a proposal, and
+            # its campaign TSV now carries the new bid, so judging it
+            # again would compare the change with itself.
+            continue
         action = row['action'].lower()
         if action not in ACTIONS:
             out.append(
@@ -207,8 +252,43 @@ def rule_violations(
                 f'{" / ".join(ACTIONS)}'
             )
             continue
-        acos, roas = number(row.get('acos')), number(row.get('roas'))
-        cpc, target = number(row.get('cpc')), number(row.get('target_bid'))
+        ev = _evidence(slug, row) if action != 'hold' else {}
+        if action == 'hold':
+            ev = {
+                'acos': number(row.get('acos')),
+                'roas': number(row.get('roas')),
+            }
+        acos, roas = ev.get('acos'), ev.get('roas')
+        cpc, target = ev.get('cpc'), number(row.get('target_bid'))
+        if action in BID_ACTIONS:
+            # Without the numbers the owner rules cannot be applied, and
+            # a proposal that skips them is the one that must not pass.
+            missing = [
+                name
+                for name, value in (
+                    ('ACOS or ROAS', acos if acos is not None else roas),
+                    ('CPC', cpc),
+                )
+                if value is None
+            ]
+            if missing:
+                out.append(
+                    f'{_label(row)}: {action} with no {" / ".join(missing)} '
+                    f'in its campaign TSV or CHANGES.tsv — the store rules cannot be checked'
+                )
+            current = ev.get('bid')
+            if (
+                current is not None
+                and target is not None
+                and (
+                    (action == 'raise' and target <= current)
+                    or (action == 'lower' and target >= current)
+                )
+            ):
+                out.append(
+                    f'{_label(row)}: {action} from {current:g} to '
+                    f'{target:g} goes the other way'
+                )
         if action == 'lower' and (
             (acos is not None and acos < acos_floor)
             or (
@@ -219,8 +299,10 @@ def rule_violations(
             )
         ):
             out.append(
-                f'{_label(row)}: lower with ACOS {row.get("acos") or "-"} / '
-                f'ROAS {row.get("roas") or "-"} — under {acos_floor:g}% ACOS '
+                f'{_label(row)}: lower with ACOS '
+                f'{"-" if acos is None else f"{acos:g}"} / ROAS '
+                f'{"-" if roas is None else f"{roas:g}"} — under '
+                f'{acos_floor:g}% ACOS '
                 'a bid is only raised or held'
             )
         if action in BID_ACTIONS:
@@ -244,7 +326,7 @@ def rule_violations(
                 f'{_label(row)}: hold on ROAS {roas:g} (> '
                 f'{rules["scale_roas"]:g}) needs a reason, or raise it'
             )
-        if action != 'hold' and _key(row) not in done:
+        if action != 'hold':
             stamp = _recently_applied(slug, row, rules['change_cooldown_days'])
             if stamp:
                 out.append(
@@ -326,10 +408,17 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
                 f'proposes {len(proposals)} change(s): drop them, or '
                 're-declare kind "audit" with the same or a narrower scope'
             )
-        done = (
-            executed.rows if executed is not None and not executed.error else ()
-        )
-        problems.extend(rule_violations(changes.rows, rules, slug, done))
+        # The owner rules shape what an audit PROPOSES. Once the user has
+        # approved and the phase executes, the frozen approval is their
+        # decision and wins over a default (a cut inside the cooldown, a
+        # bid under the floor) — checked below, not re-judged here.
+        if not (decl and decl['kind'] == KIND_EXECUTE):
+            done = (
+                executed.rows
+                if executed is not None and not executed.error
+                else ()
+            )
+            problems.extend(rule_violations(changes.rows, rules, slug, done))
     if executed is not None and not executed.error and executed.rows:
         approved_file = find_approved(task_id)
         if approved_file is None:

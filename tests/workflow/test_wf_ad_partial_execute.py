@@ -51,8 +51,10 @@ def _write_history(home, *, target, action, days_ago, bid, prev):
     (d / '100000000001.tsv').write_text(
         _TSV_HEADER
         + (
-            f'acme group\t{target}\tExact\tenabled\t{bid}\tSAR\t40\t80.00\t'
-            f'4\t400.00\t20\t5.00\t{action}\t{day}\t{prev}\n'
+            # Numbers agree with the CHANGES rows below (ACOS 35, CPC
+            # 1.00): the gate judges a proposal on this drilled row.
+            f'acme group\t{target}\tExact\tenabled\t{bid}\tSAR\t40\t40.00\t'
+            f'4\t114.29\t35\t2.86\t{action}\t{day}\t{prev}\n'
         ),
         encoding='utf-8',
     )

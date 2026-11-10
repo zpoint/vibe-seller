@@ -81,7 +81,15 @@ def test_owner_rules_allow(task, row):
 def test_store_notes_override_the_defaults(task):
     """The thresholds are defaults: a store's notes.md wins."""
     task.changes([
-        change(action='lower', acos='25', cpc='1.00', target_bid='1.02'),
+        # 1.20 → 1.02: a real cut (the row once said 1.00 → 1.02, a
+        # 'lower' that raised the bid, which the direction check refuses).
+        change(
+            action='lower',
+            acos='25',
+            cpc='1.00',
+            current_bid='1.20',
+            target_bid='1.02',
+        ),
     ])
     assert _gaps(task)  # defaults: ACOS 25 < 30, and 1.02 < 1.10
     rules = resolve_rules('acos_no_lower: 20\ncpc_floor_multiplier: 1.0')
@@ -216,3 +224,68 @@ def test_approval_is_inherited_by_an_execution_child(task, monkeypatch):
     assert ad_changes.check('', child.id) is None
     child.execution([_done(to_bid='2.00')])
     assert ad_changes.check('', child.id) is not None
+
+
+# ── proposals are judged on their numbers, not the row's claims ─────
+
+
+def test_a_bid_change_with_no_numbers_is_refused(task):
+    """Observed class: `lower 1.30 → 0.05` with blank metrics skipped
+    every owner rule and passed."""
+    task.changes([
+        change(
+            action='lower',
+            current_bid='1.30',
+            target_bid='0.05',
+            acos='',
+            roas='',
+            cpc='',
+        )
+    ])
+    assert any('cannot be checked' in g for g in _gaps(task))
+
+
+def test_a_raise_that_cuts_the_bid_is_refused(task):
+    task.changes([
+        change(action='raise', current_bid='1.00', target_bid='0.60')
+    ])
+    assert any('goes the other way' in g for g in _gaps(task))
+
+
+def test_the_drilled_numbers_win_over_the_rows_claim(task):
+    """The row claims ACOS 40 (lowering allowed); the campaign's own
+    drilled row says ACOS 20 — a converting keyword the rule protects."""
+    task.drill(
+        'A1234567',
+        [
+            {
+                'ad_group': 'g1',
+                'target': 'widget',
+                'match_type': 'exact',
+                'bid': '1.00',
+                'clicks': '10',
+                'spend': '5.00',
+                'acos': '20',
+            }
+        ],
+        [],
+    )
+    task.changes([change(action='lower', acos='40', target_bid='0.90')])
+    assert any('ACOS 20' in g for g in _gaps(task))
+
+
+def test_an_approved_change_is_not_re_judged_by_the_defaults(task):
+    """The user approved a cut the default rule would refuse (ACOS 25
+    under the 30 floor). In the execute phase their decision wins — also
+    for an approved row not applied yet (e.g. a partial run)."""
+    applied = change(target='gadget')
+    approved_cut = change(
+        action='lower', acos='25', current_bid='1.20', target_bid='1.00'
+    )
+    task.changes([applied, approved_cut])
+    task.declare('audit')
+    assert any('under 30% ACOS' in g for g in _gaps(task))
+    _approve(task, [applied, approved_cut])
+    task.declare('execute')
+    task.execution([_done(target='gadget')])
+    assert _gaps(task) == []
