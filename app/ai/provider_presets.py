@@ -1057,6 +1057,22 @@ PROVIDER_MODELS = {
             'context': '1M',
             'vision': True,
         },
+        # K3.1 Pro / Highspeed are 1M models (1,048,576); the bare ids
+        # get Claude Code's 200K default, so the [1m] ids come first.
+        # Claude Code strips [1m] before the API call
+        # (normalizeModelStringForAPI), so the endpoint sees the bare id.
+        {
+            'id': 'kimi-k3.1-pro[1m]',
+            'label': 'K3.1 Pro (1M context)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'kimi-k3.1-pro-highspeed[1m]',
+            'label': 'K3.1 Pro Highspeed (1M context)',
+            'context': '1M',
+            'vision': True,
+        },
         {
             'id': 'kimi-k3.1-pro',
             'label': 'K3.1 Pro (200K context)',
@@ -1074,6 +1090,22 @@ PROVIDER_MODELS = {
         {
             'id': 'kimi-k3[1m]',
             'label': 'K3 (1M context)',
+            'context': '1M',
+            'vision': True,
+        },
+        # K3.1 Pro / Highspeed are 1M models (1,048,576); the bare ids
+        # get Claude Code's 200K default, so the [1m] ids come first.
+        # Claude Code strips [1m] before the API call
+        # (normalizeModelStringForAPI), so the endpoint sees the bare id.
+        {
+            'id': 'kimi-k3.1-pro[1m]',
+            'label': 'K3.1 Pro (1M context)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'kimi-k3.1-pro-highspeed[1m]',
+            'label': 'K3.1 Pro Highspeed (1M context)',
             'context': '1M',
             'vision': True,
         },
