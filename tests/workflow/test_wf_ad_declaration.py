@@ -426,3 +426,36 @@ class TestDeclarationTelemetry:
             ('create', 'store', 'refused'),
         ]
         assert sent[0]['task_id'] == task_id
+
+
+class TestTheDeclarationNamesTheAdSkill:
+    """Declared with only the browser skill loaded, an agent wrote the
+    user's standard as a sentence and no CHANGES.tsv: it never saw the
+    data contract. The declaration is when the server knows it is ad
+    work, so its answer names the skill to load."""
+
+    async def test_without_an_ad_skill_the_answer_names_it(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        monkeypatch.setattr(
+            'app.routers.tasks_ad_declaration.agent_manager.'
+            'loaded_skills_and_workspace',
+            lambda _t: ({'browser-harness'}, None),
+        )
+        task_id = await _make_task(admin_client)
+        r = await _declare(admin_client, task_id, 'audit', _ONE_MARKET)
+        assert r.status_code == 200, r.text
+        assert 'amazon-ads' in r.json()['load_skill']
+
+    async def test_with_the_ad_skill_loaded_nothing_is_added(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        monkeypatch.setattr(
+            'app.routers.tasks_ad_declaration.agent_manager.'
+            'loaded_skills_and_workspace',
+            lambda _t: ({'amazon-ads'}, None),
+        )
+        task_id = await _make_task(admin_client)
+        r = await _declare(admin_client, task_id, 'audit', _ONE_MARKET)
+        assert r.status_code == 200, r.text
+        assert 'load_skill' not in r.json()

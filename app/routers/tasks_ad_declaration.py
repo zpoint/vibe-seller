@@ -31,8 +31,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import ad_declaration
+from app.ai.claude_backend_manager import agent_manager
 from app.ai.claude_backend_utils import get_next_seq
-from app.ai.stop_gates import record_attempt
+from app.ai.stop_gates import AD_SKILLS, record_attempt
 from app.ai.stop_gates.ad_changes import (
     approved_summary,
     freeze_approved_changes,
@@ -216,11 +217,11 @@ async def _declare(
                 status_code=409,
                 detail=(
                     'Nothing the user has seen and answered is approved '
-                    'yet. Declare kind="audit", list the changes in '
-                    'CHANGES.tsv, and end your turn showing them to the '
-                    'user; declare "execute" once they reply. If you are '
-                    'sure they already approved, declare again: the '
-                    'changes are then shown to them as not confirmed.'
+                    'yet — a request to make a change is not the user '
+                    'seeing the exact change. Declare kind="audit", list '
+                    'the changes in CHANGES.tsv, and end your turn '
+                    'showing them to the user; declare "execute" once '
+                    'they reply.'
                 ),
             )
     elif prev is not None and turns <= prev.user_turn:
@@ -261,14 +262,39 @@ async def _declare(
     # Mirror for the stop gates, which run synchronously without a DB
     # session. The row above is the authority; this is a copy.
     ad_declaration.write_declaration_file(task_id, kind, scope)
+    note = await _skill_note(task_id)
 
     # Execution starts here: freeze the approval it will be checked
     # against (a re-declaration re-freezes; earlier freezes are kept).
     if kind == KIND_EXECUTE:
-        return 'accepted', await _with_approval(
-            db, task_id, row, confirmed=confirmed
-        )
-    return 'accepted', _as_dict(row)
+        out = await _with_approval(db, task_id, row, confirmed=confirmed)
+    else:
+        out = _as_dict(row)
+    if note:
+        out['load_skill'] = note
+    return 'accepted', out
+
+
+async def _skill_note(task_id: str) -> str | None:
+    """Name the ad skill when the phase declared without one loaded.
+
+    The declaration is the moment the server knows this is ad work. The
+    skill holds the data contract the checks read (CAMPAIGNS.tsv,
+    CHANGES.tsv, how a user's standard is written in notes.md); an agent
+    that declared and then browsed with only the browser skill wrote the
+    user's standard as a sentence and no CHANGES.tsv at all.
+    """
+    loaded, _workspace = await asyncio.to_thread(
+        agent_manager.loaded_skills_and_workspace, task_id
+    )
+    if AD_SKILLS & set(loaded or ()):
+        return None
+    return (
+        "Load the ad skill for this store's platform now (amazon-ads, "
+        'noon-ads or qianniu-ads) and follow its data contract: '
+        'CAMPAIGNS.tsv, CHANGES.tsv, EXECUTION_LOG.tsv, and a standard the '
+        'user states written as a `key: value` line in the store notes.'
+    )
 
 
 async def _with_approval(
