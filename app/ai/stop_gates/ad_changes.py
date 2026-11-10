@@ -487,6 +487,7 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
     # being refused.
     problems: list[str] = []
     advisories: list[str] = []
+    unapproved: list[str] = []
     for table in (changes, executed):
         if table is not None and table.error:
             problems.append(table.error)
@@ -517,7 +518,7 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
     if executed is not None and not executed.error and executed.rows:
         files = approval_files(task_id)
         if not files:
-            problems.append(
+            unapproved.append(
                 f'{EXECUTION_LOG_FILE} records changes but no approved '
                 f'{CHANGES_FILE} was frozen: declare kind "execute" after '
                 f'the user approves, with {CHANGES_FILE} matching what '
@@ -528,9 +529,10 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
             for f in files:
                 table = read_table(f, CHANGE_COLUMNS)
                 approved.extend(table.rows if table else ())
-            problems.extend(
+            unapproved.extend(
                 execution_violations(executed.rows, tuple(approved), slug)
             )
+    problems.extend(unapproved)
     if not problems and not advisories:
         return None
     reason = (
@@ -552,4 +554,5 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
         reason=reason + '\n' + '\n'.join(f'- {p}' for p in findings[:20]),
         gaps=tuple(findings),
         contradictions=tuple(problems),
+        fatal=tuple(unapproved),
     )

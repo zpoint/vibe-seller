@@ -51,6 +51,10 @@ class GateDeny:
     reason: str
     gaps: tuple[str, ...] = ()
     contradictions: tuple[str, ...] = ()
+    # The subset of ``contradictions`` that already spent money the user
+    # did not approve: past the cap the task FAILS instead of shipping
+    # banner-marked, so it cannot read as done.
+    fatal: tuple[str, ...] = ()
 
 
 def record_attempt(task_id: str, gate: str) -> int:

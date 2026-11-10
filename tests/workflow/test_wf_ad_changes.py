@@ -25,6 +25,7 @@ from app.models.task_message import TaskMessage
 import app.routers.tasks as tasks_router
 from app.task_states import TaskStatus
 from tests.unit.ad_fixtures import AdTask, change
+from tests.workflow.conftest import wait_for_task
 from tests.workflow.fake_agent import FakeAgentScenario
 
 pytestmark = pytest.mark.workflow
@@ -297,6 +298,39 @@ async def test_diverging_execution_is_refused_until_the_cap(
     assert refusals >= CONTRADICTION_MAX_DENIALS
     data = (await admin_client.get(f'/api/tasks/{task.id}')).json()
     assert 'approved 1.20' in (data.get('review_gaps') or '')
+
+
+def _unapproved_raise():
+    return {
+        'campaign_id': 'A1234567',
+        'ad_group': 'g1',
+        'target': 'widget',
+        'match_type': 'exact',
+        'action': 'raise',
+        'from_bid': '1.00',
+        'to_bid': '11.3',
+        'applied_at': '2026-01-01T00:00:00+00:00',
+    }
+
+
+async def test_an_unapproved_change_fails_the_task_past_the_cap(
+    admin_client, install_fake_agent, monkeypatch
+):
+    """Money moved outside the approval and the agent never reconciled
+    it: the task fails instead of reading as delivered."""
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A14')
+    task.changes([change(target_bid='1.20')])
+    ad_changes.freeze_approved_changes(task.id)
+    task.declare('execute')
+    task.execution([_unapproved_raise()])
+    for _ in range(CONTRADICTION_MAX_DENIALS + 3):
+        if (await _submit(admin_client, task)).status_code == 200:
+            break
+    install_fake_agent.default_scenario.gate.set()
+    done = await wait_for_task(admin_client, task.id)
+    assert done['status'] == 'failed', done
+    assert done['error_category'] == 'unapproved_change', done
+    assert 'approved 1.20' in done['error']
 
 
 async def test_matching_execution_is_accepted_first_time(

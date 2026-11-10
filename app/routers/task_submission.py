@@ -276,6 +276,14 @@ async def apply_skill_gates(
             final_result = (
                 contradiction_banner(deny.contradictions) + final_result
             )
+            if deny.fatal:
+                # Money moved without the user's approval: the run fails,
+                # with the report kept for the user to act on.
+                task.error = (
+                    'Ad changes were made that the user did not approve:\n'
+                    + '\n'.join(f'- {f}' for f in deny.fatal[:20])
+                )
+                task.error_category = 'unapproved_change'
             stalled_gaps.extend(deny.contradictions)
         # Log the GAPS, not ``deny.reason`` — the reason opens with a
         # fixed instruction banner and appends the gap list at the END,
