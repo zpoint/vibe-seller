@@ -337,7 +337,7 @@ jobs:
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
           # One provider (single worker), a repo variable like the CI map.
-          E2E_PROVIDER_MAP: ${{ vars.E2E_WINDOWS_PROVIDER }}
+          E2E_PROVIDER_MAP: ${{ vars.E2E_SMOKE_PROVIDER }}
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           MINIMAX_BASE_URL: ${{ secrets.MINIMAX_BASE_URL }}
           MINIMAX_MODEL: ${{ secrets.MINIMAX_MODEL }}
@@ -352,7 +352,7 @@ jobs:
           VIBE_SELLER_TELEMETRY: '0'
         run: |
           if (-not $env:E2E_PROVIDER_MAP) {
-            Write-Output "::error::repo variable E2E_WINDOWS_PROVIDER is not set"
+            Write-Output "::error::repo variable E2E_SMOKE_PROVIDER is not set"
             exit 1
           }
           $install = $env:VS_INSTALL
