@@ -69,7 +69,10 @@ An `investigate` task proposes nothing: no `CHANGES.tsv` rows other than
 ## Store rules the server checks on CHANGES.tsv
 
 Defaults, overridden by a `key: value` line in `stores/<slug>/notes.md`.
-When the user states a different standard, write it there with
+Those lines hold standards the user stated — never a value you derived
+from another number: turning a 40% margin into `acos_no_lower: 40`
+silently changes what the server enforces on every later run, and no
+one ever chose it. When the user states a standard, write it there with
 `vibe_seller_write_workspace_file` so this and later runs use it.
 
 | key | default | rule |
