@@ -23,14 +23,12 @@ import { createDraftStore } from './lib/draftStore'
 import { parseNav, settingsTabToSlug } from './lib/route'
 import { registerUserHash, unregisterUserHash } from './lib/telemetry'
 import { useTaskOpener } from './hooks/useTaskOpener'
+import { useTaskActions } from './hooks/useTaskActions'
 import { api, AUTH_EXPIRED_EVENT, uploadTaskAttachment } from './api'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
 import { submitCreateTask as submitCreateTaskHandler } from './handlers/submitCreateTask'
-import { retryTask as retryTaskHandler } from './handlers/retryTask'
-import { continueTask as continueTaskHandler } from './handlers/continueTask'
-import { deleteTask as deleteTaskHandler } from './handlers/deleteTask'
 import { fetchBrowserProfiles as fetchBrowserProfilesHandler, restartZiniao as restartZiniaoHandler } from './handlers/fetchBrowserProfiles'
 import { sendChatMessage as sendChatMessageHandler } from './handlers/sendChatMessage'
 import type {
@@ -455,47 +453,19 @@ export default function App() {
       : navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
 
 
-  // Rejects when the stop did not go through — TasksView shows why.
-  const stopAgent = async () => { if (!selectedTask) return; await api.post(`/api/tasks/${selectedTask.id}/agent/stop`); setPendingQuestions(null) }
-  const handlerDeps = {
-    api,
-    profileId: selectedProfileId,
-    setTasks,
-    setSelectedTask,
-    setScheduleTasks,
-  }
-  // Both handlers recover the row themselves on failure; they report the
-  // error through onError, and these wrappers reject with it so the
-  // task view can say the action did not go through.
-  const retryTask = async (taskId: string) => {
-    let failed: unknown = null
-    await retryTaskHandler(taskId, {
-      ...handlerDeps,
-      onError: (e) => { failed = e },
-      onCleared: () => {
-        setSteps([]); setScreenshots({}); setAgentMessages([]); setTodoItems([]); setLogs([]); setConversationItems([]); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({})
-      },
-    })
-    if (failed) throw failed
-  }
-  const continueTask = async (taskId: string) => {
-    let failed: unknown = null
-    await continueTaskHandler(taskId, { ...handlerDeps, onError: (e) => { failed = e } })
-    if (failed) throw failed
-  }
-  const deleteTask = (taskId: string) =>
-    deleteTaskHandler(taskId, {
-      api, tasks, scheduleTasks, selectedTask, setTasks, setScheduleTasks,
-      onSelectedCleared: () => {
-        setSelectedTask(null)
-        setSteps([]); setScreenshots({}); setLogs([]); setConversationItems([])
-        setAgentMessages([]); setTodoItems([]); setPendingQuestions(null)
-      },
-    })
+  // Header actions of the open task; each rejects when it did not go
+  // through (TasksView shows why), and a late response leaves another
+  // task's state alone.
+  const { stopAgent, retryTask, continueTask, deleteTask, isOpen } = useTaskActions({
+    selectedTask, profileId: selectedProfileId, tasks, scheduleTasks,
+    setTasks, setSelectedTask, setScheduleTasks,
+    clearQuestions: () => { setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}) },
+    clearDetail: () => { setSteps([]); setScreenshots({}); setAgentMessages([]); setTodoItems([]); setLogs([]); setConversationItems([]) },
+  })
   const selectAnswer = (questionText: string, answer: string) => { setSelectedAnswers(prev => ({ ...prev, [questionText]: answer })); setShowOtherInput(prev => ({ ...prev, [questionText]: false })); setOtherInputs(prev => ({ ...prev, [questionText]: '' })) }
   const toggleOtherInput = (questionText: string) => { setShowOtherInput(prev => { const show = !prev[questionText]; if (show) { setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } else { setOtherInputs(p => ({ ...p, [questionText]: '' })); setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } return { ...prev, [questionText]: show } }) }
   const setOtherAnswer = (questionText: string, text: string) => { setOtherInputs(prev => ({ ...prev, [questionText]: text })); if (text.trim()) { setSelectedAnswers(prev => ({ ...prev, [questionText]: text.trim() })) } else { setSelectedAnswers(prev => { const n = { ...prev }; delete n[questionText]; return n }) } }
-  const submitAllAnswers = async (overrideAnswers?: Record<string, string>) => { if (!selectedTask || !pendingQuestions) return; const answers = overrideAnswers || selectedAnswers; await api.post(`/api/tasks/${selectedTask.id}/questions/answer`, { request_id: pendingQuestions.request_id, answers }); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}) }
+  const submitAllAnswers = async (overrideAnswers?: Record<string, string>) => { if (!selectedTask || !pendingQuestions) return; const answers = overrideAnswers || selectedAnswers; const id = selectedTask.id; await api.post(`/api/tasks/${id}/questions/answer`, { request_id: pendingQuestions.request_id, answers }); if (!isOpen(id)) return; setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}) }
   const submitImageDecision = async (requestId: string, action: 'confirm' | 'cancel', prompt: string, model: string, addedReferences: string[] = []) => {
     if (!selectedTask) return
     // Optimistically mark the card resolved so its controls disable at

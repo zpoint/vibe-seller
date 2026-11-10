@@ -236,7 +236,7 @@ export function TasksView({
     const id = selectedTask.id
     void taskAction.run('confirmPlan', async () => {
       await api.post(`/api/tasks/${id}/execute-plan`)
-      setSelectedTask(prev => prev ? { ...prev, status: 'running' } : prev)
+      setSelectedTask(prev => prev && prev.id === id ? { ...prev, status: 'running' } : prev)
       setTasks(prev => prev.map(t2 => t2.id === id ? { ...t2, status: 'running' } : t2))
     })
   }
@@ -694,7 +694,7 @@ export function TasksView({
                     const id = selectedTask.id
                     void taskAction.run('mode', async () => {
                       await api.patch(`/api/tasks/${id}/review-plan`, { plan_mode: newVal })
-                      setSelectedTask(prev => prev ? { ...prev, plan_mode: newVal } : prev)
+                      setSelectedTask(prev => prev && prev.id === id ? { ...prev, plan_mode: newVal } : prev)
                       setTasks(prev => prev.map(t2 => t2.id === id ? { ...t2, plan_mode: newVal } : t2))
                       setCurrentUser(prev => prev ? { ...prev, plan_mode_default: newVal } : prev)
                     })
