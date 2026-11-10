@@ -40,6 +40,8 @@ export interface TasksViewProps {
   /** The task being opened (error null) or that failed to open. */
   taskLoad?: { taskId: string; error: unknown } | null
   onRetryTaskLoad?: () => void
+  /** Leave a task that is opening or failed to open (back to its list). */
+  onLeaveTaskLoad?: () => void
   steps: TaskStep[]
   screenshots: Record<string, string>
   logs: string[]
@@ -114,6 +116,7 @@ export function TasksView({
   selectedTask,
   taskLoad = null,
   onRetryTaskLoad,
+  onLeaveTaskLoad,
   steps,
   screenshots,
   logs,
@@ -254,7 +257,9 @@ export function TasksView({
   const openingTask = taskLoad && (selectedTask?.id !== taskLoad.taskId || taskLoad.error != null) ? taskLoad : null
   const mobileShowDetail = isMobile && (!!selectedTask || !!selectedSchedule || !!openingTask)
   const onMobileBack = () => {
-    if (selectedTask) setSelectedTask(null)
+    // The opening / failed-to-open pane is route state: leave the route.
+    if (openingTask) onLeaveTaskLoad?.()
+    else if (selectedTask) setSelectedTask(null)
     else setSelectedSchedule(null)
   }
 

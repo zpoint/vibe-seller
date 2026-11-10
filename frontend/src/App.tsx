@@ -629,7 +629,8 @@ export default function App() {
           isMobile={isMobile} onOpenNav={() => setNavOpen(true)}
           taskPanelActive={!!taskPanelActive} taskPanelTitle={taskPanelTitle}
           tasks={tasks} tasksLoading={tasksLoading} selectedTask={selectedTask} steps={steps}
-          taskLoad={taskOpener.taskLoad} onRetryTaskLoad={taskOpener.retry} screenshots={screenshots} logs={logs}
+          taskLoad={taskOpener.taskLoad} onRetryTaskLoad={taskOpener.retry}
+          onLeaveTaskLoad={() => (routeStoreId ? navigate({ to: '/stores/$storeId', params: { storeId: routeStoreId } }) : navigate({ to: '/tasks' }))} screenshots={screenshots} logs={logs}
           agentMessages={agentMessages} todoItems={todoItems} pendingQuestions={pendingQuestions}
           conversationItems={conversationItems}
           selectedAnswers={selectedAnswers} otherInputs={otherInputs} showOtherInput={showOtherInput}
