@@ -21,7 +21,9 @@ could mean more than one thing — "go ahead and apply it" after you
 already applied what they asked, with other proposals still open — names
 nothing new: ask which change they mean, and change nothing until they
 say. Spending money on your best guess of "it" is the one mistake that
-cannot be undone.
+cannot be undone. When you ask with options, the first one changes
+nothing: a hurried click on the first (recommended) option must never
+spend money the user did not name.
 
 1. Bring `CHANGES.tsv` (this task's, or the parent audit's) in line with
    what they approved. Map their words to rows using the audit's report.
