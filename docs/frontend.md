@@ -84,6 +84,22 @@ Translations stored in `src/i18n/locales/`:
 
 Usage: `const { t } = useTranslation(); t('key')` or `t('key', { count: 5 })`
 
+**Provider-preset strings come from the server in English.** The preset
+catalog (`app/ai/provider_presets.py`) is English-only because the API,
+MCP tools and telemetry share it. `components/presetI18n.ts` translates it
+when the profile modal renders. Every preset `name`, `group`, `variant`
+and model `label` is written as `Head` or `Head (term, term)`. Each
+piece is looked up in `profiles.presetTerms`, then re-joined with the
+locale's own `profiles.presetParen` brackets and `profiles.presetSep`
+separator. Anything with no entry passes through unchanged, so brand,
+product and model names stay as written. `group` remains the stable
+grouping key; the translated text goes in `groupLabel`.
+
+**Adding or renaming a preset:** keep that grammar, and give every new
+English term a `zh` `presetTerms` entry. `tests/unit/test_preset_i18n.py`
+walks every shipped preset string and fails, naming the term, when one is
+missing. Brand and product names go in that test's `NAMES` set instead.
+
 ## SSE Integration
 
 `useSSE` hook in `hooks/useSSE.ts` connects to `/api/sse` and dispatches events:
