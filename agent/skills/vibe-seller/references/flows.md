@@ -61,7 +61,7 @@ status.
 | `none` | No plan lifecycle (system schedule) — fires its prompt as-is. | yes | `run_schedule` |
 | `planning` | A plan-only task is authoring the plan; the schedule cannot fire until the plan is frozen, and the plan is then accepted automatically. Pause the schedule now (update_schedule paused=true) if your user has not seen the plan. | no (plan gate) | `update_schedule, wait_task, get_task` |
 | `ready` | Plan written and accepted automatically — the schedule WILL fire on its cron (unless it is paused). Show the plan to your user; pause or replan it if they object. | yes | `run_schedule` |
-| `stale` | The prompt changed after the plan was frozen; the stored plan no longer matches. Re-plan; it cannot fire. | no (plan gate) | `update_schedule` |
+| `stale` | The prompt changed, or the app was upgraded, after the plan was frozen; the stored plan no longer matches. Re-plan; it cannot fire. | no (plan gate) | `update_schedule` |
 | `failed` | The planning task failed; re-plan to try again. It cannot fire. | no (plan gate) | `update_schedule` |
 
 A paused schedule resumes (`update_schedule`) once the plan

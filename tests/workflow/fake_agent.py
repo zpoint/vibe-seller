@@ -18,7 +18,7 @@ import app.database as _db
 from app.models.schedule import Schedule
 from app.models.task import Task
 from app.models.task_message import TaskMessage
-from app.plan_states import PlanStatus
+from app.plan_states import freeze_schedule_plan
 from app.task_outcome import apply_outcome, resolve_outcome
 from app.task_states import TaskStatus
 from tests.workflow.db_calls import wait_db_idle
@@ -586,12 +586,7 @@ class FakeAgent(AIAgentBackend):
                     task.status = TaskStatus.COMPLETED
                     task.completed_at = now
                     task.updated_at = now
-                    sched.plan = task.plan
-                    sched.plan_status = PlanStatus.READY.value
-                    sched.plan_version = (sched.plan_version or 0) + 1
-                    sched.plan_error = None
-                    sched.current_planning_task_id = None
-                    sched.updated_at = now
+                    freeze_schedule_plan(sched, task.plan, now)
                     await db.commit()
 
         # Plan-only tasks must NEVER execute — they author a plan

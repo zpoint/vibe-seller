@@ -727,7 +727,7 @@
       "explainer": {
         "ready": "A plan is frozen on this schedule and will be reused for every fire.",
         "planning": "An agent is authoring the plan. Open the planning task to review and approve it.",
-        "stale": "The schedule prompt changed — the previous plan is no longer used. Re-plan before the next fire.",
+        "stale": "The schedule prompt changed, or the app was upgraded — the previous plan is no longer used. Re-plan before the next fire.",
         "failed": "The planner failed. Re-plan to try again.",
         "none": "No plan has been authored yet. Start planning to create one."
       },

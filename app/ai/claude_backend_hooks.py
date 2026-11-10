@@ -35,7 +35,7 @@ from app.database import async_session
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
 from app.models.task import Task
-from app.plan_states import PlanStatus
+from app.plan_states import freeze_schedule_plan
 from app.question_answers import expand_free_text_answers
 from app.task_states import TaskStatus
 from app.telemetry_tasks import (
@@ -596,12 +596,7 @@ class _HookMixin:
                         task.status = TaskStatus.COMPLETED
                         task.completed_at = now
                         task.updated_at = now
-                        sched.plan = plan_text
-                        sched.plan_status = PlanStatus.READY.value
-                        sched.plan_version = (sched.plan_version or 0) + 1
-                        sched.plan_error = None
-                        sched.current_planning_task_id = None
-                        sched.updated_at = now
+                        freeze_schedule_plan(sched, plan_text, now)
                         await db.commit()
                         committed = True
                         await event_bus.emit(
