@@ -335,7 +335,10 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 timeout=None,
             )
         elif name == 'vibe_seller_list_skills':
-            result = await call_api('GET', '/api/workspace/skills')
+            task = quote(_config['task_id'], safe='')
+            result = await call_api(
+                'GET', f'/api/workspace/skills?task_id={task}'
+            )
         elif name == 'vibe_seller_save_skill':
             # Upsert a user-space skill in the SHARED workspace. The
             # backend hard-rejects built-in (maintainer-synced) slugs.

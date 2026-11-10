@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import knowledge_contract
+from app import ads_routing, knowledge_contract
 from app.ai.stop_gates import forget_attempt, record_attempt
 from app.auth import get_current_user
 from app.browser.manager import store_slug
@@ -269,14 +269,23 @@ async def delete_file(
 
 
 @router.get('/skills')
-async def list_skills(_user: User = Depends(get_current_user)):
+async def list_skills(
+    task_id: str | None = Query(None),
+    _user: User = Depends(get_current_user),
+):
     """List skills as {slug, name, description, source, updatable}.
 
     Used by the save-skill flow to decide whether to extend an
-    existing user-space skill or create a new one.
+    existing user-space skill or create a new one. Asked from inside a
+    task, the list leaves out the skills routed away from that task's
+    workspace (``ads_routing``): a store not bound to the ads service
+    must not be shown the API skill — observed, an agent that saw it
+    listed spent minutes probing whether its store was authorized.
     """
     await workspace_manager.ensure_init()
-    return await workspace_manager.list_skills()
+    skills = await workspace_manager.list_skills()
+    barred = ads_routing.excluded(task_id)
+    return [s for s in skills if s.get('slug') not in barred]
 
 
 @router.put('/skills/{slug}')
