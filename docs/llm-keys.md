@@ -35,7 +35,7 @@ Vibe Seller 本身免费，干活的 AI 模型要用你自己的 **API Key**—�
 | 第一次用，想先试试 | **DeepSeek**：注册、充 15–20 块就能跑，按用量扣钱，没有月费 |
 | 这台电脑上的 Claude Code 已经登录了 Claude 订阅 | **不用拿 Key**，直接复用，见 [Claude](#claude) |
 | 天天在跑、用量大，想省钱 | 买一家的**套餐**（Token Plan / Coding Plan / M Plan），见下面各家 |
-| 公司或账号在海外 | Kimi、MiniMax、GLM、通义、MiMo 都有国际版，预设里选对应的「International」（MiMo 是 Singapore / Europe）子选项就行 |
+| 公司或账号在海外 | Kimi、MiniMax、GLM、通义、MiMo 都有国际版，预设里选对应的「国际」子选项就行（MiMo 按集群选「新加坡集群」/「欧洲集群」的子选项） |
 
 ### 按量付费 vs 套餐
 
@@ -65,24 +65,24 @@ Key 真的向供应商发一条很短的请求。通过了才会保存；不通�
 
 ![「创建配置文件」弹窗：选好 DeepSeek 预设、粘贴了 Key](images/vibeseller_create_profile_zh.png)
 
-点开一家后会多出一排子选项，例如 Alibaba Cloud：
+点开一家后会多出一排子选项，例如阿里云：
 
-![点开 Alibaba Cloud 后的六个子选项](images/vibeseller_preset_variants_zh.png)
+![点开阿里云后的六个子选项](images/vibeseller_preset_variants_zh.png)
 
 哪种 Key 选哪个预设，一览：
 
 | 供应商 | 按量付费的 Key → 选 | 套餐的 Key → 选 |
 |---|---|---|
 | DeepSeek | `DeepSeek` | （没有套餐） |
-| Kimi（国内） | `Kimi › Pay-as-you-go (China)` | `Kimi › Kimi Code (membership)` |
-| Kimi（海外） | `Kimi › Pay-as-you-go (International)` | `Kimi › Kimi Code (membership)` |
-| MiniMax（国内） | `MiniMax › China` | `MiniMax › China`——同一个子选项，按付费方式粘对应的 Key |
-| MiniMax（海外） | `MiniMax › International` | `MiniMax › International`——同上 |
-| 智谱 GLM（国内） | `GLM › China` | `GLM › China`——同一个子选项，按付费方式粘对应的 Key |
-| Z.AI（GLM 海外） | `GLM › International` | `GLM › International`——同上 |
-| 通义千问（国内） | `Alibaba Cloud › Pay-as-you-go (China)` | `Alibaba Cloud › Coding Plan (China)` 或 `Token Plan (China)`，**按你买的那种选** |
-| 通义千问（海外） | `Alibaba Cloud › Pay-as-you-go (International)` | `Alibaba Cloud › Coding Plan (International)` 或 `Token Plan (International)` |
-| 小米 MiMo | `MiMo › Pay-as-you-go` | `MiMo › Token Plan (China cluster)`；新加坡、欧洲集群选 `Singapore cluster` / `Europe cluster` |
+| Kimi（国内） | `Kimi › 按量付费（国内）` | `Kimi › Kimi Code（会员）` |
+| Kimi（海外） | `Kimi › 按量付费（国际）` | `Kimi › Kimi Code（会员）` |
+| MiniMax（国内） | `MiniMax › 国内` | `MiniMax › 国内`——同一个子选项，按付费方式粘对应的 Key |
+| MiniMax（海外） | `MiniMax › 国际` | `MiniMax › 国际`——同上 |
+| 智谱 GLM（国内） | `GLM › 国内` | `GLM › 国内`——同一个子选项，按付费方式粘对应的 Key |
+| Z.AI（GLM 海外） | `GLM › 国际` | `GLM › 国际`——同上 |
+| 通义千问（国内） | `阿里云 › 按量付费（国内）` | `阿里云 › Coding Plan（国内）` 或 `Token Plan（国内）`，**按你买的那种选** |
+| 通义千问（海外） | `阿里云 › 按量付费（国际）` | `阿里云 › Coding Plan（国际）` 或 `Token Plan（国际）` |
+| 小米 MiMo | `MiMo › 按量付费` | `MiMo › Token Plan（国内集群）`；新加坡、欧洲集群选 `Token Plan（新加坡集群）` / `Token Plan（欧洲集群）` |
 | Claude | 内置的 `Claude` 配置 | 内置的 `Claude` 配置 |
 
 ## DeepSeek
@@ -125,19 +125,19 @@ Kimi 两种都有，但 **Key 在两个不同的平台**，所以 Vibe Seller �
    **不是每个档位都含 Kimi Code 权益**，购买前看清页面说明。
 2. 打开 [Kimi Code 控制台](https://www.kimi.com/code/console)，点
    **新建 API Key**，输入名字确认，**立刻复制**——关掉弹窗后就看不到完整的 Key 了。
-3. Vibe Seller 里选 **Kimi › Kimi Code (membership)**，粘贴 Key，创建。
+3. Vibe Seller 里选 **Kimi › Kimi Code（会员）**，粘贴 Key，创建。
 
 **按量付费（Kimi API 开放平台）：**
 
 1. 在 [Kimi API 开放平台](https://platform.kimi.com/) 注册登录并充值，到
    [API Keys](https://platform.kimi.com/console/api-keys) 页面创建并复制 Key
    （海外账号用 [platform.kimi.ai](https://platform.kimi.ai/console/api-keys)）。
-2. Vibe Seller 里选 **Kimi › Pay-as-you-go (China)**（海外账号选
-   **Pay-as-you-go (International)**），粘贴 Key，创建。
+2. Vibe Seller 里选 **Kimi › 按量付费（国内）**（海外账号选**按量付费（国际）**），
+   粘贴 Key，创建。
 
 **常见坑**：Key 和子选项必须是同一个平台的——Kimi Code 的 Key 只能配
-`Kimi Code (membership)`，开放平台的 Key 只能配 `Pay-as-you-go`，国内平台的 Key
-配 China、海外平台的配 International。测试连接报 401 时先检查这一点。
+`Kimi Code（会员）`，开放平台的 Key 只能配`按量付费（国内）` /
+`按量付费（国际）`，按你的账号在哪个平台选对应的那个。测试连接报 401 时先检查这一点。
 官方说明：[Kimi Code 在 Claude Code 中使用](https://www.kimi.com/code/docs/third-party-tools/claude-code.html)、
 [开放平台快速开始](https://platform.kimi.com/docs/get-api-key)、
 [开放平台在 Claude Code 中使用 Kimi](https://platform.kimi.com/docs/guide/claude-code-kimi)。
@@ -146,7 +146,7 @@ Kimi 两种都有，但 **Key 在两个不同的平台**，所以 Vibe Seller �
 
 MiniMax 两种都有，套餐叫 **M Plan**（以前叫 Token Plan）。**两把 Key 在控制台的
 不同页面，不可互换**；但它们连的是同一个地址，所以 Vibe Seller 里都用同一个子选项
-（国内账号 **MiniMax › China**），粘哪把 Key 就按哪种方式计费。国内账号在
+（国内账号 **MiniMax › 国内**），粘哪把 Key 就按哪种方式计费。国内账号在
 [MiniMax 开放平台](https://platform.minimax.cn/) 注册登录。
 
 **按量付费：**
@@ -157,7 +157,7 @@ MiniMax 两种都有，套餐叫 **M Plan**（以前叫 Token Plan）。**两把
 
     ![MiniMax API Key 页，右上角「创建 API Key」](images/minimax_interface_key_zh.png)
 
-3. Vibe Seller 里选 **MiniMax › China**，粘贴，创建。
+3. Vibe Seller 里选 **MiniMax › 国内**，粘贴，创建。
 
 **套餐（M Plan）：**
 
@@ -168,11 +168,11 @@ MiniMax 两种都有，套餐叫 **M Plan**（以前叫 Token Plan）。**两把
 
     ![MiniMax 套餐管理页里的订阅 Key](images/minimax_plan_key_zh.png)
 
-3. Vibe Seller 里同样选 **MiniMax › China**，粘贴订阅 Key，创建。
+3. Vibe Seller 里同样选 **MiniMax › 国内**，粘贴订阅 Key，创建。
 
 **海外账号**：在 [platform.minimax.io](https://platform.minimax.io/) 注册，菜单是
 `API Keys > Create new secret key`（按量）和 `Billing > M Plan`（套餐）。海外账号的
-Key 只能连海外地址，两种 Key 都选 **MiniMax › International**。
+Key 只能连海外地址，两种 Key 都选 **MiniMax › 国际**。
 
 官方说明：[前置准备](https://platform.minimax.cn/docs/guides/quickstart-preparation)、
 [开通 M Plan](https://platform.minimaxi.com/docs/m-plan/quickstart)、
@@ -181,8 +181,8 @@ Key 只能连海外地址，两种 Key 都选 **MiniMax › International**。
 
 ## 智谱 GLM
 
-国内用户用 **智谱开放平台**（预设 `GLM › China`），海外用户用 **Z.AI**（预设
-`GLM › International`）。两边都有按量付费和 GLM Coding Plan 套餐，**两种 Key 在
+国内用户用 **智谱开放平台**（预设 `GLM › 国内`），海外用户用 **Z.AI**（预设
+`GLM › 国际`）。两边都有按量付费和 GLM Coding Plan 套餐，**两种 Key 在
 不同页面、互不通用**；Vibe Seller 里按量和套餐用同一个预设，粘哪把 Key 就扣哪边。
 
 > 2026 年 10 月 16 日起，智谱 / Z.AI 把「标准 API Key」（按量 / 资源包）和
@@ -203,7 +203,7 @@ Key 只能连海外地址，两种 Key 都选 **MiniMax › International**。
 
 ![智谱 Coding Plan「套餐概览」页，未订阅时显示「立即订阅」](images/glm_bigmodel_codingplan_zh.png)
 
-两种 Key 都是：Vibe Seller 里点 **GLM ›**，再选 **China**，粘贴，创建。
+两种 Key 都是：Vibe Seller 里点 **GLM ›**，再选**国内**，粘贴，创建。
 
 ### 海外：Z.AI
 
@@ -216,7 +216,7 @@ Key 只能连海外地址，两种 Key 都选 **MiniMax › International**。
 [API Keys](https://z.ai/manage-apikey/apikey-list) 页的 **Personal Coding Plan** 下创建
 （团队版在 [Team Coding Plan → My Plan](https://z.ai/manage-apikey/coding-plan/team/my-plan)）。
 
-两种 Key 都是：Vibe Seller 里点 **GLM ›**，再选 **International**，粘贴，创建。
+两种 Key 都是：Vibe Seller 里点 **GLM ›**，再选**国际**，粘贴，创建。
 
 官方说明：[API Key 分类管理说明](https://docs.bigmodel.cn/cn/coding-plan/notice/api-key-management)、
 [Coding Plan 快速开始](https://docs.bigmodel.cn/cn/coding-plan/quick-start)、
@@ -227,7 +227,7 @@ Key 只能连海外地址，两种 Key 都选 **MiniMax › International**。
 
 百炼有按量付费和两种套餐（Coding Plan、Token Plan），国内站、国际站（新加坡）各一套。
 **每种 Key 都有自己的页面和连接地址，必须配套**，所以 Vibe Seller 里点
-**Alibaba Cloud ›** 后有六个子选项：三种付费方式 × China / International。
+**阿里云 ›** 后有六个子选项：三种付费方式 × 国内 / 国际。
 
 **按量付费：**
 
@@ -239,21 +239,21 @@ Key 只能连海外地址，两种 Key 都选 **MiniMax › International**。
     ![百炼 API Key 页：顶部地域选择，「按量付费」一栏的「创建API-KEY」](images/qwen_bailian_apikey_zh.png)
 
 3. **立刻复制或下载**——新版 Key 只在创建成功时完整显示一次。Key 是 `sk-` 开头。
-4. Vibe Seller 里点 **Alibaba Cloud ›**，选 **Pay-as-you-go (China)**，粘贴，创建。
+4. Vibe Seller 里点**阿里云 ›**，选**按量付费（国内）**，粘贴，创建。
    国际站（新加坡）账号在国际站 [Model Studio](https://modelstudio.console.alibabacloud.com/)
-   的 API Key 页创建，选 **Pay-as-you-go (International)**。
+   的 API Key 页创建，选**按量付费（国际）**。
 
 **套餐（Coding Plan）：** 在 [Coding Plan 页](https://bailian.console.aliyun.com/cn-beijing/subscription/coding-plan)
-购买，同一页拿专属 Key（`sk-sp-` 开头）。Vibe Seller 选 **Alibaba Cloud › Coding Plan (China)**；
+购买，同一页拿专属 Key（`sk-sp-` 开头）。Vibe Seller 选**阿里云 › Coding Plan（国内）**；
 国际站在 [ap-southeast-1 的 Coding Plan 页](https://modelstudio.console.alibabacloud.com/ap-southeast-1/subscription/coding-plan)
-购买，选 **Coding Plan (International)**。
+购买，选 **Coding Plan（国际）**。
 
 **套餐（Token Plan）：** 在百炼顶部导航的 **TokenPlan** 购买（分个人版 / 团队版），
 买好后到 [Token Plan 个人版页](https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal)
 「创建或查看 API Key」；团队版由管理员在 [成员管理](https://bailian.console.aliyun.com/cn-beijing/subscription/uac-admin/organization/members/list)
-「分配坐席并获取 API Key」。Vibe Seller 选 **Alibaba Cloud › Token Plan (China)**；
+「分配坐席并获取 API Key」。Vibe Seller 选**阿里云 › Token Plan（国内）**；
 国际站在 [Token Plan 个人版页](https://modelstudio.console.alibabacloud.com/subscription/token-plan/personal)
-拿 Key，选 **Token Plan (International)**。
+拿 Key，选 **Token Plan（国际）**。
 
 ![百炼 Token Plan 购买页（个人版 / 团队版）](images/qwen_tokenplan_zh.png)
 
@@ -284,7 +284,7 @@ MiMo 两种都有，**两把 Key 不通用、连接地址也不同**；Token Pla
 
     ![MiMo 控制台 API Keys 页，右上角「新建 API Key」](images/mimo_apikeys_zh.png)
 
-3. Vibe Seller 选 **MiMo › Pay-as-you-go**，粘贴，创建。
+3. Vibe Seller 选 **MiMo › 按量付费**，粘贴，创建。
 
 **套餐（Token Plan）：**
 
@@ -297,8 +297,8 @@ MiMo 两种都有，**两把 Key 不通用、连接地址也不同**；Token Pla
    拿专属 Key（个人版 `tp-` 开头，团队版 `ttp-` 开头；团队版要先分配席位）。同一页
    也显示你的 Base URL：`token-plan-cn` 开头是国内集群，`token-plan-sgp` 是新加坡，
    `token-plan-ams` 是欧洲。
-3. Vibe Seller 选对应集群的子选项：**MiMo › Token Plan (China cluster)** /
-   **Token Plan (Singapore cluster)** / **Token Plan (Europe cluster)**，粘贴，创建。
+3. Vibe Seller 选对应集群的子选项：**MiMo › Token Plan（国内集群）** /
+   **Token Plan（新加坡集群）** / **Token Plan（欧洲集群）**，粘贴，创建。
 
 **常见坑**：
 
