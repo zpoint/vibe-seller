@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
+import { TaskFileTree } from './TaskFileTree'
+import type { TaskFileEntry } from './fileTree'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -108,97 +110,6 @@ function AnsweredQuestions({ questions, interrupted }: { questions: { header?: s
   )
 }
 
-interface TaskFileEntry {
-  name: string
-  size: number
-  type: string
-  modified_at: string
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-interface FileTreeNode {
-  name: string
-  fullPath: string
-  isDir: boolean
-  size?: number
-  type?: string
-  children: FileTreeNode[]
-}
-
-function buildFileTree(files: TaskFileEntry[]): FileTreeNode[] {
-  const root: FileTreeNode = { name: '', fullPath: '', isDir: true, children: [] }
-  for (const f of files) {
-    const parts = f.name.split('/')
-    let node = root
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]
-      const isLast = i === parts.length - 1
-      let child = node.children.find(c => c.name === part)
-      if (!child) {
-        child = {
-          name: part,
-          fullPath: parts.slice(0, i + 1).join('/'),
-          isDir: !isLast,
-          size: isLast ? f.size : undefined,
-          type: isLast ? f.type : undefined,
-          children: [],
-        }
-        node.children.push(child)
-      }
-      node = child
-    }
-  }
-  return root.children
-}
-
-function FileTreeItem({ node, taskId, depth }: { node: FileTreeNode; taskId: string; depth: number }) {
-  const [expanded, setExpanded] = useState(true)
-  const paddingLeft = `${depth * 16 + 8}px`
-
-  if (node.isDir) {
-    return (
-      <div>
-        <button
-          onClick={() => setExpanded(p => !p)}
-          className="flex items-center gap-1.5 w-full px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors cursor-pointer"
-          style={{ paddingLeft }}
-        >
-          <span className="text-[10px] w-3 text-center">{expanded ? '\u25BE' : '\u25B8'}</span>
-          <span className="text-gray-400">{'\uD83D\uDCC1'}</span>
-          <span className="font-medium">{node.name}/</span>
-          <span className="text-gray-400 ml-auto">{node.children.length}</span>
-        </button>
-        {expanded && node.children.map(child => (
-          <FileTreeItem key={child.fullPath} node={child} taskId={taskId} depth={depth + 1} />
-        ))}
-      </div>
-    )
-  }
-
-  const encodedPath = node.fullPath.split('/').map(encodeURIComponent).join('/')
-  return (
-    <a
-      href={`/api/tasks/${taskId}/files/${encodedPath}`}
-      download={node.name}
-      className="flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-indigo-50 rounded transition-colors"
-      style={{ paddingLeft: `${(depth) * 16 + 8 + 12 + 6}px` }}
-    >
-      <span className="text-gray-400 text-[10px]">
-        {node.type?.includes('pdf') ? '\uD83D\uDCC4' : '\uD83D\uDCCE'}
-      </span>
-      <span className="text-indigo-600 font-medium truncate">{node.name}</span>
-      <span className="text-gray-400 ml-auto whitespace-nowrap">
-        {node.size != null ? formatSize(node.size) : ''}
-      </span>
-    </a>
-  )
-}
-
 function TaskFiles({ taskId }: { taskId: string }) {
   const { t } = useTranslation()
   const [files, setFiles] = useState<TaskFileEntry[]>([])
@@ -214,8 +125,6 @@ function TaskFiles({ taskId }: { taskId: string }) {
 
   if (!loaded || files.length === 0) return null
 
-  const tree = buildFileTree(files)
-
   return (
     <div className="mt-3 bg-gray-50 rounded-lg border border-gray-200 p-3">
       <div className="flex items-center justify-between mb-2">
@@ -230,11 +139,7 @@ function TaskFiles({ taskId }: { taskId: string }) {
           {t('tasks.downloadZip', 'Download All (ZIP)')}
         </a>
       </div>
-      <div className="space-y-0.5">
-        {tree.map(node => (
-          <FileTreeItem key={node.fullPath} node={node} taskId={taskId} depth={0} />
-        ))}
-      </div>
+      <TaskFileTree taskId={taskId} files={files} />
     </div>
   )
 }

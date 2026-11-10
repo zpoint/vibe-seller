@@ -1,98 +1,23 @@
 /**
  * Tests for TaskFiles file tree display.
  * Covers: tree building from flat paths, folder expand/collapse,
- * download links, nested directories.
+ * download links, nested directories, and folders starting collapsed
+ * once the tree holds more than AUTO_EXPAND_LIMIT entries.
  */
 import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { useState } from 'react'
 
-// Minimal types matching the real component
-interface TaskFileEntry {
-  name: string
-  size: number
-  type: string
-  modified_at: string
-}
+import {
+  AUTO_EXPAND_LIMIT,
+  buildFileTree,
+  countEntries,
+  type TaskFileEntry,
+} from '../components/conversation/fileTree'
+import { TaskFileTree } from '../components/conversation/TaskFileTree'
 
-interface FileTreeNode {
-  name: string
-  fullPath: string
-  isDir: boolean
-  size?: number
-  type?: string
-  children: FileTreeNode[]
-}
-
-// Copy of buildFileTree from ConversationStream
-function buildFileTree(files: TaskFileEntry[]): FileTreeNode[] {
-  const root: FileTreeNode = { name: '', fullPath: '', isDir: true, children: [] }
-  for (const f of files) {
-    const parts = f.name.split('/')
-    let node = root
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]
-      const isLast = i === parts.length - 1
-      let child = node.children.find(c => c.name === part)
-      if (!child) {
-        child = {
-          name: part,
-          fullPath: parts.slice(0, i + 1).join('/'),
-          isDir: !isLast,
-          size: isLast ? f.size : undefined,
-          type: isLast ? f.type : undefined,
-          children: [],
-        }
-        node.children.push(child)
-      }
-      node = child
-    }
-  }
-  return root.children
-}
-
-// Standalone tree component for testing
-function FileTreeItem({ node, taskId, depth }: { node: FileTreeNode; taskId: string; depth: number }) {
-  const [expanded, setExpanded] = useState(true)
-
-  if (node.isDir) {
-    return (
-      <div>
-        <button
-          data-testid={`folder-${node.fullPath}`}
-          onClick={() => setExpanded(p => !p)}
-        >
-          {expanded ? 'v' : '>'} {node.name}/
-        </button>
-        {expanded && node.children.map(child => (
-          <FileTreeItem key={child.fullPath} node={child} taskId={taskId} depth={depth + 1} />
-        ))}
-      </div>
-    )
-  }
-
-  const encodedPath = node.fullPath.split('/').map(encodeURIComponent).join('/')
-  return (
-    <a
-      data-testid={`file-${node.fullPath}`}
-      href={`/api/tasks/${taskId}/files/${encodedPath}`}
-      download={node.name}
-    >
-      {node.name} ({node.size} bytes)
-    </a>
-  )
-}
-
+// The real component (not a copy), so these tests break when it does.
 function TestTaskFiles({ taskId, files }: { taskId: string; files: TaskFileEntry[] }) {
-  const tree = buildFileTree(files)
-  if (tree.length === 0) return null
-  return (
-    <div data-testid="file-tree">
-      {tree.map(node => (
-        <FileTreeItem key={node.fullPath} node={node} taskId={taskId} depth={0} />
-      ))}
-    </div>
-  )
+  return <TaskFileTree taskId={taskId} files={files} />
 }
 
 const TASK_ID = 'test-task-123'
@@ -216,5 +141,52 @@ describe('FileTree rendering', () => {
   it('returns null for empty files', () => {
     const { container } = render(<TestTaskFiles taskId={TASK_ID} files={[]} />)
     expect(container.innerHTML).toBe('')
+  })
+})
+
+function entries(n: number, dir = 'out'): TaskFileEntry[] {
+  return Array.from({ length: n }, (_, i) => ({
+    name: `${dir}/campaign-${i}.tsv`,
+    size: 10,
+    type: 'text/tab-separated-values',
+    modified_at: '',
+  }))
+}
+
+describe('Folders start collapsed in a large tree', () => {
+  it('counts files and folders at every level', () => {
+    const tree = buildFileTree([
+      { name: 'a.md', size: 1, type: 'text/markdown', modified_at: '' },
+      ...entries(2, 'out/amazon_AE'),
+    ])
+    // a.md, out/, out/amazon_AE/, two files
+    expect(countEntries(tree)).toBe(5)
+  })
+
+  it('keeps folders open at the limit', () => {
+    // one folder + (LIMIT - 1) files = LIMIT entries
+    render(<TestTaskFiles taskId={TASK_ID} files={entries(AUTO_EXPAND_LIMIT - 1)} />)
+    expect(screen.getByTestId('folder-out')).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByTestId('file-out/campaign-0.tsv')).toBeInTheDocument()
+  })
+
+  it('collapses every folder above the limit; a click opens one', () => {
+    const files = [
+      { name: 'REPORT.md', size: 1, type: 'text/markdown', modified_at: '' },
+      ...entries(AUTO_EXPAND_LIMIT, 'out/amazon_AE'),
+    ]
+    render(<TestTaskFiles taskId={TASK_ID} files={files} />)
+    // Top-level files stay visible; folders are closed.
+    expect(screen.getByTestId('file-REPORT.md')).toBeInTheDocument()
+    const out = screen.getByTestId('folder-out')
+    expect(out).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByTestId('folder-out/amazon_AE')).not.toBeInTheDocument()
+
+    fireEvent.click(out)
+    const ae = screen.getByTestId('folder-out/amazon_AE')
+    expect(ae).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByTestId('file-out/amazon_AE/campaign-0.tsv')).not.toBeInTheDocument()
+    fireEvent.click(ae)
+    expect(screen.getByTestId('file-out/amazon_AE/campaign-0.tsv')).toBeInTheDocument()
   })
 })
