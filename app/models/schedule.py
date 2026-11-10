@@ -120,9 +120,6 @@ class Schedule(Base):
     plan_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
     )
-    # plan_states.PLAN_CONTRACT at the moment the plan froze (NULL: frozen
-    # before the stamp existed, i.e. under contract 1).
-    plan_contract: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Points to the currently-running plan-only Task (if any).
     current_planning_task_id: Mapped[str | None] = mapped_column(
         String, nullable=True

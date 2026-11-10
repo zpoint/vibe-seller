@@ -14,7 +14,6 @@ from sqlalchemy import select
 
 import app.database as _db
 from app.models.schedule import Schedule
-from app.plan_states import PLAN_CONTRACT
 from tests.workflow.fake_agent import FakeAgentScenario
 
 pytestmark = pytest.mark.workflow
@@ -35,7 +34,6 @@ async def _wait_schedule_status(client, schedule_id, target, timeout=5.0):
                 return {
                     'plan_status': s.plan_status,
                     'plan_version': s.plan_version,
-                    'plan_contract': s.plan_contract,
                     'plan': s.plan,
                     'current_planning_task_id': s.current_planning_task_id,
                 }
@@ -121,9 +119,6 @@ class TestCreatePlanMode:
         sched = await _wait_schedule_status(admin_client, sched_id, 'ready')
         assert sched['plan'] == plan_text
         assert sched['plan_version'] == 1
-        # Stamped with the contract it was written under, so the next
-        # contract bump sends it back to re-plan.
-        assert sched['plan_contract'] == PLAN_CONTRACT
         assert sched['current_planning_task_id'] is None
 
         task_after = (await admin_client.get(f'/api/tasks/{task_id}')).json()

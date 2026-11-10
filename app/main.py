@@ -160,7 +160,7 @@ async def _apply_persisted_browser_headless() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    boot_stats = await init_db()
+    await init_db()
     # Load plugins (OSS builtin + any externally-installed plugin wheels)
     # before
     # anything reads gates / browser backends / skill sources. Idempotent
@@ -255,7 +255,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         props = {}
     # base_properties() (app_version, os, …) is merged in by send().
-    telemetry.send(TelemetryEvent.APP_STARTED, {**boot_stats, **props})
+    telemetry.send(TelemetryEvent.APP_STARTED, props)
     telemetry.set_person_properties({
         'app_version': telemetry.APP_VERSION,
         'release_channel': channel_of(telemetry.APP_VERSION),

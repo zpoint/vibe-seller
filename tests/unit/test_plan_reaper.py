@@ -17,7 +17,6 @@ import app.database as _db
 from app.models.base import Base
 from app.models.schedule import Schedule
 from app.models.task import Task
-from app.plan_states import PLAN_CONTRACT
 import app.scheduler.plan_reaper as _reaper
 
 pytestmark = pytest.mark.unit
@@ -164,7 +163,6 @@ class TestReaper:
             s = await db.get(Schedule, sched_id)
             assert s.plan_status == 'ready'
             assert s.plan == 'P'
-            assert s.plan_contract == PLAN_CONTRACT
             assert s.current_planning_task_id is None
 
     async def test_a_replan_never_promotes_the_old_plan(self, reaper_env):

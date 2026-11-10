@@ -34,7 +34,6 @@ import posixpath
 from app.models.app_settings import AppSettings
 
 # Bump when a harness change makes notes written before it misleading
-# (same role as plan_states.PLAN_CONTRACT for frozen schedule plans).
 #   2 — reviewer/reflection removed; ad checks read TSVs; approval
 #       freezes at the execute declaration.
 KNOWLEDGE_CONTRACT = 2

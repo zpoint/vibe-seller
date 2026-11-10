@@ -25,7 +25,6 @@ from app.models.schedule_constants import (
 )
 from app.models.user import User
 from app.password import hash_password
-from app.plan_states import PLAN_CONTRACT, PlanStatus
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ async_session = async_sessionmaker(
 )
 
 
-def _ensure_added_columns(conn) -> int:
+def _ensure_added_columns(conn) -> None:
     """Idempotently ADD columns introduced after a table first shipped.
 
     ``create_all`` creates missing tables but never ALTERs an existing
@@ -105,9 +104,6 @@ def _ensure_added_columns(conn) -> int:
         # per mailbox under Settings → Email. Enforced in
         # app/email/sender.py.
         ('email_accounts', 'allow_send', 'BOOLEAN NOT NULL DEFAULT 1'),
-        # Which harness contract a frozen schedule plan was written
-        # against. See app/plan_states.py PLAN_CONTRACT.
-        ('schedules', 'plan_contract', 'INTEGER'),
     ]
     for table, column, sqltype in added:
         cols = {
@@ -121,29 +117,6 @@ def _ensure_added_columns(conn) -> int:
                 f'ALTER TABLE {table} ADD COLUMN {column} {sqltype}'
             )
     _backfill_finalize_enabled_at(conn)
-    return _stale_outdated_plans(conn)
-
-
-def _stale_outdated_plans(conn) -> int:
-    """Send plans frozen under an older harness contract back to re-plan.
-
-    A ready plan-mode schedule replays its frozen plan on every fire;
-    one written before the current ``PLAN_CONTRACT`` keeps driving the
-    mechanics it was written for. Marking it STALE stops it at the
-    existing fire gate and shows the existing re-plan prompt, so the
-    user reviews a plan written for this version. System schedules carry
-    no user plan and fire regardless, so they are left alone.
-
-    Runs on every boot; after the first it only matches a plan frozen
-    by an older build.
-    """
-    result = conn.exec_driver_sql(
-        'UPDATE schedules SET plan_status = ? '
-        'WHERE plan_mode = 1 AND is_system = 0 AND plan_status = ? '
-        'AND COALESCE(plan_contract, 1) < ?',
-        (PlanStatus.STALE.value, PlanStatus.READY.value, PLAN_CONTRACT),
-    )
-    return max(0, result.rowcount or 0)
 
 
 def _backfill_finalize_enabled_at(conn) -> None:
@@ -171,10 +144,10 @@ def _backfill_finalize_enabled_at(conn) -> None:
     )
 
 
-async def init_db() -> dict:
+async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        plans_staled = await conn.run_sync(_ensure_added_columns)
+        await conn.run_sync(_ensure_added_columns)
 
     async with async_session() as session:
         # ── Seed app settings (first boot only) ──
@@ -290,7 +263,6 @@ async def init_db() -> dict:
                 )
             )
             await session.commit()
-    return {'plans_staled_on_boot': plans_staled}
 
 
 async def get_db():
