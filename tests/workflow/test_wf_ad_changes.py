@@ -15,6 +15,7 @@ import uuid
 from httpx import ASGITransport, AsyncClient
 import pytest
 
+from app import question_cards
 from app.ai.stop_gates import ad_changes, ad_coverage
 from app.ai.stop_gates.ad_tables import CHANGE_COLUMNS, read_table
 from app.auth import create_token
@@ -449,3 +450,38 @@ async def test_a_child_executes_only_after_the_user_answered_the_parent(
         json={'kind': 'execute', 'scope': {}},
     )
     assert r.status_code == 200, r.text
+
+
+async def test_a_change_picked_on_a_question_card_is_not_approved(
+    admin_client, install_fake_agent, monkeypatch
+):
+    """Observed: after an approved change ran, the user wrote "go ahead and
+    apply it"; the agent asked which change on a question card whose first
+    option was a raise nobody had named, the card was answered, and the
+    raise ran. A card is the agent's own multiple choice: a change only it
+    supplied is refused once, then shown to the user as NOT confirmed."""
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A21')
+    task.changes([change(target_bid='1.35')])
+    await _user_answered_an_audit(admin_client, task.id)
+    assert (await _declare(admin_client, task, 'execute')).status_code == 200
+
+    async with _db.async_session() as db:
+        db.add(TaskMessage(task_id=task.id, role='user', content='apply it'))
+        await db.commit()
+    # Control: the user's own message, no card — the change they named in
+    # it is theirs to approve (same change already frozen: nothing new).
+    assert (await _declare(admin_client, task, 'execute')).status_code == 200
+
+    question_cards.note(task.id)  # the card is answered after it
+    task.changes([
+        change(target_bid='1.35'),
+        change(campaign_id='A7654321', target='sprocket', target_bid='1.25'),
+    ])
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 409, r.text
+    assert 'question card' in r.text
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 200, r.text
+    msgs = (await admin_client.get(f'/api/tasks/{task.id}/messages')).json()
+    shown = [m['content'] for m in msgs if 'ad changes' in m['content']]
+    assert 'NOT confirmed' in shown[-1], shown

@@ -162,6 +162,42 @@ def approval_files(task_id: str) -> list[Path]:
     return _earlier_approvals(task_id) + ([current] if current.exists() else [])
 
 
+def unfrozen_changes(task_id: str) -> list[dict]:
+    """Changes an ``execute`` would freeze that no earlier freeze holds.
+
+    Blocking (reads TSVs). The non-hold rows of the CHANGES.tsv the
+    execution works from, less those already approved under an earlier
+    freeze at the same action and bid.
+    """
+    src = _changes_source(task_id)
+    table = read_table(src, CHANGE_COLUMNS) if src else None
+    if table is None or table.error:
+        return []
+    frozen: list[dict] = []
+    for f in approval_files(task_id):
+        t = read_table(f, CHANGE_COLUMNS)
+        if t is not None and not t.error:
+            frozen.extend(t.rows)
+    slug = store_slug_for(task_id)
+
+    def held(row: dict) -> bool:
+        for a in frozen:
+            if a['action'].lower() != row['action'].lower():
+                continue
+            if not _matched(slug, a, row):
+                continue
+            want, got = number(row.get('target_bid')), number(a['target_bid'])
+            if want is None or (
+                got is not None and abs(want - got) <= BID_TOLERANCE
+            ):
+                return True
+        return False
+
+    return [
+        r for r in table.rows if r['action'].lower() != 'hold' and not held(r)
+    ]
+
+
 def remove_approvals(task_id: str) -> None:
     """Drop every approval frozen for *task_id* (blocking)."""
     for path in approval_files(task_id):

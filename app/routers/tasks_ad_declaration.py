@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import question_cards
 from app.ai import ad_declaration
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.claude_backend_utils import get_next_seq
@@ -31,6 +32,7 @@ from app.ai.stop_gates import AD_SKILLS, record_attempt
 from app.ai.stop_gates.ad_changes import (
     approved_summary,
     freeze_approved_changes,
+    unfrozen_changes,
 )
 from app.auth import get_current_user
 from app.database import get_db
@@ -69,6 +71,15 @@ async def _user_turns(db: AsyncSession, task_id: str) -> int:
             )
         )
     ) or 0
+
+
+async def _last_user_message_at(db: AsyncSession, task_id: str) -> str | None:
+    return await db.scalar(
+        select(func.max(TaskMessage.created_at)).where(
+            TaskMessage.task_id == task_id,
+            TaskMessage.role == 'user',
+        )
+    )
 
 
 async def _user_replied_to_an_audit(db: AsyncSession, task: Task) -> bool:
@@ -216,6 +227,35 @@ async def _declare(
                     'the changes in CHANGES.tsv, and end your turn '
                     'showing them to the user; declare "execute" once '
                     'they reply.'
+                ),
+            )
+        # A change the user's message did not name, picked on a question
+        # card since: the card is the agent's own multiple choice, not the
+        # user approving a money change (observed: "go ahead and apply
+        # it", a card whose first option was a raise, and the raise ran).
+        picked_on_a_card = (
+            confirmed
+            and question_cards.answered_after(
+                task_id, await _last_user_message_at(db, task_id)
+            )
+            and bool(await asyncio.to_thread(unfrozen_changes, task_id))
+        )
+        if picked_on_a_card:
+            # Declared again after being told: recorded, and posted to
+            # the user as NOT confirmed by them.
+            confirmed = False
+        if (
+            picked_on_a_card
+            and record_attempt(task_id, 'declare:execute_card') == 1
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    'A question card answer does not approve a change to '
+                    'ads: CHANGES.tsv now holds a change no earlier '
+                    'approval did, and the user did not name it in a '
+                    'message. End your turn asking about it in words; '
+                    'declare "execute" once they reply.'
                 ),
             )
     elif prev is not None and turns <= prev.user_turn:

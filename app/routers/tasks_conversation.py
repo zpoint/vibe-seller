@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import telemetry, vision
+from app import question_cards, telemetry, vision
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.auth import get_current_user
@@ -560,6 +560,7 @@ async def answer_question(
     # The answer lands on the agent's own task later — hand the
     # answering channel over by request_id (see app.telemetry_via).
     note_answer_via(request_id)
+    question_cards.note(task_id)
 
     # Path 1: live session
     submitted = await agent_manager.submit_answer(task_id, request_id, answers)
