@@ -15,6 +15,11 @@ workspace resources are linked in:
 Knowledge (`stores/`, `knowledge/`) holds facts every later task reads;
 run data and results never go there.
 
+Work only from what is linked in here and what the user gives you. Other
+stores' files, other tasks' directories and transcripts, and the app's
+own data are not yours to read: they belong to other sellers' work, and
+nothing in them decides yours.
+
 ## Task result
 
 The user sees `task.result` as markdown. `vibe_seller_set_task_result`,

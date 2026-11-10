@@ -57,7 +57,10 @@ declaring.
   a proposal and answered. Declare `audit` for that campaign, put the
   change in `CHANGES.tsv` (their value, even one the store rules would
   not have proposed), and end your turn showing it — "lower widget red
-  1.50 → 1.35; reply to apply". Their reply opens `execute`.
+  1.50 → 1.35; reply to apply". Their reply opens `execute`. This holds
+  when they insist or say they know the trade-off: the confirmation costs
+  them one reply and is what makes the change theirs. Any task — a
+  one-time one too — can end its turn to wait; the reply continues it.
 - **No audit to execute against** (no report or `CHANGES.tsv` in this
   task or its parent): ask with `AskUserQuestion` whether to run an audit
   first, rather than re-auditing silently.
