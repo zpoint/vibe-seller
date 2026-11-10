@@ -42,8 +42,8 @@ logger = logging.getLogger(__name__)
 
 # Runtime skills tree that skills_sync keeps current. All skills live
 # here (not just the ones a given task loaded), so a gate declared by
-# one skill (e.g. noon-ads) can resolve to its canonical file shipped by
-# another (e.g. amazon-ads/gates/ad_completeness_review.py).
+# one skill can resolve to its canonical file shipped by another (e.g.
+# review-collect/gates/review_output_gate.py).
 _RUNTIME_SKILLS = VIBE_SELLER_DIR / '.claude' / 'skills'
 
 # path -> loaded module. Populated once (at preload / first use) and never

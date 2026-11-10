@@ -209,16 +209,20 @@ def resolve_audit_deliverable(task_root: Path, submitted: str) -> Path | None:
       inlines the full report is submitting the deliverable already, and
       must not be silently downgraded to a stale file from an earlier
       round;
-    * no ``EXECUTION_LOG.md`` — a Phase-4 execution task legitimately
-      reports what it executed, and the audit it worked from is an
-      INPUT there, not its deliverable.
+    * no execution log — a Phase-4 execution task legitimately reports
+      what it executed, and the audit it worked from is an INPUT there,
+      not its deliverable. Both eras' filenames count:
+      ``EXECUTION_LOG.tsv`` (the data contract) and
+      ``EXECUTION_LOG.md`` (pre-TSV runs).
 
     Callers additionally gate on the task's bound skills, so this never
     fires for a non-ads task that happens to hold a similarly-named file.
     """
     if _AUDIT_SECTION_RE.search(submitted):
         return None
-    if (task_root / 'EXECUTION_LOG.md').exists():
+    if any(
+        (task_root / f'EXECUTION_LOG{ext}').exists() for ext in ('.tsv', '.md')
+    ):
         return None
     candidates = _audit_candidates(task_root)
     if not candidates:

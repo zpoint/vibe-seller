@@ -70,6 +70,19 @@ class TestDeliverableOverNarration:
             resolve_audit_deliverable(tmp_path, '执行完毕，12 项已应用') is None
         )
 
+    def test_tsv_era_execution_task_keeps_its_own_result(self, tmp_path):
+        # Same guard, the data contract's filename: an execution task
+        # that wrote EXECUTION_LOG.tsv must not have its INPUT audit
+        # picked as the deliverable.
+        (tmp_path / 'AD_AUDIT_2026-01-02.md').write_text('## Amazon SA\n')
+        (tmp_path / 'EXECUTION_LOG.tsv').write_text(
+            'campaign_id\tad_group\ttarget\tmatch_type\taction\t'
+            'from_bid\tto_bid\tapplied_at\n'
+        )
+        assert (
+            resolve_audit_deliverable(tmp_path, '执行完毕，12 项已应用') is None
+        )
+
     def test_newest_report_wins(self, tmp_path):
         old = tmp_path / 'AD_AUDIT_2026-01-01.md'
         new = tmp_path / 'AD_AUDIT_2026-01-02.md'

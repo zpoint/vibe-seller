@@ -21,7 +21,7 @@ Conversational chat on the Workspace page for organizing knowledge via natural l
 - Content: Universal rules (Amazon URLs, Ziniao behavior, skill environment)
 - Read-only: Only maintainer commits change L1
 - Sync: `knowledge_sync.fetch()` on startup, remote check async on task start
-- Catalog: `knowledge/project/CATALOG.md` (maintainer-committed, generated via `generate_catalog.sh`)
+- Catalog: `knowledge/project/CATALOG.md` (maintainer-edited, one row per file)
 
 ### L2: Cross-Store Relationships (local, user/AI-editable)
 
@@ -58,6 +58,8 @@ All three catalog levels use the same shape:
 
 The agent prompt (`design_system.md`, Phase 1 — Knowledge Recall) tells the agent to read every row tagged with a platform the task touches before opening that platform; untagged rows are optional. This is prompt guidance — no hook enforces it (`app/ai/catalog_read.py` only records whether the catalog was read, for the PreToolUse plugin-gate signature). The L2/L3 sync prompts (`CATALOG_DESC_L2`/`CATALOG_DESC_L3` in `app/prompts/__init__.py`) preserve the column when copying rows from L1 → L2 → L3. Earlier versions dropped Relevance at L2 generation; that broke the contract.
 
+The catalog's **structure** is enforced server-side: a write to `knowledge/CATALOG.md` (L2) or `stores/<slug>/CATALOG.md` (L3) through `PUT /api/workspace/file` — the route behind the agent's `vibe_seller_write_workspace_file` — is validated by `app/workspace/catalog_validation.py` before it lands: accumulation (L2 carries every L1 row, L3 every L2 row, Relevance unchanged), completeness (every tier file exactly once, L3 store files by the filename rules), isolation (no other store's files, no task-output names), format (header, 3 columns, tier path prefixes, Relevance tokens known to the workspace) and the stub contract (a substantive file must be summarized). A violation is a 400 naming the rows to fix — that message is the sync agent's redo instruction.
+
 ```
 ~/.vibe-seller/
 ├── knowledge/
@@ -78,8 +80,8 @@ The agent prompt (`design_system.md`, Phase 1 — Knowledge Recall) tells the ag
 ### Knowledge Sync
 
 - `knowledge_sync.fetch()`: Copies L1 from package to workspace (runs at startup). Only files listed in `app/knowledge/MANIFEST.txt` are synced; falls back to `rglob` if MANIFEST is missing. `__pycache__` is always excluded.
-- Remote sync: Fetches from `KNOWLEDGE_REPO_URL` (GitHub raw) when commit changes & >24h cooldown
-- Manual sync: `POST /api/workspace/knowledge/sync` (remote only — local sync happens at startup)
+- Remote sync: the central sync scheduler's daily `knowledge` job — a conditional-GET probe, a download only when the repo moved (`app/sync/jobs.py`)
+- Manual sync: `POST /api/sync/knowledge/run` (remote only — local sync happens at startup)
 - Sync state: `GET /api/sync/status` (the `knowledge` job)
 - Files tracked via `MANIFEST.txt` in `app/knowledge/`
 - `get_structured()` filters `__pycache__` from knowledge listings (both project and local)
@@ -134,9 +136,9 @@ catalog won't promote it to "first-class store knowledge".
 
 ## Skills System
 
-Reusable agent procedures with scripts, bundled in `app/skills/` and synced to `~/.vibe-seller/.claude/skills/`. Skills must be direct children of `skills/` for Claude Code auto-discovery.
+Reusable agent procedures with scripts, bundled in `app/skills_v2/` and synced to `~/.vibe-seller/.claude/skills/`. Skills must be direct children of `skills/` for Claude Code auto-discovery. (`app/skills/` is the frozen legacy tree for clients on browser-use 0.12 — never add files there; see [CLAUDE.md § Skill hosting across release lines](../CLAUDE.md) and [docs/browser-use-0.13-migration.md](browser-use-0.13-migration.md).)
 
-- **Three-tier sync**: local package → workspace `skills/`, remote GitHub via `MANIFEST.txt`, on-demand with 24h cooldown
+- **Three-tier sync**: local package → workspace `skills/`, remote GitHub via `MANIFEST.txt`, driven by the central sync scheduler's daily `skills` job (plus the Sync button) — see `app/sync/scheduler.py`
 - **User skills**: created via UI at `~/.vibe-seller/.claude/skills/{slug}/` (same directory as built-in, distinguished by `.sync_meta.json`)
 - **Import via presigned archive upload**: importing a local skill is `manage_skill(begin_upload)` → raw `PUT` of a `.tar.gz`/`.tar`/`.zip` of the skill dir to the signed one-shot `put_url` (`PUT /api/skill-uploads/{upload_id}`, `app/skill_uploads.py`) → `manage_skill(import, upload_id=…)`. The file BYTES never pass through the agent's LLM (no token cost, no base64 corruption, no emit-size ceiling); the archive is extracted strictly (regular files only, safe names, one common top-level dir stripped, `SKILL.md` at the root) and installed byte-identical, executable bits taken from the archive. The slug derives from the SKILL.md frontmatter `name`
 - **Inline writes stay small**: `PUT /api/workspace/skills/{slug}` (and `update`) carry text `files` (stored as UTF-8), `files_bin` (base64) and `executables` for tiny text-only skills and edits — a real skill import goes through the archive flow above
@@ -152,8 +154,8 @@ Reusable agent procedures with scripts, bundled in `app/skills/` and synced to `
 
 The `amazon-ads-api` skill is not in this repo: it ships from the bound
 ads service, which versions it (a content hash). It is pulled once a store is authorized, at
-boot, and by the same pre-task skills sync as the GitHub skills (24h
-cooldown, `skills_auto_sync_enabled`) and the Sync button; the bundle is
+boot, and by the sync scheduler's daily `ads-skill` job (after the
+GitHub `skills` job) and the Sync button; the bundle is
 downloaded only when the service's version differs. A pulled bundle is
 data: anything but documentation is dropped (`app/ads_skill.py`) — no
 `gates/*.py` or scripts from a remote source ever run here. Revoking the
@@ -253,14 +255,14 @@ Proxies `POST /api/chat-bots/{id}/send`. Formerly `vibe_seller_send_wecom_messag
 
 ### Adding a Built-in Skill
 
-1. Create `app/skills/my-skill/SKILL.md` with YAML frontmatter (`name`, `description`)
+1. Create `app/skills_v2/my-skill/SKILL.md` with YAML frontmatter (`name`, `description`)
 2. Add implementation files (scripts, `requirements.txt`)
-3. Update `app/skills/MANIFEST.txt` with relative paths to all files
+3. Update `app/skills_v2/MANIFEST.txt` with relative paths to all files
 4. Sync copies files to `~/.vibe-seller/.claude/skills/my-skill/`
 
 ## Optional Integration Bundles
 
-Some third-party SDKs (e.g., the Google Workspace `gws` CLI) ship their own large pool of SKILL.md files. We do **not** vendor them into `app/skills/` — that would bloat every agent's skill index and pull in externally-copyrighted content. Instead, such bundles are opt-in integrations gated by an admin toggle in Settings → Integrations.
+Some third-party SDKs (e.g., the Google Workspace `gws` CLI) ship their own large pool of SKILL.md files. We do **not** vendor them into `app/skills_v2/` — that would bloat every agent's skill index and pull in externally-copyrighted content. Instead, such bundles are opt-in integrations gated by an admin toggle in Settings → Integrations.
 
 ### Google Workspace (`gws`)
 
@@ -283,4 +285,4 @@ Implementation: `app/workspace/gws_integration.py`. Endpoints: `GET /api/setting
 
 **Uninstall** (`uninstall_skills()`): `shutil.rmtree` on `.claude/skills/gws/`. Idempotent. Sibling skills (browser-use, amazon-invoice, user-created) are untouched.
 
-**Sync safety**: `skills_sync.fetch()` only manages dirs that have a matching source in `app/skills/` — `gws/` has no package source, so startup sync never deletes it. The `skills_sync.is_gws_installed()` flag (in `sync_meta.json`) is set by the enable endpoint as a hint for future extensions.
+**Sync safety**: `skills_sync.fetch()` only manages dirs that have a matching source in the bundled skills tree (`app/skills_v2/`) — `gws/` has no package source, so startup sync never deletes it. The `skills_sync.is_gws_installed()` flag (in `sync_meta.json`) is set by the enable endpoint as a hint for future extensions.

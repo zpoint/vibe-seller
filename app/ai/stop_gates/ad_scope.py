@@ -77,9 +77,10 @@ def write_declared_targets(
 ) -> None:
     """Write the SERVER's combo obligation for a task (best-effort).
 
-    ``AUDIT_SCOPE.json`` grounds *how many* campaigns a combo owes, but
-    the agent also writes *which combos exist* — so the one number it
-    could still shrink was the combo count itself. Observed live: a store
+    The agent-authored scope file (retired ``AUDIT_SCOPE.json``)
+    grounded *how many* campaigns a combo owes, but the agent also
+    wrote *which combos exist* — so the one number it could still
+    shrink was the combo count itself. Observed live: a store
     configured for 5 combos got a one-combo scope, the gate agreed the
     report was complete, and four marketplaces were never audited.
 

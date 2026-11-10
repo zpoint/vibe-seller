@@ -631,8 +631,9 @@ async def set_task_result(
         deny = gate.check(final_result, task_id, rules)
         if not deny:
             continue
-        # Fail open only on STALL when the gate tracks one (see
-        # ad_completeness_review for the stall design).
+        # Fail open only on STALL when the gate tracks one (see the
+        # review-collect skill's review_completeness_review gate for
+        # the stall design).
         # And at most AD_REVIEW_ROUNDS refusals per gate in any case: the
         # fix is asked for once, then what is still unmet ships as caveats.
         is_stalled = getattr(gate, 'is_stalled', None)
