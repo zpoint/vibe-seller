@@ -746,8 +746,12 @@ PROVIDER_PRESETS = {
 #
 # Each entry: ``id`` (exact API string), ``label`` (UI text), and
 # best-effort ``context`` / ``vision`` metadata shown as badges. The
-# FIRST entry is the default and MUST equal the preset's
-# ``ANTHROPIC_MODEL`` (pinned by a test). The UI always also offers a
+# preset's ``ANTHROPIC_MODEL`` MUST be one of the entries (pinned by a
+# test); the UI highlights it. Labels are the VENDOR's model names, never
+# our own tags ("flagship", "fast", ...) — only a window term ("1M
+# context") where two ids of one model differ in nothing else. Order:
+# 1M-window options first, then sub-1M; newest version first within
+# each (tests/unit/test_preset_model_order.py). The UI always also offers a
 # free-text "Custom" entry, and every choice is endpoint-validated on
 # save, so this is a convenience shortlist — not an exhaustive or
 # load-bearing catalog. Vendors rev these often; stale entries are
@@ -763,8 +767,8 @@ PROVIDER_PRESETS = {
 # Code to advertise the window).
 PROVIDER_MODELS = {
     # Model dropdown options per provider (id + label + optional context
-    # / vision badges). First entry is the default and MUST equal the
-    # preset's ANTHROPIC_MODEL (pinned by a test). The UI also offers a
+    # / vision badges). The preset's ANTHROPIC_MODEL must be one of the
+    # options (pinned by a test). The UI also offers a
     # free-text field, and every choice is endpoint-validated on save.
     #
     # VISION LABELS ARE LIVE-VERIFIED where a key exists: each id below
@@ -794,8 +798,8 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'k3.1-pro-highspeed',
-            'label': 'K3.1 Pro Highspeed (1M context)',
-            'i18n': {'zh': {'label': 'K3.1 Pro Highspeed（1M 上下文）'}},
+            'label': 'K3.1 Pro Highspeed',
+            'i18n': {'zh': {'label': 'K3.1 Pro Highspeed'}},
             'context': '1M',
             'vision': True,
         },
@@ -816,21 +820,21 @@ PROVIDER_MODELS = {
         {
             'id': 'k3.1-pro',
             'label': 'K3.1 Pro (256K context)',
-            'i18n': {'zh': {'label': 'K3.1 Pro（256K context）'}},
+            'i18n': {'zh': {'label': 'K3.1 Pro（256K 上下文）'}},
             'context': '256K',
             'vision': True,
         },
         {
             'id': 'k3-256k',
             'label': 'K3 (256K context)',
-            'i18n': {'zh': {'label': 'K3（256K context）'}},
+            'i18n': {'zh': {'label': 'K3（256K 上下文）'}},
             'context': '256K',
             'vision': True,
         },
         {
             'id': 'kimi-for-coding-highspeed',
-            'label': 'K2.8 Preview (high-speed)',
-            'i18n': {'zh': {'label': 'K2.8 Preview（高速）'}},
+            'label': 'K2.8 Preview Highspeed',
+            'i18n': {'zh': {'label': 'K2.8 Preview Highspeed'}},
             'context': '256K',
             'vision': True,
         },
@@ -885,22 +889,22 @@ PROVIDER_MODELS = {
     'glm': [
         {
             'id': 'glm-5.3[1m]',
-            'label': 'GLM-5.3 (1M context)',
-            'i18n': {'zh': {'label': 'GLM-5.3（1M 上下文）'}},
+            'label': 'GLM-5.3',
+            'i18n': {'zh': {'label': 'GLM-5.3'}},
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'glm-5.3-flash[1m]',
-            'label': 'GLM-5.3-Flash (1M context)',
-            'i18n': {'zh': {'label': 'GLM-5.3-Flash（1M 上下文）'}},
+            'label': 'GLM-5.3-Flash',
+            'i18n': {'zh': {'label': 'GLM-5.3-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'glm-5.2[1m]',
-            'label': 'GLM-5.2 (1M context)',
-            'i18n': {'zh': {'label': 'GLM-5.2（1M 上下文）'}},
+            'label': 'GLM-5.2',
+            'i18n': {'zh': {'label': 'GLM-5.2'}},
             'context': '1M',
             'vision': False,
         },
@@ -929,22 +933,22 @@ PROVIDER_MODELS = {
     'glm_intl': [
         {
             'id': 'glm-5.3[1m]',
-            'label': 'GLM-5.3 (1M context)',
-            'i18n': {'zh': {'label': 'GLM-5.3（1M 上下文）'}},
+            'label': 'GLM-5.3',
+            'i18n': {'zh': {'label': 'GLM-5.3'}},
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'glm-5.3-flash[1m]',
-            'label': 'GLM-5.3-Flash (1M context)',
-            'i18n': {'zh': {'label': 'GLM-5.3-Flash（1M 上下文）'}},
+            'label': 'GLM-5.3-Flash',
+            'i18n': {'zh': {'label': 'GLM-5.3-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'glm-5.2[1m]',
-            'label': 'GLM-5.2 (1M context)',
-            'i18n': {'zh': {'label': 'GLM-5.2（1M 上下文）'}},
+            'label': 'GLM-5.2',
+            'i18n': {'zh': {'label': 'GLM-5.2'}},
             'context': '1M',
             'vision': False,
         },
@@ -1014,25 +1018,25 @@ PROVIDER_MODELS = {
     # the Bailian console's 视觉理解 capability.
     'qwen': [
         {
-            'id': 'qwen3.7-max',
-            'label': 'Qwen3.7-Max (previous flagship)',
-            'i18n': {'zh': {'label': 'Qwen3.7-Max（上代旗舰）'}},
-            'context': '1M',
-            'vision': False,
-        },
-        {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (flagship)',
-            'i18n': {'zh': {'label': 'Qwen3.8-Max（旗舰）'}},
+            'label': 'Qwen3.8-Max',
+            'i18n': {'zh': {'label': 'Qwen3.8-Max'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast)',
-            'i18n': {'zh': {'label': 'Qwen3.8-Flash（快速）'}},
+            'label': 'Qwen3.8-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.8-Flash'}},
             'context': '1M',
             'vision': True,
+        },
+        {
+            'id': 'qwen3.7-max',
+            'label': 'Qwen3.7-Max',
+            'i18n': {'zh': {'label': 'Qwen3.7-Max'}},
+            'context': '1M',
+            'vision': False,
         },
         {
             'id': 'qwen3.7-plus',
@@ -1043,8 +1047,8 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast)',
-            'i18n': {'zh': {'label': 'Qwen3.6-Flash（快速）'}},
+            'label': 'Qwen3.6-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.6-Flash'}},
             'context': '1M',
             'vision': True,
         },
@@ -1057,25 +1061,25 @@ PROVIDER_MODELS = {
     ],
     'qwen_intl': [
         {
-            'id': 'qwen3.7-max',
-            'label': 'Qwen3.7-Max (previous flagship)',
-            'i18n': {'zh': {'label': 'Qwen3.7-Max（上代旗舰）'}},
-            'context': '1M',
-            'vision': False,
-        },
-        {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (flagship)',
-            'i18n': {'zh': {'label': 'Qwen3.8-Max（旗舰）'}},
+            'label': 'Qwen3.8-Max',
+            'i18n': {'zh': {'label': 'Qwen3.8-Max'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast)',
-            'i18n': {'zh': {'label': 'Qwen3.8-Flash（快速）'}},
+            'label': 'Qwen3.8-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.8-Flash'}},
             'context': '1M',
             'vision': True,
+        },
+        {
+            'id': 'qwen3.7-max',
+            'label': 'Qwen3.7-Max',
+            'i18n': {'zh': {'label': 'Qwen3.7-Max'}},
+            'context': '1M',
+            'vision': False,
         },
         {
             'id': 'qwen3.7-plus',
@@ -1086,8 +1090,8 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast)',
-            'i18n': {'zh': {'label': 'Qwen3.6-Flash（快速）'}},
+            'label': 'Qwen3.6-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.6-Flash'}},
             'context': '1M',
             'vision': True,
         },
@@ -1121,28 +1125,28 @@ PROVIDER_MODELS = {
     'qwen_token': [
         {
             'id': 'auto',
-            'label': 'Auto (provider-routed)',
-            'i18n': {'zh': {'label': '自动（由千问选模型）'}},
+            'label': 'Auto',
+            'i18n': {'zh': {'label': '自动'}},
             'vision': True,
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (flagship)',
-            'i18n': {'zh': {'label': 'Qwen3.8-Max（旗舰）'}},
+            'label': 'Qwen3.8-Max',
+            'i18n': {'zh': {'label': 'Qwen3.8-Max'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast)',
-            'i18n': {'zh': {'label': 'Qwen3.8-Flash（快速）'}},
+            'label': 'Qwen3.8-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.8-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.7-max',
-            'label': 'Qwen3.7-Max (previous flagship)',
-            'i18n': {'zh': {'label': 'Qwen3.7-Max（上代旗舰）'}},
+            'label': 'Qwen3.7-Max',
+            'i18n': {'zh': {'label': 'Qwen3.7-Max'}},
             'context': '1M',
             'vision': False,
         },
@@ -1155,8 +1159,8 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast)',
-            'i18n': {'zh': {'label': 'Qwen3.6-Flash（快速）'}},
+            'label': 'Qwen3.6-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.6-Flash'}},
             'context': '1M',
             'vision': True,
         },
@@ -1173,22 +1177,22 @@ PROVIDER_MODELS = {
     'mimo': [
         {
             'id': 'mimo-v2.6-pro[1m]',
-            'label': 'V2.6 Pro (1M context, flagship)',
-            'i18n': {'zh': {'label': 'V2.6 Pro（1M 上下文，旗舰）'}},
+            'label': 'V2.6 Pro',
+            'i18n': {'zh': {'label': 'V2.6 Pro'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-flash[1m]',
-            'label': 'V2.6 Flash (1M context, cheap)',
-            'i18n': {'zh': {'label': 'V2.6 Flash（1M 上下文，低价）'}},
+            'label': 'V2.6 Flash',
+            'i18n': {'zh': {'label': 'V2.6 Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-pro-ultraspeed[1m]',
-            'label': 'V2.6 Pro Ultraspeed (1M context, fastest)',
-            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed（1M 上下文，最快）'}},
+            'label': 'V2.6 Pro Ultraspeed',
+            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed'}},
             'context': '1M',
             'vision': True,
         },
@@ -1197,22 +1201,22 @@ PROVIDER_MODELS = {
     'mimo_token': [
         {
             'id': 'mimo-v2.6-pro[1m]',
-            'label': 'V2.6 Pro (1M context, flagship)',
-            'i18n': {'zh': {'label': 'V2.6 Pro（1M 上下文，旗舰）'}},
+            'label': 'V2.6 Pro',
+            'i18n': {'zh': {'label': 'V2.6 Pro'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-flash[1m]',
-            'label': 'V2.6 Flash (1M context, cheap)',
-            'i18n': {'zh': {'label': 'V2.6 Flash（1M 上下文，低价）'}},
+            'label': 'V2.6 Flash',
+            'i18n': {'zh': {'label': 'V2.6 Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-pro-ultraspeed[1m]',
-            'label': 'V2.6 Pro Ultraspeed (1M context, fastest)',
-            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed（1M 上下文，最快）'}},
+            'label': 'V2.6 Pro Ultraspeed',
+            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed'}},
             'context': '1M',
             'vision': True,
         },
@@ -1229,13 +1233,6 @@ PROVIDER_MODELS = {
     # kimi-k2.7-code is left out: it is thinking-only and 400s when
     # Claude Code sends a request with thinking off.
     'kimi_paygo': [
-        {
-            'id': 'kimi-k3[1m]',
-            'label': 'K3 (1M context)',
-            'i18n': {'zh': {'label': 'K3（1M 上下文）'}},
-            'context': '1M',
-            'vision': True,
-        },
         # K3.1 Pro / Highspeed are 1M models (1,048,576); the bare ids
         # get Claude Code's 200K default, so the [1m] ids come first.
         # Claude Code strips [1m] before the API call
@@ -1251,6 +1248,13 @@ PROVIDER_MODELS = {
             'id': 'kimi-k3.1-pro-highspeed[1m]',
             'label': 'K3.1 Pro Highspeed (1M context)',
             'i18n': {'zh': {'label': 'K3.1 Pro Highspeed（1M 上下文）'}},
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'kimi-k3[1m]',
+            'label': 'K3',
+            'i18n': {'zh': {'label': 'K3'}},
             'context': '1M',
             'vision': True,
         },
@@ -1270,13 +1274,6 @@ PROVIDER_MODELS = {
         },
     ],
     'kimi_paygo_intl': [
-        {
-            'id': 'kimi-k3[1m]',
-            'label': 'K3 (1M context)',
-            'i18n': {'zh': {'label': 'K3（1M 上下文）'}},
-            'context': '1M',
-            'vision': True,
-        },
         # K3.1 Pro / Highspeed are 1M models (1,048,576); the bare ids
         # get Claude Code's 200K default, so the [1m] ids come first.
         # Claude Code strips [1m] before the API call
@@ -1292,6 +1289,13 @@ PROVIDER_MODELS = {
             'id': 'kimi-k3.1-pro-highspeed[1m]',
             'label': 'K3.1 Pro Highspeed (1M context)',
             'i18n': {'zh': {'label': 'K3.1 Pro Highspeed（1M 上下文）'}},
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'kimi-k3[1m]',
+            'label': 'K3',
+            'i18n': {'zh': {'label': 'K3'}},
             'context': '1M',
             'vision': True,
         },
@@ -1353,28 +1357,28 @@ PROVIDER_MODELS = {
     'qwen_token_intl': [
         {
             'id': 'auto',
-            'label': 'Auto (provider-routed)',
-            'i18n': {'zh': {'label': '自动（由千问选模型）'}},
+            'label': 'Auto',
+            'i18n': {'zh': {'label': '自动'}},
             'vision': True,
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (flagship)',
-            'i18n': {'zh': {'label': 'Qwen3.8-Max（旗舰）'}},
+            'label': 'Qwen3.8-Max',
+            'i18n': {'zh': {'label': 'Qwen3.8-Max'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast)',
-            'i18n': {'zh': {'label': 'Qwen3.8-Flash（快速）'}},
+            'label': 'Qwen3.8-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.8-Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.7-max',
-            'label': 'Qwen3.7-Max (previous flagship)',
-            'i18n': {'zh': {'label': 'Qwen3.7-Max（上代旗舰）'}},
+            'label': 'Qwen3.7-Max',
+            'i18n': {'zh': {'label': 'Qwen3.7-Max'}},
             'context': '1M',
             'vision': False,
         },
@@ -1387,8 +1391,8 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast)',
-            'i18n': {'zh': {'label': 'Qwen3.6-Flash（快速）'}},
+            'label': 'Qwen3.6-Flash',
+            'i18n': {'zh': {'label': 'Qwen3.6-Flash'}},
             'context': '1M',
             'vision': True,
         },
@@ -1396,22 +1400,22 @@ PROVIDER_MODELS = {
     'mimo_token_sgp': [
         {
             'id': 'mimo-v2.6-pro[1m]',
-            'label': 'V2.6 Pro (1M context, flagship)',
-            'i18n': {'zh': {'label': 'V2.6 Pro（1M 上下文，旗舰）'}},
+            'label': 'V2.6 Pro',
+            'i18n': {'zh': {'label': 'V2.6 Pro'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-flash[1m]',
-            'label': 'V2.6 Flash (1M context, cheap)',
-            'i18n': {'zh': {'label': 'V2.6 Flash（1M 上下文，低价）'}},
+            'label': 'V2.6 Flash',
+            'i18n': {'zh': {'label': 'V2.6 Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-pro-ultraspeed[1m]',
-            'label': 'V2.6 Pro Ultraspeed (1M context, fastest)',
-            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed（1M 上下文，最快）'}},
+            'label': 'V2.6 Pro Ultraspeed',
+            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed'}},
             'context': '1M',
             'vision': True,
         },
@@ -1419,22 +1423,22 @@ PROVIDER_MODELS = {
     'mimo_token_ams': [
         {
             'id': 'mimo-v2.6-pro[1m]',
-            'label': 'V2.6 Pro (1M context, flagship)',
-            'i18n': {'zh': {'label': 'V2.6 Pro（1M 上下文，旗舰）'}},
+            'label': 'V2.6 Pro',
+            'i18n': {'zh': {'label': 'V2.6 Pro'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-flash[1m]',
-            'label': 'V2.6 Flash (1M context, cheap)',
-            'i18n': {'zh': {'label': 'V2.6 Flash（1M 上下文，低价）'}},
+            'label': 'V2.6 Flash',
+            'i18n': {'zh': {'label': 'V2.6 Flash'}},
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'mimo-v2.6-pro-ultraspeed[1m]',
-            'label': 'V2.6 Pro Ultraspeed (1M context, fastest)',
-            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed（1M 上下文，最快）'}},
+            'label': 'V2.6 Pro Ultraspeed',
+            'i18n': {'zh': {'label': 'V2.6 Pro Ultraspeed'}},
             'context': '1M',
             'vision': True,
         },

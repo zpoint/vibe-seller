@@ -260,13 +260,14 @@ def _validate_env(env: object) -> dict | None:
     return out
 
 
-def _validate_models(entries: object, expected_first_id: str) -> list | None:
+def _validate_models(entries: object, default_id: str) -> list | None:
     """Validate one preset's model dropdown; ``None`` when invalid.
 
-    Unknown fields are dropped. The first entry must be the preset's
-    own ``ANTHROPIC_MODEL`` — the contract the catalog comments pin —
-    so a model list that disagrees with its preset is rejected with
-    the preset rather than served incoherently.
+    Unknown fields are dropped. The preset's own ``ANTHROPIC_MODEL``
+    must be one of the options (anywhere: the list is ordered newest
+    first, and the UI highlights the default) — so a model list that
+    disagrees with its preset is rejected with the preset rather than
+    served incoherently.
     """
     if not isinstance(entries, list) or not entries:
         return None
@@ -299,7 +300,7 @@ def _validate_models(entries: object, expected_first_id: str) -> list | None:
             if i18n:
                 item['i18n'] = i18n
         out.append(item)
-    if out[0]['id'] != expected_first_id:
+    if default_id not in {item['id'] for item in out}:
         return None
     return out
 
@@ -440,9 +441,9 @@ def validate(presets: object, models: object) -> tuple[dict, dict] | None:
             continue
         entries = models.get(preset_id)
         if entries is not None:
-            # A preset and its dropdown are one contract (the first
-            # entry IS the preset's ANTHROPIC_MODEL); a mismatched
-            # pair falls back to the bundled copy together.
+            # A preset and its dropdown are one contract (the list
+            # offers the preset's ANTHROPIC_MODEL); a mismatched pair
+            # falls back to the bundled copy together.
             dropdown = _validate_models(
                 entries, validated['env']['ANTHROPIC_MODEL']
             )

@@ -169,9 +169,10 @@ class TestProfileCrud:
             assert '{' not in url, f'{pid} base URL needs hand-editing'
 
     async def test_presets_expose_model_options(self, admin_client):
-        """Every preset ships a non-empty model dropdown whose first
-        (default) option matches the env's ANTHROPIC_MODEL — the UI and
-        the injected env must agree on the default model."""
+        """Every preset ships a non-empty model dropdown that offers the
+        env's ANTHROPIC_MODEL — the UI and the injected env must agree
+        on the default model (the list is ordered newest first, so the
+        default need not lead it)."""
         r = await admin_client.get('/api/profiles/presets')
         presets = r.json()['presets']
         for pid, preset in presets.items():
@@ -179,8 +180,9 @@ class TestProfileCrud:
             assert models, f'{pid} has no model options'
             for opt in models:
                 assert opt['id'] and opt['label']
-            assert models[0]['id'] == preset['env']['ANTHROPIC_MODEL'], (
-                f'{pid}: default model option must equal ANTHROPIC_MODEL'
+            ids = [opt['id'] for opt in models]
+            assert preset['env']['ANTHROPIC_MODEL'] in ids, (
+                f'{pid}: ANTHROPIC_MODEL must be one of the model options'
             )
 
     async def test_vision_labels_match_live_probe(self, admin_client):

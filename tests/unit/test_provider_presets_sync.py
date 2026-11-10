@@ -354,13 +354,25 @@ def test_unknown_preset_fields_are_dropped():
         [{'label': 'no id'}],
         [{'id': 'acme-1', 'label': 'x' * 1000}],
         [{'id': 'acme-1', 'label': 'A', 'vision': 'yes'}],
-        [{'id': 'other-1', 'label': 'A'}, {'id': 'acme-1', 'label': 'B'}],
+        # The preset's ANTHROPIC_MODEL (acme-1) is not offered at all.
+        [{'id': 'other-1', 'label': 'A'}, {'id': 'other-2', 'label': 'B'}],
     ],
     ids=['not-a-list', 'empty', 'dict', 'no-id', 'long', 'vision', 'mismatch'],
 )
 def test_malformed_model_lists_drop_their_preset(models):
     """A preset and its dropdown are one contract: both or neither."""
     assert_dropped(make_preset(), models=models)
+
+
+def test_the_default_need_not_lead_the_list():
+    # Lists are ordered newest first; the default is highlighted, not
+    # pinned to the top.
+    models = [
+        {'id': 'acme-2', 'label': 'Acme Two'},
+        {'id': 'acme-1', 'label': 'A'},
+    ]
+    result = sync.validate({'acme_test': make_preset()}, {'acme_test': models})
+    assert [m['id'] for m in result[1]['acme_test']] == ['acme-2', 'acme-1']
 
 
 def test_model_lists_for_unknown_presets_are_ignored():

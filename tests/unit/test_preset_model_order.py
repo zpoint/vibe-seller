@@ -1,12 +1,18 @@
-"""A provider's sub-1M model options come after its 1M ones.
+"""How a provider's model options are ordered and labelled.
+
+Order: options with a 1M Claude Code window first, then sub-1M ones;
+newest version first within each. The preset default is wherever its
+version puts it (the UI highlights it).
 
 The window is the one Claude Code actually uses (the rule the UI badge
 shows, frontend/src/components/contextWindow.ts):
 CLAUDE_CODE_MAX_CONTEXT_TOKENS if the preset sets it, else 1M for an
 id ending in ``[1m]``, else the 200K default, capped at the model's
-own ``context``. Few users want a 200K session, so those options must
-not sit between the 1M ones. The first option is the preset's default
-and stays first.
+own ``context``. Few users want a 200K session, so those come last.
+
+Labels are the vendor's model names: no tags of our own ("flagship",
+"fast", ...), and a window term only where the same model is listed
+twice with different windows.
 """
 
 import re
@@ -41,13 +47,36 @@ def _window(preset_id, model):
     return min(window, native) if native else window
 
 
+def _version(label):
+    head = label.split(' (')[0]
+    if head == 'Auto':
+        return (99, 0, 0)  # the provider's router, ahead of named models
+    m = re.search(r'(\d+(?:\.\d+)*)', head)
+    parts = [int(x) for x in m.group(1).split('.')] if m else [0]
+    return tuple((parts + [0, 0, 0])[:3])
+
+
 @pytest.mark.parametrize('preset_id', sorted(PROVIDER_MODELS))
-def test_sub_1m_options_come_last(preset_id):
-    rest = PROVIDER_MODELS[preset_id][1:]
-    full = [_window(preset_id, m) >= ONE_M for m in rest]
-    assert full == sorted(full, reverse=True), [
-        (m['id'], _window(preset_id, m)) for m in rest
+def test_1m_first_then_newest_first(preset_id):
+    models = PROVIDER_MODELS[preset_id]
+    keys = [
+        (_window(preset_id, m) < ONE_M, tuple(-x for x in _version(m['label'])))
+        for m in models
     ]
+    assert keys == sorted(keys), [m['label'] for m in models]
+
+
+@pytest.mark.parametrize('preset_id', sorted(PROVIDER_MODELS))
+def test_labels_are_vendor_names(preset_id):
+    ours = {'flagship', 'previous flagship', 'fast', 'fastest', 'cheap'}
+    models = PROVIDER_MODELS[preset_id]
+    heads = [m['label'].split(' (')[0] for m in models]
+    for m, head in zip(models, heads, strict=True):
+        terms = re.findall(r'\((.+)\)', m['label'])
+        terms = [t.strip() for t in terms[0].split(',')] if terms else []
+        assert not ours & set(terms), m['label']
+        if heads.count(head) == 1:
+            assert not terms, f'{m["label"]}: no twin, so no window term'
 
 
 def test_bare_window_terms_say_context():
