@@ -355,6 +355,66 @@ class TestBidUpdate:
                 self._args(tmp_path, from_changes=str(changes))
             )
 
+    def test_from_changes_moves_only_the_named_ad_group(self, tmp_path):
+        """The same keyword in two ad groups of one campaign: approving
+        it in ag1 must not move the ag2 copy."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = ZH_SHEET
+        ws.append(ZH_HEADER)
+        ws.append(
+            _row(
+                ENTITY='广告活动',
+                CAMPAIGN_ID='C1',
+                CAMPAIGN_NAME=SRC_CAMPAIGN,
+                STATE='已启用',
+            )
+        )
+        for ag in ('AG1', 'AG2'):
+            ws.append(
+                _row(
+                    ENTITY='广告组',
+                    CAMPAIGN_ID='C1',
+                    AD_GROUP_ID=ag,
+                    AD_GROUP_NAME=ag.lower(),
+                    STATE='已启用',
+                )
+            )
+            ws.append(
+                _row(
+                    ENTITY='关键词',
+                    CAMPAIGN_ID='C1',
+                    AD_GROUP_ID=ag,
+                    CAMPAIGN_NAME_INFO=SRC_CAMPAIGN,
+                    STATE='已启用',
+                    BID=3.0,
+                    KEYWORD_TEXT='blue widget',
+                    MATCH_TYPE='精准',
+                )
+            )
+        wb.save(tmp_path / 'export.xlsx')
+        changes = tmp_path / 'CHANGES.tsv'
+        changes.write_text(
+            'campaign_id\tad_group\ttarget\tmatch_type\taction\ttarget_bid\n'
+            'C1\tag1\tblue widget\texact\tlower\t2.40\n',
+            encoding='utf-8',
+        )
+        ads_bulk.cmd_bid_update(self._args(tmp_path, from_changes=str(changes)))
+        _title, _header, rows = _read_rows(tmp_path / 'bid.xlsx')
+        assert [(r[Col.AD_GROUP_ID], r[Col.BID]) for r in rows] == [
+            ('AG1', 2.4)
+        ]
+        # Without an ad group the row is ambiguous: refused, not guessed.
+        changes.write_text(
+            'campaign_id\tad_group\ttarget\tmatch_type\taction\ttarget_bid\n'
+            'C1\t\tblue widget\texact\tlower\t2.40\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(SystemExit):
+            ads_bulk.cmd_bid_update(
+                self._args(tmp_path, from_changes=str(changes))
+            )
+
     def test_no_lever_exits(self, tmp_path):
         _make_export(tmp_path / 'export.xlsx')
         with pytest.raises(SystemExit):

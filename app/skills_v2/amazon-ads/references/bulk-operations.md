@@ -70,10 +70,12 @@ $PY "$S" clone-campaign "$EXPORT" \
     --daily-budget 10 --default-bid 0.75 \
     --out ~/.vibe-seller/downloads/<slug>/bulk_create.xlsx
 
-# BID UPDATE from an approval: each approved raise/lower row of
-# CHANGES.tsv at its own target_bid, nothing else (exits if an approved
-# row isn't in the export).
-$PY "$S" bid-update "$EXPORT" --from-changes CHANGES.tsv \
+# BID UPDATE from a change list: each raise/lower row of the CHANGES.tsv
+# you pass, at its own target_bid, in its own ad_group, nothing else
+# (exits if a row isn't in the export, or names no ad_group for a keyword
+# that sits in several). Pass the list the user approved — in an
+# execution child, the parent task's CHANGES.tsv.
+$PY "$S" bid-update "$EXPORT" --from-changes path/to/CHANGES.tsv \
     --out ~/.vibe-seller/downloads/<slug>/bulk_bid_update.xlsx
 
 # --scale / --set-bid move EVERY keyword in the campaign: use them only

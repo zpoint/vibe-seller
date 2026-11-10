@@ -378,8 +378,10 @@ def cmd_clone_campaign(args):
 
 # --- bid-update ---------------------------------------------------------
 def _approved_bids(path):
-    """``{(campaign_id, keyword, match_type): target_bid}`` for the
-    raise/lower rows of a CHANGES.tsv — each row at its own value."""
+    """``{(campaign_id, keyword, match_type): [(ad_group, bid), ...]}``
+    for the raise/lower rows of a CHANGES.tsv — each at its own value.
+    The ad group is kept: one keyword can sit in several ad groups of a
+    campaign, and only the named one may move."""
     out = {}
     with open(path, encoding='utf-8', newline='') as f:
         for row in csv.DictReader(f, delimiter='\t'):
@@ -393,8 +395,24 @@ def _approved_bids(path):
                 str(row.get('target') or '').strip().lower(),
                 str(row.get('match_type') or '').strip().lower(),
             )
-            out[key] = float(row['target_bid'])
+            ad_group = str(row.get('ad_group') or '').strip().lower()
+            out.setdefault(key, []).append((ad_group, float(row['target_bid'])))
     return out
+
+
+def _keyword_key(r):
+    return (
+        str(r[Col.CAMPAIGN_ID] or '').strip(),
+        str(r[Col.KEYWORD_TEXT] or '').strip().lower(),
+        (match_type_api(r[Col.MATCH_TYPE]) or '').lower(),
+    )
+
+
+def _row_ad_groups(r, ag_names):
+    """The ids/names a keyword row's ad group is known by (lowercased)."""
+    ag_id = str(r[Col.AD_GROUP_ID] or '').strip()
+    names = {ag_id, ag_names.get(ag_id, ''), str(r[Col.AD_GROUP_NAME] or '')}
+    return {n.strip().lower() for n in names if n and n.strip()}
 
 
 def cmd_bid_update(args):
@@ -408,6 +426,15 @@ def cmd_bid_update(args):
     approved = _approved_bids(from_changes) if from_changes else None
     _wb, ws, header, data = load(args.file)
     id_to_name = build_campaign_index(data)
+    ag_names = {
+        str(r[Col.AD_GROUP_ID] or '').strip(): str(r[Col.AD_GROUP_NAME] or '')
+        for r in data
+        if is_entity(r, 'ad_group')
+    }
+    copies: dict = {}
+    for r in data:
+        if is_entity(r, 'keyword'):
+            copies[_keyword_key(r)] = copies.get(_keyword_key(r), 0) + 1
 
     out_rows = []
     matched = set()
@@ -420,15 +447,25 @@ def cmd_bid_update(args):
         if cur in (None, ''):
             continue
         if approved is not None:
-            key = (
-                str(r[Col.CAMPAIGN_ID] or '').strip(),
-                str(r[Col.KEYWORD_TEXT] or '').strip().lower(),
-                (match_type_api(r[Col.MATCH_TYPE]) or '').lower(),
-            )
-            if key not in approved:
+            key = _keyword_key(r)
+            wants = approved.get(key)
+            if not wants:
                 continue
-            matched.add(key)
-            new_bid = approved[key]
+            groups = _row_ad_groups(r, ag_names)
+            hit = [w for w in wants if w[0] and w[0] in groups]
+            if not hit and copies[key] > 1:
+                if any(not w[0] for w in wants):
+                    sys.exit(
+                        f'error: {key[1]!r} ({key[2]}) is in several ad '
+                        f'groups of {key[0]}: name its ad_group in '
+                        'CHANGES.tsv'
+                    )
+                continue
+            if not hit and groups and all(w[0] for w in wants):
+                continue  # this copy is in another ad group
+            want = (hit or wants)[0]
+            matched.add((key, want[0]))
+            new_bid = want[1]
         elif args.set_bid is not None:
             new_bid = args.set_bid
         else:
@@ -453,9 +490,13 @@ def cmd_bid_update(args):
         u[Col.BID] = new_bid
         out_rows.append(u)
 
-    if approved is not None and set(approved) - matched:
+    wanted = {
+        (key, ag) for key, rows in (approved or {}).items() for ag, _b in rows
+    }
+    if approved is not None and wanted - matched:
         missing = ', '.join(
-            f'{c}/{k}/{m}' for c, k, m in sorted(set(approved) - matched)
+            f'{c}/{ag or "-"}/{k}/{m}'
+            for (c, k, m), ag in sorted(wanted - matched)
         )
         sys.exit(f'error: approved rows not found in the export: {missing}')
     if not out_rows:
@@ -680,8 +721,8 @@ def main():
     p.add_argument('--set-bid', type=float, help='set every bid to V')
     p.add_argument(
         '--from-changes',
-        help='CHANGES.tsv: set each approved raise/lower row to its own '
-        'target_bid, and nothing else',
+        help='CHANGES.tsv: set each raise/lower row to its own '
+        'target_bid in its own ad_group, and nothing else',
     )
     p.add_argument('--out')
     p.set_defaults(func=cmd_bid_update)
