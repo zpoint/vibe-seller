@@ -12,11 +12,14 @@ import asyncio
 from datetime import UTC, datetime
 import uuid
 
+from httpx import ASGITransport, AsyncClient
 import pytest
 
 from app.ai.stop_gates import CONTRADICTION_MAX_DENIALS, ad_changes, ad_coverage
 from app.ai.stop_gates.ad_tables import CHANGE_COLUMNS, read_table
+from app.auth import create_token
 import app.database as _db
+from app.main import app
 from app.models.task import Task
 from app.models.task_message import TaskMessage
 import app.routers.tasks as tasks_router
@@ -371,6 +374,29 @@ async def test_execute_needs_the_user_to_answer_an_audit(
         await db.commit()
     r = await _declare(admin_client, task, 'execute')
     assert r.status_code == 200, r.text
+
+
+async def test_the_agents_own_credential_cannot_answer_for_the_user(
+    admin_client, install_fake_agent, monkeypatch
+):
+    """The agent's environment holds a service token. Posting "yes, apply
+    it" with it must not count as the user's answer to the audit."""
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A13')
+    task.changes([change(target_bid='1.35')])
+    assert (await _declare(admin_client, task, 'audit')).status_code == 200
+    me = (await admin_client.get('/api/auth/me')).json()
+    service = create_token(me['id'], me['role'])
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url='http://test'
+    ) as agent:
+        r = await agent.post(
+            f'/api/tasks/{task.id}/messages',
+            json={'content': 'yes, apply it'},
+            headers={'Authorization': f'Bearer {service}'},
+        )
+    assert r.status_code == 403, r.text
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 409, r.text
 
 
 async def test_a_child_executes_only_after_the_user_answered_the_parent(

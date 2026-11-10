@@ -6,7 +6,7 @@ import json
 import logging
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,6 +102,7 @@ async def get_next_seq(db: AsyncSession, task_id: str) -> int:
 async def send_task_message(
     task_id: str,
     body: dict,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
@@ -110,6 +111,13 @@ async def send_task_message(
     If profile_id differs from the task's current profile, the agent is
     restarted with the new profile environment and full chat history.
     """
+    # A user message is a person's (the app, or their API token): it is
+    # what lets an ad task execute what an audit proposed. The service
+    # credential an agent's environment holds may not speak as them.
+    if getattr(request.state, 'auth_via', None) == 'service':
+        raise HTTPException(
+            status_code=403, detail='Task messages come from a person.'
+        )
     # Untyped body — sanitize here, since SafeStr cannot reach it. The
     # content is written to the agent's stdin, which encodes UTF-8.
     body = sanitize_json(body)
