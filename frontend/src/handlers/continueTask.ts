@@ -34,6 +34,9 @@ export interface ContinueTaskDeps {
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
   setSelectedTask: React.Dispatch<React.SetStateAction<Task | null>>
   setScheduleTasks: React.Dispatch<React.SetStateAction<Task[]>>
+  /** The POST failed. The handler still reconciles the row and
+   *  resolves; the caller shows the error. */
+  onError?: (err: unknown) => void
 }
 
 export async function continueTask(
@@ -60,7 +63,8 @@ export async function continueTask(
       content: continueMessage(),
       profile_id: deps.profileId,
     })
-  } catch {
+  } catch (err) {
+    deps.onError?.(err)
     // POST failed — refetch so the row reflects the server's real
     // state (typically still failed / completed) instead of being
     // stuck optimistically at running.

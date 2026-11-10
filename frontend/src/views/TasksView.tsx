@@ -7,6 +7,7 @@ import { formatScheduleBadge } from '../lib/scheduleBadge'
 import { StatusBadge } from '../components/ui'
 import { ConversationStream } from '../components/conversation/ConversationStream'
 import { useChatUploads } from '../hooks/useChatUploads'
+import { useTaskAction } from '../hooks/useTaskAction'
 import { TaskComposer } from '../components/conversation/TaskComposer'
 import type { DraftStore } from '../lib/draftStore'
 import { isAwaitingUser } from '../handlers/composerGate'
@@ -64,9 +65,11 @@ export interface TasksViewProps {
   // Callbacks
   openCreateModal: () => void
   selectTask: (task: Task) => void
-  stopAgent: () => void
-  retryTask: (taskId: string) => void
-  continueTask: (taskId: string) => void
+  // Header actions: each rejects when the server did not carry it out,
+  // so the view can say so (see useTaskAction).
+  stopAgent: () => Promise<void> | void
+  retryTask: (taskId: string) => Promise<void> | void
+  continueTask: (taskId: string) => Promise<void> | void
   deleteTask: (taskId: string) => void
   selectAnswer: (questionText: string, answer: string) => void
   toggleOtherInput: (questionText: string) => void
@@ -223,13 +226,19 @@ export function TasksView({
     return t('tasks.chatPlaceholder')
   }
 
-  const handleConfirmPlan = async () => {
+  // Header / plan actions: pending while in flight, error when they fail.
+  const taskAction = useTaskAction(selectedTask?.id ?? null)
+  const busy = (key: string) => taskAction.pending === key
+  const busyCls = (key: string) => (busy(key) ? ' opacity-60 cursor-wait animate-pulse' : '')
+
+  const handleConfirmPlan = () => {
     if (!selectedTask) return
-    try {
-      await api.post(`/api/tasks/${selectedTask.id}/execute-plan`)
+    const id = selectedTask.id
+    void taskAction.run('confirmPlan', async () => {
+      await api.post(`/api/tasks/${id}/execute-plan`)
       setSelectedTask(prev => prev ? { ...prev, status: 'running' } : prev)
-      setTasks(prev => prev.map(t2 => t2.id === selectedTask.id ? { ...t2, status: 'running' } : t2))
-    } catch { /* ignore */ }
+      setTasks(prev => prev.map(t2 => t2.id === id ? { ...t2, status: 'running' } : t2))
+    })
   }
 
   const getScheduleBadge = (s: Schedule) => formatScheduleBadge(s, t)
@@ -507,7 +516,11 @@ export function TasksView({
                     </span>
                   )}
                   {getUI(selectedTask.status).canStopHeader && (
-                    <button onClick={stopAgent} className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700">
+                    <button
+                      onClick={() => taskAction.run('stop', stopAgent)}
+                      disabled={busy('stop')} aria-busy={busy('stop')}
+                      className={`px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700${busyCls('stop')}`}
+                    >
                       {t('tasks.stopTask')}
                     </button>
                   )}
@@ -515,8 +528,9 @@ export function TasksView({
                     <>
                       {/* Continue: non-destructive resume — keeps context. */}
                       <button
-                        onClick={() => continueTask(selectedTask.id)}
-                        className="px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
+                        onClick={() => taskAction.run('continue', () => continueTask(selectedTask.id))}
+                        disabled={busy('continue')} aria-busy={busy('continue')}
+                        className={`px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100${busyCls('continue')}`}
                       >
                         {t('tasks.continue')}
                       </button>
@@ -524,10 +538,11 @@ export function TasksView({
                       <button
                         onClick={() => {
                           if (confirm(t('tasks.retryConfirm'))) {
-                            retryTask(selectedTask.id)
+                            void taskAction.run('retry', () => retryTask(selectedTask.id))
                           }
                         }}
-                        className="px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
+                        disabled={busy('retry')} aria-busy={busy('retry')}
+                        className={`px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100${busyCls('retry')}`}
                       >
                         {selectedTask.status === 'completed'
                           ? t('tasks.rerun')
@@ -542,6 +557,11 @@ export function TasksView({
                     >
                       {t('common.delete')}
                     </button>
+                  )}
+                  {taskAction.error && (
+                    <span role="alert" data-testid="task-action-error" className="text-xs text-red-600 self-center">
+                      {taskAction.error}
+                    </span>
                   )}
                 </div>
               </div>
@@ -687,18 +707,19 @@ export function TasksView({
                   const description = planMode
                     ? t('tasks.modePlanDesc')
                     : t('tasks.modeAutoDesc')
-                  const setMode = async (newVal: boolean) => {
+                  const setMode = (newVal: boolean) => {
                     if (newVal === planMode) return
-                    try {
-                      await api.patch(`/api/tasks/${selectedTask.id}/review-plan`, { plan_mode: newVal })
+                    const id = selectedTask.id
+                    void taskAction.run('mode', async () => {
+                      await api.patch(`/api/tasks/${id}/review-plan`, { plan_mode: newVal })
                       setSelectedTask(prev => prev ? { ...prev, plan_mode: newVal } : prev)
-                      setTasks(prev => prev.map(t2 => t2.id === selectedTask.id ? { ...t2, plan_mode: newVal } : t2))
+                      setTasks(prev => prev.map(t2 => t2.id === id ? { ...t2, plan_mode: newVal } : t2))
                       setCurrentUser(prev => prev ? { ...prev, plan_mode_default: newVal } : prev)
-                    } catch { /* ignore */ }
+                    })
                   }
                   return selectedTask.store_id ? (
                     <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <div className="inline-flex items-center rounded-md border border-gray-200 bg-gray-50 p-0.5">
+                      <div aria-busy={busy('mode')} className={`inline-flex items-center rounded-md border border-gray-200 bg-gray-50 p-0.5${busyCls('mode')}`}>
                         <button
                           type="button"
                           aria-pressed={!planMode}

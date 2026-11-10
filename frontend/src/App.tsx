@@ -467,7 +467,8 @@ export default function App() {
     })
   }
 
-  const stopAgent = async () => { if (!selectedTask) return; try { await api.post(`/api/tasks/${selectedTask.id}/agent/stop`) } catch { /* ignore */ }; setPendingQuestions(null) }
+  // Rejects when the stop did not go through — TasksView shows why.
+  const stopAgent = async () => { if (!selectedTask) return; await api.post(`/api/tasks/${selectedTask.id}/agent/stop`); setPendingQuestions(null) }
   const handlerDeps = {
     api,
     profileId: selectedProfileId,
@@ -475,15 +476,25 @@ export default function App() {
     setSelectedTask,
     setScheduleTasks,
   }
-  const retryTask = (taskId: string) =>
-    retryTaskHandler(taskId, {
+  // Both handlers recover the row themselves on failure; they report the
+  // error through onError, and these wrappers reject with it so the
+  // task view can say the action did not go through.
+  const retryTask = async (taskId: string) => {
+    let failed: unknown = null
+    await retryTaskHandler(taskId, {
       ...handlerDeps,
+      onError: (e) => { failed = e },
       onCleared: () => {
         setSteps([]); setScreenshots({}); setAgentMessages([]); setTodoItems([]); setLogs([]); setConversationItems([]); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({})
       },
     })
-  const continueTask = (taskId: string) =>
-    continueTaskHandler(taskId, handlerDeps)
+    if (failed) throw failed
+  }
+  const continueTask = async (taskId: string) => {
+    let failed: unknown = null
+    await continueTaskHandler(taskId, { ...handlerDeps, onError: (e) => { failed = e } })
+    if (failed) throw failed
+  }
   const deleteTask = (taskId: string) =>
     deleteTaskHandler(taskId, {
       api, tasks, scheduleTasks, selectedTask, setTasks, setScheduleTasks,
