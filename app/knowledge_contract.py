@@ -127,8 +127,9 @@ def tier_error(path: str, store_slug: str | None) -> str | None:
     store run could edit notes every store reads.
     """
     # Normalised first: a prefix check on the raw string is escaped by
-    # `stores/<slug>/../<other>/notes.md`.
-    rel = posixpath.normpath(path)
+    # `stores/<slug>/../<other>/notes.md`. Compared case-insensitively:
+    # the default macOS filesystem treats `Stores/` as `stores/`.
+    rel = posixpath.normpath(path).lower()
     if rel.startswith('../') or rel == '..' or posixpath.isabs(rel):
         rel = ''
     if store_slug is None:
@@ -138,7 +139,7 @@ def tier_error(path: str, store_slug: str | None) -> str | None:
         tier = 'knowledge/ (not knowledge/project/)'
     else:
         tier = f'stores/{store_slug}/'
-        ok = rel.startswith(tier)
+        ok = rel.startswith(tier.lower())
     if ok:
         return None
     return (
