@@ -162,7 +162,9 @@ ships the warning.
 3. **Skill-declared gates** — only those named in the `gates:` frontmatter
    of a skill the task loaded (bindings persist per task under
    `data/gate_bindings/`). The ad skills (`amazon-ads`, `noon-ads`)
-   declare `ad_changes` and `ad_coverage`.
+   declare `ad_changes` and `ad_coverage`; `review-collect` declares
+   `review_completeness_review` and `review_output_gate` (every enumerated
+   product collected into well-formed `reviews/v1` JSON).
 
 **Ad gates read fixed-header TSVs, never the report prose.** The audit
 writes `CAMPAIGNS.tsv` and `CHANGES.tsv` in the task dir and per-campaign

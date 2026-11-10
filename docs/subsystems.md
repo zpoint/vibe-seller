@@ -406,6 +406,49 @@ Each Ziniao store gets a stable CDP multiplexing proxy (`app/browser/cdp_mux_pro
 
 A legacy TCP relay (`CDPTcpProxy` in `cdp_proxy.py`) is kept as fallback for single-client scenarios.
 
+## Ad task declarations
+
+An ad-task phase declares what it is for **before** working
+(`vibe_seller_declare_ad_task` → `POST /api/tasks/{id}/ad-declaration`):
+
+- **kind** ∈ `audit` / `create` / `execute` / `investigate` — there is no
+  `edit`; "change these three bids" is a one-campaign `audit`.
+- **scope** = `combos` (platform × country), `campaigns`, `products`.
+  Absent/empty `combos` means the **whole store** — declaring nothing
+  declares everything, so an unqualified "audit the ads" owes every
+  marketplace the store sells on. `products` is a human-facing anchor
+  ("the widget-006 family") that gates nothing on its own. A scope entry
+  NAMES what is in scope; exclusion text ("except X", "not Y") is refused
+  at the tool boundary, because exclusions are implied by omission.
+
+Rows are **append-only** (`ad_task_declarations`, one per phase), and the
+accepted declaration is mirrored to `AD_TASK.json` in the task workspace
+so the stop gates can read it without a DB session — the row stays the
+authority, never the file. What a phase owes is read from the
+declaration, never from the shape of its output: only `audit` owes
+marketplace coverage (`ad_declaration.owed_combos`), `investigate`
+proposes nothing, and no declaration means no inferred obligation.
+
+Like every check, one round: a same-turn re-declaration that widens reach
+or sheds an obligation, and `execute` without a user reply to a declared
+audit, are answered once (409, naming what that normally needs); the same
+call again is recorded as the agent declared it. Narrowing at the same
+kind and the `investigate` → `audit` correction are always accepted
+(`ad_declaration.supersedes` — a re-declaration may never reduce what the
+phase owes nor widen its reach).
+
+Declaring `execute` freezes the `CHANGES.tsv` the phase starts from (its
+own, or its nearest ancestor's) into `data/approved_changes/` — the
+approval its execution is checked against — and posts that frozen list to
+the conversation, headed "approved" or "NOT confirmed" according to
+whether the user replied to the audit it came from. Earlier freezes are
+kept, so changes made under a previous approval stay approved.
+
+Store-rule thresholds (`acos_no_lower`, `cpc_floor_multiplier`,
+`scale_roas`, `change_cooldown_days`, `reconcile_tolerance`,
+`noon_reconcile_floor`) are defaults, not laws: one `key: value` line in
+`stores/<slug>/notes.md` overrides one (`ad_rules.resolve_rules`).
+
 ## Result Gates (`set_task_result`)
 
 When the agent calls `vibe_seller_set_task_result`, the server retains the
@@ -422,7 +465,9 @@ prose, format or language.
 Every check gets one round and a submit is refused at most once, listing
 everything found; the next submit ships with the findings as caveats
 (`review_gaps`); contradictions also get a banner at the top of the
-result.
+result and of the retained submission. The per-task round counters reset
+when a result is accepted and when the task ends, so the next turn gets
+its own round.
 
 | Check | Concern |
 |---|---|
@@ -430,6 +475,7 @@ result.
 | Deliverables (`app/deliverables/gate.py`) | A report-download run delivered every report the calendar says it owed (only engages when the workspace holds `reports_*` folders). |
 | `ad_changes.py` | `CHANGES.tsv` obeys store rules (`ad_rules.py`, overridable per store via `key: value` lines in `stores/<slug>/notes.md`); `investigate` proposes nothing; `EXECUTION_LOG.tsv` matches the frozen approvals in `data/approved_changes/` (contradiction). |
 | `ad_coverage.py` | An `audit` covered every owed marketplace (`ad_declaration.owed_combos`), drilled live campaigns, reconciled search terms with targeting; impossible spend is a contradiction. |
+| `review_completeness_review` / `review_output_gate` (`review-collect` skill) | Every enumerated product was collected into well-formed `reviews/v1` JSON — the downstream sync upserts these files, so a half-finished dump would silently drop ratings. |
 
 The ad checks read fixed-header TSVs (`app/ai/stop_gates/ad_tables.py`),
 not the report; the agent-facing contract is
@@ -443,13 +489,24 @@ what the user approved, amended values included; the frozen list is
 posted to the conversation, and editing `CHANGES.tsv` afterwards does
 not move it.
 
+**What refuses outright.** Submission checks never do — they are one
+round each. Hard stops are only three, and none of them grades a report:
+a Bash command whose kill scope is broader than the calling task's own
+subprocess tree (`app/ai/bash_safety.py`, a PreToolUse deny); a catalog
+write whose table is unparseable or that carries rows outside its own
+tier (`app/workspace/catalog_validation.py` at the `PUT
+/api/workspace/file` boundary — the remaining catalog content rules are
+told once, like every check); and a knowledge-cleanup write that adds or
+rewords a line instead of deleting one
+([workspace.md § One-time knowledge cleanup](workspace.md#one-time-knowledge-cleanup-after-an-upgrade)).
+
 ### Why at the MCP tool call, not the Stop hook
 
 Some backends (notably DeepSeek under certain compaction conditions) never emit a `Stop` event, so a Stop-hook-only gate would be silently skipped. `set_task_result` is the one tool every successful task path calls, so the gate fires there. The Stop hook (every session) only refuses to end a turn while async subagents are still running.
 
 ### Adding a gate
 
-Domain gates run only when a loaded skill names them in its `gates:` frontmatter. Either ship the module in the skill's own `gates/` directory (discovered by `app/ai/skill_gate_loader.py` at startup), or register it from a plugin with `ctx.register_gate(name, module)`. The module exposes `check(final_result, task_id=None, rules=None) -> GateDeny | None`. Add a unit test alongside.
+Domain gates run only when a loaded skill names them in its `gates:` frontmatter. Either ship the module in the skill's own `gates/` directory (discovered by `app/ai/skill_gate_loader.py` at startup), or register it from a plugin with `ctx.register_gate(name, module)`. The module exposes `check(final_result, task_id=None, rules=None) -> GateDeny | None`. Add a unit test alongside. Which skills a task bound is recorded per task (never per session) under `data/gate_bindings/`, so a retry-resume session that edits the report without reloading the skill still faces the gates the original session bound.
 
 ## Plugin Architecture
 
