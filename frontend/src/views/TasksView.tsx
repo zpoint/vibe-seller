@@ -69,7 +69,8 @@ export interface TasksViewProps {
   setOtherAnswer: (questionText: string, text: string) => void
   submitAllAnswers: (overrideAnswers?: Record<string, string>) => void
   submitImageDecision: (requestId: string, action: 'confirm' | 'cancel', prompt: string, model: string, addedReferences: string[]) => void
-  sendChatMessage: () => void
+  /** Sends the composer's draft; rejects when the server did not accept it. */
+  sendChatMessage: () => Promise<void> | void
   setSelectedTask: React.Dispatch<React.SetStateAction<Task | null>>
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
   setCurrentUser: React.Dispatch<React.SetStateAction<AuthUser | null>>
@@ -721,9 +722,11 @@ export function TasksView({
               )}
 
               <TaskComposer
+                key={selectedTask.id}
                 draft={chatDraft} taskId={selectedTask.id}
                 fileInputRef={chatFileInputRef} uploading={chatUploading}
                 uploadFiles={uploadChatFiles} attachments={chatAttachments}
+                setAttachments={setChatAttachments}
                 onRemoveAttachment={removeAttachment} inputRef={chatInputRef}
                 canSend={canSend} isActive={isActive} awaitingUser={awaitingUser}
                 onSend={sendChatMessage} placeholder={getPlaceholder()}

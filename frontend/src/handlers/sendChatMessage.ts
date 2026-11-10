@@ -36,7 +36,9 @@ export interface SendChatDeps {
  * plus any staged attachment ids; the server promotes the attachments and
  * returns the canonical transcript content, which we render (thumbnails,
  * not paths). Sends fine with text only, attachments only, or both.
- * `sendingRef` de-dupes rapid double-submits.
+ * `sendingRef` de-dupes rapid double-submits. Rejects when the server
+ * did not accept the message (error, unreachable, or past the request
+ * deadline) so the caller can say so.
  */
 export async function sendChatMessage(deps: SendChatDeps): Promise<void> {
   const { selectedTask } = deps
@@ -80,5 +82,10 @@ export async function sendChatMessage(deps: SendChatDeps): Promise<void> {
     if (response.profile_switched) {
       deps.setSelectedTask(prev => prev ? { ...prev, ai_profile_id: deps.profileId } : prev)
     }
-  } catch (err) { console.error('Failed to send message:', err) } finally { deps.sendingRef.current = false }
+  } finally {
+    // A rejection propagates: the composer shows why and restores the
+    // text. Swallowing it here made a failed send look like a sent one
+    // — the box cleared and nothing arrived.
+    deps.sendingRef.current = false
+  }
 }

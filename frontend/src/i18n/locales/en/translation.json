@@ -599,7 +599,10 @@
     "profile": "Profile",
     "profileMismatch": "Task was run by {{current}}. Different providers may be incompatible — results are not guaranteed if switched",
     "taskProfile": "Task",
-    "manageProfiles": "Manage Profiles"
+    "manageProfiles": "Manage Profiles",
+    "sending": "Sending…",
+    "sendFailed": "Message not sent: {{error}}. Your text is back in the box.",
+    "sendTimeout": "The server did not answer in time — the message may not have arrived. Check the conversation before sending it again; your text is back in the box."
   },
   "profiles": {
     "default": "Claude",

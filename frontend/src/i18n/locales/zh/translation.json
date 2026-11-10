@@ -601,7 +601,10 @@
     "profile": "配置文件",
     "profileMismatch": "此任务由 {{current}} 执行，不同供应商可能不兼容，切换后结果无法保证",
     "taskProfile": "任务",
-    "manageProfiles": "管理配置文件"
+    "manageProfiles": "管理配置文件",
+    "sending": "发送中…",
+    "sendFailed": "消息未发送：{{error}}。内容已放回输入框。",
+    "sendTimeout": "服务器未及时响应，消息可能没有送达。请先查看对话再决定是否重发；内容已放回输入框。"
   },
   "profiles": {
     "default": "Claude",
