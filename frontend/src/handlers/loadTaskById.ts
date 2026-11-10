@@ -1,4 +1,5 @@
 import { buildConversationItems } from '../lib/conversation'
+import { LONG_TIMEOUT_MS, type RequestOptions } from '../lib/requestDeadline'
 import type { Task, TaskStep, TodoItem, AgentMessage, ConversationItem, StagedAttachment, ImageModelOption } from '../types'
 
 interface PendingQuestions {
@@ -7,7 +8,7 @@ interface PendingQuestions {
 }
 
 export interface LoadTaskDeps {
-  api: { get(url: string): Promise<unknown> }
+  api: { get(url: string, opts?: RequestOptions): Promise<unknown> }
   // Monotonic token ref shared with App: each call claims the next value;
   // a load only applies its state while it is still the current one.
   seqRef: React.MutableRefObject<number>
@@ -24,7 +25,8 @@ export interface LoadTaskDeps {
   setPendingQuestions: (v: PendingQuestions | null) => void
   setConversationItems: (v: ConversationItem[]) => void
   setSteps: (v: TaskStep[]) => void
-  /** The task itself loaded (it is now `selectedTask`). */
+  /** The task and its detail (transcript, steps, pending question /
+   *  image card) all loaded. */
   onLoaded?: () => void
   /** The task could not be loaded — error, unreachable, or past the
    *  request deadline. Only reported while this load is still current. */
@@ -67,7 +69,6 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
   // as "nothing happened" until the new data lands. Clear now → the pane
   // flips to the new task immediately and fills in as data arrives.
   deps.setSelectedTask(fullTask)
-  deps.onLoaded?.()
   deps.setLogs([]); deps.setScreenshots({}); deps.setAgentMessages([])
   deps.setConversationItems([]); deps.setSteps([])
   if (fullTask.todos) { try { deps.setTodoItems(JSON.parse(fullTask.todos)) } catch { deps.setTodoItems([]) } } else { deps.setTodoItems([]) }
@@ -81,13 +82,29 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
     pending?: boolean; request_id: string; prompt?: string; model?: string
     models?: ImageModelOption[]; reference_images?: string[]; output_name?: string; kind?: string
   }
-  const [q, msgs, stepsData, pendingImg] = await Promise.all([
-    api.get(`/api/tasks/${fullTask.id}/questions/pending`).catch(() => null) as Promise<({ pending?: boolean } & PendingQuestions) | null>,
-    api.get(`/api/tasks/${taskId}/messages`).catch(() => []) as Promise<{ role: string; content: string }[]>,
-    api.get(`/api/tasks/${taskId}/steps`).catch(() => []) as Promise<TaskStep[]>,
-    api.get(`/api/tasks/${taskId}/image/pending`).catch(() => null) as Promise<PendingImage | null>,
-  ])
+  // A failed piece fails the load: substituting [] / null opened the
+  // task with an EMPTY conversation (or without its pending question)
+  // and no sign anything was missing. The transcript is unpaginated, so
+  // on a long task it gets the long deadline (steps ride along with it).
+  let detail: [
+    ({ pending?: boolean } & PendingQuestions) | null,
+    { role: string; content: string }[],
+    TaskStep[],
+    PendingImage | null,
+  ]
+  try {
+    detail = await Promise.all([
+      api.get(`/api/tasks/${fullTask.id}/questions/pending`) as Promise<({ pending?: boolean } & PendingQuestions) | null>,
+      api.get(`/api/tasks/${taskId}/messages`, { timeoutMs: LONG_TIMEOUT_MS }) as Promise<{ role: string; content: string }[]>,
+      api.get(`/api/tasks/${taskId}/steps`, { timeoutMs: LONG_TIMEOUT_MS }) as Promise<TaskStep[]>,
+      api.get(`/api/tasks/${taskId}/image/pending`) as Promise<PendingImage | null>,
+    ])
+  } catch (err) {
+    if (fresh()) deps.onLoadError?.(err)
+    return
+  }
   if (!fresh()) return
+  const [q, msgs, stepsData, pendingImg] = detail
 
   deps.setPendingQuestions(q?.pending ? { request_id: q.request_id, questions: q.questions } : null)
   deps.setAgentMessages(msgs.map(m => ({ role: m.role, content: m.content })))
@@ -114,6 +131,7 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
   }
   deps.setConversationItems(convItems)
   deps.setSteps(stepsData)
+  deps.onLoaded?.()
 
   for (const s of stepsData) {
     // Bail the whole loop the moment a newer selection supersedes this

@@ -250,7 +250,8 @@ export function TasksView({
   // once something is selected; otherwise the list fills the screen.
   // A task being opened (or that failed to open) takes the detail pane
   // over whatever was open before, so the click visibly did something.
-  const openingTask = taskLoad && selectedTask?.id !== taskLoad.taskId ? taskLoad : null
+  // A failure while its transcript loads replaces the half-loaded task.
+  const openingTask = taskLoad && (selectedTask?.id !== taskLoad.taskId || taskLoad.error != null) ? taskLoad : null
   const mobileShowDetail = isMobile && (!!selectedTask || !!selectedSchedule || !!openingTask)
   const onMobileBack = () => {
     if (selectedTask) setSelectedTask(null)
