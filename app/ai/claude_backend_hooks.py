@@ -263,6 +263,15 @@ class _HookMixin:
                 skill_name = inner_input.get('skill', '')
                 prereq_hint = self._check_skill_prereqs(skill_name)
                 if prereq_hint:
+                    # The server's record that the hint was sent (the
+                    # e2e reads it; the agent's own narration is not
+                    # evidence).
+                    logger.info(
+                        'Skill prereq: agent %s loaded %r early; hint: %s',
+                        self.task_id[:8],
+                        skill_name,
+                        prereq_hint,
+                    )
                     read_hint = (
                         f'{read_hint}\n{prereq_hint}'
                         if read_hint

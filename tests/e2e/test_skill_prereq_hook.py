@@ -7,9 +7,15 @@ call — and the agent then loads ``noon-shared`` and answers from it.
 Inventing a noon URL after skipping the prerequisite was the production
 failure this protects against.
 
+The hint is verified from the SERVER log (the hook logs ``Skill prereq:
+agent <id> loaded 'noon-ads' early; hint: ...`` when it attaches one),
+not from the agent's narration: an agent that happens to load
+``noon-shared`` on its own would otherwise pass with the hook deleted.
+
 Requires: real ``claude`` CLI + LLM API key + running server.
 """
 
+import re
 import time
 
 import httpx
@@ -22,12 +28,27 @@ from tests.e2e.e2e_helpers import (
     get_messages,
     login,
     poll_task_status,
+    server_log_candidates,
 )
 
 pytestmark = [pytest.mark.e2e]
 
 # Appears only in noon-shared/SKILL.md among the loaded skills.
 NOON_SHARED_MARKER = 'https://login.noon.partners/en/'
+
+
+def _hint_logged(task_id_prefix: str) -> bool:
+    """Whether the hook logged a prerequisite hint for this task."""
+    pat = re.compile(
+        rf'Skill prereq: agent {re.escape(task_id_prefix)} '
+        r"loaded 'noon-ads' early; hint: .*noon-shared"
+    )
+    for path in server_log_candidates():
+        if path.is_file() and pat.search(
+            path.read_text(encoding='utf-8', errors='replace')
+        ):
+            return True
+    return False
 
 
 @pytest.fixture(scope='module')
@@ -65,3 +86,10 @@ def test_prerequisite_is_loaded_and_used(api_client: httpx.Client):
     )
     answer = transcript + ' ' + (result.get('result') or '')
     assert NOON_SHARED_MARKER in answer, answer[:800]
+    # The question is about noon ads, so the agent reaches for noon-ads
+    # first — the production failure. The hook must have hinted then.
+    assert _hint_logged(task['id'][:8]), (
+        'no prerequisite hint was logged for this task: either the hook '
+        'never attached one, or the agent loaded noon-shared before '
+        f'noon-ads. Logs searched: {[str(p) for p in server_log_candidates()]}'
+    )
