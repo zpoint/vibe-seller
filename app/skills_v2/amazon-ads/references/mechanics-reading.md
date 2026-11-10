@@ -297,7 +297,7 @@ PY
 
 **SB / SBV detail tiles are static text**, label on one line and the
 value on the next with a `TOTAL` / `AVERAGE` suffix and the currency or
-`%` embedded (`USD96.00TOTAL`, `80.01%AVERAGE`). The pressed-button read
+`%` embedded (`USD100.00TOTAL`, `50.00%AVERAGE`). The pressed-button read
 finds almost none of them; scan line pairs instead:
 
 ```bash
