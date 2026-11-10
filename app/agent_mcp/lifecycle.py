@@ -545,8 +545,8 @@ def render_instructions() -> str:
         '(no plan; fires as-is) → planning (a plan-only task authors '
         'it; wait_task follows) → ready (accepted '
         'automatically; it WILL fire — show the plan to your user; '
-        'pause/replan if they object) → stale (prompt edited; '
-        're-plan) → failed (planner failed; re-plan). A not-ready '
+        'pause/replan if they object) → stale (prompt or app '
+        'changed; re-plan) → failed (planner failed; re-plan). A not-ready '
         'plan never fires; a paused schedule neither.'
     )
 
