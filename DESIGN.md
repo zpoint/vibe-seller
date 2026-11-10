@@ -2,7 +2,7 @@
 
 ## Context
 
-The user runs multiple e-commerce stores (Amazon, Noon, etc.) and currently uses browser automation via Claude Code skills + ziniao anti-detect browser. The problem: it's too specific and not "AI native." The user wants a vibe-kanban-style collaboration platform where team members create and manage browser-automation tasks organized by store, with intelligent scheduling, template-driven execution, real-time feedback, and hierarchical task decomposition.
+The user runs multiple e-commerce stores (Amazon, Noon, etc.) and currently uses browser automation via Claude Code skills + ziniao anti-detect browser. The problem: it's too specific and not "AI native." The user wants a vibe-kanban-style collaboration platform where team members create and manage browser-automation tasks organized by store, with intelligent scheduling, agent-driven execution, real-time feedback, and hierarchical task decomposition.
 
 **Goal**: Build a new project `vibe-seller` that combines team collaboration UX with browser automation capabilities.
 
@@ -20,11 +20,11 @@ The user runs multiple e-commerce stores (Amazon, Noon, etc.) and currently uses
 │              Python Backend (FastAPI + asyncio)           │
 │  ┌──────────┐ ┌──────────┐ ┌───────────┐ ┌───────────┐ │
 │  │ API/SSE  │ │ Scheduler│ │  Browser  │ │  Task     │ │
-│  │ Routes   │ │ (queue)  │ │  Manager  │ │ Executor  │ │
+│  │ Routes   │ │ (queue)  │ │  Manager  │ │ Runner    │ │
 │  └──────────┘ └──────────┘ └───────────┘ └───────────┘ │
 │  ┌──────────┐ ┌──────────┐ ┌───────────┐               │
-│  │ Template │ │ Knowledge│ │ Credential│               │
-│  │ Engine   │ │ Store    │ │ Vault     │               │
+│  │ Skills   │ │ Knowledge│ │ Credential│               │
+│  │ Prompts  │ │ Store    │ │ Vault     │               │
 │  └──────────┘ └──────────┘ └───────────┘               │
 └────────────────────────┬────────────────────────────────┘
                          │
@@ -82,38 +82,48 @@ AIAgentBackend (ABC)              app/ai/base.py
          └── is_process_alive(task_id)   # worker not yet exited (stall reaper)
 ```
 
-### Task Execution Flow (Auto Plan+Execute)
+### Task Execution Flow (auto by default, plan opt-in)
 
 ```
 User creates task
   → POST /api/tasks → status: "pending"
   → Backend auto-starts via _auto_run_task() (no queuing on creation):
-    1. BrowserManager.write_browser_config_for_store() — generate browser-use wrapper (no browser start)
-    2. knowledge_sync.fetch()             — sync project knowledge
-    3. agent.run(mode="plan_then_execute") — single session:
-       a. Agent starts with --permission-mode plan (read-only tools)
-       b. Agent plans → calls ExitPlanMode → status: "designing"
-       c. Backend captures plan → task.plan → status: "planned"
-       d. If interactive (not scheduled): wait for user approve/reject
-       e. Approve sends SetMode → bypassPermissions → status: "running"
-       f. Agent continues executing in same session with full access
-    4. Done → status: "completed" or "failed"
+    1. write_browser_config_for_store() — generate the per-store
+       browser-use wrapper (no browser start); no-store tasks get the
+       store-less web wrapper instead
+    2. knowledge_sync.fetch()            — sync project knowledge
+    3. agent.run() — one CLI process per turn:
+       a. AUTO MODE (default, plan_mode=false):
+          --permission-mode bypassPermissions from the start; the agent
+          works immediately — PENDING → RUNNING → COMPLETED/FAILED
+       b. PLAN MODE (opt-in, plan_mode=true; forced for no-store tasks):
+          --permission-mode plan (read-only) → ExitPlanMode → "designing"
+          → plan captured → "planned" → user approves → SetMode
+          bypassPermissions → "running" → COMPLETED/FAILED
+          (a scheduled fire auto-approves the frozen plan — the human
+          reviewed it when the schedule was created)
+    4. The agent records its deliverable with set_task_result; the result
+       gates check that submission (docs/subsystems.md § Result Gates)
 ```
 
-No manual Start Agent / Design / Execute Plan buttons -- tasks auto-plan and auto-execute on creation.
+No manual Start Agent / Design / Execute Plan buttons — tasks start on creation.
 Tasks auto-start via `_auto_run_task()` on creation. Retries and schedules use `TaskQueueScheduler` which gates on platform/country compatibility (same platform + different country → queued; otherwise concurrent via CDPMuxProxy).
 
-### Knowledge System (Two-Layer)
+### Knowledge System (three tiers)
 
 ```
 PACKAGE (app/knowledge/)                 LOCAL (~/.vibe-seller/)
-  common/ziniao-browser.md                 knowledge/
-  README.md                                  project/  ← synced from package + remote
-  MANIFEST.txt                               (root)    ← agent-generated
-                                           stores/    ← per-store (local)
+  common/*.md                                knowledge/
+  MANIFEST.txt                                 project/    ← L1: synced from package + remote, read-only
+                                                 *.md      ← L2: cross-store, agent/user-written
+                                             stores/<slug>/ ← L3: per-store, agent-written
 ```
 
-Local package knowledge is synced before every agent run. Remote sync (from GitHub) runs async on task start when commit changes and >24h cooldown. Local knowledge is generated by agents during task execution.
+Each tier's `CATALOG.md` accumulates the tiers below it, so a task reads one
+catalog (L3 for a store task, L2 otherwise). L1 is synced before every agent
+run (remote sync from GitHub runs async on task start); L2/L3 are kept
+correct by the agents themselves during task execution. Full contract:
+[docs/workspace.md](docs/workspace.md).
 
 ### Skills System (Reusable Agent Procedures)
 
@@ -161,7 +171,7 @@ All-stores schedule fires (APScheduler)
   → Emit SSE 'fanout_triggered'
 ```
 
-Design decision: independent tasks per store (not mega-tasks). Each task goes through normal plan_then_execute pipeline. The existing per-store task queue handles concurrency and browser session reuse. The `batch_id` links all tasks from the same trigger for grouping in the frontend.
+Design decision: independent tasks per store (not mega-tasks). Each task runs like any other (auto mode by default, plan mode opt-in). The existing per-store task queue handles concurrency and browser session reuse. The `batch_id` links all tasks from the same trigger for grouping in the frontend.
 
 Data model:
 - Schedules with `store_id=NULL` are all-stores (fan-out) schedules
@@ -273,26 +283,12 @@ CREATE TABLE browser_sessions (
     FOREIGN KEY (store_id) REFERENCES stores(id)
 );
 
--- Task templates (predefined step sequences)
-CREATE TABLE task_templates (
-    id              TEXT PRIMARY KEY,
-    name            TEXT NOT NULL,          -- "Create Listing", "Ship Inventory"
-    description     TEXT,
-    platform        TEXT,                   -- amazon | noon | null (any)
-    category        TEXT NOT NULL,          -- listing | shipment | pricing | inventory
-    steps           TEXT NOT NULL,          -- JSON: ordered step definitions
-    is_composite    BOOLEAN DEFAULT 0,      -- true = spawns sub-tasks
-    decompose_rule  TEXT,                   -- JSON: how to decompose (e.g., by store)
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
-);
-
 -- Tasks (unit of work, hierarchical)
 CREATE TABLE tasks (
     id              TEXT PRIMARY KEY,
     parent_task_id  TEXT,                  -- null = top-level task
-    store_id        TEXT,                  -- which store (null for composite parents)
-    template_id     TEXT,                  -- which template was used
+    store_id        TEXT,                  -- which store (null for orchestrator/parent tasks)
+    template_id     TEXT,                  -- legacy (task templates removed; unused)
     created_by      TEXT NOT NULL,         -- user who created it
     assigned_to     TEXT,                  -- user/agent assigned
     title           TEXT NOT NULL,
@@ -312,11 +308,10 @@ CREATE TABLE tasks (
     updated_at      TEXT NOT NULL,
     FOREIGN KEY (parent_task_id) REFERENCES tasks(id),
     FOREIGN KEY (store_id) REFERENCES stores(id),
-    FOREIGN KEY (template_id) REFERENCES task_templates(id),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
--- Task steps (individual steps within a task execution)
+-- Task steps (legacy — written only by the retired step executor)
 CREATE TABLE task_steps (
     id              TEXT PRIMARY KEY,
     task_id         TEXT NOT NULL,
@@ -576,7 +571,7 @@ Agent sessions block raw `browser-use` and `mcp__playwright__*` via `--disallowe
 ### Implementation
 
 Two scheduling paths:
-1. **`_auto_run_task()`** (primary) — Per-store concurrent scheduling of plan_then_execute sessions
+1. **`_auto_run_task()`** (primary) — spawns the task's agent session (auto mode by default, plan mode opt-in)
 2. **`TaskQueueScheduler`** (for browser-direct tasks) — Concurrent by default, queued only for platform/country conflicts
 
 ---
@@ -585,48 +580,42 @@ Two scheduling paths:
 
 ### 1. User Creates Task
 ```
-User → selects store + template (or freeform) → provides parameters → Create
+User → picks a store (or none) + writes a prompt → Create
 ```
 
-### 2. Planning Phase
+### 2. Queue Phase
 ```
-System → loads template steps → adapts with input_data → loads knowledge files
-       → generates execution plan (list of TaskSteps) → status: "designing"
-```
-
-### 3. Queue Phase
-```
-Scheduler → checks browser session availability → if available, claim → status: "running"
-          → if platform/country conflict, status: "queued" → wait
+TaskQueueScheduler → checks browser session availability → if available, claim → status: "running"
+                   → if platform/country conflict, status: "queued" → wait
 ```
 
-### 4. Execution Phase (step by step)
+### 3. Launch
 ```
-For each step in plan:
-  1. Update step status → "running", stream via SSE
-  2. Execute browser action (via browser-use CLI)
-  3. Take screenshot → save to disk, store path in DB
-  4. Stream step status + screenshot path via SSE
-  5. Verify step result
-  6. If login page detected → fetch credentials from vault → auto-login → retry
-  7. Update step status → "completed" or "failed"
-  8. If failed → pause, allow user intervention or auto-retry
+_auto_run_task() → per-store browser wrapper + knowledge sync
+  → agent session (auto mode works immediately; plan mode plans first
+    and waits for approval — see Task Execution Flow above)
+```
+
+### 4. Execution
+```
+The agent drives the per-store browser-use wrapper, streams its work
+  (messages, todos) over SSE, and records its deliverable with
+  set_task_result — the result gates check that submission
+  (docs/subsystems.md § Result Gates)
 ```
 
 ### 5. Completion
 ```
-Release browser lock → update task status → notify via SSE
+Session ends → finalize_terminal_state() resolves the outcome
+  (accepted result → completed; best attempt + gaps → completed with
+   caveats; nothing usable → failed) → notify via SSE
 ```
 
-### Composite Task Flow (Top-Level Decomposition)
-```
-User: "Ship items from 5 stores"
-  → System loads "Shipment" template (is_composite=true)
-  → Reads decompose_rule: group by store
-  → Creates 5 child tasks, one per store
-  → Each child task enters the normal flow independently
-  → Parent task tracks aggregate progress
-```
+Cross-store work is scheduled (all-stores fan-out — one child task per
+store per fire), not decomposed by a template; an orchestrator task may
+still spawn per-store sub-tasks of its own. See
+[docs/subsystems.md § All-Stores Scheduling](docs/subsystems.md#all-stores-scheduling)
+and [docs/tasks.md § Parent / Sub-Task Hierarchy](docs/tasks.md#parent--sub-task-hierarchy).
 
 ---
 
@@ -648,8 +637,6 @@ vibe-seller/
 │   │   ├── ziniao_utils.py       # Ziniao HTTP API + auto-launch + WSL support
 │   │   ├── cdp_proxy.py          # Async TCP relay for CDP (stable proxy port)
 │   │   └── manager.py            # Per-store orchestration + Ziniao guard + wrapper scripts
-│   ├── executor/                 # Legacy browser task runner (deprecated)
-│   │   └── runner.py             # Stub — browser automation now via browser-use CLI
 │   ├── scheduler/                # Task scheduling
 │   │   ├── cron.py               # APScheduler cron jobs
 │   │   └── task_queue.py         # Per-store concurrent task scheduler
@@ -723,42 +710,14 @@ class BrowserManager:
         # Generate browser-use wrapper WITHOUT starting browser
 ```
 
-### 2. Task Executor (Legacy — `app/executor/runner.py`)
+### 2. Frontend Task Detail
 
-> **Deprecated**: The legacy executor used Playwright directly. Browser automation is now handled by the AI agent via browser-use CLI wrapper scripts. The executor module is a stub that raises `NotImplementedError`.
-
-### 3. Frontend Task Step Timeline
-
-The main differentiating UI component:
-
-```
-┌─────────────────────────────────────────────┐
-│ Task: Create Listing for SKU-001            │
-│ Store: US-Store1 | Platform: Amazon         │
-│ Status: Running (Step 3/7)                  │
-├─────────────────────────────────────────────┤
-│                                             │
-│  ✅ Step 1: Navigate to Inventory           │
-│     [screenshot thumbnail]                  │
-│                                             │
-│  ✅ Step 2: Search for SKU                  │
-│     [screenshot thumbnail]                  │
-│                                             │
-│  🔄 Step 3: Click "Add a Product"           │
-│     [live screenshot]                       │
-│                                             │
-│  ⬚ Step 4: Fill Product Title               │
-│  ⬚ Step 5: Fill Description                 │
-│  ⬚ Step 6: Set Price                        │
-│  ⬚ Step 7: Submit & Verify                  │
-│                                             │
-├─────────────────────────────────────────────┤
-│ Logs:                                       │
-│ [12:01:05] Navigating to inventory page...  │
-│ [12:01:08] Page loaded, searching SKU...    │
-│ [12:01:12] Found SKU, clicking add product  │
-└─────────────────────────────────────────────┘
-```
+The task detail is conversation-first (see [docs/tasks.md](docs/tasks.md#frontend-task-detail-ui)):
+the captured plan card on top, then the agent's streamed messages,
+todos with a progress bar, and a chat input that doubles as the plan
+feedback channel while a task sits at `planned`. Browser screenshots
+ride along in the message stream; there is no step-by-step executor
+timeline (the step executor is gone — `task_steps` rows are legacy).
 
 ---
 
@@ -786,7 +745,7 @@ POST   /api/ziniao-accounts         # Create account
 GET    /api/ziniao-accounts/:id/browsers  # List browser profiles
 GET    /api/ziniao/launcher         # Download ziniao_webdriver.bat
 
-# Tasks (auto plan+execute on creation)
+# Tasks (auto-executes on creation; plan mode opt-in)
 POST   /api/tasks                   # Create task → auto-starts pipeline
 GET    /api/tasks?store_id=         # List tasks (filter by store)
 GET    /api/tasks/:id               # Task detail
@@ -859,7 +818,7 @@ Cross-store scheduling via fan-out. Two recurring task patterns:
 | **Store-specific** | One store (`store_id` set) | Scheduled | "Check Store A listings daily" |
 | **All-stores (fan-out)** | All stores (`store_id=NULL`) | Scheduled | "Check inactive listings for every store" |
 
-- **Fan-out logic**: `app/scheduler/fanout.py` — one task per active store per trigger, each goes through normal plan_then_execute pipeline
+- **Fan-out logic**: `app/scheduler/fanout.py` — one task per active store per trigger, each runs like any other task (auto mode by default)
 - **Task grouping**: `Task.batch_id` UUID groups tasks from same fan-out trigger
 - **Plan authoring** (plan-mode schedules): Plan is authored once at schedule creation via a dedicated `is_plan_only` Task (user reviews + approves via the review-plan UI). The approved plan is frozen on `Schedule.plan` with `plan_status='ready'`; every subsequent fire copies it into the child task and skips planning. Editing the schedule's prompt invalidates the plan (`stale`); `/replan` authors a new one. Full lifecycle: [docs/subsystems.md § Plan-at-creation lifecycle](docs/subsystems.md#plan-at-creation-lifecycle).
 - **No new task status**: fan-out tasks use standard lifecycle (pending → queued → designing → planned → running → completed/failed)

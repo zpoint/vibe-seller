@@ -99,8 +99,8 @@ try, and to write nothing when it learned nothing. Writes go through
 `knowledge/` and `stores/` are the agents' **only** memory: Claude Code
 auto-memory is off for every agent (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`,
 set by `ProfileManager.get_env_for_profile`), and
-`app/workspace/claude_memory_cleanup.py` deletes the auto-memory folders
-earlier releases left, at boot. A store's `metadata.json` (its
+`app/workspace/claude_memory_cleanup.py` purges the auto-memory folders
+at boot. A store's `metadata.json` (its
 platform/country list) is written by the server, never the agent:
 `app/store_metadata.py:sync_store_metadata` records the task's
 platform/country after each store task.
@@ -133,6 +133,33 @@ dated filenames as leaked task output. This is defense-in-depth — the
 in-task system prompt (`app/task_runner_context.py`) directs report
 writes to the task CWD, but if a leak ever lands at L3 anyway, the
 catalog won't promote it to "first-class store knowledge".
+
+### One-time knowledge cleanup after an upgrade
+
+`app/knowledge_contract.py`. A harness change makes notes written before
+it misleading — a note describing how the platform's checks used to work
+is read before the skills are, and acted on as fact. The base prompt
+keeps such notes from being written and tells an agent to delete one it
+meets; the stock an upgrade leaves behind is cleared **once per scope**,
+inside the nightly catalog-sync task (scope `knowledge` for the global
+L2 run, `store:<id>` for a store's L3 run). The contract each scope was
+last cleaned to lives in server-owned `app_settings`; a scope whose
+record is older than `KNOWLEDGE_CONTRACT` gets one extra instruction in
+its catalog task and runs even when its catalog is current. The record
+is written only when that task COMPLETES — a failed run (out of credits,
+a crash) leaves the scope owing, so the next catalog sync runs it again.
+
+While a cleanup runs, its writes are held to two rules, enforced at the
+`vibe_seller_write_workspace_file` boundary and re-checked after the
+run: **deletion only** — every line kept must already exist, in order
+(nothing added or reworded; a store-rule line like `acos_no_lower: 20`
+is a user-set standard and is never deleted) — and **its own tier** —
+the global run edits `knowledge/` but not the read-only
+`knowledge/project/`, a store's run edits `stores/<slug>/` only. A file
+changed by more than deleting lines is restored from the pre-run
+snapshot, unless someone else wrote it through the endpoint meanwhile —
+their edit is not undone. A run that restored anything leaves the scope
+owing and is retried by the next catalog sync.
 
 ## Skills System
 

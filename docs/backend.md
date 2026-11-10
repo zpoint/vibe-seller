@@ -89,7 +89,8 @@ SQLAlchemy 2.0 ORM models. All extend `Base` from `app/database.py`.
 | `Store` | `stores` | E-commerce stores with browser config |
 | `BrowserSession` | `browser_sessions` | Active browser sessions per store |
 | `Task` | `tasks` | Units of work created by users |
-| `TaskStep` | `task_steps` | Individual steps within a task execution |
+| `AdTaskDeclaration` | `ad_task_declarations` | What an ad-task phase committed to before working: append-only rows (`seq`, `kind`, `scope`, `user_turn`) from the `vibe_seller_declare_ad_task` tool — see [api.md § tasks](api.md#taskspy--task-management) |
+| `TaskStep` | `task_steps` | Legacy step rows of the retired step executor — nothing writes them today |
 | `Screenshot` | `screenshots` | Browser screenshot references (file paths on disk) |
 | `TaskLog` | `task_logs` | Execution log entries |
 | `TaskAttachment` | `task_attachments` | File attachments for tasks |
@@ -369,8 +370,6 @@ branch).
 
 **When stdin may close (soft linger)** — ALL of:
 - an accepted result exists for the current turn (`_turn_result_seen`),
-- no listing batch uploaded this turn lacks a verdict (`listing_upload_gate`,
-  same check + fail-open budget as the result branch),
 - no tracked async work is pending — **async subagents (Agent tool) OR
   background shell commands** (Bash/PowerShell auto-backgrounded past the
   blocking budget or `run_in_background`). Both register in `_async_agents`
@@ -393,9 +392,9 @@ per-result and folded into `_is_error_result` at process exit, so a
 turn that recovered from an intermediate error ships COMPLETED while
 forced errors (circuit breaker, rc≠0) stay FAILED.
 
-**Backstops** (both strictly tighter than the pre-migration design):
+**Backstops**:
 - hard idle — total stream silence for `VIBE_TURN_HARD_IDLE_S` closes
-  regardless of gate/async holds (a live *subagent* streams events
+  regardless of the turn hold (a live *subagent* streams events
   through the parent, so silence that long means the work is dead);
 - post-close kill escalation — a process still alive ~120s after any
   close is `_force_kill()`ed and its stall-reaper heartbeat stops
