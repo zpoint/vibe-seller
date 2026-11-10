@@ -541,6 +541,7 @@ async def review_plan(ctx: McpContext, args: dict) -> dict:
         conversation_route.send_task_message,
         task_id,
         body,
+        request=ctx.request,
         db=ctx.db,
         _user=ctx.user,
     )
@@ -648,6 +649,7 @@ async def send_message(ctx: McpContext, args: dict) -> dict:
         conversation_route.send_task_message,
         task_id,
         body,
+        request=ctx.request,
         db=ctx.db,
         _user=ctx.user,
     )
