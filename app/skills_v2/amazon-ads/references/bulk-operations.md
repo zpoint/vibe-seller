@@ -70,10 +70,14 @@ $PY "$S" clone-campaign "$EXPORT" \
     --daily-budget 10 --default-bid 0.75 \
     --out ~/.vibe-seller/downloads/<slug>/bulk_create.xlsx
 
-# BID UPDATE: re-bid every keyword in a campaign (scale or set).
-# --scale multiplies every keyword bid in one shot; the script does NOT
-# enforce the bid floor or the step cap, so check them per keyword first
-# (tuning-recommendation-format.md § Bid floor and step cap).
+# BID UPDATE from an approval: each approved raise/lower row of
+# CHANGES.tsv at its own target_bid, nothing else (exits if an approved
+# row isn't in the export).
+$PY "$S" bid-update "$EXPORT" --from-changes CHANGES.tsv \
+    --out ~/.vibe-seller/downloads/<slug>/bulk_bid_update.xlsx
+
+# --scale / --set-bid move EVERY keyword in the campaign: use them only
+# when the user approved exactly that ("cut all of campaign X by 15%").
 $PY "$S" bid-update "$EXPORT" \
     --campaign "acme widgets 004 manual keyword US" --scale 0.85 \
     --out ~/.vibe-seller/downloads/<slug>/bulk_bid_update.xlsx

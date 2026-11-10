@@ -26,6 +26,11 @@ def task(monkeypatch):
 
 def _gaps(task, rules=None):
     deny = ad_changes.check('', task.id, rules)
+    return list(deny.gaps) if deny else []
+
+
+def _contradictions(task, rules=None):
+    deny = ad_changes.check('', task.id, rules)
     return list(deny.contradictions) if deny else []
 
 
@@ -289,3 +294,40 @@ def test_an_approved_change_is_not_re_judged_by_the_defaults(task):
     task.declare('execute')
     task.execution([_done(target='gadget')])
     assert _gaps(task) == []
+
+
+def test_a_rule_breaking_proposal_is_shown_not_held(task):
+    """A proposal spends nothing: one that breaks a store rule (e.g. the
+    user's own value under the ACOS floor) is flagged beside it for the
+    user to decide, not refused as a money contradiction — that weight
+    stays for execution that differs from the approval."""
+    task.declare('audit')
+    task.changes([
+        change(action='lower', acos='25', current_bid='1.20', target_bid='1.00')
+    ])
+    assert any('under 30% ACOS' in g for g in _gaps(task))
+    assert _contradictions(task) == []
+    _approve(task, [change(target_bid='1.20')])
+    task.declare('execute')
+    task.execution([_done(to_bid='11.3')])
+    assert any('approved 1.2' in c for c in _contradictions(task))
+
+
+def test_a_raise_needs_no_cpc(task):
+    """A raise (often on a target with no clicks yet) is valid without a
+    CPC; the floor only bounds a cut."""
+    task.changes([change(action='raise', cpc='', target_bid='1.20')])
+    assert not any('cannot be checked' in g for g in _gaps(task))
+
+
+def test_a_proposed_cpc_of_zero_is_no_evidence(task):
+    """`cpc 0` would void the floor and reopen the `1.30 → 0.05` class."""
+    task.changes([
+        change(action='lower', cpc='0', current_bid='1.30', target_bid='0.05')
+    ])
+    assert any('no CPC' in g for g in _gaps(task))
+
+
+def test_pausing_a_converting_target_is_flagged(task):
+    task.changes([change(action='pause', acos='20', target_bid='')])
+    assert any('pause with ACOS 20' in g for g in _gaps(task))

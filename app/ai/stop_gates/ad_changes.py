@@ -216,7 +216,9 @@ def _evidence(slug: str | None, row: dict) -> dict:
     return {
         'acos': pick(number(t.get('acos')), number(row.get('acos'))),
         'roas': pick(number(t.get('roas')), number(row.get('roas'))),
-        'cpc': pick(drilled_cpc, number(row.get('cpc'))),
+        # A proposal's own CPC of 0 is no evidence (it would void the
+        # floor); a drilled row with no clicks has none either.
+        'cpc': pick(drilled_cpc, number(row.get('cpc')) or None),
         'bid': pick(number(t.get('bid')), number(row.get('current_bid'))),
     }
 
@@ -267,7 +269,9 @@ def rule_violations(
                 name
                 for name, value in (
                     ('ACOS or ROAS', acos if acos is not None else roas),
-                    ('CPC', cpc),
+                    # The floor only bounds a cut; a raise (often on a
+                    # target with no clicks yet) needs no CPC.
+                    ('CPC', cpc if action == 'lower' else 0.0),
                 )
                 if value is None
             ]
@@ -289,7 +293,8 @@ def rule_violations(
                     f'{_label(row)}: {action} from {current:g} to '
                     f'{target:g} goes the other way'
                 )
-        if action == 'lower' and (
+        # A pause throws away the same converting traffic a cut would.
+        if action in ('lower', 'pause') and (
             (acos is not None and acos < acos_floor)
             or (
                 acos is None
@@ -299,16 +304,16 @@ def rule_violations(
             )
         ):
             out.append(
-                f'{_label(row)}: lower with ACOS '
+                f'{_label(row)}: {action} with ACOS '
                 f'{"-" if acos is None else f"{acos:g}"} / ROAS '
                 f'{"-" if roas is None else f"{roas:g}"} — under '
                 f'{acos_floor:g}% ACOS '
-                'a bid is only raised or held'
+                'a target is only raised or held'
             )
         if action in BID_ACTIONS:
             if target is None:
                 out.append(f'{_label(row)}: {action} without a target_bid')
-            elif cpc:
+            elif cpc is not None:
                 floor = cpc * rules['cpc_floor_multiplier']
                 if target < floor - 1e-9:
                     out.append(
@@ -395,7 +400,13 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
     if changes is None and executed is None:
         return None
     slug = store_slug_for(task_id)
+    # Two weights. A broken store rule in a PROPOSAL spends nothing —
+    # the user sees it and decides (their value wins over a default) — so
+    # it is asked about once and then ships beside the proposal. What
+    # touches money already, or a file the checks cannot read, keeps
+    # being refused.
     problems: list[str] = []
+    advisories: list[str] = []
     for table in (changes, executed):
         if table is not None and table.error:
             problems.append(table.error)
@@ -418,7 +429,7 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
                 if executed is not None and not executed.error
                 else ()
             )
-            problems.extend(rule_violations(changes.rows, rules, slug, done))
+            advisories.extend(rule_violations(changes.rows, rules, slug, done))
     if executed is not None and not executed.error and executed.rows:
         approved_file = find_approved(task_id)
         if approved_file is None:
@@ -435,19 +446,25 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
                     executed.rows, approved.rows if approved else (), slug
                 )
             )
-    if not problems:
+    if not problems and not advisories:
         return None
+    reason = (
+        'These ad changes break a store rule or the approval. If a file '
+        'is wrong, correct it to what is true and call set_task_result '
+        'again. Never make another live change to satisfy this check: '
+        'when what is live differs from what was approved, ask the user '
+        'whether to keep or revert it, and record what they decide.'
+    )
+    if advisories:
+        reason += (
+            ' A proposal that breaks a store rule because the user asked '
+            'for it stays as they said; say so in the result, where the '
+            'rule it breaks is shown beside it.'
+        )
+    findings = problems + advisories
     return GateDeny(
         gate=GATE_NAME,
-        reason=(
-            'These ad changes break a store rule or the approval. If a '
-            'file is wrong, correct it to what is true and call '
-            'set_task_result again. Never make another live change to '
-            'satisfy this check: when what is live differs from what was '
-            'approved, ask the user whether to keep or revert it, and '
-            'record what they decide.\n'
-            + '\n'.join(f'- {p}' for p in problems[:20])
-        ),
-        gaps=tuple(problems),
+        reason=reason + '\n' + '\n'.join(f'- {p}' for p in findings[:20]),
+        gaps=tuple(findings),
         contradictions=tuple(problems),
     )

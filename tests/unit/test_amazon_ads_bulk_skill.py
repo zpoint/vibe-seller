@@ -325,6 +325,36 @@ class TestBidUpdate:
         _title, _header, rows = _read_rows(tmp_path / 'bid.xlsx')
         assert [r[Col.BID] for r in rows] == [1.25, 1.25]
 
+    def test_from_changes_moves_only_the_approved_rows(self, tmp_path):
+        """Approving one of two keywords must move only that one — a
+        whole-campaign --set-bid/--scale would have moved both."""
+        _make_export(tmp_path / 'export.xlsx')
+        changes = tmp_path / 'CHANGES.tsv'
+        changes.write_text(
+            'platform\tcountry\tcampaign_id\tad_group\ttarget\tmatch_type'
+            '\taction\tcurrent_bid\ttarget_bid\n'
+            'amazon\tSA\tC1\tag1\tblue widget\texact\tlower\t3.00\t2.40\n',
+            encoding='utf-8',
+        )
+        ads_bulk.cmd_bid_update(self._args(tmp_path, from_changes=str(changes)))
+        _title, _header, rows = _read_rows(tmp_path / 'bid.xlsx')
+        assert [(r[Col.KEYWORD_TEXT], r[Col.BID]) for r in rows] == [
+            ('blue widget', 2.4)
+        ]
+
+    def test_from_changes_refuses_a_row_it_cannot_find(self, tmp_path):
+        _make_export(tmp_path / 'export.xlsx')
+        changes = tmp_path / 'CHANGES.tsv'
+        changes.write_text(
+            'campaign_id\ttarget\tmatch_type\taction\ttarget_bid\n'
+            'C1\tred widget\texact\tlower\t1.00\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(SystemExit):
+            ads_bulk.cmd_bid_update(
+                self._args(tmp_path, from_changes=str(changes))
+            )
+
     def test_no_lever_exits(self, tmp_path):
         _make_export(tmp_path / 'export.xlsx')
         with pytest.raises(SystemExit):

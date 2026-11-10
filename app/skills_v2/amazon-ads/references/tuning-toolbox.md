@@ -59,7 +59,7 @@ can say which change did it.
 ### 3. Lower a target's bid
 
 - **Where**: Targeting tab → row → bid cell (`kat-numberinput`) → type →
-  Save. Many at once: `ads_bulk.py bid-update`.
+  Save. Many at once: `ads_bulk.py bid-update --from-changes CHANGES.tsv`.
 - **When**: the row converts but at ACOS ≥ `acos_no_lower`; worth keeping
   at a lower bid.
 - **Bounds**: floor and step cap per

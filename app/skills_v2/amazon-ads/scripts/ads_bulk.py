@@ -69,6 +69,7 @@ Requires: openpyxl.
 """
 
 import argparse
+import csv
 import datetime
 import json
 import sys
@@ -376,13 +377,40 @@ def cmd_clone_campaign(args):
 
 
 # --- bid-update ---------------------------------------------------------
+def _approved_bids(path):
+    """``{(campaign_id, keyword, match_type): target_bid}`` for the
+    raise/lower rows of a CHANGES.tsv — each row at its own value."""
+    out = {}
+    with open(path, encoding='utf-8', newline='') as f:
+        for row in csv.DictReader(f, delimiter='\t'):
+            if (row.get('action') or '').strip().lower() not in (
+                'raise',
+                'lower',
+            ):
+                continue
+            key = (
+                str(row.get('campaign_id') or '').strip(),
+                str(row.get('target') or '').strip().lower(),
+                str(row.get('match_type') or '').strip().lower(),
+            )
+            out[key] = float(row['target_bid'])
+    return out
+
+
 def cmd_bid_update(args):
-    if args.scale is None and args.set_bid is None:
-        sys.exit('error: pass --scale FACTOR or --set-bid VALUE')
+    from_changes = getattr(args, 'from_changes', None)
+    levers = [args.scale, args.set_bid, from_changes]
+    if sum(v is not None for v in levers) != 1:
+        sys.exit(
+            'error: pass exactly one of --from-changes CHANGES.tsv, '
+            '--scale FACTOR or --set-bid VALUE'
+        )
+    approved = _approved_bids(from_changes) if from_changes else None
     _wb, ws, header, data = load(args.file)
     id_to_name = build_campaign_index(data)
 
     out_rows = []
+    matched = set()
     for r in data:
         if not is_entity(r, 'keyword'):
             continue
@@ -391,7 +419,17 @@ def cmd_bid_update(args):
         cur = r[Col.BID]
         if cur in (None, ''):
             continue
-        if args.set_bid is not None:
+        if approved is not None:
+            key = (
+                str(r[Col.CAMPAIGN_ID] or '').strip(),
+                str(r[Col.KEYWORD_TEXT] or '').strip().lower(),
+                (match_type_api(r[Col.MATCH_TYPE]) or '').lower(),
+            )
+            if key not in approved:
+                continue
+            matched.add(key)
+            new_bid = approved[key]
+        elif args.set_bid is not None:
             new_bid = args.set_bid
         else:
             new_bid = round(float(cur) * args.scale, 2)
@@ -415,13 +453,19 @@ def cmd_bid_update(args):
         u[Col.BID] = new_bid
         out_rows.append(u)
 
+    if approved is not None and set(approved) - matched:
+        missing = ', '.join(
+            f'{c}/{k}/{m}' for c, k, m in sorted(set(approved) - matched)
+        )
+        sys.exit(f'error: approved rows not found in the export: {missing}')
     if not out_rows:
         sys.exit('error: no keyword bids matched / changed')
-    how = (
-        f'scale x{args.scale}'
-        if args.scale is not None
-        else f'set={args.set_bid}'
-    )
+    if approved is not None:
+        how = 'from the approved CHANGES.tsv'
+    elif args.scale is not None:
+        how = f'scale x{args.scale}'
+    else:
+        how = f'set={args.set_bid}'
     print(f'bid update: {len(out_rows)} keyword row(s) {how}')
     out_path = args.out or 'bulk_bid_update.xlsx'
     write_upload(ws.title, header, out_rows, out_path)
@@ -634,6 +678,11 @@ def main():
     p.add_argument('--campaign', help='limit to one campaign name')
     p.add_argument('--scale', type=float, help='multiply each bid by F')
     p.add_argument('--set-bid', type=float, help='set every bid to V')
+    p.add_argument(
+        '--from-changes',
+        help='CHANGES.tsv: set each approved raise/lower row to its own '
+        'target_bid, and nothing else',
+    )
     p.add_argument('--out')
     p.set_defaults(func=cmd_bid_update)
 

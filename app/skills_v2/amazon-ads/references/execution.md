@@ -62,9 +62,12 @@ done. Anchor progress in the task list, which survives:
 1. Right after reading the approval, create one task-list item per row
    to apply (subject = campaign + target + action). All start pending.
 2. Take the next pending item and mark it in progress.
-3. Apply it — one row at a time. For many bid changes in one campaign,
-   the bulk path (`bulk-operations.md`, `ads_bulk.py bid-update` /
-   `negate`) is the default on Amazon; click paths are in `mechanics-edit.md`
+3. Apply it — one row at a time. For many approved bid changes on
+   Amazon, the bulk path applies exactly those rows:
+   `ads_bulk.py bid-update --from-changes CHANGES.tsv` / `negate`
+   (`bulk-operations.md`); its `--scale` / `--set-bid` move every keyword
+   in a campaign, so use them only for an approval that says so. Click
+   paths are in `mechanics-edit.md`
    (noon: `noon-ads/references/applying-changes.md`). Keep a before/after capture in a subfolder of the task dir (your CWD).
 4. Read the change back from the console: the bid cell, the state toggle,
    the negative in the negatives list, a re-export after a bulk upload.
