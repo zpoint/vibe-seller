@@ -116,6 +116,34 @@ def freeze_approved_changes(task_id: str) -> Path | None:
     return dest
 
 
+def execution_logged(task_id: str) -> bool:
+    """True once this task's EXECUTION_LOG.tsv records a change."""
+    table = read_table(
+        task_dir(task_id) / EXECUTION_LOG_FILE, EXECUTION_COLUMNS
+    )
+    return bool(table and not table.error and table.rows)
+
+
+def approved_summary(task_id: str) -> list[str]:
+    """The frozen approval's changes, one line each (holds left out).
+
+    Returned to the agent when it declares ``execute``, so a freeze that
+    does not match what the user approved is visible before any change
+    is made, while it can still be corrected by declaring again.
+    """
+    path = find_approved(task_id)
+    table = read_table(path, CHANGE_COLUMNS) if path else None
+    if not table or table.error:
+        return []
+    return [
+        f'{r["campaign_id"]} / {r["target"]} ({r["match_type"]}): '
+        f'{r["action"]} {r.get("current_bid") or "-"} -> '
+        f'{r.get("target_bid") or "-"}'
+        for r in table.rows
+        if r['action'].lower() != 'hold'
+    ]
+
+
 def find_approved(task_id: str) -> Path | None:
     """The approval frozen when this task's execution started."""
     p = approved_path(task_id)
@@ -154,8 +182,20 @@ def _recently_applied(
 
 
 def rule_violations(
-    rows: tuple[dict, ...], rules: dict, slug: str | None
+    rows: tuple[dict, ...],
+    rules: dict,
+    slug: str | None,
+    executed: tuple[dict, ...] = (),
 ) -> list[str]:
+    """Owner rules on proposed changes.
+
+    *executed* are this task's EXECUTION_LOG rows: their targets were
+    just changed by this very execution, so the cooldown — which keeps a
+    proposal off a target changed recently — does not apply to them
+    (observed: an execution refused because its own change was "inside
+    the cooldown").
+    """
+    done = {_key(r) for r in executed}
     acos_floor = rules['acos_no_lower']
     roas_equiv = 100.0 / acos_floor if acos_floor else None
     out = []
@@ -204,7 +244,7 @@ def rule_violations(
                 f'{_label(row)}: hold on ROAS {roas:g} (> '
                 f'{rules["scale_roas"]:g}) needs a reason, or raise it'
             )
-        if action != 'hold':
+        if action != 'hold' and _key(row) not in done:
             stamp = _recently_applied(slug, row, rules['change_cooldown_days'])
             if stamp:
                 out.append(
@@ -286,7 +326,10 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
                 f'proposes {len(proposals)} change(s): drop them, or '
                 're-declare kind "audit" with the same or a narrower scope'
             )
-        problems.extend(rule_violations(changes.rows, rules, slug))
+        done = (
+            executed.rows if executed is not None and not executed.error else ()
+        )
+        problems.extend(rule_violations(changes.rows, rules, slug, done))
     if executed is not None and not executed.error and executed.rows:
         approved_file = find_approved(task_id)
         if approved_file is None:

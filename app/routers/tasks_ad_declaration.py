@@ -31,7 +31,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import ad_declaration
-from app.ai.stop_gates.ad_changes import freeze_approved_changes
+from app.ai.stop_gates.ad_changes import (
+    approved_summary,
+    execution_logged,
+    freeze_approved_changes,
+)
 from app.auth import get_current_user
 from app.database import get_db
 from app.models.ad_declaration import (
@@ -173,7 +177,24 @@ async def declare_ad_task(
             prev_scope = json.loads(prev.scope)
         except (ValueError, TypeError):
             prev_scope = {}
-        if ad_declaration.supersedes(prev.kind, prev_scope, kind, scope):
+        # 3. Re-declare `execute` (same or narrower reach) to re-freeze
+        #    the approval, until the first change is logged. Observed:
+        #    an agent declared before bringing CHANGES.tsv in line with
+        #    the user's answer, froze the audit's proposal, and had no
+        #    honest way left to record the change the user asked for.
+        #    Before anything is logged there is nothing a re-freeze can
+        #    hide; after, the frozen copy is what execution answers to.
+        refreeze = (
+            prev.kind == kind == KIND_EXECUTE
+            and (
+                scope == ad_declaration.normalise_scope(prev_scope)
+                or ad_declaration.is_narrowing(prev_scope, scope)
+            )
+            and not await asyncio.to_thread(execution_logged, task_id)
+        )
+        if refreeze or ad_declaration.supersedes(
+            prev.kind, prev_scope, kind, scope
+        ):
             row = AdTaskDeclaration(
                 task_id=task_id,
                 seq=prev.seq + 1,
@@ -185,6 +206,8 @@ async def declare_ad_task(
             await db.commit()
             await db.refresh(row)
             ad_declaration.write_declaration_file(task_id, kind, scope)
+            if refreeze:
+                return await _with_approval(task_id, row)
             return _as_dict(row)
         raise HTTPException(
             status_code=409,
@@ -228,9 +251,24 @@ async def declare_ad_task(
     ad_declaration.write_declaration_file(task_id, kind, scope)
 
     # Execution starts here, on a new user message: freeze the approval
-    # it will be held to. Only on a new turn — an in-turn narrowing must
-    # not re-freeze edits made after execution began.
+    # it will be held to.
     if kind == KIND_EXECUTE:
-        await asyncio.to_thread(freeze_approved_changes, task_id)
+        return await _with_approval(task_id, row)
 
     return _as_dict(row)
+
+
+async def _with_approval(task_id: str, row: AdTaskDeclaration) -> dict:
+    """Freeze CHANGES.tsv as the approval and show the agent what froze."""
+    await asyncio.to_thread(freeze_approved_changes, task_id)
+    approved = await asyncio.to_thread(approved_summary, task_id)
+    return {
+        **_as_dict(row),
+        'approved': approved,
+        'note': (
+            'Execution is checked against exactly these changes (holds '
+            'left out). If they are not what the user approved, fix '
+            'CHANGES.tsv and declare execute again before changing '
+            'anything — it re-freezes until the first change is logged.'
+        ),
+    }

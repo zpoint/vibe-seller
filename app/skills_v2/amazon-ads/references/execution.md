@@ -21,9 +21,11 @@ campaign X", "execute the plan"):
    If they named a different value ("lower 2 to 0.95 instead"), set that
    row's `target_bid` to it. Rows they did not approve become `hold`.
 2. Declare `execute` with `vibe_seller_declare_ad_task`, scoped to those
-   campaigns. The server freezes `CHANGES.tsv` at that moment and checks
-   the execution against the frozen copy. Editing it afterwards changes
-   nothing.
+   campaigns. The server freezes `CHANGES.tsv` and answers with the
+   changes it froze; execution is checked against that copy. If the
+   list is not what the user approved, fix `CHANGES.tsv` and declare
+   `execute` again before changing anything — it re-freezes until the
+   first change is in `EXECUTION_LOG.tsv`, and not after.
 3. Execute exactly the approved rows at exactly their `target_bid`.
 
 Applying ad changes spends the user's money and is hard to undo, so

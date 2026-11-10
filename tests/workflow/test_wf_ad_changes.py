@@ -9,6 +9,7 @@ Pins how the two ad gates are enforced at the endpoint:
 """
 
 import asyncio
+from datetime import UTC, datetime
 
 import pytest
 
@@ -125,19 +126,83 @@ async def test_execution_is_held_to_the_value_the_user_approved(
     assert not data.get('review_gaps'), data.get('review_gaps')
 
 
-async def test_narrowing_inside_the_turn_does_not_refreeze(
+_LOGGED = {
+    'campaign_id': 'A1234567',
+    'ad_group': 'g1',
+    'target': 'widget',
+    'match_type': 'exact',
+    'action': 'raise',
+    'from_bid': '1.00',
+    'to_bid': '1.35',
+    'applied_at': '2026-01-01T00:00:00+00:00',
+}
+
+
+async def test_declaring_again_before_any_change_refreezes(
     admin_client, install_fake_agent, monkeypatch
 ):
+    """Observed: an agent declared execute before bringing CHANGES.tsv in
+    line with the user's answer, so the audit's proposal froze. Until a
+    change is logged it may correct the list and declare again — and the
+    response shows what froze, so the mismatch is visible up front."""
     task = await _running(admin_client, install_fake_agent, monkeypatch, 'A6')
+    task.changes([change(action='hold', target_bid='', reason='audit')])
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 200, r.text
+    assert r.json()['approved'] == []
     task.changes([change(target_bid='1.35')])
     r = await _declare(admin_client, task, 'execute')
     assert r.status_code == 200, r.text
+    assert _frozen_bids(task) == ['1.35']
+    assert any('1.35' in line for line in r.json()['approved'])
+
+
+async def test_no_refreeze_once_a_change_is_logged(
+    admin_client, install_fake_agent, monkeypatch
+):
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A8')
+    task.changes([change(target_bid='1.35')])
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 200, r.text
+    task.execution([_LOGGED])
     task.changes([change(target_bid='9.99')])
     r = await _declare(
         admin_client, task, 'execute', {'campaigns': ['A1234567']}
     )
-    assert r.status_code == 200, r.text
     assert _frozen_bids(task) == ['1.35']
+
+
+async def test_the_executed_change_is_not_its_own_cooldown(
+    admin_client, install_fake_agent, monkeypatch
+):
+    """Observed: an execution refused because the change it had just
+    made put its own target "inside the 7-day cooldown"."""
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A9')
+    task.changes([change(target_bid='1.35')])
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 200, r.text
+    task.execution([_LOGGED])
+    task.drill(
+        'A1234567',
+        [
+            {
+                'ad_group': 'g1',
+                'target': 'widget',
+                'match_type': 'exact',
+                'bid': '1.35',
+                'applied_action': 'raise',
+                'applied_at': _LOGGED['applied_at'].replace(
+                    '2026-01-01', datetime.now(UTC).strftime('%Y-%m-%d')
+                ),
+                'previous_bid': '1.00',
+            }
+        ],
+        [],
+    )
+    r = await _submit(admin_client, task)
+    assert r.status_code == 200, r.text
+    data = (await admin_client.get(f'/api/tasks/{task.id}')).json()
+    assert not data.get('review_gaps'), data.get('review_gaps')
 
 
 async def test_execute_with_nothing_to_start_from_clears_an_old_freeze(
