@@ -342,7 +342,7 @@ class TestGateTelemetry:
         assert r.status_code == 200
         gated = [p for e, p in events if e == 'task_result_gated']
         assert [(p['gate'], p['outcome']) for p in gated] == [
-            ('fake_review', 'failed_open')
+            ('custom', 'failed_open')
         ]
         gate.set()
         await wait_for_task(admin_client, task_id)
