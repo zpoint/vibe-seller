@@ -22,9 +22,14 @@ export interface RequestOptions {
 
 export class RequestTimeoutError extends Error {
   readonly timeout = true
+  /** The request's URL, for debugging. Kept OUT of `message` and
+   *  non-enumerable: an uncaught error is reported by exception
+   *  telemetry, and URLs carry names (`?path=stores/<slug>/…`). */
+  declare readonly url: string
   constructor(url: string, ms: number) {
-    super(`No response from the server after ${Math.round(ms / 1000)}s (${url})`)
+    super(`No response from the server after ${Math.round(ms / 1000)}s`)
     this.name = 'RequestTimeoutError'
+    Object.defineProperty(this, 'url', { value: url, enumerable: false })
   }
 }
 
