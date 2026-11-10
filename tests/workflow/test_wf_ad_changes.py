@@ -110,6 +110,24 @@ async def test_an_accepted_audit_freezes_nothing(
     assert not ad_changes.approved_path(task.id).exists()
 
 
+async def test_the_user_sees_the_frozen_list_before_any_change(
+    admin_client, install_fake_agent, monkeypatch
+):
+    """What execution will be held to is shown in the conversation, so a
+    list that is not what the user approved can be stopped in time."""
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A15')
+    task.changes([change(target_bid='1.35')])
+    await _user_answered_an_audit(admin_client, task.id)
+    assert (await _declare(admin_client, task, 'execute')).status_code == 200
+    msgs = (await admin_client.get(f'/api/tasks/{task.id}/messages')).json()
+    shown = [
+        m['content']
+        for m in msgs
+        if m['role'] == 'assistant' and 'approved ad changes' in m['content']
+    ]
+    assert shown and 'widget' in shown[-1] and '1.35' in shown[-1], msgs
+
+
 async def test_execution_is_held_to_the_value_the_user_approved(
     admin_client, install_fake_agent, monkeypatch
 ):

@@ -31,6 +31,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import ad_declaration
+from app.ai.claude_backend_utils import get_next_seq
 from app.ai.stop_gates.ad_changes import (
     approved_summary,
     execution_logged,
@@ -38,6 +39,7 @@ from app.ai.stop_gates.ad_changes import (
 )
 from app.auth import get_current_user
 from app.database import get_db
+from app.events.bus import event_bus
 from app.models.ad_declaration import (
     AD_TASK_KINDS,
     KIND_AUDIT,
@@ -258,7 +260,7 @@ async def _declare(
             await db.refresh(row)
             ad_declaration.write_declaration_file(task_id, kind, scope)
             if refreeze:
-                return 'refreeze', await _with_approval(task_id, row)
+                return 'refreeze', await _with_approval(db, task_id, row)
             return 'accepted', _as_dict(row)
         raise HTTPException(
             status_code=409,
@@ -315,15 +317,36 @@ async def _declare(
     # Execution starts here, on a new user message: freeze the approval
     # it will be held to.
     if kind == KIND_EXECUTE:
-        return 'accepted', await _with_approval(task_id, row)
+        return 'accepted', await _with_approval(db, task_id, row)
 
     return 'accepted', _as_dict(row)
 
 
-async def _with_approval(task_id: str, row: AdTaskDeclaration) -> dict:
-    """Freeze CHANGES.tsv as the approval and show the agent what froze."""
+async def _with_approval(
+    db: AsyncSession, task_id: str, row: AdTaskDeclaration
+) -> dict:
+    """Freeze CHANGES.tsv as the approval; show the agent and the user
+    what froze — the user sees it in the conversation before any change,
+    so a list that is not what they approved is caught while it can
+    still be stopped."""
     await asyncio.to_thread(freeze_approved_changes, task_id)
     approved = await asyncio.to_thread(approved_summary, task_id)
+    text = 'Applying the approved ad changes:\n' + (
+        '\n'.join(f'- {a}' for a in approved) or '- (none)'
+    )
+    db.add(
+        TaskMessage(
+            task_id=task_id,
+            role='assistant',
+            content=text,
+            seq=await get_next_seq(db, task_id),
+        )
+    )
+    await db.commit()
+    await event_bus.emit(
+        'task_message',
+        {'task_id': task_id, 'role': 'assistant', 'content': text},
+    )
     return {
         **_as_dict(row),
         'approved': approved,
