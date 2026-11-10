@@ -48,11 +48,11 @@ def test_a_clean_proposal_passes(task):
     [
         (
             change(action='lower', acos='20', target_bid='0.90'),
-            'under 30% ACOS',
+            'under 25% ACOS',
         ),
         (
             change(action='lower', acos='', roas='5', target_bid='0.90'),
-            'under 30% ACOS',
+            'under 25% ACOS',
         ),
         (
             change(action='raise', cpc='1.00', target_bid='1.05'),
@@ -90,13 +90,13 @@ def test_store_notes_override_the_defaults(task):
         # 'lower' that raised the bid, which the direction check refuses).
         change(
             action='lower',
-            acos='25',
+            acos='22',
             cpc='1.00',
             current_bid='1.20',
             target_bid='1.02',
         ),
     ])
-    assert _gaps(task)  # defaults: ACOS 25 < 30, and 1.02 < 1.10
+    assert _gaps(task)  # defaults: ACOS 22 < 25, and 1.02 < 1.10
     rules = resolve_rules('acos_no_lower: 20\ncpc_floor_multiplier: 1.0')
     assert _gaps(task, rules) == []
 
@@ -280,16 +280,16 @@ def test_the_drilled_numbers_win_over_the_rows_claim(task):
 
 
 def test_an_approved_change_is_not_re_judged_by_the_defaults(task):
-    """The user approved a cut the default rule would refuse (ACOS 25
-    under the 30 floor). In the execute phase their decision wins — also
+    """The user approved a cut the default rule would refuse (ACOS 20
+    under the 25 floor). In the execute phase their decision wins — also
     for an approved row not applied yet (e.g. a partial run)."""
     applied = change(target='gadget')
     approved_cut = change(
-        action='lower', acos='25', current_bid='1.20', target_bid='1.00'
+        action='lower', acos='20', current_bid='1.20', target_bid='1.00'
     )
     task.changes([applied, approved_cut])
     task.declare('audit')
-    assert any('under 30% ACOS' in g for g in _gaps(task))
+    assert any('under 25% ACOS' in g for g in _gaps(task))
     _approve(task, [applied, approved_cut])
     task.declare('execute')
     task.execution([_done(target='gadget')])
@@ -303,9 +303,9 @@ def test_a_rule_breaking_proposal_is_shown_not_held(task):
     stays for execution that differs from the approval."""
     task.declare('audit')
     task.changes([
-        change(action='lower', acos='25', current_bid='1.20', target_bid='1.00')
+        change(action='lower', acos='20', current_bid='1.20', target_bid='1.00')
     ])
-    assert any('under 30% ACOS' in g for g in _gaps(task))
+    assert any('under 25% ACOS' in g for g in _gaps(task))
     assert _contradictions(task) == []
     _approve(task, [change(target_bid='1.20')])
     task.declare('execute')

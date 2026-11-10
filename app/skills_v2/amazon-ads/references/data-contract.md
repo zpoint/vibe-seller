@@ -68,7 +68,9 @@ An `investigate` task proposes nothing: no `CHANGES.tsv` rows other than
 
 ## Store rules the server checks on CHANGES.tsv
 
-Defaults, overridden by a `key: value` line in `stores/<slug>/notes.md`.
+Starting defaults, not the store's truth: a `key: value` line in
+`stores/<slug>/notes.md` overrides any of them, and the user's own
+standard or instruction always wins over a default.
 Those lines hold standards the user stated — never a value you derived
 from another number: turning a 40% margin into `acos_no_lower: 40`
 silently changes what the server enforces on every later run, and no
@@ -77,7 +79,7 @@ one ever chose it. When the user states a standard, write it there with
 
 | key | default | rule |
 |---|---|---|
-| `acos_no_lower` | 30 | no `lower` while ACOS is under this % (or ROAS above 100/this) |
+| `acos_no_lower` | 25 | no `lower` while ACOS is under this % (or ROAS above 100/this) |
 | `cpc_floor_multiplier` | 1.1 | a new bid is at least `cpc` x this |
 | `scale_roas` | 5 | a `hold` on a row with higher ROAS needs a `reason` |
 | `change_cooldown_days` | 7 | a target changed within this window is held, with the date in `reason` |

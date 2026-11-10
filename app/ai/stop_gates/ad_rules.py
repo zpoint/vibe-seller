@@ -5,7 +5,7 @@ the agent, when the user states a different standard — overrides one by
 writing a line in ``stores/<slug>/notes.md`` (case-insensitive, ``:`` or
 ``=``)::
 
-    acos_no_lower: 25
+    acos_no_lower: 20
     cpc_floor_multiplier: 1.0
 
 ``set_task_result`` reads the task's store notes and passes the
@@ -19,8 +19,10 @@ import re
 
 # THE one place to change a default ad-rule threshold.
 DEFAULT_RULES: dict[str, float] = {
-    # ACOS % at/below which a bid may never be lowered (only hold/raise).
-    'acos_no_lower': 30.0,
+    # ACOS % under which a bid is not lowered (only hold/raise). Equal to
+    # the default margin: above it a keyword loses money, so a cut must be
+    # possible there.
+    'acos_no_lower': 25.0,
     # ROAS strictly above which a converter must be raised or have its
     # hold explicitly justified (a bare Hold is a defect).
     'scale_roas': 5.0,

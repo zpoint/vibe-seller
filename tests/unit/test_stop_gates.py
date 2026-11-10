@@ -51,7 +51,7 @@ class TestAdRules:
     """Single source of truth for bid-rule thresholds + notes.md override."""
 
     def test_defaults(self):
-        assert DEFAULT_RULES['acos_no_lower'] == 30.0
+        assert DEFAULT_RULES['acos_no_lower'] == 25.0
         assert DEFAULT_RULES['scale_roas'] == 5.0
 
     def test_resolve_no_notes_returns_defaults(self):
@@ -73,7 +73,7 @@ class TestAdRules:
     def test_resolve_partial_override(self):
         r = resolve_rules('scale_roas: 7.5')
         assert r['scale_roas'] == 7.5
-        assert r['acos_no_lower'] == 30.0  # untouched default
+        assert r['acos_no_lower'] == 25.0  # untouched default
 
     def test_the_new_keys_have_defaults(self):
         assert DEFAULT_RULES['cpc_floor_multiplier'] == 1.1

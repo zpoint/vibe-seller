@@ -192,17 +192,17 @@ CAMPAIGN_DATA = {
 # a list read without paging misses it, the way noon's lazy list did.
 CAMPAIGN_C = 'A2468024'
 CAMPAIGN_C_NAME = 'gizmo-012 auto'
-# ``gizmo mini`` sits at ACOS 25%: the default rule (no lowering under
-# 30%) holds its bid, a store standard of 20% lets it be lowered.
+# ``gizmo mini`` sits at ACOS 21%: the default rule (no lowering under
+# 25%) holds its bid, a store standard of 20% lets it be lowered.
 CAMPAIGN_C_DATA = (
     CAMPAIGN_C_NAME,
     [
         ('gizmo', 'Broad', '0.80', 50, '30.00', 3, '90.00', '3.00'),
-        ('gizmo mini', 'Exact', '1.20', 25, '25.00', 4, '100.00', '4.00'),
+        ('gizmo mini', 'Exact', '1.20', 25, '25.00', 4, '119.00', '4.76'),
     ],
     [
         ('gizmo case', 'gizmo', 50, '30.00', 3, '90.00'),
-        ('mini gizmo', 'gizmo mini', 25, '25.00', 4, '100.00'),
+        ('mini gizmo', 'gizmo mini', 25, '25.00', 4, '119.00'),
     ],
 )
 _CAMPAIGNS_PAGED = _CAMPAIGNS.replace(

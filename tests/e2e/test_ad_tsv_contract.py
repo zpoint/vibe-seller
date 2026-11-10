@@ -191,7 +191,7 @@ def test_a_stated_standard_is_recorded_and_honoured(api_client, console):
         if r['target'] == 'gizmo mini'
     ]
     assert proposals and proposals[0]['action'] == 'lower', proposals
-    # Under the default 30% this lower is refused; the store's own 20%
+    # Under the default 25% this lower is refused; the store's own 20%
     # standard is what lets it stand.
     assert ad_changes.rule_violations(tuple(proposals), rules, None) == []
     assert ad_changes.rule_violations(
@@ -204,7 +204,7 @@ def test_a_direct_instruction_is_confirmed_then_done_as_the_user_said(
     api_client, console
 ):
     """The user asks for a cut the store's default rules would never
-    propose — "gizmo mini" converts (ACOS 25%, under the 30% floor) and
+    propose — "gizmo mini" converts (ACOS 21%, under the 25% floor) and
     1.00 is under CPC 1.00 x 1.1. Nothing changes until the user has seen
     the change and answered; then exactly their value goes in, with no
     warning banner, because the user's decision wins over a default."""
