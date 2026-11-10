@@ -277,6 +277,13 @@ async def _skill_note(task_id: str) -> str | None:
     CHANGES.tsv, how a user's standard is written in notes.md); an agent
     that declared and then browsed with only the browser skill wrote the
     user's standard as a sentence and no CHANGES.tsv at all.
+
+    Only the skills that DO keep that contract are named. `qianniu-ads`
+    counts as an ad skill above — a 千牛 store with its skill loaded must
+    not be nagged to load another platform's — but it documents no
+    TSVs and declares no gates, so pointing it at
+    CAMPAIGNS.tsv would send the agent to satisfy a contract its own
+    skill cannot meet.
     """
     loaded, _workspace = await asyncio.to_thread(
         agent_manager.loaded_skills_and_workspace, task_id
@@ -284,8 +291,8 @@ async def _skill_note(task_id: str) -> str | None:
     if AD_SKILLS & set(loaded or ()):
         return None
     return (
-        "Load the ad skill for this store's platform now (amazon-ads, "
-        'noon-ads or qianniu-ads) and follow its data contract: '
+        "Load the ad skill for this store's platform now (amazon-ads or "
+        'noon-ads) and follow its data contract: '
         'CAMPAIGNS.tsv, CHANGES.tsv, EXECUTION_LOG.tsv, and a standard the '
         'user states written as a `key: value` line in the store notes.'
     )
