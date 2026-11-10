@@ -323,7 +323,8 @@ Cleanup at `start()` was removed because it caused a race condition: if a task w
 
 ## browser-use 0.13 version notes (audited 2026-11-05)
 
-The server pins `browser-use>=0.13.14` (`pyproject.toml`). The
+The server pins `browser-use>=0.13.14,<0.14` (`pyproject.toml`); the
+cap keeps a newer uv from resolving a 1.0 pre-release. The
 integration surface we depend on is unchanged from 0.13.3 through
 0.13.14: the `browser-use`/`bu`/`browser` console scripts, the heredoc
 code-eval CLI, `BU_NAME`/`BU_CDP_WS`/`BU_CDP_URL`/
