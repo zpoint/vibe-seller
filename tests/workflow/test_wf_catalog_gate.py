@@ -12,7 +12,18 @@ its tool error.
 
 import pytest
 
+from app.ai.stop_gates import _attempts  # noqa: PLC2701 — episode state
+
 pytestmark = pytest.mark.workflow
+
+
+@pytest.fixture(autouse=True)
+def _clear_attempts():
+    """Every test starts its own episode of the content rule."""
+    _attempts.clear()
+    yield
+    _attempts.clear()
+
 
 HEADER = '| File | Relevance | Summary |\n|---|---|---|\n'
 
@@ -134,6 +145,29 @@ class TestCatalogGateOnWritePath:
         assert r.status_code == 400, r.text
         r = await admin_client.put(url, json={'content': partial})
         assert r.status_code == 200, r.text
+
+    async def test_a_content_rule_is_told_once_per_episode(
+        self, admin_client, mock_workspace
+    ):
+        """The same missing row is told once, however often it is
+        rewritten: 400, 200, 200. A write the rules have nothing to say
+        about closes that episode, so the next broken one is refused
+        again."""
+        _seed(mock_workspace.root)
+        (mock_workspace.root / 'knowledge' / 'CATALOG.md').write_text(L2)
+        partial = L3.replace(
+            '| knowledge/notes.md | amazon | Shared pricing notes |\n', ''
+        )
+        url = '/api/workspace/file?path=stores/gate-store/CATALOG.md'
+        r = await admin_client.put(url, json={'content': partial})
+        assert r.status_code == 400, r.text
+        for _ in range(2):
+            r = await admin_client.put(url, json={'content': partial})
+            assert r.status_code == 200, r.text
+        r = await admin_client.put(url, json={'content': L3})
+        assert r.status_code == 200, r.text
+        r = await admin_client.put(url, json={'content': partial})
+        assert r.status_code == 400, r.text
 
     async def test_another_stores_row_is_always_refused(
         self, admin_client, mock_workspace

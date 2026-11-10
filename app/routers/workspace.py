@@ -163,7 +163,12 @@ async def write_file(
             writer, gate = task_id or 'workspace', f'catalog:{path}'
             if hard or (content_errors and record_attempt(writer, gate) == 1):
                 raise ValueError(catalog_rejection(path, hard + content_errors))
-            forget_attempt(writer, gate)
+            # A write that only went through because its round was spent
+            # keeps the round spent: forgetting it here told the same
+            # content rule again on the third write. Only a write the
+            # rules had nothing to say about starts a new episode.
+            if not content_errors:
+                forget_attempt(writer, gate)
         await workspace_manager.write_file(path, body.content)
         knowledge_contract.note_write(path, task_id)
         return {'path': path, 'status': 'ok'}
