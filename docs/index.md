@@ -182,7 +182,7 @@ cd vibe-seller
 
 <img width="2048" height="1176" alt="设置 → AI" src="images/setup_ai_zh.png" />
 
-<img width="1344" height="1768" alt="创建 AI 配置文件" src="images/setup_profile_zh.png" />
+<img width="1344" height="1800" alt="创建 AI 配置文件" src="images/setup_profile_zh.png" />
 
 <img width="100%" alt="演示：配置 AI" src="images/setup_ai_zh.gif" />
 
@@ -271,7 +271,7 @@ http://localhost:7777
 
 <img width="2048" height="1176" alt="设置 → AI" src="images/setup_ai_zh.png" />
 
-<img width="1344" height="1768" alt="创建 AI 配置文件" src="images/setup_profile_zh.png" />
+<img width="1344" height="1800" alt="创建 AI 配置文件" src="images/setup_profile_zh.png" />
 
 <img width="100%" alt="演示：配置 AI" src="images/setup_ai_zh.gif" />
 
@@ -368,7 +368,7 @@ http://localhost:7777
 
 <img width="2048" height="1176" alt="设置 → AI" src="images/setup_ai_zh.png" />
 
-<img width="1344" height="1768" alt="创建 AI 配置文件" src="images/setup_profile_zh.png" />
+<img width="1344" height="1800" alt="创建 AI 配置文件" src="images/setup_profile_zh.png" />
 
 <img width="100%" alt="演示：配置 AI" src="images/setup_ai_zh.gif" />
 
