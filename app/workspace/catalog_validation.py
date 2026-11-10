@@ -208,6 +208,29 @@ def _read_optional(resolve_file: Callable[[str], Path], rel: str) -> str | None:
         return None
 
 
+def _read_reference(
+    resolve_file: Callable[[str], Path], rel: str
+) -> list[CatalogRow] | None:
+    """The on-disk catalog a write is compared against, or None.
+
+    Missing AND unparseable both mean "no reference", like
+    :func:`_read_optional` means "no file". The row that fails to parse
+    belongs to the reference, not to the writer: an error quoting it
+    sends the agent to fix a table it was told to copy verbatim, and
+    because this fires before the one-round accounting it is a permanent
+    wall — one stray ``|`` in a shared summary stopped the catalog sync
+    of every store on the install. Nothing is copied from a catalog that
+    cannot be read, so the write is judged on what it does owe.
+    """
+    text = _read_optional(resolve_file, rel)
+    if text is None:
+        return None
+    try:
+        return parse_catalog(text)
+    except ValueError:
+        return None
+
+
 def _parse_l1(
     resolve_file: Callable[[str], Path],
 ) -> list[CatalogRow] | None:
@@ -387,9 +410,8 @@ def _validate_l3(
     errors.extend(_duplicate_errors(rows))
 
     # Accumulation: every L2 row, path and Relevance unchanged.
-    l2_text = _read_optional(resolve_file, 'knowledge/CATALOG.md')
-    if l2_text is not None:
-        l2_rows = parse_catalog(l2_text)
+    l2_rows = _read_reference(resolve_file, 'knowledge/CATALOG.md')
+    if l2_rows is not None:
         have = {r.path: r.relevance.lower() for r in rows}
         for row in l2_rows:
             if row.path not in have:
