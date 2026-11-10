@@ -442,10 +442,11 @@ jobs:
           QWEN_TOKEN_API_KEY: ${{ secrets.QWEN_TOKEN_API_KEY }}
           QWEN_TOKEN_MODEL: qwen3.8-flash
           E2E_WORKERS: 8
-          # 8 workers: minimax x4, glm x2, qwen3.8-flash x2. The
-          # two-model tests (profile switch, compaction) take the first
-          # two DISTINCT providers here, so minimax and glm lead the map.
-          E2E_PROVIDER_MAP: minimax,glm,minimax,glm,qwen_token,minimax,qwen_token,minimax
+          # 8 workers: qwen3.8-flash x6, glm x2 (minimax is out of
+          # credits for now; put it back when topped up). The two-model
+          # tests (profile switch, compaction) take the first two
+          # DISTINCT providers here, so qwen and glm lead the map.
+          E2E_PROVIDER_MAP: qwen_token,glm,qwen_token,glm,qwen_token,qwen_token,qwen_token,qwen_token
           VIBE_ADS_SERVICE_URL: http://127.0.0.1:7791
         run: |
           E2E_N="${E2E_WORKERS:-0}"

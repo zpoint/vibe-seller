@@ -336,10 +336,10 @@ jobs:
         shell: pwsh
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
-          E2E_PROVIDER_MAP: minimax
-          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
-          MINIMAX_BASE_URL: ${{ secrets.MINIMAX_BASE_URL }}
-          MINIMAX_MODEL: ${{ secrets.MINIMAX_MODEL }}
+          # qwen3.8-flash while minimax is out of credits.
+          E2E_PROVIDER_MAP: qwen_token
+          QWEN_TOKEN_API_KEY: ${{ secrets.QWEN_TOKEN_API_KEY }}
+          QWEN_TOKEN_MODEL: qwen3.8-flash
           API_TIMEOUT_MS: '3000000'
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
           VIBE_SELLER_TELEMETRY: '0'
