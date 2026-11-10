@@ -142,18 +142,21 @@ and the reveal endpoint below.
 ### `POST /api/tasks/{task_id}/result` — what `set_task_result` checks
 
 The submission is retained first (`submitted_result`), so a refusal (400)
-annotates it rather than discarding it. Then, in order:
+annotates it rather than discarding it. Then every check below runs.
 
-Every check gets **one round** (`task_submission.one_round`): its first
-finding on a task is a 400 naming what is unmet; the next submit is
-accepted with the findings as caveats (`review_gaps`), and findings that
-contradict each other — or a change the user did not approve — are also
-marked with a banner at the top of the result.
+Every check gets **one round**, and a submit is refused at most once
+(`task_submission.apply_round`): if any check reports for the first time
+on the task, the submit is a 400 listing everything every check found;
+a check that already had its round never refuses again, so the next
+submit is accepted with the findings as caveats (`review_gaps`).
+Findings that contradict each other — or a change the user did not
+approve — are also marked with a banner at the top of the result, and
+of the retained submission, so a run that ends after the refusal still
+ships the warning.
 
 1. **Listing upload verdict** (`app/ai/stop_gates/listing_upload_gate.py`).
    A listing batch this turn uploaded to the live account should have a
-   clean `BATCH_<id>_VERDICT.json`. The same check holds the turn open
-   once (Stop hook / result re-drive), not again.
+   clean `BATCH_<id>_VERDICT.json`.
 2. **Report deliverables** (`app/deliverables/gate.py`): a
    report-download run delivered every report the calendar says it owed.
 3. **Skill-declared gates** — only those named in the `gates:` frontmatter

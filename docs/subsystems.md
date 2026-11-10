@@ -419,13 +419,14 @@ and acts on. The full order is in
 Only checks that protect money or data remain; nothing grades the report's
 prose, format or language.
 
-Every check gets one round: refused once naming what is unmet, then the
-result ships with the findings as caveats (`review_gaps`); contradictions
-also get a banner at the top of the result.
+Every check gets one round and a submit is refused at most once, listing
+everything found; the next submit ships with the findings as caveats
+(`review_gaps`); contradictions also get a banner at the top of the
+result.
 
 | Check | Concern |
 |---|---|
-| `listing_upload_gate.py` | A listing batch uploaded to the live account this turn has a clean verdict. Also holds the turn open once. |
+| `listing_upload_gate.py` | A listing batch uploaded to the live account this turn has a clean verdict. |
 | Deliverables (`app/deliverables/gate.py`) | A report-download run delivered every report the calendar says it owed (only engages when the workspace holds `reports_*` folders). |
 | `ad_changes.py` | `CHANGES.tsv` obeys store rules (`ad_rules.py`, overridable per store via `key: value` lines in `stores/<slug>/notes.md`); `investigate` proposes nothing; `EXECUTION_LOG.tsv` matches the frozen approvals in `data/approved_changes/` (contradiction). |
 | `ad_coverage.py` | An `audit` covered every owed marketplace (`ad_declaration.owed_combos`), drilled live campaigns, reconciled search terms with targeting; impossible spend is a contradiction. |
@@ -444,7 +445,7 @@ not move it.
 
 ### Why at the MCP tool call, not the Stop hook
 
-Some backends (notably DeepSeek under certain compaction conditions) never emit a `Stop` event, so a Stop-hook-only gate would be silently skipped. `set_task_result` is the one tool every successful task path calls, so the gate fires there. The Stop hook (every session) only refuses to end a turn while async subagents are still running, or — once — while an uploaded listing batch lacks a verdict.
+Some backends (notably DeepSeek under certain compaction conditions) never emit a `Stop` event, so a Stop-hook-only gate would be silently skipped. `set_task_result` is the one tool every successful task path calls, so the gate fires there. The Stop hook (every session) only refuses to end a turn while async subagents are still running.
 
 ### Adding a gate
 

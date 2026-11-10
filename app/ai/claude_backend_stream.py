@@ -332,9 +332,8 @@ class _StreamMixin:
             text = event.get('result', '')
             is_error = event.get('is_error', False)
             # ── Open-work guard ─────────────────────────────────
-            # A `result` while this turn's own work is still open (async
-            # subagents running, an uploaded listing batch without a
-            # verdict) is NOT the end of the turn: closing stdin here
+            # A `result` while async subagents this turn launched are
+            # still running is NOT the end of the turn: closing stdin here
             # would drop the approvals that work still needs. Re-drive
             # the agent on the live channel instead, within the budget
             # `_TurnHoldMixin` owns.
@@ -353,11 +352,8 @@ class _StreamMixin:
                     self._empty_turn_continued = True
                     await self.send_user_message(EMPTY_TURN_CONTINUE)
                     return
-                pending = self._async_agents_pending_reason()
-                hold_reason = pending or self._open_work_reason()
+                hold_reason = self._async_agents_pending_reason()
                 if hold_reason and not self._hold_exhausted():
-                    if not pending:
-                        self._upload_hold_spent = True
                     self._note_hold_redrive()
                     await self._emit_message(
                         'agent_event',

@@ -308,8 +308,6 @@ class _HookMixin:
             if not tool_input.get('stop_hook_active'):
                 if await self._deny_stop_if_async_agents_running(request_id):
                     return
-                if await self._deny_stop_if_upload_unverified(request_id):
-                    return
             await self._send_hook_response(request_id, {'decision': 'approve'})
         elif callback_id == 'tool_approval':
             # Legacy format — extract inner tool info

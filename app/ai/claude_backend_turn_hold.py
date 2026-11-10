@@ -30,7 +30,6 @@ from __future__ import annotations
 import logging
 
 from app.ai.claude_backend_utils import TURN_HOLD_MAX
-from app.ai.stop_gates.listing_upload_gate import check_upload_verdicts
 from app.ai.turn_hold_budget import ledger_for
 from app.env_options import Options
 
@@ -84,26 +83,11 @@ class _TurnHoldMixin:
             self.task_id, Options.TURN_HOLD_BUDGET_S.get_float()
         )
         self._hold_failed_open: bool = False
-        # The upload verdict holds a turn open once, like every check:
-        # after it has been raised, an unverified batch ships as a caveat.
-        self._upload_hold_spent: bool = False
 
     @property
     def _hold_redrive_count(self) -> int:
         """Attempts spent on this turn — the ledger is the only tally."""
         return self._hold_clock.turns
-
-    def _open_work_reason(self) -> str | None:
-        """Why this turn may not end yet: a listing batch it uploaded to
-        the live account has no clean verdict (``listing_upload_gate``).
-
-        Deliberately does NOT include pending async subagents: the result
-        branch adds that (a turn cannot end under live work), while the
-        watchdog tracks it separately as its own close-blocker.
-        """
-        if self.task_dir is None or self._upload_hold_spent:
-            return None
-        return check_upload_verdicts(self.task_dir)
 
     def _hold_exhausted(self) -> bool:
         """Has the hold spent everything it is allowed to spend?

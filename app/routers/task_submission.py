@@ -1,11 +1,11 @@
 """Submission and verdict — the two halves of ``set_task_result``.
 
 A result gate refuses by raising, and the raise used to happen before
-``task.result`` was assigned, so a refusal DESTROYED the submission: N
-refusals left the run holding nothing and the end-of-turn fallback had
-only chat prose to offer. What the agent submitted and what the gates
-said about it are separate facts, recorded separately here, and only a
-submission that clears every gate becomes ``accepted_result``.
+``task.result`` was assigned, so a refusal DESTROYED the submission and
+a run that ended after it had only chat prose to offer. What the agent
+submitted and what the checks said about it are separate facts,
+recorded separately here; a submission becomes ``accepted_result`` once
+every check has had its one round.
 
 Split out of ``routers/tasks.py`` (over the per-file line limit) as one
 cohesive unit rather than by cutting lines to fit.
@@ -148,85 +148,76 @@ async def resolve_submitted_result(
     return raw, False
 
 
-async def one_round(
-    db: AsyncSession,
-    task: Task,
-    deny,
-    final_result: str,
-    declared: tuple[str, ...],
-) -> tuple[str, tuple[str, ...]]:
-    """Apply one gate's denial: refused once, then through with caveats.
-
-    The first denial of a gate on a task is a refusal — the agent hears
-    what is unmet and may fix it. Any later one lets the result through:
-    its gaps ship as caveats, and numbers that contradict each other are
-    marked with a banner at the top, so they cannot be missed. Never a
-    loop: the decision after one round is the agent's.
-    """
-    gaps = deny.gaps or (deny.reason,)
-    first = record_attempt(task.id, deny.gate) == 1
-    send_result_gated(
-        task.id,
-        deny.gate,
-        GateOutcome.REFUSED
-        if first
-        else GateOutcome.BANNER_MARKED
-        if deny.contradictions
-        else GateOutcome.FAILED_OPEN,
-        attempt=1 if first else 2,
-        gap_count=len(gaps),
-    )
-    if first:
-        await refuse(db, task, deny.reason, declared + tuple(deny.gaps))
-    logger.warning(
-        'Gate %s: %d gap(s) left after its round for task %s — shipping '
-        'as caveats. Gaps: %s',
-        deny.gate,
-        len(gaps),
-        task.id,
-        ' | '.join(g[:110] for g in gaps[:4]),
-    )
-    if deny.contradictions:
-        final_result = contradiction_banner(deny.contradictions) + final_result
-    return final_result, tuple(gaps)
-
-
-async def apply_soft_gates(
-    db: AsyncSession,
-    task: Task,
-    task_id: str,
-    final_result: str,
-    declared: tuple[str, ...],
-) -> tuple[str, tuple[str, ...]]:
-    """The gates every task gets, regardless of which skills it loaded.
-
-    Run here rather than from the Stop hook because some agent backends
-    never emit Stop.
-    """
-    deny = await check_deliverables(
-        db, task, (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
-    )
-    if not deny:
-        return final_result, ()
-    return await one_round(db, task, deny, final_result, declared)
-
-
-async def apply_skill_gates(
+async def gate_denials(
     db: AsyncSession,
     task: Task,
     skill_gates,
     final_result: str,
     rules,
-    declared: tuple[str, ...],
-) -> tuple[str, tuple[str, ...]]:
-    """Skill-declared domain gates: ``(final_result, gaps_to_ship)``."""
-    shipped: list[str] = []
+) -> list:
+    """What every check found on this submission: the report-deliverable
+    check every task gets, then the gates the loaded skills declared."""
+    denies = []
+    deny = await check_deliverables(
+        db, task, (VIBE_SELLER_DIR / 'tasks' / task.id).resolve()
+    )
+    if deny:
+        denies.append(deny)
     for _gate_name, gate in skill_gates:
         deny = await asyncio.to_thread(gate.check, final_result, task.id, rules)
-        if not deny:
-            continue
-        final_result, gaps = await one_round(
-            db, task, deny, final_result, declared
+        if deny:
+            denies.append(deny)
+    return denies
+
+
+async def apply_round(
+    db: AsyncSession,
+    task: Task,
+    denies: list,
+    final_result: str,
+    declared: tuple[str, ...],
+) -> tuple[str, tuple[str, ...]]:
+    """One round per check, one refusal per submit: ``(result, caveats)``.
+
+    If any check reports for the first time on this task, the submit is
+    refused once, listing everything every check found — so the agent
+    sees it all at once instead of one check per submit. A check that
+    already had its round never refuses again: on the next submit the
+    result goes through with the findings as caveats. Findings that
+    contradict each other (or a change the user did not approve) are
+    also marked with a banner at the top — on the retained submission
+    too, so a run that ends after the refusal still ships the warning.
+    """
+    if not denies:
+        return final_result, ()
+    fresh = {d.gate for d in denies if record_attempt(task.id, d.gate) == 1}
+    gaps = tuple(g for d in denies for g in (d.gaps or (d.reason,)))
+    contradictions = tuple(c for d in denies for c in d.contradictions)
+    for d in denies:
+        send_result_gated(
+            task.id,
+            d.gate,
+            GateOutcome.REFUSED
+            if fresh
+            else GateOutcome.BANNER_MARKED
+            if d.contradictions
+            else GateOutcome.FAILED_OPEN,
+            attempt=1 if d.gate in fresh else 2,
+            gap_count=len(d.gaps or (d.reason,)),
         )
-        shipped.extend(gaps)
-    return final_result, tuple(shipped)
+    if contradictions:
+        final_result = contradiction_banner(contradictions) + final_result
+    if fresh:
+        task.submitted_result = final_result
+        await refuse(
+            db, task, '\n\n'.join(d.reason for d in denies), declared + gaps
+        )
+    logger.warning(
+        'Checks %s had their round for task %s — shipping %d finding(s) '
+        'as caveats. First: %s',
+        ', '.join(sorted({d.gate for d in denies})),
+        task.id,
+        len(gaps),
+        ' | '.join(g[:110] for g in gaps[:4]),
+    )
+    return final_result, gaps

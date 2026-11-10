@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 _GATES = frozenset({
     'ad_changes',
     'ad_coverage',
+    'ad_declaration',
     'deliverable_manifest',
     'upload_verdict',
     'review_completeness_review',

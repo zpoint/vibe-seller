@@ -124,8 +124,6 @@ class _TurnLifecycleMixin(_TurnHoldMixin):
             return None
         if self._async_agents:
             return 'async_work_running'  # subagents and/or bg shells
-        if not self._hold_exhausted() and self._open_work_reason():
-            return 'open_work'
         return None
 
     async def _maybe_close_idle_turn(self):

@@ -17,7 +17,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.claude_backend_manager import agent_manager
-from app.ai.stop_gates import forget_task
+from app.ai.stop_gates import reset_attempts
 from app.ai.stop_gates.ad_changes import remove_approvals
 from app.models.screenshot import Screenshot
 from app.models.task import Task
@@ -49,7 +49,7 @@ def clear_gate_state(task_id: str) -> None:
 
     Blocking (file unlink) — call off the event loop.
     """
-    forget_task(task_id)
+    reset_attempts(task_id)
     try:
         remove_approvals(task_id)
     except OSError:

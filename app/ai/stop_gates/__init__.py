@@ -62,24 +62,12 @@ def forget_attempt(task_id: str, gate: str) -> None:
 
 
 def reset_attempts(task_id: str) -> None:
-    """Drop all attempt counters for a task.
-
-    Called by ``app/routers/tasks.py``:
-    - after ``set_task_result`` persists a result (terminal success)
-    - after ``delete_task`` removes a task
-
-    Both paths guarantee no further gates will fire for that task,
-    so the in-memory counters are dead weight from then on. This
-    keeps the dict bounded over a long-running server.
-    """
+    """Drop all attempt counters for a task: when a result is accepted
+    (the next turn gets its own round), when the task ends, and when it
+    is deleted or retried — keeping the dict bounded over a long-running
+    server."""
     for key in [k for k in _attempts if k[0] == task_id]:
         _attempts.pop(key, None)
-
-
-def forget_task(task_id: str) -> None:
-    """Drop every in-memory gate counter for a task that has ended or
-    been deleted."""
-    reset_attempts(task_id)
 
 
 @event.listens_for(Task.status, 'set')
@@ -87,7 +75,7 @@ def _forget_on_terminal(target: Task, value, oldvalue, _initiator) -> None:
     new = str(value) if value is not None else ''
     old = str(oldvalue) if oldvalue is not None else ''
     if new in TERMINAL_STATES and old not in TERMINAL_STATES and target.id:
-        forget_task(target.id)
+        reset_attempts(target.id)
 
 
 # The ad skills whose deliverable is an audit report file.

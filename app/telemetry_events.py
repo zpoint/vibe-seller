@@ -96,7 +96,6 @@ class GateOutcome:
     REFUSED = 'refused'
     FAILED_OPEN = 'failed_open'
     BANNER_MARKED = 'banner_marked'
-    ALLOWED = 'allowed'
 
 
 class TaskSource(enum.StrEnum):

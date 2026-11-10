@@ -386,8 +386,8 @@ class TestAQuestionAboutAnAdTaskEndsTheTurn:
 
 
 class TestTurnHoldRedrive:
-    """A result while the turn's own work is still open (here: a listing
-    batch uploaded without a clean verdict) must NOT end the turn: keep
+    """A result while the turn's own work is still open (here: an async
+    subagent still running) must NOT end the turn: keep
     the control channel open and re-drive the agent instead of closing
     stdin (which would silently deny the tool calls that finish it). See
     app/ai/claude_backend_stream result branch."""
@@ -407,9 +407,10 @@ class TestTurnHoldRedrive:
         with (
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
-            patch(
-                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-                return_value='Batch 100000000001 has no parse-feedback verdict.',
+            patch.object(
+                session,
+                '_async_agents_pending_reason',
+                return_value='1 background subagent still running.',
             ),
         ):
             await session._handle_event({
@@ -422,7 +423,7 @@ class TestTurnHoldRedrive:
         assert session._result_text == ''
         # The agent was re-driven with the gate's deny reason.
         assert len(sent) == 1
-        assert 'no parse-feedback verdict' in sent[0]
+        assert 'background subagent still running' in sent[0]
         assert session._hold_redrive_count == 1
         # A structured re-drive marker was emitted (not the result card).
         assert any(r == 'agent_event' for r, _ in emitted)
@@ -442,8 +443,9 @@ class TestTurnHoldRedrive:
 
         with (
             patch.object(session, '_emit_message', _mock_emit),
-            patch(
-                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
+            patch.object(
+                session,
+                '_async_agents_pending_reason',
                 return_value='still gaps',
             ),
         ):
@@ -496,8 +498,9 @@ class TestTurnHoldRedrive:
         with (
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
-            patch(
-                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
+            patch.object(
+                session,
+                '_async_agents_pending_reason',
                 return_value='still gaps',
             ),
         ):
@@ -524,9 +527,8 @@ class TestTurnHoldRedrive:
 
         with (
             patch.object(session, '_emit_message', _mock_emit),
-            patch(
-                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-                return_value=None,
+            patch.object(
+                session, '_async_agents_pending_reason', return_value=None
             ),
         ):
             await session._handle_event({
@@ -559,9 +561,10 @@ class TestTurnHoldRedrive:
         with (
             patch.object(session, '_emit_message', _noop),
             patch.object(session, 'send_user_message', _noop),
-            patch(
-                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-                return_value='Batch 100000000001 has no parse-feedback verdict.',
+            patch.object(
+                session,
+                '_async_agents_pending_reason',
+                return_value='1 background subagent still running.',
             ),
         ):
             await session._handle_event({
@@ -591,9 +594,8 @@ class TestTurnHoldRedrive:
 
         with (
             patch.object(session, '_emit_message', _noop),
-            patch(
-                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-                return_value=None,
+            patch.object(
+                session, '_async_agents_pending_reason', return_value=None
             ),
         ):
             await session._handle_event({
@@ -684,10 +686,6 @@ class TestAsyncAgentTurnHold:
         with (
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
-            patch(
-                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-                return_value=None,
-            ),
         ):
             for ev in self._spawn_async_agent(session):
                 await session._handle_event(ev)
@@ -711,10 +709,6 @@ class TestAsyncAgentTurnHold:
 
         with (
             patch.object(session, '_emit_message', _noop),
-            patch(
-                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-                return_value=None,
-            ),
         ):
             events = self._spawn_async_agent(session)
             events[1]['message']['content'][0]['content'] = (
@@ -739,10 +733,6 @@ class TestAsyncAgentTurnHold:
 
         with (
             patch.object(session, '_emit_message', _noop),
-            patch(
-                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-                return_value=None,
-            ),
         ):
             for ev in self._spawn_async_agent(session):
                 await session._handle_event(ev)

@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.ai.claude_backend import AgentSession
-from app.ai.claude_backend_utils import TURN_HOLD_MAX
 from app.env_options import Options
 
 pytestmark = pytest.mark.unit
@@ -68,13 +67,7 @@ class TestCloseGuards:
 
     def test_closable_when_quiescent(self, monkeypatch):
         s = self._closable(_session())
-        with (
-            patch(
-                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-                return_value=None,
-            ),
-        ):
-            assert s._turn_close_blocked() is None
+        assert s._turn_close_blocked() is None
 
     def test_pending_question_blocks(self):
         s = self._closable(_session())
@@ -95,44 +88,6 @@ class TestCloseGuards:
         s = self._closable(_session())
         s._async_agents['toolu_1'] = 'agent-1'
         assert s._turn_close_blocked() == 'async_work_running'
-
-    def test_unverified_upload_blocks(self):
-        s = self._closable(_session())
-        s.task_dir = '/tmp/fake-task'  # upload markers live in the task dir
-        with patch(
-            'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-            return_value='Batch 100000000001 has no parse-feedback verdict.',
-        ):
-            assert s._turn_close_blocked() == 'open_work'
-
-    def test_an_unverified_upload_holds_the_turn_once(self):
-        """One round: once the hold has been spent on the upload, the
-        unverified batch no longer keeps the turn open."""
-        s = self._closable(_session())
-        s.task_dir = '/tmp/fake-task'
-        with patch(
-            'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-            return_value='Batch 100000000001 has no parse-feedback verdict.',
-        ):
-            assert s._turn_close_blocked() == 'open_work'
-            s._upload_hold_spent = True
-            assert s._turn_close_blocked() is None
-
-    def test_hold_fails_open_past_redrive_budget(self, monkeypatch):
-        # Same fail-open bound as the result branch: past the budget
-        # the hold stands down so unsatisfiable open work cannot wedge
-        # the process forever.
-        s = self._closable(_session())
-        s.task_dir = '/tmp/fake-task'
-        # Spend the budget the way the hold does — the tally lives on
-        # the turn's ledger, so there is nothing to assign here.
-        for _ in range(TURN_HOLD_MAX):
-            s._note_hold_redrive()
-        with patch(
-            'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-            return_value='Batch 100000000001 has no parse-feedback verdict.',
-        ):
-            assert s._turn_close_blocked() is None
 
     def test_a_failed_open_turn_stops_waiting_on_async_work(self):
         """The ten-minute gap, pinned.
@@ -176,10 +131,6 @@ class TestWatchdogTick:
 
         with (
             patch.object(s, '_emit_message', _emit),
-            patch(
-                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
-                return_value=None,
-            ),
         ):
             await s._maybe_close_idle_turn()
 

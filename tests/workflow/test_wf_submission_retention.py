@@ -370,6 +370,73 @@ class TestGateTelemetry:
         done = await wait_for_task(admin_client, task_id)
         assert why in (done.get('review_gaps') or '')
 
+    async def test_two_checks_are_one_refusal_listing_both(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        """Two checks finding something on the same submit: one refusal
+        naming both — not one check per submit — then through."""
+
+        def gate(name, gap):
+            class G:
+                @staticmethod
+                def check(result, task_id, rules):
+                    return GateDeny(gate=name, reason=gap, gaps=(gap,))
+
+            return name, G
+
+        monkeypatch.setattr(
+            'app.routers.tasks.resolve_skill_gates',
+            lambda loaded, workspace: [
+                gate('gate_a', 'first gap'),
+                gate('gate_b', 'second gap'),
+            ],
+        )
+        task_id, release = await _running_task(
+            admin_client, install_fake_agent, 'Two Checks Store'
+        )
+        url = f'/api/tasks/{task_id}/result'
+        r = await admin_client.post(url, json={'result': CLEAN})
+        assert r.status_code == 400
+        assert 'first gap' in r.text and 'second gap' in r.text
+        r = await admin_client.post(url, json={'result': CLEAN})
+        assert r.status_code == 200, r.text
+        release.set()
+        await wait_for_task(admin_client, task_id)
+
+    async def test_a_run_ending_after_the_refusal_keeps_the_banner(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        """Refused for a contradiction, the agent asks the user instead of
+        resubmitting. What ships is the retained report — it must carry
+        the warning at the top, not only in the caveats below."""
+
+        class Contradicting:
+            @staticmethod
+            def check(result, task_id, rules):
+                return GateDeny(
+                    gate='fake_money',
+                    reason='bid set to 11.3, approved 1.20',
+                    gaps=('bid set to 11.3, approved 1.20',),
+                    contradictions=('bid set to 11.3, approved 1.20',),
+                )
+
+        monkeypatch.setattr(
+            'app.routers.tasks.resolve_skill_gates',
+            lambda loaded, workspace: [('fake_money', Contradicting)],
+        )
+        task_id, release = await _running_task(
+            admin_client, install_fake_agent, 'Banner Kept Store'
+        )
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result', json={'result': CLEAN}
+        )
+        assert r.status_code == 400
+        release.set()
+        done = await wait_for_task(admin_client, task_id)
+        shown = done.get('result') or done.get('submitted_result') or ''
+        assert shown.lstrip().startswith('>'), shown[:200]
+        assert 'approved 1.20' in shown
+
     async def test_a_skill_gate_is_one_round(
         self, admin_client, install_fake_agent, monkeypatch
     ):

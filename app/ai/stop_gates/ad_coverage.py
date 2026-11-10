@@ -41,6 +41,7 @@ from app.ai.stop_gates.ad_task import store_slug_for, task_dir
 from app.models.ad_declaration import KIND_AUDIT
 
 GATE_NAME = 'ad_coverage'
+DECLARATION_GATE = 'ad_declaration'
 LIVE_STATES = ('enabled', 'active', 'live', 'running', 'delivering')
 
 # Names the tool exactly and says it is already loaded: observed live, an
@@ -191,8 +192,14 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
     if decl is None:
         if not has_data:
             return None
-        gaps, contradictions = [MISSING_DECLARATION], []
-    elif decl['kind'] != KIND_AUDIT:
+        # Its own name, so its round is its own: an agent that declares
+        # after this and resubmits still hears about coverage once.
+        return GateDeny(
+            gate=DECLARATION_GATE,
+            reason=MISSING_DECLARATION,
+            gaps=(MISSING_DECLARATION,),
+        )
+    if decl['kind'] != KIND_AUDIT:
         return None
     else:
         gaps, contradictions = audit_findings(task_id, decl, rules)

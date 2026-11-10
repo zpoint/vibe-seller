@@ -31,10 +31,9 @@ from app.models.task_step import TaskStep
 from app.models.user import User
 from app.routers.task_submission import (
     SetTaskResultRequest,
-    apply_skill_gates,
-    apply_soft_gates,
+    apply_round,
     declared_gaps,
-    one_round,
+    gate_denials,
     resolve_submitted_result,
     retain_submission as _retain_submission,
 )
@@ -600,27 +599,10 @@ async def set_task_result(
     # left the run holding nothing, so the finalizer had only streamed
     # prose to offer. Submission and verdict are separate facts: what
     # the agent submitted is recorded now, unconditionally, and a
-    # refusal only annotates it (see ``_refuse``). ``task.result`` is
+    # refusal only annotates it (``task_submission.refuse``). ``task.result`` is
     # still set only once every gate accepts.
     declared = declared_gaps(body)
     await _retain_submission(db, task, final_result)
-
-    # A listing batch this turn uploaded to the live account should have
-    # a clean verdict (no-op without uploads). One round, like the rest.
-    upload_gaps: tuple[str, ...] = ()
-    reason = await asyncio.to_thread(check_upload_verdicts, task_root)
-    if reason:
-        final_result, upload_gaps = await one_round(
-            db,
-            task,
-            GateDeny(gate='upload_verdict', reason=reason),
-            final_result,
-            declared,
-        )
-
-    final_result, soft_gaps = await apply_soft_gates(
-        db, task, task_id, final_result, declared
-    )
 
     # Skill-declared domain gates: the session's loaded skills name WHICH
     # gates apply (``gates: [...]`` in SKILL.md → get_registered_gates).
@@ -634,11 +616,16 @@ async def set_task_result(
     skill_gates = await asyncio.to_thread(
         resolve_skill_gates, loaded, workspace or VIBE_SELLER_DIR
     )
-
-    final_result, skill_gaps = await apply_skill_gates(
-        db, task, skill_gates, final_result, rules, declared
+    denies = []
+    # A listing batch this turn uploaded to the live account should have
+    # a clean verdict (no-op without uploads).
+    reason = await asyncio.to_thread(check_upload_verdicts, task_root)
+    if reason:
+        denies.append(GateDeny(gate='upload_verdict', reason=reason))
+    denies += await gate_denials(db, task, skill_gates, final_result, rules)
+    final_result, stalled_gaps = await apply_round(
+        db, task, denies, final_result, declared
     )
-    stalled_gaps = list(upload_gaps) + list(soft_gaps) + list(skill_gaps)
 
     # Recovery: a valid result supersedes an earlier agent-reported
     # error this turn (error → recovered → result must not ship as
@@ -655,7 +642,7 @@ async def set_task_result(
     # A gate that failed open still had unmet items; keep them so the
     # outcome carries its caveats. Otherwise the verdict is clean.
     task.review_gaps = (
-        json.dumps(declared + tuple(stalled_gaps), ensure_ascii=False)
+        json.dumps(declared + stalled_gaps, ensure_ascii=False)
         if (stalled_gaps or declared)
         else None
     )

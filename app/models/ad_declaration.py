@@ -26,12 +26,12 @@ the agent is the only thing that can read a natural-language request —
 but a mis-declaration now shows too little, which someone notices,
 instead of silently showing 25x too much with stale data.
 
-**Append-only, and a new one needs a new user turn.** Rows are never
-updated. A run cannot re-declare to match what it ended up doing, and an
-agent cannot re-declare mid-run to escape a gate: ``user_turn`` records
-how many user messages the task had when the declaration was accepted,
-and the next declaration must see a higher count. Only the person typing
-can open a new phase.
+**Append-only.** Rows are never updated, so the phase history shows
+what each phase declared. ``user_turn`` records how many user messages
+the task had when the declaration was accepted: a same-turn
+re-declaration that widens or lightens what the phase owes is asked
+about once (``routers/tasks_ad_declaration``), and ``execute`` normally
+follows a user message after a declared audit.
 """
 
 from datetime import UTC, datetime

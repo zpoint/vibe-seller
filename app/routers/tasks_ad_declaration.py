@@ -4,21 +4,15 @@ Backs the ``vibe_seller_declare_ad_task`` MCP tool. Split out of
 ``app/routers/tasks.py`` so that file stays under the repo's
 800-line-per-file cap.
 
-The rules enforced here are the whole reason the declaration is a server
-endpoint and not a file the agent writes:
+Why it is a server endpoint and not a file the agent writes:
 
-* **Append-only.** A phase's declaration is never updated. An agent
-  cannot rewrite what it committed to so that it matches whatever it
-  ended up producing.
-* **A new declaration needs a new user turn.** Re-declaring is how a
-  conversation legitimately changes purpose ("create a listing" →
-  "now audit the ads for it"), so it must be possible — but only the
-  person typing may open a new phase. Enforced by comparing the task's
-  user-message count against the count recorded on the previous
-  declaration.
-
-Both were prose-only in the first draft of this design, which is exactly
-the class of contract this codebase keeps learning to move into code.
+* **Append-only.** A phase's declaration is never updated, so what it
+  committed to stays on record next to what it produced.
+* **One round.** A same-turn re-declaration that widens or lightens what
+  the phase owes, and ``execute`` without a user reply to a declared
+  audit, are answered once (409) naming what that normally needs; the
+  same call again is recorded as declared. The decision is the agent's;
+  the user sees an unconfirmed execution marked as such.
 """
 
 import asyncio
@@ -155,7 +149,7 @@ async def declare_ad_task(
     db: Annotated[AsyncSession, Depends(get_db)],
     _user: Annotated[User, Depends(get_current_user)],
 ):
-    """Record what this phase is for. Append-only; needs a new user turn."""
+    """Record what this phase is for. Append-only; see the module doc."""
     kind = (body.kind or '').strip().lower()
     scope = ad_declaration.normalise_scope(body.scope)
     try:

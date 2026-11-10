@@ -5,11 +5,11 @@ template lands (an upload is now intended this turn), and
 ``bh_upload_flatfile`` records every submitted batch as an
 ``UPLOAD_BATCH_<id>.json`` marker. ``listing_bulk.py parse-feedback
 --batch-id <id>`` writes the matching ``BATCH_<id>_VERDICT.json`` after
-reading THAT batch's processing report. This gate closes the loop: a
-task that entered the upload flow cannot finish until the uploaded
-batch has a verdict, and the verdict shows no non-image errors (the
-missing-main-image deferral is the one accepted "done with caveat"
-state).
+reading THAT batch's processing report. This check closes the loop: a
+task that entered the upload flow is told (once, like every check) when
+the uploaded batch has no verdict, or its verdict shows non-image
+errors (the missing-main-image deferral is the one accepted "done with
+caveat" state); left unresolved, it ships as a caveat.
 
 Arming is deliberately redundant: the batch marker requires the upload
 HELPER to have succeeded, and the observed bypass was exactly a helper
@@ -115,8 +115,7 @@ def check_upload_verdicts(task_dir) -> str | None:
                 f'parse-feedback <report> --batch-id {batch_id} FROM THE '
                 'TASK WORKSPACE ROOT — the verdict is written to the '
                 'current directory and must land at '
-                f'{verdict_path}. The task cannot finish on an '
-                'unverified upload.'
+                f'{verdict_path}. Until then the upload is unverified.'
             )
 
     # Batch ids are monotonically increasing within an account, so the

@@ -245,3 +245,12 @@ def test_a_named_campaign_scope_is_not_a_shrinking_market(task):
     full_drill(task)
     gaps, _ = findings(task)
     assert not any('in the last weeks' in g for g in gaps), gaps
+
+
+def test_a_missing_declaration_has_its_own_round(task):
+    """Asking for the declaration must not spend coverage's round: after
+    the agent declares, its real coverage gaps are still raised once."""
+    (task.dir / 'AD_TASK.json').unlink()
+    task.campaigns([campaign()])
+    deny = ad_coverage.check('', task.id)
+    assert deny is not None and deny.gate != ad_coverage.GATE_NAME

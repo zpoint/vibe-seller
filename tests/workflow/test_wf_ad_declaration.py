@@ -193,7 +193,7 @@ class TestNarrowingWithinATurn:
         )
         assert r.status_code == 200, r.text
 
-    async def test_widening_the_campaign_list_is_refused(
+    async def test_widening_the_campaign_list_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
         task_id = await _make_task(admin_client)
@@ -208,8 +208,16 @@ class TestNarrowingWithinATurn:
             dict(market, campaigns=['A1234567', 'A7654321']),
         )
         assert r.status_code == 409, r.text
+        # Asked once: the same call again is recorded as declared.
+        r = await _declare(
+            admin_client,
+            task_id,
+            'audit',
+            dict(market, campaigns=['A1234567', 'A7654321']),
+        )
+        assert r.status_code == 200, r.text
 
-    async def test_dropping_the_campaign_list_is_refused(
+    async def test_dropping_the_campaign_list_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
         # Going back to "every campaign in this market" is widening.
@@ -220,11 +228,14 @@ class TestNarrowingWithinATurn:
         )
         r = await _declare(admin_client, task_id, 'audit', market)
         assert r.status_code == 409, r.text
+        # Asked once: the same call again is recorded as declared.
+        r = await _declare(admin_client, task_id, 'audit', market)
+        assert r.status_code == 200, r.text
 
-    async def test_adding_a_marketplace_is_refused(
+    async def test_adding_a_marketplace_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
-        # The move the whole design exists to prevent.
+        # Widening reach mid-turn: asked about once.
         task_id = await _make_task(admin_client)
         r = await _declare(
             admin_client,
@@ -246,20 +257,37 @@ class TestNarrowingWithinATurn:
             },
         )
         assert r.status_code == 409, r.text
+        # Asked once: the same call again is recorded as declared.
+        r = await _declare(
+            admin_client,
+            task_id,
+            'audit',
+            {
+                'combos': [
+                    {'platform': 'amazon', 'country': 'SA'},
+                    {'platform': 'noon', 'country': 'AE'},
+                ],
+                'campaigns': ['A1234567'],
+            },
+        )
+        assert r.status_code == 200, r.text
 
-    async def test_shedding_an_obligation_by_changing_the_kind_is_refused(
+    async def test_shedding_an_obligation_by_changing_the_kind_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
         # `investigate` owes no marketplace coverage. Reaching it from
-        # `audit` mid-turn is how an agent would shed the obligation,
-        # so it is the move that has to stay shut.
+        # `audit` mid-turn sheds that obligation, so it is asked about
+        # once.
         task_id = await _make_task(admin_client)
         market = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
         await _declare(admin_client, task_id, 'audit', market)
         r = await _declare(admin_client, task_id, 'investigate', market)
         assert r.status_code == 409, r.text
+        # Asked once: the same call again is recorded as declared.
+        r = await _declare(admin_client, task_id, 'investigate', market)
+        assert r.status_code == 200, r.text
 
-    async def test_an_unrelated_kind_change_is_refused(
+    async def test_an_unrelated_kind_change_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
         task_id = await _make_task(admin_client)
@@ -269,6 +297,11 @@ class TestNarrowingWithinATurn:
             admin_client, task_id, 'audit', dict(market, campaigns=['A1234567'])
         )
         assert r.status_code == 409, r.text
+        # Asked once: the same call again is recorded as declared.
+        r = await _declare(
+            admin_client, task_id, 'audit', dict(market, campaigns=['A1234567'])
+        )
+        assert r.status_code == 200, r.text
 
 
 class TestCorrectingAnUnderDeclaredPhase:
