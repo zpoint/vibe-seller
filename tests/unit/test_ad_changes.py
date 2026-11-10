@@ -508,3 +508,38 @@ def test_another_ad_groups_execution_does_not_excuse_a_proposal(task):
         _done(ad_group='g2', action='lower', from_bid='1.20', to_bid='1.10')
     ])
     assert any('under 25% ACOS' in g for g in _gaps(task)), _gaps(task)
+
+
+def test_a_blank_ad_group_on_the_log_row_finds_its_copy(task):
+    """EXECUTION_LOG.tsv has no platform/country columns, so a blank
+    ad_group on the EXECUTED side is located through the approval it is
+    matched against — not raised on, which 500s the submit. One copy of
+    the keyword, so the blank matches it."""
+    _approve(task, [change(target_bid='1.20')])
+    task.declare('execute')
+    task.drill(
+        'A1234567',
+        [
+            {
+                'ad_group': 'g1',
+                'target': 'widget',
+                'match_type': 'exact',
+                'bid': '1.20',
+                'applied_action': 'raise',
+            }
+        ],
+        [],
+    )
+    task.execution([_done(ad_group='')])
+    assert _gaps(task) == [], _gaps(task)
+
+
+def test_a_blank_ad_group_on_the_log_row_names_one_copy_not_any(task):
+    """The same blank executed row, with the keyword in g1 AND g2: it
+    names no copy, so an approval naming g2 does not read as covering
+    it — the log row is held to the same rule as a proposal."""
+    _two_ad_groups(task)
+    _approve(task, [change(ad_group='g2', target_bid='1.20')])
+    task.declare('execute')
+    task.execution([_done(ad_group='', to_bid='1.20')])
+    assert any('not in the approved' in g for g in _gaps(task)), _gaps(task)

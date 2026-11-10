@@ -85,21 +85,29 @@ def _key(row: dict) -> tuple[str, str, str, str]:
     )
 
 
-def _campaign_rows(slug: str | None, row: dict) -> tuple[dict, ...]:
-    """The campaign TSV's rows for this target/match_type, if drilled."""
+def _campaign_rows(
+    slug: str | None, row: dict, where: dict | None = None
+) -> tuple[dict, ...]:
+    """The campaign TSV's rows for this target/match_type, if drilled.
+
+    ``where`` locates the campaign for *row*: an EXECUTION_LOG row (and
+    a drilled one) carries no platform/country, so it is found through
+    the row it is matched against. Neither side carrying a platform, or
+    no drilled TSV, means there is nothing to count.
+    """
     if not slug:
         return ()
-    path, _ = campaign_files(
-        slug, row['platform'], row['country'], row['campaign_id']
-    )
+    at = next((r for r in (where, row) if r and r.get('platform')), None)
+    if at is None:
+        return ()
+    cid = at.get('campaign_id') or row.get('campaign_id', '')
+    path, _ = campaign_files(slug, at['platform'], at.get('country', ''), cid)
     table = read_table(path, TARGETING_COLUMNS) if path else None
     if not table or table.error:
         return ()
     key = _key(row)
     return tuple(
-        t
-        for t in table.rows
-        if _key({**t, 'campaign_id': row['campaign_id']})[2:] == key[2:]
+        t for t in table.rows if _key({**t, 'campaign_id': cid})[2:] == key[2:]
     )
 
 
@@ -110,13 +118,16 @@ def _matched(slug: str | None, a: dict, b: dict) -> bool:
     then names none of them: which copy it means has to be said (the
     same rule ``ads_bulk --from-changes`` enforces). With no drilled TSV
     there is nothing to count, so a blank matches as it always did —
-    otherwise a correctly applied change read as "not approved".
+    otherwise a correctly applied change read as "not approved". The
+    other side locates the campaign for a blank that has no
+    platform/country of its own (an executed row).
     """
     if not _same_target(a, b):
         return False
     if _key(a)[1] and _key(b)[1]:
         return True
-    return len(_campaign_rows(slug, a if not _key(a)[1] else b)) <= 1
+    blank, other = (a, b) if not _key(a)[1] else (b, a)
+    return len(_campaign_rows(slug, blank, other)) <= 1
 
 
 def _label(row: dict) -> str:
@@ -498,8 +509,15 @@ def _writeback_mismatch(slug: str | None, want: dict, row: dict) -> list[str]:
     table = read_table(path, TARGETING_COLUMNS) if path else None
     if not table or table.error:
         return []
+    # Neither the drilled rows nor the log carry platform/country: the
+    # approval row is where they are located from.
+    at = {
+        'campaign_id': want['campaign_id'],
+        'platform': want['platform'],
+        'country': want['country'],
+    }
     for t in table.rows:
-        if not _matched(slug, {**t, 'campaign_id': want['campaign_id']}, row):
+        if not _matched(slug, {**t, **at}, row):
             continue
         if t.get('applied_action', '').lower() != row['action'].lower():
             return [
