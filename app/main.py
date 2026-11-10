@@ -188,7 +188,7 @@ async def lifespan(app: FastAPI):
     await workspace_manager.ensure_init(create_venv=False)
     # Agents run with Claude Code auto-memory off; drop what earlier
     # releases left so nothing can read it back (claude_memory_cleanup).
-    await asyncio.to_thread(purge_on_boot)
+    await purge_on_boot()
     # Drop half-built sync trees BEFORE anything copies the skills tree
     # (skills_sync._staging_root): a sync interrupted by a crash must not
     # leave a staging dir behind for the next task workspace to pick up.

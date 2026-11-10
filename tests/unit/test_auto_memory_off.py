@@ -8,8 +8,15 @@ without touching anything else under the Claude config dir.
 from pathlib import Path
 
 import pytest
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import StaticPool
 
 from app.ai.profiles import ProfileManager
+from app.models.base import Base
 from app.workspace import claude_memory_cleanup as cleanup
 
 pytestmark = pytest.mark.unit
@@ -75,3 +82,36 @@ def test_purge_covers_profile_config_dirs(tmp_path, monkeypatch):
 
 def test_purge_tolerates_missing_projects_dir(tmp_path):
     assert cleanup.purge_agent_auto_memory(tmp_path, {tmp_path / 'x'}) == []
+
+
+async def test_boot_purge_runs_once(tmp_path, monkeypatch):
+    """Later boots leave alone memory a person wrote in the runtime home."""
+    engine = create_async_engine(
+        'sqlite+aiosqlite://',
+        connect_args={'check_same_thread': False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    monkeypatch.setattr(
+        cleanup,
+        'async_session',
+        async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False),
+        raising=False,
+    )
+    home = tmp_path / '.vibe-seller'
+    home.mkdir()
+    config = tmp_path / 'claude'
+    monkeypatch.setattr(cleanup, 'VIBE_SELLER_DIR', home)
+    monkeypatch.setattr(cleanup, 'config_dirs', lambda _envs: {config})
+    proj = _project(config, str(home))
+    try:
+        await cleanup.purge_on_boot()
+        assert not (proj / 'memory').exists()
+
+        (proj / 'memory').mkdir()
+        (proj / 'memory' / 'MEMORY.md').write_text('- mine')
+        await cleanup.purge_on_boot()
+        assert (proj / 'memory' / 'MEMORY.md').exists()
+    finally:
+        await engine.dispose()

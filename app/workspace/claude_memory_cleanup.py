@@ -13,6 +13,7 @@ those ``memory/`` folders are removed; transcripts beside them stay.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -21,6 +22,8 @@ import shutil
 
 from app.ai.profiles import ProfileManager
 from app.config import VIBE_SELLER_DIR
+from app.database import async_session
+from app.models.app_settings import AppSettings
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +82,27 @@ def purge_agent_auto_memory(
     return removed
 
 
-def purge_on_boot() -> None:
-    """Boot hook: never lets a cleanup failure stop the server."""
+#: Set once the purge has run. Agents no longer write auto-memory, so a
+# later boot could only find memory a person wrote while running Claude
+# Code in the runtime home — which is theirs to keep.
+PURGED_KEY = 'agent_auto_memory_purged'
+
+
+def _purge() -> None:
+    profiles = ProfileManager.load().get('profiles', {})
+    envs = [p.get('env', {}) for p in profiles.values()]
+    purge_agent_auto_memory(VIBE_SELLER_DIR, config_dirs(envs))
+
+
+async def purge_on_boot() -> None:
+    """Boot hook: purge once per install; a failure never stops the server."""
     try:
-        profiles = ProfileManager.load().get('profiles', {})
-        envs = [p.get('env', {}) for p in profiles.values()]
-        purge_agent_auto_memory(VIBE_SELLER_DIR, config_dirs(envs))
+        async with async_session() as db:
+            if await db.get(AppSettings, PURGED_KEY) is not None:
+                return
+        await asyncio.to_thread(_purge)
+        async with async_session() as db:
+            await db.merge(AppSettings(key=PURGED_KEY, value='true'))
+            await db.commit()
     except Exception:  # noqa: BLE001 -- best-effort housekeeping
         logger.warning('Auto-memory cleanup failed', exc_info=True)
