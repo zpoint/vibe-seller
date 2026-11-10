@@ -25,6 +25,11 @@ export interface LoadTaskDeps {
   setPendingQuestions: (v: PendingQuestions | null) => void
   setConversationItems: (v: ConversationItem[]) => void
   setSteps: (v: TaskStep[]) => void
+  /** What is on screen now. The load clears the conversation and the
+   *  pending question when it starts, so anything here when its fetches
+   *  resolve arrived live (SSE) for this task while they were in flight. */
+  liveItems?: () => ConversationItem[]
+  livePendingQuestions?: () => PendingQuestions | null
   /** The task and its detail (transcript, steps, pending question /
    *  image card) all loaded. */
   onLoaded?: () => void
@@ -69,6 +74,7 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
   // as "nothing happened" until the new data lands. Clear now → the pane
   // flips to the new task immediately and fills in as data arrives.
   deps.setSelectedTask(fullTask)
+  const clearedAt = new Date().toISOString()
   deps.setLogs([]); deps.setScreenshots({}); deps.setAgentMessages([])
   deps.setConversationItems([]); deps.setSteps([])
   if (fullTask.todos) { try { deps.setTodoItems(JSON.parse(fullTask.todos)) } catch { deps.setTodoItems([]) } } else { deps.setTodoItems([]) }
@@ -106,7 +112,19 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
   if (!fresh()) return
   const [q, msgs, stepsData, pendingImg] = detail
 
-  deps.setPendingQuestions(q?.pending ? { request_id: q.request_id, questions: q.questions } : null)
+  // A confirm card or question that arrived over SSE while the fetches
+  // were in flight is not in their answers (observed: /image/pending
+  // answered before the agent's request, the card was appended live, and
+  // the set below replaced it — the agent then waited on a card nobody
+  // saw). Only cards appended after this load cleared the pane count.
+  const live = (deps.liveItems?.() ?? []).filter(it =>
+    (it.type === 'image_request' || it.type === 'question') && it.timestamp >= clearedAt)
+  const liveQ = deps.livePendingQuestions?.() ?? null
+  deps.setPendingQuestions(
+    q?.pending
+      ? { request_id: q.request_id, questions: q.questions }
+      : liveQ && live.some(it => it.id === `question-${liveQ.request_id}`) ? liveQ : null,
+  )
   deps.setAgentMessages(msgs.map(m => ({ role: m.role, content: m.content })))
   const convItems = buildConversationItems(msgs, fullTask)
   // Re-render a still-pending image-confirm card (the SSE image_request
@@ -129,6 +147,8 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
       },
     })
   }
+  const have = new Set(convItems.map(i => i.id))
+  for (const it of live) if (!have.has(it.id)) convItems.push(it)
   deps.setConversationItems(convItems)
   deps.setSteps(stepsData)
   deps.onLoaded?.()

@@ -177,3 +177,46 @@ describe('loadTaskById stale-response guard', () => {
     vi.unstubAllGlobals()
   })
 })
+
+describe('loadTaskById keeps cards that arrive while it loads', () => {
+  // Observed in CI: /image/pending answered (nothing pending) before the
+  // agent's image request reached the server; the SSE card was appended,
+  // then the slower transcript fetch resolved and its set replaced the
+  // conversation — the card vanished and the agent waited forever.
+  it('a live image card and question survive the load', async () => {
+    const msgs = deferred<unknown>()
+    const get = (url: string): Promise<unknown> => {
+      if (/\/api\/tasks\/[^/]+$/.test(url)) return Promise.resolve({ id: 'T', todos: null })
+      if (url.endsWith('/questions/pending')) return Promise.resolve({ pending: false })
+      if (url.endsWith('/image/pending')) return Promise.resolve({ pending: false })
+      if (url.endsWith('/messages')) return msgs.promise
+      return Promise.resolve([])
+    }
+    const { deps, fns } = makeDeps(get)
+    const before = new Date(Date.now() - 60_000).toISOString()
+    let onScreen: { id: string; type: string; timestamp: string }[] = [
+      { id: 'imgreq-old', type: 'image_request', timestamp: before },
+    ]
+    const liveQ = { request_id: 'q1', questions: [{ question: 'Which?' }] }
+    deps.liveItems = () => onScreen as never
+    deps.livePendingQuestions = () => liveQ
+
+    const p = loadTaskById('T', deps)
+    await new Promise(r => setTimeout(r, 0))
+    const now = new Date(Date.now() + 1).toISOString()
+    onScreen = [
+      ...onScreen,
+      { id: 'imgreq-r1', type: 'image_request', timestamp: now },
+      { id: 'question-q1', type: 'question', timestamp: now },
+    ]
+    msgs.resolve([])
+    await p
+
+    const items = fns.setConversationItems.mock.calls.at(-1)![0] as { id: string }[]
+    const ids = items.map(i => i.id)
+    expect(ids).toContain('imgreq-r1')
+    expect(ids).toContain('question-q1')
+    expect(ids).not.toContain('imgreq-old')
+    expect(fns.setPendingQuestions).toHaveBeenLastCalledWith(liveQ)
+  })
+})

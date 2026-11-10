@@ -113,10 +113,18 @@ export default function App() {
   const questionBannerRef = useRef<HTMLDivElement>(null)
   const [debugMode, setDebugMode] = useState(false)
   // Opens the route's task and tracks the load (pending / failed).
+  // What is on screen, for a task load to keep the cards that arrive live
+  // while its fetches are in flight.
+  const conversationItemsRef = useRef(conversationItems)
+  conversationItemsRef.current = conversationItems
+  const pendingQuestionsRef = useRef(pendingQuestions)
+  pendingQuestionsRef.current = pendingQuestions
   const taskOpener = useTaskOpener({
     setSelectedTask, setLogs, setScreenshots, setAgentMessages, setTodoItems,
     setSelectedAnswers, setOtherInputs, setShowOtherInput, setChatInput,
     setChatAttachments, setPendingQuestions, setConversationItems, setSteps,
+    liveItems: () => conversationItemsRef.current,
+    livePendingQuestions: () => pendingQuestionsRef.current,
   })
   const loadTaskById = taskOpener.open
 
