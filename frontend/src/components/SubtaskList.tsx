@@ -15,10 +15,16 @@ export function SubtaskList({ parentTaskId, onSelect, stores }: {
 
   useEffect(() => {
     let cancelled = false
+    // One poll at a time: a request may take up to the 30 s deadline,
+    // longer than the 10 s interval, and overlapping polls pile up on a
+    // slow server.
+    let inFlight = false
     const fetchChildren = () => {
+      if (inFlight) return
+      inFlight = true
       api.get(`/api/tasks?parent_task_id=${encodeURIComponent(parentTaskId)}`).then((data: Task[]) => {
         if (!cancelled) setChildren(data)
-      }).catch(() => {})
+      }).catch(() => {}).finally(() => { inFlight = false })
     }
     fetchChildren()
     // Poll every 10s for status updates instead of opening a second SSE
