@@ -21,9 +21,11 @@ could mean more than one thing — "go ahead and apply it" after you
 already applied what they asked, with other proposals still open — names
 nothing new: ask which change they mean, and change nothing until they
 say. Spending money on your best guess of "it" is the one mistake that
-cannot be undone. When you ask with options, the first one changes
-nothing: a hurried click on the first (recommended) option must never
-spend money the user did not name.
+cannot be undone.
+
+Whenever you ask anything before a money change, the first option
+changes nothing: a hurried click on the first (recommended) option must
+never spend money the user did not name.
 
 1. Bring `CHANGES.tsv` (this task's, or the parent audit's) in line with
    what they approved. Map their words to rows using the audit's report.
@@ -61,6 +63,10 @@ declaring.
   when they insist or say they know the trade-off: the confirmation costs
   them one reply and is what makes the change theirs. Any task — a
   one-time one too — can end its turn to wait; the reply continues it.
+  Confirm by ending the turn, not with `AskUserQuestion`: an answer on a
+  question card is not a reply that opens `execute` (the server counts
+  the user's messages), so executing after one changes money nobody
+  confirmed.
 - **No audit to execute against** (no report or `CHANGES.tsv` in this
   task or its parent): ask with `AskUserQuestion` whether to run an audit
   first, rather than re-auditing silently.

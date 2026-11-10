@@ -75,7 +75,9 @@ An `investigate` task proposes nothing: no `CHANGES.tsv` rows other than
 Starting defaults, not the store's truth: a `key: value` line in
 `stores/<slug>/notes.md` overrides any of them, and the user's own
 standard or instruction always wins over a default.
-Those lines hold standards the user stated — never a value you derived
+Those lines hold standards the user stated for every run — never a
+one-off change ("lower gizmo mini to 1.00" goes in `CHANGES.tsv`; a
+breached default just shows beside it), and never a value you derived
 from another number: turning a 40% margin into `acos_no_lower: 40`
 silently changes what the server enforces on every later run, and no
 one ever chose it. When the user states a standard, write it there with
