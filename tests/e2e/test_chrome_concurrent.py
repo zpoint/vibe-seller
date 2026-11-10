@@ -63,7 +63,7 @@ class _TestHandler(http.server.BaseHTTPRequestHandler):
 @pytest.fixture(scope='module')
 def test_site():
     """Start a local HTTP server serving the test page."""
-    server = http.server.HTTPServer(('127.0.0.1', 0), _TestHandler)
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _TestHandler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

@@ -23,6 +23,7 @@ the page constants so it covers what the handler actually serves.
 """
 
 import re
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -236,3 +237,25 @@ def test_the_third_campaign_only_appears_after_load_more():
         assert CAMPAIGN_C in second
     finally:
         paged.shutdown()
+
+
+def test_an_idle_connection_does_not_stall_the_console():
+    """A browser preconnects: it opens a socket and sends nothing yet.
+
+    Observed in an e2e run: on a single-threaded server that socket held
+    the only serving thread, every later request hung with zero bytes,
+    and the agent reported the console as "not an ad console" (zero
+    spend). The console must keep answering other requests meanwhile.
+    """
+    server = serve()
+    idle = socket.create_connection(server.server_address, timeout=5)
+    try:
+        port = server.server_address[1]
+        with urllib.request.urlopen(
+            f'http://127.0.0.1:{port}/campaigns', timeout=5
+        ) as resp:
+            assert resp.status == 200
+    finally:
+        idle.close()
+        server.shutdown()
+        server.server_close()

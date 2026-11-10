@@ -76,7 +76,7 @@ class _SlowPageHandler(http.server.BaseHTTPRequestHandler):
 @pytest.fixture(scope='module')
 def slow_site():
     """Spin up a local HTTP server with slow-loading pages."""
-    server = http.server.HTTPServer(('127.0.0.1', 0), _SlowPageHandler)
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _SlowPageHandler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

@@ -235,8 +235,13 @@ _PAGES = {
 }
 
 
-class ConsoleServer(http.server.HTTPServer):
+class ConsoleServer(http.server.ThreadingHTTPServer):
     """The console, plus a log of every page it actually served.
+
+    Threaded like a real web server: a browser preconnects (opens a
+    socket and sends nothing yet), and on a single-threaded server that
+    socket held the only serving thread — every later request hung with
+    zero bytes, and the agent reported the console as unreachable.
 
     This log is the ground truth for "did the scope hold?". The agent's
     report is prose: it can say it left a campaign alone while having
@@ -247,6 +252,8 @@ class ConsoleServer(http.server.HTTPServer):
     Reads and writes come from different threads (the handler runs in
     the serving thread, assertions on the test's), hence the lock.
     """
+
+    daemon_threads = True
 
     def __init__(self, *args, paged: bool = False, **kwargs):
         super().__init__(*args, **kwargs)

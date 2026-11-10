@@ -61,6 +61,38 @@ def test_no_e2e_module_reaches_for_the_server_control_surface():
     )
 
 
+def test_every_fake_site_is_threaded():
+    """A fake site the agent's browser opens must serve concurrently.
+
+    Chrome preconnects — opens a socket and sends nothing yet. On a
+    single-threaded ``HTTPServer`` that socket holds the only serving
+    thread, so every later request hangs with zero bytes (observed: an
+    agent reported a test's ad console as unreachable and its spend as
+    zero). ``ThreadingHTTPServer`` (or a subclass of it) only.
+    """
+    offenders = []
+    for path in sorted(E2E_DIR.rglob('*.py')):
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Call):
+                names.append(node.func)
+            elif isinstance(node, ast.ClassDef):
+                names.extend(node.bases)
+            for n in names:
+                name = (
+                    n.attr
+                    if isinstance(n, ast.Attribute)
+                    else getattr(n, 'id', '')
+                )
+                if name == 'HTTPServer':
+                    offenders.append(f'{path.name}:{node.lineno}')
+    assert not offenders, (
+        'single-threaded HTTPServer in an e2e fake site — use '
+        'http.server.ThreadingHTTPServer:\n  ' + '\n  '.join(offenders)
+    )
+
+
 def test_no_module_mixes_the_shared_base_url_with_server_sync_env():
     """Non-default server env means a test must OWN its server.
 

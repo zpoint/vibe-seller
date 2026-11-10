@@ -171,7 +171,7 @@ def wecom_stub(api_client):
         def log_message(self, *args):
             pass
 
-    server = http.server.HTTPServer(('127.0.0.1', 0), _Handler)
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _Handler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

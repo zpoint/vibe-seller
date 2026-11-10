@@ -114,7 +114,7 @@ class _AuthHandler(http.server.BaseHTTPRequestHandler):
 @pytest.fixture(scope='module')
 def auth_site():
     """Start a local HTTP server with cookie-based auth."""
-    server = http.server.HTTPServer(('127.0.0.1', 0), _AuthHandler)
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _AuthHandler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

@@ -50,7 +50,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 @pytest.fixture(scope='module')
 def site():
-    server = http.server.HTTPServer(('127.0.0.1', 0), _Handler)
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f'http://127.0.0.1:{server.server_address[1]}'
     server.shutdown()
