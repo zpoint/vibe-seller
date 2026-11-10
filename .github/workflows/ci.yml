@@ -373,7 +373,7 @@ jobs:
           # to the worker profile, so even UI-created tasks use it.
           API_TIMEOUT_MS: 3000000
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
-          # 6 workers each run one task, and the concurrency e2e
+          # 8 workers each run one task, and the concurrency e2e
           # tests briefly run three — 16 keeps every slot prompt
           # without promising a stream burst the providers never see.
           MAX_AGENT_CONCURRENCY: 16
@@ -442,7 +442,7 @@ jobs:
           QWEN_TOKEN_MODEL: ${{ secrets.QWEN_TOKEN_MODEL }}
           # Fixed: tests/unit/test_schedule_sim.py reads this width to pin
           # the step budget above.
-          E2E_WORKERS: 6
+          E2E_WORKERS: 8
           # Which provider each worker runs on — a repo variable, so the
           # mix changes without a code change (Settings → Variables). One
           # entry per worker, named after a preset whose {NAME}_API_KEY /

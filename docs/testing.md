@@ -201,7 +201,7 @@ skip the gate. Mock CLI e2e (`e2e-mock-cli`) never needs approval.
 
 Which models CI runs on is repository configuration, not code. The
 repo variable `E2E_PROVIDER_MAP` names one preset per worker (`ci.yml`
-runs `E2E_WORKERS` = 6); `E2E_SMOKE_PROVIDER` names the one preset the
+runs `E2E_WORKERS` = 8); `E2E_SMOKE_PROVIDER` names the one preset the
 single-provider smoke tests use (Windows installer, release). Each
 preset's key and model are the secrets `{NAME}_API_KEY` /
 `{NAME}_MODEL` (optionally `{NAME}_BASE_URL`), e.g. `QWEN_TOKEN_MODEL`.
