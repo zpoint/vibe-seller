@@ -26,9 +26,9 @@ fine — a bundled multi-marketplace template works (``fill`` routes the
 offer by marketplace), so we never fight the other checkboxes.
 
 On success it also writes ``UPLOAD_PENDING.json`` into MARKER_DIR (pass
-your task workspace): the completion gate then refuses to end the turn
-until the batch you upload has a parse-feedback verdict (or you remove
-the marker because no upload happened).
+your task workspace): the verdict is then checked once, when you submit
+the result — a batch without a parse-feedback verdict ships as a caveat
+(or you remove the marker because no upload happened).
 
 On any miss it screenshots and reports the step that failed — explore
 from the screenshot rather than blind-retrying.
@@ -328,11 +328,12 @@ else:
                     )
                     capture_screenshot()
                 else:
-                    # Arm the upload gate: a downloaded template means an
-                    # upload is intended this turn; the turn can't end
-                    # until the uploaded batch has a verdict (or the
-                    # agent removes this marker because no upload
-                    # happened). See stop_gates/listing_upload_gate.
+                    # Arm the upload check: a downloaded template means
+                    # an upload is intended, and its verdict is checked
+                    # once when the result is submitted — unresolved,
+                    # it ships as a caveat (or the agent removes this
+                    # marker because no upload happened). See
+                    # stop_gates/listing_upload_gate.
                     for d in _marker_dirs():
                         with open(
                             os.path.join(d, 'UPLOAD_PENDING.json'), 'w'

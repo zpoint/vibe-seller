@@ -41,8 +41,8 @@ Two things it refuses to do, because both fail SILENTLY by hand:
   rendered label is reported, never matched.
 
 On success it writes ``UPLOAD_BATCH_<id>.json`` into MARKER_DIR (pass
-your task workspace) — the completion gate then requires a parse-feedback
-verdict for that batch before the task may finish. On failure it takes a
+your task workspace) — a parse-feedback verdict for that batch is then
+checked once, when you submit the result. On failure it takes a
 screenshot and reports the reason; explore from there, don't blind-retry.
 """
 

@@ -92,13 +92,13 @@ class TestCloseGuards:
     def test_a_failed_open_turn_stops_waiting_on_async_work(self):
         """The ten-minute gap, pinned.
 
-        The result branch fails open on a COMPOSITE — pending async
-        subagents OR other open work (an unverified upload) — and ships
-        the open-work banner. This chain then went on blocking the close on
-        one half of that same composite, so a run that had failed open
-        at 08:45:35 holding a valid 530-char result did not reach a
-        terminal status until the 600s hard-idle backstop fired at
-        08:55:36. The caller had already given up.
+        The result branch fails open on the async work a turn started
+        and ships the open-work banner. This chain then went on
+        blocking the close on the very subagents that fail-open had
+        just abandoned, so a run that had failed open at 08:45:35
+        holding a valid 530-char result did not reach a terminal status
+        until the 600s hard-idle backstop fired at 08:55:36. The caller
+        had already given up.
 
         Once the hold has failed open, nothing it stopped waiting for
         may keep the turn alive.

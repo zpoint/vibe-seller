@@ -3,19 +3,21 @@
 Mixed into AgentSession (sibling of ``_StreamMixin`` / ``_TurnLifecycleMixin``
 / ``_SubagentMixin``).
 
-**Why this is one module.** Four places need the same answer — "may the
+**Why this is one module.** Three places need the same answer — "may the
 hold still keep this turn open?": the result branch that decides whether
 to re-drive, the quiescence watchdog that decides whether to close stdin,
-and the two Stop-hook deny chains. Each used to work it out for itself
+and the Stop-hook deny chain. Each used to work it out for itself
 against ``TURN_HOLD_MAX``, and they drifted: after the result branch
 gave up and shipped the open-work banner, the watchdog went on blocking
-the close on a pending async subagent — one branch of the very composite
-the fail-open had just abandoned. A run that failed open at 08:45:35
-holding a valid result did not reach a terminal status until the 600s
-hard-idle backstop fired at 08:55:36, by which point its caller was gone.
+the close on a pending async subagent — the very work the fail-open had
+just abandoned. A run that failed open at 08:45:35 holding a valid
+result did not reach a terminal status until the 600s hard-idle
+backstop fired at 08:55:36, by which point its caller was gone.
 
-So the state, the bound, the composite, and the two messages live here,
-and the four callers ask rather than decide.
+So the state, the bound, and the two messages live here, and the callers
+ask rather than decide. The hold waits for the async work the turn
+started — subagents and background shells, nothing else
+(``_async_agents_pending_reason``).
 
 **Two denominators.** ``TURN_HOLD_MAX`` attempts, and a wall clock
 (``app/ai/turn_hold_budget.py``). Attempts alone were the original bug: a

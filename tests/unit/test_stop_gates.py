@@ -1,6 +1,7 @@
 """The set_task_result attempt counter and the ad-rule thresholds.
 
-Every gate gets one refusal per task, counted per (task, gate). Ad-rule thresholds are defaults a store's
+Every check gets one round; a submit is refused at most once. The
+counts are per (task, gate). Ad-rule thresholds are defaults a store's
 ``notes.md`` overrides — the gates read them through ``resolve_rules``.
 """
 

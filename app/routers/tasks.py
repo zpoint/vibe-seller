@@ -591,7 +591,7 @@ async def set_task_result(
     # contract). Otherwise treat the value as direct content.
     raw = body.result
     final_result, resolved_from_file = await resolve_submitted_result(
-        raw, task_id, task_root
+        raw, task_root
     )
 
     # RETAIN BEFORE REVIEW. Every gate below refuses by raising, and a

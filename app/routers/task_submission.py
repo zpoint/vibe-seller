@@ -92,7 +92,6 @@ async def refuse(
 
 async def resolve_submitted_result(
     raw: str,
-    task_id: str,
     task_root,
 ) -> tuple[str, bool]:
     """``(text_to_grade, came_from_a_file)``.
@@ -101,7 +100,7 @@ async def resolve_submitted_result(
     ``resolved_from_file`` so the agent can tell whether its pointer was
     followed, and a contract test pins that key.
 
-    Three shapes arrive here and only one is content:
+    Two shapes arrive here and only one is content:
 
     * A POINTER into the task workspace — read the file. An agent saving a
       multi-100KB report would block the event loop, so the read is
@@ -111,12 +110,6 @@ async def resolve_submitted_result(
       gate vacuously (no ad sections to check) and complete the task with
       a literal path as its "result"; that bypass let a quoted pointer end
       an audit that had drilled a handful of campaigns.
-    * NARRATION where a file was required — the mirror of the dangling
-      case: the file exists, the agent just described it instead of
-      pointing at it. Both end with the gates grading a string that is not
-      the report. An ad audit's deliverable is a file by contract, so when
-      the task's bound skills make it an ad task and the workspace holds a
-      report the submission is not, the FILE is what gets graded.
 
     Raises ``HTTPException`` for the dangling case, with the fix spelled
     out — the agent is the caller and has to know what to do next.

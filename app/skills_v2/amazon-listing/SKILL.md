@@ -120,8 +120,10 @@ recipe:
 
 ### Finishing an upload
 
-Each upload is tracked by files in the task workspace, and the task can
-only finish once each one is resolved:
+Each upload is tracked by files in the task workspace. The verdict is
+checked once, when you submit the result: a batch with no clean verdict
+is raised there and then, and one still unresolved ships as a caveat on
+the result rather than keeping the task from finishing.
 
 - `bh_download_template.py` writes `UPLOAD_PENDING.json` when a template
   lands — an upload is now intended.
@@ -131,10 +133,11 @@ only finish once each one is resolved:
   task workspace root, writes `BATCH_<id>_VERDICT.json`.
 
 Every batch needs a verdict, and the latest one needs to be clean (no
-errors except the missing main image). If the helper failed and you
-uploaded by hand, find the batch id on the status page and verdict it the
-same way. If no upload happened after all, delete `UPLOAD_PENDING.json`
-and say in the result why the upload was abandoned.
+errors except the missing main image) — run parse-feedback before you
+submit. If the helper failed and you uploaded by hand, find the batch id
+on the status page and verdict it the same way. If no upload happened
+after all, delete `UPLOAD_PENDING.json` and say in the result why the
+upload was abandoned.
 
 ## Deterministic browser helpers (use these first)
 

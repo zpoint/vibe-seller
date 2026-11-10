@@ -15,11 +15,10 @@ design) killed the approval channel under still-running async
 subagents and amputated the notification loop. This module closes
 stdin only when the turn is provably quiescent:
 
-- an accepted result exists for the current turn, AND
-- the review/exec gates pass (same composite the result branch uses),
-  AND
+- an accepted result exists for the current turn (the review/exec
+  gates have passed), AND
 - no tracked async work (subagents OR background shell commands) is
-  pending, AND
+  pending — the hold waits for this and nothing else — AND
 - no stream/stdin activity for the linger window (tiered: longer when
   async subagents were launched this process — late notifications and
   NESTED subagent spawns are invisible to tracking and need the
@@ -99,7 +98,7 @@ class _TurnLifecycleMixin(_TurnHoldMixin):
     def _turn_close_blocked(self) -> str | None:
         """Reason the soft close must NOT happen yet; None = closable.
 
-        Ordered cheapest-first. The hold composite mirrors the result
+        Ordered cheapest-first. The hold mirrors the result
         branch exactly — same exhaustion predicate
         (``_hold_exhausted``), and the same standing-down once
         that branch has failed open — so "accepted result" and
@@ -112,14 +111,13 @@ class _TurnLifecycleMixin(_TurnHoldMixin):
             return 'planning_phase'
         if not self._turn_result_seen:
             return 'no_accepted_result'
-        # The hold has already given up and shipped the banner. Every
-        # hold below is something that fail-open explicitly stopped
-        # waiting for — the hold itself, and the async subagents whose
-        # pending-reason is part of the same composite — so continuing
-        # to block on them keeps a finished, banner-marked deliverable
-        # non-terminal until the 600s hard-idle backstop. That gap is
-        # what killed a run holding a valid result (see the fail-open
-        # branch in claude_backend_stream).
+        # The hold has already given up and shipped the banner. What is
+        # checked below is exactly what fail-open stopped waiting for —
+        # the async subagents — so continuing to block on them keeps a
+        # finished, banner-marked deliverable non-terminal until the
+        # 600s hard-idle backstop. That gap is what killed a run
+        # holding a valid result (see the fail-open branch in
+        # claude_backend_stream).
         if self._hold_failed_open:
             return None
         if self._async_agents:
