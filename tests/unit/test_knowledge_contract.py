@@ -182,6 +182,20 @@ class TestOutcomeIsHeldToDeletions:
         assert kc.undo_non_deletions(snap) == [store / 'notes.md']
         assert (store / 'notes.md').read_text() == NOTE
 
+    def test_an_edit_someone_else_made_meanwhile_is_kept(self, tmp_path):
+        """Another task (or the user) writes the store's notes while its
+        cleanup runs: the restore cannot tell that edit from a bad one,
+        so it leaves the file alone instead of undoing the new standard."""
+        store = self._tier(tmp_path)
+        kc.watch_writes('cleaner')
+        snap = kc.snapshot_tier(tmp_path, 'acme-x')
+        (store / 'notes.md').write_text(NOTE + 'acos_no_lower: 30\n')
+        kc.note_write('stores/acme-x/notes.md', 'other-task')
+        kc.note_write('stores/acme-x/notes.md', 'cleaner')  # its own: no
+        others = kc.end_watch('cleaner')
+        assert kc.undo_non_deletions(snap, others) == []
+        assert 'acos_no_lower: 30' in (store / 'notes.md').read_text()
+
     def test_line_deletions_and_untouched_files_stay(self, tmp_path):
         store = self._tier(tmp_path)
         snap = kc.snapshot_tier(tmp_path, 'acme-x')

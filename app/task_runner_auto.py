@@ -158,6 +158,7 @@ async def auto_run_task(task_id: str, store: Store | None):
                     if task.store_id is None
                     else _store_slug(store.name, store.id)
                 )
+                knowledge_contract.watch_writes(task_id)
                 cleanup_snapshot = await asyncio.to_thread(
                     knowledge_contract.snapshot_tier, VIBE_SELLER_DIR, tier_slug
                 )
@@ -385,9 +386,12 @@ async def auto_run_task(task_id: str, store: Store | None):
             # catalog sync runs the cleanup again.
             tier = 'l2' if cleanup_pending == L2_SCOPE else 'l3'
             restored = []
+            others = knowledge_contract.end_watch(task_id)
             try:
                 restored = await asyncio.to_thread(
-                    knowledge_contract.undo_non_deletions, cleanup_snapshot
+                    knowledge_contract.undo_non_deletions,
+                    cleanup_snapshot,
+                    others,
                 )
                 if restored:
                     logger.warning(
