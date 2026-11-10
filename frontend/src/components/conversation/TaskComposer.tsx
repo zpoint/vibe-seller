@@ -31,8 +31,8 @@ interface TaskComposerProps {
  * A send shows that it is in flight and, if it fails (server down,
  * error, or no answer before the request deadline), says so and puts
  * the text and attachments back — a send never fails silently.
- * Mount it with `key={taskId}`: a send that settles after the user has
- * switched tasks then has nothing to restore into.
+ * Mount it with `key={taskId}`: a send that fails after the user has
+ * switched tasks is kept for its own task and restored when it reopens.
  */
 export function TaskComposer({
   draft, taskId, attachments, setAttachments, inputRef, onSend, ...rest
@@ -48,6 +48,16 @@ export function TaskComposer({
     mounted.current = true
     return () => { mounted.current = false }
   }, [])
+
+  // A send on this task that failed after the user had left it: put it
+  // back and say why, now that the task is open again.
+  useEffect(() => {
+    const unsent = draft.takeStash(taskId)
+    if (!unsent) return
+    if (!draft.get()) draft.set(unsent.text)
+    setAttachments(prev => (prev.length ? prev : unsent.attachments))
+    setSendError(unsent.error)
+  }, [draft, taskId, setAttachments])
 
   // Auto-grow the textarea up to ~8 lines, then scroll.
   useEffect(() => {
@@ -66,13 +76,16 @@ export function TaskComposer({
     try {
       await onSend()
     } catch (e) {
-      if (!mounted.current) return
+      const error = isRequestTimeout(e)
+        ? t('chat.sendTimeout')
+        : t('chat.sendFailed', { error: e instanceof Error ? e.message : String(e) })
+      // The user has opened another task: keep it for this one, never
+      // put it into the other task's box.
+      if (!mounted.current) { draft.stash(taskId, { text, attachments: staged, error }); return }
       // Put back what was sent — unless the user has started a new one.
       if (!draft.get()) draft.set(text)
       setAttachments(prev => (prev.length ? prev : staged))
-      setSendError(isRequestTimeout(e)
-        ? t('chat.sendTimeout')
-        : t('chat.sendFailed', { error: e instanceof Error ? e.message : String(e) }))
+      setSendError(error)
     } finally {
       if (mounted.current) setSending(false)
     }

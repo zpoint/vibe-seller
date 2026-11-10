@@ -29,6 +29,10 @@ export interface SendChatDeps {
   setConversationItems: React.Dispatch<React.SetStateAction<ConversationItem[]>>
   setSelectedTask: React.Dispatch<React.SetStateAction<Task | null>>
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
+  /** Whether `taskId` is still the open task. The response can arrive
+   *  after the user opened another one; the open task's state (its
+   *  conversation, status, profile) is then left alone. */
+  isOpen?: (taskId: string) => boolean
 }
 
 /**
@@ -62,8 +66,10 @@ export async function sendChatMessage(deps: SendChatDeps): Promise<void> {
     // Render the server's canonical content (falls back to prose if the
     // response predates this field). SSE will dedup its own copy by content.
     const canonical = response.content ?? content
-    deps.setAgentMessages(prev => [...prev, { role: 'user', content: canonical }])
-    deps.setConversationItems(prev => {
+    const id = selectedTask.id
+    const stillOpen = deps.isOpen?.(id) ?? true
+    if (stillOpen) deps.setAgentMessages(prev => [...prev, { role: 'user', content: canonical }])
+    if (stillOpen) deps.setConversationItems(prev => {
       const dup = prev.some(c =>
         c.type === 'user_message' && c.message?.content === canonical &&
         Date.now() - new Date(c.timestamp).getTime() < 5000)
@@ -76,11 +82,11 @@ export async function sendChatMessage(deps: SendChatDeps): Promise<void> {
       }]
     })
     if (response.woken) {
-      deps.setSelectedTask(prev => prev ? { ...prev, status: 'queued' } : prev)
-      deps.setTasks(prev => prev.map(t2 => t2.id === selectedTask.id ? { ...t2, status: 'queued' } : t2))
+      deps.setSelectedTask(prev => prev && prev.id === id ? { ...prev, status: 'queued' } : prev)
+      deps.setTasks(prev => prev.map(t2 => t2.id === id ? { ...t2, status: 'queued' } : t2))
     }
     if (response.profile_switched) {
-      deps.setSelectedTask(prev => prev ? { ...prev, ai_profile_id: deps.profileId } : prev)
+      deps.setSelectedTask(prev => prev && prev.id === id ? { ...prev, ai_profile_id: deps.profileId } : prev)
     }
   } finally {
     // A rejection propagates: the composer shows why and restores the

@@ -1,4 +1,13 @@
 import { useSyncExternalStore } from 'react'
+import type { StagedAttachment } from '../types'
+
+/** A send that failed after the user had left its task: what to put
+ *  back, and why, when that task's composer is shown again. */
+export interface UnsentMessage {
+  text: string
+  attachments: StagedAttachment[]
+  error: string
+}
 
 /**
  * The follow-up composer's draft, held outside React state.
@@ -14,11 +23,16 @@ export interface DraftStore {
   get: () => string
   set: (v: string) => void
   subscribe: (onChange: () => void) => () => void
+  /** Keep a failed send for `taskId` until its composer takes it. */
+  stash: (taskId: string, msg: UnsentMessage) => void
+  /** Take (and forget) the failed send kept for `taskId`. */
+  takeStash: (taskId: string) => UnsentMessage | undefined
 }
 
 export function createDraftStore(initial = ''): DraftStore {
   let value = initial
   const listeners = new Set<() => void>()
+  const unsent = new Map<string, UnsentMessage>()
   return {
     get: () => value,
     set: (v: string) => {
@@ -29,6 +43,12 @@ export function createDraftStore(initial = ''): DraftStore {
     subscribe: (l: () => void) => {
       listeners.add(l)
       return () => { listeners.delete(l) }
+    },
+    stash: (taskId, msg) => { unsent.set(taskId, msg) },
+    takeStash: (taskId) => {
+      const msg = unsent.get(taskId)
+      unsent.delete(taskId)
+      return msg
     },
   }
 }

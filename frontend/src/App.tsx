@@ -479,13 +479,18 @@ export default function App() {
       await api.post(`/api/tasks/${selectedTask.id}/image/confirm`, { request_id: requestId, action, prompt, model, added_references: addedReferences })
     } catch { /* the tool call will time out server-side if unresolved */ }
   }
-  const sendingRef = useRef(false)
+  // One in-flight guard per task: a send on B is not blocked by A's.
+  const sendingRefs = useRef(new Map<string, { current: boolean }>())
+  const sendingRefFor = (id: string) => {
+    if (!sendingRefs.current.has(id)) sendingRefs.current.set(id, { current: false })
+    return sendingRefs.current.get(id)!
+  }
   const sendChatMessage = () =>
     sendChatMessageHandler({
       api, selectedTask, chatInput: chatDraft.get(), attachments: chatAttachments,
-      profileId: selectedProfileId, conversationItems, sendingRef,
+      profileId: selectedProfileId, conversationItems, sendingRef: sendingRefFor(selectedTask?.id ?? ''),
       setChatInput, setAttachments: setChatAttachments, setAgentMessages,
-      setConversationItems, setSelectedTask, setTasks,
+      setConversationItems, setSelectedTask, setTasks, isOpen,
     })
 
   // ─── Profile helpers ───────────────────────────────
