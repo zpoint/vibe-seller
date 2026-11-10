@@ -20,7 +20,7 @@ import { MobileMenuButton } from '../components/MobileMenuButton'
 import { getUI, hasProgressingTask } from '../taskStates'
 import type { Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, Schedule, Store, ConversationItem, StagedAttachment } from '../types'
 import { TaskUsageMeter } from '../components/TaskUsageMeter'
-import { TaskOpenState } from '../components/TaskOpenState'
+import { TaskOpenState, TranscriptLoading } from '../components/TaskOpenState'
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
@@ -255,6 +255,8 @@ export function TasksView({
   // over whatever was open before, so the click visibly did something.
   // A failure while its transcript loads replaces the half-loaded task.
   const openingTask = taskLoad && (selectedTask?.id !== taskLoad.taskId || taskLoad.error != null) ? taskLoad : null
+  // The header is up; its transcript is still on the way.
+  const loadingTranscript = !!taskLoad && !openingTask
   const mobileShowDetail = isMobile && (!!selectedTask || !!selectedSchedule || !!openingTask)
   const onMobileBack = () => {
     // The opening / failed-to-open pane is route state: leave the route.
@@ -566,6 +568,7 @@ export function TasksView({
               className="flex-1 overflow-y-auto px-4 sm:px-6 py-6"
             >
               <div className="w-full">
+              {loadingTranscript && <TranscriptLoading />}
               {debugMode ? (
                 /* Debug mode: raw messages */
                 <div className="mb-4">

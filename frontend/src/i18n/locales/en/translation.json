@@ -213,7 +213,8 @@
     "openTimeout": "Could not open this task: the server did not answer in time.",
     "tryAgain": "Try again",
     "actionFailed": "That did not go through: {{error}}",
-    "actionTimeout": "The server did not answer in time — the action may not have gone through. Refresh to see the task's current state."
+    "actionTimeout": "The server did not answer in time — the action may not have gone through. Refresh to see the task's current state.",
+    "loadingConversation": "Loading the conversation…"
   },
   "events": {
     "title": "Events",

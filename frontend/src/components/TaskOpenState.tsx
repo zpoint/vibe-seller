@@ -32,3 +32,14 @@ export function TaskOpenState({ error, onRetry }: { error: unknown; onRetry?: ()
     </div>
   )
 }
+
+/** Shown above the conversation while an opened task's transcript loads. */
+export function TranscriptLoading() {
+  const { t } = useTranslation()
+  return (
+    <div data-testid="transcript-loading" className="flex items-center gap-2 mb-4 text-sm text-gray-500">
+      <div className="w-4 h-4 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+      {t('tasks.loadingConversation')}
+    </div>
+  )
+}

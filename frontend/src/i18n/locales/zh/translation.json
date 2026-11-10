@@ -215,7 +215,8 @@
     "openTimeout": "无法打开此任务：服务器未及时响应。",
     "tryAgain": "重试",
     "actionFailed": "操作未完成：{{error}}",
-    "actionTimeout": "服务器未及时响应，操作可能没有生效。请刷新查看任务的当前状态。"
+    "actionTimeout": "服务器未及时响应，操作可能没有生效。请刷新查看任务的当前状态。",
+    "loadingConversation": "正在加载对话…"
   },
   "events": {
     "title": "事件",
