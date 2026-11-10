@@ -98,10 +98,18 @@ def test_non_audit_kinds_owe_no_coverage(task):
 
 
 def test_undeclared_data_asks_for_a_declaration(task):
+    """The agent is told to declare; the seller's caveat says only what
+    was not checked — the instruction is not for the seller."""
     (task.dir / 'AD_TASK.json').unlink()
     task.campaigns([campaign()])
-    gaps, _ = findings(task)
-    assert gaps == [ad_coverage.MISSING_DECLARATION]
+    deny = ad_coverage.check('', task.id)
+    assert deny is not None
+    assert 'declare_ad_task' in deny.reason
+    assert deny.gaps == (
+        'The agent did not declare what kind of ad task this was, so '
+        'its coverage was not checked.',
+    )
+    assert 'declare_ad_task' not in deny.gaps[0]
 
 
 def test_undeclared_and_no_data_is_not_an_ad_task(task):

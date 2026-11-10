@@ -353,8 +353,14 @@ class TestGateTelemetry:
         self, admin_client, install_fake_agent, monkeypatch
     ):
         """A listing batch without a clean verdict is raised once; the
-        next submit ships with it as a caveat instead of looping."""
+        next submit ships with it as a caveat instead of looping. What
+        the AGENT is told to do and what the SELLER is told is missing
+        are two different texts."""
         why = 'Batch 100000000001 has no parse-feedback verdict.'
+        caveat = (
+            'A listing batch uploaded to the live account has no clean '
+            'processing-report verdict.'
+        )
         monkeypatch.setattr(
             'app.routers.tasks.check_upload_verdicts', lambda _root: why
         )
@@ -368,7 +374,9 @@ class TestGateTelemetry:
         assert r.status_code == 200, r.text
         gate.set()
         done = await wait_for_task(admin_client, task_id)
-        assert why in (done.get('review_gaps') or '')
+        gaps = done.get('review_gaps') or ''
+        assert caveat in gaps
+        assert 'parse-feedback' not in gaps
 
     async def test_two_checks_are_one_refusal_listing_both(
         self, admin_client, install_fake_agent, monkeypatch

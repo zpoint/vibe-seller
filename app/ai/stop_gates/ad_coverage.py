@@ -196,8 +196,14 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
         # after this and resubmits still hears about coverage once.
         return GateDeny(
             gate=DECLARATION_GATE,
+            # The reason tells the AGENT what to do; the gap is what
+            # ships to the seller as a caveat, and an instruction is
+            # noise there.
             reason=MISSING_DECLARATION,
-            gaps=(MISSING_DECLARATION,),
+            gaps=(
+                'The agent did not declare what kind of ad task this '
+                'was, so its coverage was not checked.',
+            ),
         )
     if decl['kind'] != KIND_AUDIT:
         return None

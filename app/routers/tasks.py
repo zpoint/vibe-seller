@@ -621,7 +621,18 @@ async def set_task_result(
     # a clean verdict (no-op without uploads).
     reason = await asyncio.to_thread(check_upload_verdicts, task_root)
     if reason:
-        denies.append(GateDeny(gate='upload_verdict', reason=reason))
+        denies.append(
+            GateDeny(
+                gate='upload_verdict',
+                # What to do is the agent's; what is missing is the
+                # seller's caveat.
+                reason=reason,
+                gaps=(
+                    'A listing batch uploaded to the live account has '
+                    'no clean processing-report verdict.',
+                ),
+            )
+        )
     denies += await gate_denials(db, task, skill_gates, final_result, rules)
     final_result, stalled_gaps = await apply_round(
         db, task, denies, final_result, declared
