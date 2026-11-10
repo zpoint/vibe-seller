@@ -18,8 +18,11 @@ export function useTaskOpener(setters: SetterDeps) {
   // its fetched state (stale-response-wins guard for fast task switches).
   const seqRef = useRef(0)
   const [taskLoad, setTaskLoad] = useState<TaskLoad>(null)
+  // The task the latest load is for.
+  const currentRef = useRef<string | null>(null)
 
   const open = (taskId: string) => {
+    currentRef.current = taskId
     setTaskLoad({ taskId, error: null })
     return loadTaskById(taskId, {
       ...setters,
@@ -30,8 +33,11 @@ export function useTaskOpener(setters: SetterDeps) {
   }
 
   /** Retire any load still in flight (it would switch the pane away)
-   *  and drop a failed one's error. */
-  const retire = () => {
+   *  and drop a failed one's error — unless that load is for `keep`,
+   *  the task that is meant to be open. */
+  const retire = (keep?: string) => {
+    if (keep != null && currentRef.current === keep) return
+    currentRef.current = null
     seqRef.current++
     setTaskLoad(null)
   }

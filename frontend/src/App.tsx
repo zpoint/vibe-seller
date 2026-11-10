@@ -283,18 +283,22 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listScopeKey, currentUser, stores])
 
+  // Keyed on user identity, not the object: profile edits (the Auto/Plan
+  // switch saves the default) re-ran this and retired the open task's
+  // own in-flight load, leaving its conversation empty.
+  const currentUserId = currentUser?.id
   useEffect(() => {
-    if (!currentUser) return
+    if (!currentUserId) { taskOpener.retire(); return } // signed out
     if (routeTaskId) {
-      // Back on the open task: retire any load still in flight.
+      // Back on the open task: retire a load for a different task.
       if (selectedTask?.id !== routeTaskId) loadTaskById(routeTaskId)
-      else taskOpener.retire()
+      else taskOpener.retire(routeTaskId)
     } else {
       taskOpener.retire()
       if (selectedTask) { setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([]) }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeTaskId, currentUser])
+  }, [routeTaskId, currentUserId])
 
   useEffect(() => {
     if (!currentUser) return
