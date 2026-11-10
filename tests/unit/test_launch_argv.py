@@ -113,3 +113,28 @@ def test_the_workspace_launch_argv_names_the_hops_files(tmp_path, monkeypatch):
     ((cmd, _kw),) = captured
     _assert_common_argv(cmd, 'WS SYS PROMPT')
     assert '--agents' not in cmd
+
+
+def test_the_workspace_assistant_spawns_the_binary_tasks_use(
+    tmp_path, monkeypatch
+):
+    """Observed in CI: task agents ran, the workspace assistant failed to
+    start with FileNotFoundError — it spawned a bare ``claude`` found on
+    PATH, while the CLI is installed project-locally (node_modules), the
+    path tasks resolve. One resolution for every agent this app starts."""
+    captured = _prepare(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        'app.ai.workspace_assistant.resolve_claude_binary',
+        lambda: '/opt/vibe/node_modules/.bin/claude',
+    )
+    session = WorkspaceAgentSession(
+        session_key='ws-binary',
+        prompt='hello',
+        system_prompt_extra='',
+    )
+
+    with pytest.raises(_Spawned):
+        asyncio.run(session.start())
+
+    ((cmd, _kw),) = captured
+    assert cmd[0] == '/opt/vibe/node_modules/.bin/claude', cmd[:2]
