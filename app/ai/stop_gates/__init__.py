@@ -12,9 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from sqlalchemy import event
+
 from app.ai.skill_gate_loader import discover_skill_gates, load_gate_from_path
 from app.ai.skill_gate_utils import find_skill_md, parse_skill_gates
 from app.config import DATA_DIR
+from app.models.task import TERMINAL_STATES, Task
 from app.plugins import registered_gates
 
 # Module-level attempt counter, keyed by (task_id, gate_name). Lost
@@ -104,6 +107,26 @@ def reset_attempts(task_id: str) -> None:
     """
     for key in [k for k in _attempts if k[0] == task_id]:
         _attempts.pop(key, None)
+
+
+def forget_task(task_id: str) -> None:
+    """Drop every in-memory gate counter for a task.
+
+    For a task that has ended (terminal state) or been deleted — unlike
+    :func:`reset_attempts`, this also drops the spent review rounds,
+    which must outlive an accepted result only until the run is over.
+    """
+    reset_attempts(task_id)
+    for key in [k for k in _review_rounds if k[0] == task_id]:
+        _review_rounds.pop(key, None)
+
+
+@event.listens_for(Task.status, 'set')
+def _forget_on_terminal(target: Task, value, oldvalue, _initiator) -> None:
+    new = str(value) if value is not None else ''
+    old = str(oldvalue) if oldvalue is not None else ''
+    if new in TERMINAL_STATES and old not in TERMINAL_STATES and target.id:
+        forget_task(target.id)
 
 
 # The ad skills whose deliverable is an audit report file.

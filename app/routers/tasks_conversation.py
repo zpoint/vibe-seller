@@ -30,6 +30,7 @@ from app.routers.dida365_oauth import refresh_token_if_needed
 from app.routers.tasks_files import promote_staged_attachments
 from app.scheduler.task_queue import task_queue_scheduler
 from app.task_chat_context import build_chat_context
+from app.task_delete import clear_gate_state
 from app.task_launch import schedule_or_run
 from app.task_outcome import clear_run_state
 from app.task_runner import (
@@ -633,6 +634,7 @@ async def retry_task(
     # Claude Code's per-task Task/todo store + project transcripts) so a
     # prior run's todos/refs can't leak into the new session. See helper.
     await asyncio.to_thread(reset_task_runtime_state, task_id)
+    await asyncio.to_thread(clear_gate_state, task_id)
 
     store = None
     if task.store_id:
