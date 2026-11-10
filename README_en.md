@@ -226,7 +226,7 @@ save. Keys are encrypted at rest.
 
 <img width="2048" height="1208" alt="Settings → AI" src="docs/images/setup_ai_en.png" />
 
-<img width="1344" height="1800" alt="Create AI profile" src="docs/images/setup_profile_en.png" />
+<img width="1344" height="1920" alt="Create AI profile" src="docs/images/setup_profile_en.png" />
 
 <img width="100%" alt="Demo: set up AI" src="docs/images/setup_ai_en.gif" />
 
@@ -351,7 +351,7 @@ save. Keys are encrypted at rest.
 
 <img width="2048" height="1208" alt="Settings → AI" src="docs/images/setup_ai_en.png" />
 
-<img width="1344" height="1800" alt="Create AI profile" src="docs/images/setup_profile_en.png" />
+<img width="1344" height="1920" alt="Create AI profile" src="docs/images/setup_profile_en.png" />
 
 <img width="100%" alt="Demo: set up AI" src="docs/images/setup_ai_en.gif" />
 
@@ -491,7 +491,7 @@ save. Keys are encrypted at rest.
 
 <img width="2048" height="1208" alt="Settings → AI" src="docs/images/setup_ai_en.png" />
 
-<img width="1344" height="1800" alt="Create AI profile" src="docs/images/setup_profile_en.png" />
+<img width="1344" height="1920" alt="Create AI profile" src="docs/images/setup_profile_en.png" />
 
 <img width="100%" alt="Demo: set up AI" src="docs/images/setup_ai_en.gif" />
 
