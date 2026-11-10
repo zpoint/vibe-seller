@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.stop_gates import forget_task
-from app.ai.stop_gates.ad_changes import approved_path
+from app.ai.stop_gates.ad_changes import remove_approvals
 from app.models.screenshot import Screenshot
 from app.models.task import Task
 from app.models.task_attachment import TaskAttachment
@@ -51,7 +51,7 @@ def clear_gate_state(task_id: str) -> None:
     """
     forget_task(task_id)
     try:
-        approved_path(task_id).unlink(missing_ok=True)
+        remove_approvals(task_id)
     except OSError:
         logger.warning(
             'Failed to remove approved changes for %s', task_id, exc_info=True

@@ -80,7 +80,30 @@ def _label(row: dict) -> str:
 
 
 def approved_path(task_id: str) -> Path:
+    """The current (latest) approval of *task_id*."""
     return APPROVED_DIR / f'{task_id}.tsv'
+
+
+def _earlier_approvals(task_id: str) -> list[Path]:
+    """Approvals this task already executed under, oldest first."""
+    found = []
+    for p in APPROVED_DIR.glob(f'{task_id}.*.tsv'):
+        n = p.name[len(task_id) + 1 : -len('.tsv')]
+        if n.isdigit():
+            found.append((int(n), p))
+    return [p for _, p in sorted(found)]
+
+
+def approval_files(task_id: str) -> list[Path]:
+    """Every approval this task's EXECUTION_LOG may be held to."""
+    current = approved_path(task_id)
+    return _earlier_approvals(task_id) + ([current] if current.exists() else [])
+
+
+def remove_approvals(task_id: str) -> None:
+    """Drop every approval frozen for *task_id* (blocking)."""
+    for path in approval_files(task_id):
+        path.unlink(missing_ok=True)
 
 
 def _changes_source(task_id: str) -> Path | None:
@@ -108,10 +131,17 @@ def freeze_approved_changes(task_id: str) -> Path | None:
     agent into moving a live bid the user had set to a value they had
     overruled. From here on, editing ``CHANGES.tsv`` changes nothing.
 
-    With no ``CHANGES.tsv`` to start from, any earlier freeze is removed,
-    so an execution can never be checked against a stale approval.
+    With no ``CHANGES.tsv`` to start from, the current freeze is removed,
+    so a new execution can never be checked against a stale approval. A
+    freeze that changes were already executed under is kept beside the
+    new one: the log still holds those changes, and the user approved
+    them (a second approval in the same task made the first round's
+    logged changes read as unapproved).
     """
     dest = approved_path(task_id)
+    if dest.exists() and execution_logged(task_id):
+        n = len(_earlier_approvals(task_id)) + 1
+        dest.rename(APPROVED_DIR / f'{task_id}.{n}.tsv')
     src = _changes_source(task_id)
     if src is None:
         dest.unlink(missing_ok=True)
@@ -362,31 +392,50 @@ def rule_violations(
     return out
 
 
+def _bid_matches(row: dict, want: dict) -> bool:
+    got, target = number(row.get('to_bid')), number(want['target_bid'])
+    return (
+        got is not None
+        and target is not None
+        and abs(got - target) <= BID_TOLERANCE
+    )
+
+
 def execution_violations(
     executed: tuple[dict, ...], approved: tuple[dict, ...], slug: str | None
 ) -> list[str]:
-    by_key = {_key(r): r for r in approved}
+    """Each logged change against the approvals (oldest first).
+
+    A change matches when ANY approval holds it — a task approved twice
+    executed each round under its own freeze — and is reported against
+    the latest one for its target when none does.
+    """
+    by_key: dict[tuple, list[dict]] = {}
+    for r in approved:
+        by_key.setdefault(_key(r), []).append(r)
     out = []
     for row in executed:
         action = row['action'].lower()
-        want = by_key.get(_key(row))
-        if want is None or want['action'].lower() != action:
+        wants = [
+            w
+            for w in by_key.get(_key(row), ())
+            if w['action'].lower() == action
+        ]
+        if not wants:
             out.append(
                 f'{_label(row)}: {action} was not in the approved changes'
             )
             continue
         if action in BID_ACTIONS:
-            got, target = number(row.get('to_bid')), number(want['target_bid'])
-            if (
-                got is None
-                or target is None
-                or abs(got - target) > (BID_TOLERANCE)
-            ):
+            held = [w for w in wants if _bid_matches(row, w)]
+            if not held:
                 out.append(
-                    f'{_label(row)}: bid set to {row.get("to_bid")}, approved '
-                    f'{want["target_bid"]}'
+                    f'{_label(row)}: bid set to {row.get("to_bid")}, '
+                    f'approved {wants[-1]["target_bid"]}'
                 )
-        out.extend(_writeback_mismatch(slug, want, row))
+                continue
+            wants = held
+        out.extend(_writeback_mismatch(slug, wants[-1], row))
     return out
 
 
@@ -466,8 +515,8 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
                 )
             )
     if executed is not None and not executed.error and executed.rows:
-        approved_file = find_approved(task_id)
-        if approved_file is None:
+        files = approval_files(task_id)
+        if not files:
             problems.append(
                 f'{EXECUTION_LOG_FILE} records changes but no approved '
                 f'{CHANGES_FILE} was frozen: declare kind "execute" after '
@@ -475,11 +524,12 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
                 'they approved'
             )
         else:
-            approved = read_table(approved_file, CHANGE_COLUMNS)
+            approved: list[dict] = []
+            for f in files:
+                table = read_table(f, CHANGE_COLUMNS)
+                approved.extend(table.rows if table else ())
             problems.extend(
-                execution_violations(
-                    executed.rows, approved.rows if approved else (), slug
-                )
+                execution_violations(executed.rows, tuple(approved), slug)
             )
     if not problems and not advisories:
         return None

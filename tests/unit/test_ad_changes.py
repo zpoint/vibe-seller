@@ -377,3 +377,31 @@ def test_a_target_changed_since_the_task_started_is_not_re_judged(
         [],
     )
     assert any('cooldown' in g for g in _gaps(t)), _gaps(t)
+
+
+def test_a_second_approval_keeps_the_first_rounds_changes_approved(task):
+    """Approved twice in one task: 'raise widget to 1.20' was applied,
+    then the user approved a different change. The first round's logged
+    change is still one the user approved."""
+    _approve(task, [change()])
+    task.declare('execute')
+    task.execution([_done()])
+    assert _gaps(task) == []
+    _approve(task, [change(target='gadget', target_bid='1.50')])
+    task.execution([_done(), _done(target='gadget', to_bid='1.50')])
+    assert _gaps(task) == []
+    # Neither approval holds this one.
+    task.execution([_done(), _done(target='gadget', to_bid='1.90')])
+    assert any('approved 1.50' in g for g in _gaps(task)), _gaps(task)
+    ad_changes.remove_approvals(task.id)
+    assert ad_changes.approval_files(task.id) == []
+
+
+def test_a_re_freeze_before_anything_ran_replaces_the_approval(task):
+    """Same turn, nothing executed yet: the newer freeze is the only
+    approval, so the replaced value no longer holds."""
+    _approve(task, [change(target_bid='1.20')])
+    _approve(task, [change(target_bid='1.35')])
+    task.declare('execute')
+    task.execution([_done(to_bid='1.20')])
+    assert any('approved 1.35' in g for g in _gaps(task)), _gaps(task)
