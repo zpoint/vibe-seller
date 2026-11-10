@@ -10,7 +10,7 @@ So a declaration belongs to an agent RUN, not to the task. Each run gets
 at most one, they accumulate, and a report is judged against the
 declaration its run made rather than against the task as a whole.
 
-**Why this exists at all.** Both the completeness gate and the frontend
+**Why this exists at all.** Both the ad report gate and the frontend
 used to answer "is this an audit?" by pattern-matching the agent's own
 prose — a ``## noon AE`` heading plus a ``drilled N/N`` line. Observed
 live: a task asked to create two campaigns for one product tripped that

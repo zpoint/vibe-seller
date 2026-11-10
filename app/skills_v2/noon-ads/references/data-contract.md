@@ -82,8 +82,8 @@ one ever chose it. When the user states a standard, write it there with
 | `scale_roas` | 5 | a `hold` on a row with higher ROAS needs a `reason` |
 | `change_cooldown_days` | 7 | a target changed within this window is held, with the date in `reason` |
 | `margin` | 25 | gross margin % assumed when unknown — say so in the report |
-| `reconcile_tolerance` | 0.15 | search-term vs targeting spend may differ by this fraction |
-| `noon_reconcile_floor` | 0.85 | search terms must cover at least this share of targeting spend |
+| `reconcile_tolerance` | 0.15 | search-term spend may exceed targeting spend by at most this fraction; `CAMPAIGNS.tsv` spend and the targeting total may differ by this fraction (or 1.00) |
+| `noon_reconcile_floor` | 0.85 | search terms must cover at least this share of targeting spend (both platforms) |
 
 ## EXECUTION_LOG.tsv — what you changed
 

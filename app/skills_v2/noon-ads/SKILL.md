@@ -422,8 +422,8 @@ switcher, not the URL — read the flag first (`noon-shared` § 2).
   editor never clicks Save.
 - **Compare a country only with itself.** Buyers differ between
   countries; one country's figures are not a baseline for another's.
-- **Per-run captures go to your task directory (CWD)**, never under
-  `~/.vibe-seller/knowledge/`. The per-campaign TSVs go where the data
+- **Per-run captures go to a subfolder of the task dir (your CWD)**,
+  never under `~/.vibe-seller/knowledge/`. The per-campaign TSVs go where the data
   contract says.
 
 ## Tips

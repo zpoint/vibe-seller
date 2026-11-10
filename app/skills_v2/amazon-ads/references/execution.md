@@ -59,7 +59,7 @@ done. Anchor progress in the task list, which survives:
 3. Apply it — one row at a time. For many bid changes in one campaign,
    the bulk path (`bulk-operations.md`, `ads_bulk.py bid-update` /
    `negate`) is the default on Amazon; click paths are in `mechanics-edit.md`
-   (noon: `noon-ads/references/applying-changes.md`). Keep a before/after capture in your task directory (CWD).
+   (noon: `noon-ads/references/applying-changes.md`). Keep a before/after capture in a subfolder of the task dir (your CWD).
 4. Read the change back from the console: the bid cell, the state toggle,
    the negative in the negatives list, a re-export after a bulk upload.
    A bulk `Success` only means the file was accepted; rule-based bidding
@@ -75,7 +75,7 @@ reliable. The phase is done when no items are pending or in progress.
 
 For each change confirmed on the console:
 
-1. **Append a row to `EXECUTION_LOG.tsv`** (task root): `campaign_id`,
+1. **Append a row to `EXECUTION_LOG.tsv`** (task dir): `campaign_id`,
    `ad_group`, `target`, `match_type` and `action` exactly as in the
    approved row; `from_bid` (the bid before) and `to_bid` (the bid now
    showing, equal to the approved `target_bid` within 0.01) for bid

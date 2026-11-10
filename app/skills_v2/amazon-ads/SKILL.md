@@ -91,7 +91,7 @@ and decisions in the files. For an audit, start with
 references only when a step points to them — pre-reading everything
 crowds out the work.
 
-`AUDIT_TARGETS.json` (task root, written by the server after you
+`AUDIT_TARGETS.json` (task dir, written by the server after you
 declare) lists every marketplace the store is configured for. It is the
 menu; your declaration picks what you owe from it. A market list in the
 task description is prose that may be stale — the declaration is the
@@ -102,7 +102,10 @@ source of scope.
 The references are worked examples, not the whole space. When a step
 meets a shape it didn't expect, reason from the invariants below and take
 the next concrete step rather than handing a half-finished task back.
-Ask a human only when a credential or permission is genuinely missing.
+Ask a human only when a credential or permission is genuinely missing,
+or before a live change whose approval is unclear (which row, which
+value, or no audit to execute against — see
+[`execution.md`](references/execution.md)).
 
 - **The export is ground truth; the grid is fragile.** Amazon's grids
   are virtualized (about 13 of hundreds of rows exist in the DOM), so
@@ -184,8 +187,10 @@ Ask a human only when a credential or permission is genuinely missing.
 - **Protect what drives orders** — see
   [`tuning-recommendation-format.md`](references/tuning-recommendation-format.md)
   § PROTECT.
-- **Per-run captures go to your task directory (CWD)**, never into `stores/` or
-  `knowledge/` (`amazon-shared` §5).
+- **Per-run captures go to a subfolder of the task dir (your CWD)**,
+  never into `stores/` or `knowledge/` (`amazon-shared` §5). The
+  per-campaign TSVs go where
+  [`data-contract.md`](references/data-contract.md) says.
 
 ## Default analysis window
 

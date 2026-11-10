@@ -1,12 +1,11 @@
 """Per-call refusals the PreToolUse hook applies to every tool.
 
 One entry point so the hook (at its line budget) chains a single call:
-a vibe-seller MCP call missing required arguments
-(``mcp_args_guard``), any tool reaching into vibe-seller's own source
-(``source_guard``), an execution-only tool called while planning, a
-shell command that calls the ads service around its tool, new work
-or a tool
-search for a tool that is already loaded.
+a subagent submitting or failing the task, a vibe-seller MCP call
+missing required arguments (``mcp_args_guard``), any tool reaching into
+vibe-seller's own source (``source_guard``), an execution-only tool
+called while planning, and a shell command that calls the ads service
+around its tool.
 """
 
 from urllib.parse import urlsplit
@@ -99,8 +98,8 @@ def subagent_finish_deny(session, tool_name: str, tool_use_id) -> str | None:
     if tool_name in _FINISHING and made_by_subagent:
         return (
             f"Blocked: `{tool_name}` is the main agent's call. You are a "
-            'subagent: write your output (e.g. the review verdict file) '
-            'and return; the main agent submits the task.'
+            'subagent: write your output to a file and return; the main '
+            'agent submits the task.'
         )
     return None
 

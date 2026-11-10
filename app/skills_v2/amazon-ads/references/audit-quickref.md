@@ -65,7 +65,7 @@ row. Per-country accounts need one export per country.
 enumerate live — a leftover export under-counts. Selectors and snippet:
 the `noon-ads` skill (campaign enumeration).
 
-**Writing `CAMPAIGNS.tsv`** (task root). One row per campaign, inactive
+**Writing `CAMPAIGNS.tsv`** (task dir). One row per campaign, inactive
 ones included, with the campaign's real name — the console shows one on
 every row and the export carries `Campaign Name`; a reader can't act on
 a bare id. `state` is the console's own state. `drill_status`:
@@ -111,10 +111,17 @@ Sources, in order of preference:
   `noon-ads`.
 
 **Check the layers add up before moving on.** Search terms are part of
-the targeting spend, so their spend should sit between
-`(1 − reconcile_tolerance)` of the targeting total (noon:
-`noon_reconcile_floor`) and the total itself, and the targeting total
-should equal the campaign's spend in `CAMPAIGNS.tsv`.
+the targeting spend. The server checks, on both platforms:
+
+- search-term spend is at least `noon_reconcile_floor` (0.85) of the
+  targeting total — below that is a gap;
+- search-term spend is at most `1 + reconcile_tolerance` (1.15) times
+  the targeting total — above that is a contradiction;
+- the targeting total matches the campaign's spend in `CAMPAIGNS.tsv`
+  within `reconcile_tolerance` of it (or 1.00, whichever is larger) — a
+  larger difference is a contradiction.
+
+What to do when they don't:
 
 - Search terms short of the targeting total: the capture is incomplete or
   the windows differ — re-pin both and recapture (noon: use the Export).
@@ -136,7 +143,7 @@ outside these runs; mention it in the report.
 Apply [`tuning-recommendation-format.md`](tuning-recommendation-format.md)
 to every drilled row, using the store's thresholds
 ([`tuning-thresholds.md`](tuning-thresholds.md), overrides in
-`stores/<slug>/notes.md`). Write one `CHANGES.tsv` row (task root) per
+`stores/<slug>/notes.md`). Write one `CHANGES.tsv` row (task dir) per
 proposed change, with the row's `acos`, `roas` and actual `cpc` so the
 reasoning can be checked. Add a `hold` row when the hold itself needs
 explaining — a high-ROAS row you are not raising, or a target inside its
@@ -161,7 +168,7 @@ An `investigate` task writes no `CHANGES.tsv` rows other than `hold`.
 
 ## 6. Write the report and submit
 
-Write `AD_AUDIT_<YYYY-MM-DD>.md` in the task root, for the person
+Write `AD_AUDIT_<YYYY-MM-DD>.md` in the task dir, for the person
 ([`output-spec.md`](output-spec.md) § The report). Then call
 `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")` — the path, not a
 summary.
@@ -174,8 +181,10 @@ update the report, and submit again. Gaps you genuinely can't close are
 delivered as caveats; rule violations on `CHANGES.tsv` are about money
 and have to be fixed.
 
-Keep the task root to the deliverables (report, `CAMPAIGNS.tsv`,
-`CHANGES.tsv`, PDF). Scratch scripts and captures go to your task directory (CWD).
+Your CWD is the task dir. Keep its top level to the deliverables
+(report, `CAMPAIGNS.tsv`, `CHANGES.tsv`, PDF); put scratch scripts and
+captures in a subfolder of it. The per-campaign TSVs live under
+`store-data/` ([`data-contract.md`](data-contract.md)).
 
 ## 7. PDF copy
 

@@ -9,9 +9,9 @@ Scope is deliberately narrow, and narrow in the fail-safe direction: the
 check only engages for a store-scoped task whose workspace already holds
 at least one ``reports_*`` folder. A task that downloaded no report
 folders is not a report run and is left alone. This mirrors how the ad
-completeness gate only bites a report presenting per-marketplace
-sections — the failure mode is "we asked for less than we could have",
-never "we invented an obligation".
+coverage gate owes only what the task declared — the failure mode is
+"we asked for less than we could have", never "we invented an
+obligation".
 
 The month is taken from the calendar, never from the folder names the
 agent produced. Reading the expected set out of the agent's own output is
