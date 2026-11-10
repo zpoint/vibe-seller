@@ -200,8 +200,8 @@ the PR). Each new push waits again. Nightly and `workflow_dispatch` runs
 skip the gate. Mock CLI e2e (`e2e-mock-cli`) never needs approval.
 
 Which models CI runs on is repository configuration, not code. The
-repo variable `E2E_PROVIDER_MAP` names one preset per worker (`ci.yml`
-runs `E2E_WORKERS` = 8); `E2E_SMOKE_PROVIDER` names the one preset the
+repo variable `E2E_PROVIDER_MAP` names one preset per worker, and CI runs
+one worker per entry; `E2E_SMOKE_PROVIDER` names the one preset the
 single-provider smoke tests use (Windows installer, release). Each
 preset's key and model are the secrets `{NAME}_API_KEY` /
 `{NAME}_MODEL` (optionally `{NAME}_BASE_URL`), e.g. `QWEN_TOKEN_MODEL`.
@@ -310,11 +310,11 @@ E2E_WORKERS=2 pytest tests/e2e/ --e2e -n 2 --dist loadfile -v
 
 | Variable | Layer | Default | Purpose |
 |---|---|---|---|
-| `E2E_WORKERS` | Test runner (CI) | 0 (sequential) | Number of pytest-xdist worker processes. Set >1 to run tests in parallel. |
+| `E2E_WORKERS` | Test runner (local) | 0 (sequential) | Number of pytest-xdist worker processes. Set >1 to run tests in parallel. CI derives it from `E2E_PROVIDER_MAP` (one worker per entry). |
 | `E2E_PROVIDER_MAP` | Test runner (CI) | (empty) | Comma-separated provider per worker (e.g., `kimi,kimi,minimax`). Each xdist worker creates a profile for its assigned provider so tasks are spread across APIs. |
 | `MAX_AGENT_CONCURRENCY` | Server (`app/ai/claude_backend.py`) | 2 | Max simultaneous Claude CLI agent subprocesses. Semaphore gate — exceeding this blocks new tasks until a slot opens. |
 
-**Relationship**: `MAX_AGENT_CONCURRENCY` must be ≥ 2× `E2E_WORKERS` to avoid test timeouts from semaphore contention. CI uses `E2E_WORKERS=4` + `E2E_PROVIDER_MAP=minimax,minimax,minimax,glm`; tests that need two models (profile switch, compaction) take the first two *distinct* providers from the map.
+**Relationship**: `MAX_AGENT_CONCURRENCY` must be ≥ 2× `E2E_WORKERS` to avoid test timeouts from semaphore contention. CI runs one worker per `E2E_PROVIDER_MAP` entry (a repo variable) with `MAX_AGENT_CONCURRENCY=16`; tests that need two models (profile switch, compaction) take the first two *distinct* providers from the map.
 
 **`--maxfail` under xdist** — pytest-xdist alone does not stop on `--maxfail`: each worker runs every test it was already handed before it shuts down, so an early failure under `--dist worksteal` drains the suite on fewer workers and can outlive the step timeout, which then kills the run before pytest prints the failure. `tests/e2e/fail_fast.py` makes it stop: from the `--maxfail`-th failure on, workers skip every test they have not started; tests already running finish.
 

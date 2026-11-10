@@ -373,7 +373,7 @@ jobs:
           # to the worker profile, so even UI-created tasks use it.
           API_TIMEOUT_MS: 3000000
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
-          # 8 workers each run one task, and the concurrency e2e
+          # Each worker runs one task, and the concurrency e2e
           # tests briefly run three — 16 keeps every slot prompt
           # without promising a stream burst the providers never see.
           MAX_AGENT_CONCURRENCY: 16
@@ -440,13 +440,10 @@ jobs:
           QWEN_TOKEN_API_KEY: ${{ secrets.QWEN_TOKEN_API_KEY }}
           QWEN_TOKEN_BASE_URL: ${{ secrets.QWEN_TOKEN_BASE_URL }}
           QWEN_TOKEN_MODEL: ${{ secrets.QWEN_TOKEN_MODEL }}
-          # Fixed: tests/unit/test_schedule_sim.py reads this width to pin
-          # the step budget above.
-          E2E_WORKERS: 8
           # Which provider each worker runs on — a repo variable, so the
-          # mix changes without a code change (Settings → Variables). One
-          # entry per worker, named after a preset whose {NAME}_API_KEY /
-          # _MODEL secrets are above. The two-model tests (profile switch,
+          # mix AND the worker count change without a code change
+          # (Settings → Variables): one entry per worker, named after a
+          # preset whose {NAME}_API_KEY / _MODEL secrets are above. The two-model tests (profile switch,
           # compaction) take the first two DISTINCT entries.
           E2E_PROVIDER_MAP: ${{ vars.E2E_PROVIDER_MAP }}
           VIBE_ADS_SERVICE_URL: http://127.0.0.1:7791
@@ -455,7 +452,9 @@ jobs:
             echo "::error::repo variable E2E_PROVIDER_MAP is not set"
             exit 1
           fi
-          E2E_N="${E2E_WORKERS:-0}"
+          # One worker per map entry.
+          E2E_N=$(printf '%s' "$E2E_PROVIDER_MAP" | tr ',' '\n' | grep -c .)
+          export E2E_WORKERS="$E2E_N"
           XDIST_ARGS=""
           if [ "$E2E_N" -gt 1 ] 2>/dev/null; then
             # --dist worksteal: workers start with an even split and idle

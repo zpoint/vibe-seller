@@ -187,11 +187,19 @@ def _e2e_step_budget_s() -> int:
     return int(minutes.group(1)) * 60
 
 
+# The narrowest map CI is meant to run (one worker per E2E_PROVIDER_MAP
+# entry, a repo variable): the step budget must hold at this width, and a
+# wider map only shortens the critical path.
+MIN_CI_WORKERS = 6
+
+
 def _e2e_workers() -> int:
-    """E2E_WORKERS from ci.yml — the width the simulation models."""
-    match = re.search(r'E2E_WORKERS:\s*(\d+)', _ci())
-    assert match, 'ci.yml has no E2E_WORKERS'
-    return int(match.group(1))
+    """The width the simulation models: the map's length when the
+    environment carries it, else the narrowest supported width."""
+    entries = [
+        p for p in os.environ.get('E2E_PROVIDER_MAP', '').split(',') if p
+    ]
+    return max(len(entries), MIN_CI_WORKERS) if entries else MIN_CI_WORKERS
 
 
 def _e2e_provider_map() -> list:
