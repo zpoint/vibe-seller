@@ -42,7 +42,7 @@ from app.prompts import (
 from app.scheduler.task_queue import task_queue_scheduler
 from app.task_states import TaskStatus, assert_transition, can_transition
 from app.telemetry_events import TaskSource
-from app.telemetry_schedules import send_schedule_fired
+from app.telemetry_schedules import send_fire_skipped, send_schedule_fired
 from app.telemetry_tasks import send_task_created
 from app.workspace.knowledge_sync import knowledge_sync
 
@@ -166,6 +166,7 @@ async def run_fanout_job(
                     'plan_status': sched.plan_status,
                 },
             )
+            send_fire_skipped(schedule_id, sched.plan_status)
             return
         saved_plan = sched.plan
         saved_plan_version = sched.plan_version
@@ -335,6 +336,7 @@ async def run_single_job(
                     'plan_status': sched.plan_status,
                 },
             )
+            send_fire_skipped(schedule_id, sched.plan_status)
             return
         saved_plan = sched.plan
         saved_plan_version = sched.plan_version

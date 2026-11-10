@@ -405,3 +405,25 @@ class TestTheGateSeesWhatWasAccepted:
         assert ad_declaration.owed_combos(loaded, store) == [
             {'platform': 'amazon', 'country': 'AE'}
         ], 'a scoped audit owes what it named, not every marketplace'
+
+
+class TestDeclarationTelemetry:
+    async def test_accepted_and_refused_declarations_are_sent(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        events: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            'app.telemetry.send',
+            lambda e, p=None: events.append((e, dict(p or {}))),
+        )
+        task_id = await _make_task(admin_client)
+        r = await _declare(admin_client, task_id, 'audit', _ONE_MARKET)
+        assert r.status_code == 200
+        r = await _declare(admin_client, task_id, 'create')
+        assert r.status_code == 409
+        sent = [p for e, p in events if e == 'ad_task_declared']
+        assert [(p['kind'], p['scope_kind'], p['outcome']) for p in sent] == [
+            ('audit', 'products', 'accepted'),
+            ('create', 'store', 'refused'),
+        ]
+        assert sent[0]['task_id'] == task_id

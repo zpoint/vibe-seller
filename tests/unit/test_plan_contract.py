@@ -114,3 +114,14 @@ def test_a_plan_frozen_under_the_current_contract_keeps_firing(tmp_path):
     assert got['current'] == 'ready'
     assert got['older'] == 'stale'
     con.close()
+
+
+def test_the_boot_reports_how_many_plans_it_staled(tmp_path):
+    con, shim = _db(
+        tmp_path,
+        [_row('a'), _row('b'), _row('current', plan_contract=PLAN_CONTRACT)],
+        drop_contract_column=False,
+    )
+    assert _ensure_added_columns(shim) == 2
+    assert _ensure_added_columns(shim) == 0
+    con.close()

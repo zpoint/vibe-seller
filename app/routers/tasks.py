@@ -14,13 +14,9 @@ from app.ai.profiles import (
     resolve_owner_profile,
 )
 from app.ai.stop_gates import (
-    CONTRADICTION_MAX_DENIALS,
     clear_skill_bindings,
-    contradiction_banner,
-    record_attempt,
     reset_attempts,
     resolve_skill_gates,
-    take_review_round,
 )
 from app.ai.stop_gates.listing_upload_gate import check_upload_verdicts
 from app.ai.turn_hold_budget import reset_ledger
@@ -34,6 +30,7 @@ from app.models.task_step import TaskStep
 from app.models.user import User
 from app.routers.task_submission import (
     SetTaskResultRequest,
+    apply_skill_gates,
     apply_soft_gates,
     declared_gaps,
     refuse as _refuse,
@@ -64,7 +61,8 @@ from app.task_states import (
     TaskStatus,
     assert_transition,
 )
-from app.telemetry_events import TaskSource, TelemetryEvent
+from app.telemetry_events import GateOutcome, TaskSource, TelemetryEvent
+from app.telemetry_harness import send_result_gated
 from app.telemetry_tasks import send_plan_verdict, send_task_created
 from app.telemetry_via import current_via, source_of_via
 from app.workspace.manager import VIBE_SELLER_DIR
@@ -612,6 +610,13 @@ async def set_task_result(
     # Hard: refused on every submit until the verdict is clean.
     deny = await asyncio.to_thread(check_upload_verdicts, task_root)
     if deny:
+        send_result_gated(
+            task_id,
+            'upload_verdict',
+            GateOutcome.REFUSED,
+            attempt=task.submission_count or 1,
+            gap_count=1,
+        )
         await _refuse(db, task, deny, declared)
 
     soft_gaps = await apply_soft_gates(
@@ -631,66 +636,10 @@ async def set_task_result(
         resolve_skill_gates, loaded, workspace or VIBE_SELLER_DIR
     )
 
-    stalled_gaps: list[str] = list(soft_gaps)
-    for gate_name, gate in skill_gates:
-        deny = await asyncio.to_thread(gate.check, final_result, task_id, rules)
-        if not deny:
-            continue
-        # Fail open only on STALL when the gate tracks one (see the
-        # review-collect skill's review_completeness_review gate for
-        # the stall design).
-        # And at most AD_REVIEW_ROUNDS refusals per gate in any case: the
-        # fix is asked for once, then what is still unmet ships as caveats.
-        is_stalled = getattr(gate, 'is_stalled', None)
-        if (
-            is_stalled is None or not is_stalled(task_id)
-        ) and take_review_round(task_id, gate_name):
-            await _refuse(db, task, deny.reason, declared + deny.gaps)
-        # A CONTRADICTION is not the kind of gap the stall exists to
-        # forgive. The fail-open is there so a weak model is never trapped
-        # by work it cannot finish; accepting a figure that cannot be true
-        # is a different act, because the number ships into decisions.
-        # Keep refusing past the stall — the agent always has a legal move
-        # (fix it, or mark the campaign untrustworthy), so this cannot
-        # trap. Bounded anyway: past the cap the banner below makes the
-        # contradiction impossible to miss instead of impossible to pass.
-        if deny.contradictions:
-            n = record_attempt(task_id, f'{gate_name}:contradiction')
-            if n <= CONTRADICTION_MAX_DENIALS:
-                await _refuse(
-                    db, task, deny.reason, declared + deny.contradictions
-                )
-            logger.warning(
-                'Gate %s: %d contradiction(s) unresolved after %d refusals '
-                'for task %s — banner-marking the result. First: %s',
-                gate_name,
-                len(deny.contradictions),
-                n,
-                task_id,
-                deny.contradictions[0][:160],
-            )
-            final_result = (
-                contradiction_banner(deny.contradictions) + final_result
-            )
-            stalled_gaps.extend(deny.contradictions)
-        # Log the GAPS, not ``deny.reason`` — the reason opens with a
-        # fixed instruction banner and appends the gap list at the END,
-        # so a truncated prefix of it is pure boilerplate. Six of these
-        # lines in one run read byte-identical while the underlying gaps
-        # went 14 → 8 → 7, which is worse than silence: it looks like a
-        # run repeating itself when it is converging. Say "failing open"
-        logger.warning(
-            'Gate %s stalled for task %s — failing open with %d unmet gap(s). '
-            'Gaps: %s',
-            gate_name,
-            task_id,
-            len(deny.gaps or ()),
-            ' | '.join(g[:110] for g in (deny.gaps or ())[:4])
-            or deny.reason[:160],
-        )
-        # Failed open on a stall: the result ships, but the unmet gaps
-        # ride along as caveats instead of vanishing into a log line.
-        stalled_gaps.extend(deny.gaps or (deny.reason,))
+    final_result, skill_gaps = await apply_skill_gates(
+        db, task, skill_gates, final_result, rules, declared
+    )
+    stalled_gaps = list(soft_gaps) + list(skill_gaps)
 
     # Recovery: a valid result supersedes an earlier agent-reported
     # error this turn (error → recovered → result must not ship as

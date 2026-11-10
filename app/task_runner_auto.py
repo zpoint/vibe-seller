@@ -16,7 +16,7 @@ from app.config import VIBE_SELLER_DIR
 from app.database import async_session
 from app.env_options import Options
 from app.events.bus import event_bus
-from app.knowledge_contract import cleanup_scope
+from app.knowledge_contract import L2_SCOPE, cleanup_scope
 from app.models.schedule import Schedule
 from app.models.schedule_constants import StalenessCheck
 from app.models.store import Store
@@ -44,6 +44,7 @@ from app.task_states import (
     assert_transition,
     can_transition,
 )
+from app.telemetry_harness import send_cleanup_finished
 from app.workspace.actor import clear_request_actor
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
@@ -383,6 +384,8 @@ async def auto_run_task(task_id: str, store: Store | None):
             # scope stays owing. Recorded only on COMPLETED: a failed run
             # (out of credits, a crash) also leaves it owing, so the next
             # catalog sync runs the cleanup again.
+            tier = 'l2' if cleanup_pending == L2_SCOPE else 'l3'
+            restored = []
             try:
                 restored = await asyncio.to_thread(
                     knowledge_contract.undo_non_deletions, cleanup_snapshot
@@ -395,6 +398,7 @@ async def auto_run_task(task_id: str, store: Store | None):
                         task_id,
                         ', '.join(str(p) for p in restored),
                     )
+                cleaned = False
                 async with async_session() as db_kc:
                     t = await db_kc.get(Task, task_id)
                     if t and t.status == TaskStatus.COMPLETED and not restored:
@@ -402,8 +406,18 @@ async def auto_run_task(task_id: str, store: Store | None):
                             db_kc, cleanup_pending
                         )
                         await db_kc.commit()
+                        cleaned = True
+                outcome = (
+                    'cleaned'
+                    if cleaned
+                    else 'restored'
+                    if restored
+                    else 'failed'
+                )
+                send_cleanup_finished(task_id, tier, outcome, len(restored))
             except Exception:
                 knowledge_contract.end_cleanup(task_id)
+                send_cleanup_finished(task_id, tier, 'failed', len(restored))
                 logger.warning(
                     'Recording knowledge cleanup failed for %s',
                     task_id,

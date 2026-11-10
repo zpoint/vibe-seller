@@ -79,6 +79,25 @@ class TelemetryEvent:
     MCP_SESSION_STARTED = 'mcp_session_started'
     MCP_TOOL_CALLED = 'mcp_tool_called'
 
+    TASK_RESULT_GATED = 'task_result_gated'
+    AD_TASK_DECLARED = 'ad_task_declared'
+    KNOWLEDGE_CLEANUP_FINISHED = 'knowledge_cleanup_finished'
+    SCHEDULE_PLAN_STATUS_CHANGED = 'schedule_plan_status_changed'
+    SCHEDULE_FIRE_SKIPPED = 'schedule_fire_skipped'
+    EMAIL_SEND_PERMISSION_CHANGED = 'email_send_permission_changed'
+    EMAIL_SENT = 'email_sent'
+    IMAGE_REQUEST_RESOLVED = 'image_request_resolved'
+    UPGRADE_RESTARTED = 'upgrade_restarted'
+
+
+class GateOutcome:
+    """Outcome of one ``task_result_gated``."""
+
+    REFUSED = 'refused'
+    FAILED_OPEN = 'failed_open'
+    BANNER_MARKED = 'banner_marked'
+    ALLOWED = 'allowed'
+
 
 class TaskSource(enum.StrEnum):
     """What launched a task; recorded on the row at creation."""

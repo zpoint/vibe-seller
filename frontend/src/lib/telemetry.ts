@@ -13,7 +13,7 @@ let _installId: string | null = null
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-function normalizePath(pathname: string): string {
+export function normalizePath(pathname: string): string {
   return pathname
     .split('/')
     .map((seg) => (UUID_RE.test(seg) ? '[id]' : seg))

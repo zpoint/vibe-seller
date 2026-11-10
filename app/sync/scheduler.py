@@ -318,6 +318,15 @@ class SyncScheduler:
     def names(self) -> list[str]:
         return list(self._jobs)
 
+    async def failed_jobs(self) -> list[str]:
+        """Registered jobs whose last run failed."""
+        rows = await sync_state.get_all()
+        return sorted(
+            name
+            for name, row in rows.items()
+            if name in self._jobs and row.get('status') == STATUS_FAILED
+        )
+
     def cadence_of(self, name: str) -> float:
         """The job's effective cadence in seconds (override included)."""
         job = self._require(name)

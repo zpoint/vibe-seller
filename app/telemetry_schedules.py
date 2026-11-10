@@ -64,3 +64,21 @@ def send_schedule_fired(
     if task_id is not None:
         props['task_id'] = task_id
     telemetry.send(TelemetryEvent.SCHEDULE_FIRED, props)
+
+
+def send_fire_skipped(
+    schedule_id: str | None,
+    plan_status: str | None,
+    reason: str = 'plan_not_ready',
+) -> None:
+    try:
+        telemetry.send(
+            TelemetryEvent.SCHEDULE_FIRE_SKIPPED,
+            {
+                'schedule_id': schedule_id,
+                'reason': reason,
+                'plan_status': str(plan_status) if plan_status else None,
+            },
+        )
+    except Exception:
+        pass

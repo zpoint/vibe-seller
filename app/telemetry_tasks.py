@@ -154,6 +154,16 @@ def _usage_props(task: Task) -> dict:
         'output_tokens': task.output_tokens,
         'num_turns': task.num_turns,
         'cost_basis': task.cost_basis,
+        'context_fill_bucket': telemetry.fill_bucket(
+            task.context_tokens, task.context_window
+        ),
+        'cache_read_tokens_bucket': telemetry.token_bucket(
+            task.cache_read_tokens
+        ),
+        'cache_write_tokens_bucket': telemetry.token_bucket(
+            task.cache_write_tokens
+        ),
+        'usage_model': (task.usage_model or '')[:64] or None,
     }
 
 
@@ -233,6 +243,7 @@ def send_task_cancelled(task: Task, *, status_at: str | None = None) -> None:
             'source': task.source or TaskSource.OTHER,
             'via': via_for_task(task),
             **profile_telemetry(task.ai_profile_id),
+            **_usage_props(task),
         },
     )
 

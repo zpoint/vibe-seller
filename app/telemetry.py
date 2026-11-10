@@ -224,6 +224,47 @@ def count_bucket(n: int) -> str:
     return '100+'
 
 
+def token_bucket(n: int | None) -> str:
+    if not n or n <= 0:
+        return '0'
+    if n < 10_000:
+        return '<10k'
+    if n < 100_000:
+        return '10k-100k'
+    if n < 1_000_000:
+        return '100k-1m'
+    if n < 10_000_000:
+        return '1m-10m'
+    return '10m+'
+
+
+def fill_bucket(used: int | None, total: int | None) -> str:
+    if not used or not total or total <= 0:
+        return 'unknown'
+    pct = used * 100 / total
+    if pct < 25:
+        return '<25%'
+    if pct < 50:
+        return '25-50%'
+    if pct < 75:
+        return '50-75%'
+    if pct < 90:
+        return '75-90%'
+    return '90%+'
+
+
+def price_bucket(usd: float | None) -> str:
+    if usd is None:
+        return 'unknown'
+    if usd < 0.02:
+        return '<0.02'
+    if usd < 0.05:
+        return '0.02-0.05'
+    if usd < 0.1:
+        return '0.05-0.1'
+    return '0.1+'
+
+
 def duration_bucket(seconds: int | float | None) -> str:
     if seconds is None:
         return 'unknown'

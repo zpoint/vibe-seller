@@ -47,6 +47,7 @@ from app.models.ad_declaration import (
 from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.models.user import User
+from app.telemetry_harness import send_ad_task_declared
 
 router = APIRouter(prefix='/api/tasks', tags=['tasks'])
 
@@ -152,6 +153,28 @@ async def declare_ad_task(
     _user: Annotated[User, Depends(get_current_user)],
 ):
     """Record what this phase is for. Append-only; needs a new user turn."""
+    kind = (body.kind or '').strip().lower()
+    scope = ad_declaration.normalise_scope(body.scope)
+    try:
+        outcome, out = await _declare(task_id, body, db)
+    except HTTPException as exc:
+        if exc.status_code in (400, 409):
+            send_ad_task_declared(task_id, kind, scope, 'refused')
+        raise
+    approved = out.get('approved')
+    send_ad_task_declared(
+        task_id,
+        kind,
+        scope,
+        outcome,
+        approved_count=None if approved is None else len(approved),
+    )
+    return out
+
+
+async def _declare(
+    task_id: str, body: DeclareAdTaskRequest, db: AsyncSession
+) -> tuple[str, dict]:
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail='Task not found')
@@ -235,8 +258,8 @@ async def declare_ad_task(
             await db.refresh(row)
             ad_declaration.write_declaration_file(task_id, kind, scope)
             if refreeze:
-                return await _with_approval(task_id, row)
-            return _as_dict(row)
+                return 'refreeze', await _with_approval(task_id, row)
+            return 'accepted', _as_dict(row)
         raise HTTPException(
             status_code=409,
             detail=(
@@ -292,9 +315,9 @@ async def declare_ad_task(
     # Execution starts here, on a new user message: freeze the approval
     # it will be held to.
     if kind == KIND_EXECUTE:
-        return await _with_approval(task_id, row)
+        return 'accepted', await _with_approval(task_id, row)
 
-    return _as_dict(row)
+    return 'accepted', _as_dict(row)
 
 
 async def _with_approval(task_id: str, row: AdTaskDeclaration) -> dict:

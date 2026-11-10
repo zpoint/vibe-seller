@@ -32,7 +32,10 @@ import multiprocessing
 import os
 import signal
 import sys
+import time
 
+from app import telemetry
+from app.telemetry_events import TelemetryEvent
 from app.version import get_version
 
 logger = logging.getLogger(__name__)
@@ -44,6 +47,7 @@ CHECK_INTERVAL_SECONDS = 10.0
 
 _pending_version: str | None = None
 _restart_requested = False
+_drain_started_at: float | None = None
 
 
 def installed_version() -> str | None:
@@ -72,7 +76,7 @@ def supported() -> bool:
 
 async def check_once(task_queue, agents) -> bool:
     """One staleness check. True once a restart has been requested."""
-    global _pending_version
+    global _pending_version, _drain_started_at
     if _restart_requested:
         return True
     on_disk = await asyncio.to_thread(installed_version)
@@ -87,6 +91,7 @@ async def check_once(task_queue, agents) -> bool:
             loaded,
         )
         _pending_version = on_disk
+        _drain_started_at = time.monotonic()
     task_queue.pause_dispatch()
     # No await between this check and the shutdown request: on one event
     # loop nothing can start an agent in between.
@@ -116,9 +121,29 @@ def request_restart() -> None:
     global _restart_requested
     _restart_requested = True
     logger.warning('Restarting onto vibe-seller %s', _pending_version)
+    _send_restarted()
     # uvicorn's own SIGTERM handler: stop accepting, finish requests, run
     # the lifespan shutdown (agents, schedulers, sync) — then re-exec.
     os.kill(os.getpid(), signal.SIGTERM)
+
+
+def _send_restarted() -> None:
+    waited = (
+        None
+        if _drain_started_at is None
+        else time.monotonic() - _drain_started_at
+    )
+    try:
+        telemetry.send(
+            TelemetryEvent.UPGRADE_RESTARTED,
+            {
+                'from_version': get_version(),
+                'to_version': _pending_version,
+                'drain_wait_bucket': telemetry.duration_bucket(waited),
+            },
+        )
+    except Exception:
+        logger.debug('upgrade_restarted telemetry failed', exc_info=True)
 
 
 def restart_argv() -> list[str]:

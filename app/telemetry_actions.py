@@ -48,6 +48,7 @@ _EVENT_OF = {
     'created': TelemetryEvent.SCHEDULE_CREATED,
     'updated': TelemetryEvent.SCHEDULE_UPDATED,
     'deleted': TelemetryEvent.SCHEDULE_DELETED,
+    'plan_status': TelemetryEvent.SCHEDULE_PLAN_STATUS_CHANGED,
 }
 
 
@@ -73,10 +74,32 @@ def _schedule_inserted(_mapper, _connection, schedule) -> None:
     _record('created', schedule)
 
 
+def _record_plan_status(schedule: Schedule) -> None:
+    history = attributes.get_history(schedule, 'plan_status')
+    if not history.has_changes():
+        return
+    session = object_session(schedule)
+    if session is None:
+        return
+    before = history.deleted[0] if history.deleted else None
+    after = history.added[0] if history.added else None
+    if before == after:
+        return
+    session.info.setdefault('schedule_actions', []).append((
+        'plan_status',
+        {
+            'schedule_id': schedule.id,
+            'from': str(before) if before is not None else None,
+            'to': str(after) if after is not None else None,
+        },
+    ))
+
+
 @event.listens_for(Schedule, 'after_update')
 def _schedule_updated(_mapper, _connection, schedule) -> None:
     if _watched_changed(schedule):
         _record('updated', schedule)
+    _record_plan_status(schedule)
 
 
 @event.listens_for(Schedule, 'after_delete')

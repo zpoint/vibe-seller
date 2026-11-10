@@ -701,3 +701,27 @@ class TestSyncNow:
 
         assert r.status_code == 502
         assert 'IMAP connection refused' in r.json()['detail']
+
+
+class TestSendTelemetry:
+    async def test_permission_change_and_sends_are_sent(
+        self, admin_client, smtp_spy, monkeypatch
+    ):
+        events: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            'app.telemetry.send',
+            lambda e, p=None: events.append((e, dict(p or {}))),
+        )
+        acct = await _create_account(admin_client)
+        await _permit(admin_client, acct['id'], False)
+        await admin_client.post(
+            f'/api/email-accounts/{acct["id"]}/send', json=SEND_BODY
+        )
+        await _permit(admin_client, acct['id'], True)
+        await admin_client.post(
+            f'/api/email-accounts/{acct["id"]}/send', json=SEND_BODY
+        )
+        perms = [p for e, p in events if e == 'email_send_permission_changed']
+        assert perms == [{'allow_send': False}, {'allow_send': True}]
+        sent = [p['outcome'] for e, p in events if e == 'email_sent']
+        assert sent == ['refused', 'ok']

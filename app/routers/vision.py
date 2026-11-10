@@ -67,6 +67,8 @@ _MAX_PROXIED_IMAGE = 15 * 1024 * 1024  # 15 MB
 # and the taskId is also logged at WARNING for manual recovery.
 _INFLIGHT: dict[str, tuple[str, str]] = {}
 
+_KIND_RE = re.compile(r'[a-z0-9_-]{1,24}')
+
 
 def _take_inflight(task_id: str, model: str) -> str | None:
     """Pop and return a resumable kie.ai taskId for this task + model."""
@@ -75,6 +77,23 @@ def _take_inflight(task_id: str, model: str) -> str | None:
         return None
     _INFLIGHT.pop(task_id, None)
     return entry[0]
+
+
+def _image_props(model_id: str, kind: str) -> dict:
+    try:
+        usd = vision.get_model(model_id).usd
+    except Exception:
+        usd = None
+    label = (kind or '').strip().lower()
+    return {
+        'model': model_id if vision.is_known_model(model_id) else 'other',
+        'kind': (
+            label
+            if _KIND_RE.fullmatch(label)
+            else ('none' if not label else 'other')
+        ),
+        'price_bucket': telemetry.price_bucket(usd),
+    }
 
 
 def _safe_name(name: str) -> str:
@@ -304,7 +323,11 @@ async def generate_task_image(
         _INFLIGHT[task_id] = (e.kie_task_id, final_model)
         telemetry.send(
             TelemetryEvent.IMAGE_GENERATED,
-            {'ok': False, 'error_category': 'timeout'},
+            {
+                'ok': False,
+                'error_category': 'timeout',
+                **_image_props(final_model, kind),
+            },
         )
         logger.warning(
             'Image generation for task %s still running after %ss '
@@ -330,7 +353,11 @@ async def generate_task_image(
     except Exception as e:  # noqa: BLE001 — relay any kie.ai failure
         telemetry.send(
             TelemetryEvent.IMAGE_GENERATED,
-            {'ok': False, 'error_category': 'error'},
+            {
+                'ok': False,
+                'error_category': 'error',
+                **_image_props(final_model, kind),
+            },
         )
         logger.warning('Image generation failed for task %s: %s', task_id, e)
         raise HTTPException(status_code=502, detail=f'Generation failed: {e}')
@@ -359,7 +386,10 @@ async def generate_task_image(
             'kind': kind,
         },
     )
-    telemetry.send(TelemetryEvent.IMAGE_GENERATED, {'ok': True})
+    telemetry.send(
+        TelemetryEvent.IMAGE_GENERATED,
+        {'ok': True, **_image_props(final_model, kind)},
+    )
     # Persist the generated image so it re-renders inline on reload.
     # image_generated is otherwise a live-only SSE event, and the
     # conversation is rebuilt from persisted messages
@@ -414,8 +444,8 @@ async def confirm_task_image(
         'model': body.get('model'),
         'added_references': body.get('added_references') or [],
     }
+    card = vision.get_pending_request(task_id) or {}
     if action == 'confirm':
-        card = vision.get_pending_request(task_id) or {}
         if card.get('request_id') == request_id:
             # The card's own list is the contract: an id it never
             # offered is a forged or stale request, refused rather than
@@ -442,6 +472,24 @@ async def confirm_task_image(
             status_code=404,
             detail='No pending image request (expired or already handled)',
         )
+    proposed = (
+        card.get('model') if card.get('request_id') == request_id else None
+    )
+    telemetry.send(
+        TelemetryEvent.IMAGE_REQUEST_RESOLVED,
+        {
+            'task_id': task_id,
+            'action': action,
+            'model_changed': bool(
+                action == 'confirm'
+                and payload['model']
+                and payload['model'] != proposed
+            ),
+            'added_reference_count_bucket': telemetry.count_bucket(
+                len(payload['added_references'])
+            ),
+        },
+    )
     return {'ok': True}
 
 

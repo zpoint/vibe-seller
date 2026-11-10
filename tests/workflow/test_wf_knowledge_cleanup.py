@@ -508,3 +508,40 @@ class TestATierBeingCleanedIsLocked:
             json={'line_count': 1, 'ranges': [[1, 1]]},
         )
         assert r.status_code == 400
+
+
+async def test_cleanup_outcome_is_reported(
+    admin_client,
+    install_fake_agent,
+    override_async_session,
+    mock_knowledge_sync,
+    catalog_schedule,
+    upgraded,
+    two_stores,
+    admin_user,
+    monkeypatch,
+):
+    events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        'app.telemetry.send',
+        lambda e, p=None: events.append((e, dict(p or {}))),
+    )
+    install_fake_agent.default_scenario = FakeAgentScenario(
+        result='Cleaned and cataloged', skip_plan=True
+    )
+    store = two_stores[0]
+    fired = await _fire(override_async_session, [store], admin_user.id)
+    await wait_for_task(admin_client, fired[store['id']], timeout=10)
+    for _ in range(100):
+        sent = [p for e, p in events if e == 'knowledge_cleanup_finished']
+        if sent:
+            break
+        await real_sleep(0.02)
+    assert sent == [
+        {
+            'task_id': fired[store['id']],
+            'tier': 'l3',
+            'outcome': 'cleaned',
+            'restored_file_count': 0,
+        }
+    ]

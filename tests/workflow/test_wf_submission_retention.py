@@ -271,3 +271,78 @@ class TestIncompleteExit:
         assert gap in (data.get('review_gaps') or '')
         gate.set()
         await wait_for_task(admin_client, task_id)
+
+
+def _capture_telemetry(monkeypatch) -> list[tuple[str, dict]]:
+    events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        'app.telemetry.send',
+        lambda event, props=None: events.append((event, dict(props or {}))),
+    )
+    return events
+
+
+class TestGateTelemetry:
+    async def test_soft_gate_refusal_then_let_through(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        events = _capture_telemetry(monkeypatch)
+        gap = 'reports_2026-01: fee report missing'
+
+        async def short_delivery(db, task, task_root, **kw):
+            return GateDeny(
+                gate='deliverable_manifest', reason=gap, gaps=(gap,)
+            )
+
+        monkeypatch.setattr(
+            task_submission, 'check_deliverables', short_delivery
+        )
+        task_id, gate = await _running_task(
+            admin_client, install_fake_agent, 'Gate Telemetry Store'
+        )
+        body = {'result': PARTIAL}
+        await admin_client.post(f'/api/tasks/{task_id}/result', json=body)
+        await admin_client.post(f'/api/tasks/{task_id}/result', json=body)
+        gated = [p for e, p in events if e == 'task_result_gated']
+        assert [(p['gate'], p['outcome'], p['attempt']) for p in gated] == [
+            ('deliverable_manifest', 'refused', 1),
+            ('deliverable_manifest', 'allowed', 2),
+        ]
+        assert gated[0]['task_id'] == task_id
+        assert gated[0]['gap_count_bucket'] == '1-5'
+        gate.set()
+        await wait_for_task(admin_client, task_id)
+
+    async def test_stalled_skill_gate_fails_open(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        events = _capture_telemetry(monkeypatch)
+
+        class StalledGate:
+            @staticmethod
+            def check(result, task_id, rules):
+                return GateDeny(
+                    gate='fake_review', reason='unmet', gaps=('a', 'b')
+                )
+
+            @staticmethod
+            def is_stalled(task_id):
+                return True
+
+        monkeypatch.setattr(
+            'app.routers.tasks.resolve_skill_gates',
+            lambda loaded, workspace: [('fake_review', StalledGate)],
+        )
+        task_id, gate = await _running_task(
+            admin_client, install_fake_agent, 'Stalled Gate Store'
+        )
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result', json={'result': CLEAN}
+        )
+        assert r.status_code == 200
+        gated = [p for e, p in events if e == 'task_result_gated']
+        assert [(p['gate'], p['outcome']) for p in gated] == [
+            ('fake_review', 'failed_open')
+        ]
+        gate.set()
+        await wait_for_task(admin_client, task_id)

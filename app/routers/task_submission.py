@@ -21,8 +21,12 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.stop_gates import (
+    CONTRADICTION_MAX_DENIALS,
     SOFT_GATE_MAX_DENIALS,
+    contradiction_banner,
     record_attempt,
+    review_rounds_spent,
+    take_review_round,
 )
 from app.config import VIBE_SELLER_DIR
 from app.deliverables.gate import check_deliverables
@@ -31,6 +35,8 @@ from app.routers.tasks_files import (
     looks_like_result_path,
     resolve_workspace_result_path,
 )
+from app.telemetry_events import GateOutcome
+from app.telemetry_harness import send_result_gated
 from app.text_utils import SafeStr
 
 
@@ -175,9 +181,18 @@ async def apply_soft_gates(
     allowed_gaps: list[str] = []
     for deny in denials:
         attempt = record_attempt(task_id, deny.gate)
-        if attempt <= SOFT_GATE_MAX_DENIALS:
+        gaps = deny.gaps or (deny.reason,)
+        refused = attempt <= SOFT_GATE_MAX_DENIALS
+        send_result_gated(
+            task_id,
+            deny.gate,
+            GateOutcome.REFUSED if refused else GateOutcome.ALLOWED,
+            attempt=attempt,
+            gap_count=len(gaps),
+        )
+        if refused:
             await refuse(db, task, deny.reason, declared + deny.gaps)
-        allowed_gaps.extend(deny.gaps or (deny.reason,))
+        allowed_gaps.extend(gaps)
         logger.warning(
             'Soft gate %s exceeded %d denials for task %s — allowing '
             'result through anyway. Reason: %s',
@@ -187,3 +202,104 @@ async def apply_soft_gates(
             deny.reason[:200],
         )
     return tuple(allowed_gaps)
+
+
+async def apply_skill_gates(
+    db: AsyncSession,
+    task: Task,
+    skill_gates,
+    final_result: str,
+    rules,
+    declared: tuple[str, ...],
+) -> tuple[str, tuple[str, ...]]:
+    """Skill-declared domain gates: ``(final_result, gaps_to_ship)``.
+
+    Refuses by raising (see ``refuse``). What survives — a fail-open on
+    a stall, or a banner-marked contradiction — comes back as gaps that
+    ship as the result's caveats.
+    """
+    task_id = task.id
+    stalled_gaps: list[str] = []
+    for gate_name, gate in skill_gates:
+        deny = await asyncio.to_thread(gate.check, final_result, task_id, rules)
+        if not deny:
+            continue
+        # Fail open only on STALL when the gate tracks one (see the
+        # review-collect skill's review_completeness_review gate for
+        # the stall design).
+        # And at most AD_REVIEW_ROUNDS refusals per gate in any case: the
+        # fix is asked for once, then what is still unmet ships as caveats.
+        is_stalled = getattr(gate, 'is_stalled', None)
+        if (
+            is_stalled is None or not is_stalled(task_id)
+        ) and take_review_round(task_id, gate_name):
+            send_result_gated(
+                task_id,
+                gate_name,
+                GateOutcome.REFUSED,
+                attempt=review_rounds_spent(task_id, gate_name),
+                gap_count=len(deny.gaps or (deny.reason,)),
+            )
+            await refuse(db, task, deny.reason, declared + deny.gaps)
+        # A CONTRADICTION is not the kind of gap the stall exists to
+        # forgive. The fail-open is there so a weak model is never trapped
+        # by work it cannot finish; accepting a figure that cannot be true
+        # is a different act, because the number ships into decisions.
+        # Keep refusing past the stall — the agent always has a legal move
+        # (fix it, or mark the campaign untrustworthy), so this cannot
+        # trap. Bounded anyway: past the cap the banner below makes the
+        # contradiction impossible to miss instead of impossible to pass.
+        if deny.contradictions:
+            n = record_attempt(task_id, f'{gate_name}:contradiction')
+            send_result_gated(
+                task_id,
+                gate_name,
+                GateOutcome.REFUSED
+                if n <= CONTRADICTION_MAX_DENIALS
+                else GateOutcome.BANNER_MARKED,
+                attempt=n,
+                gap_count=len(deny.contradictions),
+            )
+            if n <= CONTRADICTION_MAX_DENIALS:
+                await refuse(
+                    db, task, deny.reason, declared + deny.contradictions
+                )
+            logger.warning(
+                'Gate %s: %d contradiction(s) unresolved after %d refusals '
+                'for task %s — banner-marking the result. First: %s',
+                gate_name,
+                len(deny.contradictions),
+                n,
+                task_id,
+                deny.contradictions[0][:160],
+            )
+            final_result = (
+                contradiction_banner(deny.contradictions) + final_result
+            )
+            stalled_gaps.extend(deny.contradictions)
+        # Log the GAPS, not ``deny.reason`` — the reason opens with a
+        # fixed instruction banner and appends the gap list at the END,
+        # so a truncated prefix of it is pure boilerplate. Six of these
+        # lines in one run read byte-identical while the underlying gaps
+        # went 14 → 8 → 7, which is worse than silence: it looks like a
+        # run repeating itself when it is converging. Say "failing open"
+        logger.warning(
+            'Gate %s stalled for task %s — failing open with %d unmet gap(s). '
+            'Gaps: %s',
+            gate_name,
+            task_id,
+            len(deny.gaps or ()),
+            ' | '.join(g[:110] for g in (deny.gaps or ())[:4])
+            or deny.reason[:160],
+        )
+        send_result_gated(
+            task_id,
+            gate_name,
+            GateOutcome.FAILED_OPEN,
+            attempt=review_rounds_spent(task_id, gate_name),
+            gap_count=len(deny.gaps or (deny.reason,)),
+        )
+        # Failed open on a stall: the result ships, but the unmet gaps
+        # ride along as caveats instead of vanishing into a log line.
+        stalled_gaps.extend(deny.gaps or (deny.reason,))
+    return final_result, tuple(stalled_gaps)

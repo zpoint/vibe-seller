@@ -87,6 +87,10 @@ def take_review_round(task_id: str, check: str) -> bool:
     return True
 
 
+def review_rounds_spent(task_id: str, check: str) -> int:
+    return _review_rounds.get((task_id, check), 0)
+
+
 def reset_attempts(task_id: str) -> None:
     """Drop all attempt counters for a task.
 

@@ -35,7 +35,7 @@ async_session = async_sessionmaker(
 )
 
 
-def _ensure_added_columns(conn) -> None:
+def _ensure_added_columns(conn) -> int:
     """Idempotently ADD columns introduced after a table first shipped.
 
     ``create_all`` creates missing tables but never ALTERs an existing
@@ -121,10 +121,10 @@ def _ensure_added_columns(conn) -> None:
                 f'ALTER TABLE {table} ADD COLUMN {column} {sqltype}'
             )
     _backfill_finalize_enabled_at(conn)
-    _stale_outdated_plans(conn)
+    return _stale_outdated_plans(conn)
 
 
-def _stale_outdated_plans(conn) -> None:
+def _stale_outdated_plans(conn) -> int:
     """Send plans frozen under an older harness contract back to re-plan.
 
     A ready plan-mode schedule replays its frozen plan on every fire;
@@ -137,12 +137,13 @@ def _stale_outdated_plans(conn) -> None:
     Runs on every boot; after the first it only matches a plan frozen
     by an older build.
     """
-    conn.exec_driver_sql(
+    result = conn.exec_driver_sql(
         'UPDATE schedules SET plan_status = ? '
         'WHERE plan_mode = 1 AND is_system = 0 AND plan_status = ? '
         'AND COALESCE(plan_contract, 1) < ?',
         (PlanStatus.STALE.value, PlanStatus.READY.value, PLAN_CONTRACT),
     )
+    return max(0, result.rowcount or 0)
 
 
 def _backfill_finalize_enabled_at(conn) -> None:
@@ -170,10 +171,10 @@ def _backfill_finalize_enabled_at(conn) -> None:
     )
 
 
-async def init_db():
+async def init_db() -> dict:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        await conn.run_sync(_ensure_added_columns)
+        plans_staled = await conn.run_sync(_ensure_added_columns)
 
     async with async_session() as session:
         # ── Seed app settings (first boot only) ──
@@ -289,6 +290,7 @@ async def init_db():
                 )
             )
             await session.commit()
+    return {'plans_staled_on_boot': plans_staled}
 
 
 async def get_db():

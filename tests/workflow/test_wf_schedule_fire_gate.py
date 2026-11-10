@@ -187,3 +187,41 @@ class TestFanoutGate:
                 select(Task).where(Task.schedule_id == sched_id)
             )
             assert rows.scalars().all() == []
+
+
+class TestFireGateTelemetry:
+    async def test_skipped_fire_and_plan_status_change_are_sent(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        events: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            'app.telemetry.send',
+            lambda e, p=None: events.append((e, dict(p or {}))),
+        )
+        sched_id = await _mk_schedule(
+            admin_client, plan_mode=True, plan_status='stale'
+        )
+        await run_single_job(
+            schedule_id=sched_id,
+            task_title='t',
+            description='d',
+            plan_mode=True,
+        )
+        skipped = [p for e, p in events if e == 'schedule_fire_skipped']
+        assert skipped == [
+            {
+                'schedule_id': sched_id,
+                'reason': 'plan_not_ready',
+                'plan_status': 'stale',
+            }
+        ]
+
+        async with _db.async_session() as db:
+            sched = await db.get(Schedule, sched_id)
+            sched.plan_status = 'ready'
+            await db.commit()
+        changed = [p for e, p in events if e == 'schedule_plan_status_changed']
+        assert changed == [
+            {'schedule_id': sched_id, 'from': 'stale', 'to': 'ready'}
+        ]
+        assert not [e for e, _ in events if e == 'schedule_updated']
