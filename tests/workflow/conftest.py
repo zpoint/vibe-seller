@@ -289,6 +289,9 @@ def install_fake_agent(fake_agent, monkeypatch):
     )
     monkeypatch.setattr('app.routers.tasks.agent_manager', fake_agent)
     monkeypatch.setattr(
+        'app.routers.tasks_ad_declaration.agent_manager', fake_agent
+    )
+    monkeypatch.setattr(
         'app.routers.tasks_conversation.agent_manager', fake_agent
     )
     monkeypatch.setattr('app.task_finalize.agent_manager', fake_agent)
