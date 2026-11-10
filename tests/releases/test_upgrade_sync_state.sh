@@ -130,9 +130,34 @@ pick another port with PORT=<n>; refusing to test against it"
 fi
 
 echo "== 1. previous stable in its own venv"
-python3 -m venv "$WORK/old" >/dev/null
+# ``uv`` (not pip): the project venv is uv-managed and has no pip
+# module, and CI creates it with ``uv venv`` + ``uv pip install``.
+UV_BIN=${UV:-$(command -v uv || echo "$REPO/.venv/bin/uv")}
+# Install the release with the dependencies it had on the day it
+# shipped — what a user upgrading from it actually has. Resolving its
+# open-ended ranges today pulls releases it never ran against (a newer
+# browser-use stopped bringing in a module old releases imported
+# without declaring, so every old release failed to start).
+read -r PREV_RESOLVED PREV_CUTOFF < <(
+  "$PY" - "${PREV_VERSION:-}" <<'PYEOF'
+import datetime, json, sys, urllib.request
+want = sys.argv[1]
+with urllib.request.urlopen('https://pypi.org/pypi/vibe-seller/json') as r:
+    meta = json.load(r)
+ver = want or meta['info']['version']
+files = meta['releases'][ver]
+up = max(
+    datetime.datetime.fromisoformat(f['upload_time_iso_8601'].replace('Z', '+00:00'))
+    for f in files
+)
+print(ver, (up + datetime.timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%SZ'))
+PYEOF
+) || fail "could not look up the previous release on PyPI"
+"$UV_BIN" venv -q --python 3.11 "$WORK/old" >/dev/null \
+  || fail "could not create the old venv"
 OLD="$WORK/old/bin"
-"$OLD/pip" install -q "vibe-seller${PREV_VERSION:+==$PREV_VERSION}" \
+"$UV_BIN" pip install -q --python "$OLD/python" \
+  --exclude-newer "$PREV_CUTOFF" "vibe-seller==$PREV_RESOLVED" \
   || fail "could not install the previous release"
 OLD_VERSION=$("$OLD/vibe-seller" --version 2>/dev/null | tail -1)
 echo "   previous: ${OLD_VERSION:-unknown}"
@@ -185,9 +210,6 @@ expect_port_free
 
 echo "== 3. the current build over the same home"
 expect_port_free
-# ``uv`` (not pip): the project venv is uv-managed and has no pip
-# module, and CI creates it with ``uv venv`` + ``uv pip install``.
-UV_BIN=${UV:-$(command -v uv || echo "$REPO/.venv/bin/uv")}
 "$UV_BIN" pip install --python "$PY" -q -e "$REPO" \
   || fail "could not install this build"
 export VIBE_GITHUB_MAIN_SYNC=off
