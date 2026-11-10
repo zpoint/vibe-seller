@@ -205,8 +205,8 @@ class TestProfileCrud:
         - qwen3.8-max / qwen3.8-flash live-probed 2026-11-10 on the
           pay-go endpoint (red+blue, 3x each) -> True on every Qwen
           plan that lists them.
-        - Token Plan ``auto`` has no key to probe -> vision OMITTED
-          (None) rather than guessed.
+        - Token Plan (China) ``auto`` live-probed 2026-11-10 -> True;
+          the international Token Plan has no key -> OMITTED (None).
         """
         r = await admin_client.get('/api/profiles/presets')
         presets = r.json()['presets']
@@ -242,8 +242,9 @@ class TestProfileCrud:
         for pid in ('qwen', 'qwen_intl', 'qwen_token', 'qwen_token_intl'):
             assert vis(pid, 'qwen3.8-max') is True, pid
             assert vis(pid, 'qwen3.8-flash') is True, pid
-        # No key for Token Plan's router: omitted, not guessed.
-        assert vis('qwen_token', 'auto') is None
+        # Token Plan router: live-verified on China, no intl key.
+        assert vis('qwen_token', 'auto') is True
+        assert vis('qwen_token_intl', 'auto') is None
 
     async def test_presets_match_vendor_docs(self, admin_client):
         """Pin the load-bearing values for the vendor-doc-aligned

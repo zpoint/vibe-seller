@@ -827,12 +827,17 @@ PROVIDER_MODELS = {
     ],
     # Token Plan flagship routes through ``auto`` (Alibaba's own
     # default); qwen3.8-max graduated from preview to GA. The 3.7/3.6
-    # ids reuse the pay-go-verified labels, as do the qwen3.8 ids
-    # (probed 2026-11-10). auto has no key to probe -> vision omitted.
+    # ids reuse the pay-go-verified labels. Probed on this endpoint
+    # 2026-11-10 (red+blue, 3x): auto, qwen3.8-max, qwen3.8-flash and
+    # qwen3.6-flash all 6/6 -> vision. The console lists auto as
+    # text/reasoning only, but the router hands image requests to a
+    # vision model. The international Token Plan has no key to probe, so
+    # its auto stays unlabelled.
     'qwen_token': [
         {
             'id': 'auto',
-            'label': 'Auto (provider-routed)',
+            'label': 'Auto (provider-routed, vision)',
+            'vision': True,
         },
         {
             'id': 'qwen3.8-max',
