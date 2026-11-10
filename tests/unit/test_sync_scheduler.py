@@ -13,6 +13,7 @@ import pytest
 
 import app.browser.daemon_reaper as reaper
 from app.env_options import Options
+from app.plugins import ExtensionContext
 import app.scheduler.cron as cron
 from app.sync import jobs as sync_jobs, state as sync_state
 from app.sync.scheduler import (
@@ -626,3 +627,54 @@ async def test_a_stopped_job_still_runs_on_demand(monkeypatch, aps, state):
     assert 'skills' not in sched._next
     await sched.trigger('skills', reason=REASON_EVENT, force=True)
     assert len(rec.calls) == 1
+
+
+async def test_external_switch_stops_a_plugin_job_that_names_no_source(
+    switches_on, monkeypatch, aps, state
+):
+    """A plugin job reaches some outside host; unless it says otherwise
+    it is an external source, so ``VIBE_EXTERNAL_SYNC=off`` (what CI
+    sets) keeps it from ticking — it must not poll a network in tests."""
+    ctx = ExtensionContext()
+    ctx.register_sync_job(
+        SyncJob(name='plugin_thing', cadence=Cadence.DAILY, run=Recorder())
+    )
+    monkeypatch.setattr(
+        sync_jobs, 'registered_sync_jobs', lambda: ctx.sync_jobs
+    )
+    monkeypatch.setenv('VIBE_EXTERNAL_SYNC', 'off')
+    sched = SyncScheduler(aps)
+    await sync_jobs.register_jobs(sched)
+    assert 'plugin_thing' in sched.names()
+    assert 'plugin_thing' not in sched._next
+    assert 'email' in sched._next
+
+
+@pytest.mark.parametrize('value', ['1', 'true'])
+async def test_retired_sync_disabled_warns_at_boot_naming_replacements(
+    switches_on, monkeypatch, aps, state, caplog, value
+):
+    monkeypatch.setenv('VIBE_SYNC_DISABLED', value)
+    monkeypatch.setattr(sync_jobs, 'registered_sync_jobs', lambda: [])
+    with caplog.at_level(logging.WARNING, logger='app.sync'):
+        await sync_jobs.register_jobs(SyncScheduler(aps))
+    warnings = [
+        r.getMessage()
+        for r in caplog.records
+        if 'VIBE_SYNC_DISABLED' in r.getMessage()
+    ]
+    assert len(warnings) == 1
+    assert 'VIBE_GITHUB_MAIN_SYNC=off' in warnings[0]
+    assert 'VIBE_EXTERNAL_SYNC=off' in warnings[0]
+
+
+async def test_no_retired_switch_warning_when_unset(
+    switches_on, monkeypatch, aps, state, caplog
+):
+    monkeypatch.delenv('VIBE_SYNC_DISABLED', raising=False)
+    monkeypatch.setattr(sync_jobs, 'registered_sync_jobs', lambda: [])
+    with caplog.at_level(logging.WARNING, logger='app.sync'):
+        await sync_jobs.register_jobs(SyncScheduler(aps))
+    assert not any(
+        'VIBE_SYNC_DISABLED' in r.getMessage() for r in caplog.records
+    )

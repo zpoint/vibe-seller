@@ -144,8 +144,10 @@ class SyncJob:
     depends_on: tuple[str, ...] = ()
     #: Where the job reaches out to (``SOURCE_*``). Only these can be
     #: switched off; a job with none (mail, the daemon reaper) always
-    #: ticks.
-    sources: frozenset[str] = frozenset()
+    #: ticks. The default is an outside host: a job that does not say
+    #: (a plugin's) is stopped by ``VIBE_EXTERNAL_SYNC=off``, and only
+    #: core's own work opts out by passing ``frozenset()``.
+    sources: frozenset[str] = frozenset({SOURCE_EXTERNAL})
 
 
 # ── Test knobs: cadence override + jitter ──────────────────────────
@@ -236,6 +238,25 @@ def _is_strong(reason: str, force: bool) -> bool:
 
 def _switched_off(option) -> bool:
     return option.get().strip().lower() in ('off', '0', 'false')
+
+
+def warn_retired_switch() -> bool:
+    """Log once at boot if the retired ``VIBE_SYNC_DISABLED`` is set.
+
+    The variable no longer does anything; an install that still sets it
+    expects its syncs off, so say which switches replaced it. Returns
+    whether it warned.
+    """
+    raw = Options.SYNC_DISABLED_RETIRED.get().strip()
+    if not raw:
+        return False
+    logger.warning(
+        'VIBE_SYNC_DISABLED=%r is no longer read and has no effect. Use '
+        'VIBE_GITHUB_MAIN_SYNC=off to stop pulls from GitHub main and '
+        'VIBE_EXTERNAL_SYNC=off to stop calls to other outside hosts.',
+        raw,
+    )
+    return True
 
 
 def timers_armed(job: SyncJob) -> bool:

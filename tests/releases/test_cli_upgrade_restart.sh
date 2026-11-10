@@ -42,6 +42,7 @@ export UV_TOOL_BIN_DIR="$WORK/bin"
 export PATH="$UV_TOOL_BIN_DIR:$PATH"
 export VIBE_SYNC_DISABLED=1   # what a pre-0.2.x client reads
 export VIBE_GITHUB_MAIN_SYNC=off
+export VIBE_EXTERNAL_SYNC=off   # the current build has two switches
 export VIBE_SELLER_TELEMETRY=0
 mkdir -p "$VIBE_HOME"
 

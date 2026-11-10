@@ -213,6 +213,7 @@ expect_port_free
 "$UV_BIN" pip install --python "$PY" -q -e "$REPO" \
   || fail "could not install this build"
 export VIBE_GITHUB_MAIN_SYNC=off
+export VIBE_EXTERNAL_SYNC=off   # the current build has two switches
 "$REPO/start.sh" $PORT >/dev/null 2>&1
 wait_for_health
 

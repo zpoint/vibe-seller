@@ -36,6 +36,7 @@ from app.sync.scheduler import (
     SyncJob,
     SyncResult,
     SyncScheduler,
+    warn_retired_switch,
 )
 from app.sync.state import STATUS_FAILED, STATUS_UNCHANGED, STATUS_UPDATED
 from app.workspace.knowledge_sync import knowledge_sync
@@ -312,11 +313,13 @@ def core_jobs() -> list[SyncJob]:
             name=EMAIL_JOB,
             cadence=Cadence.FAST,
             run=_run_email,
+            sources=frozenset(),
         ),
         SyncJob(
             name=REAPER_JOB,
             cadence=Cadence.FAST,
             run=_run_reaper,
+            sources=frozenset(),
         ),
     ]
 
@@ -328,6 +331,7 @@ async def register_jobs(scheduler: SyncScheduler) -> list[str]:
     ``GET /api/sync/status`` always work. A switched-off source only
     keeps its jobs from ticking (see ``scheduler.timers_armed``).
     """
+    warn_retired_switch()
     jobs = [*core_jobs(), *registered_sync_jobs()]
     await scheduler.register_all(jobs)
     logger.info('sync scheduler: registered %s', [j.name for j in jobs])

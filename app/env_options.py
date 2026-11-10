@@ -158,6 +158,10 @@ class Options(enum.Enum):
     # stagger so a compressed cadence fires on the nose (tests).
     GITHUB_MAIN_SYNC = ('VIBE_GITHUB_MAIN_SYNC', 'on')
     EXTERNAL_SYNC = ('VIBE_EXTERNAL_SYNC', 'on')
+    # Retired: the single kill switch the two above replaced. Nothing
+    # reads it except a boot warning naming the replacements, so a
+    # setting left over from an older install is not silently ignored.
+    SYNC_DISABLED_RETIRED = ('VIBE_SYNC_DISABLED', '')
     SYNC_CADENCE_OVERRIDE = ('VIBE_SYNC_CADENCE_OVERRIDE', '')
     SYNC_JITTER = ('VIBE_SYNC_JITTER', '')
     # How long a task launch waits for an in-flight sync before
