@@ -136,7 +136,7 @@ catalog won't promote it to "first-class store knowledge".
 
 ## Skills System
 
-Reusable agent procedures with scripts, bundled in `app/skills_v2/` and synced to `~/.vibe-seller/.claude/skills/`. Skills must be direct children of `skills/` for Claude Code auto-discovery. (`app/skills/` is the frozen legacy tree for clients on browser-use 0.12 — never add files there; see [CLAUDE.md § Skill hosting across release lines](../CLAUDE.md) and [docs/browser-use-0.13-migration.md](browser-use-0.13-migration.md).)
+Reusable agent procedures with scripts, bundled in `app/skills_v2/` and synced to `~/.vibe-seller/.claude/skills/`. Skills must be direct children of `skills/` for Claude Code auto-discovery. (`app/skills/` is the frozen legacy tree for clients on browser-use 0.12 — never add files there; see [CLAUDE.md § Skill hosting across release lines](https://github.com/zpoint/vibe-seller/blob/main/CLAUDE.md#skill-hosting-across-release-lines) and [docs/browser-use-0.13-migration.md](browser-use-0.13-migration.md).)
 
 - **Three-tier sync**: local package → workspace `skills/`, remote GitHub via `MANIFEST.txt`, driven by the central sync scheduler's daily `skills` job (plus the Sync button) — see `app/sync/scheduler.py`
 - **User skills**: created via UI at `~/.vibe-seller/.claude/skills/{slug}/` (same directory as built-in, distinguished by `.sync_meta.json`)
