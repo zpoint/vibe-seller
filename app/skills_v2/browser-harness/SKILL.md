@@ -74,7 +74,10 @@ next call instead of assuming where you left off.
    for text, values and element coordinates (`getBoundingClientRect`).
 3. **Interact:** click with `click_at_xy(x, y)` at coordinates read in
    step 2; type into inputs with `fill_input(selector, text)`. Re-read the
-   DOM afterwards to confirm the change took.
+   DOM afterwards to confirm the change took. After a click that submits a
+   form or navigates, `wait_for_load()` returns at once — the old page is
+   still `complete` — so a read right after it shows the page from before
+   the submit. Read the result from `new_tab(url)` instead.
 4. **After navigation:** `wait_for_load()`; for single-page apps that
    render after `readyState` is complete, `wait_for_element(selector)`.
    If the tab is stale or internal, `ensure_real_tab()`.

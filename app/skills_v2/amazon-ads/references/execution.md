@@ -89,7 +89,10 @@ done. Anchor progress in the task list, which survives:
    paths are in `mechanics-edit.md`
    (noon: `noon-ads/references/applying-changes.md`). Keep a before/after capture in a subfolder of the task dir (your CWD).
 4. Read the change back from the console — send each write once; never
-   re-send it to see a status code. Check the bid cell, the state toggle,
+   re-send it to see a status code. Read it from a page you open afresh
+   (`new_tab`) after the submit: the page you submitted from can still show
+   the old value. A write that looks like it did not take is sent again
+   only when a fresh page still shows the old value. Check the bid cell, the state toggle,
    the negative in the negatives list, a re-export after a bulk upload.
    A bulk `Success` only means the file was accepted; rule-based bidding
    can also move a bid back, so read after a short wait.
