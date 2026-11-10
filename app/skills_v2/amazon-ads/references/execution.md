@@ -77,7 +77,8 @@ done. Anchor progress in the task list, which survives:
    in a campaign, so use them only for an approval that says so. Click
    paths are in `mechanics-edit.md`
    (noon: `noon-ads/references/applying-changes.md`). Keep a before/after capture in a subfolder of the task dir (your CWD).
-4. Read the change back from the console: the bid cell, the state toggle,
+4. Read the change back from the console — send each write once; never
+   re-send it to see a status code. Check the bid cell, the state toggle,
    the negative in the negatives list, a re-export after a bulk upload.
    A bulk `Success` only means the file was accepted; rule-based bidding
    can also move a bid back, so read after a short wait.
