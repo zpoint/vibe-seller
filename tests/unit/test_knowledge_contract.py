@@ -56,6 +56,20 @@ class TestDeletionOnly:
         assert kc.deletion_only_error(NOTE, swapped) is not None
 
 
+class TestTier:
+    def test_global_run_cleans_shared_knowledge_only(self):
+        assert kc.tier_error('knowledge/notes.md', None) is None
+        assert kc.tier_error('./knowledge/notes.md', None) is None
+        assert kc.tier_error('knowledge/project/common/a.md', None)
+        assert kc.tier_error('stores/acme-x/notes.md', None)
+
+    def test_store_run_cleans_its_own_store_only(self):
+        assert kc.tier_error('stores/acme-x/notes.md', 'acme-x') is None
+        assert kc.tier_error('stores/beta-y/notes.md', 'acme-x')
+        assert kc.tier_error('knowledge/notes.md', 'acme-x')
+        assert kc.tier_error('../stores/acme-x/notes.md', 'acme-x')
+
+
 async def _db(monkeypatch):
     for k in ('ADMIN_EMAIL', 'ADMIN_PASSWORD', 'VIBE_AUTH_REQUIRED'):
         monkeypatch.delenv(k, raising=False)

@@ -18,11 +18,12 @@ from app.models.store import Store
 from app.models.task import Task
 from app.plugins import registered_prompt_fragments
 from app.prompts import (
+    CATALOG_CLEANUP_PROMPT_L2,
+    CATALOG_CLEANUP_PROMPT_L3,
     CATALOG_RESTRICTION_PROMPT_L2,
     CATALOG_RESTRICTION_PROMPT_L3,
     DESIGN_SYSTEM_PROMPT,
     DESIGN_SYSTEM_PROMPT_AUTO,
-    KNOWLEDGE_CLEANUP_PROMPT,
     SCHEDULED_PRETASK_PROMPT,
     VISION_SETUP_BREADCRUMB,
     WAITING_INSTRUCTION_PROMPT,
@@ -155,16 +156,29 @@ async def build_system_extra(
         schedule and schedule.staleness_check == StalenessCheck.CATALOG
     )
     if is_catalog:
-        guidance = (
-            CATALOG_RESTRICTION_PROMPT_L2
-            if task.store_id is None
-            else CATALOG_RESTRICTION_PROMPT_L3
-        )
         async with async_session() as db:
-            if await knowledge_contract.needs_cleanup(
+            cleanup = await knowledge_contract.needs_cleanup(
                 db, cleanup_scope(task.store_id)
-            ):
-                guidance += '\n\n' + KNOWLEDGE_CLEANUP_PROMPT
+            )
+        # A scope owing the one-time cleanup gets one prompt that says
+        # what this run may write (app/knowledge_contract.py), in place
+        # of the restriction that would forbid it.
+        if task.store_id is None:
+            guidance = (
+                CATALOG_CLEANUP_PROMPT_L2
+                if cleanup
+                else CATALOG_RESTRICTION_PROMPT_L2
+            )
+        else:
+            guidance = (
+                CATALOG_CLEANUP_PROMPT_L3
+                if cleanup
+                else CATALOG_RESTRICTION_PROMPT_L3
+            )
+            if store is not None:
+                guidance = guidance.replace(
+                    '<slug>', _store_slug(store.name, store.id)
+                )
     else:
         guidance = ''
     base = base.replace('{workspace_guidance}', guidance)

@@ -30,7 +30,7 @@ from app.models.schedule_constants import (
 )
 from app.models.store import Store
 from app.models.task import Task
-from app.prompts import CATALOG_DESC_L3, KNOWLEDGE_CLEANUP_PROMPT
+from app.prompts import CATALOG_DESC_L3, CATALOG_RESTRICTION_PROMPT_L3
 from app.task_runner_auto import auto_run_task
 from app.task_states import TaskStatus
 from tests.workflow.conftest import real_sleep, wait_for_task
@@ -39,7 +39,11 @@ from tests.workflow.fake_agent import FakeAgentScenario
 pytestmark = pytest.mark.workflow
 
 UP_TO_DATE = 'L3 catalog already up-to-date'
-CLEANUP_LINE = KNOWLEDGE_CLEANUP_PROMPT[:60]
+CLEANUP_LINE = 'after a one-time cleanup of the notes it lists'
+# The everyday restriction forbids writing notes; a cleanup run must
+# not carry it next to the cleanup's permission (no contradiction).
+FORBID_LINE = 'write any file other than the catalog'
+assert FORBID_LINE in CATALOG_RESTRICTION_PROMPT_L3
 
 
 @pytest_asyncio.fixture
@@ -145,6 +149,12 @@ async def test_runs_once_then_never_again(
         assert data['status'] == 'completed'
         assert _ran_with_cleanup(install_fake_agent, first[s['id']]) is True
         assert not await _owes(override_async_session, s['id'])
+        prompt = install_fake_agent.get_calls(
+            task_id=first[s['id']], action='run'
+        )[0].system_extra
+        assert FORBID_LINE not in prompt
+        assert f'stores/{store_slug(s["name"])}/' in prompt
+        assert 'stores/<slug>/' not in prompt
 
     second = await _fire(override_async_session, two_stores, admin_user.id)
     for s in two_stores:
@@ -312,6 +322,30 @@ class TestCleanupWritesOnlyDelete:
         )
         assert r.status_code == 400
         assert 'margin: 30' in r.text
+
+    async def test_a_store_run_cannot_edit_shared_knowledge(
+        self,
+        admin_client,
+        override_async_session,
+        mock_workspace,
+        catalog_schedule,
+        upgraded,
+        admin_user,
+    ):
+        tid, _path = await self._cleanup_task(
+            override_async_session, admin_client, admin_user
+        )
+        shared = 'knowledge/notes.md'
+        r = await admin_client.put(
+            f'/api/workspace/file?path={shared}', json={'content': self.NOTE}
+        )
+        assert r.status_code == 200, r.text
+        r = await admin_client.put(
+            f'/api/workspace/file?path={shared}&task_id={tid}',
+            json={'content': '# Notes\n'},
+        )
+        assert r.status_code == 400
+        assert 'another tier' in r.text
 
     async def test_other_writers_are_unaffected(
         self,

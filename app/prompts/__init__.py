@@ -79,24 +79,46 @@ CATALOG_RESTRICTION_PROMPT_L3: str = (
     'knowledge correct" below: this run edits nothing else.'
 )
 
-# Appended to the catalog restriction once per scope after an upgrade
-# that changes the harness (app/knowledge_contract.py). The server
-# refuses any write in this run that adds or rewords a line.
-KNOWLEDGE_CLEANUP_PROMPT: str = (
-    'One-time cleanup first: this app was upgraded. Notes written '
-    'before may describe how the platform itself checked or reviewed '
-    'work — a review pass or reviewer subagent, what a gate refused, '
-    'when an approval froze, freshness or completeness checks, which '
-    'file a check reads. Those descriptions are now wrong, and the '
-    'skills describe the current behaviour. In the files you catalog, '
-    'delete exactly those passages and nothing else: keep store '
-    'facts, business rules, standards the user stated (`key: value` '
-    'lines), page paths, UI and data gotchas for the marketplaces. '
-    'When unsure, keep it. For this cleanup you may write those files '
-    'with vibe_seller_write_workspace_file, removing lines only — '
-    'the server refuses a write that adds or changes a line. Then '
-    'build the catalog, and list in your result each file you '
-    'changed and what you removed.'
+
+# Replaces the catalog restriction, once per scope, after an upgrade
+# that changes the harness (app/knowledge_contract.py) — one rule for
+# what this run may write, instead of a "write nothing else" followed
+# by an exception. The server refuses a write in this run that adds or
+# rewords a line, or touches a file outside the tier.
+def _catalog_cleanup_prompt(catalog: str, files: str, also: str) -> str:
+    return (
+        f'You are regenerating the catalog {catalog}, after a one-time '
+        'cleanup of the notes it lists. Do not launch subagents or '
+        f'create skills{also}, and skip "Keeping knowledge correct" '
+        'below.\n\n'
+        'Cleanup first: this app was upgraded. Notes written before may '
+        'describe how the platform itself checked or reviewed work — a '
+        'review pass or reviewer subagent, what a gate refused, when an '
+        'approval froze, freshness or completeness checks, which file a '
+        'check reads. The skills now describe that behaviour, so these '
+        'descriptions are outdated and mislead later tasks. In this '
+        f"tier's own files — {files} — delete exactly those passages "
+        'and nothing else. Keep store facts, business rules, standards '
+        'the user stated (`key: value` lines), page paths, and UI and '
+        'data gotchas for the marketplaces. When unsure, keep it.\n\n'
+        'Write each changed file with vibe_seller_write_workspace_file, '
+        'removing lines only; the server refuses a write that adds or '
+        'changes a line, or touches a file outside this tier. Write no '
+        'other file. Then build the catalog, and list in your result '
+        'each file you changed and what you removed.'
+    )
+
+
+CATALOG_CLEANUP_PROMPT_L2: str = _catalog_cleanup_prompt(
+    'knowledge/CATALOG.md (L2, global)',
+    'files under knowledge/, except knowledge/project/ (read-only)',
+    '',
+)
+CATALOG_CLEANUP_PROMPT_L3: str = _catalog_cleanup_prompt(
+    'stores/<slug>/CATALOG.md (L3, this store)',
+    'files under stores/<slug>/; shared knowledge/ files are cleaned '
+    'by the global run, not this one',
+    ', and do not modify anything under knowledge/',
 )
 
 # The result format both catalog sync prompts point to. One source so

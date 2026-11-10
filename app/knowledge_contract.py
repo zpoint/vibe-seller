@@ -84,6 +84,31 @@ async def mark_cleaned(db, scope: str) -> None:
         row.value = str(KNOWLEDGE_CONTRACT)
 
 
+def tier_error(path: str, store_slug: str | None) -> str | None:
+    """Refuse a cleanup write outside the task's own tier.
+
+    The global run cleans ``knowledge/`` (not the read-only
+    ``knowledge/project/``); a store's run cleans ``stores/<slug>/``.
+    A store's catalog lists the shared files too, so without this a
+    store run could edit notes every store reads.
+    """
+    rel = path.removeprefix('./')
+    if store_slug is None:
+        ok = rel.startswith('knowledge/') and not rel.startswith(
+            'knowledge/project/'
+        )
+        tier = 'knowledge/ (not knowledge/project/)'
+    else:
+        tier = f'stores/{store_slug}/'
+        ok = rel.startswith(tier)
+    if ok:
+        return None
+    return (
+        f'This one-time cleanup only edits files under {tier}; {path} '
+        'belongs to another tier and is cleaned by its own run.'
+    )
+
+
 def deletion_only_error(old: str, new: str) -> str | None:
     """Refuse a cleanup write that adds or rewords anything.
 

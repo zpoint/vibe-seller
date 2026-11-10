@@ -7,10 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import knowledge_contract
 from app.auth import get_current_user
+from app.browser.manager import store_slug
 from app.browser.wrapper import validate_store_slug
 from app.database import get_db
 from app.models.schedule import Schedule
 from app.models.schedule_constants import StalenessCheck
+from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
 from app.schemas.workspace import (
@@ -92,12 +94,12 @@ async def read_file_raw(
 async def _cleanup_write_error(
     db: AsyncSession, task_id: str, path: str, content: str
 ) -> str | None:
-    """Hold a knowledge-cleanup run to deleting lines.
+    """Hold a knowledge-cleanup run to deleting lines in its own tier.
 
     A catalog-sync task whose scope still owes the one-time cleanup
-    (app/knowledge_contract.py) may rewrite notes — but only to remove
-    outdated passages, never to add or reword. Any other writer is
-    unaffected.
+    (app/knowledge_contract.py) may rewrite notes — but only its own
+    tier's, and only to remove outdated passages, never to add or
+    reword. Any other writer is unaffected.
     """
     task = await db.get(Task, task_id)
     if task is None or not task.schedule_id:
@@ -109,6 +111,13 @@ async def _cleanup_write_error(
         db, knowledge_contract.cleanup_scope(task.store_id)
     ):
         return None
+    slug = None
+    if task.store_id is not None:
+        store = await db.get(Store, task.store_id)
+        slug = store_slug(store.name, store.id) if store else ''
+    err = knowledge_contract.tier_error(path, slug)
+    if err:
+        return err
     try:
         old = await workspace_manager.read_file(path)
     except (FileNotFoundError, ValueError):
