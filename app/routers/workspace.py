@@ -25,6 +25,7 @@ from app.schemas.workspace import (
     StoreProfileCreateRequest,
 )
 from app.workspace.catalog_validation import (
+    canonical_rel,
     catalog_problems,
     catalog_rejection,
 )
@@ -151,18 +152,28 @@ async def write_file(
         # carries another store's rows, or stubs a substantive file is
         # rejected naming the rows to fix. See catalog_validation.
         if path.endswith('CATALOG.md'):
+            # The tier is decided by the file the write lands on, not by
+            # how the caller spelled it: `./stores/<s>/CATALOG.md` and
+            # `stores//<s>/CATALOG.md` are the same tier catalog, and a
+            # round key per spelling would be one round per spelling.
+            rel = canonical_rel(path)
+            if rel is None:
+                raise ValueError(
+                    f'{path} cannot be read as a tier catalog: write it as '
+                    'knowledge/CATALOG.md or stores/<slug>/CATALOG.md.'
+                )
             hard, content_errors = await asyncio.to_thread(
                 catalog_problems,
-                path,
+                rel,
                 body.content,
                 root=workspace_manager.root,
                 resolve_file=workspace_manager.resolve_file,
             )
             # Rows outside the tier are always refused; the content rules
             # are told once, and a second write goes through as written.
-            writer, gate = task_id or 'workspace', f'catalog:{path}'
+            writer, gate = task_id or 'workspace', f'catalog:{rel}'
             if hard or (content_errors and record_attempt(writer, gate) == 1):
-                raise ValueError(catalog_rejection(path, hard + content_errors))
+                raise ValueError(catalog_rejection(rel, hard + content_errors))
             # A write that only went through because its round was spent
             # keeps the round spent: forgetting it here told the same
             # content rule again on the third write. Only a write the

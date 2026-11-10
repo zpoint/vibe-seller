@@ -34,6 +34,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+import posixpath
 import re
 
 from app.workspace.fs_walk import tolerant_rglob
@@ -418,6 +419,26 @@ def _validate_l3(
     return hard, errors
 
 
+def canonical_rel(path: str) -> str | None:
+    """The workspace-relative spelling of *path*, or None if it escapes.
+
+    The gate decides WHICH file a write is by this spelling, and the
+    write itself lands by the resolved path
+    (``WorkspacePaths.safe_path``) — the two must agree, or a tier
+    catalog written as ``./stores/<slug>/CATALOG.md`` or
+    ``stores//<slug>/CATALOG.md`` slips through unvalidated (and one
+    round key per spelling would turn the "exactly one round" rule into
+    one round per spelling). A ``..`` that leaves the workspace, or an
+    absolute path, names a tier this function cannot work out from the
+    string; callers refuse those the way
+    ``knowledge_contract.tier_error`` does.
+    """
+    rel = posixpath.normpath(path.replace('\\', '/'))
+    if rel.startswith('../') or rel == '..' or posixpath.isabs(rel):
+        return None
+    return rel
+
+
 def catalog_problems(
     path: str,
     content: str,
@@ -436,7 +457,9 @@ def catalog_problems(
     Dispatches on the exact tier path — ``knowledge/CATALOG.md`` (L2)
     and ``stores/<slug>/CATALOG.md`` (L3). Any other path (including
     ``knowledge/project/CATALOG.md``, whose write the manager refuses
-    as read-only L1) is not a tier catalog and passes through.
+    as read-only L1) is not a tier catalog and passes through. Callers
+    on a request path pass :func:`canonical_rel`, so the dispatch and
+    the file the write lands on name the same tier.
 
     Pure sync filesystem/string work; callers on the event loop wrap
     this in ``asyncio.to_thread``.
