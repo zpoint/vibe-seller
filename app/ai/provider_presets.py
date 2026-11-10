@@ -714,7 +714,7 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'MiniMax-M3.1-Flash',
-            'label': 'M3.1 Flash',
+            'label': 'M3.1 Flash (200K context)',
             'context': '1M',
             'vision': True,
         },
@@ -724,7 +724,12 @@ PROVIDER_MODELS = {
             'context': '1M',
             'vision': True,
         },
-        {'id': 'MiniMax-M3', 'label': 'M3', 'context': '1M', 'vision': True},
+        {
+            'id': 'MiniMax-M3',
+            'label': 'M3 (200K context)',
+            'context': '1M',
+            'vision': True,
+        },
     ],
     # GLM-5.3 is text-only (LIVE-verified 2026-10-29 on Z.AI: it
     # misnamed a red/blue image, matching Zhipu's own doc note that
@@ -826,7 +831,7 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'deepseek-flash',
-            'label': 'Flash V4.1 (fast, vision)',
+            'label': 'Flash V4.1 (200K context, vision)',
             'context': '1M',
             'vision': True,
         },
@@ -838,7 +843,7 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'deepseek-v4-pro',
-            'label': 'V4 Pro',
+            'label': 'V4 Pro (200K context)',
             'context': '1M',
             'vision': False,
         },
@@ -1049,13 +1054,13 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'kimi-k3.1-pro',
-            'label': 'K3.1 Pro',
+            'label': 'K3.1 Pro (200K context)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'kimi-k3.1-pro-highspeed',
-            'label': 'K3.1 Pro Highspeed',
+            'label': 'K3.1 Pro Highspeed (200K context)',
             'context': '1M',
             'vision': True,
         },
@@ -1069,13 +1074,13 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'kimi-k3.1-pro',
-            'label': 'K3.1 Pro',
+            'label': 'K3.1 Pro (200K context)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'kimi-k3.1-pro-highspeed',
-            'label': 'K3.1 Pro Highspeed',
+            'label': 'K3.1 Pro Highspeed (200K context)',
             'context': '1M',
             'vision': True,
         },
@@ -1090,7 +1095,7 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'MiniMax-M3.1-Flash',
-            'label': 'M3.1 Flash',
+            'label': 'M3.1 Flash (200K context)',
             'context': '1M',
             'vision': True,
         },
@@ -1100,7 +1105,12 @@ PROVIDER_MODELS = {
             'context': '1M',
             'vision': True,
         },
-        {'id': 'MiniMax-M3', 'label': 'M3', 'context': '1M', 'vision': True},
+        {
+            'id': 'MiniMax-M3',
+            'label': 'M3 (200K context)',
+            'context': '1M',
+            'vision': True,
+        },
     ],
     'qwen_coding_intl': [
         {

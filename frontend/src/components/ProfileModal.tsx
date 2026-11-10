@@ -4,6 +4,7 @@ import { api } from '../api'
 import { ApiKeyEyeButton } from './ApiKeyEyeButton'
 import { ProfileModalLinks } from './ProfileModalLinks'
 import { ProfileModalPresets } from './ProfileModalPresets'
+import { effectiveWindowLabel } from './contextWindow'
 import { localizePresets } from './presetI18n'
 import { SecretReveal } from './SecretReveal'
 
@@ -54,6 +55,7 @@ interface ProfileModalProps {
 // preset-filled noise the user rarely touches, so it lives collapsed.
 const BASE_URL_KEY = 'ANTHROPIC_BASE_URL'
 const MODEL_KEY = 'ANTHROPIC_MODEL'
+const MAX_CONTEXT_KEY = 'CLAUDE_CODE_MAX_CONTEXT_TOKENS'
 // Claude Code accepts either token env var; presets seed AUTH_TOKEN.
 const API_KEY_CANDIDATES = ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY']
 // The per-tier model aliases a preset points at the flagship. When the
@@ -545,15 +547,26 @@ function ProfileForm({
                       }`}
                     >
                       <span>{m.label}</span>
-                      {m.context && (
-                        <span
-                          className={`text-[10px] px-1 rounded ${
-                            active ? 'bg-indigo-500' : 'bg-gray-200 text-gray-600'
-                          }`}
-                        >
-                          {m.context}
-                        </span>
-                      )}
+                      {(() => {
+                        const win = effectiveWindowLabel(
+                          m.id,
+                          m.context,
+                          getEnvValue(MAX_CONTEXT_KEY),
+                        )
+                        return (
+                          win && (
+                            <span
+                              title={t('profiles.contextBadgeTitle')}
+                              data-testid={`context-badge-${m.id}`}
+                              className={`text-[10px] px-1 rounded ${
+                                active ? 'bg-indigo-500' : 'bg-gray-200 text-gray-600'
+                              }`}
+                            >
+                              {win}
+                            </span>
+                          )
+                        )
+                      })()}
                       {m.vision === true && (
                         <span
                           className={`text-[10px] px-1 rounded ${
@@ -578,6 +591,11 @@ function ProfileForm({
                   )
                 })}
               </div>
+            )}
+            {modelOptions.length > 0 && (
+              <p className="text-xs text-gray-500 mb-2">
+                {t('profiles.contextBadgeHint')}
+              </p>
             )}
             <input
               type="text"
