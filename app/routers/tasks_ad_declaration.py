@@ -254,8 +254,12 @@ async def _declare(
     await db.refresh(row)
 
     # Mirror for the stop gates, which run synchronously without a DB
-    # session. The row above is the authority; this is a copy.
-    ad_declaration.write_declaration_file(task_id, kind, scope)
+    # session. The row above is the authority; this is a copy. It is a
+    # JSON write plus ensure_targets_file, so it goes off the loop like
+    # the reads on either side of it.
+    await asyncio.to_thread(
+        ad_declaration.write_declaration_file, task_id, kind, scope
+    )
     note = await _skill_note(task_id)
 
     # Execution starts here: freeze the approval it will be checked

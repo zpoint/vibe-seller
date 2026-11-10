@@ -185,7 +185,8 @@ async def write_file(
         # a cleanup's shield is only as good as the file it names (see
         # app/knowledge_contract.note_write).
         knowledge_contract.note_write(
-            workspace_manager.resolve_file(path), task_id
+            await asyncio.to_thread(workspace_manager.resolve_file, path),
+            task_id,
         )
         return {'path': path, 'status': 'ok'}
     except ValueError as e:
@@ -248,7 +249,9 @@ async def delete_lines(
         if err:
             raise HTTPException(status_code=400, detail=err)
     await workspace_manager.write_file(path, new)
-    knowledge_contract.note_write(workspace_manager.resolve_file(path), task_id)
+    knowledge_contract.note_write(
+        await asyncio.to_thread(workspace_manager.resolve_file, path), task_id
+    )
     return {'path': path, 'status': 'ok', 'deleted_lines': len(drop)}
 
 
