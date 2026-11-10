@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
 import { ApiKeyEyeButton } from './ApiKeyEyeButton'
+import { ProfileModalLinks } from './ProfileModalLinks'
 import { ProfileModalPresets } from './ProfileModalPresets'
 import { localizePresets } from './presetI18n'
 import { SecretReveal } from './SecretReveal'
@@ -31,6 +32,8 @@ interface ProviderPreset {
   // into one top-level button that reveals its `variant` sub-buttons.
   group?: string
   variant?: string
+  purchase_url?: string
+  guide_url?: Record<string, string>
 }
 
 interface ProfileModalProps {
@@ -512,6 +515,10 @@ function ProfileForm({
                 hideLabel={t('profiles.hideApiKey')}
               />
             </div>
+            <ProfileModalLinks
+              purchaseUrl={(presets[selectedPreset] ?? matchedPreset)?.purchase_url}
+              guideUrl={(presets[selectedPreset] ?? matchedPreset)?.guide_url}
+            />
           </div>
 
           {/* Model — always an editable text field; the chips (with

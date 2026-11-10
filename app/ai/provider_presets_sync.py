@@ -298,6 +298,47 @@ def _validate_models(entries: object, expected_first_id: str) -> list | None:
     return out
 
 
+_GUIDE_LANGS = ('zh', 'en')
+
+
+def _valid_link(url: object) -> bool:
+    """Whether ``url`` may be shown to the user as a clickable link.
+
+    ``https`` only, a host, no credentials-in-URL, no whitespace and no
+    ``{Placeholder}``: unlike a base URL, a link is followed as-is.
+    """
+    if not _text_ok(url, _MAX_ENV_VALUE) or '{' in url:
+        return False
+    return _valid_base_url(url)
+
+
+def _validate_links(preset: dict, out: dict) -> bool:
+    """Copy the optional ``purchase_url`` / ``guide_url`` into ``out``.
+
+    ``guide_url`` maps a UI language to our docs section; unknown
+    languages are dropped. Returns False when a present link is
+    malformed, so the caller drops the preset.
+    """
+    buy = preset.get('purchase_url')
+    if buy is not None:
+        if not _valid_link(buy):
+            return False
+        out['purchase_url'] = buy
+    guide = preset.get('guide_url')
+    if guide is not None:
+        if not isinstance(guide, dict):
+            return False
+        kept = {}
+        for lang in _GUIDE_LANGS:
+            if lang in guide:
+                if not _valid_link(guide[lang]):
+                    return False
+                kept[lang] = guide[lang]
+        if kept:
+            out['guide_url'] = kept
+    return True
+
+
 def _validate_preset(preset_id: object, preset: object) -> dict | None:
     """Validate one preset; ``None`` when it must not be served.
 
@@ -329,6 +370,8 @@ def _validate_preset(preset_id: object, preset: object) -> dict | None:
         if not _text_ok(value, cap):
             return None
         out[field] = value
+    if not _validate_links(preset, out):
+        return None
     return out
 
 

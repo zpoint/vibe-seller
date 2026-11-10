@@ -287,6 +287,35 @@ describe('ProfileModal', () => {
       .toBe('Qwen - Plus (vision)')
   })
 
+  it('links to the provider console and the key guide for the chosen preset', async () => {
+    mockPresets({
+      qwen: {
+        ...VISION_PRESET,
+        purchase_url: 'https://console.example.com/buy',
+        guide_url: {
+          zh: 'https://docs.example.com/llm-keys/#qwen-zh',
+          en: 'https://docs.example.com/en/llm-keys/#qwen',
+        },
+      },
+      deepseek: DEEPSEEK_PRESET,
+    })
+    renderModal()
+
+    // No preset chosen yet, and a preset without links: nothing shown.
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek' }))
+    expect(screen.queryByTestId('profile-modal-links')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Qwen' }))
+    const buy = await screen.findByRole('link', { name: /official site/ })
+    expect(buy).toHaveAttribute('href', 'https://console.example.com/buy')
+    expect(buy).toHaveAttribute('target', '_blank')
+    expect(buy).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(screen.getByRole('link', { name: /guide/ })).toHaveAttribute(
+      'href',
+      'https://docs.example.com/en/llm-keys/#qwen',
+    )
+  })
+
   it('shows a text-only badge and syncs model + name when another chip is picked', async () => {
     mockPresets({ deepseek: DEEPSEEK_PRESET })
     ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true })

@@ -35,6 +35,11 @@ PROVIDER_PRESETS = {
         'group': 'Kimi',
         'variant': 'Kimi Code (membership)',
         'description': 'Kimi K3.1 Pro (1M context) via Kimi Code membership',
+        'purchase_url': ('https://www.kimi.com/membership/pricing'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#kimi',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#kimi',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.kimi.ai/coding/',
@@ -71,6 +76,11 @@ PROVIDER_PRESETS = {
         'group': 'Kimi',
         'variant': 'Pay-as-you-go (China)',
         'description': 'Kimi K3 (1M context) via the Kimi API open platform',
+        'purchase_url': ('https://platform.kimi.com/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#kimi',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#kimi',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.moonshot.cn/anthropic',
@@ -93,6 +103,11 @@ PROVIDER_PRESETS = {
         'description': (
             'Kimi K3 (1M context) via the Kimi API platform (platform.kimi.ai)'
         ),
+        'purchase_url': ('https://platform.kimi.ai/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#kimi',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#kimi',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.moonshot.ai/anthropic',
@@ -124,6 +139,11 @@ PROVIDER_PRESETS = {
         'group': 'MiniMax',
         'variant': 'China',
         'description': 'MiniMax M3.1 Flash (1M context), China (minimax.cn)',
+        'purchase_url': ('https://platform.minimax.cn/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#minimax',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#minimax',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.minimax.cn/anthropic',
@@ -147,6 +167,11 @@ PROVIDER_PRESETS = {
         'description': (
             'MiniMax M3.1 Flash (1M context), international (minimax.io)'
         ),
+        'purchase_url': ('https://platform.minimax.io/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#minimax',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#minimax',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.minimax.io/anthropic',
@@ -174,6 +199,11 @@ PROVIDER_PRESETS = {
         'group': 'GLM',
         'variant': 'China',
         'description': 'GLM-5.3 (1M context) via ZhiPu BigModel',
+        'purchase_url': ('https://open.bigmodel.cn/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#国内智谱开放平台',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#china-zhipu-bigmodel',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://open.bigmodel.cn/api/anthropic',
@@ -194,6 +224,11 @@ PROVIDER_PRESETS = {
         'group': 'GLM',
         'variant': 'International',
         'description': 'GLM-5.3 (1M context) via Z.AI',
+        'purchase_url': ('https://z.ai/model-api'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#海外zai',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#international-zai',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.z.ai/api/anthropic',
@@ -218,6 +253,11 @@ PROVIDER_PRESETS = {
     'deepseek': {
         'name': 'DeepSeek',
         'description': 'DeepSeek Flash (1M context) via DeepSeek API',
+        'purchase_url': ('https://platform.deepseek.com/top_up'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#deepseek',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#deepseek',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.deepseek.com/anthropic',
@@ -247,6 +287,13 @@ PROVIDER_PRESETS = {
             'Qwen3.7-Max via Alibaba Cloud Bailian, pay-as-you-go billing '
             '(Beijing region)'
         ),
+        'purchase_url': (
+            'https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -280,6 +327,11 @@ PROVIDER_PRESETS = {
             'Qwen3.7-Max via Alibaba Cloud Model Studio, pay-as-you-go '
             '(Singapore)'
         ),
+        'purchase_url': ('https://modelstudio.console.alibabacloud.com/'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -311,6 +363,13 @@ PROVIDER_PRESETS = {
         'description': (
             'Qwen3.8-Max via Alibaba Cloud Bailian Token Plan (个人版 / 团队版)'
         ),
+        'purchase_url': (
+            'https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -336,6 +395,13 @@ PROVIDER_PRESETS = {
         'description': (
             'Qwen3.8-Max via Alibaba Cloud Model Studio Token Plan (Singapore)'
         ),
+        'purchase_url': (
+            'https://modelstudio.console.alibabacloud.com/subscription/token-plan/personal'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -363,6 +429,13 @@ PROVIDER_PRESETS = {
             'Qwen3.7-Plus via Alibaba Cloud Bailian Coding Plan '
             '(monthly subscription)'
         ),
+        'purchase_url': (
+            'https://bailian.console.aliyun.com/cn-beijing/subscription/coding-plan'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -390,6 +463,13 @@ PROVIDER_PRESETS = {
             'Qwen3.7-Plus via Alibaba Cloud Model Studio Coding Plan '
             '(Singapore)'
         ),
+        'purchase_url': (
+            'https://modelstudio.console.alibabacloud.com/ap-southeast-1/subscription/coding-plan'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#通义千问阿里云百炼',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#qwen-alibaba-cloud-model-studio',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -427,6 +507,11 @@ PROVIDER_PRESETS = {
         'group': 'MiMo',
         'variant': 'Pay-as-you-go',
         'description': 'MiMo V2.6 Pro (1M context) via Xiaomi MiMo',
+        'purchase_url': ('https://platform.xiaomimimo.com/#/console/balance'),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#小米-mimo',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#xiaomi-mimo',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.xiaomimimo.com/anthropic',
@@ -451,6 +536,13 @@ PROVIDER_PRESETS = {
             'MiMo V2.6 Pro (1M context) via Xiaomi MiMo Token Plan '
             '(个人版 / 团队版)'
         ),
+        'purchase_url': (
+            'https://platform.xiaomimimo.com/#/console/plan-manage'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#小米-mimo',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#xiaomi-mimo',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -472,6 +564,13 @@ PROVIDER_PRESETS = {
             'MiMo V2.6 Pro (1M context) via Xiaomi MiMo Token Plan, '
             'Singapore cluster'
         ),
+        'purchase_url': (
+            'https://platform.xiaomimimo.com/#/console/plan-manage'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#小米-mimo',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#xiaomi-mimo',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -493,6 +592,13 @@ PROVIDER_PRESETS = {
             'MiMo V2.6 Pro (1M context) via Xiaomi MiMo Token Plan, '
             'Europe cluster'
         ),
+        'purchase_url': (
+            'https://platform.xiaomimimo.com/#/console/plan-manage'
+        ),
+        'guide_url': {
+            'zh': 'https://docs.vibe-sellers.com/llm-keys/#小米-mimo',
+            'en': 'https://docs.vibe-sellers.com/en/llm-keys/#xiaomi-mimo',
+        },
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (

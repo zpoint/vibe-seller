@@ -674,7 +674,9 @@
       "provider-routed": "服务商自动路由",
       "1M context": "1M 上下文",
       "Auto": "自动"
-    }
+    },
+    "purchaseLink": "前往官网购买 / 获取 Key",
+    "guideLink": "查看获取教程"
   },
   "errors": {
     "externalConfigOverride": {
