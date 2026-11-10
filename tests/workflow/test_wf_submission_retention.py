@@ -17,7 +17,9 @@ import json
 
 import pytest
 
+from app.ai.stop_gates import GateDeny
 from app.config import VIBE_SELLER_DIR
+import app.routers.task_submission as task_submission
 from tests.workflow.conftest import wait_for_task
 from tests.workflow.fake_agent import FakeAgentScenario
 
@@ -210,3 +212,34 @@ class TestIncompleteExit:
 
         gate.set()
         await wait_for_task(admin_client, task_id)
+
+    async def test_incomplete_does_not_bypass_a_soft_gate(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        """A soft gate's one refusal is not waived by ``incomplete``
+        either: the agent still gets its one chance to fix, and only the
+        second submit passes."""
+        gap = 'reports_2026-01: fee report missing'
+
+        async def short_delivery(db, task, task_root, **kw):
+            return GateDeny(
+                gate='deliverable_manifest', reason=gap, gaps=(gap,)
+            )
+
+        monkeypatch.setattr(
+            task_submission, 'check_deliverables', short_delivery
+        )
+        task_id, gate = await _running_task(
+            admin_client, install_fake_agent, 'Soft No Bypass Store'
+        )
+        body = {'result': PARTIAL, 'incomplete': ['let me out']}
+        r = await admin_client.post(f'/api/tasks/{task_id}/result', json=body)
+        assert r.status_code == 400
+
+        r = await admin_client.post(f'/api/tasks/{task_id}/result', json=body)
+        assert r.status_code == 200
+
+        gate.set()
+        final = await wait_for_task(admin_client, task_id)
+        assert final['status'] == 'completed'
+        assert 'let me out' in final['result']
