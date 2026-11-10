@@ -297,56 +297,6 @@ PROVIDER_PRESETS = {
             'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
         },
     },
-    'qwen_coding': {
-        'name': 'Qwen (Coding Plan, China)',
-        'group': 'Alibaba Cloud',
-        'variant': 'Coding Plan (China)',
-        'description': (
-            'Qwen3.7-Plus via Alibaba Cloud Bailian Coding Plan '
-            '(monthly subscription)'
-        ),
-        'load_global_mcp': False,
-        'env': {
-            'ANTHROPIC_BASE_URL': (
-                'https://coding.dashscope.aliyuncs.com/apps/anthropic'
-            ),
-            'API_TIMEOUT_MS': '3000000',
-            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-            'ANTHROPIC_MODEL': 'qwen3.7-plus',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.7-plus',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-plus',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.7-plus',
-            'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-plus',
-            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
-        },
-    },
-    # International (Singapore) Coding Plan: its own host and its own
-    # Coding Plan key from the ap-southeast-1 console; same model block
-    # as the China plan per the international doc.
-    # https://www.alibabacloud.com/help/en/model-studio/claude-code
-    'qwen_coding_intl': {
-        'name': 'Qwen (Coding Plan, International)',
-        'group': 'Alibaba Cloud',
-        'variant': 'Coding Plan (International)',
-        'description': (
-            'Qwen3.7-Plus via Alibaba Cloud Model Studio Coding Plan '
-            '(Singapore)'
-        ),
-        'load_global_mcp': False,
-        'env': {
-            'ANTHROPIC_BASE_URL': (
-                'https://coding-intl.dashscope.aliyuncs.com/apps/anthropic'
-            ),
-            'API_TIMEOUT_MS': '3000000',
-            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-            'ANTHROPIC_MODEL': 'qwen3.7-plus',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.7-plus',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-plus',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.7-plus',
-            'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-plus',
-            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
-        },
-    },
     # Token Plan (个人版 and 团队版 share this config; they differ only by
     # which sk- key you use) on a distinct MaaS base URL. Alibaba's
     # current recommendation routes the main + subagent slots through
@@ -400,6 +350,59 @@ PROVIDER_PRESETS = {
             'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.8-max',
             'CLAUDE_CODE_SUBAGENT_MODEL': 'auto',
             'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '983616',
+        },
+    },
+    # Coding Plan is closed to new subscribers (Alibaba stopped selling
+    # it); only existing subscribers can still use it, so it sits last in
+    # the Alibaba Cloud row and its variant says so.
+    'qwen_coding': {
+        'name': 'Qwen (Coding Plan, China)',
+        'group': 'Alibaba Cloud',
+        'variant': 'Coding Plan (China, existing subscribers only)',
+        'description': (
+            'Qwen3.7-Plus via Alibaba Cloud Bailian Coding Plan '
+            '(monthly subscription)'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://coding.dashscope.aliyuncs.com/apps/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.7-plus',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-plus',
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
+        },
+    },
+    # International (Singapore) Coding Plan: its own host and its own
+    # Coding Plan key from the ap-southeast-1 console; same model block
+    # as the China plan per the international doc.
+    # https://www.alibabacloud.com/help/en/model-studio/claude-code
+    'qwen_coding_intl': {
+        'name': 'Qwen (Coding Plan, International)',
+        'group': 'Alibaba Cloud',
+        'variant': 'Coding Plan (International, existing subscribers only)',
+        'description': (
+            'Qwen3.7-Plus via Alibaba Cloud Model Studio Coding Plan '
+            '(Singapore)'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://coding-intl.dashscope.aliyuncs.com/apps/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.7-plus',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-plus',
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
         },
     },
     # Xiaomi MiMo — Anthropic-Messages-compatible endpoint, documented
@@ -584,7 +587,7 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'kimi-for-coding-highspeed',
-            'label': 'K2.8 Preview — high-speed',
+            'label': 'K2.8 Preview (high-speed)',
             'context': '256K',
             'vision': True,
         },

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../api'
 import { ApiKeyEyeButton } from './ApiKeyEyeButton'
 import { ProfileModalPresets } from './ProfileModalPresets'
+import { localizePresets } from './presetI18n'
 import { SecretReveal } from './SecretReveal'
 
 interface Profile {
@@ -139,7 +140,11 @@ function ProfileForm({
   const [loadGlobalMcp, setLoadGlobalMcp] = useState(
     editingProfile?.load_global_mcp ?? false
   )
-  const [presets, setPresets] = useState<Record<string, ProviderPreset>>({})
+  const [rawPresets, setPresets] = useState<Record<string, ProviderPreset>>(
+    {},
+  )
+  // Display strings follow the UI language; the server copy is English.
+  const presets = useMemo(() => localizePresets(rawPresets, t), [rawPresets, t])
   const [selectedPreset, setSelectedPreset] = useState('')
   // Which grouped provider's variant row is expanded (e.g. "Alibaba
   // Cloud"). Empty when a standalone/custom top-level entry is active.
