@@ -202,8 +202,11 @@ class TestProfileCrud:
         - MiMo has no key here either, so its vision is doc-verified
           (MiMo's image-understanding guide lists all three v2.6 chat
           models as supporting image input) -> True.
-        - qwen3.8-max / qwen3.8-flash have no key to probe -> vision
-          OMITTED (None) rather than guessed.
+        - qwen3.8-max / qwen3.8-flash live-probed 2026-11-10 on the
+          pay-go endpoint (red+blue, 3x each) -> True on every Qwen
+          plan that lists them.
+        - Token Plan (China) ``auto`` live-probed 2026-11-10 -> True;
+          the international Token Plan has no key -> OMITTED (None).
         """
         r = await admin_client.get('/api/profiles/presets')
         presets = r.json()['presets']
@@ -235,9 +238,13 @@ class TestProfileCrud:
         assert vis('mimo', 'mimo-v2.6-pro[1m]') is True
         assert vis('mimo', 'mimo-v2.6-flash[1m]') is True
         assert vis('mimo', 'mimo-v2.6-pro-ultraspeed[1m]') is True
-        # New Qwen ids with no key: omitted, not guessed.
-        assert vis('qwen', 'qwen3.8-max') is None
-        assert vis('qwen_token', 'auto') is None
+        # qwen3.8: live-verified vision, on every plan that lists it.
+        for pid in ('qwen', 'qwen_intl', 'qwen_token', 'qwen_token_intl'):
+            assert vis(pid, 'qwen3.8-max') is True, pid
+            assert vis(pid, 'qwen3.8-flash') is True, pid
+        # Token Plan router: live-verified on China, no intl key.
+        assert vis('qwen_token', 'auto') is True
+        assert vis('qwen_token_intl', 'auto') is None
 
     async def test_presets_match_vendor_docs(self, admin_client):
         """Pin the load-bearing values for the vendor-doc-aligned

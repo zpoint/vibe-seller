@@ -26,7 +26,7 @@ description: 跨境卖家的 AI 自动化框架——本地部署，Agent 通过
 
 <img width="3200" height="1800" alt="1_combined" src="images/1_combined_zh.png" />
 
-<img width="3073" height="1360" alt="2_combined" src="images/2_combined_zh.png" />
+<img width="1991" height="1552" alt="2_combined" src="images/2_combined.png" />
 
 🔥 *最新动态* 🔥
 
