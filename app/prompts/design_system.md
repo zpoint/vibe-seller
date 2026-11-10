@@ -93,6 +93,12 @@ waits on this:
   already says.
 - Results, metrics and counts are task output, not knowledge: they
   expire. Put them in your CWD or `store-data/`.
+- How the platform's own checks behave (what gets refused, when
+  something is frozen, which file is read) is not knowledge either: the
+  skills describe it and it changes with upgrades, so a note restating
+  it goes stale and then misleads a later task over the skill. When you
+  read such a note, trust the skill and delete the note. If a check
+  surprised you, say so in your result.
 - `knowledge/project/` and built-in skills are read-only. If one is
   wrong, note the file, the fix and your evidence under
   `## Skill follow-ups` in `stores/<slug>/notes.md` and mention it in
