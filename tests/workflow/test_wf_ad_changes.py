@@ -294,3 +294,33 @@ async def test_matching_execution_is_accepted_first_time(
     ])
     r = await _submit(admin_client, task)
     assert r.status_code == 200, r.text
+
+
+async def test_a_short_answer_is_not_swapped_for_an_old_audit(
+    admin_client, install_fake_agent, monkeypatch
+):
+    """A follow-up answered in one line ships that line.
+
+    The server once replaced any ad-task result without a
+    `## <platform> <CC>` heading with the newest AD_AUDIT_*.md on disk,
+    so "what's our SA ACOS?" came back as last week's full report. The
+    gates read TSVs now; the report's shape no longer decides anything.
+    """
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A10')
+    # The task loaded an ad skill (the case the swap applied to).
+    monkeypatch.setattr(
+        'app.routers.task_submission.recorded_skills',
+        lambda _t: frozenset({'amazon-ads'}),
+        raising=False,
+    )
+    task.declare('investigate')
+    (task.dir / 'AD_AUDIT_2026-01-01.md').write_text(
+        '# Ad audit\n\n## Amazon SA\n\nlast week\n', encoding='utf-8'
+    )
+    r = await admin_client.post(
+        f'/api/tasks/{task.id}/result',
+        json={'result': 'Amazon SA ACOS over the last 7 days: 30%.'},
+    )
+    assert r.status_code == 200, r.text
+    data = (await admin_client.get(f'/api/tasks/{task.id}')).json()
+    assert data['result'].startswith('Amazon SA ACOS over the last 7 days')

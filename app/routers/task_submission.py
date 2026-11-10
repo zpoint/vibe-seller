@@ -21,17 +21,14 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.stop_gates import (
-    AD_SKILLS,
     SOFT_GATE_MAX_DENIALS,
     record_attempt,
-    recorded_skills,
 )
 from app.config import VIBE_SELLER_DIR
 from app.deliverables.gate import check_deliverables
 from app.models.task import Task
 from app.routers.tasks_files import (
     looks_like_result_path,
-    resolve_audit_deliverable,
     resolve_workspace_result_path,
 )
 from app.text_utils import SafeStr
@@ -146,25 +143,6 @@ async def resolve_submitted_result(
                 'the full report content directly.'
             ),
         )
-
-    if resolved_content is None and (recorded_skills(task_id) & AD_SKILLS):
-        deliverable = resolve_audit_deliverable(task_root, raw)
-        if deliverable is not None:
-            try:
-                resolved_content = await asyncio.to_thread(
-                    deliverable.read_text, encoding='utf-8'
-                )
-            except OSError:
-                resolved_content = None
-            if resolved_content is not None:
-                logger.info(
-                    'Task %s submitted narration (%d chars); grading its '
-                    'audit deliverable %s (%d chars) instead',
-                    task_id,
-                    len(raw),
-                    deliverable.name,
-                    len(resolved_content),
-                )
 
     if resolved_content is not None:
         return resolved_content, True

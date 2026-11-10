@@ -68,6 +68,9 @@ class TestTier:
         assert kc.tier_error('stores/beta-y/notes.md', 'acme-x')
         assert kc.tier_error('knowledge/notes.md', 'acme-x')
         assert kc.tier_error('../stores/acme-x/notes.md', 'acme-x')
+        assert kc.tier_error('stores/acme-x/../beta-y/notes.md', 'acme-x')
+        assert kc.tier_error('knowledge/../stores/acme-x/notes.md', None)
+        assert kc.tier_error('stores/acme-x/sub/../notes.md', 'acme-x') is None
 
 
 async def _db(monkeypatch):

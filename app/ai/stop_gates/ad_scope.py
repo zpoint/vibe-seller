@@ -25,13 +25,6 @@ TARGETS_FILENAME = 'AUDIT_TARGETS.json'
 # (~6 weekly audits); without a window the count only ever grows.
 PRIOR_TSV_WINDOW_DAYS = 45
 
-# Ad platforms with a per-marketplace console, and a ``## <Platform> <CC>``
-# heading matched by SHAPE (marketplace codes come from store config and
-# are not enumerable). Used to recognise an audit report file.
-AD_PLATFORMS = ('amazon', 'noon')
-COMBO_HEAD_PATTERN = r'((?i:' + '|'.join(AD_PLATFORMS) + r'))\s+([A-Z]{2,3})\b'
-AUDIT_SECTION_PATTERN = r'(?m)^##.*' + COMBO_HEAD_PATTERN
-
 
 def targets_path(task_id: str):
     """Path to a task's AUDIT_TARGETS.json (task-workspace root)."""

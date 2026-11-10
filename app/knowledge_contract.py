@@ -29,6 +29,7 @@ only ever runs because an upgrade recorded that one is due.
 from __future__ import annotations
 
 from pathlib import Path
+import posixpath
 
 from app.models.app_settings import AppSettings
 
@@ -94,7 +95,11 @@ def tier_error(path: str, store_slug: str | None) -> str | None:
     A store's catalog lists the shared files too, so without this a
     store run could edit notes every store reads.
     """
-    rel = path.removeprefix('./')
+    # Normalised first: a prefix check on the raw string is escaped by
+    # `stores/<slug>/../<other>/notes.md`.
+    rel = posixpath.normpath(path)
+    if rel.startswith('../') or rel == '..' or posixpath.isabs(rel):
+        rel = ''
     if store_slug is None:
         ok = rel.startswith('knowledge/') and not rel.startswith(
             'knowledge/project/'

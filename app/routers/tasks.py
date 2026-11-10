@@ -620,12 +620,18 @@ async def set_task_result(
     # gates apply (``gates: [...]`` in SKILL.md → get_registered_gates).
     # A session that loaded no gate-declaring skill gets only the generics.
     rules = await resolve_store_rules(db, task.store_id)
-    loaded, workspace = agent_manager.loaded_skills_and_workspace(task_id)
-    skill_gates = resolve_skill_gates(loaded, workspace or VIBE_SELLER_DIR)
+    # Gates and their inputs read files and the task DB synchronously;
+    # keep each off the event loop.
+    loaded, workspace = await asyncio.to_thread(
+        agent_manager.loaded_skills_and_workspace, task_id
+    )
+    skill_gates = await asyncio.to_thread(
+        resolve_skill_gates, loaded, workspace or VIBE_SELLER_DIR
+    )
 
     stalled_gaps: list[str] = []
     for gate_name, gate in skill_gates:
-        deny = gate.check(final_result, task_id, rules)
+        deny = await asyncio.to_thread(gate.check, final_result, task_id, rules)
         if not deny:
             continue
         # Fail open only on STALL when the gate tracks one (see the
