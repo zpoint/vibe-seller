@@ -163,7 +163,6 @@ def _usage_props(task: Task) -> dict:
         'cache_write_tokens_bucket': telemetry.token_bucket(
             task.cache_write_tokens
         ),
-        'usage_model': (task.usage_model or '')[:64] or None,
     }
 
 

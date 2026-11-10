@@ -117,13 +117,13 @@ async def test_cancel_carries_usage_and_context_fill(task_env):
     task.context_window = 100_000
     task.cache_read_tokens = 250_000
     task.cache_write_tokens = 0
-    task.usage_model = 'model-x'
+    task.usage_model = 'model-x'  # never reported
     send_task_cancelled(task, status_at='running')
     props = dict(calls)['task_cancelled']
     assert props['context_fill_bucket'] == '50-75%'
     assert props['cache_read_tokens_bucket'] == '100k-1m'
     assert props['cache_write_tokens_bucket'] == '0'
-    assert props['usage_model'] == 'model-x'
+    assert 'usage_model' not in props
     assert 'input_tokens' in props
 
 
