@@ -420,11 +420,12 @@ PROVIDER_PRESETS = {
     },
     # Coding Plan is closed to new subscribers (Alibaba stopped selling
     # it); only existing subscribers can still use it, so it sits last in
-    # the Alibaba Cloud row and its variant says so.
+    # the Alibaba Cloud row. The label stays plain: subscribers recognise
+    # their plan, and new users cannot buy it anyway.
     'qwen_coding': {
         'name': 'Qwen (Coding Plan, China)',
         'group': 'Alibaba Cloud',
-        'variant': 'Coding Plan (China, existing subscribers only)',
+        'variant': 'Coding Plan (China)',
         'description': (
             'Qwen3.7-Plus via Alibaba Cloud Bailian Coding Plan '
             '(monthly subscription)'
@@ -458,7 +459,7 @@ PROVIDER_PRESETS = {
     'qwen_coding_intl': {
         'name': 'Qwen (Coding Plan, International)',
         'group': 'Alibaba Cloud',
-        'variant': 'Coding Plan (International, existing subscribers only)',
+        'variant': 'Coding Plan (International)',
         'description': (
             'Qwen3.7-Plus via Alibaba Cloud Model Studio Coding Plan '
             '(Singapore)'
@@ -755,7 +756,7 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'glm-5.3-flash[1m]',
-            'label': 'GLM-5.3-Flash (1M context, vision)',
+            'label': 'GLM-5.3-Flash (1M context)',
             'context': '1M',
             'vision': True,
         },
@@ -793,7 +794,7 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'glm-5.3-flash[1m]',
-            'label': 'GLM-5.3-Flash (1M context, vision)',
+            'label': 'GLM-5.3-Flash (1M context)',
             'context': '1M',
             'vision': True,
         },
@@ -830,7 +831,7 @@ PROVIDER_MODELS = {
     'deepseek': [
         {
             'id': 'deepseek-flash[1m]',
-            'label': 'Flash V4.1 (1M context, vision)',
+            'label': 'Flash V4.1 (1M context)',
             'context': '1M',
             'vision': True,
         },
@@ -842,7 +843,7 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'deepseek-flash',
-            'label': 'Flash V4.1 (200K context, vision)',
+            'label': 'Flash V4.1 (200K context)',
             'context': '1M',
             'vision': True,
         },
@@ -863,74 +864,74 @@ PROVIDER_MODELS = {
     'qwen': [
         {
             'id': 'qwen3.7-max',
-            'label': 'Qwen3.7-Max (flagship)',
+            'label': 'Qwen3.7-Max (previous flagship)',
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (newer flagship, vision)',
+            'label': 'Qwen3.8-Max (flagship)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast, vision)',
+            'label': 'Qwen3.8-Flash (fast)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast, vision)',
+            'label': 'Qwen3.6-Flash (fast)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3-vl-plus',
-            'label': 'Qwen3-VL-Plus (vision)',
+            'label': 'Qwen3-VL-Plus',
             'vision': True,
         },
     ],
     'qwen_intl': [
         {
             'id': 'qwen3.7-max',
-            'label': 'Qwen3.7-Max (flagship)',
+            'label': 'Qwen3.7-Max (previous flagship)',
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (newer flagship, vision)',
+            'label': 'Qwen3.8-Max (flagship)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast, vision)',
+            'label': 'Qwen3.8-Flash (fast)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast, vision)',
+            'label': 'Qwen3.6-Flash (fast)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3-vl-plus',
-            'label': 'Qwen3-VL-Plus (vision)',
+            'label': 'Qwen3-VL-Plus',
             'vision': True,
         },
     ],
@@ -939,7 +940,7 @@ PROVIDER_MODELS = {
     'qwen_coding': [
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
             'context': '1M',
             'vision': True,
         },
@@ -950,41 +951,42 @@ PROVIDER_MODELS = {
     # 2026-11-10 (red+blue, 3x): auto, qwen3.8-max, qwen3.8-flash and
     # qwen3.6-flash all 6/6 -> vision. The console lists auto as
     # text/reasoning only, but the router hands image requests to a
-    # vision model. The international Token Plan has no key to probe, so
-    # its auto stays unlabelled.
+    # vision model. The international Token Plan is the same product and
+    # router on a Singapore host, so its auto carries the same label: one
+    # model, one capability, whichever region the key was bought in.
     'qwen_token': [
         {
             'id': 'auto',
-            'label': 'Auto (provider-routed, vision)',
+            'label': 'Auto (provider-routed)',
             'vision': True,
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (flagship, vision)',
+            'label': 'Qwen3.8-Max (flagship)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast, vision)',
+            'label': 'Qwen3.8-Flash (fast)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.7-max',
-            'label': 'Qwen3.7-Max',
+            'label': 'Qwen3.7-Max (previous flagship)',
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast, vision)',
+            'label': 'Qwen3.6-Flash (fast)',
             'context': '1M',
             'vision': True,
         },
@@ -1152,7 +1154,7 @@ PROVIDER_MODELS = {
     'qwen_coding_intl': [
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
             'context': '1M',
             'vision': True,
         },
@@ -1161,34 +1163,35 @@ PROVIDER_MODELS = {
         {
             'id': 'auto',
             'label': 'Auto (provider-routed)',
+            'vision': True,
         },
         {
             'id': 'qwen3.8-max',
-            'label': 'Qwen3.8-Max (flagship, vision)',
+            'label': 'Qwen3.8-Max (flagship)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.8-flash',
-            'label': 'Qwen3.8-Flash (fast, vision)',
+            'label': 'Qwen3.8-Flash (fast)',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.7-max',
-            'label': 'Qwen3.7-Max',
+            'label': 'Qwen3.7-Max (previous flagship)',
             'context': '1M',
             'vision': False,
         },
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus (vision)',
+            'label': 'Qwen3.7-Plus',
             'context': '1M',
             'vision': True,
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast, vision)',
+            'label': 'Qwen3.6-Flash (fast)',
             'context': '1M',
             'vision': True,
         },

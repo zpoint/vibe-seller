@@ -40,12 +40,12 @@ describe('localizePresetText', () => {
     expect(localizePresetText('Qwen3.8-Flash (fast, vision)', zh)).toBe(
       'Qwen3.8-Flash（快速，视觉）',
     )
-    expect(
-      localizePresetText(
-        'Coding Plan (China, existing subscribers only)',
-        zh,
-      ),
-    ).toBe('Coding Plan（国内，仅限老用户）')
+    expect(localizePresetText('Coding Plan (China)', zh)).toBe(
+      'Coding Plan（国内）',
+    )
+    expect(localizePresetText('Qwen3.7-Max (previous flagship)', zh)).toBe(
+      'Qwen3.7-Max（上代旗舰）',
+    )
   })
 
   it('leaves English and untranslated names unchanged', () => {

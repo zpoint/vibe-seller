@@ -662,10 +662,8 @@
       "China cluster": "国内集群",
       "Singapore cluster": "新加坡集群",
       "Europe cluster": "欧洲集群",
-      "existing subscribers only": "仅限老用户",
       "membership": "会员",
       "flagship": "旗舰",
-      "newer flagship": "新旗舰",
       "fast": "快速",
       "fastest": "最快",
       "cheap": "低价",
@@ -674,7 +672,8 @@
       "provider-routed": "服务商自动路由",
       "1M context": "1M 上下文",
       "Auto": "自动",
-      "200K context": "200K 上下文"
+      "200K context": "200K 上下文",
+      "previous flagship": "上代旗舰"
     },
     "purchaseLink": "前往官网购买 / 获取 Key",
     "guideLink": "查看获取教程",

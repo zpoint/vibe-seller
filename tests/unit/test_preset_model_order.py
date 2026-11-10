@@ -61,3 +61,29 @@ def test_bare_window_terms_say_context():
                 preset_id,
                 m['label'],
             )
+
+
+def _group(preset_id):
+    return PROVIDER_PRESETS[preset_id].get('group') or preset_id
+
+
+def test_one_model_reads_the_same_across_a_providers_presets():
+    # The same id under two presets of one provider (two regions, two
+    # plans) is the same model: one label, one vision flag, one native
+    # window. A flag missing in one region because nobody probed it
+    # there would tell users the regions differ when they do not.
+    seen = {}
+    for preset_id, models in PROVIDER_MODELS.items():
+        for m in models:
+            key = (_group(preset_id), m['id'])
+            facts = (m['label'], m.get('vision'), m.get('context'))
+            if key in seen:
+                assert seen[key][1] == facts, (key, seen[key][0], preset_id)
+            else:
+                seen[key] = (preset_id, facts)
+
+
+def test_labels_do_not_repeat_the_vision_badge():
+    for preset_id, models in PROVIDER_MODELS.items():
+        for m in models:
+            assert 'vision' not in m['label'].lower(), (preset_id, m['label'])
