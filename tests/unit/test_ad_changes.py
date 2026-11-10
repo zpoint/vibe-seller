@@ -132,6 +132,26 @@ def test_investigate_may_not_propose(task):
     assert any('investigate' in g for g in _gaps(task))
 
 
+def test_investigate_after_execution_does_not_count_what_was_done(task):
+    """A follow-up question after the execution is read-only.
+
+    Observed: audit, approval, execution, then the user asked about the
+    result and the agent declared ``investigate``. CHANGES.tsv still
+    holds the executed row; it records what was done, not a new
+    proposal, so it must not be counted against the read-only kind. A
+    row nothing executed still is.
+    """
+    _approve(task, [change()])
+    task.declare('execute')
+    task.execution([_done()])
+    task.declare('investigate')
+    assert not any('investigate' in g for g in _gaps(task)), _gaps(task)
+    task.changes([change(), change(target='gadget')])
+    assert any('proposes 1 change' in g for g in _gaps(task)), _gaps(task)
+    task.changes([change(target_bid='1.50')])
+    assert any('investigate' in g for g in _gaps(task)), _gaps(task)
+
+
 def test_unreadable_changes_file_is_reported(task):
     (task.dir / 'CHANGES.tsv').write_text('a|b|c\n1|2|3\n')
     assert any('not tab-separated' in g for g in _gaps(task))

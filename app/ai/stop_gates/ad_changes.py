@@ -495,6 +495,15 @@ def _bid_matches(row: dict, want: dict) -> bool:
     )
 
 
+def _carried_out(slug: str | None, row: dict, done: dict) -> bool:
+    """Whether a logged execution *done* is the change *row* proposes."""
+    if done.get('action', '').lower() != row['action'].lower():
+        return False
+    if not _matched(slug, done, row):
+        return False
+    return number(row.get('target_bid')) is None or _bid_matches(done, row)
+
+
 def execution_violations(
     executed: tuple[dict, ...], approved: tuple[dict, ...], slug: str | None
 ) -> list[str]:
@@ -590,7 +599,15 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
             problems.append(table.error)
     decl = ad_declaration.load_declaration(task_id)
     if changes is not None and not changes.error:
-        proposals = [r for r in changes.rows if r['action'].lower() != 'hold']
+        # A row an execution already carried out (this task's log or a
+        # child's) records what was done; only the rest are proposals.
+        logged = family_execution_rows(task_id)
+        proposals = [
+            r
+            for r in changes.rows
+            if r['action'].lower() != 'hold'
+            and not any(_carried_out(slug, r, e) for e in logged)
+        ]
         if decl and decl['kind'] == KIND_INVESTIGATE and proposals:
             problems.append(
                 f'declared investigate (read-only) but {CHANGES_FILE} '
@@ -614,7 +631,7 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
                     slug,
                     done,
                     _started(task_id),
-                    family_execution_rows(task_id),
+                    logged,
                 )
             )
     if executed is not None and not executed.error and executed.rows:
