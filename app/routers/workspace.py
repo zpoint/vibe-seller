@@ -1,3 +1,4 @@
+import asyncio
 import mimetypes
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,7 +14,7 @@ from app.schemas.workspace import (
     SkillSaveRequest,
     StoreProfileCreateRequest,
 )
-from app.workspace.catalog_validation import reject_wrong_stubs
+from app.workspace.catalog_validation import validate_catalog_write
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
 
@@ -89,12 +90,18 @@ async def write_file(
     _user: User = Depends(get_current_user),
 ):
     try:
-        # Enforce the catalog stub contract at the write boundary: a
-        # CATALOG.md that marks a substantive file "Empty/stub" is
-        # rejected so the sync agent must summarize it (navigation
-        # depends on real summaries). See catalog_validation.
+        # Enforce the catalog contract at the write boundary: a tier
+        # CATALOG.md that drops a file, breaks the table format,
+        # carries another store's rows, or stubs a substantive file is
+        # rejected naming the rows to fix. See catalog_validation.
         if path.endswith('CATALOG.md'):
-            reject_wrong_stubs(body.content, workspace_manager.resolve_file)
+            await asyncio.to_thread(
+                validate_catalog_write,
+                path,
+                body.content,
+                root=workspace_manager.root,
+                resolve_file=workspace_manager.resolve_file,
+            )
         await workspace_manager.write_file(path, body.content)
         return {'path': path, 'status': 'ok'}
     except ValueError as e:
