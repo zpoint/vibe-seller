@@ -37,24 +37,16 @@ class GateDeny:
     item list leaves it empty and only its prose is kept.
 
     ``contradictions`` is the subset of ``gaps`` that are not "unfinished"
-    but "cannot be true" — a number the report states about itself that
-    is impossible, not merely incomplete. The stall fail-open exists so a
-    weak model is never trapped by work it cannot finish, and that logic
-    is right for incompleteness. It is wrong here: accepting an
-    impossible figure ships a report whose numbers feed real decisions.
-    Callers must therefore keep refusing while these are unmet, and — if
-    the agent never resolves them — mark the affected rows untrustworthy
-    in the delivered result rather than let them pass silently.
+    but "cannot be true" — figures that disagree with each other, or a
+    change the user did not approve. Same one round as every gap; what
+    is left after it is marked with a banner at the top of the result,
+    so it cannot pass silently.
     """
 
     gate: str
     reason: str
     gaps: tuple[str, ...] = ()
     contradictions: tuple[str, ...] = ()
-    # The subset of ``contradictions`` that already spent money the user
-    # did not approve: past the cap the task FAILS instead of shipping
-    # banner-marked, so it cannot read as done.
-    fatal: tuple[str, ...] = ()
 
 
 def record_attempt(task_id: str, gate: str) -> int:
@@ -64,38 +56,9 @@ def record_attempt(task_id: str, gate: str) -> int:
     return _attempts[key]
 
 
-#: Review refusals spent per (task, check), across BOTH completion paths —
-#: set_task_result and the Stop hook. Not cleared when a result is
-#: accepted: the Stop hook runs after that, and re-refusing the same gaps
-#: there was a second round by another door.
-_review_rounds: dict[tuple[str, str], int] = {}
-
-
-def review_round_left(task_id: str, check: str) -> bool:
-    """Has *check* a refusal left on *task_id*? Looks, spends nothing.
-
-    For the Stop hook and the idle watchdog, which ask "may this turn
-    end?" over and over: asking must not use up the refusal that
-    ``set_task_result`` spends when it actually refuses.
-    """
-    return _review_rounds.get((task_id, check), 0) < AD_REVIEW_ROUNDS
-
-
-def take_review_round(task_id: str, check: str) -> bool:
-    """Spend one review refusal for *check* on *task_id*, if any is left.
-
-    True means refuse now (and it is recorded); False means this check has
-    had its ``AD_REVIEW_ROUNDS`` and must let the result through.
-    """
-    key = (task_id, check)
-    if _review_rounds.get(key, 0) >= AD_REVIEW_ROUNDS:
-        return False
-    _review_rounds[key] = _review_rounds.get(key, 0) + 1
-    return True
-
-
-def review_rounds_spent(task_id: str, check: str) -> int:
-    return _review_rounds.get((task_id, check), 0)
+def forget_attempt(task_id: str, gate: str) -> None:
+    """Drop one (task, gate) counter: the next problem gets its round."""
+    _attempts.pop((task_id, gate), None)
 
 
 def reset_attempts(task_id: str) -> None:
@@ -114,15 +77,9 @@ def reset_attempts(task_id: str) -> None:
 
 
 def forget_task(task_id: str) -> None:
-    """Drop every in-memory gate counter for a task.
-
-    For a task that has ended (terminal state) or been deleted — unlike
-    :func:`reset_attempts`, this also drops the spent review rounds,
-    which must outlive an accepted result only until the run is over.
-    """
+    """Drop every in-memory gate counter for a task that has ended or
+    been deleted."""
     reset_attempts(task_id)
-    for key in [k for k in _review_rounds if k[0] == task_id]:
-        _review_rounds.pop(key, None)
 
 
 @event.listens_for(Task.status, 'set')
@@ -135,29 +92,6 @@ def _forget_on_terminal(target: Task, value, oldvalue, _initiator) -> None:
 
 # The ad skills whose deliverable is an audit report file.
 AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
-
-# Cap: after this many denials per gate per task, the gate becomes a
-# pass-through (the agent gets a warning, but the task finishes). The
-# user explicitly asked for "let agent fix once but not mandatory" —
-# 1 is the smallest value that still gives the agent feedback.
-SOFT_GATE_MAX_DENIALS = 1
-
-# How many times an ads task's result is reviewed before it is accepted:
-# one refusal per skill-declared gate. The fix is asked for once and not
-# demanded again — a review that loops for 14 or 41 rounds costs more
-# than the gaps it finds, and
-# whatever stays unmet ships as caveats on the result rather than
-# vanishing. Only the browser skill declares review; a store worked over
-# the ads API is reviewed zero times (its skill declares no gates).
-AD_REVIEW_ROUNDS = 1
-
-# A contradiction — a figure that cannot be true, or a change that breaks
-# a store rule or the approval — is refused on every submit up to this
-# cap: unlike a coverage gap it touches money, and it is always resolvable
-# (fix the figures, or revert the change and correct the log). Past the
-# cap the result is accepted but banner-marked, so the failure mode is
-# "impossible to miss", never "impossible to pass".
-CONTRADICTION_MAX_DENIALS = 3
 
 
 def contradiction_banner(contradictions) -> str:

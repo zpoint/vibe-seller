@@ -258,13 +258,15 @@ class _SubagentMixin:
         """Deny Stop while a listing batch uploaded this turn has no clean
         verdict (``listing_upload_gate``); return True if denied.
 
-        Same fail-open bound as the async-agent hold.
+        Raised once (``_upload_hold_spent``); after that an unverified
+        batch ships as a caveat.
         """
         if self._hold_exhausted():
             return False
         deny = self._open_work_reason()
         if not deny:
             return False
+        self._upload_hold_spent = True
         logger.info('Stop denied %s — upload unverified', self.task_id[:8])
         await self._send_hook_response(
             request_id, {'decision': 'block', 'reason': deny}

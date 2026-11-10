@@ -49,9 +49,6 @@ def reviews_root(tmp_path, monkeypatch):
     # Task-local: tasks/<task_id>/reviews (not shared store-data/<slug>).
     root = tmp_path / 'tasks' / TASK / 'reviews'
     root.mkdir(parents=True)
-    # Each test starts with clean gate progress state.
-    completeness.reset_progress(TASK)
-    output_gate.reset_progress(TASK)
     return root
 
 
@@ -302,25 +299,6 @@ class TestCompletenessGate:
         deny = completeness.check('report', TASK)
         assert deny is not None and deny.gate == completeness.GATE_NAME
 
-    def test_stalls_after_cap(self, reviews_root):
-        _manifest(
-            reviews_root,
-            [
-                {
-                    'platform': 'amazon',
-                    'country': 'us',
-                    'expected': ['B0AAA'],
-                    'collected': [],
-                }
-            ],
-        )
-        assert not completeness.is_stalled(TASK)
-        # Re-submit an unchanged report; each no-progress round increments
-        # the stall counter until it fails open.
-        for _ in range(completeness.STALL_CAP + 1):
-            assert completeness.check('same report text', TASK) is not None
-        assert completeness.is_stalled(TASK)
-
 
 # ── output gate (hard backstop) ──────────────────────────────────────
 
@@ -355,22 +333,6 @@ class TestOutputGate:
         )
         deny = output_gate.check('report', TASK)
         assert deny is not None and deny.gate == output_gate.GATE_NAME
-
-    def test_fails_open_after_cap(self, reviews_root):
-        _manifest(
-            reviews_root,
-            [
-                {
-                    'platform': 'amazon',
-                    'country': 'us',
-                    'expected': ['B0AAA'],
-                    'collected': ['B0AAA'],
-                }
-            ],
-        )
-        for _ in range(output_gate.STALL_CAP):
-            assert output_gate.check('report', TASK) is not None
-        assert output_gate.is_stalled(TASK)
 
 
 class TestRegistry:

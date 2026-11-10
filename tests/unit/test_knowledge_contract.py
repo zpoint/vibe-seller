@@ -80,14 +80,9 @@ class TestTier:
         assert kc.tier_error('stores/acme-x/notes.md', None)
 
     def test_a_differently_cased_path_is_the_same_tier(self):
-        """macOS resolves `Stores/` to `stores/`: a writer must not get
-        past a running cleanup by changing the case."""
-        kc.begin_cleanup('cleaner', 'acme')
-        try:
-            assert kc.busy_error('Stores/acme/notes.md', 'other')
-            assert kc.busy_error('stores/ACME/notes.md', 'other')
-        finally:
-            kc.end_cleanup('cleaner')
+        """macOS resolves `Stores/` to `stores/`: the same store's file."""
+        assert kc.tier_error('Stores/ACME/notes.md', 'acme') is None
+        assert kc.tier_error('Stores/other/notes.md', 'acme')
 
     def test_store_run_cleans_its_own_store_only(self):
         assert kc.tier_error('stores/acme-x/notes.md', 'acme-x') is None

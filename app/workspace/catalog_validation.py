@@ -308,15 +308,16 @@ def _validate_l2(
     *,
     root: Path,
     resolve_file: Callable[[str], Path],
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     rows = parse_catalog(content)
+    hard: list[str] = []
     errors: list[str] = []
     l1_rows = _parse_l1(resolve_file)
 
     # Format: tier prefix.
     for i, row in enumerate(rows, 1):
         if not row.path.startswith('knowledge/'):
-            errors.append(
+            hard.append(
                 f'row {i} path must start with knowledge/ (L2 holds no '
                 f'store files): {row.path}'
             )
@@ -359,7 +360,7 @@ def _validate_l2(
         else:
             errors.append(f'row is not a knowledge/*.md file: {p}')
 
-    return errors
+    return hard, errors
 
 
 def _validate_l3(
@@ -368,8 +369,9 @@ def _validate_l3(
     slug: str,
     root: Path,
     resolve_file: Callable[[str], Path],
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     rows = parse_catalog(content)
+    hard: list[str] = []
     errors: list[str] = []
     prefix = f'stores/{slug}/'
     # Format + isolation: only knowledge rows and this store's rows.
@@ -377,7 +379,7 @@ def _validate_l3(
         if not (
             row.path.startswith('knowledge/') or row.path.startswith(prefix)
         ):
-            errors.append(
+            hard.append(
                 f'row {i} path must start with knowledge/ or '
                 f"stores/{slug}/ (no other store's files): {row.path}"
             )
@@ -413,41 +415,44 @@ def _validate_l3(
         else:
             errors.append(f'row references a file that does not exist: {p}')
 
-    return errors
+    return hard, errors
 
 
-def validate_catalog_write(
+def catalog_problems(
     path: str,
     content: str,
     *,
     root: Path,
     resolve_file: Callable[[str], Path],
-) -> None:
-    """Gate a CATALOG.md write; raise ValueError naming every fix.
+) -> tuple[list[str], list[str]]:
+    """``(hard, content)`` problems with a CATALOG.md write.
+
+    *hard* are rows outside the tier (another store's files in a store
+    catalog, a store file in the shared one): always refused, they break
+    store isolation. *content* are the contract rules — accumulation,
+    completeness, Relevance, stubs — which the writer is told about once
+    (see ``routers/workspace.py``).
 
     Dispatches on the exact tier path — ``knowledge/CATALOG.md`` (L2)
     and ``stores/<slug>/CATALOG.md`` (L3). Any other path (including
     ``knowledge/project/CATALOG.md``, whose write the manager refuses
-    as read-only L1) is not a tier catalog and passes through. All
-    violations are collected into one message so the writer — the sync
-    agent receiving this as its tool error, or a human in the file
-    editor seeing the 400 — can fix everything in one rewrite.
+    as read-only L1) is not a tier catalog and passes through.
 
     Pure sync filesystem/string work; callers on the event loop wrap
     this in ``asyncio.to_thread``.
     """
     rel = path.replace('\\', '/')
     if rel == 'knowledge/CATALOG.md':
-        errors = _validate_l2(content, root=root, resolve_file=resolve_file)
-        label = rel
+        hard, errors = _validate_l2(
+            content, root=root, resolve_file=resolve_file
+        )
     else:
         m = re.fullmatch(r'stores/([^/]+)/CATALOG\.md', rel)
         if not m:
-            return  # not a tier catalog
-        errors = _validate_l3(
+            return [], []  # not a tier catalog
+        hard, errors = _validate_l3(
             content, slug=m.group(1), root=root, resolve_file=resolve_file
         )
-        label = rel
 
     # Stub contract (kept from the original gate): a substantive file
     # must be summarized, not stubbed.
@@ -464,14 +469,30 @@ def validate_catalog_write(
             f'{_cap(stubbed)}'
         )
 
-    if errors:
-        unique = list(dict.fromkeys(errors))
-        lines = [f'- {e}' for e in unique[:_MAX_ERRORS]]
-        if len(unique) > _MAX_ERRORS:
-            lines.append(
-                f'- (+{len(unique) - _MAX_ERRORS} more — fix these first)'
-            )
-        raise ValueError(
-            f'{label} rejected — fix every item and write again:\n'
-            + '\n'.join(lines)
-        )
+    return hard, errors
+
+
+def catalog_rejection(path: str, errors: list[str]) -> str:
+    """One message naming every fix, so a single rewrite can fix all."""
+    unique = list(dict.fromkeys(errors))
+    lines = [f'- {e}' for e in unique[:_MAX_ERRORS]]
+    if len(unique) > _MAX_ERRORS:
+        lines.append(f'- (+{len(unique) - _MAX_ERRORS} more — fix these first)')
+    return f'{path} rejected — fix every item and write again:\n' + '\n'.join(
+        lines
+    )
+
+
+def validate_catalog_write(
+    path: str,
+    content: str,
+    *,
+    root: Path,
+    resolve_file: Callable[[str], Path],
+) -> None:
+    """Raise ValueError naming every problem, hard or content."""
+    hard, errors = catalog_problems(
+        path, content, root=root, resolve_file=resolve_file
+    )
+    if hard or errors:
+        raise ValueError(catalog_rejection(path, hard + errors))

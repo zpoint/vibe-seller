@@ -24,8 +24,8 @@ campaign X", "execute the plan"):
    campaigns. The server freezes `CHANGES.tsv` and answers with the
    changes it froze; execution is checked against that copy. If the
    list is not what the user approved, fix `CHANGES.tsv` and declare
-   `execute` again before changing anything — it re-freezes until the
-   first change is in `EXECUTION_LOG.tsv`, and not after.
+   `execute` again before changing anything; the user sees the list in
+   the conversation.
 3. Execute exactly the approved rows at exactly their `target_bid`.
 
 Applying ad changes spends the user's money and is hard to undo, so
@@ -63,8 +63,9 @@ done. Anchor progress in the task list, which survives:
    to apply (subject = campaign + target + action). All start pending.
 2. Take the next pending item and mark it in progress.
 3. Apply it — one row at a time. For many approved bid changes on
-   Amazon, the bulk path applies exactly those rows:
-   `ads_bulk.py bid-update --from-changes CHANGES.tsv` / `negate`
+   Amazon, the bulk path applies exactly the rows of the list you pass
+   (the approved one — the parent's, in an execution child):
+   `ads_bulk.py bid-update --from-changes <CHANGES.tsv>` / `negate`
    (`bulk-operations.md`); its `--scale` / `--set-bid` move every keyword
    in a campaign, so use them only for an approval that says so. Click
    paths are in `mechanics-edit.md`

@@ -32,9 +32,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import ad_declaration
 from app.ai.claude_backend_utils import get_next_seq
+from app.ai.stop_gates import record_attempt
 from app.ai.stop_gates.ad_changes import (
     approved_summary,
-    execution_logged,
     freeze_approved_changes,
 )
 from app.auth import get_current_user
@@ -204,100 +204,48 @@ async def _declare(
     turns = await _user_turns(db, task_id)
     prev = await _latest(db, task_id)
 
-    if prev is not None and turns <= prev.user_turn:
-        # Same turn. Two legal moves, both of them ratchets — see
-        # ``ad_declaration.supersedes``.
-        #
-        # 1. NARROW at the same kind. The markets come from the request
-        #    and are knowable before any browsing, so they are fixed at
-        #    the first declaration. Campaign ids are not: a request
-        #    naming a product ("the widget-006 ads") only becomes ids
-        #    by enumerating the account. Requiring both upfront made the
-        #    rule unfollowable — observed live, an agent declared the
-        #    market with no campaigns, which means EVERY campaign in it,
-        #    and a one-family request became an audit owing all of
-        #    Amazon SA.
-        # 2. UPGRADE `investigate` → `audit` without widening reach. A
-        #    phase that said it was only reading, and then produced
-        #    decisions, under-declared what it owes; refusing this left
-        #    it no move but to delete the recommendations the user
-        #    asked for.
-        #
-        # Neither move can widen and neither can shed an obligation,
-        # which is the property that matters: an agent still cannot
-        # re-declare its way around a gate.
+    # Every check here is one round: the agent is told once what the
+    # declaration means for this phase, and a second identical call is
+    # recorded as declared. What it owes is then judged from what it
+    # declared; the decision stays the agent's.
+    if kind == KIND_EXECUTE:
+        # Execution needs a user reply to proposals they were shown.
+        confirmed = await _user_replied_to_an_audit(db, task)
+        if not confirmed and record_attempt(task_id, 'declare:execute') == 1:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    'Nothing the user has seen and answered is approved '
+                    'yet. Declare kind="audit", list the changes in '
+                    'CHANGES.tsv, and end your turn showing them to the '
+                    'user; declare "execute" once they reply. If you are '
+                    'sure they already approved, declare again: the '
+                    'changes are then shown to them as not confirmed.'
+                ),
+            )
+    elif prev is not None and turns <= prev.user_turn:
+        # Same turn. Narrowing, or correcting investigate → audit, is
+        # always fine (``ad_declaration.supersedes``); a wider or lighter
+        # re-declaration is asked about once.
         try:
             prev_scope = json.loads(prev.scope)
         except (ValueError, TypeError):
             prev_scope = {}
-        # 3. Re-declare `execute` (same or narrower reach) to re-freeze
-        #    the approval, until the first change is logged. Observed:
-        #    an agent declared before bringing CHANGES.tsv in line with
-        #    the user's answer, froze the audit's proposal, and had no
-        #    honest way left to record the change the user asked for.
-        #    Before anything is logged there is nothing a re-freeze can
-        #    hide; after, the frozen copy is what execution answers to.
-        refreeze = (
-            prev.kind == kind == KIND_EXECUTE
-            and (
-                scope == ad_declaration.normalise_scope(prev_scope)
-                or ad_declaration.is_narrowing(prev_scope, scope)
-            )
-            and not await asyncio.to_thread(execution_logged, task_id)
-        )
-        if refreeze or ad_declaration.supersedes(
-            prev.kind, prev_scope, kind, scope
+        if (
+            not ad_declaration.supersedes(prev.kind, prev_scope, kind, scope)
+            and record_attempt(task_id, 'declare:in_turn') == 1
         ):
-            row = AdTaskDeclaration(
-                task_id=task_id,
-                seq=prev.seq + 1,
-                kind=kind,
-                scope=json.dumps(scope, ensure_ascii=False),
-                user_turn=turns,
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f'This task already declared kind="{prev.kind}" for '
+                    'the current turn. Narrowing it, or correcting '
+                    '"investigate" to "audit", is always fine; a wider '
+                    'scope or a kind that owes less is normally a new '
+                    'request from the USER. If you are sure, declare '
+                    'again and it is recorded as you declare it.'
+                ),
             )
-            db.add(row)
-            await db.commit()
-            await db.refresh(row)
-            ad_declaration.write_declaration_file(task_id, kind, scope)
-            if refreeze:
-                return 'refreeze', await _with_approval(db, task_id, row)
-            return 'accepted', _as_dict(row)
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f'This task already declared kind="{prev.kind}" for the '
-                'current turn, and this call neither NARROWS it nor '
-                'corrects it upward.\n'
-                'The two legal in-turn moves are:\n'
-                '1. NARROW at the same kind — same marketplaces, and a '
-                'campaign list that goes from "all of them" to a named '
-                'subset. That is how you record campaign ids you could '
-                'only learn by enumerating the account.\n'
-                '2. Correct kind="investigate" to kind="audit" when the '
-                'work turned out to produce bid/pause/negate decisions '
-                'rather than just figures — same marketplaces or fewer, '
-                'same campaigns or fewer. This one exists so an '
-                'under-declared phase can own its recommendations as an '
-                'audit instead of deleting them.\n'
-                'You cannot add a marketplace, widen the campaign list, '
-                'or move to a kind that owes LESS than the one you '
-                'declared (audit → investigate is refused). A wider '
-                'scope needs a new message from the USER. Work within '
-                'what you declared, or say in your result why it does '
-                'not fit and let them redirect you.'
-            ),
-        )
-
-    if kind == KIND_EXECUTE and not await _user_replied_to_an_audit(db, task):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                'Nothing the user has seen and answered is approved yet. '
-                'Declare kind="audit", list the changes in CHANGES.tsv, '
-                'and end your turn showing them to the user; declare '
-                '"execute" once they reply.'
-            ),
-        )
 
     row = AdTaskDeclaration(
         task_id=task_id,
@@ -314,16 +262,21 @@ async def _declare(
     # session. The row above is the authority; this is a copy.
     ad_declaration.write_declaration_file(task_id, kind, scope)
 
-    # Execution starts here, on a new user message: freeze the approval
-    # it will be held to.
+    # Execution starts here: freeze the approval it will be checked
+    # against (a re-declaration re-freezes; earlier freezes are kept).
     if kind == KIND_EXECUTE:
-        return 'accepted', await _with_approval(db, task_id, row)
-
+        return 'accepted', await _with_approval(
+            db, task_id, row, confirmed=confirmed
+        )
     return 'accepted', _as_dict(row)
 
 
 async def _with_approval(
-    db: AsyncSession, task_id: str, row: AdTaskDeclaration
+    db: AsyncSession,
+    task_id: str,
+    row: AdTaskDeclaration,
+    *,
+    confirmed: bool,
 ) -> dict:
     """Freeze CHANGES.tsv as the approval; show the agent and the user
     what froze — the user sees it in the conversation before any change,
@@ -331,9 +284,12 @@ async def _with_approval(
     still be stopped."""
     await asyncio.to_thread(freeze_approved_changes, task_id)
     approved = await asyncio.to_thread(approved_summary, task_id)
-    text = 'Applying the approved ad changes:\n' + (
-        '\n'.join(f'- {a}' for a in approved) or '- (none)'
+    head = (
+        'Applying the approved ad changes:'
+        if confirmed
+        else 'Applying ad changes the user has NOT confirmed:'
     )
+    text = head + '\n' + ('\n'.join(f'- {a}' for a in approved) or '- (none)')
     db.add(
         TaskMessage(
             task_id=task_id,
@@ -354,6 +310,6 @@ async def _with_approval(
             'Execution is checked against exactly these changes (holds '
             'left out). If they are not what the user approved, fix '
             'CHANGES.tsv and declare execute again before changing '
-            'anything — it re-freezes until the first change is logged.'
+            'anything.'
         ),
     }

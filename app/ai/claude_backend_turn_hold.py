@@ -84,6 +84,9 @@ class _TurnHoldMixin:
             self.task_id, Options.TURN_HOLD_BUDGET_S.get_float()
         )
         self._hold_failed_open: bool = False
+        # The upload verdict holds a turn open once, like every check:
+        # after it has been raised, an unverified batch ships as a caveat.
+        self._upload_hold_spent: bool = False
 
     @property
     def _hold_redrive_count(self) -> int:
@@ -98,7 +101,7 @@ class _TurnHoldMixin:
         branch adds that (a turn cannot end under live work), while the
         watchdog tracks it separately as its own close-blocker.
         """
-        if self.task_dir is None:
+        if self.task_dir is None or self._upload_hold_spent:
             return None
         return check_upload_verdicts(self.task_dir)
 

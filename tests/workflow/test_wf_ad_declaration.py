@@ -92,23 +92,22 @@ class TestDeclaringAPhase:
 
 
 class TestOnlyTheUserOpensANewPhase:
-    async def test_redeclaring_in_the_same_turn_is_refused(
+    async def test_widening_in_the_same_turn_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
         task_id = await _make_task(admin_client)
         assert (
             await _declare(admin_client, task_id, 'create', _ONE_MARKET)
         ).status_code == 200
-        # The agent, having been denied by a gate, tries to widen its
-        # own remit. This is the hole the whole design closes.
+        # The agent widens its own remit in the same turn: told once what
+        # that normally needs...
         r = await _declare(admin_client, task_id, 'audit', {})
         assert r.status_code == 409
-        # The refusal has to name the one legal in-turn move, or an agent
-        # that genuinely needs to record enumerated campaign ids has no
-        # way to learn it may.
-        detail = r.json()['detail']
-        assert 'NARROW' in detail
-        assert 'USER' in detail
+        assert 'USER' in r.json()['detail']
+        # ...and if it declares again, it is recorded as declared.
+        r = await _declare(admin_client, task_id, 'audit', {})
+        assert r.status_code == 200, r.text
+        assert r.json()['kind'] == 'audit'
 
     async def test_a_user_follow_up_opens_a_new_phase(
         self, admin_client, install_fake_agent

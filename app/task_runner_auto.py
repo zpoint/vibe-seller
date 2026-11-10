@@ -158,7 +158,6 @@ async def auto_run_task(task_id: str, store: Store | None):
                     if task.store_id is None
                     else _store_slug(store.name, store.id)
                 )
-                knowledge_contract.begin_cleanup(task_id, tier_slug)
                 cleanup_snapshot = await asyncio.to_thread(
                     knowledge_contract.snapshot_tier, VIBE_SELLER_DIR, tier_slug
                 )
@@ -390,7 +389,6 @@ async def auto_run_task(task_id: str, store: Store | None):
                 restored = await asyncio.to_thread(
                     knowledge_contract.undo_non_deletions, cleanup_snapshot
                 )
-                knowledge_contract.end_cleanup(task_id)
                 if restored:
                     logger.warning(
                         'Knowledge cleanup %s changed more than lines; '
@@ -416,7 +414,6 @@ async def auto_run_task(task_id: str, store: Store | None):
                 )
                 send_cleanup_finished(task_id, tier, outcome, len(restored))
             except Exception:
-                knowledge_contract.end_cleanup(task_id)
                 send_cleanup_finished(task_id, tier, 'failed', len(restored))
                 logger.warning(
                     'Recording knowledge cleanup failed for %s',

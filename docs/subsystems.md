@@ -419,27 +419,32 @@ and acts on. The full order is in
 Only checks that protect money or data remain; nothing grades the report's
 prose, format or language.
 
-| Check | Strength | Concern |
-|---|---|---|
-| `listing_upload_gate.py` | Hard (every submit) | A listing batch uploaded to the live account this turn has a clean verdict. Also holds the turn open via the Stop hook. |
-| Deliverables (`app/deliverables/gate.py`) | Soft (`SOFT_GATE_MAX_DENIALS` = 1) | A report-download run delivered every report the calendar says it owed (only engages when the workspace holds `reports_*` folders). |
-| `ad_changes.py` | Contradiction (up to `CONTRADICTION_MAX_DENIALS` = 3, then banner) | `CHANGES.tsv` obeys store rules (`ad_rules.py`, overridable per store via `key: value` lines in `stores/<slug>/notes.md`); `investigate` proposes nothing; `EXECUTION_LOG.tsv` matches the frozen approval in `data/approved_changes/`. |
-| `ad_coverage.py` | Soft once, then caveats (`review_gaps`); impossible spend is a contradiction | An `audit` covered every owed marketplace (`ad_declaration.owed_combos`), drilled live campaigns, reconciled search terms with targeting, with fresh TSVs. |
+Every check gets one round: refused once naming what is unmet, then the
+result ships with the findings as caveats (`review_gaps`); contradictions
+also get a banner at the top of the result.
+
+| Check | Concern |
+|---|---|
+| `listing_upload_gate.py` | A listing batch uploaded to the live account this turn has a clean verdict. Also holds the turn open once. |
+| Deliverables (`app/deliverables/gate.py`) | A report-download run delivered every report the calendar says it owed (only engages when the workspace holds `reports_*` folders). |
+| `ad_changes.py` | `CHANGES.tsv` obeys store rules (`ad_rules.py`, overridable per store via `key: value` lines in `stores/<slug>/notes.md`); `investigate` proposes nothing; `EXECUTION_LOG.tsv` matches the frozen approvals in `data/approved_changes/` (contradiction). |
+| `ad_coverage.py` | An `audit` covered every owed marketplace (`ad_declaration.owed_combos`), drilled live campaigns, reconciled search terms with targeting; impossible spend is a contradiction. |
 
 The ad checks read fixed-header TSVs (`app/ai/stop_gates/ad_tables.py`),
 not the report; the agent-facing contract is
 `app/skills_v2/amazon-ads/references/data-contract.md` (`noon-ads` ships
 a byte-identical copy). When a phase
-declares `execute` (which needs a new user message), the `CHANGES.tsv` it
+declares `execute` (normally after the user replied to an audit), the `CHANGES.tsv` it
 starts from (its own, or its parent audit's) is frozen to
 `data/approved_changes/<task_id>.tsv`, and the execution is checked
 against that copy: the agent first brings `CHANGES.tsv` in line with
-what the user approved, amended values included, and cannot edit the
-list once execution has begun.
+what the user approved, amended values included; the frozen list is
+posted to the conversation, and editing `CHANGES.tsv` afterwards does
+not move it.
 
 ### Why at the MCP tool call, not the Stop hook
 
-Some backends (notably DeepSeek under certain compaction conditions) never emit a `Stop` event, so a Stop-hook-only gate would be silently skipped. `set_task_result` is the one tool every successful task path calls, so the gate fires there. The Stop hook (every session) only refuses to end a turn while async subagents are still running or an uploaded listing batch lacks a verdict.
+Some backends (notably DeepSeek under certain compaction conditions) never emit a `Stop` event, so a Stop-hook-only gate would be silently skipped. `set_task_result` is the one tool every successful task path calls, so the gate fires there. The Stop hook (every session) only refuses to end a turn while async subagents are still running, or — once — while an uploaded listing batch lacks a verdict.
 
 ### Adding a gate
 

@@ -125,7 +125,7 @@ and the reveal endpoint below.
 | POST | `/api/tasks/{task_id}/questions/answer` | Answer agent question (batch) |
 | POST | `/api/tasks/{task_id}/result` | Record task result summary (agent-only via MCP `vibe_seller_set_task_result`). Does NOT transition status; `_auto_run_task` handles that. |
 | POST | `/api/tasks/{task_id}/error` | Record unrecoverable task error (agent-only via MCP `vibe_seller_set_task_error`). Does NOT transition status; `_auto_run_task` sees `task.error` during cleanup and transitions to FAILED. |
-| POST | `/api/tasks/{task_id}/ad-declaration` | Declare what THIS PHASE of an ad task is for, before any browser work (agent-only via MCP `vibe_seller_declare_ad_task`). Body: `{kind, scope}` where kind ∈ audit/create/execute/investigate — there is no `edit`; "change these three bids" is a one-campaign `audit`. `scope` = `{combos[], campaigns[], products[]}`; **absent `combos` means every marketplace the store sells on**. Append-only: a second declaration is 409 unless a NEW user message has arrived since the last one, so only the person typing can open a phase. **Two exceptions, both ratchets** (`ad_declaration.supersedes`) — within a turn you may narrow at the same kind (recording campaign ids only enumeration could reveal), or correct `investigate` → `audit` at the same-or-narrower reach. The latter is legal because it *adds* obligation (the audit's marketplace coverage); `audit` → `investigate` and every other pair stay 409, as does any widening. On accept, mirrored to `AD_TASK.json` in the task workspace for the stop gates (the row stays authoritative). |
+| POST | `/api/tasks/{task_id}/ad-declaration` | Declare what THIS PHASE of an ad task is for, before any browser work (agent-only via MCP `vibe_seller_declare_ad_task`). Body: `{kind, scope}` where kind ∈ audit/create/execute/investigate — there is no `edit`; "change these three bids" is a one-campaign `audit`. `scope` = `{combos[], campaigns[], products[]}`; **absent `combos` means every marketplace the store sells on**. Append-only, one row per declaration. Like every check, one round: within a turn, narrowing at the same kind or correcting `investigate` → `audit` is always accepted (`ad_declaration.supersedes`); any other re-declaration is answered 409 once, and the same call again is recorded as declared. `execute` normally follows a user reply to a declared audit (this task's or its parent's); without one it is 409 once, and on a second call the frozen changes are posted to the conversation marked as not confirmed by the user. On accept, mirrored to `AD_TASK.json` in the task workspace for the stop gates (the row stays authoritative). |
 | GET | `/api/tasks/{task_id}/ad-declarations` | Every declaration this task has made, oldest first — one row per phase (`seq`), with `kind`, `scope`, `user_turn`, `created_at`. The sequence is the task's phase history: a task that created a listing and then audited its ads has two declarations, one per phase. |
 | GET | `/api/tasks/{task_id}/schedule-state/{key}` | Read a cross-run cursor persisted by a prior run of the same schedule (agent-only via MCP `vibe_seller_get_schedule_state`). Scope resolved server-side from `task.schedule_id`; non-scheduled tasks → 400. Response omits `schedule_id` so the MCP tool output cannot leak it to the agent. Keys must match `[A-Za-z0-9_.-]{1,64}`. |
 | PUT | `/api/tasks/{task_id}/schedule-state/{key}` | Upsert a cross-run cursor (agent-only via MCP `vibe_seller_set_schedule_state`). Body: `{value: string}` (non-empty). Uses SQLite `INSERT ON CONFLICT DO UPDATE` so concurrent manual triggers can't race the PK insert. Same scoping / key rules as GET. Typed keys: `email_watermark` must be a unix epoch seconds integer string (regex `^[0-9]{1,15}$`) — ISO timestamps are rejected because lex compare with microseconds / timezone variants is unsafe. |
@@ -144,14 +144,18 @@ and the reveal endpoint below.
 The submission is retained first (`submitted_result`), so a refusal (400)
 annotates it rather than discarding it. Then, in order:
 
-1. **Listing upload verdict** (`app/ai/stop_gates/listing_upload_gate.py`,
-   hard). A listing batch this turn uploaded to the live account must have
-   a clean `BATCH_<id>_VERDICT.json`; refused on every submit until it
-   does. The same check holds the turn open (Stop hook and quiescence
-   watchdog), so the agent cannot end the turn instead.
-2. **Report deliverables** (`app/deliverables/gate.py`, soft —
-   `SOFT_GATE_MAX_DENIALS` = 1 refusal, then accepted): a report-download
-   run delivered every report the calendar says it owed.
+Every check gets **one round** (`task_submission.one_round`): its first
+finding on a task is a 400 naming what is unmet; the next submit is
+accepted with the findings as caveats (`review_gaps`), and findings that
+contradict each other — or a change the user did not approve — are also
+marked with a banner at the top of the result.
+
+1. **Listing upload verdict** (`app/ai/stop_gates/listing_upload_gate.py`).
+   A listing batch this turn uploaded to the live account should have a
+   clean `BATCH_<id>_VERDICT.json`. The same check holds the turn open
+   once (Stop hook / result re-drive), not again.
+2. **Report deliverables** (`app/deliverables/gate.py`): a
+   report-download run delivered every report the calendar says it owed.
 3. **Skill-declared gates** — only those named in the `gates:` frontmatter
    of a skill the task loaded (bindings persist per task under
    `data/gate_bindings/`). The ad skills (`amazon-ads`, `noon-ads`)
@@ -167,28 +171,25 @@ column contract the agent follows is
 ships a byte-identical copy) — that file is the
 source of truth; do not restate it.
 
-- `ad_changes` (money — every finding is a contradiction, refused up to
-  `CONTRADICTION_MAX_DENIALS` = 3, then the result ships with a warning
-  banner): `CHANGES.tsv` obeys the store rules (`ad_rules.py` —
+- `ad_changes`: `CHANGES.tsv` obeys the store rules (`ad_rules.py` —
   `acos_no_lower`, `cpc_floor_multiplier`, `scale_roas`,
   `change_cooldown_days`, …; each default is overridable by a
   `key: value` line in `stores/<slug>/notes.md`); an `investigate` phase
   proposes nothing; every `EXECUTION_LOG.tsv` row matches an approved
   change (bid within 0.01) and the per-campaign `applied_*` columns agree.
-- **Approval freeze**: when the phase declares `execute` — which takes a
-  new user message answering a prior audit's proposals — its
+  Execution findings and broken tables are contradictions (banner);
+  store-rule findings on a proposal are caveats.
+- **Approval freeze**: when the phase declares `execute`, its
   `CHANGES.tsv` is copied to `data/approved_changes/<task_id>.tsv`, out of
   the agent's reach. Execution is checked against that copy (this task's
   or its nearest ancestor's), so editing `CHANGES.tsv` mid-execution
-  changes nothing.
-- `ad_coverage` (soft — one refusal, then unmet items ship as caveats in
-  `review_gaps`): only an `audit` declaration owes coverage
+  changes nothing. A re-declared `execute` re-freezes; earlier freezes
+  are kept, so changes made under them stay approved.
+- `ad_coverage`: only an `audit` declaration owes coverage
   (`ad_declaration.owed_combos`) — every owed marketplace has rows in
-  `CAMPAIGNS.tsv`, campaign counts are plausible against recent history
-  (`ad_scope.prior_campaign_tsvs`), live campaigns are drilled with both
-  files, search terms reconcile with targeting spend, and the TSVs are
-  fresh. Spend that cannot be true (search terms above targeting) is a
-  contradiction, handled like `ad_changes`.
+  `CAMPAIGNS.tsv`, live campaigns are drilled with both files, and
+  search terms reconcile with targeting spend. Spend that cannot be true
+  (search terms above targeting) is a contradiction.
 
 `vibe_seller_ads_call` (Ads API) is separately scope-checked against the
 declaration by `ads_call_refusal` (`app/ai/ad_scope_access.py`).

@@ -58,14 +58,6 @@ DEFAULT_RULES: dict[str, float] = {
     # data. Same floor for both platforms; the fix on the agent side is
     # "use the export", documented in noon-ads.
     'noon_reconcile_floor': 0.85,
-    # Zero-order waste floors: a row with no orders must be cut (search
-    # term → 否定; targeting keyword → 暂停/降) once EITHER threshold is
-    # met — spend (store currency) or clicks. Clicks are the stronger
-    # evidence: 10+ clicks with zero orders is a proven loser even at
-    # low spend (store-owner rule: anything with spend and zero results
-    # should be removed/disabled outright).
-    'negate_waste_spend': 10.0,
-    'negate_waste_clicks': 10.0,
     # Days a target is left alone after a change is APPLIED to it.
     #
     # A bid moved yesterday has yesterday's data behind it, so adjusting
@@ -81,9 +73,6 @@ DEFAULT_RULES: dict[str, float] = {
     # A new bid may not drop to/below the row's actual CPC times this:
     # below the price it already clears, the auction stops serving it.
     'cpc_floor_multiplier': 1.1,
-    # Gross margin % assumed when the store has not recorded one; the
-    # report says it used the default.
-    'margin': 25.0,
 }
 
 # Per-store override patterns — a ``key: value`` line of its own in

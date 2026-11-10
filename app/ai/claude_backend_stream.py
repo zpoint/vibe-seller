@@ -353,11 +353,11 @@ class _StreamMixin:
                     self._empty_turn_continued = True
                     await self.send_user_message(EMPTY_TURN_CONTINUE)
                     return
-                hold_reason = (
-                    self._async_agents_pending_reason()
-                    or self._open_work_reason()
-                )
+                pending = self._async_agents_pending_reason()
+                hold_reason = pending or self._open_work_reason()
                 if hold_reason and not self._hold_exhausted():
+                    if not pending:
+                        self._upload_hold_spent = True
                     self._note_hold_redrive()
                     await self._emit_message(
                         'agent_event',

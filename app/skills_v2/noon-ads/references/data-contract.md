@@ -83,9 +83,12 @@ one ever chose it. When the user states a standard, write it there with
 | `cpc_floor_multiplier` | 1.1 | a new bid is at least `cpc` x this |
 | `scale_roas` | 5 | a `hold` on a row with higher ROAS needs a `reason` |
 | `change_cooldown_days` | 7 | a target changed within this window is held, with the date in `reason` |
-| `margin` | 25 | gross margin % assumed when unknown — say so in the report |
 | `reconcile_tolerance` | 0.15 | search-term spend may exceed targeting spend by at most this fraction; `CAMPAIGNS.tsv` spend and the targeting total may differ by this fraction (or 1.00) |
 | `noon_reconcile_floor` | 0.85 | search terms must cover at least this share of targeting spend (both platforms) |
+
+Margin is a fact about the store, not a server rule: when it is unknown,
+assume 25% and say so in the report; a margin the user states goes in
+`stores/<slug>/notes.md` as `margin: <n>`.
 
 ## EXECUTION_LOG.tsv — what you changed
 

@@ -88,36 +88,6 @@ async def mark_cleaned(db, scope: str) -> None:
         row.value = str(KNOWLEDGE_CONTRACT)
 
 
-# Tiers being cleaned right now: cleanup task id → store slug (None for
-# the global tier). While a tier is listed, only its cleanup run may
-# write there — the run's outcome check restores any file changed by
-# more than deletions, and would otherwise sweep away a concurrent
-# writer's legitimate edit. One server process owns the workspace, so
-# process memory is the right place.
-_active: dict[str, str | None] = {}
-
-
-def begin_cleanup(task_id: str, store_slug: str | None) -> None:
-    _active[task_id] = store_slug
-
-
-def end_cleanup(task_id: str) -> None:
-    _active.pop(task_id, None)
-
-
-def busy_error(path: str, writer_task_id: str | None) -> str | None:
-    """Refuse a write into a tier another run is cleaning right now."""
-    for task_id, slug in list(_active.items()):
-        if task_id == writer_task_id:
-            continue
-        if tier_error(path, slug) is None:
-            return (
-                'The one-time knowledge cleanup is running on this part of '
-                'the workspace; try again in a few minutes.'
-            )
-    return None
-
-
 def tier_error(path: str, store_slug: str | None) -> str | None:
     """Refuse a cleanup write outside the task's own tier.
 

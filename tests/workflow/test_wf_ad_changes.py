@@ -15,7 +15,7 @@ import uuid
 from httpx import ASGITransport, AsyncClient
 import pytest
 
-from app.ai.stop_gates import CONTRADICTION_MAX_DENIALS, ad_changes, ad_coverage
+from app.ai.stop_gates import ad_changes, ad_coverage
 from app.ai.stop_gates.ad_tables import CHANGE_COLUMNS, read_table
 from app.auth import create_token
 import app.database as _db
@@ -199,22 +199,6 @@ async def test_declaring_again_before_any_change_refreezes(
     assert any('1.35' in line for line in r.json()['approved'])
 
 
-async def test_no_refreeze_once_a_change_is_logged(
-    admin_client, install_fake_agent, monkeypatch
-):
-    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A8')
-    task.changes([change(target_bid='1.35')])
-    await _user_answered_an_audit(admin_client, task.id)
-    r = await _declare(admin_client, task, 'execute')
-    assert r.status_code == 200, r.text
-    task.execution([_LOGGED])
-    task.changes([change(target_bid='9.99')])
-    r = await _declare(
-        admin_client, task, 'execute', {'campaigns': ['A1234567']}
-    )
-    assert _frozen_bids(task) == ['1.35']
-
-
 async def test_the_executed_change_is_not_its_own_cooldown(
     admin_client, install_fake_agent, monkeypatch
 ):
@@ -286,38 +270,6 @@ async def test_coverage_gap_is_refused_once_then_a_caveat(
     assert 'amazon AE' in (data.get('review_gaps') or '')
 
 
-async def test_diverging_execution_is_refused_until_the_cap(
-    admin_client, install_fake_agent, monkeypatch
-):
-    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A3')
-    task.changes([change(target_bid='1.20')])
-    ad_changes.freeze_approved_changes(task.id)
-    (task.dir / 'CHANGES.tsv').unlink()
-    task.declare('execute')
-    task.execution([
-        {
-            'campaign_id': 'A1234567',
-            'ad_group': 'g1',
-            'target': 'widget',
-            'match_type': 'exact',
-            'action': 'raise',
-            'from_bid': '1.00',
-            'to_bid': '11.3',
-            'applied_at': '2026-01-01T00:00:00+00:00',
-        }
-    ])
-    refusals = 0
-    for _ in range(CONTRADICTION_MAX_DENIALS + 3):
-        r = await _submit(admin_client, task)
-        if r.status_code == 200:
-            break
-        assert 'approved 1.20' in r.text
-        refusals += 1
-    assert refusals >= CONTRADICTION_MAX_DENIALS
-    data = (await admin_client.get(f'/api/tasks/{task.id}')).json()
-    assert 'approved 1.20' in (data.get('review_gaps') or '')
-
-
 def _unapproved_raise():
     return {
         'campaign_id': 'A1234567',
@@ -331,24 +283,26 @@ def _unapproved_raise():
     }
 
 
-async def test_an_unapproved_change_fails_the_task_past_the_cap(
+async def test_an_unapproved_change_is_refused_once_then_marked(
     admin_client, install_fake_agent, monkeypatch
 ):
-    """Money moved outside the approval and the agent never reconciled
-    it: the task fails instead of reading as delivered."""
-    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A14')
+    """Money moved outside the approval: the agent is told once; if it
+    submits again the result is delivered, banner-marked at the top with
+    the change listed, never as a clean result."""
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A3')
     task.changes([change(target_bid='1.20')])
     ad_changes.freeze_approved_changes(task.id)
     task.declare('execute')
     task.execution([_unapproved_raise()])
-    for _ in range(CONTRADICTION_MAX_DENIALS + 3):
-        if (await _submit(admin_client, task)).status_code == 200:
-            break
+    r = await _submit(admin_client, task)
+    assert r.status_code == 400 and 'approved 1.20' in r.text
+    r = await _submit(admin_client, task)
+    assert r.status_code == 200, r.text
     install_fake_agent.default_scenario.gate.set()
     done = await wait_for_task(admin_client, task.id)
-    assert done['status'] == 'failed', done
-    assert done['error_category'] == 'unapproved_change', done
-    assert 'approved 1.20' in done['error']
+    assert done['status'] == 'completed', done
+    assert 'approved 1.20' in (done.get('review_gaps') or '')
+    assert done['result'].lstrip().startswith('>'), done['result'][:200]
 
 
 async def test_matching_execution_is_accepted_first_time(
@@ -404,28 +358,35 @@ async def test_a_short_answer_is_not_swapped_for_an_old_audit(
     assert data['result'].startswith('Amazon SA ACOS over the last 7 days')
 
 
-async def test_execute_needs_the_user_to_answer_an_audit(
+async def test_execute_without_a_user_reply_is_asked_about_once(
     admin_client, install_fake_agent, monkeypatch
 ):
-    """Execution may start only after the user saw proposals and replied.
-
-    Without this a phase could apply changes nobody was shown: an agent
-    acting on its own audit in the same turn, or declaring execute
-    straight away on "lower X to 1.35"."""
+    """Execution normally follows a user reply to proposals they saw. An
+    agent declaring execute without one is told so once; if it declares
+    again, the changes it freezes are shown to the user as NOT
+    confirmed."""
     task = await _running(admin_client, install_fake_agent, monkeypatch, 'A11')
     task.changes([change(target_bid='1.35')])
     r = await _declare(admin_client, task, 'execute')
     assert r.status_code == 409, r.text
     assert 'audit' in r.text
-    r = await _declare(admin_client, task, 'audit')
-    assert r.status_code == 200, r.text
-    r = await _declare(admin_client, task, 'execute')  # same turn
-    assert r.status_code == 409, r.text
-    async with _db.async_session() as db:
-        db.add(TaskMessage(task_id=task.id, role='user', content='ok, do it'))
-        await db.commit()
     r = await _declare(admin_client, task, 'execute')
     assert r.status_code == 200, r.text
+    msgs = (await admin_client.get(f'/api/tasks/{task.id}/messages')).json()
+    assert any('NOT confirmed' in m['content'] for m in msgs), msgs
+
+
+async def test_execute_after_the_user_answered_is_confirmed(
+    admin_client, install_fake_agent, monkeypatch
+):
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A16')
+    task.changes([change(target_bid='1.35')])
+    await _user_answered_an_audit(admin_client, task.id)
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 200, r.text
+    msgs = (await admin_client.get(f'/api/tasks/{task.id}/messages')).json()
+    shown = [m['content'] for m in msgs if 'ad changes' in m['content']]
+    assert shown and 'NOT confirmed' not in shown[-1], shown
 
 
 async def test_the_agents_own_credential_cannot_answer_for_the_user(

@@ -105,6 +105,19 @@ class TestCloseGuards:
         ):
             assert s._turn_close_blocked() == 'open_work'
 
+    def test_an_unverified_upload_holds_the_turn_once(self):
+        """One round: once the hold has been spent on the upload, the
+        unverified batch no longer keeps the turn open."""
+        s = self._closable(_session())
+        s.task_dir = '/tmp/fake-task'
+        with patch(
+            'app.ai.claude_backend_turn_hold.check_upload_verdicts',
+            return_value='Batch 100000000001 has no parse-feedback verdict.',
+        ):
+            assert s._turn_close_blocked() == 'open_work'
+            s._upload_hold_spent = True
+            assert s._turn_close_blocked() is None
+
     def test_hold_fails_open_past_redrive_budget(self, monkeypatch):
         # Same fail-open bound as the result branch: past the budget
         # the hold stands down so unsatisfiable open work cannot wedge

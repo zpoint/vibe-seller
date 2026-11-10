@@ -14,6 +14,7 @@ from app.ai.profiles import (
     resolve_owner_profile,
 )
 from app.ai.stop_gates import (
+    GateDeny,
     clear_skill_bindings,
     reset_attempts,
     resolve_skill_gates,
@@ -33,7 +34,7 @@ from app.routers.task_submission import (
     apply_skill_gates,
     apply_soft_gates,
     declared_gaps,
-    refuse as _refuse,
+    one_round,
     resolve_submitted_result,
     retain_submission as _retain_submission,
 )
@@ -61,8 +62,7 @@ from app.task_states import (
     TaskStatus,
     assert_transition,
 )
-from app.telemetry_events import GateOutcome, TaskSource, TelemetryEvent
-from app.telemetry_harness import send_result_gated
+from app.telemetry_events import TaskSource, TelemetryEvent
 from app.telemetry_tasks import send_plan_verdict, send_task_created
 from app.telemetry_via import current_via, source_of_via
 from app.workspace.manager import VIBE_SELLER_DIR
@@ -605,21 +605,20 @@ async def set_task_result(
     declared = declared_gaps(body)
     await _retain_submission(db, task, final_result)
 
-    # A listing batch this turn uploaded to the live account must have a
-    # clean verdict before the task may finish (no-op without uploads).
-    # Hard: refused on every submit until the verdict is clean.
-    deny = await asyncio.to_thread(check_upload_verdicts, task_root)
-    if deny:
-        send_result_gated(
-            task_id,
-            'upload_verdict',
-            GateOutcome.REFUSED,
-            attempt=task.submission_count or 1,
-            gap_count=1,
+    # A listing batch this turn uploaded to the live account should have
+    # a clean verdict (no-op without uploads). One round, like the rest.
+    upload_gaps: tuple[str, ...] = ()
+    reason = await asyncio.to_thread(check_upload_verdicts, task_root)
+    if reason:
+        final_result, upload_gaps = await one_round(
+            db,
+            task,
+            GateDeny(gate='upload_verdict', reason=reason),
+            final_result,
+            declared,
         )
-        await _refuse(db, task, deny, declared)
 
-    soft_gaps = await apply_soft_gates(
+    final_result, soft_gaps = await apply_soft_gates(
         db, task, task_id, final_result, declared
     )
 
@@ -639,7 +638,7 @@ async def set_task_result(
     final_result, skill_gaps = await apply_skill_gates(
         db, task, skill_gates, final_result, rules, declared
     )
-    stalled_gaps = list(soft_gaps) + list(skill_gaps)
+    stalled_gaps = list(upload_gaps) + list(soft_gaps) + list(skill_gaps)
 
     # Recovery: a valid result supersedes an earlier agent-reported
     # error this turn (error → recovered → result must not ship as
@@ -666,16 +665,10 @@ async def set_task_result(
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
 
-    # Result persisted — drop the per-task gate-attempt counters, the
-    # turn hold's re-drive ledger, and any gate-owned progress state
-    # so a long-running server doesn't accumulate stale entries (and a
-    # later retry starts fresh).
+    # Result persisted — drop the per-task gate-attempt counters and the
+    # turn hold's re-drive ledger, so the next turn gets its own round.
     reset_attempts(task_id)
     reset_ledger(task_id)
-    for _name, gate in skill_gates:
-        reset = getattr(gate, 'reset_progress', None)
-        if reset is not None:
-            reset(task_id)
 
     # Emit a result message so the frontend conversation stream
     # renders the Result section immediately via SSE. Don't

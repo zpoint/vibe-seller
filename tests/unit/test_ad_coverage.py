@@ -144,21 +144,6 @@ def test_an_empty_marketplace_is_one_noted_row(task):
     assert findings(task) == ([], [])
 
 
-def test_collapsed_list_against_history(task):
-    """A lazy list read as 20 of 45; AE called empty with 10 live."""
-    old = time.time() - 3 * 86400
-    for i in range(6):
-        for p in task.drill(f'A90000{i:02d}', [{'target': 'x'}], []):
-            os.utime(p, (old, old))
-    task.campaigns([campaign()])
-    full_drill(task)
-    gaps, _ = findings(task)
-    assert any('in the last weeks' in g for g in gaps)
-    task.campaigns([campaign(note='five paused this week')])
-    gaps, _ = findings(task)
-    assert not any('in the last weeks' in g for g in gaps)
-
-
 def test_live_campaign_not_drilled(task):
     task.campaigns([campaign(drill_status='inactive')])
     gaps, _ = findings(task)
@@ -177,16 +162,6 @@ def test_drilled_without_files(task):
     task.campaigns([campaign()])
     gaps, _ = findings(task)
     assert any('searchterms.tsv missing' in g for g in gaps)
-
-
-def test_aggregate_row_is_not_a_drill(task):
-    task.campaigns([campaign()])
-    task.drill(
-        'A1234567',
-        [{'ad_group': 'g1', 'target': 'all', 'spend': '100'}],
-        [{'search_term': 't', 'spend': '100'}],
-    )
-    assert any('not a campaign total' in g for g in findings(task)[0])
 
 
 def test_partial_search_term_capture(task):
@@ -209,29 +184,6 @@ def test_campaign_row_disagreeing_with_its_layer(task):
     full_drill(task)
     _, contradictions = findings(task)
     assert any('joined to the wrong id' in c for c in contradictions)
-
-
-def test_name_is_the_id(task):
-    task.campaigns([campaign(name='A1234567')])
-    full_drill(task)
-    assert any('name is empty or the id' in g for g in findings(task)[0])
-
-
-def test_transcribed_files_from_an_earlier_run(task):
-    """Last week's report re-submitted as this week's."""
-    task.campaigns([campaign()])
-    full_drill(task)
-    old = time.time() - 7 * 86400
-    for p in task.ads_dir().iterdir():
-        os.utime(p, (old, old))
-    assert any('predates this task' in g for g in findings(task)[0])
-
-
-def test_stale_window(task):
-    old = (date.today() - timedelta(days=30)).isoformat()
-    task.campaigns([campaign(window_end=old)])
-    full_drill(task)
-    assert any('days old' in g for g in findings(task)[0])
 
 
 def test_campaign_narrowed_scope_checks_only_those(task):

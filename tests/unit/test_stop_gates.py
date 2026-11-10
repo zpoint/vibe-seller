@@ -1,7 +1,6 @@
 """The set_task_result attempt counter and the ad-rule thresholds.
 
-Every soft gate is held to SOFT_GATE_MAX_DENIALS refusals per task by a
-per-(task, gate) counter. Ad-rule thresholds are defaults a store's
+Every gate gets one refusal per task, counted per (task, gate). Ad-rule thresholds are defaults a store's
 ``notes.md`` overrides — the gates read them through ``resolve_rules``.
 """
 
@@ -10,7 +9,6 @@ from __future__ import annotations
 import pytest
 
 from app.ai.stop_gates import (
-    SOFT_GATE_MAX_DENIALS,
     _attempts,  # noqa: PLC2701 — tests inspect/clear the counter
     record_attempt,
     reset_attempts,
@@ -39,11 +37,6 @@ class TestAttemptCounter:
         reset_attempts('t1')
         assert ('t1', 'g1') not in _attempts
         assert ('t2', 'g1') in _attempts
-
-    def test_soft_max_denials_is_one(self):
-        # The user explicitly asked: "let agent fix once but not
-        # mandatory". This pins the contract.
-        assert SOFT_GATE_MAX_DENIALS == 1
 
 
 @pytest.mark.unit
@@ -83,7 +76,6 @@ class TestAdRules:
 
     def test_the_new_keys_have_defaults(self):
         assert DEFAULT_RULES['cpc_floor_multiplier'] == 1.1
-        assert DEFAULT_RULES['margin'] == 25.0
 
     def test_every_default_is_overridable_from_notes(self):
         notes = '\n'.join(f'{k}: 0.5' for k in DEFAULT_RULES)

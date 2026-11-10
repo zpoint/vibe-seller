@@ -119,6 +119,33 @@ class TestCatalogGateOnWritePath:
         assert r.status_code == 400, r.text
         assert 'stores/other-store/notes.md' in r.json()['detail']
 
+    async def test_a_content_rule_is_told_once(
+        self, admin_client, mock_workspace
+    ):
+        """A catalog missing a row is refused once, naming the row; the
+        same write a second time lands as written."""
+        _seed(mock_workspace.root)
+        (mock_workspace.root / 'knowledge' / 'CATALOG.md').write_text(L2)
+        partial = L3.replace(
+            '| knowledge/notes.md | amazon | Shared pricing notes |\n', ''
+        )
+        url = '/api/workspace/file?path=stores/gate-store/CATALOG.md'
+        r = await admin_client.put(url, json={'content': partial})
+        assert r.status_code == 400, r.text
+        r = await admin_client.put(url, json={'content': partial})
+        assert r.status_code == 200, r.text
+
+    async def test_another_stores_row_is_always_refused(
+        self, admin_client, mock_workspace
+    ):
+        _seed(mock_workspace.root)
+        (mock_workspace.root / 'knowledge' / 'CATALOG.md').write_text(L2)
+        leak = L3 + '| stores/other-store/notes.md | | leaked |\n'
+        url = '/api/workspace/file?path=stores/gate-store/CATALOG.md'
+        for _ in range(2):
+            r = await admin_client.put(url, json={'content': leak})
+            assert r.status_code == 400, r.text
+
     async def test_non_catalog_writes_untouched(
         self, admin_client, mock_workspace
     ):

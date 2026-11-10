@@ -1,66 +1,24 @@
-"""Which marketplaces an ad task owes, and what history says about them.
+"""Which marketplaces an ad task owes.
 
 ``AUDIT_TARGETS.json`` is written by the SERVER into the task dir: the
 (platform, country) combos the store is configured for, which an
 ``audit`` declared over the whole store owes (``ad_declaration.
 owed_combos``). The agent cannot shrink it.
-
-:func:`prior_campaign_tsvs` counts the campaigns recent audits drilled
-per marketplace — the only independent evidence the server has about a
-console it cannot browse, used to challenge a list that suddenly shrank.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-import time
 
-from app.ai.stop_gates.ad_tables import ads_dirs
 from app.config import VIBE_SELLER_DIR
 
 TARGETS_FILENAME = 'AUDIT_TARGETS.json'
-
-# How far back a TSV still counts as evidence of "recently had campaigns"
-# (~6 weekly audits); without a window the count only ever grows.
-PRIOR_TSV_WINDOW_DAYS = 45
 
 
 def targets_path(task_id: str):
     """Path to a task's AUDIT_TARGETS.json (task-workspace root)."""
     return VIBE_SELLER_DIR / 'tasks' / task_id / TARGETS_FILENAME
-
-
-def prior_campaign_tsvs(
-    slug: str | None,
-    platform: str,
-    country: str,
-    within_days: int = PRIOR_TSV_WINDOW_DAYS,
-) -> int:
-    """Distinct campaigns this store's recent audits drilled in a combo.
-
-    An UPPER bound on today's live count (campaigns get paused), so a
-    caller challenges only a collapse, never any shortfall. Counts
-    campaigns, not files: each drilled campaign leaves ``<id>.tsv`` and
-    ``<id>.searchterms.tsv``. Only this store's own directories count.
-    """
-    if not slug:
-        return 0
-    cutoff = time.time() - within_days * 86400
-    newest: dict[str, float] = {}
-    for d in ads_dirs(slug, platform, country):
-        try:
-            files = [p for p in d.iterdir() if p.suffix == '.tsv']
-        except OSError:
-            continue
-        for p in files:
-            try:
-                m = p.stat().st_mtime
-            except OSError:
-                continue
-            cid = p.name.split('.', 1)[0]
-            newest[cid] = max(newest.get(cid, 0.0), m)
-    return sum(1 for m in newest.values() if m >= cutoff)
 
 
 def write_declared_targets(
@@ -81,10 +39,9 @@ def write_declared_targets(
 
     A combo with no live campaigns is a legitimate finding (one row with
     an empty ``campaign_id`` and a note). What the agent cannot do is
-    omit the combo silently, nor list far fewer campaigns than recent
-    history without a note (see :func:`prior_campaign_tsvs`).
+    omit the combo silently.
 
-    ``slug`` is recorded so the audit can find this store's own history
+    ``slug`` is recorded so the audit finds this store's own files
     without globbing ``stores/*`` and borrowing another store's.
 
     Best-effort: an unwritable workspace leaves the gate with no store

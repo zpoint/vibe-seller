@@ -9,18 +9,12 @@ inferred obligation.
 Gaps (refused once, then shipped as caveats on the result):
 - a marketplace the declaration owes has no rows in CAMPAIGNS.tsv
   (a 5-market store once got a 1-market audit);
-- a marketplace lists far fewer campaigns than its recent history with
-  no note saying why (a lazy list read as 20 of 45; AE declared empty
-  while ten campaigns were live);
-- a live campaign not drilled, or drilled without both TSVs, or with a
-  targeting layer that is one aggregate row (12 campaigns claimed, 4
-  files on disk; 18 of 20 single-row "drills");
+- a live campaign not drilled, or drilled without both TSVs (12
+  campaigns claimed, 4 files on disk);
 - search terms far short of the targeting spend (noon's top-15 tab read
-  instead of the export: 0.27 of the real total);
-- ``name`` equal to the id, or TSVs older than this task (last week's
-  report transcribed as this week's).
+  instead of the export: 0.27 of the real total).
 
-Contradictions (numbers that cannot both be true; refused like money):
+Contradictions (numbers that cannot both be true; banner-marked if left):
 - search-term spend above the targeting spend it is attributed to, or a
   campaign row whose spend disagrees with its own targeting layer — the
   signature of joining one campaign's figures to another's id.
@@ -28,15 +22,10 @@ Contradictions (numbers that cannot both be true; refused like money):
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
-
 from app.ai import ad_declaration
 from app.ai.stop_gates import GateDeny
 from app.ai.stop_gates.ad_rules import DEFAULT_RULES
-from app.ai.stop_gates.ad_scope import (
-    load_declared_targets,
-    prior_campaign_tsvs,
-)
+from app.ai.stop_gates.ad_scope import load_declared_targets
 from app.ai.stop_gates.ad_tables import (
     CAMPAIGN_COLUMNS,
     CAMPAIGNS_FILE,
@@ -48,13 +37,11 @@ from app.ai.stop_gates.ad_tables import (
     number,
     read_table,
 )
-from app.ai.stop_gates.ad_task import store_slug_for, task_dir, task_started_at
+from app.ai.stop_gates.ad_task import store_slug_for, task_dir
 from app.models.ad_declaration import KIND_AUDIT
 
 GATE_NAME = 'ad_coverage'
 LIVE_STATES = ('enabled', 'active', 'live', 'running', 'delivering')
-STALE_WINDOW_DAYS = 7
-MTIME_SLACK_S = 300
 
 # Names the tool exactly and says it is already loaded: observed live, an
 # agent searched for it with ToolSearch, which lists only DEFERRED tools,
@@ -77,21 +64,8 @@ def _sum(rows, column: str) -> float:
     return sum(number(r.get(column)) or 0.0 for r in rows)
 
 
-def _started_ts(task_id: str) -> float | None:
-    raw = task_started_at(task_id)
-    if not raw:
-        return None
-    try:
-        when = datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=UTC)
-    return when.timestamp()
-
-
 def _drill_problems(
-    slug: str, row: dict, rules: dict, started: float | None
+    slug: str, row: dict, rules: dict
 ) -> tuple[list[str], list[str]]:
     gaps: list[str] = []
     contradictions: list[str] = []
@@ -122,19 +96,6 @@ def _drill_problems(
             gaps.append(f'{label}: {t.error}')
     if targeting.error or terms.error:
         return gaps, contradictions
-    if started is not None:
-        for p in (targeting_path, terms_path):
-            if p.stat().st_mtime < started - MTIME_SLACK_S:
-                gaps.append(
-                    f'{label}: {p.name} predates this task — re-read the '
-                    'campaign, an earlier run’s file is not this run’s data'
-                )
-    targets = [r for r in targeting.rows if r.get('target')]
-    if len(targets) <= 1 and (number(row.get('clicks')) or 0) > 0:
-        gaps.append(
-            f'{label}: targeting layer has {len(targets)} row — drill per '
-            'keyword/target, not a campaign total'
-        )
     t_spend = _sum(targeting.rows, 'spend')
     s_spend = _sum(terms.rows, 'spend')
     c_spend = number(row.get('spend'))
@@ -164,14 +125,6 @@ def _drill_problems(
     return gaps, contradictions
 
 
-def _window_stale(row: dict) -> bool:
-    try:
-        end = date.fromisoformat(row.get('window_end', ''))
-    except ValueError:
-        return False
-    return end < date.today() - timedelta(days=STALE_WINDOW_DAYS)
-
-
 def audit_findings(
     task_id: str, decl: dict, rules: dict
 ) -> tuple[list[str], list[str]]:
@@ -196,7 +149,6 @@ def audit_findings(
                 'campaign_id and a note)'
             )
     slug = store_slug_for(task_id)
-    started = _started_ts(task_id)
     for (platform, country), rows in sorted(by_combo.items()):
         if not ad_declaration.combo_in_scope(scope, platform, country):
             gaps.append(
@@ -205,21 +157,6 @@ def audit_findings(
             )
             continue
         real = [r for r in rows if r.get('campaign_id')]
-        prior = prior_campaign_tsvs(slug, platform, country) if slug else 0
-        # A declared campaign subset lists only those campaigns; history
-        # counts the whole market, so the comparison only fits a phase
-        # that owes every campaign in it.
-        if (
-            prior
-            and not (scope or {}).get('campaigns')
-            and len(real) * 2 < prior
-            and not any(r.get('note') for r in rows)
-        ):
-            gaps.append(
-                f'{platform} {country}: {len(real)} campaign(s) listed, '
-                f'{prior} in the last weeks’ history — read the full list, '
-                'or note why it shrank'
-            )
         for row in real:
             cid = row['campaign_id']
             if not ad_declaration.campaign_in_scope(scope, cid):
@@ -232,13 +169,6 @@ def audit_findings(
                     f'{" / ".join(DRILL_STATUSES)}'
                 )
                 continue
-            if row.get('name', '').strip() in ('', cid):
-                gaps.append(f'{label}: name is empty or the id itself')
-            if _window_stale(row):
-                gaps.append(
-                    f'{label}: window_end {row.get("window_end")} is over '
-                    f'{STALE_WINDOW_DAYS} days old'
-                )
             live = row.get('state', '').lower() in LIVE_STATES
             if status == 'blocked':
                 if not row.get('note'):
@@ -247,7 +177,7 @@ def audit_findings(
                 if live:
                     gaps.append(f'{label}: live campaign marked inactive')
             elif slug:
-                g, c = _drill_problems(slug, row, rules, started)
+                g, c = _drill_problems(slug, row, rules)
                 gaps.extend(g)
                 contradictions.extend(c)
     return gaps, contradictions

@@ -306,7 +306,7 @@ class TestGateTelemetry:
         gated = [p for e, p in events if e == 'task_result_gated']
         assert [(p['gate'], p['outcome'], p['attempt']) for p in gated] == [
             ('deliverable_manifest', 'refused', 1),
-            ('deliverable_manifest', 'allowed', 2),
+            ('deliverable_manifest', 'failed_open', 2),
         ]
         assert gated[0]['task_id'] == task_id
         assert gated[0]['gap_count_bucket'] == '1-5'
@@ -316,7 +316,7 @@ class TestGateTelemetry:
     async def test_a_banner_marked_result_is_reported_once(
         self, admin_client, install_fake_agent, monkeypatch
     ):
-        """Past the contradiction cap the result ships banner-marked: one
+        """Refused once; the next submit ships banner-marked: one
         banner_marked event, no failed_open on top, and each gap once."""
         events = _capture_telemetry(monkeypatch)
 
@@ -330,61 +330,78 @@ class TestGateTelemetry:
                     contradictions=('x',),
                 )
 
-            @staticmethod
-            def is_stalled(task_id):
-                return True
-
         monkeypatch.setattr(
             'app.routers.tasks.resolve_skill_gates',
             lambda loaded, workspace: [('fake_money', ContradictingGate)],
         )
-        monkeypatch.setattr(
-            'app.routers.task_submission.CONTRADICTION_MAX_DENIALS', 0
-        )
         task_id, gate = await _running_task(
             admin_client, install_fake_agent, 'Banner Gate Store'
         )
-        r = await admin_client.post(
-            f'/api/tasks/{task_id}/result', json={'result': CLEAN}
-        )
+        url = f'/api/tasks/{task_id}/result'
+        r = await admin_client.post(url, json={'result': CLEAN})
+        assert r.status_code == 400, r.text
+        r = await admin_client.post(url, json={'result': CLEAN})
         assert r.status_code == 200, r.text
         gated = [p['outcome'] for e, p in events if e == 'task_result_gated']
-        assert gated == ['banner_marked'], gated
+        assert gated == ['refused', 'banner_marked'], gated
         gate.set()
         done = await wait_for_task(admin_client, task_id)
         caveats = json.loads(done.get('review_gaps') or '[]')
         assert sorted(caveats) == ['note', 'x'], caveats
 
-    async def test_stalled_skill_gate_fails_open(
+    async def test_an_unverified_upload_is_one_round(
         self, admin_client, install_fake_agent, monkeypatch
     ):
+        """A listing batch without a clean verdict is raised once; the
+        next submit ships with it as a caveat instead of looping."""
+        why = 'Batch 100000000001 has no parse-feedback verdict.'
+        monkeypatch.setattr(
+            'app.routers.tasks.check_upload_verdicts', lambda _root: why
+        )
+        task_id, gate = await _running_task(
+            admin_client, install_fake_agent, 'Upload Round Store'
+        )
+        url = f'/api/tasks/{task_id}/result'
+        r = await admin_client.post(url, json={'result': CLEAN})
+        assert r.status_code == 400 and why in r.text
+        r = await admin_client.post(url, json={'result': CLEAN})
+        assert r.status_code == 200, r.text
+        gate.set()
+        done = await wait_for_task(admin_client, task_id)
+        assert why in (done.get('review_gaps') or '')
+
+    async def test_a_skill_gate_is_one_round(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        """A skill gate refuses once; the next submit goes through with
+        its gaps as caveats — never a loop."""
         events = _capture_telemetry(monkeypatch)
 
-        class StalledGate:
+        class UnmetGate:
             @staticmethod
             def check(result, task_id, rules):
                 return GateDeny(
                     gate='fake_review', reason='unmet', gaps=('a', 'b')
                 )
 
-            @staticmethod
-            def is_stalled(task_id):
-                return True
-
         monkeypatch.setattr(
             'app.routers.tasks.resolve_skill_gates',
-            lambda loaded, workspace: [('fake_review', StalledGate)],
+            lambda loaded, workspace: [('fake_review', UnmetGate)],
         )
         task_id, gate = await _running_task(
-            admin_client, install_fake_agent, 'Stalled Gate Store'
+            admin_client, install_fake_agent, 'One Round Store'
         )
-        r = await admin_client.post(
-            f'/api/tasks/{task_id}/result', json={'result': CLEAN}
-        )
-        assert r.status_code == 200
+        url = f'/api/tasks/{task_id}/result'
+        assert (
+            await admin_client.post(url, json={'result': CLEAN})
+        ).status_code == 400
+        assert (
+            await admin_client.post(url, json={'result': CLEAN})
+        ).status_code == 200
         gated = [p for e, p in events if e == 'task_result_gated']
         assert [(p['gate'], p['outcome']) for p in gated] == [
-            ('custom', 'failed_open')
+            ('custom', 'refused'),
+            ('custom', 'failed_open'),
         ]
         gate.set()
         await wait_for_task(admin_client, task_id)

@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import knowledge_contract
+from app.ai.stop_gates import forget_attempt, record_attempt
 from app.auth import get_current_user
 from app.browser.manager import store_slug
 from app.browser.wrapper import validate_store_slug
@@ -23,7 +24,10 @@ from app.schemas.workspace import (
     SkillSaveRequest,
     StoreProfileCreateRequest,
 )
-from app.workspace.catalog_validation import validate_catalog_write
+from app.workspace.catalog_validation import (
+    catalog_problems,
+    catalog_rejection,
+)
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
 
@@ -137,9 +141,6 @@ async def write_file(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    busy = knowledge_contract.busy_error(path, task_id)
-    if busy:
-        raise HTTPException(status_code=409, detail=busy)
     try:
         if task_id and not path.endswith('CATALOG.md'):
             err = await _cleanup_write_error(db, task_id, path, body.content)
@@ -150,13 +151,19 @@ async def write_file(
         # carries another store's rows, or stubs a substantive file is
         # rejected naming the rows to fix. See catalog_validation.
         if path.endswith('CATALOG.md'):
-            await asyncio.to_thread(
-                validate_catalog_write,
+            hard, content_errors = await asyncio.to_thread(
+                catalog_problems,
                 path,
                 body.content,
                 root=workspace_manager.root,
                 resolve_file=workspace_manager.resolve_file,
             )
+            # Rows outside the tier are always refused; the content rules
+            # are told once, and a second write goes through as written.
+            writer, gate = task_id or 'workspace', f'catalog:{path}'
+            if hard or (content_errors and record_attempt(writer, gate) == 1):
+                raise ValueError(catalog_rejection(path, hard + content_errors))
+            forget_attempt(writer, gate)
         await workspace_manager.write_file(path, body.content)
         return {'path': path, 'status': 'ok'}
     except ValueError as e:
@@ -178,9 +185,6 @@ async def delete_lines(
     server deletes the named 1-based inclusive ranges itself, and only
     from the file as the caller read it.
     """
-    busy = knowledge_contract.busy_error(path, task_id)
-    if busy:
-        raise HTTPException(status_code=409, detail=busy)
     if path.endswith('CATALOG.md'):
         # A catalog is rewritten whole and validated as a table; line
         # deletion would bypass that check.

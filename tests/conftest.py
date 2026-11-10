@@ -226,6 +226,21 @@ assert_test_home_isolated(
 
 
 @pytest.fixture(autouse=True)
+def _isolate_gate_rounds():
+    """Each test starts with every gate's one round unspent.
+
+    The counters are process memory keyed by task id — and, for a
+    catalog written without a task, by path — so a refusal one test
+    spends would otherwise be gone for the next test that writes it.
+    """
+    from app.ai.stop_gates import _attempts  # noqa: PLC0415, PLC2701
+
+    _attempts.clear()
+    yield
+    _attempts.clear()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_wrapper_bin_dir(tmp_path_factory, monkeypatch):
     """Keep wrapper writes/reaps out of the developer's real
     ``~/.vibe-seller/bin/``.
