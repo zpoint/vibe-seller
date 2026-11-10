@@ -66,9 +66,9 @@ def _same_target(a: dict, b: dict) -> bool:
 
     The ad group may be blank on one side (a keyword in a single ad
     group needs none, and the drilled TSV usually records it): a blank
-    then matches any — otherwise a correctly applied change read as
-    "not approved", and a proposal was judged on its own copied numbers
-    because its drilled row could not be found.
+    then matches any. Callers that must not guess WHICH copy use
+    ``_matched`` instead — a blank names one only while the target sits
+    in one ad group.
     """
     ka, kb = _key(a), _key(b)
     if (ka[0], ka[2], ka[3]) != (kb[0], kb[2], kb[3]):
@@ -83,6 +83,40 @@ def _key(row: dict) -> tuple[str, str, str, str]:
         row.get('target', '').lower(),
         row.get('match_type', '').lower(),
     )
+
+
+def _campaign_rows(slug: str | None, row: dict) -> tuple[dict, ...]:
+    """The campaign TSV's rows for this target/match_type, if drilled."""
+    if not slug:
+        return ()
+    path, _ = campaign_files(
+        slug, row['platform'], row['country'], row['campaign_id']
+    )
+    table = read_table(path, TARGETING_COLUMNS) if path else None
+    if not table or table.error:
+        return ()
+    key = _key(row)
+    return tuple(
+        t
+        for t in table.rows
+        if _key({**t, 'campaign_id': row['campaign_id']})[2:] == key[2:]
+    )
+
+
+def _matched(slug: str | None, a: dict, b: dict) -> bool:
+    """``_same_target``, but a blank ad_group names one copy only.
+
+    One keyword can sit in several ad groups of a campaign, and a blank
+    then names none of them: which copy it means has to be said (the
+    same rule ``ads_bulk --from-changes`` enforces). With no drilled TSV
+    there is nothing to count, so a blank matches as it always did —
+    otherwise a correctly applied change read as "not approved".
+    """
+    if not _same_target(a, b):
+        return False
+    if _key(a)[1] and _key(b)[1]:
+        return True
+    return len(_campaign_rows(slug, a if not _key(a)[1] else b)) <= 1
 
 
 def _label(row: dict) -> str:
@@ -233,16 +267,16 @@ def _recently_applied(
 
 
 def _drilled(slug: str | None, row: dict) -> dict | None:
-    """The target's row in its campaign's own TSV, if drilled."""
-    if not slug:
+    """The target's row in its campaign's own TSV, if drilled.
+
+    A blank ad_group is resolved only while the target sits in one ad
+    group; in several the lookup gives up, so the proposal is judged on
+    its own numbers instead of one copy's.
+    """
+    rows = _campaign_rows(slug, row)
+    if not _key(row)[1] and len(rows) > 1:
         return None
-    path, _ = campaign_files(
-        slug, row['platform'], row['country'], row['campaign_id']
-    )
-    table = read_table(path, TARGETING_COLUMNS) if path else None
-    if not table or table.error:
-        return None
-    for t in table.rows:
+    for t in rows:
         if _same_target({**t, 'campaign_id': row['campaign_id']}, row):
             return t
     return None
@@ -307,7 +341,7 @@ def rule_violations(
     roas_equiv = 100.0 / acos_floor if acos_floor else None
     out = []
     for row in rows:
-        if any(_same_target(row, d) for d in done) or _changed_since(
+        if any(_matched(slug, row, d) for d in done) or _changed_since(
             _drilled(slug, row), since
         ):
             # Already executed — by this task, or since it started by an
@@ -434,7 +468,7 @@ def execution_violations(
         wants = [
             w
             for w in approved
-            if _same_target(w, row) and w['action'].lower() == action
+            if _matched(slug, w, row) and w['action'].lower() == action
         ]
         if not wants:
             out.append(
@@ -465,7 +499,7 @@ def _writeback_mismatch(slug: str | None, want: dict, row: dict) -> list[str]:
     if not table or table.error:
         return []
     for t in table.rows:
-        if not _same_target({**t, 'campaign_id': want['campaign_id']}, row):
+        if not _matched(slug, {**t, 'campaign_id': want['campaign_id']}, row):
             continue
         if t.get('applied_action', '').lower() != row['action'].lower():
             return [

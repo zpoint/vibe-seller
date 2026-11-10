@@ -438,3 +438,73 @@ def test_a_blank_ad_group_still_finds_its_target(task):
     task.declare('execute')
     task.execution([_done(action='lower', from_bid='1.20', to_bid='1.10')])
     assert not any('not in the approved' in g for g in _gaps(task))
+
+
+# ── a blank ad_group names one copy, not any ────────────────────────
+
+
+def _two_ad_groups(task):
+    """The keyword "widget exact" sitting in BOTH g1 and g2."""
+    task.drill(
+        'A1234567',
+        [
+            {
+                'ad_group': g,
+                'target': 'widget',
+                'match_type': 'exact',
+                'bid': '1.20',
+                'acos': '20',
+            }
+            for g in ('g1', 'g2')
+        ],
+        [],
+    )
+
+
+def test_a_blank_ad_group_names_one_copy_not_any(task):
+    """With the keyword in g1 AND g2, a proposal that names neither is
+    no copy's: no drilled row is its own, so it is judged on the numbers
+    it carries (ACOS 45, a cut that passes) rather than g1's (ACOS 20,
+    which the floor protects — see the single-copy case above)."""
+    _two_ad_groups(task)
+    task.changes([
+        change(
+            ad_group='',
+            action='lower',
+            acos='45',
+            current_bid='1.20',
+            target_bid='1.10',
+        )
+    ])
+    assert _gaps(task) == [], _gaps(task)
+
+
+def test_a_blank_approval_does_not_cover_several_ad_groups(task):
+    """An executed change in g2 is not covered by an approval that
+    names neither copy — a blank names its ad group only when the
+    target sits in one, the rule ads_bulk --from-changes enforces."""
+    _two_ad_groups(task)
+    _approve(task, [change(ad_group='', target_bid='1.20')])
+    task.declare('execute')
+    task.execution([_done(ad_group='g2')])
+    assert any('not in the approved' in g for g in _gaps(task)), _gaps(task)
+
+
+def test_another_ad_groups_execution_does_not_excuse_a_proposal(task):
+    """The ``done`` side of the same rule: a logged change in g2 is not
+    the blank proposal's own execution, so the proposal is still judged
+    — and its own ACOS 20 is a cut the floor refuses."""
+    _two_ad_groups(task)
+    task.changes([
+        change(
+            ad_group='',
+            action='lower',
+            acos='20',
+            current_bid='1.20',
+            target_bid='1.10',
+        )
+    ])
+    task.execution([
+        _done(ad_group='g2', action='lower', from_bid='1.20', to_bid='1.10')
+    ])
+    assert any('under 25% ACOS' in g for g in _gaps(task)), _gaps(task)
