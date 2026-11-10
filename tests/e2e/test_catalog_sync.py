@@ -49,7 +49,7 @@ STORES_DIR = VIBE_SELLER_DIR / 'stores'
 @pytest.fixture(scope='module')
 def api_client():
     client = httpx.Client(timeout=30)
-    _login_client(client)
+    login_client(client)
     yield client
     client.close()
 
@@ -80,7 +80,7 @@ def store_b(api_client: httpx.Client) -> dict:
     )
 
 
-def _login_client(client: httpx.Client) -> None:
+def login_client(client: httpx.Client) -> None:
     for attempt in range(5):
         try:
             client.post(
@@ -98,7 +98,7 @@ def _login_client(client: httpx.Client) -> None:
                 raise
 
 
-def _write_file(path: Path, content: str) -> None:
+def write_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding='utf-8')
 
@@ -154,7 +154,7 @@ def _warn_if_glob_grep_on_symlinks(
                     return
 
 
-def _trigger_catalog_sync(
+def trigger_catalog_sync(
     client: httpx.Client,
     keep_store_ids: set[str],
 ) -> tuple[list[dict], list[dict]]:
@@ -339,7 +339,7 @@ class TestCatalogSystem:
         # "near-empty" and gets stubbed as "Empty/stub", which hides
         # WHERE the secret is and forces the find-secret agent to grep
         # instead of using the catalog).
-        _write_file(
+        write_file(
             KNOWLEDGE_DIR / l2_file,
             (
                 '# Catalog Verification\n\n'
@@ -350,20 +350,20 @@ class TestCatalogSystem:
             ),
         )
 
-        _write_file(
+        write_file(
             STORES_DIR / slug_a / 'notes.md',
             '# Store A Notes\n\nStore A specific.\n',
         )
         _write_store_metadata(slug_a, {FAKE_PLATFORM: [FAKE_COUNTRY]})
 
-        _write_file(
+        write_file(
             STORES_DIR / slug_b / 'notes.md',
             '# Store B Notes\n\nStore B specific.\n',
         )
         _write_store_metadata(slug_b, {FAKE_PLATFORM: ['SG']})
 
         # ── Step 1: Trigger real catalog sync fanout (L2 + L3) ──
-        sync_tasks, other_tasks = _trigger_catalog_sync(
+        sync_tasks, other_tasks = trigger_catalog_sync(
             api_client,
             keep_store_ids={store_a['id'], store_b['id']},
         )
