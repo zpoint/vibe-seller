@@ -127,17 +127,22 @@ def _send_telemetry(
     recipients: list[str],
     attachments: list[str] | None,
 ) -> None:
-    telemetry.send(
-        TelemetryEvent.EMAIL_SENT,
-        {
-            'outcome': outcome,
-            'provider_kind': telemetry.email_provider_kind(account.email),
-            'recipient_count_bucket': telemetry.count_bucket(len(recipients)),
-            'attachment_count_bucket': telemetry.count_bucket(
-                len(attachments or ())
-            ),
-        },
-    )
+    try:
+        telemetry.send(
+            TelemetryEvent.EMAIL_SENT,
+            {
+                'outcome': outcome,
+                'provider_kind': telemetry.email_provider_kind(account.email),
+                'recipient_count_bucket': telemetry.count_bucket(
+                    len(recipients)
+                ),
+                'attachment_count_bucket': telemetry.count_bucket(
+                    len(attachments or ())
+                ),
+            },
+        )
+    except Exception:
+        logger.debug('email telemetry failed', exc_info=True)
 
 
 def _do_send(

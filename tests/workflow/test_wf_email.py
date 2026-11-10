@@ -574,6 +574,21 @@ class TestInTaskSendTool:
         assert result['ok'] is True
         smtp_spy[0].return_value.sendmail.assert_called_once()
 
+    async def test_telemetry_error_never_fails_a_sent_email(
+        self, admin_client, monkeypatch, smtp_spy
+    ):
+        """A send reported as failed gets resent: the buyer gets two."""
+        await _create_account(admin_client)
+        _route_mcp_call_api(admin_client, monkeypatch)
+
+        def boom(_email):
+            raise RuntimeError('telemetry')
+
+        monkeypatch.setattr('app.telemetry.email_provider_kind', boom)
+        result = await _in_task_send()
+        assert result['ok'] is True
+        smtp_spy[0].return_value.sendmail.assert_called_once()
+
 
 class TestAllowSendMigration:
     """A DB from before ``allow_send`` upgrades in place, every

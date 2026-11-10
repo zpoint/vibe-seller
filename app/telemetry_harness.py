@@ -8,6 +8,15 @@ from app.telemetry_events import TelemetryEvent
 
 logger = logging.getLogger(__name__)
 
+_GATES = frozenset({
+    'ad_changes',
+    'ad_coverage',
+    'deliverable_manifest',
+    'upload_verdict',
+    'review_completeness_review',
+    'review_output_gate',
+})
+
 
 def _send(event: str, props: dict) -> None:
     try:
@@ -28,7 +37,7 @@ def send_result_gated(
         TelemetryEvent.TASK_RESULT_GATED,
         {
             'task_id': task_id,
-            'gate': str(gate)[:64],
+            'gate': gate if gate in _GATES else 'custom',
             'outcome': outcome,
             'attempt': attempt,
             'gap_count_bucket': telemetry.count_bucket(gap_count),

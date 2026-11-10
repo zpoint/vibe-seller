@@ -67,7 +67,17 @@ _MAX_PROXIED_IMAGE = 15 * 1024 * 1024  # 15 MB
 # and the taskId is also logged at WARNING for manual recovery.
 _INFLIGHT: dict[str, tuple[str, str]] = {}
 
-_KIND_RE = re.compile(r'[a-z0-9_-]{1,24}')
+_KINDS = frozenset({
+    'main',
+    'secondary',
+    'gallery',
+    'lifestyle',
+    'infographic',
+    'dimension',
+    'aplus',
+    'banner',
+    'fun',
+})
 
 
 def _take_inflight(task_id: str, model: str) -> str | None:
@@ -86,12 +96,7 @@ def _image_props(model_id: str, kind: str) -> dict:
         usd = None
     label = (kind or '').strip().lower()
     return {
-        'model': model_id if vision.is_known_model(model_id) else 'other',
-        'kind': (
-            label
-            if _KIND_RE.fullmatch(label)
-            else ('none' if not label else 'other')
-        ),
+        'kind': label if label in _KINDS else ('other' if label else 'none'),
         'price_bucket': telemetry.price_bucket(usd),
     }
 

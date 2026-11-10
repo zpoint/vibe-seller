@@ -560,6 +560,21 @@ async def test_confirm_and_generation_telemetry(admin_client, monkeypatch):
     generated = [p for e, p in events if e == 'image_generated']
     assert len(generated) == 1
     assert generated[0]['ok'] is True
-    assert generated[0]['model'] == 'nano-banana-pro-2k'
+    assert 'model' not in generated[0]
     assert generated[0]['kind'] == 'main'
     assert generated[0]['price_bucket'] != 'unknown'
+
+
+@pytest.mark.parametrize(
+    ('kind', 'sent'),
+    [
+        ('Infographic', 'infographic'),
+        ('', 'none'),
+        ('widget-006', 'other'),
+        ('acme-shop', 'other'),
+    ],
+)
+def test_image_kind_is_reported_from_a_fixed_set(kind, sent):
+    props = vision_router._image_props('nano-banana-pro-2k', kind)
+    assert props['kind'] == sent
+    assert 'model' not in props

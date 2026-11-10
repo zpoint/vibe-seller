@@ -1,6 +1,7 @@
 """Anonymous PostHog telemetry. Opt out: VIBE_SELLER_TELEMETRY=0."""
 
 from datetime import datetime
+import functools
 from hashlib import sha256
 from importlib.metadata import version
 import logging
@@ -150,6 +151,7 @@ def send(event: str, properties: dict | None = None) -> None:
         logger.debug('Telemetry send failed for %s', event, exc_info=True)
 
 
+@functools.cache
 def runtime_os() -> str:
     s = platform.system().lower()
     if s == 'darwin':
@@ -167,6 +169,11 @@ def runtime_os() -> str:
     return 'other'
 
 
+@functools.cache
+def _is_docker() -> bool:
+    return os.path.exists('/.dockerenv')
+
+
 def base_properties() -> dict:
     return {
         'app_version': APP_VERSION,
@@ -174,7 +181,7 @@ def base_properties() -> dict:
         'os': runtime_os(),
         'os_release': platform.release(),
         'python_version': f'{sys.version_info[0]}.{sys.version_info[1]}',
-        'is_docker': os.path.exists('/.dockerenv'),
+        'is_docker': _is_docker(),
         'app_locale': _app_locale,
     }
 
