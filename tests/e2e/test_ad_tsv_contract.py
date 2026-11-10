@@ -102,6 +102,10 @@ def _rows(task_id: str, name: str, columns) -> list[dict]:
     return list(table.rows)
 
 
+@pytest.mark.long_budget(
+    990
+)  # measured p50 of two phase-1 observations (775s completed,
+# 1206s budget-exceeded); the approval + execute phases add on top
 def test_audit_then_apply_exactly_what_was_approved(api_client, console):
     store = _amazon_store(api_client, 'e2e-adtsv')
 

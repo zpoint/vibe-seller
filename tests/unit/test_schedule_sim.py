@@ -44,6 +44,11 @@ MEASURED: dict[str, tuple[int, int]] = {
     'test_full_pipeline_completes': (0, 4),
     'test_llm_follows_instructions': (13, 0),
     'test_llm_responds': (0, 289),
+    # Phase-1-only observations from the 2026-11-10 h5 run (lower
+    # bounds: the approval + execute phases add on top). 775s =
+    # a completed audit (task 429b2070); 1206s = the phase budget
+    # expiring mid-audit (task 408d6ed3, agent stopped by the test).
+    'test_audit_then_apply_exactly_what_was_approved': (775, 1206),
     'test_profile_switch_preserves_context_via_history_file': (197, 45),
     'test_profile_switch_retry': (0, 51),
     'test_question_answer_completes': (359, 178),
@@ -73,6 +78,7 @@ RECORDED_MARKERS = {
     'test_llm_responds',
     'test_two_browser_tasks_both_complete',
     'test_question_answer_completes',
+    'test_audit_then_apply_exactly_what_was_approved',
 }
 
 DEFAULT = 30
