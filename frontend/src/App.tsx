@@ -22,7 +22,7 @@ import { useSSE } from './hooks/useSSE'
 import { createDraftStore } from './lib/draftStore'
 import { parseNav, settingsTabToSlug } from './lib/route'
 import { registerUserHash, unregisterUserHash } from './lib/telemetry'
-import { loadTaskById as loadTaskByIdHandler } from './handlers/loadTaskById'
+import { useTaskOpener } from './hooks/useTaskOpener'
 import { api, AUTH_EXPIRED_EVENT, uploadTaskAttachment } from './api'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
@@ -76,14 +76,7 @@ export default function App() {
   // changed, so a slow response for the previous store can't clobber
   // the newly-selected store's list (stale-response-wins race).
   const inFlightTasksKeyRef = useRef<string | null>(null)
-  // Monotonic token for loadTaskById: only the latest selection applies
-  // its fetched state (stale-response-wins guard for fast task switches).
-  const loadTaskSeqRef = useRef(0)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
-  // The task the route asks for, while it is loading (error null) or
-  // after it failed to load. TasksView shows a pending or error state
-  // for it instead of whatever was open before.
-  const [taskLoad, setTaskLoad] = useState<{ taskId: string; error: unknown } | null>(null)
   const [steps, setSteps] = useState<TaskStep[]>([])
   const [screenshots, setScreenshots] = useState<Record<string, string>>({})
   const [logs, setLogs] = useState<string[]>([])
@@ -121,6 +114,13 @@ export default function App() {
   const [conversationItems, setConversationItems] = useState<ConversationItem[]>([])
   const questionBannerRef = useRef<HTMLDivElement>(null)
   const [debugMode, setDebugMode] = useState(false)
+  // Opens the route's task and tracks the load (pending / failed).
+  const taskOpener = useTaskOpener({
+    setSelectedTask, setLogs, setScreenshots, setAgentMessages, setTodoItems,
+    setSelectedAnswers, setOtherInputs, setShowOtherInput, setChatInput,
+    setChatAttachments, setPendingQuestions, setConversationItems, setSteps,
+  })
+  const loadTaskById = taskOpener.open
 
   // Profile state
   const [profiles, setProfiles] = useState<Profile[]>([])
@@ -286,16 +286,11 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) return
     if (routeTaskId) {
+      // Back on the open task: retire any load still in flight.
       if (selectedTask?.id !== routeTaskId) loadTaskById(routeTaskId)
-      else {
-        // Back on the open task: retire any load still in flight (it
-        // would switch the pane away) and drop a failed one's error.
-        loadTaskSeqRef.current++
-        setTaskLoad(null)
-      }
+      else taskOpener.retire()
     } else {
-      loadTaskSeqRef.current++
-      setTaskLoad(null)
+      taskOpener.retire()
       if (selectedTask) { setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([]) }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -455,17 +450,6 @@ export default function App() {
         })
       : navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
 
-  const loadTaskById = (taskId: string) => {
-    setTaskLoad({ taskId, error: null })
-    return loadTaskByIdHandler(taskId, {
-      api, seqRef: loadTaskSeqRef,
-      onLoaded: () => setTaskLoad(null),
-      onLoadError: (error) => setTaskLoad({ taskId, error }),
-      setSelectedTask, setLogs, setScreenshots, setAgentMessages, setTodoItems,
-      setSelectedAnswers, setOtherInputs, setShowOtherInput, setChatInput,
-      setChatAttachments, setPendingQuestions, setConversationItems, setSteps,
-    })
-  }
 
   // Rejects when the stop did not go through — TasksView shows why.
   const stopAgent = async () => { if (!selectedTask) return; await api.post(`/api/tasks/${selectedTask.id}/agent/stop`); setPendingQuestions(null) }
@@ -671,7 +655,7 @@ export default function App() {
           isMobile={isMobile} onOpenNav={() => setNavOpen(true)}
           taskPanelActive={!!taskPanelActive} taskPanelTitle={taskPanelTitle}
           tasks={tasks} tasksLoading={tasksLoading} selectedTask={selectedTask} steps={steps}
-          taskLoad={taskLoad} onRetryTaskLoad={() => { if (taskLoad) loadTaskById(taskLoad.taskId) }} screenshots={screenshots} logs={logs}
+          taskLoad={taskOpener.taskLoad} onRetryTaskLoad={taskOpener.retry} screenshots={screenshots} logs={logs}
           agentMessages={agentMessages} todoItems={todoItems} pendingQuestions={pendingQuestions}
           conversationItems={conversationItems}
           selectedAnswers={selectedAnswers} otherInputs={otherInputs} showOtherInput={showOtherInput}

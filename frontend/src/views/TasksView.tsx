@@ -20,7 +20,7 @@ import { MobileMenuButton } from '../components/MobileMenuButton'
 import { getUI, hasProgressingTask } from '../taskStates'
 import type { Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, Schedule, Store, ConversationItem, StagedAttachment } from '../types'
 import { TaskUsageMeter } from '../components/TaskUsageMeter'
-import { isRequestTimeout } from '../lib/requestDeadline'
+import { TaskOpenState } from '../components/TaskOpenState'
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
@@ -391,26 +391,7 @@ export function TasksView({
           </button>
         )}
         {openingTask ? (
-          openingTask.error == null ? (
-            <div data-testid="task-opening" className="flex items-center justify-center h-full gap-3 text-sm text-gray-500">
-              <div className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-              {t('tasks.openingTask')}
-            </div>
-          ) : (
-            <div role="alert" data-testid="task-open-error" className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
-              <p className="text-sm text-red-600">
-                {isRequestTimeout(openingTask.error)
-                  ? t('tasks.openTimeout')
-                  : t('tasks.openFailed', { error: openingTask.error instanceof Error ? openingTask.error.message : String(openingTask.error) })}
-              </p>
-              <button
-                onClick={onRetryTaskLoad}
-                className="px-3 py-1.5 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100"
-              >
-                {t('tasks.tryAgain')}
-              </button>
-            </div>
-          )
+          <TaskOpenState error={openingTask.error} onRetry={onRetryTaskLoad} />
         ) : selectedSchedule && !selectedTask ? (
           <ScheduleDetailView
             schedule={selectedSchedule}
