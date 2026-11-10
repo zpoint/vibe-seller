@@ -7,17 +7,16 @@ each tier cumulative — L3 ⊇ L2 ⊇ L1 — as a ``File | Relevance |
 Summary`` table whose ``Relevance`` names platforms and decides
 mandatory reads.
 
-Summaries and platform tags are an LLM's judgement and stay in the
-sync task's prompt. What must never depend on the model is the
-structure — which rows exist, which tier they belong to, and what a
-``Relevance`` token may be. This module enforces exactly that at the
+Summaries and Relevance tags are an LLM's judgement and stay in the
+sync task's prompt — an unfamiliar tag is harmless (no task's
+platform matches it, so it makes no read mandatory). What must never
+depend on the model is the structure — which rows exist and which
+tier they belong to. This module enforces exactly that at the
 write boundary (``routers/workspace.py`` → :func:`validate_catalog_write`),
 so a wrong catalog is rejected naming the rows to fix, instead of
 silently hiding knowledge from every later task:
 
-- **format** — header row, 3 columns per row, tier path prefixes,
-  ``Relevance`` tokens drawn from the workspace's known platforms
-  (plus whatever tokens L1 ships);
+- **format** — header row, 3 columns per row, tier path prefixes;
 - **accumulation** — L2 carries every L1 row (``knowledge/project/``
   prefix, same Relevance); L3 carries every L2 row;
 - **completeness** — every file of the tier appears exactly once
@@ -34,7 +33,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import json
 from pathlib import Path
 import re
 
@@ -222,48 +220,6 @@ def _parse_l1(
         raise ValueError(f'L1 catalog is malformed: {e}') from e
 
 
-def _split_tokens(relevance: str) -> list[str]:
-    return [t.strip().lower() for t in relevance.split(',') if t.strip()]
-
-
-def _store_platforms(root: Path) -> set[str]:
-    """Platform names configured on the workspace's stores.
-
-    Read from each ``stores/<slug>/metadata.json`` (the server-owned
-    cache of ``{"platforms": {name: [countries]}}``) so the known-token
-    set derives from the workspace itself — no hardcoded platform list.
-    """
-    platforms: set[str] = set()
-    stores_dir = root / 'stores'
-    if not stores_dir.is_dir():
-        return platforms
-    for meta in sorted(stores_dir.glob('*/metadata.json')):
-        try:
-            data = json.loads(meta.read_text(encoding='utf-8'))
-        except (OSError, ValueError):
-            continue
-        raw = data.get('platforms') or {}
-        names = raw.keys() if isinstance(raw, dict) else raw
-        platforms.update(
-            str(n).strip().lower() for n in names if str(n).strip()
-        )
-    return platforms
-
-
-def _known_tokens(l1_rows: list[CatalogRow] | None, root: Path) -> set[str]:
-    """Relevance tokens this workspace understands.
-
-    L1's own tokens (``skills``, ``browser``, … — shipped tags that are
-    not platforms) plus every store's platform names.
-    """
-    tokens: set[str] = set()
-    if l1_rows:
-        for row in l1_rows:
-            tokens.update(_split_tokens(row.relevance))
-    tokens |= _store_platforms(root)
-    return tokens
-
-
 def is_task_output_name(name: str) -> bool:
     """True when *name* marks a task output / system file.
 
@@ -337,22 +293,6 @@ def _cap(items: list[str]) -> str:
     return out
 
 
-def _token_errors(rows: list[CatalogRow], known: set[str]) -> list[str]:
-    if not known:
-        return []
-    errors: list[str] = []
-    for i, row in enumerate(rows, 1):
-        unknown = [t for t in _split_tokens(row.relevance) if t not in known]
-        if unknown:
-            for tok in unknown:
-                errors.append(
-                    f'row {i} ({row.path}): unknown Relevance token '
-                    f'"{tok}" — use one of {", ".join(sorted(known)[:8])} '
-                    'or leave the cell empty'
-                )
-    return errors
-
-
 def _duplicate_errors(rows: list[CatalogRow]) -> list[str]:
     seen: set[str] = set()
     dupes: set[str] = set()
@@ -372,16 +312,14 @@ def _validate_l2(
     rows = parse_catalog(content)
     errors: list[str] = []
     l1_rows = _parse_l1(resolve_file)
-    known = _known_tokens(l1_rows, root)
 
-    # Format: prefixes + tokens.
+    # Format: tier prefix.
     for i, row in enumerate(rows, 1):
         if not row.path.startswith('knowledge/'):
             errors.append(
                 f'row {i} path must start with knowledge/ (L2 holds no '
                 f'store files): {row.path}'
             )
-    errors.extend(_token_errors(rows, known))
     errors.extend(_duplicate_errors(rows))
 
     # Accumulation: every L1 row, prefixed and Relevance-unchanged.
@@ -434,9 +372,6 @@ def _validate_l3(
     rows = parse_catalog(content)
     errors: list[str] = []
     prefix = f'stores/{slug}/'
-    l1_rows = _parse_l1(resolve_file)
-    known = _known_tokens(l1_rows, root)
-
     # Format + isolation: only knowledge rows and this store's rows.
     for i, row in enumerate(rows, 1):
         if not (
@@ -446,26 +381,20 @@ def _validate_l3(
                 f'row {i} path must start with knowledge/ or '
                 f"stores/{slug}/ (no other store's files): {row.path}"
             )
-    errors.extend(_token_errors(rows, known))
     errors.extend(_duplicate_errors(rows))
 
-    # Accumulation: every L2 row, path and Relevance unchanged. When
-    # the standing L2 itself carries a token this workspace does not
-    # know (a pre-gate catalog), its Relevance is advisory only —
-    # presence is still required, and the format check above keeps the
-    # L3 clean until the next L2 regen converges it.
+    # Accumulation: every L2 row, path and Relevance unchanged.
     l2_text = _read_optional(resolve_file, 'knowledge/CATALOG.md')
     if l2_text is not None:
         l2_rows = parse_catalog(l2_text)
         have = {r.path: r.relevance.lower() for r in rows}
         for row in l2_rows:
-            rel_clean = all(t in known for t in _split_tokens(row.relevance))
             if row.path not in have:
                 errors.append(
                     f'missing L2 row: {row.path} '
                     f'(Relevance "{row.relevance or "—"}", copied verbatim)'
                 )
-            elif rel_clean and have[row.path] != row.relevance.lower():
+            elif have[row.path] != row.relevance.lower():
                 errors.append(
                     f'{row.path}: Relevance must stay "{row.relevance}" '
                     f'(copied from L2), got "{have[row.path]}"'

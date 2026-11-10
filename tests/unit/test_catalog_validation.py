@@ -9,7 +9,7 @@ Two layers:
 - the tier gate (``validate_catalog_write``): accumulation
   (L1 ⊆ L2 ⊆ L3), completeness (every tier file exactly once),
   isolation (no other store, no task-output names) and format
-  (header, 3 columns, path prefixes, known Relevance tokens).
+  (header, 3 columns, path prefixes; Relevance tags are free-form).
 
 Every gate test builds a workspace on disk, writes a VALID catalog,
 then mutates exactly one thing — the failing case must name that
@@ -269,29 +269,37 @@ class TestFormatPrefixes:
 
 
 class TestRelevanceTokens:
-    def test_unknown_token_rejected(self, ws):
+    def test_tag_no_store_or_l1_uses_is_accepted(self, ws):
+        """Tags are the model's judgement. A tag for a platform no store
+        sells on yet makes no read mandatory, so it must not cost the
+        whole catalog regen — a standing L2 carrying such a tag was
+        refused nightly when the gate checked tags against a set."""
         _root, gate = ws
         content = L2_CATALOG.replace(
             '| knowledge/notes.md | amazon |',
-            '| knowledge/notes.md | amzn |',
+            '| knowledge/notes.md | widgetmart |',
         )
-        _rejects(gate, 'knowledge/CATALOG.md', content, naming='amzn')
+        gate('knowledge/CATALOG.md', content)  # no raise
 
-    def test_store_platform_derived_not_hardcoded(self, tmp_path):
-        """A platform no store has, absent from L1, is unknown; adding
-        the store's metadata.json makes it known — the set derives from
-        the workspace."""
-        root = _ws(tmp_path)
-        gate = _Gate(root)
-        content = L2_CATALOG.replace(
+    def test_l3_must_copy_an_unfamiliar_l2_tag_verbatim(self, ws):
+        """With tags free-form, L3's copy of an L2 row is always held to
+        the L2 Relevance — there is no 'unknown tag' carve-out."""
+        root, gate = ws
+        swap = (
             '| knowledge/notes.md | amazon |',
-            '| knowledge/notes.md | shopify |',
+            '| knowledge/notes.md | widgetmart |',
         )
-        _rejects(gate, 'knowledge/CATALOG.md', content, naming='shopify')
-        (root / 'stores' / 'beta-y' / 'metadata.json').write_text(
-            '{"platforms": {"shopify": ["US"]}}'
+        (root / 'knowledge' / 'CATALOG.md').write_text(
+            L2_CATALOG.replace(*swap)
         )
-        gate('knowledge/CATALOG.md', content)  # no raise now
+        l3 = L3_CATALOG.replace(*swap)
+        gate('stores/acme-x/CATALOG.md', l3)  # verbatim copy passes
+        _rejects(
+            gate,
+            'stores/acme-x/CATALOG.md',
+            L3_CATALOG,
+            naming='Relevance must stay "widgetmart"',
+        )
 
     def test_l1_tokens_inherit_to_l2_rows(self, ws):
         """L1 ships non-platform tags (ziniao, browser); copying its
