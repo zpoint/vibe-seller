@@ -259,3 +259,49 @@ def test_an_idle_connection_does_not_stall_the_console():
         idle.close()
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.parametrize('paged', [False, True])
+def test_every_total_the_console_shows_agrees(paged):
+    """The dashboard, the campaign list and each campaign's keywords
+    must add up. A fixture edit once changed one keyword's sales and left
+    the list row and the dashboard behind; the agent then spent the
+    audit's budget investigating a discrepancy no real console has."""
+    server = serve(paged=paged)
+    port = server.server_address[1]
+
+    def get(path):
+        with urllib.request.urlopen(
+            f'http://127.0.0.1:{port}{path}', timeout=5
+        ) as resp:
+            return resp.read().decode()
+
+    def cells(html, table):
+        body = html.split(f'id="{table}"', 1)[1].split('</table>', 1)[0]
+        rows = re.findall(r'<tr>(.*?)</tr>', body, re.S)
+        return [
+            [
+                re.sub(r'<[^>]+>', '', c).strip()
+                for c in re.findall(r'<td>(.*?)</td>', r, re.S)
+            ]
+            for r in rows
+        ]
+
+    try:
+        summary = {r[0]: float(r[1]) for r in cells(get('/'), 'summary') if r}
+        listed = [r for r in cells(get('/campaigns'), 'campaigns') if r]
+        if paged:
+            listed += [
+                r for r in cells(get('/campaigns?page=2'), 'campaigns') if r
+            ]
+        spend = sum(float(r[2]) for r in listed)
+        revenue = sum(float(r[3]) for r in listed)
+        assert summary['Spend'] == spend, (summary, spend)
+        assert summary['Revenue'] == revenue, (summary, revenue)
+        for cid, _name, c_spend, c_rev, *_ in listed:
+            name, kws, _terms = server.data[cid]
+            assert sum(float(k[4]) for k in kws) == float(c_spend), cid
+            assert sum(float(k[6]) for k in kws) == float(c_rev), cid
+    finally:
+        server.shutdown()
+        server.server_close()

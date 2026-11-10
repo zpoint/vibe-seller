@@ -219,10 +219,25 @@ _CAMPAIGNS_PAGE_2 = f"""<!doctype html><html><head><title>Campaigns</title></hea
       <th>Orders</th><th>ROAS</th></tr>
   <tr><td>{CAMPAIGN_C}</td><td><a href="/campaign/{CAMPAIGN_C}">
       {CAMPAIGN_C_NAME}</a></td>
-      <td>55.00</td><td>190.00</td><td>7</td><td>3.45</td></tr>
+      <td>55.00</td><td>209.00</td><td>7</td><td>3.80</td></tr>
 </table>
 </body></html>
 """
+
+# The dashboard totals every campaign the console holds — the third one,
+# behind "Load more", too. A summary short of the list it summarises is
+# a contradiction no real console shows, and an agent rightly stops to
+# investigate it (observed: minutes spent on a "revenue discrepancy").
+_DASHBOARD_PAGED = (
+    _DASHBOARD.replace(
+        '<td>Spend</td><td>300.00</td>', '<td>Spend</td><td>355.00</td>'
+    )
+    .replace(
+        '<td>Revenue</td><td>1200.00</td>', '<td>Revenue</td><td>1409.00</td>'
+    )
+    .replace('<td>Orders</td><td>40</td>', '<td>Orders</td><td>47</td>')
+    .replace('<td>ROAS</td><td>4.00</td>', '<td>ROAS</td><td>3.97</td>')
+)
 
 _PAGES = {
     '/': _DASHBOARD,
@@ -275,6 +290,8 @@ class ConsoleServer(http.server.ThreadingHTTPServer):
         self.writes: list[dict] = []
 
     def page(self, path: str) -> str | None:
+        if path == '/' and self.paged:
+            return _DASHBOARD_PAGED
         if path == '/campaigns':
             return _CAMPAIGNS_PAGED if self.paged else _CAMPAIGNS
         if path == '/campaigns?page=2':
