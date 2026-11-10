@@ -16,6 +16,13 @@ the console, and records it. File and column definitions:
 When the user replies with the changes to make ("do 1, 3, 5", "all of
 campaign X", "execute the plan"):
 
+A change is approved only when the user's words name it. A reply that
+could mean more than one thing — "go ahead and apply it" after you
+already applied what they asked, with other proposals still open — names
+nothing new: ask which change they mean, and change nothing until they
+say. Spending money on your best guess of "it" is the one mistake that
+cannot be undone.
+
 1. Bring `CHANGES.tsv` (this task's, or the parent audit's) in line with
    what they approved. Map their words to rows using the audit's report.
    If they named a different value ("lower 2 to 0.95 instead"), set that
