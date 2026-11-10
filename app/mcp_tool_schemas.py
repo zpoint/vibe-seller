@@ -7,6 +7,7 @@ the matching dispatch branches in ``handle_tool_call``.
 
 from app import vision
 from app.mcp_ad_tool_schemas import _ALWAYS_LOADED, AD_TOOLS
+from app.mcp_workspace_tool_schemas import WORKSPACE_EDIT_TOOLS
 
 # Agent-facing image-model enum + a CONCISE guidance line, both derived
 # from the single source of truth in ``app/vision.py`` so the tool schema
@@ -38,6 +39,7 @@ _IMAGE_MODEL_GUIDE = (
 
 TOOLS = [
     *AD_TOOLS,
+    *WORKSPACE_EDIT_TOOLS,
     {
         'name': 'vibe_seller_ads_call',
         **_ALWAYS_LOADED,
@@ -280,35 +282,6 @@ TOOLS = [
                 },
             },
             'required': ['account_email'],
-        },
-    },
-    {
-        'name': 'vibe_seller_write_workspace_file',
-        'description': (
-            'Write a file to the shared workspace using a '
-            'relative path (e.g. "stores/my-store/CATALOG.md" '
-            'or "knowledge/CATALOG.md"). This is the ONLY '
-            'reliable way to write to stores/ and knowledge/ '
-            'directories — the built-in Write tool cannot '
-            'write through workspace symlinks. Creates parent '
-            'directories automatically.'
-        ),
-        'inputSchema': {
-            'type': 'object',
-            'properties': {
-                'path': {
-                    'type': 'string',
-                    'description': (
-                        'Relative path from workspace root '
-                        '(e.g. "stores/my-store/notes.md")'
-                    ),
-                },
-                'content': {
-                    'type': 'string',
-                    'description': 'File content to write',
-                },
-            },
-            'required': ['path', 'content'],
         },
     },
     {

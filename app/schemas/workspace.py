@@ -7,6 +7,13 @@ class FileWriteRequest(BaseModel):
     content: SafeStr
 
 
+class DeleteLinesRequest(BaseModel):
+    # The file's line count as the caller read it, so a deletion is never
+    # applied to a file that changed since (the ranges would shift).
+    line_count: int
+    ranges: list[tuple[int, int]]
+
+
 class FileResetRequest(BaseModel):
     path: str
     commit: str

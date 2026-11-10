@@ -16,6 +16,7 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
 from app.schemas.workspace import (
+    DeleteLinesRequest,
     FileResetRequest,
     FileWriteRequest,
     SkillCreateRequest,
@@ -157,6 +158,58 @@ async def write_file(
         return {'path': path, 'status': 'ok'}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post('/file/delete-lines')
+async def delete_lines(
+    path: str = Query(...),
+    body: DeleteLinesRequest = ...,
+    task_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Remove whole lines from a file without the caller rewriting it.
+
+    A note cleanup only drops passages; making the model retype a long
+    file to do that slips (see app/mcp_workspace_tool_schemas.py). The
+    server deletes the named 1-based inclusive ranges itself, and only
+    from the file as the caller read it.
+    """
+    try:
+        old = await workspace_manager.read_file(path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f'Not found: {path}')
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    lines = old.split('\n')
+    if old.endswith('\n'):
+        lines = lines[:-1]
+    if body.line_count != len(lines):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f'{path} has {len(lines)} lines now, not {body.line_count}; '
+                're-read it and give the ranges again.'
+            ),
+        )
+    drop: set[int] = set()
+    for first, last in body.ranges:
+        if not 1 <= first <= last <= len(lines):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'range [{first}, {last}] is outside lines 1-{len(lines)}'
+                ),
+            )
+        drop.update(range(first, last + 1))
+    kept = [ln for i, ln in enumerate(lines, 1) if i not in drop]
+    new = '\n'.join(kept) + ('\n' if kept and old.endswith('\n') else '')
+    if task_id:
+        err = await _cleanup_write_error(db, task_id, path, new)
+        if err:
+            raise HTTPException(status_code=400, detail=err)
+    await workspace_manager.write_file(path, new)
+    return {'path': path, 'status': 'ok', 'deleted_lines': len(drop)}
 
 
 @router.delete('/file')

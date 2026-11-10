@@ -100,12 +100,13 @@ def _catalog_cleanup_prompt(catalog: str, files: str, also: str) -> str:
         'and nothing else. Keep store facts, business rules, standards '
         'the user stated (`key: value` lines), page paths, and UI and '
         'data gotchas for the marketplaces.\n\n'
-        'Write each changed file with vibe_seller_write_workspace_file, '
-        'removing lines only; the server refuses a write that adds or '
-        'changes a line, or touches a file outside this tier, and after '
-        'the run puts back any file changed some other way. Write no '
-        'other file. Then build the catalog, and list in your result '
-        'each file you changed and what you removed.'
+        'Remove them with vibe_seller_delete_workspace_lines — the line '
+        'ranges as numbered when you read the file — rather than '
+        'rewriting it. Only lines in this tier can be removed, and after '
+        'the run the server puts back any file changed some other way. '
+        'Write no other file. Then build the catalog with '
+        'vibe_seller_write_workspace_file, and list in your result each '
+        'file you changed and what you removed.'
     )
 
 

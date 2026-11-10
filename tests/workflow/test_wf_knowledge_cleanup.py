@@ -399,3 +399,72 @@ async def test_an_edit_made_around_the_tool_is_put_back(
     assert data['status'] == 'completed'
     assert notes.read_text(encoding='utf-8') == original
     assert await _owes(override_async_session, store['id'])
+
+
+class TestDeleteLines:
+    """Observed: retyping a 640-line note to drop passages slipped on every
+    attempt and the cleanup looped. The delete tool names line ranges and
+    the server removes them — nothing to retype."""
+
+    NOTE = TestCleanupWritesOnlyDelete.NOTE  # 5 lines
+
+    async def _note(self, admin_client, path):
+        r = await admin_client.put(
+            f'/api/workspace/file?path={path}', json={'content': self.NOTE}
+        )
+        assert r.status_code == 200, r.text
+
+    async def test_removes_exactly_the_named_lines(
+        self, admin_client, mock_workspace
+    ):
+        path = 'stores/del-store/notes.md'
+        await self._note(admin_client, path)
+        r = await admin_client.post(
+            f'/api/workspace/file/delete-lines?path={path}',
+            json={'line_count': 5, 'ranges': [[4, 4]]},
+        )
+        assert r.status_code == 200, r.text
+        got = (
+            await admin_client.get(f'/api/workspace/file?path={path}')
+        ).json()
+        assert got['content'] == self.NOTE.replace(
+            'The first submit is refused by the reviewer; that is normal.\n',
+            '',
+        )
+
+    async def test_a_changed_file_is_refused(
+        self, admin_client, mock_workspace
+    ):
+        path = 'stores/del-store/notes.md'
+        await self._note(admin_client, path)
+        r = await admin_client.post(
+            f'/api/workspace/file/delete-lines?path={path}',
+            json={'line_count': 9, 'ranges': [[4, 4]]},
+        )
+        assert r.status_code == 409
+        r = await admin_client.post(
+            f'/api/workspace/file/delete-lines?path={path}',
+            json={'line_count': 5, 'ranges': [[4, 6]]},
+        )
+        assert r.status_code == 400
+
+    async def test_a_store_cleanup_cannot_delete_shared_lines(
+        self,
+        admin_client,
+        override_async_session,
+        mock_workspace,
+        catalog_schedule,
+        upgraded,
+        admin_user,
+    ):
+        tid, _ = await TestCleanupWritesOnlyDelete()._cleanup_task(
+            override_async_session, admin_client, admin_user
+        )
+        shared = 'knowledge/notes.md'
+        await self._note(admin_client, shared)
+        r = await admin_client.post(
+            f'/api/workspace/file/delete-lines?path={shared}&task_id={tid}',
+            json={'line_count': 5, 'ranges': [[4, 4]]},
+        )
+        assert r.status_code == 400
+        assert 'another tier' in r.text

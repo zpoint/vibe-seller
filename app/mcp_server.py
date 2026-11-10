@@ -226,6 +226,17 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 + (f'&task_id={tid}' if tid else ''),
                 {'content': arguments['content']},
             )
+        elif name == 'vibe_seller_delete_workspace_lines':
+            tid = _config['task_id']
+            result = await call_api(
+                'POST',
+                f'/api/workspace/file/delete-lines?path={arguments["path"]}'
+                + (f'&task_id={tid}' if tid else ''),
+                {
+                    'line_count': arguments.get('line_count'),
+                    'ranges': arguments.get('ranges') or [],
+                },
+            )
         elif name == 'vibe_seller_set_task_error':
             # Annotate-only. Saves error + category, does NOT
             # transition task status — status is managed by
