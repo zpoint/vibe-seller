@@ -14,7 +14,9 @@ vs seller-central account caveat live there.
 
 ## 0. Declare what this task is for
 
-Before any browser action, call `vibe_seller_declare_ad_task`. The
+Before any browser action, call `vibe_seller_declare_ad_task` (already
+in your tool list as `mcp__vibe-seller__vibe_seller_declare_ad_task`;
+ToolSearch only lists deferred tools, so it will not show it). The
 declaration decides how much coverage the server expects from you and
 whether you may propose changes at all, so read it off what the person
 actually asked for — not off what you expect to find once you look.

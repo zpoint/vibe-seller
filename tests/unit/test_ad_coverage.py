@@ -256,3 +256,13 @@ def test_legacy_store_dir_is_read_too(task):
     for p in task.ads_dir().iterdir():
         p.rename(legacy / p.name)
     assert findings(task) == ([], [])
+
+
+def test_missing_declaration_names_the_loaded_tool():
+    """Observed live: an agent searched ToolSearch (deferred tools only),
+    found nothing, and shipped an undeclared audit believing the tool was
+    unavailable. The refusal names the exact, already-loaded tool."""
+    msg = ad_coverage.MISSING_DECLARATION
+    assert 'mcp__vibe-seller__vibe_seller_declare_ad_task' in msg
+    assert 'already in your tool list' in msg
+    assert 'cannot be back-filled' not in msg

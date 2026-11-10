@@ -12,7 +12,9 @@ page structure and the shared UI patterns all live there.
 
 ## 0. Declare what the task is for
 
-Before any browser action, call `vibe_seller_declare_ad_task`. The
+Before any browser action, call `vibe_seller_declare_ad_task` (already
+in your tool list as `mcp__vibe-seller__vibe_seller_declare_ad_task`;
+ToolSearch only lists deferred tools, so it will not show it). The
 declaration decides what the run owes, so read it off what the person
 asked for, not off what you expect to find:
 

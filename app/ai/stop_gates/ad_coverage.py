@@ -56,11 +56,16 @@ LIVE_STATES = ('enabled', 'active', 'live', 'running', 'delivering')
 STALE_WINDOW_DAYS = 7
 MTIME_SLACK_S = 300
 
+# Names the tool exactly and says it is already loaded: observed live, an
+# agent searched for it with ToolSearch, which lists only DEFERRED tools,
+# read "no matching tools" as "not available", and shipped an undeclared
+# audit as a caveat while the tool sat in its tool list.
 MISSING_DECLARATION = (
-    'No ad task was declared. Call vibe_seller_declare_ad_task (audit / '
-    'create / execute / investigate, and which marketplaces and campaigns) '
-    'before the work; it cannot be back-filled, so say in the result what '
-    'this run actually covered.'
+    'No ad task was declared. Declare what this phase did with '
+    'mcp__vibe-seller__vibe_seller_declare_ad_task (audit / create / '
+    'execute / investigate, and which marketplaces and campaigns) — it is '
+    'already in your tool list (always loaded, so ToolSearch does not show '
+    'it) — then submit again.'
 )
 
 
