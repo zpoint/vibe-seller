@@ -38,7 +38,7 @@ NOON_SHARED_MARKER = 'https://login.noon.partners/en/'
 
 
 def _skill_load_order(messages: list[dict]) -> list[str]:
-    """Skill names in the order the agent loaded them."""
+    """Skill names in the order the agent loaded them with the Skill tool."""
     order: list[str] = []
     for m in messages:
         if m.get('role') != 'tool_use':
@@ -46,10 +46,24 @@ def _skill_load_order(messages: list[dict]) -> list[str]:
         hit = re.search(r'"skill":\s*"([^"]+)"', m.get('content', ''))
         if hit and '"Skill"' in m.get('content', ''):
             order.append(hit.group(1))
-    for name in ('noon-ads', 'noon-shared'):
-        if name not in order:
-            order.append(name)
     return order
+
+
+def hint_owed(messages: list[dict]) -> bool:
+    """Whether the agent reached for noon-ads before noon-shared.
+
+    The hook fires on a Skill-tool load of noon-ads that noon-shared did
+    not precede. An agent that never loaded noon-ads with the Skill tool
+    (observed: it read noon-shared's SKILL.md with sed and answered from
+    it) gave the hook nothing to hint on — padding the missing names in
+    a fixed order once read that as "noon-ads first".
+    """
+    order = _skill_load_order(messages)
+    if 'noon-ads' not in order:
+        return False
+    return 'noon-shared' not in order or order.index('noon-ads') < (
+        order.index('noon-shared')
+    )
 
 
 def _hint_logged(task_id_prefix: str) -> bool:
@@ -104,8 +118,7 @@ def test_prerequisite_is_loaded_and_used(api_client: httpx.Client):
     # When the agent reached for noon-ads first — the production failure
     # — the hook must have hinted. Loading noon-shared first needs no
     # hint (the hook itself is pinned by tests/unit/test_skill_prereq_hint).
-    order = _skill_load_order(messages)
-    if order.index('noon-ads') < order.index('noon-shared'):
+    if hint_owed(messages):
         assert _hint_logged(task['id'][:8]), (
             'noon-ads was loaded before noon-shared but no prerequisite '
             'hint was logged. Logs searched: '
