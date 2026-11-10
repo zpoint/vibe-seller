@@ -6,6 +6,8 @@
   one cleanup; a later boot never moves an existing floor.
 """
 
+import shutil
+
 import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import (
@@ -209,6 +211,48 @@ class TestOutcomeIsHeldToDeletions:
         assert others == set()
         assert kc.undo_non_deletions(snap, others) == [store / 'notes.md']
         assert (store / 'notes.md').read_text() == NOTE
+
+    def test_a_deleted_file_is_recreated_and_the_rest_follow(self, tmp_path):
+        """A run that deleted a note (or its directory) switched the whole
+        safety net off: the restore raised on that file and abandoned every
+        note after it, and the next nightly snapshots the already-mangled
+        tier — so what only this snapshot still held was gone for good."""
+        store = tmp_path / 'stores' / 'acme-x'
+        sub = store / 'logistics'
+        sub.mkdir(parents=True)
+        (sub / 'notes.md').write_text(NOTE)
+        other = store / 'other.md'
+        other.write_text('# Other\n\nkeep me\n')
+        (store / 'CATALOG.md').write_text('| File |\n')
+        snap = kc.snapshot_tier(tmp_path, 'acme-x')
+        assert len(snap) == 2
+        shutil.rmtree(sub)  # the run deleted the file AND its directory
+        other.write_text('# Other\n\nrewritten by the run\n')
+
+        assert set(kc.undo_non_deletions(snap)) == {sub / 'notes.md', other}
+        assert (sub / 'notes.md').read_text() == NOTE
+        assert other.read_text() == '# Other\n\nkeep me\n'
+
+    def test_an_unrestorable_file_fails_the_pass_after_the_rest(self, tmp_path):
+        """The pass keeps going when a write cannot be made — and does not
+        report success: a scope must not be recorded clean on a restore
+        that did not happen."""
+        store = tmp_path / 'stores' / 'acme-x'
+        sub = store / 'logistics'
+        sub.mkdir(parents=True)
+        deep = sub / 'notes.md'
+        deep.write_text(NOTE)
+        first = store / 'first.md'
+        first.write_text(NOTE)
+        snap = kc.snapshot_tier(tmp_path, 'acme-x')
+        first.write_text(NOTE + 'A brand new claim.\n')
+        shutil.rmtree(sub)
+        sub.write_text('a file where the directory was')  # cannot be made
+
+        with pytest.raises(OSError) as ei:
+            kc.undo_non_deletions(snap)
+        assert str(deep) in str(ei.value)
+        assert first.read_text() == NOTE  # the others were still restored
 
     def test_line_deletions_and_untouched_files_stay(self, tmp_path):
         store = self._tier(tmp_path)
