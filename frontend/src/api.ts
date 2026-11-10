@@ -7,7 +7,7 @@ import type { ApiToken, CreatedApiToken } from './types'
 import {
   DEFAULT_TIMEOUT_MS, RequestTimeoutError, type RequestOptions,
 } from './lib/requestDeadline'
-import { normalizePath, sendEvent } from './lib/telemetry'
+import { apiRouteShape, sendEvent } from './lib/telemetry'
 import { FrontendEvent } from './lib/telemetryEvents'
 
 export const AUTH_EXPIRED_EVENT = 'auth:expired'
@@ -73,7 +73,7 @@ function reportFailure(url: string, method: string, kind: string, ms: number) {
     const path = new URL(url, window.location.origin).pathname
     if (path.startsWith('/api/telemetry')) return
     sendEvent(FrontendEvent.API_REQUEST_FAILED, {
-      path: normalizePath(path).split('/').slice(0, 5).join('/'),
+      path: apiRouteShape(path).split('/').slice(0, 5).join('/'),
       method,
       kind,
       timeout_ms: ms,

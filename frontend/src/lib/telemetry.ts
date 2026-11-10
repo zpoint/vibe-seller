@@ -20,6 +20,37 @@ export function normalizePath(pathname: string): string {
     .join('/')
 }
 
+// API paths are reported as a fixed route shape: a segment survives
+// only if it is one of the API's own static words; every other segment
+// (an id, a profile or provider name, a skill slug, a file name) becomes
+// [id]. Masking only UUIDs leaked e.g. `/api/profiles/<provider-name>`.
+const API_STATIC_SEGMENTS = new Set([
+  'ads', 'agent', 'answer', 'api', 'assistant', 'attachments', 'auth',
+  'auth-url', 'authorize', 'browser', 'browsers', 'chat-bots', 'config',
+  'configure', 'confirm', 'debug-mode', 'dida365', 'disable', 'disconnect',
+  'discover', 'discover-smtp', 'email-accounts', 'emails', 'enable',
+  'execute-plan', 'file', 'files', 'files-zip', 'google-workspace',
+  'history', 'image', 'info', 'knowledge', 'launcher', 'links', 'locale',
+  'login', 'logout', 'mcp', 'me', 'message', 'messages', 'password',
+  'pause', 'pending', 'plan', 'platforms', 'presets', 'profile', 'profiles',
+  'projects', 'questions', 'raw', 'ref-proxy', 'refresh', 'replan',
+  'reports', 'reset', 'restart', 'resume', 'retry', 'reveal',
+  'review-plan', 'run', 'schedules', 'screenshots', 'secrets',
+  'send-permission', 'set-default', 'settings', 'setup-mcp', 'skill',
+  'skills', 'sse', 'staged', 'start', 'status', 'steps', 'stop', 'stores',
+  'structured', 'sync', 'system', 'tasks', 'telemetry', 'test', 'tokens',
+  'trigger', 'unbind', 'update-check', 'upload-reference', 'users',
+  'validate', 'version', 'vision', 'web', 'workspace', 'ziniao',
+  'ziniao-accounts',
+])
+
+export function apiRouteShape(pathname: string): string {
+  return pathname
+    .split('/')
+    .map((seg) => (seg === '' || API_STATIC_SEGMENTS.has(seg) ? seg : '[id]'))
+    .join('/')
+}
+
 // ─── Autocapture enrichment (ported from feature-plugin) ────────
 // Walks $elements_chain to find a meaningful interactive element and
 // promote its label so PostHog UI shows readable text instead of
