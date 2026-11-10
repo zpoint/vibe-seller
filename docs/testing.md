@@ -199,6 +199,14 @@ deployments → e2e → Approve and deploy** (this approves the test run, not
 the PR). Each new push waits again. Nightly and `workflow_dispatch` runs
 skip the gate. Mock CLI e2e (`e2e-mock-cli`) never needs approval.
 
+Which models CI runs on is repository configuration, not code: the
+repo variable `E2E_PROVIDER_MAP` names one preset per worker
+(`ci.yml` runs `E2E_WORKERS` = 6), `E2E_WINDOWS_PROVIDER` the Windows
+smoke test's one, and each preset's key and model are the secrets
+`{NAME}_API_KEY` / `{NAME}_MODEL` (optionally `{NAME}_BASE_URL`), e.g.
+`QWEN_TOKEN_MODEL`. Change them under Settings → Secrets and
+variables → Actions.
+
 ### Shared Helpers (`tests/e2e/e2e_helpers.py`)
 
 Consolidated helpers used by all LLM-dependent e2e tests:
