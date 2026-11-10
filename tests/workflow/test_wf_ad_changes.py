@@ -485,3 +485,20 @@ async def test_a_change_picked_on_a_question_card_is_not_approved(
     msgs = (await admin_client.get(f'/api/tasks/{task.id}/messages')).json()
     shown = [m['content'] for m in msgs if 'ad changes' in m['content']]
     assert 'NOT confirmed' in shown[-1], shown
+
+
+async def test_a_card_after_the_refusal_is_not_the_reply_either(
+    admin_client, install_fake_agent, monkeypatch
+):
+    """Observed: a direct instruction; execute was refused (nothing the
+    user saw and answered); the agent then asked on a question card
+    instead of ending its turn, the card was answered, and the second
+    execute ran the change. The card is not the user's reply here either."""
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A22')
+    task.changes([change(target_bid='1.00', action='lower')])
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 409, r.text
+    question_cards.note(task.id)
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 409, r.text
+    assert 'question card' in r.text

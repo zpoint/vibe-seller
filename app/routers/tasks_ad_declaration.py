@@ -233,13 +233,11 @@ async def _declare(
         # card since: the card is the agent's own multiple choice, not the
         # user approving a money change (observed: "go ahead and apply
         # it", a card whose first option was a raise, and the raise ran).
-        picked_on_a_card = (
-            confirmed
-            and question_cards.answered_after(
-                task_id, await _last_user_message_at(db, task_id)
-            )
-            and bool(await asyncio.to_thread(unfrozen_changes, task_id))
-        )
+        # Also after the refusal above: an agent told to show the user the
+        # change asked on a card instead, and the card is not a reply.
+        picked_on_a_card = question_cards.answered_after(
+            task_id, await _last_user_message_at(db, task_id)
+        ) and bool(await asyncio.to_thread(unfrozen_changes, task_id))
         if picked_on_a_card:
             # Declared again after being told: recorded, and posted to
             # the user as NOT confirmed by them.
