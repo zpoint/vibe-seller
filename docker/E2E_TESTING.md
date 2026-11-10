@@ -17,7 +17,7 @@ export PROVIDER_B_BASE_URL="https://..."
 export PROVIDER_B_MODEL="model-name"
 
 # Run all E2E tests (3 workers, mirrors CI)
-E2E_WORKERS=3 E2E_PROVIDER_MAP=provider_a,provider_a,provider_b \
+E2E_PROVIDER_MAP=provider_a,provider_a,provider_b \
   docker compose -f docker/docker-compose.yml run --rm e2e
 ```
 
@@ -39,7 +39,7 @@ export PROVIDER_A_API_KEY="sk-..."
 export PROVIDER_A_BASE_URL="https://..."
 export PROVIDER_A_MODEL="model-name"
 
-E2E_WORKERS=1 E2E_PROVIDER_MAP=provider_a \
+E2E_PROVIDER_MAP=provider_a \
   docker compose -f docker/docker-compose.yml run --rm e2e
 ```
 
@@ -52,12 +52,12 @@ small subsets for faster feedback (~1-3 min per batch).
 
 ```bash
 # Run a single test file (fastest iteration)
-E2E_WORKERS=1 E2E_PROVIDER_MAP=provider_a \
+E2E_PROVIDER_MAP=provider_a \
   docker compose -f docker/docker-compose.yml run --rm e2e \
   uv run pytest tests/e2e/test_conversation_lifecycle.py -v --e2e --log-cli-level=INFO
 
 # Run a single test method
-E2E_WORKERS=1 E2E_PROVIDER_MAP=provider_a \
+E2E_PROVIDER_MAP=provider_a \
   docker compose -f docker/docker-compose.yml run --rm e2e \
   uv run pytest tests/e2e/test_task_execution.py::TestAgentPipeline::test_full_pipeline_completes \
   -v --e2e --log-cli-level=INFO
@@ -100,13 +100,13 @@ Once your subset passes, expand gradually:
 
 ```bash
 # Two related test files
-E2E_WORKERS=1 E2E_PROVIDER_MAP=provider_a \
+E2E_PROVIDER_MAP=provider_a \
   docker compose -f docker/docker-compose.yml run --rm e2e \
   uv run pytest tests/e2e/test_task_execution.py tests/e2e/test_conversation_lifecycle.py \
   -v --e2e --log-cli-level=INFO
 
 # Full suite with parallelism
-E2E_WORKERS=3 E2E_PROVIDER_MAP=provider_a,provider_a,provider_b \
+E2E_PROVIDER_MAP=provider_a,provider_a,provider_b \
   docker compose -f docker/docker-compose.yml run --rm e2e
 ```
 

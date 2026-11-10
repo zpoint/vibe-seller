@@ -454,7 +454,6 @@ jobs:
           fi
           # One worker per map entry.
           E2E_N=$(printf '%s' "$E2E_PROVIDER_MAP" | tr ',' '\n' | grep -c .)
-          export E2E_WORKERS="$E2E_N"
           XDIST_ARGS=""
           if [ "$E2E_N" -gt 1 ] 2>/dev/null; then
             # --dist worksteal: workers start with an even split and idle

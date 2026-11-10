@@ -99,9 +99,9 @@ for i in $(seq 1 30); do
   fi
 done
 
-# If running pytest with xdist, inject -n workers (mirrors CI)
+# If running pytest, one xdist worker per E2E_PROVIDER_MAP entry (as CI)
 if [ "$1" = "uv" ] && [[ "$*" == *"pytest"* ]]; then
-  E2E_N="${E2E_WORKERS:-0}"
+  E2E_N=$(printf '%s' "${E2E_PROVIDER_MAP:-}" | tr ',' '\n' | grep -c .)
   if [ "$E2E_N" -gt 1 ] 2>/dev/null; then
     # Append xdist args if not already present
     if [[ "$*" != *"-n "* ]]; then

@@ -10,11 +10,11 @@
 #     docker compose run --rm e2e
 #
 # E2E tests — single provider (simpler, for quick local runs):
-#   MINIMAX_API_KEY=sk-... E2E_WORKERS=1 E2E_PROVIDER_MAP=minimax \
+#   MINIMAX_API_KEY=sk-... E2E_PROVIDER_MAP=minimax \
 #     docker compose run --rm e2e
 #
 # Run a specific test:
-#   MINIMAX_API_KEY=sk-... E2E_WORKERS=1 E2E_PROVIDER_MAP=minimax \
+#   MINIMAX_API_KEY=sk-... E2E_PROVIDER_MAP=minimax \
 #     docker compose run --rm e2e \
 #     uv run pytest tests/e2e/test_task_execution.py -v --e2e
 #
@@ -60,8 +60,7 @@ x-e2e-env: &e2e-env
   KIMI_API_KEY: ${KIMI_API_KEY:-}
   KIMI_BASE_URL: ${KIMI_BASE_URL:-}
   KIMI_MODEL: ${KIMI_MODEL:-}
-  # -- Test parallelism (mirrors CI defaults) --
-  E2E_WORKERS: ${E2E_WORKERS:-4}
+  # -- Test parallelism: one worker per map entry (as CI) --
   E2E_PROVIDER_MAP: ${E2E_PROVIDER_MAP:-minimax,minimax,glm,glm}
   # -- Server config --
   BACKEND_PORT: "7777"

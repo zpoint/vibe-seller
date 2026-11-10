@@ -16,7 +16,7 @@ Run locally:
 Run in Docker (Ziniao on host, container uses host networking):
     ZINIAO_COMPANY=myco ZINIAO_USERNAME=user ZINIAO_PASSWORD=pass \\
       ZINIAO_BROWSER_OAUTH=12345 \\
-      MINIMAX_API_KEY=sk-... E2E_WORKERS=1 E2E_PROVIDER_MAP=minimax \\
+      MINIMAX_API_KEY=sk-... E2E_PROVIDER_MAP=minimax \\
       docker compose -f docker/docker-compose.yml run --rm e2e \\
       uv run pytest tests/e2e/test_ziniao_browser.py --e2e -v -m ziniao
 
