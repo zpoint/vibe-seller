@@ -24,7 +24,7 @@ import pytest
 
 from tests.e2e.conftest import BASE_URL
 from tests.e2e.e2e_helpers import create_store
-from tests.e2e.mcp_client import MCP_URL, McpClient  # noqa: F401
+from tests.e2e.mcp_client import McpClient
 
 logger = logging.getLogger(__name__)
 

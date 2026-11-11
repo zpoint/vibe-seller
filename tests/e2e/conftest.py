@@ -7,12 +7,9 @@ Provides:
 - Per-worker provider profile assignment (E2E_PROVIDER_MAP)
 """
 
-import json
 import logging
 import os
 from pathlib import Path
-import threading
-import time
 
 import httpx
 from playwright.sync_api import Page, expect
@@ -21,23 +18,18 @@ import pytest
 from tests.e2e import fail_fast
 import tests.e2e.e2e_helpers as e2e_helpers
 from tests.e2e.e2e_helpers import (
-    BASE_URL,
-    PIPELINE_TIMEOUT,
+    BASE_URL,  # noqa: F401 — re-exported: the shared-server modules
+    # that do `from tests.e2e.conftest import BASE_URL` want the SHARED
+    # server's address, which is what this name binds at import; a
+    # module that owns its server reads `e2e_helpers.BASE_URL` (the
+    # current target) instead, and never via this name.
     admin_credentials,
-    build_profile_env,
-    build_smart_answers,
-    fetch_presets,
+    provider_list,
 )
 
 ARTIFACTS_DIR = Path(__file__).parent / 'artifacts'
 
 logger = logging.getLogger('e2e')
-
-# Questions whose text carries this tag are owned by a UI test that
-# answers them itself (issue #211 free-text click-through); the
-# session-wide auto-answer must NOT race it. Kept in sync with the
-# mock CLI's ASK_QUESTION (tests/e2e/mock_cli.py).
-MANUAL_ANSWER_TAG = '(free-text-e2e)'
 
 
 def pytest_configure(config):
@@ -59,9 +51,14 @@ def pytest_report_header(config):
 
 @pytest.fixture
 def authenticated_page(page: Page):
-    """Navigate to base URL and authenticate before each test."""
+    """Navigate to base URL and authenticate before each test.
+
+    The URL is read at fixture time, not import time: a module that
+    owns its server has aimed ``e2e_helpers.BASE_URL`` at it, and the
+    page must load the app the test is driving.
+    """
     # First go to the page (needed for cookie context)
-    page.goto(BASE_URL)
+    page.goto(e2e_helpers.BASE_URL)
 
     # Login via API to get auth cookie set. Credentials come from the
     # shared helper (env-overridable) so a developer's instance, whose
@@ -83,7 +80,7 @@ def authenticated_page(page: Page):
     )
 
     # Reload page to get authenticated state
-    page.goto(BASE_URL)
+    page.goto(e2e_helpers.BASE_URL)
 
     # Wait for app to be ready (Vibe Seller header visible)
     expect(page.locator('h1')).to_have_text('Vibe Seller')
@@ -120,55 +117,8 @@ def pytest_runtest_makereport(item, call):
 
 
 # ------------------------------------------------------------------
-# API client with background SSE auto-answer
+# The CURRENT server: the shared one, or the one a module owns
 # ------------------------------------------------------------------
-
-
-def _login_client(client: httpx.Client) -> None:
-    """Login on an httpx client (sets auth cookie).
-
-    Retries on transient errors (502, connection refused) since
-    the server may still be starting up. Credentials come from
-    ``admin_credentials()``.
-    """
-    for attempt in range(5):
-        try:
-            client.post(
-                f'{BASE_URL}/api/auth/login',
-                json=admin_credentials(),
-            ).raise_for_status()
-            return
-        except (httpx.HTTPStatusError, httpx.ConnectError) as exc:
-            if attempt < 4:
-                logger.warning('Login attempt %d failed: %s', attempt + 1, exc)
-                time.sleep(2)
-            else:
-                raise
-
-
-def _answer_question_api(
-    client: httpx.Client,
-    task_id: str,
-    request_id: str,
-    answers: dict,
-) -> None:
-    """POST answer for a pending agent question."""
-    try:
-        resp = client.post(
-            f'{BASE_URL}/api/tasks/{task_id}/questions/answer',
-            json={'request_id': request_id, 'answers': answers},
-        )
-        resp.raise_for_status()
-    except httpx.HTTPError as exc:
-        response = getattr(exc, 'response', None)
-        status = getattr(response, 'status_code', None) if response else None
-        logger.error(
-            'Failed to auto-answer question %s (task %s): status=%s %r',
-            request_id[:8],
-            task_id[:8],
-            status,
-            exc,
-        )
 
 
 @pytest.fixture(scope='session', autouse=True)
@@ -179,110 +129,38 @@ def _sse_auto_answer():
     that create tasks via UI). Prevents any test from hanging when an
     LLM agent asks unexpected questions during planning or execution.
 
-    Scope: session — one SSE thread for the entire pytest run.
+    Scope: session — one SSE thread for the entire pytest run, on the
+    SHARED server. A module that owns its server gets its own listener
+    from ``e2e_helpers.point_at_server``; nothing on an owned server is
+    answered by this one.
     """
-    sse_client = httpx.Client(timeout=None)
-    answer_client = httpx.Client(timeout=30)
-    try:
-        _login_client(sse_client)
-        _login_client(answer_client)
-    except (httpx.HTTPStatusError, httpx.ConnectError) as exc:
-        # No default admin / server not up (e.g. a customized local box).
-        # The auto-answer only matters for LLM tests, which need auth
-        # anyway — let non-LLM tests run/skip on their own terms rather
-        # than erroring the whole session at setup.
-        logger.warning('SSE auto-answer disabled (login failed): %s', exc)
-        sse_client.close()
-        answer_client.close()
-        yield
-        return
-
-    stop = threading.Event()
-
-    def _listener():
-        while not stop.is_set():
-            try:
-                with sse_client.stream(
-                    'GET',
-                    f'{BASE_URL}/api/sse',
-                    timeout=PIPELINE_TIMEOUT,
-                ) as resp:
-                    for line in resp.iter_lines():
-                        if stop.is_set():
-                            break
-                        if not line or not line.startswith('data:'):
-                            continue
-                        data_str = line[5:].strip()
-                        if not data_str:
-                            continue
-                        try:
-                            event = json.loads(data_str)
-                        except json.JSONDecodeError:
-                            continue
-                        if event.get('type') != 'task_questions':
-                            continue
-                        task_id = event.get('task_id', '')
-                        request_id = event.get('request_id', '')
-                        if task_id and request_id:
-                            questions = event.get('questions', [])
-                            # Defer questions a UI test owns (issue #211
-                            # free-text click-through) — answering them
-                            # here would beat the operator to it. Tag
-                            # kept in sync with mock_cli.ASK_QUESTION.
-                            if any(
-                                isinstance(q, dict)
-                                and MANUAL_ANSWER_TAG
-                                in str(q.get('question') or '')
-                                for q in questions
-                            ):
-                                continue
-                            logger.info(
-                                '[%s] SSE auto-answering question %s',
-                                task_id[:8],
-                                request_id[:8],
-                            )
-                            _answer_question_api(
-                                answer_client,
-                                task_id,
-                                request_id,
-                                build_smart_answers(questions),
-                            )
-            except (httpx.ReadError, httpx.ReadTimeout):
-                if stop.is_set():
-                    break
-                time.sleep(1)
-            except Exception:
-                if stop.is_set():
-                    break
-                logger.exception('SSE listener error')
-                time.sleep(2)
-
-    thread = threading.Thread(target=_listener, daemon=True)
-    thread.start()
-
+    shutdown = e2e_helpers.start_auto_answer(e2e_helpers.BASE_URL)
     yield
-
-    stop.set()
-    sse_client.close()
-    thread.join(timeout=5)
-    answer_client.close()
+    shutdown()
 
 
 @pytest.fixture(scope='session', autouse=True)
 def _setup_worker_profile():
-    """Assign each xdist worker a provider profile.
+    """Assign each xdist worker a provider profile ON THE SHARED SERVER.
 
     Controlled by E2E_PROVIDER_MAP env var (comma-separated
     provider names, one per worker).  Example: kimi,kimi,minimax
 
     Spreads rate-limit load across providers so parallel workers
-    don't all hammer the same API.
-    """
-    provider_map_str = os.environ.get('E2E_PROVIDER_MAP', '')
-    if not provider_map_str:
-        return
+    don't all hammer the same API. The profile itself — its env, its
+    default, its schedule pins — is built by the ONE implementation in
+    ``e2e_helpers.setup_worker_profile``, which a module that owns its
+    server calls too (``e2e_helpers.point_at_server``).
 
-    providers = [p.strip() for p in provider_map_str.split(',') if p.strip()]
+    Both the admin default and the schedule pins this installs are
+    SERVER-global, so on the shared server every worker writes them and
+    the last writer wins; that is acceptable only because they are the
+    no-Claude fallback every worker needs anyway. A test that fires a
+    system schedule still pins it to its own profile at trigger time.
+    """
+    providers = provider_list()
+    if not os.environ.get('E2E_PROVIDER_MAP', ''):
+        return
     if not providers:
         pytest.fail('E2E_PROVIDER_MAP is set but contains no valid entries')
 
@@ -300,88 +178,9 @@ def _setup_worker_profile():
         worker_num = 0
         worker = 'gw0'
 
-    provider = providers[worker_num]
-
-    profile_id = f'e2e-{provider}-{worker}'
-
-    # Build profile env from server preset + env secrets
-    preset_client = httpx.Client(timeout=30)
-    _login_client(preset_client)
-    try:
-        presets = fetch_presets(preset_client)
-    finally:
-        preset_client.close()
-
-    env = build_profile_env(provider, presets)
-
-    client = httpx.Client(timeout=30)
-    _login_client(client)
-    try:
-        resp = client.post(
-            f'{BASE_URL}/api/profiles',
-            json={
-                'id': profile_id,
-                'name': f'E2E {provider} ({worker})',
-                'env': env,
-            },
-        )
-        if resp.status_code not in (200, 409):
-            pytest.fail(
-                f'Failed to create profile {profile_id}: '
-                f'{resp.status_code} {resp.text}'
-            )
-    finally:
-        client.close()
-
-    e2e_helpers.DEFAULT_PROFILE_ID = profile_id
-
-    # Route EVERY agent task to the worker's provider — CI provisions no
-    # Claude credentials, so any fall-through to the 'default' (Claude)
-    # profile dies mid-run with "Not logged in · Please run /login". Two
-    # owners resolve profiles differently (see resolve_schedule_profile),
-    # so both must be configured here — centrally, never per-test:
-    #
-    #   (a) Admin default → UI-created tasks + admin-owned schedules.
-    #   (b) System schedules (e.g. catalog sync) are owned by the ai_bot
-    #       user, whose default is never set, so (a) does NOT reach them.
-    #       Pin the provider directly onto every schedule still resolving
-    #       to 'default' (a pin has top precedence in resolution).
-    #
-    # Both are SERVER-global and every worker runs this, so the winner is
-    # whichever worker wrote last. That is fine as a no-Claude fallback,
-    # but it does not make a shared resource follow the calling worker: a
-    # test that fires a system schedule pins it to its own profile at
-    # trigger time (see test_catalog_sync.trigger_catalog_sync).
-    #
-    # FAIL LOUD on any error — a swallowed failure here is exactly what
-    # let catalog sync silently fall back to Claude.
-    client2 = httpx.Client(timeout=30)
-    _login_client(client2)
-    try:
-        resp = client2.patch(
-            f'{BASE_URL}/api/profiles/{profile_id}/set-default'
-        )
-        if resp.status_code != 200:
-            pytest.fail(
-                f'set-default {profile_id} failed: '
-                f'{resp.status_code} {resp.text}'
-            )
-
-        resp = client2.get(f'{BASE_URL}/api/schedules')
-        resp.raise_for_status()
-        for sched in resp.json():
-            if sched.get('ai_profile_id') in (None, '', 'default'):
-                pinned = client2.put(
-                    f'{BASE_URL}/api/schedules/{sched["id"]}',
-                    json={'ai_profile_id': profile_id},
-                )
-                if pinned.status_code != 200:
-                    pytest.fail(
-                        f'pin schedule {sched["id"]} to {profile_id} '
-                        f'failed: {pinned.status_code} {pinned.text}'
-                    )
-    finally:
-        client2.close()
+    e2e_helpers.DEFAULT_PROFILE_ID = e2e_helpers.setup_worker_profile(
+        e2e_helpers.BASE_URL, providers[worker_num], worker
+    )
 
 
 @pytest.fixture(scope='module')
@@ -390,8 +189,12 @@ def api_client():
 
     The SSE auto-answer is handled by the session-scoped
     _sse_auto_answer fixture (autouse).
+
+    It logs in against whatever server is CURRENT: a module that owns
+    its server has aimed ``e2e_helpers.BASE_URL`` at it for its whole
+    run, so the same fixture serves both kinds.
     """
     client = httpx.Client(timeout=30)
-    _login_client(client)
+    e2e_helpers.login_client(client)
     yield client
     client.close()

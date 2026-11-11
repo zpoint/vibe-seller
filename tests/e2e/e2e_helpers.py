@@ -5,11 +5,13 @@ Consolidates duplicated login, polling, task creation, and
 question-answering code that was copy-pasted across 5+ files.
 """
 
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
+import json
 import logging
 import os
 from pathlib import Path
-import tempfile
+import threading
 import time
 from urllib.parse import urlparse
 
@@ -158,9 +160,9 @@ def resolve_provider(name: str) -> tuple[str, str, str]:
     return api_key, base_url, model
 
 
-def fetch_presets(client: httpx.Client) -> dict:
+def fetch_presets(client: httpx.Client, base_url: str | None = None) -> dict:
     """Fetch provider presets from the server."""
-    resp = client.get(f'{BASE_URL}/api/profiles/presets')
+    resp = client.get(f'{base_url or BASE_URL}/api/profiles/presets')
     resp.raise_for_status()
     return resp.json().get('presets', {})
 
@@ -393,56 +395,313 @@ def answer_question(
     task_id: str,
     request_id: str,
     answers: dict,
+    base_url: str | None = None,
 ) -> dict:
     """Submit an answer for a pending agent question."""
     resp = client.post(
-        f'{BASE_URL}/api/tasks/{task_id}/questions/answer',
+        f'{base_url or BASE_URL}/api/tasks/{task_id}/questions/answer',
         json={'request_id': request_id, 'answers': answers},
     )
     resp.raise_for_status()
     return resp.json()
 
 
-# ── The global catalog sync: one driver at a time ───────────────
+# ── A module that OWNS a server: point the helpers at it ─────────
 #
-# The catalog sync is one server-wide job over the shared knowledge/
-# tree: a rebuild rotates (deletes) the catalogs it regenerates, and any
-# new file under knowledge/ makes every store catalog stale. Observed in
-# CI: one worker's catalog test added a knowledge file and ran a sync
-# while another's knowledge-cleanup test sat between its two syncs, so
-# the store it expected to be skipped was rebuilt. A test that triggers
-# the sync or writes shared knowledge must hold this lock for its whole
-# run; ``trigger_catalog_sync`` refuses to run without it.
+# Everything here talks to ONE module-global target, ``BASE_URL``, and
+# reads it at CALL time. A test module that owns its server
+# (``tests/e2e/own_server.py``) therefore only has to aim these two
+# globals at it for the duration of the module — every helper call,
+# the profile and the SSE auto-answer come along — and hand the shared
+# server's values back on teardown, because the SAME xdist worker runs
+# other modules' tests after this one finishes.
+#
+# Questions whose text carries this tag are owned by a UI test that
+# answers them itself (issue #211 free-text click-through); the
+# auto-answer must NOT race it. Kept in sync with the mock CLI's
+# ASK_QUESTION (tests/e2e/mock_cli.py).
+MANUAL_ANSWER_TAG = '(free-text-e2e)'
 
-_catalog_lock_depth = 0
+
+def provider_list() -> list[str]:
+    """The per-worker providers from ``E2E_PROVIDER_MAP``."""
+    raw = os.environ.get('E2E_PROVIDER_MAP', '')
+    return [p.strip() for p in raw.split(',') if p.strip()]
+
+
+def worker_name() -> str:
+    """This xdist worker ('gw3'), or 'gw0' for a single-process run."""
+    return os.environ.get('PYTEST_XDIST_WORKER', '') or 'gw0'
+
+
+#: How many servers THIS worker has owned so far. A run can hold more
+#: owned servers than the provider map has entries (6 modules, 4
+#: workers), and one worker may own two at different times; the map is
+#: the pool of distinct provider KEYS, so owned servers take it in
+#: round-robin — the first ``len(map)`` owned servers in a run get a
+#: key nobody else is hammering, and only an over-subscribed run shares.
+_owned_slots = 0
+
+
+def owned_server_provider() -> tuple[str, str]:
+    """(provider, worker tag) for the next server this worker owns.
+
+    '' when the run carries no ``E2E_PROVIDER_MAP`` — then nothing is
+    configured on the owned server either, exactly as on the shared one.
+    """
+    global _owned_slots
+    providers = provider_list()
+    slot = _owned_slots
+    _owned_slots += 1
+    if not providers:
+        return '', f'{worker_name()}-own{slot}'
+    return providers[slot % len(providers)], f'{worker_name()}-own{slot}'
+
+
+def login_client(client: httpx.Client, base_url: str | None = None) -> None:
+    """Login on an httpx client (sets the auth cookie), with retries.
+
+    Retries on transient errors (502, connection refused): the server
+    may still be starting. Credentials come from
+    :func:`admin_credentials`.
+    """
+    url = f'{base_url or BASE_URL}/api/auth/login'
+    for attempt in range(5):
+        try:
+            client.post(url, json=admin_credentials()).raise_for_status()
+            return
+        except (httpx.HTTPStatusError, httpx.ConnectError) as exc:
+            if attempt < 4:
+                _logger.warning('Login attempt %d failed: %s', attempt + 1, exc)
+                time.sleep(2)
+            else:
+                raise
+
+
+def setup_worker_profile(base_url: str, provider: str, worker: str) -> str:
+    """Put THIS worker's provider profile on the server at *base_url*.
+
+    One implementation for both kinds of server — the shared one
+    (``tests/e2e/conftest.py::_setup_worker_profile``) and every server
+    a module owns — because an owned server needs the SAME thing: CI
+    provisions no Claude credentials, so any task that falls through to
+    the 'default' (Claude) profile dies mid-run with "Not logged in".
+
+    Returns the profile id. It routes EVERY agent task on that server
+    through the worker's provider:
+
+      (a) the admin default → UI-created tasks + admin-owned schedules.
+      (b) system schedules (e.g. catalog sync) are owned by the ai_bot
+          user, whose default is never set, so (a) does not reach them —
+          pin the provider directly on every schedule still resolving
+          to 'default' (a pin has top precedence in resolution).
+
+    FAILS LOUD on any error: a swallowed failure here is exactly what
+    once let catalog sync silently fall back to Claude.
+    """
+    profile_id = f'e2e-{provider}-{worker}'
+    preset_client = httpx.Client(timeout=30)
+    login_client(preset_client, base_url)
+    try:
+        presets = fetch_presets(preset_client, base_url)
+    finally:
+        preset_client.close()
+
+    env = build_profile_env(provider, presets)
+
+    client = httpx.Client(timeout=30)
+    login_client(client, base_url)
+    try:
+        resp = client.post(
+            f'{base_url}/api/profiles',
+            json={
+                'id': profile_id,
+                'name': f'E2E {provider} ({worker})',
+                'env': env,
+            },
+        )
+        if resp.status_code not in (200, 409):
+            raise AssertionError(
+                f'Failed to create profile {profile_id}: '
+                f'{resp.status_code} {resp.text}'
+            )
+    finally:
+        client.close()
+
+    client2 = httpx.Client(timeout=30)
+    login_client(client2, base_url)
+    try:
+        resp = client2.patch(
+            f'{base_url}/api/profiles/{profile_id}/set-default'
+        )
+        if resp.status_code != 200:
+            raise AssertionError(
+                f'set-default {profile_id} failed: '
+                f'{resp.status_code} {resp.text}'
+            )
+
+        resp = client2.get(f'{base_url}/api/schedules')
+        resp.raise_for_status()
+        for sched in resp.json():
+            if sched.get('ai_profile_id') in (None, '', 'default'):
+                pinned = client2.put(
+                    f'{base_url}/api/schedules/{sched["id"]}',
+                    json={'ai_profile_id': profile_id},
+                )
+                if pinned.status_code != 200:
+                    raise AssertionError(
+                        f'pin schedule {sched["id"]} to {profile_id} '
+                        f'failed: {pinned.status_code} {pinned.text}'
+                    )
+    finally:
+        client2.close()
+    return profile_id
+
+
+def _auto_answer_listener(base_url: str, stop: threading.Event) -> None:
+    """Answer every pending agent question on the server at *base_url*.
+
+    Thread body for :func:`start_auto_answer`; exits when *stop* is set.
+    """
+    sse_client = httpx.Client(timeout=None)
+    answer_client = httpx.Client(timeout=30)
+    try:
+        login_client(sse_client, base_url)
+        login_client(answer_client, base_url)
+    except (httpx.HTTPStatusError, httpx.ConnectError) as exc:
+        # No default admin / server not up (e.g. a customized local box).
+        # The auto-answer only matters for LLM tests, which need auth
+        # anyway — let those tests hang/skip on their own terms rather
+        # than erroring the whole session.
+        _logger.warning('SSE auto-answer disabled (login failed): %s', exc)
+        sse_client.close()
+        answer_client.close()
+        return
+
+    while not stop.is_set():
+        try:
+            with sse_client.stream(
+                'GET', f'{base_url}/api/sse', timeout=PIPELINE_TIMEOUT
+            ) as resp:
+                for line in resp.iter_lines():
+                    if stop.is_set():
+                        break
+                    if not line or not line.startswith('data:'):
+                        continue
+                    data_str = line[5:].strip()
+                    if not data_str:
+                        continue
+                    try:
+                        event = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get('type') != 'task_questions':
+                        continue
+                    task_id = event.get('task_id', '')
+                    request_id = event.get('request_id', '')
+                    if not (task_id and request_id):
+                        continue
+                    questions = event.get('questions', [])
+                    # Defer questions a UI test owns (issue #211
+                    # free-text click-through) — answering them here
+                    # would beat the operator to it.
+                    if any(
+                        isinstance(q, dict)
+                        and MANUAL_ANSWER_TAG in str(q.get('question') or '')
+                        for q in questions
+                    ):
+                        continue
+                    _logger.info(
+                        '[%s] SSE auto-answering question %s',
+                        task_id[:8],
+                        request_id[:8],
+                    )
+                    answer_question(
+                        answer_client,
+                        task_id,
+                        request_id,
+                        build_smart_answers(questions),
+                        base_url,
+                    )
+        except (httpx.ReadError, httpx.ReadTimeout):
+            if stop.is_set():
+                break
+            time.sleep(1)
+        except Exception:
+            if stop.is_set():
+                break
+            _logger.exception('SSE listener error')
+            time.sleep(2)
+
+    sse_client.close()
+
+
+def start_auto_answer(base_url: str) -> Callable[[], None]:
+    """Auto-answer agent questions on *base_url* until the returned
+    callable is called.
+
+    A server an e2e module OWNS has nobody else listening to it: the
+    session-wide listener in ``tests/e2e/conftest.py`` follows the
+    SHARED server, so without this a model that asks a clarifying
+    question on an owned server parks its task until the poll times
+    out. Same thread, same loop, one per server.
+    """
+    stop = threading.Event()
+    thread = threading.Thread(
+        target=_auto_answer_listener, args=(base_url, stop), daemon=True
+    )
+    thread.start()
+
+    def _shutdown() -> None:
+        stop.set()
+        thread.join(timeout=5)
+
+    return _shutdown
 
 
 @contextmanager
-def own_the_catalog_sync():
-    """Hold the cross-worker lock on the shared catalog sync.
+def point_at_server(base_url: str) -> Generator[str, None, None]:
+    """Aim the helpers at a server THIS module owns, then hand back.
 
-    ``fcntl`` is imported here, not at the top: this module is loaded by
-    the e2e conftest on the Windows installer smoke too, where it does
-    not exist (and no catalog-sync test runs).
+    Refuses the shared server: this exists to move a module OFF it, and
+    pointing the target at the shared server would look like ownership
+    while racing every other worker.
     """
-    import fcntl  # noqa: PLC0415 — POSIX only; see above
+    global BASE_URL, DEFAULT_PROFILE_ID
+    if _port_of(base_url) == SHARED_PORT:
+        raise ValueError(
+            f'{base_url} is the SHARED e2e server — point_at_server is '
+            'for a server the module owns (tests/e2e/own_server.py)'
+        )
+    saved_url, saved_profile = BASE_URL, DEFAULT_PROFILE_ID
+    shutdown: Callable[[], None] | None = None
+    try:
+        BASE_URL = base_url
+        provider, worker = owned_server_provider()
+        if provider:
+            DEFAULT_PROFILE_ID = setup_worker_profile(
+                base_url, provider, worker
+            )
+        shutdown = start_auto_answer(base_url)
+        yield base_url
+    finally:
+        if shutdown is not None:
+            shutdown()
+        BASE_URL, DEFAULT_PROFILE_ID = saved_url, saved_profile
 
-    global _catalog_lock_depth
-    path = Path(tempfile.gettempdir()) / f'vibe-e2e-catalog-{SHARED_PORT}.lock'
-    with open(path, 'w') as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        _catalog_lock_depth += 1
-        try:
-            yield
-        finally:
-            _catalog_lock_depth -= 1
-            fcntl.flock(handle, fcntl.LOCK_UN)
 
+def assert_not_the_shared_server(base_url: str, what: str) -> None:
+    """Refuse to drive server-global state on the server every worker sees.
 
-def assert_owns_the_catalog_sync() -> None:
-    if _catalog_lock_depth <= 0:
+    Keeps the meaning the cross-worker catalog lock had — never drive a
+    sync another worker can see — as an ownership rule instead of a
+    lock: the global state lives on the shared server, so a test that
+    touches it runs against a server of its own.
+    """
+    if _port_of(base_url) == SHARED_PORT:
         raise AssertionError(
-            'this test drives the shared catalog sync without holding '
-            'own_the_catalog_sync() — another worker can change shared '
-            'knowledge or rebuild catalogs under it'
+            f'{what} is SERVER-GLOBAL: driven on the shared server at '
+            f'{base_url} another xdist worker can change or observe it '
+            'mid-run — run this test against a server it owns '
+            '(tests/e2e/own_server.py)'
         )

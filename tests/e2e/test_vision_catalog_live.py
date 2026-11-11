@@ -13,10 +13,17 @@ It SPENDS kie.ai credits (one cheapest-tier image per family, roughly
 $0.3 in total), so it is opt-in twice: the server must run with a real
 key (not ``VISION_FAKE``), and ``VISION_LIVE_E2E=1`` must be set.
 
+**This module owns its server.** Step 1 runs the global
+``vision_catalog`` sync (``POST /api/sync/vision_catalog/run``), which
+rewrites the ONE priced catalog every other test and every user on that
+server reads, and it reads back the server-wide vision config afterwards
+— so the pricing rows it writes must not be the shared server's, and a
+stray worker's read must not see a catalog this run half-refreshed.
+The key it spends is the server's own, taken from the environment
+(``KIE_API_KEY``) like the shared server took it.
+
 Run:
-  KIE_API_KEY=... MOCK_CLI=tests/e2e/mock_cli.py PORT=7798 \
-    VIBE_HOME=~/.vibe-seller-vision-live ./start.sh 7798
-  VISION_LIVE_E2E=1 E2E_BASE_URL=http://127.0.0.1:7798 \
+  KIE_API_KEY=... VISION_LIVE_E2E=1 \
     .venv/bin/python -m pytest --e2e tests/e2e/test_vision_catalog_live.py
 """
 
@@ -30,14 +37,42 @@ import httpx
 import pytest
 
 from app import vision_catalog, vision_models
-from tests.e2e.conftest import BASE_URL
+from tests.e2e.own_server import owned_agent_stack
 
 pytestmark = [pytest.mark.e2e]
 
 GEN_TIMEOUT_S = 330  # the server's own 2K poll budget (240s) + slack
 
+# Set by the module fixture (own_stack) to this module's own server.
+BASE_URL = ''
+
+
+@pytest.fixture(scope='module', autouse=True)
+def own_stack(tmp_path_factory):
+    """A server of this module's own, holding a real kie.ai key.
+
+    Started only once the credit gate below has been passed, so an
+    ordinary run boots nothing and spends nothing.
+    """
+    global BASE_URL
+    with owned_agent_stack(tmp_path_factory, 'vision-live') as server:
+        BASE_URL = server.base_url
+        client = _login()
+        try:
+            resp = client.get(f'{BASE_URL}/api/vision/config')
+            cfg = resp.json() if resp.status_code == 200 else {}
+        finally:
+            client.close()
+        if cfg.get('fake') or not cfg.get('kie_api_key_set'):
+            pytest.skip(
+                'needs a server with a real kie.ai key and VISION_FAKE '
+                f'off — this one reports {cfg!r}'
+            )
+        yield server
+
 
 def _login() -> httpx.Client:
+    """Login as the seeded admin — the only account on this home."""
     client = httpx.Client(timeout=60)
     client.post(
         f'{BASE_URL}/api/auth/login',
@@ -58,16 +93,6 @@ def _session():
 if os.environ.get('VISION_LIVE_E2E') != '1':
     pytest.skip(
         'live kie.ai e2e spends credits; set VISION_LIVE_E2E=1',
-        allow_module_level=True,
-    )
-try:
-    with _session() as _c:
-        _cfg = _c.get(f'{BASE_URL}/api/vision/config').json()
-except Exception:
-    _cfg = {}
-if _cfg.get('fake') or not _cfg.get('kie_api_key_set'):
-    pytest.skip(
-        'needs a server with a real kie.ai key and VISION_FAKE off',
         allow_module_level=True,
     )
 

@@ -4,9 +4,18 @@ import json
 
 import httpx
 
-from tests.e2e.conftest import BASE_URL
+from tests.e2e import e2e_helpers
 
-MCP_URL = f'{BASE_URL}/api/mcp'
+
+def mcp_url() -> str:
+    """The MCP endpoint of the CURRENT server.
+
+    Read at call time, never baked at import: a module that owns its
+    server (``e2e_helpers.point_at_server``) talks MCP to that one, and
+    a module-level constant would keep sending its calls to the shared
+    server while every other helper followed the owned one.
+    """
+    return f'{e2e_helpers.BASE_URL}/api/mcp'
 
 
 class McpClient:
@@ -28,7 +37,7 @@ class McpClient:
 
     def post(self, payload: dict) -> httpx.Response:
         """POST one JSON-RPC message, verbatim (no status check)."""
-        return self._client.post(MCP_URL, json=payload)
+        return self._client.post(mcp_url(), json=payload)
 
     def rpc(self, method: str, params: dict | None = None) -> dict:
         """Send a request and return its ``result``."""

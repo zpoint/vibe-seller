@@ -16,7 +16,14 @@ active``. A test that needs restarts owns its server instead
    silently run against the shared server: a module may not read
    ``E2E_BASE_URL`` while also requiring ``VIBE_SYNC_*`` — such a test
    must own its server (``tests/e2e/own_server.py``) like the two sync
-   e2e modules do.
+   e2e modules do;
+4. and the general form of the same rule, from the r8 inventory of
+   app-wide singletons: no module running on the SHARED server may
+   touch server-global state at all — the settings row, the vision key
+   and catalog, a manual sync run, the catalog fanout, the shared
+   knowledge tree, the ads binding of every store, a direct
+   ``app_settings`` write. See
+   :func:`test_no_shared_server_module_touches_a_server_singleton`.
 """
 
 import ast
@@ -465,37 +472,161 @@ def test_an_owned_server_never_rebuilds_the_shared_frontend(
     assert seen.get('VIBE_SKIP_FRONTEND_BUILD') == '1'
 
 
-def test_one_catalog_sync_driver_at_a_time(tmp_path):
-    """The shared catalog sync has one driver across xdist workers.
+def test_the_catalog_sync_is_never_driven_on_the_shared_server():
+    """The global catalog sync has one driver per server: its owner.
 
     Observed in CI: a catalog test on one worker added a knowledge file
     and synced while the knowledge-cleanup test on another sat between
     its two syncs, so the store it expected to be skipped was rebuilt.
-    The lock excludes another process, and the sync trigger refuses to
-    run without it.
+    The first answer was a cross-worker flock around the shared sync
+    (``ca1dfb3``). A lock makes the collision rare, not impossible — it
+    serialises two drivers of ONE tree; it never separates the trees.
+    The design fix is ownership: the fanout rebuilds EVERY store's
+    catalog on the server it runs on, so a test that drives it drives it
+    on a server of its own and the shared one is refused outright. Same
+    meaning as the lock — never drive a sync another worker can see —
+    now enforced by naming the server instead of waiting for it.
     """
-    probe = (
-        'import fcntl, sys\n'
-        'h = open(sys.argv[1], "w")\n'
-        'try:\n'
-        '    fcntl.flock(h, fcntl.LOCK_EX | fcntl.LOCK_NB)\n'
-        'except BlockingIOError:\n'
-        '    sys.exit(3)\n'
-    )
-    lock = (
-        Path(e2e_helpers.tempfile.gettempdir())
-        / f'vibe-e2e-catalog-{e2e_helpers.SHARED_PORT}.lock'
-    )
-    with e2e_helpers.own_the_catalog_sync():
-        held = subprocess.run(
-            [sys.executable, '-c', probe, str(lock)], check=False
-        )
-    assert held.returncode == 3, 'another worker could take the lock'
-    free = subprocess.run([sys.executable, '-c', probe, str(lock)], check=False)
-    assert free.returncode == 0, 'the lock was not released'
+    shared = f'http://127.0.0.1:{e2e_helpers.SHARED_PORT}'
+    with pytest.raises(AssertionError, match='server it owns'):
+        test_catalog_sync.trigger_catalog_sync(None, set(), shared)
 
-    with pytest.raises(AssertionError, match='own_the_catalog_sync'):
-        test_catalog_sync.trigger_catalog_sync(None, set())
+    # Any other port is an owned one, and gets through the refusal.
+    owned = f'http://127.0.0.1:{e2e_helpers.SHARED_PORT + 1}'
+    assert e2e_helpers._port_of(owned) != e2e_helpers.SHARED_PORT
+
+
+def test_point_at_server_refuses_the_shared_server():
+    """Re-aiming the helpers is not a way back onto the shared server.
+
+    ``point_at_server`` swaps the module globals every e2e helper reads,
+    so pointing it at the shared server would LOOK like ownership while
+    the module still raced every other worker's state.
+    """
+    shared = f'http://127.0.0.1:{e2e_helpers.SHARED_PORT}'
+    with pytest.raises(ValueError, match='SHARED'):
+        with e2e_helpers.point_at_server(shared):
+            pass
+
+
+#: Server-global state: one row, one file or one in-memory singleton
+#: behind an endpoint, on the server EVERY xdist worker runs its tests
+#: against. A test that writes it changes another worker's running
+#: tests, and a test that reads it can be answered with another
+#: worker's write — so a module that touches one of these owns its
+#: server (``tests/e2e/own_server.py``) instead.
+#:
+#: This is the inventory Brief r8 item 1 took from reading every
+#: ``tests/e2e/test_*.py``, now expressed as code: prose in a docstring
+#: ("this needs the server started with X") is what let the catalog
+#: tests, the settings switch and the ads binding all collide anyway.
+SINGLETON_SURFACES = {
+    'the server-wide settings row (auth switch, agent slots)': (
+        '/api/settings',
+    ),
+    'the one vision key + priced catalog': ('/api/vision/config',),
+    'a manual run of a global sync job': ('/api/sync/',),
+    'the catalog sync fanout over every store': ('SYSTEM_CATALOG_SYNC_ID',),
+    'the ads binding of every store row': ('/api/ads/stores/sync',),
+    'the shared knowledge tree': ("VIBE_SELLER_DIR / 'knowledge'",),
+    'a direct write into app_settings': ('INTO app_settings',),
+}
+
+OWNERSHIP_TOKENS = ('owned_agent_stack', 'OwnServer(')
+
+
+def _skips_unless_mock_cli(tree: ast.Module) -> bool:
+    """True when the module refuses to run at all without ``MOCK_CLI``.
+
+    A ``if not MOCK_CLI: pytest.skip(..., allow_module_level=True)`` at
+    module level means the module only ever runs in the ``e2e-mock-cli``
+    CI lane — ONE pytest process, no xdist (pinned below) — so there is
+    no second worker to race on that lane's shared server. The gate must
+    be module-level and on MOCK_CLI being ABSENT: a module that skips
+    when it is present (``test_auto_memory_off``) runs in the parallel
+    lane and gets no exemption.
+    """
+    for node in tree.body:
+        if not isinstance(node, ast.If):
+            continue
+        if 'MOCK_CLI' not in ast.dump(node.test):
+            continue
+        if any(isinstance(n, ast.UnaryOp) for n in ast.walk(node.test)):
+            for sub in ast.walk(node):
+                if (
+                    isinstance(sub, ast.Call)
+                    and getattr(sub.func, 'attr', '') == 'skip'
+                    and any(
+                        kw.arg == 'allow_module_level' for kw in sub.keywords
+                    )
+                ):
+                    return True
+    return False
+
+
+def _owns_its_server(text: str) -> bool:
+    return any(token in text for token in OWNERSHIP_TOKENS)
+
+
+def test_no_shared_server_module_touches_a_server_singleton():
+    """Global state means an owned server — or the module never runs.
+
+    The failure this pins is the class the r8 inventory found: two
+    workers driving one catalog fanout, one module flipping
+    ``auth_required`` while another asserts a 401, one rewriting the
+    vision key another test reads back. Nothing here can be caught at
+    runtime by the test that caused it — it shows up as an unrelated
+    test failing on a different worker — so it is caught statically.
+    """
+    offenders = []
+    exempt: list[str] = []
+    for path in sorted(E2E_DIR.glob('test_*.py')):
+        text = path.read_text(encoding='utf-8')
+        if _owns_its_server(text):
+            continue
+        tree = ast.parse(text)
+        surfaces = sorted(
+            surface
+            for surface, tokens in SINGLETON_SURFACES.items()
+            if any(token in text for token in tokens)
+        )
+        if not surfaces:
+            continue
+        if _skips_unless_mock_cli(tree):
+            exempt.append(f'{path.name}: {", ".join(surfaces)}')
+            continue
+        offenders.append(f'{path.name}: {", ".join(surfaces)}')
+    assert not offenders, (
+        'these modules touch SERVER-GLOBAL state on the shared e2e '
+        'server, where another xdist worker can change or observe it — '
+        'give them their own server via '
+        'tests/e2e/own_server.owned_agent_stack:\n  '
+        + '\n  '.join(offenders)
+        + '\n(serial-lane exempt, gated on MOCK_CLI: '
+        + '; '.join(exempt)
+        + ')'
+    )
+
+
+def test_the_serial_lane_stay_serial():
+    """The MOCK_CLI exemption is only true while that lane has no -n.
+
+    If the e2e-mock-cli job ever runs xdist, the exempted modules DO
+    have a second worker to race, and the exemption above must stop
+    applying to them.
+    """
+    ci = (E2E_DIR.parents[1] / '.github' / 'workflows' / 'ci.yml').read_text(
+        encoding='utf-8'
+    )
+    step = ci.split('- name: Run mock CLI E2E tests', 1)[1].split(
+        '- name: Stop mock CLI server', 1
+    )[0]
+    assert ' -n ' not in step and '--dist' not in step, (
+        'the mock-CLI lane now runs xdist — the MOCK_CLI exemption in '
+        'test_no_shared_server_module_touches_a_server_singleton no '
+        'longer means "no other worker": give those modules their own '
+        'servers'
+    )
 
 
 def test_e2e_helpers_import_without_posix_only_modules():

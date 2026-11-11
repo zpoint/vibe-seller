@@ -12,6 +12,7 @@ refuses the shared server's port outright, so no caller — including
 the helpers below — can ever stop or restart it.
 """
 
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import socket
@@ -20,6 +21,7 @@ import time
 
 import httpx
 
+from tests.e2e import e2e_helpers
 from tests.e2e.e2e_helpers import SHARED_PORT, start_sh_log_path
 
 
@@ -60,6 +62,58 @@ def pick_free_port() -> int:
 #: fake GitHub and fake services, so the outside sources are on even when
 #: the surrounding run (CI) turns them off for every other server.
 SYNC_SWITCHES_ON = {'VIBE_GITHUB_MAIN_SYNC': 'on', 'VIBE_EXTERNAL_SYNC': 'on'}
+
+#: What a test-owned server needs to run REAL AGENTS like the shared CI
+#: server does. The pytest step's environment is not the server step's:
+#: CI sets ``MAX_AGENT_CONCURRENCY`` (and the sync-off / telemetry-off
+#: switches) when it STARTS the shared server, so an owned server started
+#: from the test step would silently run with the app's default 2 agent
+#: slots — a 12-task catalog fanout would queue instead of fan out — and
+#: would pull skills/knowledge from GitHub main and phone home mid-run.
+#: Same choice ci.yml makes for the shared server ("the tree under test is
+#: this PR, not main"); the sync e2e opt back in with SYNC_SWITCHES_ON.
+#: An explicit ``env`` on the owned server still wins over this.
+AGENT_SERVER_ENV = {
+    'MAX_AGENT_CONCURRENCY': os.environ.get('MAX_AGENT_CONCURRENCY', '16'),
+    'VIBE_GITHUB_MAIN_SYNC': 'off',
+    'VIBE_EXTERNAL_SYNC': 'off',
+    'VIBE_SELLER_TELEMETRY': '0',
+}
+
+
+@contextmanager
+def owned_agent_stack(tmp_path_factory, name: str, env: dict | None = None):
+    """One server this MODULE owns, with every helper pointed at it.
+
+    The whole owned-stack ritual in one place, because a test that
+    touches server-global state must do ALL of it to leave the shared
+    server behind, and a half-done move is worse than none:
+
+      * a dedicated free port and a dedicated temp ``VIBE_HOME`` — so
+        its catalogs, its settings rows, its ``.claude`` memory dir and
+        its agent venv are nobody else's;
+      * ``AGENT_SERVER_ENV`` — the shared server's agent capacity and
+        its no-outside-calls switches;
+      * ``e2e_helpers.point_at_server`` — the helpers, the worker's
+        provider profile and an SSE auto-answer for THIS server.
+
+    Use it from a module-scoped fixture (``scope='module'`` runs the
+    setup once PER WORKER: if xdist splits the module's tests over two
+    workers, each gets its own server and its own home — which is the
+    point of owning one).
+    """
+    home = tmp_path_factory.mktemp(name)
+    server = OwnServer(
+        port=pick_free_port(),
+        home=home,
+        env={**AGENT_SERVER_ENV, **(env or {})},
+    )
+    server.start()
+    try:
+        with e2e_helpers.point_at_server(server.base_url):
+            yield server
+    finally:
+        server.stop()
 
 
 class OwnServer:

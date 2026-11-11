@@ -63,6 +63,51 @@ E2E_VIBE_HOME=~/.vibe-seller-e2e E2E_BASE_URL=http://127.0.0.1:7799 \
   pytest --e2e tests/e2e
 ```
 
+## Server-global state: own a server, don't lock one
+
+The e2e tier runs against ONE shared server, and one xdist worker per
+`E2E_PROVIDER_MAP` entry. Most tests only touch their own task or their
+own store, so they share it happily. Some state is **server-global**: one
+row, one file, or one in-memory singleton that every worker's tests read
+and write through the same server:
+
+| Surface | Why it collides |
+|---|---|
+| the catalog sync fanout (`SYSTEM_CATALOG_SYNC_ID`) | one system schedule, and its fanout rebuilds the catalog of EVERY store on the server |
+| the shared `knowledge/` tree | any new file makes every store's catalog stale; a rebuild rotates the catalogs it regenerates |
+| `PUT /api/settings` | `auth_required` (a test asserting a 401 only holds it while auth stays on), `max_agent_concurrency` (the server-wide agent semaphore) |
+| `PUT /api/vision/config`, `/api/sync/<job>/run` | the one kie.ai key and the one priced catalog; a manual sync run rewrites server-wide state |
+| `POST /api/ads/stores/sync` | rewrites the ads binding of every store row |
+| a direct write into `app_settings` | bypasses the API but lands in the same one DB |
+
+For those a test **owns its server**: `tests/e2e/own_server.py` gives it
+a dedicated free port, a dedicated `VIBE_HOME` and its own pid file, and
+`owned_agent_stack` adds what a server running real agents needs (the
+shared CI server's agent capacity, syncs and telemetry off), points the
+helpers at it (`e2e_helpers.point_at_server` — target, worker profile
+and SSE auto-answer) and hands the shared server's values back on
+teardown.
+
+Ownership replaced a cross-worker `flock` around the catalog sync. A lock
+serialises two drivers of ONE tree; it never separates the trees, and a
+locked test still sees another worker's knowledge file land between its
+two syncs. `trigger_catalog_sync` now takes the base URL and refuses the
+shared server outright — same rule as the lock ("never drive a sync
+another worker can see"), enforced by naming the server instead of
+waiting for it.
+
+`tests/unit/test_e2e_harness_guard.py` holds the inventory: it lists
+those surfaces and fails any `tests/e2e` module that touches one without
+owning its server. The one exemption is a module that skips itself
+without `MOCK_CLI` — those run only in the `e2e-mock-cli` job, which is
+one pytest process with no second worker (the guard pins that too, so
+parallelising that job re-opens the question).
+
+A module-scoped fixture is **per worker**: if xdist splits a module's
+tests across two workers, each worker starts its own server and its own
+home. That is the point of owning one — the two runs cannot see each
+other's catalogs — at the cost of one more boot.
+
 ## Stopping a test server
 
 Stop a test/demo/e2e server on a side port with
@@ -217,8 +262,18 @@ Consolidated helpers used by all LLM-dependent e2e tests:
 - `create_task(client, title, *, store_id, description, profile_id, plan_mode)` — create task with logging
 - `create_store(client, name)` — create store
 - `poll_task_status(client, task_id, targets, *, fail_statuses, timeout)` — poll until target status (returns on fail_status for caller to decide)
-- `answer_question(client, task_id, request_id, answers)` — submit answer for pending question
+- `answer_question(client, task_id, request_id, answers, base_url=None)` — submit answer for pending question
 - `get_secret(*keys)` — resolve env var secrets
+
+The helpers all read one module-global target, `BASE_URL`, at CALL time.
+`point_at_server(base_url)` moves that target — plus the worker's
+provider profile (`setup_worker_profile`) and an SSE auto-answer — onto
+a server the module owns, for the duration of the module, and restores
+it afterwards; it refuses the shared server's port. `login_client`
+(login with retries), `fetch_presets` and `answer_question` take an
+explicit `base_url` too, for the helpers shared between modules — the
+catalog trigger lives in one module and is driven by another, each
+against its own server.
 
 ### Running e2e against YOUR server (local development)
 

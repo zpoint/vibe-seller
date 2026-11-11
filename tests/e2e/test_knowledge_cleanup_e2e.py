@@ -14,8 +14,17 @@ A store upgraded from an older harness owes the one-time cleanup
 The real catalog sync is triggered (the UI's "Run Now"); afterwards the
 outdated passages are gone, everything else is intact, the store is
 recorded as clean, and the next catalog sync skips it.
+
+**This module owns its server**, for the same reason
+``test_catalog_sync.py`` does and more sharply: it triggers the global
+catalog fanout TWICE and demands that nothing else change the tree in
+between — and it writes the server's `app_settings` table directly. On
+the shared server both were one flock deep away from another worker's
+knowledge file landing mid-run (observed in CI: the store this test
+expected to be skipped on the second sync was rebuilt under it).
 """
 
+from pathlib import Path
 import sqlite3
 import time
 
@@ -23,11 +32,10 @@ import httpx
 import pytest
 
 from app.browser.manager import store_slug as _store_slug
-from app.config import VIBE_SELLER_DIR
 from app.knowledge_contract import KNOWLEDGE_CONTRACT, store_scope
-from tests.e2e.e2e_helpers import create_store, own_the_catalog_sync
+from tests.e2e.e2e_helpers import create_store
+from tests.e2e.own_server import owned_agent_stack
 from tests.e2e.test_catalog_sync import (
-    STORES_DIR,
     login_client,
     trigger_catalog_sync,
     write_file,
@@ -35,14 +43,23 @@ from tests.e2e.test_catalog_sync import (
 
 pytestmark = [pytest.mark.e2e]
 
-DB_PATH = VIBE_SELLER_DIR / 'data' / 'vibe_seller.db'
+# Set by the module fixture (own_stack): this module's own server, home
+# and the DB behind it.
+BASE_URL = ''
+STORES_DIR: Path = Path()
+DB_PATH: Path = Path()
 
 
-@pytest.fixture(autouse=True)
-def _one_catalog_sync_driver():
-    """Two syncs that must see no one else's knowledge change between."""
-    with own_the_catalog_sync():
-        yield
+@pytest.fixture(scope='module', autouse=True)
+def own_stack(tmp_path_factory):
+    """Two syncs, and the settings rows between them, on a server of
+    this module's own."""
+    global BASE_URL, STORES_DIR, DB_PATH
+    with owned_agent_stack(tmp_path_factory, 'knowledge-cleanup') as server:
+        BASE_URL = server.base_url
+        STORES_DIR = server.home / 'stores'
+        DB_PATH = server.home / 'data' / 'vibe_seller.db'
+        yield server
 
 
 OUTDATED = [
@@ -108,7 +125,7 @@ def _recorded(store_id: str) -> str | None:
 
 def test_first_catalog_sync_after_upgrade_removes_only_outdated_notes():
     client = httpx.Client(timeout=30)
-    login_client(client)
+    login_client(client, BASE_URL)
     store = create_store(
         client,
         f'kc-store-{int(time.time())}',
@@ -122,7 +139,7 @@ def test_first_catalog_sync_after_upgrade_removes_only_outdated_notes():
     write_file(notes, _notes())
     _owe_cleanup(store['id'])
 
-    relevant, _ = trigger_catalog_sync(client, {store['id']})
+    relevant, _ = trigger_catalog_sync(client, {store['id']}, BASE_URL)
     task = next(t for t in relevant if t.get('store_id') == store['id'])
     assert task['status'] == 'completed', task
 
@@ -134,7 +151,7 @@ def test_first_catalog_sync_after_upgrade_removes_only_outdated_notes():
     assert _recorded(store['id']) == str(KNOWLEDGE_CONTRACT)
 
     # Once only: the next catalog sync leaves this store alone.
-    relevant, _ = trigger_catalog_sync(client, {store['id']})
+    relevant, _ = trigger_catalog_sync(client, {store['id']}, BASE_URL)
     again = next(t for t in relevant if t.get('store_id') == store['id'])
     assert again.get('result') == 'L3 catalog already up-to-date', again
     assert notes.read_text(encoding='utf-8') == cleaned
