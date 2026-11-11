@@ -192,6 +192,135 @@ def summary_counts(rows):
     return out
 
 
+_SEVERITY_ERROR = ('error', 'errors', 'fatal', 'failed', 'rejected')
+_SEVERITY_WARNING = ('warning', 'warnings', 'warn')
+
+
+def cell_status_verdict(text):
+    """One report cell's OWN verdict: error | warning | live | None.
+
+    Amazon answers a submitted row in its own words — a status cell
+    ('applied without any errors' / 'applied, but contain other
+    error(s)' — both LIVE — or 'not applied'), a bare severity cell
+    ('Error' / 'Warning'), or a per-field message starting 'ERROR :'.
+    None means the cell is not a verdict: template instructions and
+    other prose that merely MENTIONS errors say nothing about a row.
+    Same vocabulary as :func:`unlanded_skus`; a substring count of
+    'error' over rows read every live '…contain other error(s)' row as
+    a failure.
+    """
+    v = ' '.join(str(text or '').strip().lower().split())
+    if not v:
+        return None
+    if 'not applied' in v:
+        return 'error'
+    if v in _SEVERITY_ERROR:
+        return 'error'
+    if v.startswith('error') and ':' in v:
+        return 'error'
+    if v in _SEVERITY_WARNING:
+        return 'warning'
+    if 'applied' in v:
+        return 'live'
+    return None
+
+
+def row_status_verdict(row):
+    """The row's verdict from its own cells (error wins if present)."""
+    out = None
+    for cell in row:
+        v = cell_status_verdict(cell)
+        if v == 'error':
+            return 'error'
+        if v is not None and out is None:
+            out = v
+    return out
+
+
+def _idx_of(header, *needles):
+    for j, cell in enumerate(header):
+        c = cell.strip().lower()
+        if any(n in c for n in needles):
+            return j
+    return None
+
+
+def _cell(row, col):
+    return row[col] if col is not None and col < len(row) else ''
+
+
+def scan_verdict_rows(rows):
+    """Count (errors, warnings) across the report's rows; print each.
+
+    Two layouts, judged by what the row ITSELF says:
+
+    * a summary table (an error-type / severity column): the structured
+      verdict, with the per-row ``::submission_status`` column consulted
+      when the severity cell is blank;
+    * no table: each row's own status cell (see
+      :func:`cell_status_verdict`). The old fallback counted every row
+      CONTAINING the text "error" — which flagged both live verdicts
+      (each literally says "error(s)") and instruction prose, reading a
+      fully-applied batch as failures.
+    """
+    hdr_i = None
+    for i, row in enumerate(rows):
+        joined = ' '.join(row).lower()
+        if ('error' in joined or 'sku' in joined) and (
+            'sku' in joined or 'record' in joined
+        ):
+            hdr_i = i
+            break
+
+    n_err = n_warn = 0
+    if hdr_i is not None:
+        header = rows[hdr_i]
+        c_sku = _idx_of(header, 'sku')
+        c_type = _idx_of(header, 'error type', 'type', 'severity')
+        c_msg = _idx_of(header, 'message', 'error message', 'description')
+        c_code = _idx_of(header, 'code')
+        # A round-tripped report carries its verdict per row in the
+        # OWN status column next to the sku; without it the severity
+        # column is the only judge.
+        c_status = _idx_of(header, 'submission_status')
+        print(f'report table header at row {hdr_i}: {header}')
+        for row in rows[hdr_i + 1 :]:
+            if not any(cell.strip() for cell in row):
+                continue
+            sku = _cell(row, c_sku)
+            typ = _cell(row, c_type)
+            msg = _cell(row, c_msg)
+            code = _cell(row, c_code)
+            status = _cell(row, c_status)
+            tl = typ.strip().lower()
+            if tl == 'error' or 'error' in tl:
+                n_err += 1
+            elif 'warn' in tl:
+                n_warn += 1
+            else:
+                v = cell_status_verdict(status)
+                if v == 'error':
+                    n_err += 1
+                    msg = msg or status
+                elif v == 'warning':
+                    n_warn += 1
+            print(f'  [{typ or "?"}] sku={sku} code={code}: {msg}')
+    else:
+        print(
+            '(no structured table; judging rows by their status '
+            'cells — text that merely mentions "error" is not counted)'
+        )
+        for row in rows:
+            verdict = row_status_verdict(row)
+            if verdict in ('error', 'warning'):
+                if verdict == 'error':
+                    n_err += 1
+                else:
+                    n_warn += 1
+                print('  ' + ' | '.join(row))
+    return n_err, n_warn
+
+
 def unlanded_skus(comment_errs):
     """SKUs whose own `::submission_status` says they were NOT applied.
 
@@ -356,21 +485,54 @@ def report_batch_problem(report_path, batch_id, marker_dirs=('.',)):
 
 _TITLE_WORD = re.compile(r"[^\W_]+(?:'[^\W_]+)?", re.UNICODE)
 
+# Function words repeat by grammar, not by stuffing: "Stand for Desk
+# for Bed for Car" names 'for' three times and is a fine title — the
+# rejection Amazon actually sends lists the repeated CONTENT word
+# ("[charger]"). Counting 'for'/'and'/'with' refused titles that would
+# have passed the upload, burning a round trip on a non-error. Minimal
+# English list: these feeds are written for en_*/marketplace locales,
+# and CJK titles have no spaced function words at all (each run of
+# characters is one token). Words a style rule would never flag as
+# stuffing; anything outside the list still counts.
+_TITLE_STOPWORDS = frozenset({
+    'a',
+    'an',
+    'and',
+    'or',
+    'for',
+    'with',
+    'the',
+    'to',
+    'of',
+    'in',
+    'on',
+    'at',
+    'by',
+    'from',
+    'as',
+    'vs',
+    'per',
+})
+
 
 def title_repeats(fields, i, sku):
-    """An error naming every word a title uses more than twice, or None.
+    """An error naming every CONTENT word a title uses more than twice.
 
     Amazon refuses such a title ("You have used the following words more
     than twice in Title: [charger]"), but says so only in the processing
     report -- 30-60 minutes after upload. A live edit lost a whole round
     trip to a title repeating its category noun three times. Counted
-    case-insensitively over whole words, as the rejection reads.
+    case-insensitively over whole words, as the rejection reads;
+    function words (_TITLE_STOPWORDS) are grammar, not repetition, and
+    never trigger it.
     """
     for name, value in fields.items():
         if base_attr(name) != 'item_name' or not isinstance(value, str):
             continue
         counts = {}
         for word in _TITLE_WORD.findall(value.lower()):
+            if word in _TITLE_STOPWORDS:
+                continue
             counts[word] = counts.get(word, 0) + 1
         over = sorted(w for w, n in counts.items() if n > 2)
         if over:

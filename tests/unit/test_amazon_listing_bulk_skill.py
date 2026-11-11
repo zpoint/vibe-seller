@@ -2608,6 +2608,65 @@ def test_a_row_amazon_did_not_apply_is_flagged(tmp_path, monkeypatch, capsys):
     assert verdict['non_image_errors'] >= 2
 
 
+def test_fallback_judges_status_cells_not_prose(tmp_path, monkeypatch, capsys):
+    """No table header in the report: judge by each row's OWN status.
+
+    The old fallback counted every row CONTAINING 'error' — and both
+    live verdicts say 'error(s)' — so an all-clean batch printed N
+    errors and exited 1. Amazon's status sentences are the verdict:
+    only 'not applied' failed; 'applied without any errors' and
+    'applied, but contain other error(s)' are live.
+    """
+    monkeypatch.chdir(tmp_path)
+    report = tmp_path / 'report.txt'
+    report.write_text(
+        'P-1\tYour changes were applied without any errors\n'
+        'C-1\tYour changes were applied, but contain other error(s)\n'
+        'C-2\tYour changes were applied, but contain other error(s)\n',
+        encoding='utf-8',
+    )
+    _run(['parse-feedback', str(report), '--batch-id', '100000000020'])
+    out = capsys.readouterr().out
+    assert '0 error(s)' in out
+    verdict = json.loads(
+        Path('BATCH_100000000020_VERDICT.json').read_text(encoding='utf-8')
+    )
+    assert verdict['non_image_errors'] == 0
+
+
+def test_fallback_flags_a_row_that_was_not_applied(tmp_path, capsys):
+    report = tmp_path / 'report.txt'
+    report.write_text(
+        'P-1\tYour changes were applied without any errors\n'
+        'C-1\tYour changes were not applied\n',
+        encoding='utf-8',
+    )
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', str(report), '--batch-id', '100000000021'])
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert '1 error(s)' in out
+
+
+def test_status_column_verdicts_survive_the_table_path(tmp_path, capsys):
+    """A header IS found (the sku column), but the row's verdict lives
+    in its `::submission_status` column, not an error-type cell: the
+    live verdict counts 0, 'not applied' counts 1."""
+    report = tmp_path / 'report.txt'
+    report.write_text(
+        'item_sku\t::submission_status\n'
+        'P-1\tYour changes were applied without any errors\n'
+        'C-1\tYour changes were applied, but contain other error(s)\n'
+        'C-2\tYour changes were not applied\n',
+        encoding='utf-8',
+    )
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', str(report), '--batch-id', '100000000022'])
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert '1 error(s)' in out and 'C-2' in out
+
+
 def test_summary_count_alone_is_advisory(tmp_path, monkeypatch, capsys):
     """No per-SKU status to go on: say so, but do not fail the batch."""
     monkeypatch.chdir(tmp_path)
@@ -3075,6 +3134,30 @@ def test_title_repeating_a_word_three_times_is_refused_before_upload():
         'bullet_point': 'kettle kettle kettle',
     }
     assert listing_checks.title_repeats(ok, 1, 'K-1') is None
+
+
+def test_title_repeats_ignores_function_words():
+    """'for' three times is grammar, not stuffing.
+
+    Amazon's rejection names the repeated CONTENT word; a title like
+    "Stand for Desk for Bed for Car" passes the real check, while the
+    old count refused it locally — a false error that would have sent
+    the agent rewriting a fine title (and hid the real repeats under
+    the noise).
+    """
+    import listing_checks  # noqa: PLC0415 -- on sys.path via listing_bulk
+
+    grammar = {
+        'item_name': 'Compact Stand for Desk for Bed for Sofa',
+    }
+    assert listing_checks.title_repeats(grammar, 2, 'K-2') is None
+    # Content words still count alongside the repeated stopword.
+    stuffed = {
+        'item_name': 'Charger for Desk for Bed for Car: Fast Charger, '
+        'Travel Charger',
+    }
+    msg = listing_checks.title_repeats(stuffed, 3, 'K-3')
+    assert msg and "['charger']" in msg
 
 
 def test_fill_refuses_a_title_amazon_would_reject(unified_template, tmp_path):
