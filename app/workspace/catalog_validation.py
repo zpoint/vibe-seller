@@ -19,11 +19,14 @@ silently hiding knowledge from every later task:
 - **format** — header row, 3 columns per row, tier path prefixes;
 - **accumulation** — L2 carries every L1 row (``knowledge/project/``
   prefix, same Relevance); L3 carries every L2 row;
-- **completeness** — every file of the tier appears exactly once
-  (L3 store files classified by the filename rules mirrored from the
-  sync prompt below);
-- **isolation** — no other store's files, no task-output/system
-  filenames;
+- **completeness** — every file of the tier appears exactly once.
+  Names only decide which rows are REQUIRED (the run-output default);
+  they never forbid one — a row naming an existing store file is the
+  writer declaring it knowledge, which is how the user's own
+  ``PROMO_RULES.md`` gets into the reading list despite its ALL_CAPS
+  name. Machine files (``*.json``/``*.lock``/``*.cache``) are the one
+  refusal: the server wrote them, they are not prose;
+- **isolation** — no other store's files, no machine files;
 - **stub contract** — a substantive file must not be stubbed
   (:func:`is_near_empty`; the deterministic check this module grew
   from).
@@ -52,14 +55,6 @@ STUB_SUMMARY = 'Empty/stub — knowledge accumulates here'
 _MIN_BODY_WORDS = 5
 
 _HEADER = ('file', 'relevance', 'summary')
-
-# Task-output filenames the L3 sync prompt excludes from the catalog
-# (mirrored here so the gate can both require missing rows and refuse
-# these). Dated: *_YYYY-MM-DD.md / *-YYYYMMDD.md.
-_DATED_NAME = (
-    re.compile(r'_\d{4}-\d{2}-\d{2}\.md$'),
-    re.compile(r'-\d{8}\.md$'),
-)
 
 # Max examples per error category — enough to act on, short enough to
 # read inside one tool error.
@@ -198,6 +193,17 @@ def reject_wrong_stubs(
 
 
 # ── Tier context (filesystem truth the gate compares against) ──
+#
+# Knowledge vs task output is the WRITER's call, not a name guess:
+# a row naming an existing file of the tier IS the declaration that
+# the file is knowledge, and the server honours it whatever the file
+# is called. Names only decide the REQUIREMENT default — the run-
+# output shapes (ALL_CAPS, dated) do not force a row, so a leaked
+# report does not turn every catalog sync into a hunt for it; but
+# they never forbid one either, which is how a user's own
+# ``PROMO_RULES.md`` (ALL_CAPS by name, knowledge by content) gets
+# onto the reading list. Machine files are the one true exemption:
+# the server wrote them and no reader is meant to read them.
 
 
 def _read_optional(resolve_file: Callable[[str], Path], rel: str) -> str | None:
@@ -244,18 +250,42 @@ def _parse_l1(
         raise ValueError(f'L1 catalog is malformed: {e}') from e
 
 
-def is_task_output_name(name: str) -> bool:
-    """True when *name* marks a task output / system file.
+def is_machine_file_name(name: str) -> bool:
+    """True when *name* is a file the machine writes, never prose.
 
-    Mirrors the exclude rules of the L3 sync prompt: ALL_CAPS_WITH_
-    UNDERSCORE stems (``AD_AUDIT_…``, ``WIDGET_PLAN.md``; ``STORE.md``
-    is the canonical exception), dated suffixes, and non-markdown
-    system files (``metadata.json``, ``*.json``, ``*.lock``,
-    ``*.cache``). These are run artifacts, not knowledge: cataloging
-    them hides the shape of the store's actual knowledge.
+    ``metadata.json`` is server-owned store state and ``*.lock`` /
+    ``*.cache`` are tooling files: no row is due for them and none may
+    name them — a catalog row is a READING instruction, and these are
+    not prose. Unlike the old run-output rule, this excludes nothing
+    a human could mean to read: it is about the writer (the server /
+    the tools), not about guessing knowledge from a name shape.
     """
-    if name.endswith(('.json', '.lock', '.cache')):
-        return True
+    return name.endswith(('.json', '.lock', '.cache'))
+
+
+# The DEFAULT the L3 sync prompt works from (mirrored so the gate
+# never FORCES a row down a run-output name; a name that looks like
+# per-run output exempts a file from requiring a row — it does not
+# forbid one. Whether such a file is actually knowledge is the
+# writer's call, made by giving it a row: the user's own
+# ``PROMO_RULES.md`` is exactly a knowledge file whose ALL_CAPS name
+# the old rule read as "task output" and could never catalog.
+# Dated: *_YYYY-MM-DD.md / *-YYYYMMDD.md.
+_DATED_NAME = (
+    re.compile(r'_\d{4}-\d{2}-\d{2}\.md$'),
+    re.compile(r'-\d{8}\.md$'),
+)
+
+
+def is_run_output_name(name: str) -> bool:
+    """True when *name* looks like a per-run output: run-output names
+    do not REQUIRE a catalog row (the sync prompt's cheap default).
+
+    Never call this to REFUSE a row — a row naming an existing file
+    is the writer declaring that file knowledge, and the server does
+    not second-guess that from a name. ``STORE.md`` is the canonical
+    exception (a single ALL-CAPS word, the store profile itself).
+    """
     stem = name.rsplit('.', 1)[0] if '.' in name else name
     parts = stem.split('_')
     if len(parts) > 1 and all(
@@ -289,7 +319,14 @@ def _l2_files(root: Path) -> set[str]:
 
 
 def _store_files(root: Path, slug: str) -> set[str]:
-    """Store files that must have an L3 row, per the filename rules."""
+    """Store files that MUST have an L3 row, per the default rules.
+
+    Machine files never do (the server wrote them); names that look
+    like run output are not FORCED into a row (the sync prompt's cheap
+    default). Neither exemption forbids a row: a row naming an
+    existing file is the writer declaring it knowledge — see
+    :func:`_validate_l3`.
+    """
     files: set[str] = set()
     store_dir = root / 'stores' / slug
     if not store_dir.is_dir():
@@ -300,7 +337,7 @@ def _store_files(root: Path, slug: str) -> set[str]:
         rel = f.relative_to(root).as_posix()
         if rel == f'stores/{slug}/CATALOG.md':
             continue
-        if is_task_output_name(f.name):
+        if is_machine_file_name(f.name) or is_run_output_name(f.name):
             continue
         files.add(rel)
     return files
@@ -425,8 +462,12 @@ def _validate_l3(
                     f'(copied from L2), got "{have[row.path]}"'
                 )
 
-    # Completeness: the store's knowledge files, exactly once each;
-    # task-output/system names must NOT be cataloged.
+    # Completeness: the store's knowledge files, exactly once each.
+    # A row naming an existing file of this store is ALWAYS valid —
+    # the row is the writer's declaration it is knowledge, whatever
+    # its name shape (run-output names only skip the REQUIREMENT).
+    # Rows for machine files, and rows naming nothing, are the
+    # exceptions the server can state without guessing.
     expected = _store_files(root, slug)
     store_rows = [r.path for r in rows if r.path.startswith(prefix)]
     missing = expected - set(store_rows)
@@ -434,7 +475,8 @@ def _validate_l3(
         errors.append(f'missing row(s): {_cap(list(missing))}')
     for p in sorted(set(store_rows) - expected):
         if (root / p).exists():
-            errors.append(f'task-output/system file must not be cataloged: {p}')
+            if is_machine_file_name(Path(p).name):
+                errors.append(f'machine file must not be cataloged: {p}')
         else:
             errors.append(f'row references a file that does not exist: {p}')
 
