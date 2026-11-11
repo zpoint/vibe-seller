@@ -158,9 +158,7 @@ class TestResolveDeclaredResultPath:
 class TestResolveSubmittedResult:
     """The router-facing contract: text is text, a file is declared."""
 
-    async def test_plain_text_that_looks_like_a_path(
-        self, tmp_path
-    ):
+    async def test_plain_text_that_looks_like_a_path(self, tmp_path):
         """THE REGRESSION THIS FIX WAS MADE FOR.
 
         ``report.md`` and ``/2025-Q3`` as the agent's ANSWER are prose,

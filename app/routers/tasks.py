@@ -678,9 +678,7 @@ async def set_task_result(
     # declares ``gates: [upload_verdict]``, so it runs for sessions that
     # loaded the skill instead of probing every task workspace on every
     # submit.
-    denies = await gate_denials(
-        db, task, skill_gates, final_result, rules
-    )
+    denies = await gate_denials(db, task, skill_gates, final_result, rules)
     final_result, stalled_gaps = await apply_round(
         db, task, denies, final_result, declared
     )

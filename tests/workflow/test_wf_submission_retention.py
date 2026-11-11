@@ -49,9 +49,7 @@ def _bind_listing_skill(task_id: str) -> None:
     listing session does.
     """
     record_skill_load(task_id, 'amazon-listing')
-    md = (
-        VIBE_SELLER_DIR / '.claude' / 'skills' / 'amazon-listing' / 'SKILL.md'
-    )
+    md = VIBE_SELLER_DIR / '.claude' / 'skills' / 'amazon-listing' / 'SKILL.md'
     md.parent.mkdir(parents=True, exist_ok=True)
     md.write_text(
         '---\nname: amazon-listing\ngates: [upload_verdict]\n---\n',
