@@ -192,7 +192,13 @@ def test_the_upload_helper_arms_at_the_upload():
     # The WRITE site, not the constant's definition (which sits at the
     # top of the file, before every refusal).
     assert "ARM_MARKER_NAME = 'UPLOAD_ATTEMPT.json'" in src
-    arm = src.index('for name in (ARM_MARKER_NAME, LEGACY_ARM_NAME)')
+    # Exactly one name is written: remote skill sync never overwrites a
+    # file an installed package already has, so a released server only
+    # ever meets ITS OWN helpers — there is no cross-version marker to
+    # keep in step, and an alias would be dead weight that re-arms nothing.
+    assert 'LEGACY_ARM_NAME' not in src
+    assert 'UPLOAD_PENDING' not in src
+    arm = src.index("open(os.path.join(d, ARM_MARKER_NAME), 'w')")
     stage = src.index('DOM.setFileInputFiles')
     # Nothing is owed when the helper refused before it could upload: no
     # disabled-row pass, no signed-out page, no marketplace disagreement.
@@ -211,9 +217,10 @@ def test_the_upload_helper_arms_at_the_upload():
 def test_the_gate_reads_the_marker_the_helper_writes():
     """Cross-pin the two halves: a rename on one side breaks this test.
 
-    The server gate and the skill script are separate installs (skills
-    sync from main, the server is the released build), so the marker NAME
-    is the whole contract between them.
+    The gate (server) and the helper (skill script) ship in the SAME
+    release — remote sync cannot replace an installed skill file — so the
+    marker name is an internal contract, and it is exactly the kind of
+    contract that rots silently when someone edits one side.
     """
     src = (
         _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
@@ -225,15 +232,9 @@ def test_the_gate_reads_the_marker_the_helper_writes():
     for pattern in (
         listing_upload_gate.ATTEMPT_GLOB,
         listing_upload_gate.MARKER_GLOB,
-        listing_upload_gate.LEGACY_PENDING_GLOB,
     ):
         matched = [n for n in written if fnmatch.fnmatch(n, pattern)]
         assert matched, f'nothing writes what the gate reads as {pattern!r}'
-    alias = re.search(r"LEGACY_ARM_NAME = '([^']+)'", src)
-    assert alias, (
-        'the released-server alias is gone — once no install arms on it, '
-        'drop LEGACY_PENDING_GLOB from the gate too'
-    )
 
 
 def _disabled_rows_fn():

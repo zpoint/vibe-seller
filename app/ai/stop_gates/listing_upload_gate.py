@@ -63,14 +63,14 @@ _VERDICT_RE = re.compile(r'^BATCH_(\w+)_VERDICT\.json$')
 MARKER_GLOB = 'UPLOAD_BATCH_*.json'
 VERDICT_GLOB = 'BATCH_*_VERDICT.json'
 ATTEMPT_GLOB = 'UPLOAD_ATTEMPT*.json'
-# The name a RELEASED server (any install older than this check's
-# re-arming) arms on. ``bh_upload_flatfile`` writes it beside
-# ``UPLOAD_ATTEMPT.json`` so those installs keep gating a real upload,
-# and an old ``bh_download_template`` may still have left one from a
-# template fetch. Either way it arms NOTHING here — an obligation may not
-# be inferred from a download — and it is swept at turn start so the
-# workspace does not accumulate a file nothing reads.
-LEGACY_PENDING_GLOB = 'UPLOAD_PENDING*.json'
+# ``UPLOAD_PENDING.json`` — what an OLD release's ``bh_download_template``
+# wrote on a template fetch, and what that release's gate armed on — is
+# deliberately NOT read here at all. A release's own helpers ship inside
+# its package (remote sync never overwrites an installed skill file), so
+# no current install's server is ever fed by that writer; the only copies
+# of that name left behind are in task workspaces that predate an upgrade,
+# and they must arm nothing: an obligation may not be inferred from a
+# download.
 
 
 def task_workspace(task_id: str | None):
@@ -230,12 +230,7 @@ def rollover_upload_markers(task_dir) -> None:
         d = Path(task_dir)
         stale = [
             p
-            for glob in (
-                MARKER_GLOB,
-                VERDICT_GLOB,
-                ATTEMPT_GLOB,
-                LEGACY_PENDING_GLOB,
-            )
+            for glob in (MARKER_GLOB, VERDICT_GLOB, ATTEMPT_GLOB)
             for p in d.glob(glob)
         ]
         if not stale:

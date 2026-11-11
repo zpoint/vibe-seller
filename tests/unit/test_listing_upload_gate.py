@@ -204,21 +204,27 @@ class TestReadingIsNotUploading:
         assert check_upload_verdicts(tmp_path) is None
 
     def test_a_stale_pending_marker_arms_nothing(self, tmp_path):
-        # A skill copy older than this change still writes it; the server
-        # must not treat it as an upload declaration.
+        # What an older release's template downloader wrote, and what that
+        # release's gate armed on. Nothing current writes it (a released
+        # install runs its own bundled helpers), so a copy like this only
+        # survives in a task workspace that predates an upgrade — and it
+        # must arm nothing there either.
         (tmp_path / 'UPLOAD_PENDING.json').write_text(
             json.dumps({'template': 'WIDGETS.xlsm', 'store': 'Amazon.sa'}),
             encoding='utf-8',
         )
         assert check_upload_verdicts(tmp_path) is None
 
-    def test_rollover_still_sweeps_the_legacy_marker(self, tmp_path):
-        # Swept so the workspace does not accumulate a file nothing reads,
-        # and so a downgrade-then-upgrade path sees a clean turn.
+    def test_rollover_leaves_the_unread_legacy_file_alone(self, tmp_path):
+        # Nothing reads that name any more, so nothing moves it: the
+        # turn-scoped sweep only handles the three artifacts the gate
+        # actually judges.
         (tmp_path / 'UPLOAD_PENDING.json').write_text('{}', encoding='utf-8')
+        _attempt(tmp_path)
         rollover_upload_markers(tmp_path)
-        assert not list(tmp_path.glob('UPLOAD_PENDING*.json'))
-        assert list(tmp_path.glob('.prev_turns/turn_*/UPLOAD_PENDING*'))
+        assert (tmp_path / 'UPLOAD_PENDING.json').is_file()
+        assert not list(tmp_path.glob('UPLOAD_ATTEMPT*.json'))
+        assert list(tmp_path.glob('.prev_turns/turn_*/UPLOAD_ATTEMPT*'))
 
 
 class TestGateContract:

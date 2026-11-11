@@ -84,17 +84,13 @@ HOST = _env('SC_HOST')
 MARKER_DIR = os.environ.get('MARKER_DIR', '.')
 
 # What this writes at the arm point; read by listing_upload_gate.py.
+# One name only, on purpose: remote skill sync NEVER overwrites a file
+# that exists in the installed package (skills_sync._do_remote_sync's
+# local-precedence guard), and this script ships in every release — so a
+# released install runs ITS OWN helpers beside ITS OWN gate, and no
+# installed server ever sees a marker written by a script from another
+# version. There is no cross-version alias to keep in step.
 ARM_MARKER_NAME = 'UPLOAD_ATTEMPT.json'
-
-# A released server (any install older than the current main) still arms
-# its upload check on this older marker NAME, and skill scripts sync from
-# main continuously — so a released install runs THIS script against THAT
-# check. Write both names at the same moment and both stay correct: the
-# old server arms because an upload really did start, the new one reads
-# only UPLOAD_ATTEMPT.json. Drop this alias once no released server reads
-# it (it must never be written by anything else — an obligation armed by a
-# template download was the bug).
-LEGACY_ARM_NAME = 'UPLOAD_PENDING.json'
 
 
 def _marker_dirs():
@@ -413,9 +409,8 @@ if not _want:
 #
 # It is deliberately NOT armed by downloading a template: that is step 1
 # of reading a category, and a run that only inspected one used to be
-# refused for an "upload not verified". This is the ONLY place the marker
-# is written — including its legacy alias (LEGACY_ARM_NAME), which exists
-# so a released server arms on an upload that really started.
+# refused for an "upload not verified". This is the only place the marker
+# is written.
 out['upload_attempt'] = True
 _MARKER = {
     'file': F,
@@ -425,9 +420,8 @@ _MARKER = {
     'attempted_at': time.time(),
 }
 for d in _marker_dirs():
-    for name in (ARM_MARKER_NAME, LEGACY_ARM_NAME):
-        with open(os.path.join(d, name), 'w') as fh:
-            json.dump(_MARKER, fh)
+    with open(os.path.join(d, ARM_MARKER_NAME), 'w') as fh:
+        json.dump(_MARKER, fh)
 
 # A short viewport leaves the file button AND the Submit button below
 # the fold, so coordinate clicks land on empty space (observed live —
