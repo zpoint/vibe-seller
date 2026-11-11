@@ -95,11 +95,17 @@ describe('Settings tab redesign', () => {
       expect(settingsSource).not.toMatch(/settingsTab\s*===\s*['"]apiTokens['"]/)
     })
 
-    it('IntegrationsPanel renders the API-key card first', () => {
-      const keys = integrationsPanelSource.indexOf('<ApiTokensPanel')
-      const ads = integrationsPanelSource.indexOf('<AmazonAdsPanel')
-      expect(keys, 'ApiTokensPanel not rendered').toBeGreaterThanOrEqual(0)
-      expect(ads, 'AmazonAdsPanel not rendered').toBeGreaterThan(keys)
+    it('IntegrationsPanel orders the cards: ads, API keys, chat bots, Google Workspace, TickTick', () => {
+      const at = (needle: string) => integrationsPanelSource.indexOf(needle)
+      const order = [
+        at('<AmazonAdsPanel'),
+        at('<ApiTokensPanel'),
+        at('<ChatBotSection'),
+        at("t('integrations.gws.title')"),
+        at('<Dida365Panel'),
+      ]
+      for (const i of order) expect(i).toBeGreaterThanOrEqual(0)
+      expect([...order].sort((a, b) => a - b)).toEqual(order)
     })
 
     it('IntegrationsPanel still renders Dida365Panel + chat bots', () => {

@@ -85,10 +85,11 @@ export function IntegrationsPanel({
 
   return (
     <div className="space-y-4">
-      {/* API keys come first: they are what MCP clients need before any
-          of the integrations below. */}
-      <ApiTokensPanel authRequired={authRequired} />
+      {/* Order: ads service, API keys, chat bots, Google Workspace,
+          TickTick. */}
       <AmazonAdsPanel />
+      <ApiTokensPanel authRequired={authRequired} />
+      <ChatBotSection isAdmin={isAdmin} />
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <h3 className="font-semibold mb-1">{t('integrations.gws.title')}</h3>
         <p className="text-xs text-gray-500 mb-3">{t('integrations.gws.description')}</p>
@@ -195,7 +196,6 @@ export function IntegrationsPanel({
           </div>
         ) : null}
       </div>
-      <ChatBotSection isAdmin={isAdmin} />
       <Dida365Panel />
     </div>
   )
