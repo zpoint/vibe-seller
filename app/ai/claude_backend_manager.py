@@ -30,6 +30,10 @@ class ClaudeCodeBackend(AIAgentBackend):
         self._sessions: dict[str, AgentSession] = {}
         self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
         self._in_flight = 0
+        # Launches past the semaphore that have not spawned yet, and the
+        # ones a stop asked to drop (``run`` checks before spawning).
+        self._launching: set[str] = set()
+        self._cancelled: set[str] = set()
 
     def set_max_concurrent(self, n: int) -> None:
         """Update concurrency limit at runtime.
@@ -71,11 +75,13 @@ class ClaudeCodeBackend(AIAgentBackend):
             return False
         await self._semaphore.acquire()
         self._in_flight += 1
+        self._launching.add(task_id)
         try:
             # Notify caller that semaphore was acquired (e.g. to
             # transition task status).  Return False to abort.
             if on_start is not None:
                 if not await on_start():
+                    self._launching.discard(task_id)
                     self._in_flight -= 1
                     self._semaphore.release()
                     return False
@@ -131,21 +137,22 @@ class ClaudeCodeBackend(AIAgentBackend):
                             task_id,
                         )
 
-            # The task can be deleted while its launch waits (semaphore,
-            # skill deps, workspace copy): a task still pending may be
-            # deleted, and an agent started for it then has no row to
-            # report to and nothing can stop it (observed: a task deleted
-            # right after creation got an agent that ran on for minutes).
-            async with async_session() as db:
-                gone = await db.get(Task, task_id) is None
-            if gone:
+            # A stop that arrived while this launch was still preparing
+            # (skill deps, workspace copy) found no session to stop, so it
+            # left this note; honour it instead of spawning (observed: a
+            # task stopped and deleted mid-launch got an agent that ran on
+            # for minutes with no row, which nothing could stop).
+            if task_id in self._cancelled:
+                self._cancelled.discard(task_id)
+                self._launching.discard(task_id)
                 logger.info(
-                    'Task %s was deleted before its agent started',
+                    'Task %s was stopped before its agent started',
                     task_id[:8],
                 )
-                await asyncio.to_thread(
-                    shutil.rmtree, task_dir, ignore_errors=True
-                )
+                if task_dir is not None:
+                    await asyncio.to_thread(
+                        shutil.rmtree, task_dir, ignore_errors=True
+                    )
                 self._in_flight -= 1
                 self._semaphore.release()
                 return False
@@ -181,7 +188,14 @@ class ClaudeCodeBackend(AIAgentBackend):
                         session.resume_session_id = task.session_id
             self._sessions[task_id] = session
             await session.start()
+            self._launching.discard(task_id)
+            if task_id in self._cancelled:
+                # Stopped between the check above and the spawn.
+                self._cancelled.discard(task_id)
+                await session.stop()
         except Exception:
+            self._launching.discard(task_id)
+            self._cancelled.discard(task_id)
             self._in_flight -= 1
             self._semaphore.release()
             raise
@@ -367,6 +381,9 @@ class ClaudeCodeBackend(AIAgentBackend):
     async def stop(self, task_id: str) -> bool:
         session = self._sessions.get(task_id)
         if not session or not session.running:
+            if task_id in self._launching:
+                self._cancelled.add(task_id)
+                return True
             return False
         await session.stop()
         return True

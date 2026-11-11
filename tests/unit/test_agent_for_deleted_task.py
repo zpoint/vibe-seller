@@ -1,10 +1,11 @@
 """No agent runs for a task that no longer exists.
 
-Observed: a task created and deleted within a second (a UI test cleaning
-up after itself) was deleted while its launch still waited on the agent
-slot and the workspace copy. The launch went on, the agent started with
-no task row, and nothing could stop it -- the stop endpoint answers 404
-for a deleted task -- so it ran on for minutes, roaming the workspace.
+Observed: a task created then stopped and deleted within a second (a UI
+test cleaning up after itself) was stopped while its launch was still
+copying the workspace -- no session yet, so the stop did nothing -- and
+deleted; the launch went on, the agent started with no task row, and
+nothing could stop it (the stop endpoint answers 404 for a deleted task),
+so it ran on for minutes, roaming the workspace.
 """
 
 import asyncio
@@ -45,10 +46,11 @@ async def empty_db(monkeypatch):
     await engine.dispose()
 
 
-async def test_the_launch_does_not_start_an_agent_for_a_deleted_task(
-    empty_db, monkeypatch, tmp_path
-):
+async def test_a_stop_during_the_launch_cancels_it(monkeypatch, tmp_path):
+    """A stop that lands while the launch copies the workspace (no
+    session exists yet to stop) must still keep the agent from spawning."""
     started = []
+    manager = mgr_mod.ClaudeCodeBackend()
 
     class _Session:
         def __init__(self, *a, **kw):
@@ -63,6 +65,8 @@ async def test_the_launch_does_not_start_an_agent_for_a_deleted_task(
     async def _workspace(task_id, **_kw):
         d = tmp_path / task_id
         d.mkdir()
+        # The user stops (then deletes) the task mid-launch.
+        assert await manager.stop(task_id) is True
         return d
 
     monkeypatch.setattr(mgr_mod, 'AgentSession', _Session)
@@ -71,7 +75,6 @@ async def test_the_launch_does_not_start_an_agent_for_a_deleted_task(
     monkeypatch.setattr(
         mgr_mod.workspace_manager, 'prepare_task_workspace', _workspace
     )
-    manager = mgr_mod.ClaudeCodeBackend()
     free_before = manager._semaphore._value
 
     ok = await manager.run('gone-task', 'p', no_store=True)
@@ -80,6 +83,11 @@ async def test_the_launch_does_not_start_an_agent_for_a_deleted_task(
     assert started == []
     assert manager._semaphore._value == free_before
     assert not (tmp_path / 'gone-task').exists()
+    # Nothing left behind to cancel a later, legitimate launch.
+    assert not manager._cancelled and not manager._launching
+    # A stop for a task that is not launching changes nothing.
+    assert await manager.stop('other-task') is False
+    assert not manager._cancelled
 
 
 async def test_an_agent_that_starts_for_a_deleted_task_stops_itself(
