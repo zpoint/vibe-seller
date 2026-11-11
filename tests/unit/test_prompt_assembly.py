@@ -40,6 +40,7 @@ from app.task_runner import (
     TaskHeader,
     build_system_extra,
 )
+from app.task_runner_context import detect_language_hint
 
 pytestmark = pytest.mark.unit
 
@@ -1043,3 +1044,27 @@ class TestSideDutiesNeverPrecedeTheDeliverable:
             assert 'not yours to edit' in flat  # metadata.json
             assert 'Once your result is recorded' in flat
             assert 'write nothing and end the turn' in flat
+
+
+def test_language_hint_threatens_nothing_the_server_does_not_do():
+    """The language hint is an INSTRUCTION, not a check.
+
+    It used to claim the server "will reject results whose prose is
+    < 85% Chinese/English" at ``set_task_result``. No such check exists
+    anywhere in the codebase, and a prompt that invents enforcement
+    teaches the agent that the rest of the prompt is negotiable too.
+    The instruction (respond in the user's language, table cells
+    included) stays; the fabricated penalty goes.
+    """
+    zh = detect_language_hint('店铺广告周报', '分析上周所有 campaign')
+    en = detect_language_hint('Weekly ad audit', 'check spend')
+    for hint in (zh, en):
+        lowered = hint.lower()
+        assert '85%' not in hint
+        assert 'reject' not in lowered
+        assert 'enforce' not in lowered
+        assert 'set_task_result' not in hint
+    # The real instruction survives, with its real reason.
+    assert 'Chinese (中文)' in zh
+    assert 'Recommendation column' in zh
+    assert 'Respond in English' in en

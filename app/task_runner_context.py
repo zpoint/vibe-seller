@@ -108,10 +108,17 @@ async def get_store_emails(db: AsyncSession, store_id: str) -> list[Mailbox]:
 def detect_language_hint(title: str, description: str | None = None) -> str:
     """Detect if task text contains Chinese and return a language hint.
 
-    Covers prose cells in tables (e.g. Recommendation columns) too —
-    those are the place agents most often drift back to English under
-    context pressure, and the language gate at set_task_result will
-    deny results whose prose runs below 85% in the expected script.
+    Prose cells in tables (e.g. Recommendation columns) are named
+    explicitly because that is where agents most often drift back to
+    English under context pressure.
+
+    This is an INSTRUCTION, not a check: nothing inspects the language of
+    a submitted result, so no threat of rejection belongs here. A prompt
+    that claims enforcement the server does not perform teaches the agent
+    that the prompt's other claims are negotiable — and this one was
+    never true (no language gate exists in ``set_task_result``). The
+    reason given is the real one: the user wrote the task in that
+    language.
     """
     text = title + (description or '')
     has_chinese = any('\u4e00' <= ch <= '\u9fff' for ch in text)
@@ -123,14 +130,12 @@ def detect_language_hint(title: str, description: str | None = None) -> str:
             'Recommendation column of every audit / analysis table). '
             'Identifiers, IDs, SKUs, ASINs, verbatim search terms, '
             'URLs, and metric names (ROAS, ACOS, CTR, CVR, CPC, etc.)'
-            ' stay in their original form. Mixed-language prose is a'
-            ' defect: the server enforces this at set_task_result and'
-            ' will reject results whose prose is < 85% Chinese.\n'
+            ' stay in their original form. Mixed-language prose reads'
+            ' as a defect to the user who wrote to you in Chinese.\n'
         )
     return (
         '\n\nIMPORTANT: Respond in English for plans, results, and '
-        'messages. The server enforces this at set_task_result and '
-        'will reject results whose prose is < 85% English.\n'
+        'messages — the task was written in English.\n'
     )
 
 
