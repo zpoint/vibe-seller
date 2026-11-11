@@ -82,6 +82,31 @@ class TestAdRules:
         notes = '\n'.join(f'{k}: 0.5' for k in DEFAULT_RULES)
         assert set(resolve_rules(notes).values()) == {0.5}
 
+    @pytest.mark.parametrize(
+        'line',
+        [
+            # Observed in CI: the agent recorded the user's standard as a
+            # markdown code span with its meaning after it, and the store
+            # silently kept the default 25.
+            '`acos_no_lower: 20` — a keyword is protected only while its '
+            'ACOS is under 20%. (Stated by the user 2026-11-11.)',
+            "- **acos_no_lower: 20** (the user's standard)",
+            'acos_no_lower: 20 - stated by the user',
+        ],
+    )
+    def test_a_rule_line_may_carry_markdown_and_its_meaning(self, line):
+        assert resolve_rules(line)['acos_no_lower'] == 20.0
+
+    @pytest.mark.parametrize(
+        'line',
+        [
+            'We once tried acos_no_lower: 0 and it failed.',
+            'acos_no_lower: 20 or so, the user was unsure',
+        ],
+    )
+    def test_a_mention_inside_prose_is_still_not_a_rule(self, line):
+        assert resolve_rules(line)['acos_no_lower'] == 25.0
+
     def test_a_space_may_stand_for_an_underscore(self):
         r = resolve_rules('CPC floor multiplier = 1.0')
         assert r['cpc_floor_multiplier'] == 1.0
