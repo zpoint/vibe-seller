@@ -51,6 +51,27 @@ def _listening(port: int) -> bool:
         return sock.connect_ex(('127.0.0.1', port)) == 0
 
 
+def _path_with_the_agent_cli() -> str:
+    """``PATH`` with the shared server's ``claude`` CLI first on it.
+
+    The server spawns the CLI from ``<its VIBE_HOME>/node_modules``, else
+    from ``PATH``. An owned server's home is a fresh temp dir with no
+    install, and in CI the CLI lives only in the shared home (install.sh
+    puts it there): observed, every agent on an owned server failed with
+    "No such file or directory". The test process's home IS the shared
+    server's, so the product's own resolver names the right binary.
+    """
+    from app.ai.claude_backend_utils import (  # noqa: PLC0415 — app import
+        resolve_claude_binary,  # needs the e2e home set by conftest
+    )
+
+    rest = os.environ.get('PATH', '')
+    cli = Path(resolve_claude_binary())
+    if not cli.is_absolute():  # not installed anywhere: nothing to add
+        return rest
+    return str(cli.parent) + (os.pathsep + rest if rest else '')
+
+
 def pick_free_port() -> int:
     """A port nothing is listening on right now."""
     with socket.socket() as sock:
@@ -242,6 +263,7 @@ class OwnServer:
                 # serves from this same checkout (observed: a UI test's
                 # page load got 404 during a restart here).
                 'VIBE_SKIP_FRONTEND_BUILD': '1',
+                'PATH': _path_with_the_agent_cli(),
             },
             check=False,
             capture_output=True,

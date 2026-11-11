@@ -41,6 +41,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.ai import claude_backend_utils
 from tests.e2e import e2e_helpers, own_server, test_catalog_sync
 from tests.e2e.own_server import (
     OwnServer,
@@ -778,3 +779,26 @@ def test_the_session_end_check_never_touches_the_shared_server(
 
     with pytest.raises(ValueError, match='SHARED'):
         OwnServer(port=port, home=tmp_path)
+
+
+def test_an_owned_server_finds_the_agent_cli(tmp_path, monkeypatch):
+    """An owned server's home is fresh, with no ``node_modules``: it must
+    get the shared server's ``claude`` on its PATH, or every agent on it
+    fails to spawn (observed in CI: "No such file or directory")."""
+    cli = tmp_path / 'shared-home' / 'node_modules' / '.bin' / 'claude'
+    cli.parent.mkdir(parents=True)
+    cli.write_text('#!/bin/sh\n')
+    cli.chmod(0o755)
+    monkeypatch.setattr(
+        claude_backend_utils, 'resolve_claude_binary', lambda: str(cli)
+    )
+    seen = {}
+
+    def fake_run(argv, env=None, **_):
+        seen.update(env or {})
+        return subprocess.CompletedProcess(argv, 0, '', '')
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    monkeypatch.setattr(OwnServer, 'wait_health', lambda self: None)
+    OwnServer(port=4243, home=tmp_path / 'own-home').start()
+    assert seen['PATH'].split(os.pathsep)[0] == str(cli.parent)
