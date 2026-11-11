@@ -975,8 +975,133 @@ def test_the_false_verdict_about_the_category_is_gone():
     # The narrative may quote the old verdict; the code may not raise it.
     assert "_fail(f'no product-type" not in src
     assert "'no product-type result for'" not in src
+    assert 'never reachable' in src
     assert 'never reached the search box' in src
-    assert 'never clickable at any viewport' in src
     # Proof the text landed, not that a key was sent.
     assert '_norm(PTYPE) not in _norm(landed)' in src
-    assert "'landed'" in src and "'tried'" in src
+    assert "'landed'" in src and "'boxes'" in src
+
+
+class TestWideControlsStillGetClicked:
+    """The strict rule must not refuse a click the old code got right.
+
+    A control wider than the window — its centre on-screen, its right edge
+    not — is the ordinary case on these modals. Refusing it would trade
+    F1's false verdict for a new failure, so the gate is graded: whole box
+    inside, else centre inside, else no click.
+    """
+
+    @pytest.mark.parametrize(
+        ('box', 'want'),
+        [
+            ({'x': 900, 'y': 400, 'w': 100, 'h': 30}, 'full'),
+            # right edge 2526 of a 1920 viewport, centre 2243 — off-screen.
+            (
+                {'x': 2243, 'y': 543, 'l': 1959, 'rt': 2526, 'w': 567, 'h': 29},
+                None,
+            ),
+            # a whole box inside a 1920-wide viewport.
+            (
+                {'x': 1576, 'y': 543, 'l': 1300, 'rt': 1852, 'w': 552, 'h': 29},
+                'full',
+            ),
+            (
+                {'x': 1900, 'y': 543, 'l': 1600, 'rt': 2200, 'w': 600, 'h': 29},
+                'centre',
+            ),
+            ({'x': 0, 'y': 0, 'w': 0, 'h': 0}, None),
+        ],
+    )
+    def test_tiers(self, box, want):
+        ns = _pure_ns()
+        assert ns['click_tier'](box, _VP_1920) == want
+
+    def test_reachable_is_the_strict_tier(self):
+        ns = _pure_ns()
+        wide = {'x': 1900, 'y': 543, 'l': 1600, 'rt': 2200, 'w': 600, 'h': 29}
+        assert ns['click_tier'](wide, _VP_1920) == 'centre'
+        assert ns['reachable'](wide, _VP_1920) is False
+
+    def test_the_generate_button_is_read_structurally(self):
+        """The page's own disabled state proves the selection landed.
+
+        Amazon keeps Generate Spreadsheet disabled until a product type is
+        chosen, so that — not "a click was sent" — is the evidence the
+        row was selected, and it is the same structural readiness the
+        upload helper already relies on.
+        """
+        src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+        assert 'def _generate_state' in src
+        assert 'aria-disabled' in src and 'hasAttribute("disabled")' in src
+        assert "out['selected'] = chosen" in src
+
+
+class TestWrapperBudget:
+    """A run the wrapper kills mid-call reports NOTHING.
+
+    `browser-use` is alarm-wrapped by the store wrapper (BU_TIMEOUT, 120 s
+    observed live: `Alarm clock: 14` and no RESULT line), so the agent is
+    left with `[wrapper] browser-use timed out` — precisely the blind
+    failure this file exists to end. The F1 viewport sweep hit it: it
+    spent the budget trying widths and never reached the search box.
+    """
+
+    LIMIT, RESERVE, MARGIN = 120.0, 8.0, 8.0
+
+    def _over(self, spent, wait):
+        ns = _pure_ns()
+        return ns['over_budget'](
+            spent, wait, self.LIMIT, self.RESERVE, self.MARGIN
+        )
+
+    def test_the_first_load_is_allowed(self):
+        assert self._over(0, 11) is False
+
+    def test_a_wait_that_cannot_finish_is_refused(self):
+        assert self._over(112, 6) is True
+        # Refused EARLY, not after the time is already gone.
+        assert self._over(100, 12) is True
+
+    def test_the_planned_waits_fit_one_call(self):
+        """Every wait the script can take, in one pass, inside the call.
+
+        The F1 version's bug was structural, not a long sleep: two urls ×
+        four widths × fit rounds re-navigated and re-measured until the
+        alarm fired. So the pin is the SHAPE — one navigation per url, one
+        measured grow — plus the sum of the waits it can still spend.
+        """
+        src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+        assert 'for url in (_WIZARD_URL, _ENTRY_URL)' in src
+        assert 'def _measure(' in src
+        assert '_fit_viewport' not in src, 'the width sweep is back'
+        assert '_WIDTHS' not in src, 'the width sweep is back'
+        waits = [float(x) for x in re.findall(r'_wait\(([\d.]+),', src)]
+        assert len(waits) >= 5, waits
+        # +11: the second url's navigation, same call site.
+        assert sum(waits) + 11 + 20 <= self.LIMIT - self.RESERVE - self.MARGIN
+
+    def test_margin_covers_the_wrapper_clock_starting_early(self):
+        """The alarm starts before python runs; margin 0 is the bug again."""
+        src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+        assert 'RESERVE, MARGIN = 8.0, 8.0' in src
+        assert 'over_budget(spent, seconds, _BUDGET, RESERVE, MARGIN)' in src
+        # The last step is bounded by the deadline, not by blind retries.
+        assert '_stop = _T0 + _BUDGET - MARGIN' in src
+
+
+def test_an_unreachable_control_reports_the_pages_own_state():
+    """The failure names the page fact, not just "couldn't click".
+
+    Measured live on the AE store: clicking the generator's entry control
+    at x=2371 with the viewport at 1920 does NOTHING (verified with an
+    deliberately ungated click — the wizard stayed closed), the window is
+    maximized at 1920 CSS px on a dpr-2 display, and the document is 1905
+    wide, so the control is clipped rather than scrollable. "unreachable"
+    without that is another dead end, so the RESULT carries the drawer's
+    computed style and the controls that ARE on screen.
+    """
+    src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+    assert 'def _drawer_state' in src
+    assert "out['drawer']" in src
+    assert 'getComputedStyle' in src
+    assert 'visibility:hidden' in src, 'the reason must state the page fact'
