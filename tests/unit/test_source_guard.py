@@ -72,13 +72,44 @@ class TestSourceAccessDeny:
         cmd = f'cat {tests_dir}/e2e/fake_ads_console.py'
         assert sg.source_access_deny('Bash', {'command': cmd})
 
+    def test_the_checkout_root_is_protected_when_present(self):
+        """Observed in CI: an agent read ``GITHUB_WORKSPACE`` from its
+        environment, ran ``cd <checkout> && sed -n … app/ai/stop_gates/…``
+        — a RELATIVE path the package-dir match never saw — and spent ten
+        minutes in the gate modules until the task timed out."""
+        root = APP.parent
+        if root / 'tests' not in sg.PROTECTED_DIRS:
+            pytest.skip('not running from a source checkout')
+        for cmd in (
+            f'cd {root} && sed -n 1,200p app/ai/stop_gates/ad_changes.py',
+            f'cd {root} 2>/dev/null && grep -rn acos_no_lower -l',
+            f'grep -rn acos_no_lower {root}',
+        ):
+            assert sg.source_access_deny('Bash', {'command': cmd}), cmd
+        assert sg.source_access_deny(
+            'Read', {'file_path': str(root / 'README.md')}
+        )
+
+    def test_the_package_match_ends_at_a_path_boundary(self):
+        """``…/app`` is protected, ``…/apple`` is not a match for it (from
+        a source checkout the root rule covers the latter separately)."""
+        assert sg._PROTECTED_IN_CMD.search(f'ls {APP}le') is None
+        assert sg._PROTECTED_IN_CMD.search(f'ls {APP}/x')
+
+    def test_the_checkout_venv_stays_usable(self):
+        """Agents may run the app's interpreter by its absolute path."""
+        venv = APP.parent / '.venv' / 'bin' / 'python'
+        cmd = f'{venv} -I - <<PY\nprint(1)\nPY'
+        assert sg.source_access_deny('Bash', {'command': cmd}) is None
+
     @pytest.mark.parametrize(
         ('tool', 'tool_input'),
         [
             ('Read', {'file_path': '/tmp/task/report_x.md'}),
             ('Read', {'file_path': 'stores/acme/notes.md'}),  # relative
             ('Bash', {'command': 'ls ~/.vibe-seller/tasks'}),
-            ('Bash', {'command': f'ls {APP}le'}),  # a sibling, not app/
+            # A sibling of the CHECKOUT, not inside it.
+            ('Bash', {'command': f'ls {APP.parent}-other/x'}),
             ('Grep', {'pattern': 'x'}),  # no path: cwd
             ('WebFetch', {'url': str(APP)}),
             ('Bash', 'not-a-dict'),
