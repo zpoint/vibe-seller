@@ -460,12 +460,11 @@ def owed_combos(decl: dict | None, store_combos: list[dict]) -> list[dict]:
     spellings agree, and keeps the property that mattered: a phase is
     held to exactly what it committed to, never to more.
 
-    ``change`` / ``create`` / ``execute`` / ``investigate`` owe nothing —
-    a ``change`` the user named covers exactly the rows they named, and
-    drilling the rest of the market for it is the work this rule exists to
-    stop. An undeclared
-    phase owes nothing here either — it is refused separately, by
-    ``ad_declaration_checks``, which is a better error than silently
+    ``change`` / ``create`` / ``execute`` / ``investigate`` owe nothing.
+    A ``change`` covers exactly the rows the user named: they settled the
+    value, so the rest of the market is not a question it left open. An
+    undeclared phase owes nothing here either — it is refused separately,
+    by ``ad_declaration_checks``, which is a better error than silently
     demanding five marketplaces of a task nobody scoped.
     """
     if not decl or decl['kind'] != KIND_AUDIT:
