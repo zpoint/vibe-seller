@@ -207,8 +207,8 @@ def first_bash_deny(command, task_dir=None, catalog_read=False):
     any customer guards via their own externally-installed plugin
     wheels) — so core no longer names a customer guard here. The builtin
     registers: unscoped pkill/killall (sibling-task safety),
-    concatenated/oversized bid value (real-money typo), and local
-    image edits (generated images come from the model).
+    concatenated/oversized bid value (real-money typo), and takeover
+    of ``generated_images/`` (those files' provenance claim).
 
     Each registered guard has the uniform signature
     ``check(command, task_dir, catalog_read)`` so the chain stays one
