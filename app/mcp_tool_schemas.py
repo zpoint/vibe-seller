@@ -514,25 +514,32 @@ TOOLS = [
             'Record the **final task result** shown to the user '
             'in the GUI. The result field renders as markdown.\n'
             '\n'
-            'Two ways to call this:\n'
+            'Pass exactly ONE of `result` / `result_file`:\n'
             '\n'
-            '1. **Direct content** — pass the result text '
-            'directly. Use when the deliverable is short '
-            '(roughly < 10 KB): a one-line confirmation, a '
-            'short summary, a JSON payload, a metric row.\n'
+            '1. **Direct content** — `result` is the text itself. '
+            'Use when the deliverable is short (roughly < 10 KB): '
+            'a one-line confirmation, a short summary, a JSON '
+            'payload, a metric row. `result` is ALWAYS read as '
+            'text — a short answer like `report.md` or `/2025-Q3` '
+            'is a valid result, not a path.\n'
             '\n'
-            '2. **File pointer** — pass a relative path to a '
-            'file you already wrote in your CWD (e.g. '
+            '2. **Declared file** — `result_file` is a path to a '
+            'file you already wrote in your task workspace (e.g. '
             '`"./NOON_AE_ADS_AUDIT_2026-04-30.md"`). The backend '
-            'detects when the value is a file path inside the '
-            'task workspace, reads the file, and uses its '
-            'contents as the GUI-visible result. **Use this for '
-            'long-form deliverables (full reports, audits, '
-            'plans).** Compose those with the built-in `Write` '
-            'tool first — `Write` streams content as you '
-            'compose it, which is much faster than packing a '
-            '25KB payload into one MCP tool call (some '
-            'providers stall on large monolithic tool inputs).\n'
+            'reads that file and uses its contents as the '
+            'GUI-visible result. **Use this for long-form '
+            'deliverables (full reports, audits, plans).** Compose '
+            'those with the built-in `Write` tool first — `Write` '
+            'streams content as you compose it, which is much '
+            'faster than packing a 25KB payload into one MCP tool '
+            'call (some providers stall on large monolithic tool '
+            'inputs). A `result_file` that names no file in your '
+            'workspace is an error; writing the report is the '
+            'step you skipped.\n'
+            '\n'
+            '(Passing a real workspace path as `result` still '
+            'works, for calls written before `result_file` '
+            'existed — declare `result_file` instead.)\n'
             '\n'
             'Does NOT mark the task completed — completion is '
             'automatic when your agent session ends and the '
@@ -556,7 +563,22 @@ TOOLS = [
             'properties': {
                 'result': {
                     'type': 'string',
-                    'description': 'Result summary to record',
+                    'description': (
+                        'The result TEXT to record. Alternative to '
+                        '`result_file` — send one of the two. Always '
+                        'treated as text, never as a path.'
+                    ),
+                },
+                'result_file': {
+                    'type': 'string',
+                    'description': (
+                        'Path to a file INSIDE the task workspace '
+                        'holding the deliverable (e.g. '
+                        '"./AD_AUDIT_2026-06-10.md"). The backend '
+                        'reads it and records its contents as the '
+                        'result. Alternative to `result` — send one '
+                        'of the two.'
+                    ),
                 },
                 'incomplete': {
                     'type': 'array',
@@ -573,7 +595,12 @@ TOOLS = [
                     ),
                 },
             },
-            'required': ['result'],
+            # One of the two deliverable fields, never a guess from the
+            # text's shape — see app/routers/task_submission.py.
+            'anyOf': [
+                {'required': ['result']},
+                {'required': ['result_file']},
+            ],
         },
     },
     {

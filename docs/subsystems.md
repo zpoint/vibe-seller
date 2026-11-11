@@ -512,7 +512,7 @@ its own round.
 
 | Check | Concern |
 |---|---|
-| `listing_upload_gate.py` | A listing batch uploaded to the live account this turn has a clean verdict. |
+| `listing_upload_gate.py` (`amazon-listing` skill) | A batch this turn's upload attempt produced has a clean verdict. Armed by the upload helper's own `UPLOAD_ATTEMPT.json` — a template download is reading, not uploading — and it runs only for sessions that loaded that skill. |
 | Deliverables (`app/deliverables/gate.py`) | A run that declared itself a monthly report download (`vibe_seller_declare_report_run`) delivered every file that month's derived manifest names. No declaration → not checked: the trigger is the agent's word, never the workspace's folder names. |
 | `ad_changes.py` | `CHANGES.tsv` obeys store rules (`ad_rules.py`, overridable per store via `key: value` lines in `stores/<slug>/notes.md`); `investigate` proposes nothing; `EXECUTION_LOG.tsv` matches the frozen approvals in `data/approved_changes/` (contradiction). |
 | `ad_coverage.py` | An `audit` covered every owed marketplace (`ad_declaration.owed_combos`), drilled live campaigns, reconciled search terms with targeting; impossible spend is a contradiction. |

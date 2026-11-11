@@ -27,11 +27,14 @@ The scan is deliberately source-level: these scripts are fed to
 cannot be imported in a unit test.
 """
 
+import fnmatch
 import os
 from pathlib import Path
 import re
 
 import pytest
+
+from app.ai.stop_gates import listing_upload_gate
 
 pytestmark = pytest.mark.unit
 
@@ -164,6 +167,76 @@ def test_upload_helper_compares_marketplace_ids():
         assert src.index(missing) < stage, 'proof check runs after staging'
 
 
+def test_the_template_downloader_arms_nothing():
+    """Reading a category is not a declaration of an upload.
+
+    ``bh_download_template`` used to write ``UPLOAD_PENDING.json`` on
+    every template fetch, and the gate treated that file as "an upload is
+    intended this turn" — so a task that only downloaded a template to
+    INSPECT its field set (step 1-2 of the skill's own loop) was refused
+    for an unverified upload. The helper now carries no marker logic at
+    all.
+    """
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_download_template.py'
+    ).read_text(encoding='utf-8')
+    for armed in ('UPLOAD_PENDING', 'UPLOAD_ATTEMPT', 'MARKER_DIR', 'open('):
+        assert armed not in src, f'template downloader still writes {armed!r}'
+
+
+def test_the_upload_helper_arms_at_the_upload():
+    """The arm point is the upload helper itself, past its own refusals."""
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
+    ).read_text(encoding='utf-8')
+    # The WRITE site, not the constant's definition (which sits at the
+    # top of the file, before every refusal).
+    assert "ARM_MARKER_NAME = 'UPLOAD_ATTEMPT.json'" in src
+    # Exactly one name is written: remote skill sync never overwrites a
+    # file an installed package already has, so a released server only
+    # ever meets ITS OWN helpers — there is no cross-version marker to
+    # keep in step, and an alias would be dead weight that re-arms nothing.
+    assert 'LEGACY_ARM_NAME' not in src
+    assert 'UPLOAD_PENDING' not in src
+    arm = src.index("open(os.path.join(d, ARM_MARKER_NAME), 'w')")
+    stage = src.index('DOM.setFileInputFiles')
+    # Nothing is owed when the helper refused before it could upload: no
+    # disabled-row pass, no signed-out page, no marketplace disagreement.
+    for refused_first in (
+        'REFUSED: the upload file carries',
+        'signed out --',
+        'MARKETPLACE MISMATCH',
+    ):
+        assert src.index(refused_first) < arm, f'{refused_first} arms anyway'
+    # ...and it arms BEFORE the bytes are handed over, so a helper that
+    # staged then missed the Submit click (the observed bypass — the agent
+    # finished by hand) is still gated.
+    assert arm < stage, 'arming after staging misses the hand-finish bypass'
+
+
+def test_the_gate_reads_the_marker_the_helper_writes():
+    """Cross-pin the two halves: a rename on one side breaks this test.
+
+    The gate (server) and the helper (skill script) ship in the SAME
+    release — remote sync cannot replace an installed skill file — so the
+    marker name is an internal contract, and it is exactly the kind of
+    contract that rots silently when someone edits one side.
+    """
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
+    ).read_text(encoding='utf-8')
+    # UPLOAD_BATCH_{ref}.json is an f-string, so the id part is matched
+    # as a placeholder and fnmatch's * covers it below.
+    written = set(re.findall(r"'(UPLOAD_[A-Za-z_{}]+\.json)'", src))
+    assert written, 'the upload helper writes no marker any more'
+    for pattern in (
+        listing_upload_gate.ATTEMPT_GLOB,
+        listing_upload_gate.MARKER_GLOB,
+    ):
+        matched = [n for n in written if fnmatch.fnmatch(n, pattern)]
+        assert matched, f'nothing writes what the gate reads as {pattern!r}'
+
+
 def _disabled_rows_fn():
     """Exec just `_disabled_rows` (and its token set) out of the helper."""
     src = (
@@ -288,9 +361,23 @@ def _marker_dirs_fn(path, marker_dir):
     return ns['_marker_dirs']
 
 
-@pytest.mark.parametrize(
-    'name', ['bh_upload_flatfile.py', 'bh_download_template.py']
-)
+def _marker_writers():
+    """The helpers that write a gate marker (name is a glob-able path).
+
+    Derived from the scripts, not from a list: ``bh_download_template``
+    stopped writing one when arming the upload check moved onto the upload
+    itself, and a pinned list would have kept testing a file with no
+    markers left in it.
+    """
+    scripts = _SCRIPTS / 'amazon-listing' / 'scripts'
+    return [
+        p.name
+        for p in sorted(scripts.glob('bh_*.py'))
+        if 'def _marker_dirs():' in p.read_text(encoding='utf-8')
+    ]
+
+
+@pytest.mark.parametrize('name', _marker_writers())
 def test_gate_markers_always_reach_the_task_workspace(
     name, tmp_path, monkeypatch
 ):

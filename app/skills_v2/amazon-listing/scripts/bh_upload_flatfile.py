@@ -11,7 +11,8 @@ STORE WRAPPER with env parameters, from the task workspace:
 
 Prints exactly one ``RESULT {json}`` line:
   ok / staged / detected / region_error / batch_id / marketplace /
-  intended_marketplace / file_marketplace / submit_label / reason
+  intended_marketplace / file_marketplace / submit_label / upload_attempt
+  / reason
 
 Two things it refuses to do, because both fail SILENTLY by hand:
 
@@ -40,10 +41,15 @@ Two things it refuses to do, because both fail SILENTLY by hand:
   by a key compared only against itself between two snapshots. The
   rendered label is reported, never matched.
 
-On success it writes ``UPLOAD_BATCH_<id>.json`` into MARKER_DIR (pass
-your task workspace) — a parse-feedback verdict for that batch is then
-checked once, when you submit the result. On failure it takes a
-screenshot and reports the reason; explore from there, don't blind-retry.
+This script IS the upload declaration: the moment its checks pass it
+writes ``UPLOAD_ATTEMPT.json`` into MARKER_DIR (pass your task workspace)
+and a parse-feedback verdict is then owed for the run — checked once, when
+you submit the result. On success it also writes ``UPLOAD_BATCH_<id>.json``
+per submitted batch, keyed to the report you must read. No other step of
+the flow arms anything: a template download is reading, not uploading.
+
+On failure it takes a screenshot and reports the reason; explore from
+there, don't blind-retry.
 """
 
 import json
@@ -76,6 +82,15 @@ def _env(name):
 F = _env('UPLOAD_FILE')
 HOST = _env('SC_HOST')
 MARKER_DIR = os.environ.get('MARKER_DIR', '.')
+
+# What this writes at the arm point; read by listing_upload_gate.py.
+# One name only, on purpose: remote skill sync NEVER overwrites a file
+# that exists in the installed package (skills_sync._do_remote_sync's
+# local-precedence guard), and this script ships in every release — so a
+# released install runs ITS OWN helpers beside ITS OWN gate, and no
+# installed server ever sees a marker written by a script from another
+# version. There is no cross-version alias to keep in step.
+ARM_MARKER_NAME = 'UPLOAD_ATTEMPT.json'
 
 
 def _marker_dirs():
@@ -380,6 +395,33 @@ if not _want:
         f'could not tell which marketplace {HOST} means; pass '
         'SC_MARKETPLACE=<id|CC> to state it'
     )
+
+# THE ARM POINT for the upload check (stop_gates/listing_upload_gate.py).
+# Everything that could stop an upload BEFORE it started has already
+# refused: the file was unreadable, carried disabled rows, the session
+# was signed out, or the three marketplaces did not agree — nothing
+# reached Amazon, so nothing is owed. From here the next thing this helper
+# does is put the file on a live upload page, and every failure past this
+# point (chooser never opened, Submit never enabled, no reference_id after
+# the click) is a state where the bytes may still have gone up by hand.
+# So the batch that follows must be verdicted, or this marker removed with
+# a word about why no upload happened.
+#
+# It is deliberately NOT armed by downloading a template: that is step 1
+# of reading a category, and a run that only inspected one used to be
+# refused for an "upload not verified". This is the only place the marker
+# is written.
+out['upload_attempt'] = True
+_MARKER = {
+    'file': F,
+    'host': HOST,
+    'marketplace': out['marketplace'],
+    'intended_marketplace': _want,
+    'attempted_at': time.time(),
+}
+for d in _marker_dirs():
+    with open(os.path.join(d, ARM_MARKER_NAME), 'w') as fh:
+        json.dump(_MARKER, fh)
 
 # A short viewport leaves the file button AND the Submit button below
 # the fold, so coordinate clicks land on empty space (observed live —

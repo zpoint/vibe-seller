@@ -25,7 +25,7 @@ from app.config import VIBE_SELLER_DIR
 from app.deliverables.gate import check_deliverables
 from app.models.task import Task
 from app.routers.tasks_files import (
-    looks_like_result_path,
+    resolve_declared_result_path,
     resolve_workspace_result_path,
 )
 from app.telemetry_events import GateOutcome
@@ -34,7 +34,28 @@ from app.text_utils import SafeStr
 
 
 class SetTaskResultRequest(BaseModel):
-    result: SafeStr
+    """A submission: the deliverable TEXT, or a DECLARED file holding it.
+
+    ``result`` and ``result_file`` are alternatives — exactly one must be
+    sent, which ``resolve_submitted_result`` enforces (a 400 naming both
+    fields, like the endpoint's other contract errors). Which of the two
+    an agent means is its own statement; the server no longer guesses from
+    the string's shape (no-space + ``.md`` used to be refused as a
+    "dangling pointer", which punished plain text results like
+    ``report.md`` or ``/2025-Q3`` with a 400 and no round limit).
+
+    The rule is NOT a pydantic validator on purpose: this model is also
+    built field-by-field by the surrogate-sanitization sweep
+    (``tests/unit/test_text_utils.py``) and by any partial body an
+    operator's tooling might post, and a model that refuses to exist
+    without a deliverable makes those checks fail for a reason that has
+    nothing to do with what they test.
+    """
+
+    result: SafeStr | None = None
+    # Declared result file, relative to the task workspace (or absolute
+    # inside it). Read server-side; its contents become the result.
+    result_file: SafeStr | None = None
     # The agent's own account of what it could NOT finish. Does not
     # bypass a single gate — the submission is reviewed exactly as
     # before. What it buys is an honest way to say "here is what I got,
@@ -90,8 +111,14 @@ async def refuse(
     raise HTTPException(status_code=400, detail=reason)
 
 
+async def _read_off_loop(target) -> str:
+    """Read a workspace file without blocking the event loop."""
+    return await asyncio.to_thread(target.read_text, encoding='utf-8')
+
+
 async def resolve_submitted_result(
-    raw: str,
+    raw: str | None,
+    result_file: str | None,
     task_root,
 ) -> tuple[str, bool]:
     """``(text_to_grade, came_from_a_file)``.
@@ -100,45 +127,77 @@ async def resolve_submitted_result(
     ``resolved_from_file`` so the agent can tell whether its pointer was
     followed, and a contract test pins that key.
 
-    Two shapes arrive here and only one is content:
+    Two ways to hand over a deliverable, and the server never has to
+    guess which one was meant:
 
-    * A POINTER into the task workspace — read the file. An agent saving a
-      multi-100KB report would block the event loop, so the read is
-      offloaded.
-    * A DANGLING pointer — rejected, never demoted to content. A path-like
-      string that resolves to nothing would sail through every content
-      gate vacuously (no ad sections to check) and complete the task with
-      a literal path as its "result"; that bypass let a quoted pointer end
-      an audit that had drilled a handful of campaigns.
+    * ``result_file`` — the agent DECLARES that its deliverable is a file
+      in the task workspace. Read it (off the event loop: a report can be
+      hundreds of KB). A declaration that names no such file is refused
+      with the fix spelled out, because the agent already stated its
+      intent — nothing is being inferred.
+    * ``result`` — the text itself, always accepted as text.
 
-    Raises ``HTTPException`` for the dangling case, with the fix spelled
-    out — the agent is the caller and has to know what to do next.
+    LEGACY pointer mode stays read-only-compatible: a ``result`` that
+    happens to be a path to a real file inside the workspace is still
+    read, because skill docs and prompts have told agents to pass
+    ``"./AD_AUDIT_<date>.md"`` as ``result`` for as long as the tool has
+    existed. It is never refused: the old shape test (no spaces + a
+    document extension = "dangling pointer" → 400) punished a plain text
+    result like ``report.md`` or ``/2025-Q3`` for LOOKING like a path,
+    which is exactly the output-shape inference this codebase forbids.
+    Whether a submission points at a file is now something the agent
+    states.
     """
-    resolved_content: str | None = None
-    target = resolve_workspace_result_path(raw, task_root)
-    if target is not None:
-        try:
-            resolved_content = await asyncio.to_thread(
-                target.read_text, encoding='utf-8'
+    if (raw is None) == (result_file is None):
+        sent = [
+            name
+            for name, value in (
+                ('result', raw),
+                ('result_file', result_file),
             )
-        except OSError:
-            resolved_content = None
-
-    if resolved_content is None and looks_like_result_path(raw):
+            if value is not None
+        ]
         raise HTTPException(
             status_code=400,
             detail=(
-                f'result looks like a file path but no such file exists '
-                f'in this task workspace: {raw!r}. Write the report file '
-                'first (built-in Write/Edit), then call set_task_result '
-                'with its path (e.g. "./AD_AUDIT_<date>.md") — or pass '
-                'the full report content directly.'
+                'pass exactly one of `result` (the text itself) or '
+                '`result_file` (a file inside the task workspace) — not '
+                'both, not neither. '
+                + ('Neither was sent.' if not sent else f'Sent: {sent}.')
             ),
         )
+    if result_file is not None:
+        target = resolve_declared_result_path(result_file, task_root)
+        if target is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'result_file names no file inside this task '
+                    f'workspace: {result_file!r}. Write the report first '
+                    '(built-in Write/Edit, in your task workspace), then '
+                    'pass its path as result_file — or send the whole '
+                    'text as `result` and drop result_file.'
+                ),
+            )
+        try:
+            return await _read_off_loop(target), True
+        except OSError:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'result_file {result_file!r} exists but could not '
+                    'be read — re-save it and submit again.'
+                ),
+            ) from None
 
-    if resolved_content is not None:
-        return resolved_content, True
-    return raw, False
+    target = resolve_workspace_result_path(raw or '', task_root)
+    if target is not None:
+        try:
+            return await _read_off_loop(target), True
+        except OSError:
+            # Not a refusal: the text stays what the agent submitted.
+            pass
+    return raw or '', False
 
 
 async def gate_denials(

@@ -21,7 +21,6 @@ from app.ai.claude_backend_utils import (
     TOOL_APPROVAL_CALLBACK,
     check_skill_prereqs,
     check_tool_loop,
-    validate_fanout_plan_text,
 )
 from app.ai.image_guards import (
     check_generated_image_write,
@@ -413,33 +412,16 @@ class _HookMixin:
         self._pending_plan_request_id = request_id
         self._pending_plan_tool_input = tool_input
 
-        # Structural validation BEFORE auto-approve / manual review:
-        # if the plan violates fanout-schedule constraints (e.g.,
-        # embeds an orchestrator that calls vibe_seller_create_task
-        # — which would make every per-store fire recursively spawn
-        # more children), reject via ControlResponse deny so the
-        # agent re-plans in the same session. The prompt block in
-        # task_runner.build_system_extra already tells the agent
-        # about this; the validator is the backstop.
-        violation = await validate_fanout_plan_text(self.task_id, plan_text)
-        if violation:
-            logger.info(
-                'Plan-only validation rejected plan for task %s: %s',
-                self.task_id,
-                violation,
-            )
-            await self._send_control_response(
-                request_id,
-                'deny',
-                message=(
-                    'The tool use was rejected because the plan'
-                    ' violates a schedule constraint. Revise the'
-                    ' plan and call ExitPlanMode again. Reason: ' + violation
-                ),
-            )
-            # Reset for the next ExitPlanMode call.
-            self._plan_approval_event = asyncio.Event()
-            return
+        # No validation of the plan's WORDING here, deliberately. A
+        # substring check on the plan text used to deny ExitPlanMode for
+        # mentioning `vibe_seller_create_task` / `parent_task_id` — which
+        # refused the compliant plan, because the prompt tells the agent
+        # not to call those tools and the plan quoting that instruction
+        # tripped it, with no round limit and nothing to fix. The rule a
+        # fanout schedule really has ("a fire of this schedule must not
+        # spawn sub-tasks") is enforced where it can bite: POST
+        # /api/tasks refuses a sub-task whose parent is a fanout-schedule
+        # task — see ``_refuse_fanout_subtask`` in app/routers/tasks.py.
 
         if self.auto_approve_plan:
             # Auto-approve — transition straight to execution

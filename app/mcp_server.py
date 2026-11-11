@@ -320,7 +320,13 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 'POST',
                 f'/api/tasks/{_config["task_id"]}/result',
                 {
-                    'result': arguments['result'],
+                    # Pass both through as the agent sent them: exactly
+                    # one must be non-null, and the ROUTE enforces that.
+                    # An absent key is None, not a KeyError, so the
+                    # agent gets the readable 422 instead of a crash in
+                    # this process.
+                    'result': arguments.get('result'),
+                    'result_file': arguments.get('result_file'),
                     'incomplete': arguments.get('incomplete') or [],
                 },
             )
