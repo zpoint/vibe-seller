@@ -82,6 +82,7 @@ class ClaudeCodeBackend(AIAgentBackend):
             if on_start is not None:
                 if not await on_start():
                     self._launching.discard(task_id)
+                    self._cancelled.discard(task_id)
                     self._in_flight -= 1
                     self._semaphore.release()
                     return False

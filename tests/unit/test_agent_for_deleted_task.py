@@ -103,3 +103,19 @@ async def test_an_agent_that_starts_for_a_deleted_task_stops_itself(
     session = SimpleNamespace(task_id='gone-task', stop=_stop)
     await persist_mod._PersistMixin._persist_session_id(session, 'sess-1')
     await asyncio.wait_for(stopped.wait(), timeout=2)
+
+
+async def test_a_refused_launch_leaves_no_cancel_behind(monkeypatch):
+    """A stop during a launch that then refuses itself (``on_start`` sees
+    the task already stopped) must not leave the cancel note behind to
+    cancel the task's NEXT launch (a retry)."""
+    manager = mgr_mod.ClaudeCodeBackend()
+
+    async def _refuse():
+        assert await manager.stop('t-retry') is True
+        return False
+
+    ok = await manager.run('t-retry', 'p', no_store=True, on_start=_refuse)
+
+    assert ok is False
+    assert not manager._cancelled and not manager._launching
