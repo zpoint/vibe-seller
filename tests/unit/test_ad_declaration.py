@@ -389,6 +389,34 @@ class TestScopeEntriesNameWhatIsInScope:
         ad.validate_scope({'products': [entry]})  # must not raise
         ad.validate_scope({'campaigns': ['A1234567']})
 
+    @pytest.mark.parametrize(
+        'entry',
+        [
+            'all',
+            'ALL',
+            '*',
+            'everything',
+            'all campaigns in the local ad console at http://127.0.0.1:1',
+            'every product',
+            'all the keywords',
+            '全部',
+            '所有广告活动',
+        ],
+    )
+    def test_whole_set_placeholders_are_refused(self, entry):
+        """Observed: "audit everything" declared as campaigns=["all"],
+        which reads as narrowed to one campaign called "all"; the empty
+        list is how a scope says "all of them"."""
+        with pytest.raises(ValueError, match='leave that list empty'):
+            ad.validate_scope({'campaigns': [entry]})
+
+    @pytest.mark.parametrize(
+        'entry',
+        ['All-Purpose Cleaner', 'allium seeds', 'Everyday widget', '全能刀'],
+    )
+    def test_names_that_start_like_all_are_names(self, entry):
+        ad.validate_scope({'products': [entry]})  # must not raise
+
     def test_the_ratchet_behaviour_is_unchanged(self):
         """Validation is at the boundary; the narrowing rules still
         read the scope exactly as before."""
