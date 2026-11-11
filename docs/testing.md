@@ -80,6 +80,29 @@ and write through the same server:
 | `POST /api/ads/stores/sync` | rewrites the ads binding of every store row |
 | a direct write into `app_settings` | bypasses the API but lands in the same one DB |
 
+```
+            one pytest process: collect -> sort longest-first (durations.json)
+                                  |
+                --dist load: the next test goes to whichever worker is free
+                                  |
+          gw0 (minimax)   gw1 (qwen)   gw2 (glm)   ...   one worker per
+                                                         E2E_PROVIDER_MAP entry
+     Workers are not typed: each takes the next test, whatever it is.
+
+     a test touching only its OWN task / store      a module touching SERVER-GLOBAL
+                     |                              state (table below)
+                     v                                         |
+     +----------------------------------+                     v  module fixture
+     | shared server (CI starts it      |       +-------------------------------+
+     | before pytest; every worker      |       | owned server: free port, temp |
+     | uses it at once)                 |       | VIBE_HOME, same worker        |
+     +----------------------------------+       | profile, own SSE auto-answer; |
+                                                | started by the worker running |
+                                                | the module, stopped after it  |
+                                                +-------------------------------+
+     Fake services (ad console, GitHub, ads API) run per test on ephemeral ports.
+```
+
 For those a test **owns its server**: `tests/e2e/own_server.py` gives it
 a dedicated free port, a dedicated `VIBE_HOME` and its own pid file, and
 `owned_agent_stack` adds what a server running real agents needs (the
@@ -107,6 +130,21 @@ A module-scoped fixture is **per worker**: if xdist splits a module's
 tests across two workers, each worker starts its own server and its own
 home. That is the point of owning one — the two runs cannot see each
 other's catalogs — at the cost of one more boot.
+
+What an owned server deliberately takes from the shared install, and why:
+
+- **The built frontend.** Every server on the checkout serves the same
+  `frontend/dist`, and an owned server never rebuilds it
+  (`VIBE_SKIP_FRONTEND_BUILD=1`): `pnpm build` empties `frontend/dist`
+  before writing it, so a rebuild makes the shared server answer 404 to
+  other workers' UI tests.
+- **The agent CLI.** A server spawns `claude` from its own home's
+  `node_modules`, else from `PATH`. An owned home is a fresh temp dir with
+  no install, so the owned server gets the shared server's CLI directory
+  first on its `PATH`, named by the product's own
+  `resolve_claude_binary()`; `start.sh` keeps the incoming `PATH`. In CI
+  the CLI exists only in the shared home, so without this no agent on an
+  owned server can start.
 
 ## Stopping a test server
 
@@ -388,6 +426,11 @@ With parallel tests, logs are interleaved. Trace by task ID:
 - **Server side**: `AGENT_DEBUG [task_id]` prefix on every agent log line
 - **Pytest side**: `e2e` logger; helper functions log `task_id` in messages so you can grep for it
 - **Debug a failure**: `grep {task_id[:8]}` in both pytest output and server log
+- **Owned servers log separately**: `start.sh` writes `logs/backend_<port>.log`
+  and `logs/backend_stdout_<port>.log` in the checkout for each server a
+  test owns. The CI artifact `e2e-server-logs` carries them next to the
+  shared server's logs, so a failure in a test on its own server is
+  diagnosable from CI.
 
 ## Mock CLI E2E Tests
 
