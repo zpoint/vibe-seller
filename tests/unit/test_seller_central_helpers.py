@@ -962,7 +962,7 @@ def test_the_false_verdict_about_the_category_is_gone():
     assert 'never reached the search box' in src
     # Proof the text landed, not that a key was sent.
     assert '_norm(PTYPE) not in _norm(landed)' in src
-    assert "'landed'" in src and "'tried'" in src
+    assert "'landed'" in src and "'boxes'" in src
 
 
 class TestWideControlsStillGetClicked:
@@ -979,13 +979,19 @@ class TestWideControlsStillGetClicked:
         [
             ({'x': 900, 'y': 400, 'w': 100, 'h': 30}, 'full'),
             # right edge 2526 of a 1920 viewport, centre 2243 — off-screen.
-            ({'x': 2243, 'y': 543, 'l': 1959, 'rt': 2526, 'w': 567,
-              'h': 29}, None),
+            (
+                {'x': 2243, 'y': 543, 'l': 1959, 'rt': 2526, 'w': 567, 'h': 29},
+                None,
+            ),
             # a whole box inside a 1920-wide viewport.
-            ({'x': 1576, 'y': 543, 'l': 1300, 'rt': 1852, 'w': 552,
-              'h': 29}, 'full'),
-            ({'x': 1900, 'y': 543, 'l': 1600, 'rt': 2200, 'w': 600,
-              'h': 29}, 'centre'),
+            (
+                {'x': 1576, 'y': 543, 'l': 1300, 'rt': 1852, 'w': 552, 'h': 29},
+                'full',
+            ),
+            (
+                {'x': 1900, 'y': 543, 'l': 1600, 'rt': 2200, 'w': 600, 'h': 29},
+                'centre',
+            ),
             ({'x': 0, 'y': 0, 'w': 0, 'h': 0}, None),
         ],
     )
@@ -995,8 +1001,7 @@ class TestWideControlsStillGetClicked:
 
     def test_reachable_is_the_strict_tier(self):
         ns = _pure_ns()
-        wide = {'x': 1900, 'y': 543, 'l': 1600, 'rt': 2200, 'w': 600,
-                'h': 29}
+        wide = {'x': 1900, 'y': 543, 'l': 1600, 'rt': 2200, 'w': 600, 'h': 29}
         assert ns['click_tier'](wide, _VP_1920) == 'centre'
         assert ns['reachable'](wide, _VP_1920) is False
 
@@ -1050,7 +1055,8 @@ class TestWrapperBudget:
         """
         src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
         assert 'for url in (_WIZARD_URL, _ENTRY_URL)' in src
-        assert 'def _fit_viewport(rounds=1)' in src
+        assert 'def _measure(' in src
+        assert '_fit_viewport' not in src, 'the width sweep is back'
         assert '_WIDTHS' not in src, 'the width sweep is back'
         waits = [float(x) for x in re.findall(r'_wait\(([\d.]+),', src)]
         assert len(waits) >= 5, waits
