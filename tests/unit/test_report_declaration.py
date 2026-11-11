@@ -13,6 +13,7 @@ route validates against (``app.deliverables.declarations``).
 
 import datetime as dt
 import pathlib
+import re
 import types
 
 import pytest
@@ -77,7 +78,25 @@ class TestTheSkillsTeachTheDeclaration:
 
         description = REPORT_TOOLS[0]['description']
         assert 'One report' in description
-        assert 'do NOT declare' in description
+        assert 'those are lookups' in description
+        assert 'refused for reports nobody asked for' in description
+
+    def test_the_tool_text_carries_no_shouting_or_history(self):
+        """CLAUDE.md asks prompts and skills to drop the excess emphasis.
+
+        Capitals are the tell of a reason that was not trusted to land on
+        its own, and the history of the bug the tool replaced is not
+        something the agent needs in order to use it.
+        """
+
+        description = REPORT_TOOLS[0]['description']
+        shouted = {
+            word
+            for word in re.findall(r'\b[A-Z]{3,}\b', description)
+            if word != 'YYYY'  # the month format, not an emphasis
+        }
+        assert not shouted, f'all-caps emphasis in the tool text: {shouted}'
+        assert 'reports_*' not in description
 
 
 class TestTheDeclaredMonth:

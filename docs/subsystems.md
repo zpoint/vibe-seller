@@ -470,6 +470,14 @@ is owed, so re-declaring can only ADD an obligation — which is why there is
 no same-turn ratchet here, unlike the ad kinds. The check is one round like
 every other: gaps refuse the first submit and ride the next as caveats.
 
+A declaration describes the **run** that made it, so `POST
+/api/tasks/{id}/retry` deletes these rows exactly where it deletes the
+run's messages and ad declarations: retry wipes the task workspace, and a
+surviving row would hold the fresh run to a month whose files can no longer
+exist. Nothing is mirrored to the workspace (unlike `AD_TASK.json`) —
+`check_deliverables` has a DB session, so the row is the only authority and
+there is no second surface to keep honest.
+
 Declaring `execute` freezes the `CHANGES.tsv` the phase starts from (its
 own, or its nearest ancestor's) into `data/approved_changes/` — the
 approval its execution is checked against — and posts that frozen list to

@@ -22,6 +22,13 @@ obligation: the check covers every month this task has declared. So
 re-declaring cannot be an escape, which is why there is no same-turn
 ratchet here — the ratchet in ``tasks_ad_declaration`` exists because an
 ad *kind* can lighten what a phase owes, and no month can.
+
+**Scoped to a run, like the ad declaration.** ``POST /api/tasks/{id}/retry``
+deletes these rows where it deletes the run's messages and
+``AdTaskDeclaration`` rows: the promise was about a workspace that retry
+wipes, so a surviving row would hold a fresh run to a month whose files can
+no longer exist — the same false obligation, arriving from the other
+direction.
 """
 
 from datetime import UTC, datetime

@@ -387,6 +387,68 @@ class TestTheSubmitFollowsTheDeclaration:
         await wait_for_task(admin_client, task_id)
 
 
+class TestARetriedRunStartsUncommitted:
+    """A declaration belongs to the run that made it.
+
+    Retry deletes the prior conversation and wipes the task workspace, so
+    the files the declared run promised are gone by definition. A row left
+    behind would hold the fresh run to a month nobody is downloading any
+    more — the same false obligation this change exists to remove,
+    arriving from the other direction: the run that made the promise no
+    longer exists, and the one that inherited its rows never made it.
+    """
+
+    async def test_retry_clears_the_declaration_along_with_the_workspace(
+        self, admin_client, install_fake_agent
+    ):
+        task_id, first_run = await _running_task(
+            admin_client, install_fake_agent, 'Retry Store'
+        )
+        r = await _declare(admin_client, task_id, _reporting_month())
+        assert r.status_code == 200, r.text
+        _deliver(task_id, r.json()['expected_files'])
+        assert (
+            await admin_client.post(
+                f'/api/tasks/{task_id}/result', json={'result': 'month done'}
+            )
+        ).status_code == 200
+        first_run.set()
+        await wait_for_task(admin_client, task_id)
+
+        # The retried run holds the turn open the same way, so the submit
+        # below goes through the real gates.
+        second_run = asyncio.Event()
+        install_fake_agent.scenarios[task_id] = FakeAgentScenario(
+            result='streamed narration from the agent', gate=second_run
+        )
+        r = await admin_client.post(f'/api/tasks/{task_id}/retry', json={})
+        assert r.status_code == 200, r.text
+        for _ in range(200):
+            status = (await admin_client.get(f'/api/tasks/{task_id}')).json()[
+                'status'
+            ]
+            if status == 'running':
+                break
+            await asyncio.sleep(0.02)
+        assert status == 'running', status
+
+        # The user-visible half: a fresh run with an empty workspace is
+        # not owed the previous run's month.
+        url = f'/api/tasks/{task_id}/result'
+        r = await admin_client.post(url, json={'result': 'fresh start'})
+        assert r.status_code == 200, r.text
+        data = (await admin_client.get(f'/api/tasks/{task_id}')).json()
+        assert not data['review_gaps']
+
+        # …and the DB side that makes it true: the old run's declarations
+        # went with its messages and its files.
+        r = await admin_client.get(f'/api/tasks/{task_id}/report-declarations')
+        assert r.json() == [], r.text
+
+        second_run.set()
+        await wait_for_task(admin_client, task_id)
+
+
 class TestTheToolIsInTheRightToolset:
     """The in-task stdio MCP serves it; the external one must not.
 
