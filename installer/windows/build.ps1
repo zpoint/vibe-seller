@@ -244,12 +244,10 @@ function Get-Chromium {
 # -- 7. Tray app + compile installer ----------------------------------
 
 function Get-ChineseLang {
-  # Best-effort: fetch the (unofficial) Simplified Chinese wizard
-  # translation next to the .iss so the installer shows a Chinese
-  # wizard on Chinese systems (the .iss includes it via #if FileExists).
-  # On any failure we delete it and the wizard stays English-only — the
-  # build still succeeds.
-  Step 'Fetching Simplified Chinese wizard translation (best-effort)'
+  # Required: the Simplified Chinese wizard translation, next to the .iss
+  # (which includes it unconditionally). A failed fetch fails the build —
+  # never ship an English-only wizard silently.
+  Step 'Fetching Simplified Chinese wizard translation'
   $dest = "$PSScriptRoot\ChineseSimplified.isl"
   # Pinned to the tag of the Inno Setup we compile with (6.7.x): `main`
   # moves (7.0 moved this file out of Unofficial/, so main 404'd).
@@ -257,8 +255,8 @@ function Get-ChineseLang {
   try {
     Invoke-WebRequest -Uri $url -OutFile $dest
   } catch {
-    Write-Warning "ChineseSimplified.isl fetch failed; wizard stays English: $_"
     if (Test-Path $dest) { Remove-Item $dest -Force }
+    throw "ChineseSimplified.isl fetch failed ($url): $_"
   }
 }
 
