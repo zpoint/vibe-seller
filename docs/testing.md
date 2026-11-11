@@ -350,15 +350,22 @@ Tests that use `api_client` get question handling automatically — no per-test 
 
 ### Parallel Execution (pytest-xdist)
 
-E2E tests support parallel execution via `pytest-xdist`:
+E2E tests run in parallel via `pytest-xdist`, one worker per `E2E_PROVIDER_MAP` entry:
 
 ```bash
-E2E_PROVIDER_MAP=minimax,glm pytest tests/e2e/ --e2e -n 2 --dist loadfile -v
+E2E_PROVIDER_MAP=minimax,glm pytest tests/e2e/ --e2e -n 2 --dist load --maxschedchunk 1 -v
 ```
 
-- `--dist loadfile` keeps all tests from one file on one worker (required for module-scoped fixtures)
-- Each worker is a separate process with its own Playwright browser and httpx clients
-- All workers connect to the same shared server (started externally)
+- **`--dist load --maxschedchunk 1`, and longest test first.** The controller hands the head of the collection to whichever worker frees up (xdist still keeps two tests pending per worker), so collection order is start order — and `tests/e2e/conftest.py` sorts the tier by the measured seconds in `tests/e2e/durations.json`, longest first. A 6-worker run measured 4880s of work in 1344s of wall time (four workers idle for the last ~600s) because two ~400s tests started at 910s; ordered longest-first the same durations finish in ~814s, the floor. Regenerate the file after a green CI run:
+  ```bash
+  gh api repos/zpoint/vibe-seller/actions/jobs/<e2e-test-job-id>/logs > /tmp/e2e.log
+  .venv/bin/python scripts/e2e_durations.py /tmp/e2e.log
+  ```
+  `--dist worksteal` cannot use that ordering: it cuts the collection into contiguous chunks up front and steals only from another worker's tail, so a long test late in a chunk still starts late. `--dist loadgroup` is not an option to lean on either — its `@group` nodeid rename does not take effect on pytest 9.2 (pytest-xdist #1386), and no test here carries the mark.
+- **Order must be identical in every worker.** Each worker runs the collection itself (the controller never does) and xdist aborts the run when the lists differ, so the sort key is measured seconds and then collection position — no clock, no set iteration, nothing per-worker.
+- **Each worker is its own process** with its own Playwright browser and httpx clients. A module-scoped fixture therefore runs once **per worker**, not once per module: when xdist splits a module's tests over two workers, each worker does its own setup — which for a module that owns a server means a server and a home each (`tests/e2e/own_server.py`), so they cannot see each other's state.
+- **A worker's servers are stopped before it ends.** `OwnServer` books every server it starts, and a session-scoped fixture checks them after the module fixtures have finalised: a port still answered or a leftover pid file fails the run. It skips the shared server's port — that one is meant to outlive a session.
+- Most tests share the one server started outside pytest; a test that touches server-global state starts **its own** server — see [Server-global state: own a server, don't lock one](#server-global-state-own-a-server-dont-lock-one).
 - CDPMuxProxy enables concurrent browser tasks without interference
 
 ### Concurrency Environment Variables

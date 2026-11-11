@@ -309,6 +309,16 @@ def pytest_collection_modifyitems(config, items):
     if not run_windows:
         items[:] = [i for i in items if 'windows' not in i.keywords]
 
+    # An --e2e run is ordered by MEASURED durations, longest first, by
+    # tests/e2e/conftest.py — that hook already ran (conftests are
+    # called innermost-first), and re-sorting here would undo it.
+    # Longest-first subsumes this rule's intent: the head of the
+    # collection is the heaviest test, the next heads land on the next
+    # workers, so no chunk carries two long-budget tests and none starts
+    # minutes late. The marker stays as the record of WHICH tests the
+    # budget was measured for (tests/unit/test_schedule_sim.py).
+    if config.getoption('--e2e'):
+        return
     # Long-budget tests lead their worker's queue (worksteal's
     # contiguous split gives each worker at most one) AND land on
     # distinct provider keys when the map allows — two heavy

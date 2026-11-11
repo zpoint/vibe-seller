@@ -7,6 +7,7 @@ Provides:
 - Per-worker provider profile assignment (E2E_PROVIDER_MAP)
 """
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -35,6 +36,86 @@ logger = logging.getLogger('e2e')
 def pytest_configure(config):
     # --maxfail must STOP an xdist run, not drain it (see fail_fast).
     fail_fast.register(config)
+
+
+#: Seconds for a test with no entry in ``durations.json`` — one that is
+#: new, or that the recorded run skipped. Below the multi-minute
+#: real-agent tests, so an unknown test never leads the run on a guess;
+#: above the seconds-long API checks, so it does not sit at the very end
+#: either.
+UNKNOWN_DURATION_S = 60.0
+
+#: Where the measurements come from. The file is checked in
+#: (``tests/e2e/durations.json``) and regenerated from a green CI run by
+#: ``scripts/e2e_durations.py``; the override exists so a runner (and the
+#: ordering's own tests) can try a different set without touching the
+#: tree. Unset or missing: no measurements, so no reordering.
+DURATIONS_FILE = Path(
+    os.environ.get('E2E_DURATIONS_FILE')
+    or Path(__file__).parent / 'durations.json'
+)
+
+
+def measured_durations() -> dict[str, float]:
+    """``{nodeid: seconds}`` from the checked-in measurements."""
+    try:
+        raw = json.loads(DURATIONS_FILE.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    # ``_source`` and any future key like it is provenance, not a test.
+    return {k: float(v) for k, v in raw.items() if not k.startswith('_')}
+
+
+def pytest_collection_modifyitems(config, items):
+    """Collect the e2e tier LONGEST test first.
+
+    The e2e run's cost is the slowest WORKER, not the sum of the tests,
+    and a measured green run proved the gap: 4880s of work on 6 workers
+    took 1344s, because the two ~400s tests started at 910s and 943s —
+    four workers sat idle for the last ~600s of a run they could not
+    influence. Ordered longest-first the same durations finish in 814s,
+    the floor (work / workers): the long tests start at t=0 on different
+    workers and the short ones fill every queue behind them.
+
+    The order is only useful if the scheduler DRAWS from the head of the
+    collection as workers free up — ``--dist load`` does exactly that
+    (xdist's ``LiveScheduling`` sends ``pending[:n]`` in collection
+    order); ``--dist worksteal`` instead cuts the collection into
+    contiguous chunks up front, so ordering alone does not place the
+    longest first — CI's e2e step therefore runs ``load`` (see
+    ``.github/workflows/ci.yml``).
+
+    Determinism is a hard requirement, not a nicety: every xdist worker
+    runs this hook and the controller aborts the run when the
+    collections differ, so the sort key is (measured seconds, the
+    position collection produced) — no clock, no set iteration, nothing
+    per-worker — and ties keep collection order.
+
+    Non-e2e items keep their places: this reorders the e2e SLOTS, so
+    ``pytest --e2e tests/`` still interleaves unit and workflow exactly
+    as it did.
+    """
+    durations = measured_durations()
+    if not durations:
+        return
+    slots = [i for i, item in enumerate(items) if _is_e2e_item(item)]
+    if not slots:
+        return
+    ordered = sorted(
+        (items[i] for i in slots),
+        key=lambda item: -durations.get(item.nodeid, UNKNOWN_DURATION_S),
+    )
+    for slot, item in zip(slots, ordered):
+        items[slot] = item
+
+
+def _is_e2e_item(item) -> bool:
+    """An item this tier owns: marked e2e, or living under tests/e2e.
+
+    The marker is what ``--e2e`` gates on; the path catches a file that
+    forgot it, so a long unmarked test cannot sit at the tail unnoticed.
+    """
+    return 'e2e' in item.keywords or item.nodeid.startswith('tests/e2e/')
 
 
 def pytest_report_header(config):

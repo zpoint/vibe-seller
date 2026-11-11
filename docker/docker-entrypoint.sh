@@ -103,9 +103,16 @@ done
 if [ "$1" = "uv" ] && [[ "$*" == *"pytest"* ]]; then
   E2E_N=$(printf '%s' "${E2E_PROVIDER_MAP:-}" | tr ',' '\n' | grep -c .)
   if [ "$E2E_N" -gt 1 ] 2>/dev/null; then
-    # Append xdist args if not already present
+    # Append xdist args if not already present. --dist load, as CI:
+    # the controller dispatches the head of the collection to whichever
+    # worker frees up, and tests/e2e/conftest.py puts the LONGEST test at
+    # that head (durations.json) — so the run's wall time is the longest
+    # test plus a full load, not whatever a contiguous chunk happened to
+    # contain. loadgroup is not an option: its @group nodeid rename does
+    # not take effect on pytest 9.2 (pytest-xdist #1386), so grouping
+    # silently degrades — and no test here uses the mark.
     if [[ "$*" != *"-n "* ]]; then
-      set -- "$@" -n "$E2E_N" --dist loadgroup
+      set -- "$@" -n "$E2E_N" --dist load --maxschedchunk 1
     fi
   fi
 fi
