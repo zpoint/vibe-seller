@@ -105,12 +105,13 @@ dependencies = [
     # accept/reject behavior matches remark-gfm 1:1, so what we
     # validate locally is what the user sees rendered.
     "mistune>=3.0",
-    # Statistical language detector. Used by the set_task_result
-    # gate to verify the result's prose is in the user's language
-    # (Chinese task → ≥ 85% Chinese-attributed prose, etc.) without
-    # us having to hand-maintain regex exemption lists for IDs and
-    # metric names — lingua's per-segment attribution handles those
-    # the same way the human eye does.
+    # Statistical language detector. NO CORE CODE IMPORTS IT: the
+    # set_task_result language gate this was installed for does not
+    # exist — the prompt claimed it did (see the fix in
+    # task_runner_context.detect_language_hint), and "prompts over
+    # compensating gates" retired the check. Kept because an
+    # externally-installed plugin wheel may still import it; removing it
+    # from a release is what actually drops the wheel from installs.
     "lingua-language-detector>=2.0",
 ]
 
