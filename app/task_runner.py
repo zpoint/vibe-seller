@@ -310,9 +310,13 @@ async def build_system_extra(
         # per-store child Task at fire time. If the plan tells the
         # agent to call `vibe_seller_create_task` from within it,
         # each store's child will recursively create more children.
-        # Forbid orchestrator-style spawning explicitly — the hook
-        # (`_validate_fanout_plan_text` in claude_backend_hooks.py)
-        # also enforces this at ExitPlanMode time.
+        # Forbid orchestrator-style spawning explicitly. The rule is
+        # enforced on the ACTION — POST /api/tasks refuses a sub-task
+        # whose parent is a fanout-schedule task
+        # (``_validate_parent_task`` in app/routers/tasks.py) — NOT on
+        # the plan's wording: nothing scans this text, so a plan that
+        # repeats these very words (as every compliant plan does, since
+        # it is quoting the instruction back) is accepted.
         elif schedule is not None and schedule.phase_mode == 'fanout':
             plan_only_block += (
                 '\n- This schedule is FANOUT mode: the scheduler'

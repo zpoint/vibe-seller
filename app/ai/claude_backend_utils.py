@@ -13,10 +13,7 @@ from sqlalchemy import func, select
 
 from app.ai.skill_gate_utils import find_skill_md
 from app.config import WEB_BROWSER_SLUG
-from app.database import async_session
 from app.env_options import Options
-from app.models.schedule import Schedule
-from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.platform import IS_WINDOWS, prepend_to_path, venv_bin_dir
 from app.workspace.manager import VIBE_SELLER_DIR
@@ -524,55 +521,6 @@ def check_skill_prereqs(
         f"Skill '{skill_name}' builds on {names}; load "
         f'{"it" if len(missing) == 1 else "them"} with the Skill tool too.'
     )
-
-
-_FANOUT_FORBIDDEN_PATTERNS = (
-    ('vibe_seller_create_task', 'calls the sub-task MCP tool'),
-    ('parent_task_id', 'designs a parent/sub-task hierarchy'),
-)
-
-
-async def validate_fanout_plan_text(task_id: str, plan_text: str) -> str | None:
-    """Return a deny reason if *plan_text* contains fanout-illegal
-    patterns for a plan-only fanout-schedule Task, else None.
-
-    Only runs for ``Task.is_plan_only=True`` whose owning
-    ``Schedule.phase_mode='fanout'``. Other cases (single-mode
-    schedules, standalone interactive plan-mode tasks) are not
-    subject to this check — orchestration is legitimate for them.
-
-    Lives here (not as an AgentSession method) to keep the hook
-    module under the 800-line file limit.
-    """
-    try:
-        async with async_session() as db:
-            task = await db.get(Task, task_id)
-            if not task or not task.is_plan_only or not task.schedule_id:
-                return None
-            sched = await db.get(Schedule, task.schedule_id)
-            if not sched or sched.phase_mode != 'fanout':
-                return None
-    except Exception:
-        logger.debug(
-            'Fanout-plan validator could not load context for %s',
-            task_id,
-            exc_info=True,
-        )
-        return None
-
-    haystack = (plan_text or '').lower()
-    for needle, description in _FANOUT_FORBIDDEN_PATTERNS:
-        if needle.lower() in haystack:
-            return (
-                f'the plan {description}'
-                f' (found {needle!r}), but this schedule is a'
-                ' fanout schedule — the scheduler already creates'
-                ' one per-store Task per fire and runs the plan'
-                ' once per store. Remove the orchestrator step'
-                ' and describe what a single store-bound agent'
-                ' should do with the per-store L3 catalog.'
-            )
-    return None
 
 
 # ATTEMPT bound on open-work re-drives per turn. Past this the

@@ -9,8 +9,9 @@ Rule (one line):
 
 - Any task with a schedule_id (plan-only authoring OR a scheduled
   fire) auto-approves. The frozen-plan architecture handles review
-  via SchedulePlanPanel + Re-plan; the fanout-plan validator
-  enforces structural rules at ExitPlanMode time.
+  via SchedulePlanPanel + Re-plan. Nothing inspects the plan's
+  wording at ExitPlanMode; the fanout no-sub-tasks rule is enforced
+  on the action (POST /api/tasks refuses a fanout fire's sub-task).
 - Standalone tasks honor task.plan_mode (True → manual, False →
   auto). user.plan_mode_default feeds into task.plan_mode at create
   time for standalone tasks.

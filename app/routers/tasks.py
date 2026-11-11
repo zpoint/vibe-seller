@@ -25,6 +25,8 @@ from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
 from app.events.bus import event_bus
+from app.models.schedule import Schedule
+from app.models.schedule_constants import PhaseMode
 from app.models.store import Store
 from app.models.task import Task
 from app.models.task_step import TaskStep
@@ -141,6 +143,57 @@ async def list_tasks(
     return _tasks_with_creator(tasks, names)
 
 
+async def _validate_parent_task(db: AsyncSession, parent_task_id: str) -> None:
+    """Refuse a sub-task that must not exist, from the ACTION, not prose.
+
+    Two checks, both about the task the caller names as parent:
+
+    * It must be a real task. ``parent_task_id`` is agent-supplied and
+      was never validated, so a typo left an orphan child pointing at
+      nothing, and ``reopen_parent_if_child_active`` quietly did
+      nothing.
+    * Its schedule must not be a FANOUT schedule. A fanout fire is
+      already one task per store per fire; a child spawned from one is
+      spawned once per store and would fan out again — the recursion
+      this rule exists to stop.
+
+    This replaced a scan of the PLAN TEXT for the strings
+    ``vibe_seller_create_task`` / ``parent_task_id`` at ExitPlanMode. That
+    check refused the plan that OBEYS: the prompt tells the agent "Do NOT
+    call ``vibe_seller_create_task``", so a plan quoting the instruction
+    contained the needle and was denied — with no round limit, because a
+    guess from the shape of prose has no unmet item to name. A plan may
+    now say anything; the sub-task is what gets refused.
+    """
+    parent = await db.get(Task, parent_task_id)
+    if parent is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f'parent_task_id {parent_task_id!r} names no task. A '
+                'sub-task points at the task it belongs to (your own '
+                'task id) and that task must still exist.'
+            ),
+        )
+    if not parent.schedule_id:
+        return
+    sched = await db.get(Schedule, parent.schedule_id)
+    if sched is None or sched.phase_mode != PhaseMode.FANOUT:
+        return
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f'Task {parent.id} is a fire of a FANOUT schedule '
+            f'({parent.schedule_id}), and the scheduler already creates '
+            'one task per store per fire. A sub-task spawned here would '
+            'be created once per store and would fan out again. Do the '
+            f'store-bound work inside this task (store {parent.store_id} '
+            'is already bound to it); if separate follow-up work is '
+            'needed, ask the user to create it.'
+        ),
+    )
+
+
 @router.post('', response_model=TaskResponse)
 async def create_task(
     data: TaskCreate,
@@ -157,6 +210,8 @@ async def create_task(
             status_code=400,
             detail='Sub-tasks must have a store_id',
         )
+    if data.parent_task_id:
+        await _validate_parent_task(db, data.parent_task_id)
 
     # Provenance is derived from the via channel (who is calling —
     # app.telemetry_via), never from a request field: a sub-task is
