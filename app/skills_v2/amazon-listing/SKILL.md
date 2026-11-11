@@ -168,16 +168,23 @@ against **the page's own result rows** (a Chinese console still labels
 each row with its English product type too) and reports which one it
 picked. Read the failure fields before deciding what went wrong:
 `landed` is the keyword read back out of the search box, `viewport` /
-`tried` are the measurements behind each click, and `candidates` lists
-the product types the page actually offered. `never clickable at any
-viewport tried` is a WINDOW problem — re-run with `GENERATOR_WIDTH`, or
-widen the store browser — and says NOTHING about whether the category
-exists; `matches none of the N product types the page offered: …` means
-re-run with one of those labels. The helper will not pick a category you
-did not name. Fall back to hand exploration only for a structural reason
-the helper names (widget absent, region-stamp mismatch, an unreachable
-control), and prefer fixing the input (regenerate the template, fix the
-spec) over hand-clicking.
+`tried` are the measurements behind each click, `drawer` is the wizard's
+own state, and `candidates` lists the product types the page actually
+offered. `never reachable` plus `drawer` means the WIZARD IS NOT OPEN on
+this page — verified live: on a 1920-CSS-px window (a maximized dpr-2
+display) Seller Central lays the generator's entry control out at
+x≈2371, past the screen, and the document is only 1905 wide, so there is
+nothing to scroll and no click that can land; growing the emulated
+viewport moves the closed drawer with it. That is a window/screen
+problem — run the store's browser on a wider display, or open the wizard
+once by hand from the screenshot and note which control did it — and it
+says NOTHING about whether the category exists. `matches none of the N
+product types the page offered: …` means re-run with one of those
+labels. The helper will not pick a category you did not name. Fall back
+to hand exploration only for a structural reason the helper names
+(widget absent, region-stamp mismatch, an unreachable control), and
+prefer fixing the input (regenerate the template, fix the spec) over
+hand-clicking.
 
 ```bash
 S=.claude/skills/amazon-listing/scripts

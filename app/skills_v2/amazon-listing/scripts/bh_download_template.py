@@ -86,11 +86,19 @@ out = {
     'stores': None,
     # What the flow actually reached, so ONE call classifies its own
     # failure: which viewport was in force, whether the keyword really
-    # landed, and which product-type rows the page offered.
+    # landed, which product-type rows the page offered, how close the
+    # click target was to the viewport, and what was measured at each
+    # viewport tried.
     'viewport': None,
     'landed': None,
     'candidates': None,
+    'reached': None,
     'tried': None,
+    # The wizard's own state when nothing could be reached.
+    'drawer': None,
+    # Set when the wrapper's per-call timeout is what stopped the run —
+    # without this the only sign is the wrapper's own "timed out" line.
+    'budget': None,
 }
 
 # ── PURE: reachability + product-type matching (no browser globals) ──
@@ -178,39 +186,74 @@ def pick_row(query, rows):
     return best[2], candidates[:8]
 
 
-def reachable(box, viewport):
-    """True when a trusted click at the box's centre can actually land.
+def click_tier(box, viewport):
+    """`'full'` / `'centre'` / None — can a trusted click reach this box?
 
-    Both shapes below were observed live on the generator modal: a
-    ZERO-SIZE rect (a hidden duplicate of the same keyword placeholder —
-    the header's own search box, `x=0,y=0,w=0`) and a rect whose right
-    edge lies past the emulated viewport (the modal's input at x=2220 with
-    the viewport at 1920). Clicking either is a silent no-op, and every
-    conclusion drawn afterwards — "no result for this product type" — is
-    then about the helper's own miss, not about the page.
+    * `full`   the whole rect sits inside the emulated viewport.
+    * `centre` the rect overflows but its CENTRE — the point the click is
+      actually sent to — is inside, so the click can still land. This
+      tier is what keeps a control that the old code clicked
+      successfully from being refused now: a wide input against a narrow
+      window is normal here.
+    * None     the centre itself is off-screen, or the rect has no size.
+      Clicking it is a SILENT NO-OP — exactly what happened on the live
+      page (a keyword input at x 1959..2526 with the viewport at 1920,
+      and a hidden duplicate of the same placeholder measuring 0x0 at the
+      origin), and the run then reported the product type as missing.
     """
     if not box or not viewport or not viewport.get('w'):
-        return False
-    # Coordinates are read from the RECT keys only. `t` is the element's
-    # TEXT (a label like 下载商品电子表格) — a first version of this
-    # function read `t` as "top", and the live run died comparing that
-    # string to 0. Never let one payload's field do two jobs.
+        return None
+    # Coordinates come from the RECT keys only. `t` is the element's TEXT
+    # (a label like 下载商品电子表格) — a first version read `t` as "top"
+    # and died comparing that string to 0; the live run caught it, which
+    # is why these helpers get run for real and not only read.
     width = box.get('w', 0)
     height = box.get('h', 0)
     if not isinstance(width, int | float) or width <= 0:
-        return False
+        return None
     if not isinstance(height, int | float) or height <= 0:
-        return False
+        return None
     left = box.get('l', box.get('x', 0) - width / 2.0)
     top = box.get('tp', box.get('y', 0) - height / 2.0)
-    return (
+    cx, cy = box.get('x', left + width / 2.0), box.get(
+        'y', top + height / 2.0
+    )
+    if not (0 <= cx <= viewport['w'] and 0 <= cy <= viewport.get('h', 0)):
+        return None
+    if (
         left >= 0
         and top >= 0
         and left + width <= viewport['w']
         and top + height <= viewport['h']
-    )
+    ):
+        return 'full'
+    return 'centre'
 
 
+def reachable(box, viewport):
+    """Strict form: the whole control is inside the viewport."""
+    return click_tier(box, viewport) == 'full'
+
+
+def over_budget(elapsed, wait, budget, reserve, margin):
+    """True when starting a `wait`-second step could outlive the call.
+
+    The store wrapper alarms browser-use at BU_TIMEOUT (120 s observed)
+    and KILLS the process — no RESULT line is printed at all, so the agent
+    sees only `[wrapper] browser-use timed out` and every verified
+    failure this script can report is bypassed. Measured live: the old
+    fixed waits (13 + 7 + 6 + 4 + 1 + 2) spent 33 s before a coordinate
+    was even clicked, and the F1 viewport sweep passed 120 s without ever
+    reaching the search box.
+
+    `margin` is the gap between the script's clock and the wrapper's: the
+    alarm starts BEFORE python runs, and the tail (screenshot, RESULT
+    print, exit) is at the end. It is not negotiable down — a budget that
+    assumes an instant start is the same bug in a new costume. Every
+    bound is a parameter, so this is checkable without a clock, and no
+    default can silently read a constant defined further down the file.
+    """
+    return elapsed + wait + reserve > budget - margin
 # ── END PURE ─────────────────────────────────────────────────────
 
 
@@ -355,13 +398,50 @@ def _result_rows():
     return json.loads(raw) if raw else []
 
 
-def _click_box(box, vp=None):
-    """(clicked, viewport) — and NEVER click what is not inside it."""
+def _click_box(box, vp=None, tiers=('full', 'centre')):
+    """(clicked, viewport) — never click what the page cannot show.
+
+    `full` first: the whole control inside the viewport. `centre` as the
+    fallback tier, because a wide control whose CENTRE is on-screen is a
+    click the old code got right and must not be refused now. Off-screen
+    centre or a zero-size rect → no click, and the caller says so.
+    """
     vp = vp or _viewport()
-    if not reachable(box, vp):
+    if click_tier(box, vp) not in tiers:
         return False, vp
     click_at_xy(box['x'], box['y'])
     return True, vp
+
+
+def _generate_state():
+    """What the page itself says about the Generate control.
+
+    Amazon keeps 生成电子表格 / Generate Spreadsheet DISABLED until a
+    product type is chosen, so this is the page's own confirmation that a
+    Select click registered — structural, no wording matched beyond the
+    EN+ZH label pair, and never an assumption.
+    """
+    raw = js(
+        _WALK + 'for(const e of w(document)){'
+        'const t=String(e.innerText||"").trim();'
+        'if(!/^(generate spreadsheet|生成电子表格)$/i.test(t)) continue;'
+        'let node=e;'
+        'while(node){const tag=(node.tagName||"").toLowerCase();'
+        'if(tag==="kat-button"||tag==="button") break;'
+        'node=node.parentElement;}'
+        'if(!node) continue;'
+        'const r=node.getBoundingClientRect();'
+        'if(!(r.width>0&&r.height>0)) continue;'
+        'const dis=node.disabled===true||(node.getAttribute&&('
+        'node.hasAttribute("disabled")||'
+        'node.getAttribute("aria-disabled")==="true"));'
+        'return JSON.stringify({found:true,disabled:!!dis});}'
+        'return JSON.stringify({found:false,disabled:true});'
+    )
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return {'found': False, 'disabled': True}
 
 
 def _click_text(pattern):
@@ -380,6 +460,37 @@ def _click_text(pattern):
     return None
 
 
+def _wait(seconds, what):
+    """Sleep within budget, or stop the run with a RESULT that says why."""
+    spent = time.time() - _T0
+    if over_budget(spent, seconds, _BUDGET, RESERVE, MARGIN):
+        out['budget'] = {
+            'limit': _BUDGET,
+            'used': round(spent, 1),
+            'needed': seconds,
+            'reserve': RESERVE,
+            'margin': MARGIN,
+            'at': what,
+        }
+        _fail(
+            f'this store browser session is too slow for one call: {what} '
+            f'would need {seconds}s and only '
+            f'{_BUDGET - MARGIN - RESERVE - spent:.0f}s of the '
+            f"wrapper's {_BUDGET:.0f}s limit is left ({_format()}). "
+            'Raise BU_TIMEOUT for this store, or finish the wizard by '
+            'hand from the screenshot — the upload stays script-driven.'
+        )
+    time.sleep(seconds)
+
+
+def _format():
+    return json.dumps({
+        'viewport': out['viewport'], 'reached': out['reached'],
+        'landed': out['landed'], 'picked': out['picked'],
+        'tried': tried,
+    })
+
+
 def _fail(reason):
     capture_screenshot()
     out['reason'] = reason
@@ -389,106 +500,250 @@ def _fail(reason):
     raise SystemExit(0)
 
 
-t0 = time.time()
-new_tab(f'https://{HOST}/product-search/bulk/generate')
-time.sleep(13)
 # The seller-central UI language follows the SESSION (ZH sessions are
 # common) — every text match below carries the Chinese variant too.
 _DPS = '^(download product spreadsheet|下载商品电子表格)$'
 _BLANK = '^(download blank template|下载空白模板)$'
-# The wizard is laid out WIDER than a default window. Observed live on
-# this very flow: with the viewport at 1920 the entry control measured
-# x 2299-2444 and the keyword input x 1959-2526 — both past the right
-# edge, so the trusted click the old code sent landed on nothing, the
-# typed text reached no input at all, and the run still reported
+# The wizard's own url renders the panel directly — the production run
+# reached it this way, with no entry-button click at all. The entry page
+# stays as the fallback for the front-end versions that gate the panel
+# behind a button.
+_ENTRY_URL = f'https://{HOST}/product-search/bulk/generate'
+_WIZARD_URL = f'{_ENTRY_URL}/add-product'
+# The wizard is laid out WIDER and TALLER than a default window. Observed
+# live on this very flow: with the viewport at 1920x839 the entry control
+# measured x 2299-2444 and the keyword input x 1959-2526 — both past the
+# right edge, so the trusted click the old code sent landed on nothing,
+# the typed text reached no input at all, and the run still reported
 # `no product-type result for 'phone case'`: a verdict about the
 # CATEGORY, drawn from the helper's own miss. Amazon ships several
-# front-end versions of this page and the panel moves differently in each
-# (widening brings an OPENED panel inboard but pushes a closed one
-# further out), so no single width is right: every candidate is tried and
-# each step runs only on a control measured INSIDE the viewport it is
-# about to be clicked in. GENERATOR_WIDTH pins it when an operator knows.
-_WIDTHS = [0, 2560, 3200, 3840]
-_gen_width = os.environ.get('GENERATOR_WIDTH', '').strip()
-if _gen_width.isdigit():
-    _WIDTHS.insert(0, int(_gen_width))
+# front-end versions and the panel sits differently in each (widening
+# brings an OPENED panel inboard but pushes a closed one further out), so
+# the size is MEASURED off the page's own controls and converged on
+# (`_fit_viewport`), capped here because a runaway drawer would otherwise
+# be chased forever. GENERATOR_WIDTH pins the first try.
+MAX_W, MAX_H = 3840, 2400
+# The download poll's own share of the remaining time (RESERVE) and the
+# gap between the wrapper's clock and this script's (MARGIN: the alarm
+# starts before python runs, the RESULT print and exit are after).
+RESERVE, MARGIN = 8.0, 8.0
+# The wrapper's own SIGALRM ceiling for ONE browser-use call, read from the
+# same env it uses (so raising BU_TIMEOUT raises this budget too, and the
+# two can never disagree). `_T0` starts when this script's work starts.
+_BUDGET = float(os.environ.get('BU_TIMEOUT', '120') or 120)
+_T0 = time.time()
 tried = []
+_gen_width = os.environ.get('GENERATOR_WIDTH', '').strip()
 
 
-def _set_viewport(w):
-    """Apply the emulated viewport (always tall — the modal's controls sit
-    low as well as wide) and report what the page now has."""
+def _boxes(vp):
+    """The keyword inputs, split by whether a click can reach them."""
+    alls = _find_inputs()
+    return (
+        alls,
+        [b for b in alls if click_tier(b, vp) == 'full'],
+        [b for b in alls if click_tier(b, vp) == 'centre'],
+    )
+
+
+def _set_viewport(w, h):
+    """Apply an emulated viewport and report what the page now measures."""
     cdp(
         'Emulation.setDeviceMetricsOverride',
-        width=w or _viewport()['w'],
-        height=1600,
+        width=w,
+        height=h,
         deviceScaleFactor=1,
         mobile=False,
     )
-    time.sleep(1.5)
-    vp = _viewport()
-    cands = _find_inputs()
-    return vp, [c for c in cands if reachable(c, vp)], cands
+    _wait(1.5, 'applying the viewport')
+    return _viewport()
+
+
+def _controls_extent():
+    """How far the page's own controls actually extend.
+
+    Measured, not guessed. The generator lays its keyword input out to
+    x≈2526 and its Generate button at y≈1280 on a 1920x839 window, and
+    where they land moves with the front-end version AND with whether the
+    drawer is open — so the page itself says what it needs, and the only
+    number that was ever right here was somebody's guess.
+    """
+    raw = js(
+        _WALK + 'let rt=0,bt=0,n=0;'
+        'for(const e of w(document)){'
+        'const tag=(e.tagName||"").toLowerCase();'
+        'if(tag!=="input"&&tag!=="button"&&!tag.startsWith("kat-"))'
+        ' continue;'
+        'const r=e.getBoundingClientRect();'
+        'if(!(r.width>0&&r.height>0)) continue;'
+        'n++; if(r.right>rt) rt=r.right; if(r.bottom>bt) bt=r.bottom;}'
+        'return JSON.stringify({right:Math.ceil(rt),'
+        'bottom:Math.ceil(bt),n:n});'
+    )
+    try:
+        got = json.loads(raw)
+    except (TypeError, ValueError):
+        return {'right': 0, 'bottom': 0, 'n': 0}
+    return got if isinstance(got, dict) else {'right': 0, 'bottom': 0, 'n': 0}
 
 
 noted = set()
 
 
-def _note(viewport, entry, alls, ok):
-    """Record ONE line per (viewport, entry) attempt — the nested spans of
-    a single control must not repeat it."""
-    key = (viewport, entry)
+def _note(viewport, entry, alls, full, centre):
+    """Record ONE line per (viewport, entry) so the verdict is auditable."""
+    key = (viewport.get('w'), viewport.get('h'), entry)
     if key in noted:
         return
     noted.add(key)
     tried.append({
-        'w': viewport,
+        'viewport': [viewport.get('w'), viewport.get('h')],
         'entry': entry,
         'inputs_seen': len(alls),
-        'inputs_clickable': len(ok),
-        'boxes': [{'l': a['l'], 'rt': a['rt'], 'w': a['w']} for a in alls[:3]],
+        'inputs_full': len(full),
+        'inputs_centre': len(centre),
+        'boxes': [
+            {'l': a['l'], 'rt': a['rt'], 'w': a['w']} for a in alls[:3]
+        ],
     })
 
 
-def _open_wizard():
-    """(viewport, clickable keyword inputs) — verified, never assumed.
+def _fit_viewport(rounds=1):
+    """Grow the emulated viewport to what the wizard's controls measured.
 
-    Returns (None, []) when no viewport tried can show the wizard's search
-    box; the caller then reports the MEASUREMENTS, because the one thing
-    this must not do is call that a missing product type.
+    One grow step by default: the wrapper kills this call at BU_TIMEOUT
+    seconds (with no RESULT at all), so every wait here is spent on
+    purpose. A fluid layout moves its controls with the viewport, so the
+    size is measured off the page and converged on, never assumed — and
+    capped (MAX_W/MAX_H), because a CLOSED drawer measures at ~1.16x the
+    width and would otherwise be chased forever.
     """
-    for w in _WIDTHS:
-        vp, ok, alls = _set_viewport(w)
-        _note(vp['w'], None, alls, ok)
-        if ok:
-            return vp, ok  # this layout renders the wizard already open
-        for pattern in (_DPS, _BLANK):
-            for box in _find_text(pattern):
-                if not reachable(box, vp):
-                    continue
-                _click_box(box, vp)
-                time.sleep(6)
-                vp2, ok2, alls2 = _set_viewport(0)
-                _note(vp2['w'], box['t'][:22], alls2, ok2)
-                if ok2:
-                    return vp2, ok2
-    return None, []
+    best = (None, [], [])
+    for _ in range(rounds):
+        vp = _viewport()
+        alls, full, centre = _boxes(vp)
+        _note(vp, None, alls, full, centre)
+        if full:
+            return vp, full, centre
+        if centre and best[0] is None:
+            best = (vp, full, centre)
+        ext = _controls_extent()
+        want_w = max(vp['w'], min(MAX_W, ext['right'] + 32))
+        want_h = max(vp['h'], min(MAX_H, ext['bottom'] + 32))
+        if not ext['n'] or (want_w, want_h) == (vp['w'], vp['h']):
+            break
+        _set_viewport(want_w, want_h)
+    vp = _viewport()
+    alls, full, centre = _boxes(vp)
+    _note(vp, None, alls, full, centre)
+    if full:
+        return vp, full, centre
+    return best if best[0] else (vp, full, centre)
 
 
-vp, inputs = _open_wizard()
-out['viewport'] = vp['w'] if vp else None
+def _click_entry(vp):
+    """Click a reachable generator entry; True if one was clicked."""
+    for pattern in (_DPS, _BLANK):
+        for box in _find_text(pattern):
+            if not click_tier(box, vp):
+                continue
+            _click_box(box, vp)
+            _wait(6, 'opening the wizard panel')
+            return True
+    return False
+
+
+def _drawer_state():
+    """Why the search box cannot be reached, in the page's own terms.
+
+    Measured live: on the current front-end the wizard's keyword input is
+    `visibility:hidden` parked at l=1944 with the viewport at 1920, and it
+    does NOT move over 20 s — it is a closed drawer waiting on an
+    affordance, not a slow page. A reason line that only said "unreachable"
+    would leave the next reader with the same dead end I had, so the
+    failure carries the drawer's state and the on-screen controls that
+    could open it.
+    """
+    raw = js(
+        _WALK + 'const out={inputs:[],onscreen:[]};'
+        'for(const e of w(document)){'
+        'const tag=(e.tagName||"").toLowerCase();'
+        'const r=e.getBoundingClientRect();'
+        'const t=String(e.innerText||(e.getAttribute&&'
+        'e.getAttribute("label"))||e.placeholder||"").trim();'
+        'if(tag==="input"&&/keyword|关键词|相关商品/i.test(t||"")){'
+        'const cs=getComputedStyle(e);'
+        'let anc=e,chain=[];'
+        'for(let i=0;i<6&&anc;i++){const a=getComputedStyle(anc);'
+        'chain.push((anc.tagName||"")+(a.display==="none"?"!none":"")'
+        '+(a.visibility==="hidden"?"!hid":""));'
+        'anc=anc.parentElement;}'
+        'out.inputs.push({ph:t.slice(0,26),l:Math.round(r.x),'
+        'rt:Math.round(r.right),w:Math.round(r.width),'
+        'vis:cs.visibility,dis:cs.display,chain:chain.join(">")});}'
+        'else if(t&&t.length<40&&r.width>0&&r.x>=0&&'
+        'r.right<=window.innerWidth&&r.bottom<=window.innerHeight){'
+        'out.onscreen.push({t:t.slice(0,36),'
+        'x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)});}}'
+        'return JSON.stringify(out);'
+    )
+    try:
+        got = json.loads(raw)
+    except (TypeError, ValueError):
+        return {'inputs': [], 'onscreen': []}
+    return got if isinstance(got, dict) else {'inputs': [], 'onscreen': []}
+
+
+def _open_wizard():
+    """(viewport, full boxes, centre boxes) with the wizard's search open.
+
+    The wizard's OWN url is tried first: the production run reached the
+    panel that way with no entry-button click at all, and on the version
+    probed here the entry button is laid out off-canvas — so the old code
+    clicking it was clicking nothing, which is how a page that HAS the
+    category reported `no product-type result`. The entry page and its
+    buttons stay as the fallback for versions that gate the panel.
+
+    One navigation per url and one measured grow, because the wrapper
+    SIGALMRs this call at BU_TIMEOUT seconds and prints NO result when it
+    does — the shape of this loop is a budget question, not a style one.
+    """
+    for url in (_WIZARD_URL, _ENTRY_URL):
+        new_tab(url)
+        _wait(11, f'loading {url.rsplit("/", 1)[-1] or "generate"}')
+        if _gen_width.isdigit():
+            _set_viewport(int(_gen_width), max(_viewport()['h'], 1400))
+        vp, full, centre = _fit_viewport()
+        if full or centre:
+            return vp, full, centre
+        if _click_entry(_viewport()):
+            vp, full, centre = _fit_viewport()
+            if full or centre:
+                return vp, full, centre
+    return None, [], []
+
+
+t0 = time.time()
+vp, full, centre = _open_wizard()
+inputs = full or centre
+out['viewport'] = [vp['w'], vp['h']] if vp else None
+out['reached'] = 'full' if full else ('centre' if centre else None)
 out['tried'] = tried
 if not inputs:
+    drawer = _drawer_state()
+    out['drawer'] = drawer
     _fail(
-        'the product-type search box was never clickable at any viewport '
-        f'tried — measurements: {json.dumps(out["tried"])}. NOTHING has '
-        f'been typed yet, so this says nothing about whether {PTYPE!r} '
-        'exists: the generator wizard is laid out beyond the window this '
-        'session renders (every keyword input the page has reported a '
-        '0-size or off-canvas rect). Re-run with GENERATOR_WIDTH=<px>, '
-        'widen the store browser window, or open the wizard from the '
-        'on-screen Add Products flow and hand-drive THAT farthest step — '
-        'not the upload.'
+        'the product-type search box was never reachable — measurements: '
+        f'{json.dumps(out["tried"])} at {json.dumps(out["viewport"])}. '
+        f'The wizard itself reports {json.dumps(drawer.get("inputs")[:2])} '
+        'and these controls ARE on screen: '
+        f'{json.dumps([c["t"] for c in (drawer.get("onscreen") or [])[:8]])}'
+        '. NOTHING has been typed yet, so this says nothing about whether '
+        f'{PTYPE!r} exists: the wizard is a CLOSED drawer waiting on an '
+        'affordance this script does not know (visibility:hidden, parked '
+        f'past the viewport at every size tried, max {MAX_W}x{MAX_H}). '
+        'Open it from the screenshot and note WHICH control did it, then '
+        'teach the helper that control — do not hand-drive the upload.'
     )
 
 box = inputs[0]
@@ -503,7 +758,7 @@ if not clicked:
 # back is what separates "this category does not exist" from "my text
 # never got there" — the confusion that produced the F1 report.
 cdp('Input.insertText', text=PTYPE)
-time.sleep(3)
+_wait(3, 'the keyword search query')
 landed = _keyword_value()
 out['landed'] = landed
 if not landed or _norm(PTYPE) not in _norm(landed):
@@ -521,7 +776,7 @@ for t in ('keyDown', 'keyUp'):
         code='Enter',
         windowsVirtualKeyCode=13,
     )
-time.sleep(6)
+_wait(6, 'the product-type result list')
 # The page's OWN result list decides what was found: rows are matched on
 # their labels (a Chinese console still carries the English product-type
 # name) and the pick is reported, never guessed. The old code clicked the
@@ -549,10 +804,30 @@ sel_ok, vp = _click_box(row['btn'])
 if not sel_ok:
     _fail(
         f'the row for {out["picked"]!r} is not clickable at viewport '
-        f'{vp["w"]} (its Select is off-screen: {row["btn"]}) — widen '
-        'with GENERATOR_WIDTH and re-run; NOTHING was selected.'
+        f'{vp["w"]}x{vp["h"]} (its Select is off-screen: {row["btn"]}) — '
+        'widen with GENERATOR_WIDTH and re-run; NOTHING was selected.'
     )
-time.sleep(4)
+# Did the page notice? Generate stays disabled until a product type is
+# chosen, so its enabled state — not the fact that a click was sent — is
+# what proves the row was selected. Without this the next step would
+# click a dead button and report "no .xlsm landed".
+_deadline = min(time.time() + 20, _T0 + _BUDGET - MARGIN - RESERVE)
+chosen = False
+while time.time() < _deadline:
+    chosen = not _generate_state()['disabled']
+    if chosen:
+        break
+    time.sleep(1.5)
+out['selected'] = chosen
+if not chosen:
+    _fail(
+        f'the Select click for {out["picked"]!r} did not register: '
+        f'{json.dumps(_generate_state())} — the page still reports '
+        'Generate Spreadsheet as DISABLED, which is what it says while no '
+        'product type is chosen. The row matched and was clicked at '
+        f'{row["btn"]}; nothing was generated or downloaded. Re-run, or '
+        'select it from the screenshot.'
+    )
 # The viewport the wizard became reachable in stays in force for the rest
 # of the run (the chooser set it tall as well as wide) — re-narrowing it
 # here is what pushed the modal's own controls back off-screen.
@@ -576,7 +851,7 @@ js(
     'if(!on) e.click();}'
     'return "stores set";'
 )
-time.sleep(2)
+_wait(2, 'the store checkboxes')
 states, tgt, needs_click = _target_unticked()
 tick_unreachable = False
 for _attempt in range(2):
@@ -629,7 +904,11 @@ elif not _click_text('^(generate spreadsheet|生成电子表格)$'):
     )
 else:
     template = None
-    for _ in range(25):
+    # Bounded by the wrapper's clock, not by a blind 25 tries: this is the
+    # last step, so whatever time is left is the wait, and running out of
+    # it is reported as what it is instead of the process vanishing.
+    _stop = _T0 + _BUDGET - MARGIN
+    while time.time() < _stop:
         time.sleep(1)
         cands = [
             p
@@ -651,6 +930,18 @@ else:
     out['template'] = template
     out['ok'] = bool(template)
     if not template:
-        out['reason'] = 'Generate clicked but no new .xlsm landed in ' + DL
+        out['budget'] = {
+            'limit': _BUDGET,
+            'used': round(time.time() - _T0, 1),
+            'needed': None,
+            'reserve': RESERVE,
+            'at': 'waiting for the generated .xlsm',
+        }
+        out['reason'] = (
+            'Generate clicked but no new .xlsm landed in ' + DL
+            + f' before the wrapper budget ({_BUDGET:.0f}s) ran out — '
+            'the feed may still be building; re-run, or check that '
+            'directory before concluding anything.'
+        )
         capture_screenshot()
     print('RESULT ' + json.dumps(out))
