@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import shutil
 
 from app import ads_routing
 from app.ai.base import AIAgentBackend
@@ -129,6 +130,25 @@ class ClaudeCodeBackend(AIAgentBackend):
                             store.id,
                             task_id,
                         )
+
+            # The task can be deleted while its launch waits (semaphore,
+            # skill deps, workspace copy): a task still pending may be
+            # deleted, and an agent started for it then has no row to
+            # report to and nothing can stop it (observed: a task deleted
+            # right after creation got an agent that ran on for minutes).
+            async with async_session() as db:
+                gone = await db.get(Task, task_id) is None
+            if gone:
+                logger.info(
+                    'Task %s was deleted before its agent started',
+                    task_id[:8],
+                )
+                await asyncio.to_thread(
+                    shutil.rmtree, task_dir, ignore_errors=True
+                )
+                self._in_flight -= 1
+                self._semaphore.release()
+                return False
 
             session = AgentSession(
                 task_id,

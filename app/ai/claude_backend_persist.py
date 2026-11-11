@@ -7,6 +7,7 @@ limit; methods here reference attributes initialised by
 ``AgentSession.__init__``.
 """
 
+import asyncio
 from datetime import UTC, datetime
 import json
 import logging
@@ -43,10 +44,14 @@ class _PersistMixin:
                         self.task_id[:8],
                     )
                 else:
+                    # The task was deleted as this agent started (the
+                    # launcher's check and the spawn are not atomic). No
+                    # row means nothing can report or stop it: stop now.
                     logger.warning(
-                        'Cannot persist session_id for %s: task not found',
+                        'Task %s not found at agent start; stopping it',
                         self.task_id[:8],
                     )
+                    asyncio.create_task(self.stop())
         except Exception:
             logger.warning(
                 'Failed to persist session_id early for %s',
