@@ -15,7 +15,7 @@ import httpx
 from playwright.sync_api import Page, expect
 import pytest
 
-from tests.e2e import fail_fast
+from tests.e2e import fail_fast, own_server
 import tests.e2e.e2e_helpers as e2e_helpers
 from tests.e2e.e2e_helpers import (
     BASE_URL,  # noqa: F401 — re-exported: the shared-server modules
@@ -181,6 +181,22 @@ def _setup_worker_profile():
     e2e_helpers.DEFAULT_PROFILE_ID = e2e_helpers.setup_worker_profile(
         e2e_helpers.BASE_URL, providers[worker_num], worker
     )
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _no_owned_server_outlives_the_run():
+    """Every server this worker owned is stopped before it reports done.
+
+    Session scope, so it finalises AFTER every module fixture — which is
+    where ``owned_agent_stack`` stops its server. A server left running
+    keeps its port, keeps writing its log, and leaves its pid file for
+    the next session (or the next stop script) to act on; the module
+    that forgot to stop it looks fine, and the symptom shows up later
+    somewhere else. Checks only, never signals, and the shared server's
+    port is skipped — see ``own_server``.
+    """
+    yield
+    own_server.assert_no_owned_server_leaked()
 
 
 @pytest.fixture(scope='module')

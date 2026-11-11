@@ -37,10 +37,11 @@ import subprocess
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
-from tests.e2e import e2e_helpers, test_catalog_sync
+from tests.e2e import e2e_helpers, own_server, test_catalog_sync
 from tests.e2e.own_server import (
     OwnServer,
     assert_owned_port,
@@ -689,3 +690,91 @@ def test_stopping_an_owned_server_frees_its_port(tmp_path, monkeypatch):
     finally:
         parent.kill()
         subprocess.run(['pkill', '-P', str(parent.pid)], check=False)
+
+
+# ── The session-end leak check (Brief r8 item 5) ──────────────────
+
+
+def test_a_leaked_owned_server_fails_the_session_end_check(
+    tmp_path, monkeypatch
+):
+    """A server this worker started must be gone when the run ends.
+
+    Two shapes of "still around": the port still answers, and the
+    ``.pids_<port>`` file ``start.sh`` wrote is still there. Both name
+    the URL and the path, because the symptom of a leak is someone
+    else's "port is already in use" minutes later — or a ``stop.sh``
+    acting on a pid file whose server outlived its test.
+    """
+    listener = socket.socket()
+    listener.bind(('127.0.0.1', 0))
+    listener.listen()
+    port = listener.getsockname()[1]
+    try:
+        monkeypatch.setattr(
+            own_server, '_STARTED', [OwnServer(port=port, home=tmp_path)]
+        )
+        with pytest.raises(AssertionError, match='still listening'):
+            own_server.assert_no_owned_server_leaked()
+    finally:
+        listener.close()
+        monkeypatch.setattr(own_server, '_STARTED', [])
+
+    idle = pick_free_port()
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / f'.pids_{idle}').write_text('12345')
+    monkeypatch.setattr(
+        own_server, '_STARTED', [OwnServer(port=idle, home=tmp_path)]
+    )
+    with pytest.raises(AssertionError, match=r'\.pids_'):
+        own_server.assert_no_owned_server_leaked()
+
+
+def test_a_stopped_owned_server_passes_the_session_end_check(
+    tmp_path, monkeypatch
+):
+    """Stopped is silence — and the list empties, so the check is once.
+
+    The check reports leaks, not clean work: if it fired on a server
+    that WAS stopped (its port free, its pid file unlinked) every run
+    would end red and nobody would read it.
+    """
+    port = pick_free_port()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        own_server, '_STARTED', [OwnServer(port=port, home=tmp_path)]
+    )
+    own_server.assert_no_owned_server_leaked()
+    assert own_server._STARTED == []
+
+
+def test_the_session_end_check_never_touches_the_shared_server(
+    tmp_path, monkeypatch
+):
+    """The shared server is not this worker's to police.
+
+    ``OwnServer`` refuses its port on the way in, so a real leak list
+    cannot name it — and the check skips that port anyway: the shared
+    server is SUPPOSED to outlive a test session, so a check that
+    counted it would fail every run of the tier for the one server no
+    test owns.
+    """
+    listener = socket.socket()
+    listener.bind(('127.0.0.1', 0))
+    listener.listen()
+    port = listener.getsockname()[1]
+    shared_entry = SimpleNamespace(
+        port=port,
+        base_url=f'http://127.0.0.1:{port}',
+        _pidfile=Path('/does-not-exist'),
+    )
+    try:
+        monkeypatch.setattr(own_server, 'shared_port', lambda: port)
+        monkeypatch.setattr(own_server, '_STARTED', [shared_entry])
+        own_server.assert_no_owned_server_leaked()
+    finally:
+        listener.close()
+        monkeypatch.setattr(own_server, '_STARTED', [])
+
+    with pytest.raises(ValueError, match='SHARED'):
+        OwnServer(port=port, home=tmp_path)

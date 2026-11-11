@@ -116,6 +116,50 @@ def owned_agent_stack(tmp_path_factory, name: str, env: dict | None = None):
         server.stop()
 
 
+#: Every server THIS process started, kept for the session-end leak
+#: check (:func:`assert_no_owned_server_leaked`). A per-process list is
+#: exactly right under xdist: each worker owns the servers it started,
+#: and the worker that leaked one is the one that says so.
+_STARTED: list['OwnServer'] = []
+
+
+def assert_no_owned_server_leaked() -> None:
+    """Fail loudly if a server this worker started is still around.
+
+    A server that outlives the run holds its port, keeps writing to its
+    ``logs/backend_<port>.log``, and leaves ``.pids_<port>`` behind for
+    the next ``./stop.sh`` — or the next test session — to act on. The
+    module fixtures stop their servers today, so this is not a fix for a
+    leak seen; it is the check that keeps a future fixture that forgets
+    ``stop()`` from silently becoming one, since the symptom shows up
+    much later and somewhere else.
+
+    It only ever LOOKS (a connect probe and a file check): it never
+    signals a process, and the shared server's port is refused by
+    :func:`assert_owned_port` on the way in, so there is nothing here
+    that could touch it.
+    """
+    leaked = []
+    for server in _STARTED:
+        if int(server.port) == shared_port():
+            # Not ours to police, and it is SUPPOSED to outlive the
+            # run: counting it would fail every session of the tier.
+            continue
+        holding = []
+        if _listening(server.port):
+            holding.append('still listening')
+        if server._pidfile.exists():
+            holding.append(f'{server._pidfile} still there')
+        if holding:
+            leaked.append(f'{server.base_url} ({", ".join(holding)})')
+    if leaked:
+        raise AssertionError(
+            'owned e2e servers outlived the run — a module fixture '
+            'started them and never stopped them: ' + '; '.join(leaked)
+        )
+    _STARTED.clear()
+
+
 class OwnServer:
     """One test-owned server: its own port, its own home, its own pid."""
 
@@ -209,6 +253,10 @@ class OwnServer:
                 f'{(done.stdout or "")[-1500:]}{(done.stderr or "")[-1500:]}'
             )
         self.wait_health()
+        # Booked as soon as it is up: the session-end check reports the
+        # servers this worker started, whether or not their fixture got
+        # as far as calling stop().
+        _STARTED.append(self)
 
     def wait_health(self, timeout: float = 60) -> None:
         deadline = time.time() + timeout
