@@ -29,7 +29,10 @@ on:
       - '.github/workflows/sync-upgrade.yml'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  # A literal, not github.workflow: inside workflow_call that is the
+  # CALLER's name, and two reusable gates of one release would share a
+  # group and cancel each other.
+  group: sync-upgrade-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
