@@ -17,7 +17,7 @@ import json
 import logging
 
 from fastapi import HTTPException
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.stop_gates import contradiction_banner, record_attempt
@@ -37,11 +37,19 @@ class SetTaskResultRequest(BaseModel):
     """A submission: the deliverable TEXT, or a DECLARED file holding it.
 
     ``result`` and ``result_file`` are alternatives — exactly one must be
-    sent. Which of the two an agent means is its own statement; the
-    server no longer guesses from the string's shape (no-space + ``.md``
-    used to be refused as a "dangling pointer", which punished plain
-    text results like ``report.md`` or ``/2025-Q3`` with a 400 and no
-    round limit).
+    sent, which ``resolve_submitted_result`` enforces (a 400 naming both
+    fields, like the endpoint's other contract errors). Which of the two
+    an agent means is its own statement; the server no longer guesses from
+    the string's shape (no-space + ``.md`` used to be refused as a
+    "dangling pointer", which punished plain text results like
+    ``report.md`` or ``/2025-Q3`` with a 400 and no round limit).
+
+    The rule is NOT a pydantic validator on purpose: this model is also
+    built field-by-field by the surrogate-sanitization sweep
+    (``tests/unit/test_text_utils.py``) and by any partial body an
+    operator's tooling might post, and a model that refuses to exist
+    without a deliverable makes those checks fail for a reason that has
+    nothing to do with what they test.
     """
 
     result: SafeStr | None = None
@@ -55,17 +63,6 @@ class SetTaskResultRequest(BaseModel):
     # which means unrecoverable failure and was being used as an
     # escape hatch because it was the only door out.
     incomplete: list[SafeStr] | None = None
-
-    @model_validator(mode='after')
-    def _exactly_one_source(self):
-        """Reject a submission that names neither or both deliverables."""
-        if (self.result is None) == (self.result_file is None):
-            raise ValueError(
-                'pass exactly one of `result` (the text itself) or '
-                '`result_file` (a file inside the task workspace) — '
-                'not both, not neither'
-            )
-        return self
 
 
 logger = logging.getLogger(__name__)
@@ -151,6 +148,24 @@ async def resolve_submitted_result(
     Whether a submission points at a file is now something the agent
     states.
     """
+    if (raw is None) == (result_file is None):
+        sent = [
+            name
+            for name, value in (
+                ('result', raw),
+                ('result_file', result_file),
+            )
+            if value is not None
+        ]
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                'pass exactly one of `result` (the text itself) or '
+                '`result_file` (a file inside the task workspace) — not '
+                'both, not neither. '
+                + ('Neither was sent.' if not sent else f'Sent: {sent}.')
+            ),
+        )
     if result_file is not None:
         target = resolve_declared_result_path(result_file, task_root)
         if target is None:

@@ -199,12 +199,25 @@ class TestResolveSubmittedResult:
         assert got.startswith('# 广告优化建议')
         assert from_file is True
 
-    async def test_both_fields_prefer_the_declaration(self, tmp_path):
-        # The request model rejects both; the resolver must still have a
-        # defined answer if one ever reaches it: the declaration wins.
+    async def test_naming_both_deliverables_is_refused(self, tmp_path):
+        """Ambiguity is not resolved by preference — the agent restates.
+
+        Silently picking one would make the submission's meaning depend on
+        which field the server liked, which is the same guess this fix
+        removed.
+        """
         root = _root(tmp_path)
-        got, from_file = await resolve_submitted_result(
-            'plain text', './AD_AUDIT_2099-01-01.md', root
-        )
-        assert from_file is True
-        assert got != 'plain text'
+        with pytest.raises(HTTPException) as exc:
+            await resolve_submitted_result(
+                'plain text', './AD_AUDIT_2099-01-01.md', root
+            )
+        assert exc.value.status_code == 400
+        assert 'not both, not neither' in str(exc.value.detail)
+        assert 'result' in str(exc.value.detail)
+
+    async def test_naming_neither_deliverable_is_refused(self, tmp_path):
+        root = _root(tmp_path)
+        with pytest.raises(HTTPException) as exc:
+            await resolve_submitted_result(None, None, root)
+        assert exc.value.status_code == 400
+        assert 'Neither was sent.' in str(exc.value.detail)

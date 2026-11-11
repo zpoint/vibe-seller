@@ -160,16 +160,20 @@ class TestDeclaredResultFile:
         gate.set()
         await wait_for_task(admin_client, task_id)
 
-    async def test_sending_neither_deliverable_is_a_validation_error(
+    async def test_sending_neither_deliverable_is_refused(
         self, admin_client, install_fake_agent
     ):
+        """400, naming both fields — the endpoint's own contract error,
+        not a pydantic 422: the request model stays constructible without
+        a deliverable so partial bodies stay testable."""
         task_id, gate = await _running_task(
             admin_client, install_fake_agent, 'Decl Store F'
         )
         r = await admin_client.post(
             f'/api/tasks/{task_id}/result', json={'incomplete': ['x']}
         )
-        assert r.status_code == 422, r.text
+        assert r.status_code == 400, r.text
+        assert 'exactly one' in r.text
 
         gate.set()
         await wait_for_task(admin_client, task_id)
