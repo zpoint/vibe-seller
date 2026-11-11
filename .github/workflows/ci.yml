@@ -488,5 +488,19 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: e2e-server-logs
-          path: ~/.vibe-seller/logs/*.log
+          # TWO places, because the tier runs TWO kinds of server:
+          #   * the SHARED server, started by `vibe-seller start`, whose
+          #     daemon stdout/stderr the CLI captures into the runtime
+          #     home's logs/backend_<port>.log;
+          #   * every server a test OWNS (tests/e2e/own_server.py) is
+          #     started through ./start.sh, which exports
+          #     LOG_DIR="<checkout>/logs" — its backend_<port>.log and
+          #     backend_stdout_<port>.log land in the repo's logs/ (the
+          #     shared server's own app log does too, since LOG_DIR is
+          #     unset there and defaults to the checkout). Without this
+          #     path an owned server's log is lost exactly when its test
+          #     failed.
+          path: |
+            ~/.vibe-seller/logs/*.log
+            logs/*.log
           retention-days: 14
