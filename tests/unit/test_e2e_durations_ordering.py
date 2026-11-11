@@ -28,7 +28,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import time
 
 import pytest
 
@@ -52,13 +51,6 @@ SLEEPS = {
 }
 LONGEST = 'test_c03'
 WORKERS = 3
-#: Longest-first on these durations, 3 workers: the heaviest worker
-#: carries 1.5 + 0.7 + 0.2 = 2.4s; the floor is work / workers = 2.1s.
-LPT_BOUND_S = 2.4
-#: Three xdist workers boot before anything runs. Generous on purpose:
-#: the ordering claims below are positional, this one only catches a
-#: schedule that is plainly not longest-first.
-SLACK_S = 4.0
 
 _CONFTEST = '''"""Reuse the tier's own ordering hook — not a copy of it."""
 
@@ -100,7 +92,10 @@ _STARTS = os.environ.get('R8_STARTS')
 def _started(name: str) -> None:
     if _STARTS:
         with open(_STARTS, 'a', encoding='utf-8') as handle:
-            handle.write(f'{{time.monotonic():.4f}} {{name}}' + chr(10))
+            worker = os.environ.get('PYTEST_XDIST_WORKER', 'main')
+            handle.write(
+                f'{{time.monotonic():.4f}} {{worker}} {{name}}' + chr(10)
+            )
 
 
 {tests}
@@ -208,37 +203,34 @@ def _durations_file(tmp_path: Path, root: Path, env: dict[str, str]) -> Path:
     return path
 
 
-def _start_positions(tmp_path: Path) -> list[str]:
-    """Test names in the order they actually STARTED, across workers.
+def _first_on_each_worker(tmp_path: Path) -> set[str]:
+    """The test each worker ran FIRST.
 
-    ``time.monotonic()`` is a system clock, so timestamps from separate
-    worker processes compare directly. Ties (workers starting tests in
-    the same instant) are resolved by name, which keeps the list
-    reproducible; the assertions below only ever look at positions.
+    ``--dist load`` hands each worker its tests in collection order, so
+    whichever worker received the longest test runs it before anything
+    else -- however slowly the workers booted. Nothing here compares
+    clocks across processes or against a bound.
     """
-    rows = []
+    first: dict[str, tuple[float, str]] = {}
     for line in (
         (tmp_path / 'starts.txt').read_text(encoding='utf-8').splitlines()
     ):
         if not line.strip():
             continue
-        stamp, name = line.split()
-        rows.append((float(stamp), name))
-    assert len(rows) == len(SLEEPS), rows
-    return [name for _, name in sorted(rows)]
+        stamp, worker, name = line.split()
+        if worker not in first or float(stamp) < first[worker][0]:
+            first[worker] = (float(stamp), name)
+    return {name for _, name in first.values()}
 
 
-def _run_ordered(root: Path, env: dict[str, str]) -> float:
-    """The suite the way CI runs the tier; returns the wall seconds."""
-    started = time.monotonic()
+def _run_ordered(root: Path, env: dict[str, str]) -> None:
+    """The suite the way CI runs the tier."""
     done = _pytest(
         root,
         ['-n', str(WORKERS), '--dist', 'load', '--maxschedchunk', '1'],
         env,
     )
-    wall = time.monotonic() - started
     assert done.returncode == 0, done.stdout[-3000:] + done.stderr[-2000:]
-    return wall
 
 
 def test_measured_durations_order_the_collection_longest_first(tmp_path):
@@ -265,36 +257,28 @@ def test_measured_durations_order_the_collection_longest_first(tmp_path):
     ]
 
 
-def test_the_longest_test_starts_in_the_first_half(tmp_path):
+def test_the_longest_test_is_the_first_its_worker_runs(tmp_path):
     """Under ``load`` the ordering reaches the workers, not just the log.
 
-    The bound is deliberately loose — the FIRST HALF of the run, not
-    "one of the first three". Which worker fetches first is a race
-    between three process boots, and xdist keeps two tests pending per
-    worker even with ``--maxschedchunk 1``, so a slow-booting worker can
-    take a later slice; an assertion on the exact first batch would be a
-    test that fails when the machine is busy. The comparison that is not
-    timing-sensitive is against the control below: ordered, the 1.5s
-    test starts in the first half; unordered, it starts LAST.
+    The worker that receives the 1.5s test runs it before anything else.
+    Asserted per worker, not on the global start order or the wall time:
+    those depend on which worker booted first and on machine load (a wall
+    bound here failed on a busy machine), this does not.
     """
     root = _suite(tmp_path)
     durations = _durations_file(tmp_path, root, _env(tmp_path, None, root))
-    wall = _run_ordered(root, _env(tmp_path, durations, root))
+    _run_ordered(root, _env(tmp_path, durations, root))
 
-    started = _start_positions(tmp_path)
-    assert started.index(LONGEST) < len(SLEEPS) // 2, started
-    assert wall <= LPT_BOUND_S + SLACK_S, (
-        f'{wall:.1f}s wall against a {LPT_BOUND_S}s longest-first bound'
-    )
+    assert LONGEST in _first_on_each_worker(tmp_path)
 
 
 def test_no_durations_file_means_no_reordering(tmp_path):
     """NEGATIVE CONTROL: no measurements, collection order runs.
 
-    Same suite, same scheduler, no durations file. The 1.5s test — the
-    one that leads when the ordering is on — starts LAST, and the wall
-    time is not below the ordered run's bound-plus-nothing. If this ever
-    looks like longest-first, the test above is proving nothing.
+    Same suite, same scheduler, no durations file. The 1.5s test -- the
+    one that leads when the ordering is on -- is collected last, so no
+    worker runs it first. If this ever looks like longest-first, the test
+    above is proving nothing.
     """
     root = _suite(tmp_path)
     env = _env(tmp_path, None, root)
@@ -302,5 +286,4 @@ def test_no_durations_file_means_no_reordering(tmp_path):
 
     collected = _collected_order(tmp_path)
     assert collected[0] == 'test_a01', collected
-    started = _start_positions(tmp_path)
-    assert started.index(LONGEST) >= len(SLEEPS) - WORKERS, started
+    assert LONGEST not in _first_on_each_worker(tmp_path)
