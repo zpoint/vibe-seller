@@ -489,12 +489,9 @@ TOOLS = [
                     ),
                 },
             },
-            # One of the two deliverable fields, never a guess from the
-            # text's shape — see app/routers/task_submission.py.
-            'anyOf': [
-                {'required': ['result']},
-                {'required': ['result_file']},
-            ],
+            # Exactly one of the two deliverable fields is enforced by the
+            # handler (app/routers/task_submission.py), not here: the API
+            # rejects a top-level anyOf and the tool silently disappears.
         },
     },
     {
