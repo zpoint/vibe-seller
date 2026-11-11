@@ -158,10 +158,26 @@ earlier page is not that reason.
 
 If a helper misses on timing, re-run it with its env knobs before
 hand-driving: `bh_upload_flatfile.py` takes `UPLOAD_LOAD_WAIT` (default
-15 s) and `UPLOAD_INTROSPECT_WAIT` (default 12 s). Fall back to hand
-exploration only for a structural reason the helper names (widget absent,
-region-stamp mismatch), and prefer fixing the input (regenerate the
-template, fix the spec) over hand-clicking.
+15 s) and `UPLOAD_INTROSPECT_WAIT` (default 12 s); `bh_download_template.py`
+takes `GENERATOR_WIDTH=<px>` when the wizard's own controls sit outside
+the emulated viewport.
+
+A `PRODUCT_TYPE` is a plain-language query — "phone case", 手机壳, the
+category words you would type into Seller Central. The helper matches it
+against **the page's own result rows** (a Chinese console still labels
+each row with its English product type too) and reports which one it
+picked. Read the failure fields before deciding what went wrong:
+`landed` is the keyword read back out of the search box, `viewport` /
+`tried` are the measurements behind each click, and `candidates` lists
+the product types the page actually offered. `never clickable at any
+viewport tried` is a WINDOW problem — re-run with `GENERATOR_WIDTH`, or
+widen the store browser — and says NOTHING about whether the category
+exists; `matches none of the N product types the page offered: …` means
+re-run with one of those labels. The helper will not pick a category you
+did not name. Fall back to hand exploration only for a structural reason
+the helper names (widget absent, region-stamp mismatch, an unreachable
+control), and prefer fixing the input (regenerate the template, fix the
+spec) over hand-clicking.
 
 ```bash
 S=.claude/skills/amazon-listing/scripts
