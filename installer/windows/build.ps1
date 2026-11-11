@@ -251,7 +251,9 @@ function Get-ChineseLang {
   # build still succeeds.
   Step 'Fetching Simplified Chinese wizard translation (best-effort)'
   $dest = "$PSScriptRoot\ChineseSimplified.isl"
-  $url = 'https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl'
+  # Pinned to the tag of the Inno Setup we compile with (6.7.x): `main`
+  # moves (7.0 moved this file out of Unofficial/, so main 404'd).
+  $url = 'https://raw.githubusercontent.com/jrsoftware/issrc/is-6_7_1/Files/Languages/Unofficial/ChineseSimplified.isl'
   try {
     Invoke-WebRequest -Uri $url -OutFile $dest
   } catch {
