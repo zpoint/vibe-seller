@@ -1,4 +1,5 @@
 import { buildConversationItems } from '../lib/conversation'
+import { LONG_TIMEOUT_MS, type RequestOptions } from '../lib/requestDeadline'
 import type { Task, TaskStep, TodoItem, AgentMessage, ConversationItem, StagedAttachment, ImageModelOption } from '../types'
 
 interface PendingQuestions {
@@ -7,7 +8,7 @@ interface PendingQuestions {
 }
 
 export interface LoadTaskDeps {
-  api: { get(url: string): Promise<unknown> }
+  api: { get(url: string, opts?: RequestOptions): Promise<unknown> }
   // Monotonic token ref shared with App: each call claims the next value;
   // a load only applies its state while it is still the current one.
   seqRef: React.MutableRefObject<number>
@@ -24,6 +25,17 @@ export interface LoadTaskDeps {
   setPendingQuestions: (v: PendingQuestions | null) => void
   setConversationItems: (v: ConversationItem[]) => void
   setSteps: (v: TaskStep[]) => void
+  /** What is on screen now. The load clears the conversation and the
+   *  pending question when it starts, so anything here when its fetches
+   *  resolve arrived live (SSE) for this task while they were in flight. */
+  liveItems?: () => ConversationItem[]
+  livePendingQuestions?: () => PendingQuestions | null
+  /** The task and its detail (transcript, steps, pending question /
+   *  image card) all loaded. */
+  onLoaded?: () => void
+  /** The task could not be loaded — error, unreachable, or past the
+   *  request deadline. Only reported while this load is still current. */
+  onLoadError?: (err: unknown) => void
 }
 
 /**
@@ -46,7 +58,14 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
   const fresh = () => deps.seqRef.current === seq
 
   let fullTask: Task
-  try { fullTask = (await api.get(`/api/tasks/${taskId}`)) as Task } catch { return }
+  try {
+    fullTask = (await api.get(`/api/tasks/${taskId}`)) as Task
+  } catch (err) {
+    // Report it: returning silently left the previous task (or the
+    // empty hint) on screen, as if the click had done nothing.
+    if (fresh()) deps.onLoadError?.(err)
+    return
+  }
   if (!fresh()) return
   // Switch the selection AND clear ALL of the previous task's detail up
   // front — conversation and steps included. On a high-latency link the
@@ -55,6 +74,7 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
   // as "nothing happened" until the new data lands. Clear now → the pane
   // flips to the new task immediately and fills in as data arrives.
   deps.setSelectedTask(fullTask)
+  const clearedAt = new Date().toISOString()
   deps.setLogs([]); deps.setScreenshots({}); deps.setAgentMessages([])
   deps.setConversationItems([]); deps.setSteps([])
   if (fullTask.todos) { try { deps.setTodoItems(JSON.parse(fullTask.todos)) } catch { deps.setTodoItems([]) } } else { deps.setTodoItems([]) }
@@ -68,15 +88,43 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
     pending?: boolean; request_id: string; prompt?: string; model?: string
     models?: ImageModelOption[]; reference_images?: string[]; output_name?: string; kind?: string
   }
-  const [q, msgs, stepsData, pendingImg] = await Promise.all([
-    api.get(`/api/tasks/${fullTask.id}/questions/pending`).catch(() => null) as Promise<({ pending?: boolean } & PendingQuestions) | null>,
-    api.get(`/api/tasks/${taskId}/messages`).catch(() => []) as Promise<{ role: string; content: string }[]>,
-    api.get(`/api/tasks/${taskId}/steps`).catch(() => []) as Promise<TaskStep[]>,
-    api.get(`/api/tasks/${taskId}/image/pending`).catch(() => null) as Promise<PendingImage | null>,
-  ])
+  // A failed piece fails the load: substituting [] / null opened the
+  // task with an EMPTY conversation (or without its pending question)
+  // and no sign anything was missing. The transcript is unpaginated, so
+  // on a long task it gets the long deadline (steps ride along with it).
+  let detail: [
+    ({ pending?: boolean } & PendingQuestions) | null,
+    { role: string; content: string }[],
+    TaskStep[],
+    PendingImage | null,
+  ]
+  try {
+    detail = await Promise.all([
+      api.get(`/api/tasks/${fullTask.id}/questions/pending`) as Promise<({ pending?: boolean } & PendingQuestions) | null>,
+      api.get(`/api/tasks/${taskId}/messages`, { timeoutMs: LONG_TIMEOUT_MS }) as Promise<{ role: string; content: string }[]>,
+      api.get(`/api/tasks/${taskId}/steps`, { timeoutMs: LONG_TIMEOUT_MS }) as Promise<TaskStep[]>,
+      api.get(`/api/tasks/${taskId}/image/pending`) as Promise<PendingImage | null>,
+    ])
+  } catch (err) {
+    if (fresh()) deps.onLoadError?.(err)
+    return
+  }
   if (!fresh()) return
+  const [q, msgs, stepsData, pendingImg] = detail
 
-  deps.setPendingQuestions(q?.pending ? { request_id: q.request_id, questions: q.questions } : null)
+  // A confirm card or question that arrived over SSE while the fetches
+  // were in flight is not in their answers (observed: /image/pending
+  // answered before the agent's request, the card was appended live, and
+  // the set below replaced it — the agent then waited on a card nobody
+  // saw). Only cards appended after this load cleared the pane count.
+  const live = (deps.liveItems?.() ?? []).filter(it =>
+    (it.type === 'image_request' || it.type === 'question') && it.timestamp >= clearedAt)
+  const liveQ = deps.livePendingQuestions?.() ?? null
+  deps.setPendingQuestions(
+    q?.pending
+      ? { request_id: q.request_id, questions: q.questions }
+      : liveQ && live.some(it => it.id === `question-${liveQ.request_id}`) ? liveQ : null,
+  )
   deps.setAgentMessages(msgs.map(m => ({ role: m.role, content: m.content })))
   const convItems = buildConversationItems(msgs, fullTask)
   // Re-render a still-pending image-confirm card (the SSE image_request
@@ -99,8 +147,11 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
       },
     })
   }
+  const have = new Set(convItems.map(i => i.id))
+  for (const it of live) if (!have.has(it.id)) convItems.push(it)
   deps.setConversationItems(convItems)
   deps.setSteps(stepsData)
+  deps.onLoaded?.()
 
   for (const s of stepsData) {
     // Bail the whole loop the moment a newer selection supersedes this

@@ -7,16 +7,19 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import vision
+from app import knowledge_contract, vision
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
 from app.events.bus import event_bus
+from app.knowledge_contract import cleanup_scope
 from app.models.schedule import Schedule
 from app.models.schedule_constants import StalenessCheck
 from app.models.store import Store
 from app.models.task import Task
 from app.plugins import registered_prompt_fragments
 from app.prompts import (
+    CATALOG_CLEANUP_PROMPT_L2,
+    CATALOG_CLEANUP_PROMPT_L3,
     CATALOG_RESTRICTION_PROMPT_L2,
     CATALOG_RESTRICTION_PROMPT_L3,
     DESIGN_SYSTEM_PROMPT,
@@ -39,7 +42,6 @@ from app.task_runner_context import (
 )
 from app.task_states import TaskStatus, assert_transition
 from app.todos import parse_stored
-from app.workspace.manager import workspace_manager
 
 logger = logging.getLogger(__name__)
 
@@ -154,11 +156,29 @@ async def build_system_extra(
         schedule and schedule.staleness_check == StalenessCheck.CATALOG
     )
     if is_catalog:
-        guidance = (
-            CATALOG_RESTRICTION_PROMPT_L2
-            if task.store_id is None
-            else CATALOG_RESTRICTION_PROMPT_L3
-        )
+        async with async_session() as db:
+            cleanup = await knowledge_contract.needs_cleanup(
+                db, cleanup_scope(task.store_id)
+            )
+        # A scope owing the one-time cleanup gets one prompt that says
+        # what this run may write (app/knowledge_contract.py), in place
+        # of the restriction that would forbid it.
+        if task.store_id is None:
+            guidance = (
+                CATALOG_CLEANUP_PROMPT_L2
+                if cleanup
+                else CATALOG_RESTRICTION_PROMPT_L2
+            )
+        else:
+            guidance = (
+                CATALOG_CLEANUP_PROMPT_L3
+                if cleanup
+                else CATALOG_RESTRICTION_PROMPT_L3
+            )
+            if store is not None:
+                guidance = guidance.replace(
+                    '<slug>', _store_slug(store.name, store.id)
+                )
     else:
         guidance = ''
     base = base.replace('{workspace_guidance}', guidance)
@@ -194,13 +214,6 @@ async def build_system_extra(
     # tool, so a configured task pays zero extra tokens.
     if not vision.get_kie_api_key() and not vision.is_fake():
         parts.append(VISION_SETUP_BREADCRUMB)
-
-    # Reflection reminder — full prompt delivered via Stop hook
-    if not is_catalog:
-        parts.append(
-            'You will be asked to reflect and update knowledge'
-            ' before the session ends — plan accordingly.'
-        )
 
     # Scheduled-task block: tell the agent it's scheduled and
     # point it at the cross-run state tools. Catalog sync jobs
@@ -592,62 +605,6 @@ def format_trigger_context(
         return f'Trigger data: {json.dumps(trigger_data, indent=2)}'
 
     return 'The wait condition has been resolved.'
-
-
-async def sync_store_metadata(store_id: str, db: AsyncSession):
-    """Sync metadata.json → DB platform_countries after task."""
-    try:
-        store = await db.get(Store, store_id)
-        if not store:
-            return
-        slug = _store_slug(store.name, store.id)
-        meta_path = workspace_manager.root / 'stores' / slug / 'metadata.json'
-        if not meta_path.exists():
-            return
-        raw = meta_path.read_text(encoding='utf-8')
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            logger.warning('metadata.json not a dict for %s', slug)
-            return
-        file_platforms = data.get('platforms', {})
-        if not isinstance(file_platforms, dict):
-            logger.warning(
-                'metadata.json platforms not a dict for %s',
-                slug,
-            )
-            return
-
-        # Sanitize + merge
-        existing = (
-            json.loads(store.platform_countries)
-            if store.platform_countries
-            else {}
-        )
-        count = 0
-        for platform, countries in file_platforms.items():
-            if not isinstance(countries, list):
-                continue
-            p = platform.strip().lower()
-            if not p or count >= 50:
-                break
-            cs = []
-            for c in countries:
-                if isinstance(c, str):
-                    cv = c.strip().upper()
-                    if cv and len(cs) < 100:
-                        cs.append(cv)
-            existing.setdefault(p, [])
-            existing[p] = sorted(set(existing[p]) | set(cs))
-            count += 1
-
-        store.platform_countries = json.dumps(existing)
-        await db.commit()
-    except Exception as e:
-        logger.warning(
-            'Metadata sync failed for store %s: %s',
-            store_id,
-            e,
-        )
 
 
 _TERMINAL = {TaskStatus.COMPLETED, TaskStatus.FAILED}

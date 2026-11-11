@@ -61,7 +61,8 @@ import time
 
 import pytest
 
-from app.ai.stop_gates.ad_declaration_checks import actionable_rows
+from app.ai.stop_gates.ad_tables import CHANGE_COLUMNS, CHANGES_FILE, read_table
+from app.config import VIBE_SELLER_DIR
 from tests.e2e.conftest import BASE_URL
 from tests.e2e.e2e_helpers import (
     PIPELINE_TIMEOUT,
@@ -155,12 +156,6 @@ class TestScopeSurvivesAFollowUp:
                 'the browser-use CLI and read the last-30-days summary. '
                 'Just tell me the numbers.'
             ),
-            # Reflection is not what these tests check, and it runs after
-            # the deliverable: up to REFLECTION_BUDGET_S (240 s) plus
-            # wind-down on top of the audit, which pushed a run past its
-            # budget with the scope already proven. Same convention as
-            # the other e2e tests that don't exercise reflection.
-            skip_reflection=True,
         )
         task_id = task['id']
         first = poll_task_status(api_client, task_id, {'completed', 'failed'})
@@ -194,7 +189,7 @@ class TestScopeSurvivesAFollowUp:
         # The answer-off-the-page path still finishes in about a minute.
         # The budget is for the honest job, not for a gate: the review
         # gate's re-drives are bounded by wall clock at the source
-        # (``app/ai/review_redrive.py``), and a follow-up on a completed
+        # (``app/ai/turn_hold_budget.py``), and a follow-up on a completed
         # task is not reviewed at all.
         second = poll_task_status(
             api_client,
@@ -268,7 +263,7 @@ class TestScopeSurvivesAFollowUp:
         assert [d['seq'] for d in decls] == sorted(d['seq'] for d in decls)
         review = decls[-1]
         # The kind is held to what the phase delivered — the one rule the
-        # server enforces about it (``declaration_gaps``). `audit` is the
+        # server enforces about it (``ad_changes``). `audit` is the
         # expected reading of "review the bids", but a review that only
         # lays out the figures and recommends nothing is an honest
         # `investigate`. Observed in CI on MiniMax: exactly that, and the
@@ -276,11 +271,20 @@ class TestScopeSurvivesAFollowUp:
         # happen is `investigate` handing out decisions.
         assert review['kind'] in ('audit', 'investigate'), review
         if review['kind'] == 'investigate':
-            report = results[-1]['content'] or ''
-            moves = actionable_rows([report])
-            assert moves == 0, (
-                f'declared investigate yet recommended {moves} change(s); '
-                f'decisions are an audit: {review}\n{report}'
+            # Decisions live in CHANGES.tsv (the report prose is for
+            # people); anything but `hold` there is a decision.
+            changes = read_table(
+                VIBE_SELLER_DIR / 'tasks' / task_id / CHANGES_FILE,
+                CHANGE_COLUMNS,
+            )
+            moves = [
+                r
+                for r in (changes.rows if changes else ())
+                if r['action'].lower() != 'hold'
+            ]
+            assert not moves, (
+                f'declared investigate yet proposed {len(moves)} change(s); '
+                f'decisions are an audit: {review}\n{moves}'
             )
         assert review['user_turn'] >= 2, (
             f'the review declaration was made on the opening turn, so it '
@@ -350,20 +354,19 @@ class TestAnUnscopedRequestStaysWide:
                 'me a keyword-by-keyword bid recommendation for each one. '
                 f'{SELLER_FACTS}'
             ),
-            skip_reflection=True,  # see the scoped test above
         )
         # An unscoped audit is inherently the slower job — it drills
         # every campaign rather than a named few — so it needs more than
         # the shared pipeline budget.
         #
         # This override used to be doing a second, illegitimate job:
-        # absorbing an UNBOUNDED review gate. The gate's re-drive budget
+        # absorbing an UNBOUNDED turn hold. The hold's re-drive budget
         # was counted in attempts (5), each a full agent turn, so at
         # 100-150s/turn it could spend 500-750s on its own and push any
         # run past any deadline — the scoped test below hit the same
         # cliff once, which is how the real cause was found. That is
-        # fixed at the source (``app/ai/review_redrive.py`` bounds the
-        # gate by wall clock), so what is left here is only the honest
+        # fixed at the source (``app/ai/turn_hold_budget.py`` bounds the
+        # hold by wall clock), so what is left here is only the honest
         # statement that drilling every campaign takes longer than
         # drilling one. If this needs doubling AGAIN, do not: something
         # has become unbounded, and the budget is the place to look.

@@ -21,7 +21,7 @@ Conversational chat on the Workspace page for organizing knowledge via natural l
 - Content: Universal rules (Amazon URLs, Ziniao behavior, skill environment)
 - Read-only: Only maintainer commits change L1
 - Sync: `knowledge_sync.fetch()` on startup, remote check async on task start
-- Catalog: `knowledge/project/CATALOG.md` (maintainer-committed, generated via `generate_catalog.sh`)
+- Catalog: `knowledge/project/CATALOG.md` (maintainer-edited, one row per file)
 
 ### L2: Cross-Store Relationships (local, user/AI-editable)
 
@@ -56,11 +56,9 @@ All three catalog levels use the same shape:
 
 **Relevance** tags a row by platform (`amazon`, `noon`, comma-separated for multiple). Empty Relevance means cross-platform / optional.
 
-The agent prompt (`design_system.md`) treats Relevance as a contract, not a hint:
+The agent prompt (`design_system.md`, Phase 1 — Knowledge Recall) tells the agent to read every row tagged with a platform the task touches before opening that platform; untagged rows are optional. This is prompt guidance — no hook enforces it (`app/ai/catalog_read.py` only records whether the catalog was read, for the PreToolUse plugin-gate signature). The L2/L3 sync prompts (`CATALOG_DESC_L2`/`CATALOG_DESC_L3` in `app/prompts/__init__.py`) preserve the column when copying rows from L1 → L2 → L3. Earlier versions dropped Relevance at L2 generation; that broke the contract.
 
-> For every platform the task touches, the agent MUST read every catalog row whose Relevance column contains that platform before opening any URL on that platform. Empty-Relevance rows are read by judgment.
-
-This is the design fix for "agent cherry-picked the catalog and skipped `noon-sites.md`" — Relevance turns mandatory reads into a deterministic rule. The L2/L3 sync prompts (`CATALOG_DESC_L2`/`CATALOG_DESC_L3` in `app/prompts/__init__.py`) preserve the column when copying rows from L1 → L2 → L3. Earlier versions dropped Relevance at L2 generation; that broke the contract.
+The catalog's **structure** is enforced server-side: a write to `knowledge/CATALOG.md` (L2) or `stores/<slug>/CATALOG.md` (L3) through `PUT /api/workspace/file` — the route behind the agent's `vibe_seller_write_workspace_file` — is validated by `app/workspace/catalog_validation.py` before it lands: accumulation (L2 carries every L1 row, L3 every L2 row, Relevance unchanged), completeness (every tier file exactly once, L3 store files by the filename rules), isolation (no other store's files, no task-output names), format (header, 3 columns, tier path prefixes, Relevance tokens known to the workspace) and the stub contract (a substantive file must be summarized). A violation is a 400 naming the rows to fix — that message is the sync agent's redo instruction.
 
 ```
 ~/.vibe-seller/
@@ -82,15 +80,32 @@ This is the design fix for "agent cherry-picked the catalog and skipped `noon-si
 ### Knowledge Sync
 
 - `knowledge_sync.fetch()`: Copies L1 from package to workspace (runs at startup). Only files listed in `app/knowledge/MANIFEST.txt` are synced; falls back to `rglob` if MANIFEST is missing. `__pycache__` is always excluded.
-- Remote sync: Fetches from `KNOWLEDGE_REPO_URL` (GitHub raw) when commit changes & >24h cooldown
-- Manual sync: `POST /api/workspace/knowledge/sync` (remote only — local sync happens at startup)
+- Remote sync: the central sync scheduler's daily `knowledge` job — a conditional-GET probe, a download only when the repo moved (`app/sync/jobs.py`)
+- Manual sync: `POST /api/sync/knowledge/run` (remote only — local sync happens at startup)
 - Sync state: `GET /api/sync/status` (the `knowledge` job)
 - Files tracked via `MANIFEST.txt` in `app/knowledge/`
 - `get_structured()` filters `__pycache__` from knowledge listings (both project and local)
 
-### Agent Knowledge Writing (Reflection)
+### Agent Knowledge Writing
 
-Agents update knowledge after tasks via `app/prompts/reflection.md`, delivered as a Stop hook block reason post-execution:
+Knowledge is kept correct **in-task**, not in a post-task phase. The
+"Keeping knowledge correct" section of `app/prompts/design_system.md`
+tells the agent, once its result is recorded and before it ends the turn,
+to rewrite stale facts in place (the current value only — no "was stale"
+notes or dates), to add what a different task would need on its first
+try, and to write nothing when it learned nothing. Writes go through
+`vibe_seller_write_workspace_file`.
+
+`knowledge/` and `stores/` are the agents' **only** memory: Claude Code
+auto-memory is off for every agent (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`,
+set by `ProfileManager.get_env_for_profile`), and
+`app/workspace/claude_memory_cleanup.py` purges the auto-memory folders
+at boot. A store's `metadata.json` (its
+platform/country list) is written by the server, never the agent:
+`app/store_metadata.py:sync_store_metadata` records the task's
+platform/country after each store task.
+
+Where knowledge goes:
 
 | What | Where | Level |
 |---|---|---|
@@ -119,11 +134,38 @@ in-task system prompt (`app/task_runner_context.py`) directs report
 writes to the task CWD, but if a leak ever lands at L3 anyway, the
 catalog won't promote it to "first-class store knowledge".
 
+### One-time knowledge cleanup after an upgrade
+
+`app/knowledge_contract.py`. A harness change makes notes written before
+it misleading — a note describing how the platform's checks used to work
+is read before the skills are, and acted on as fact. The base prompt
+keeps such notes from being written and tells an agent to delete one it
+meets; the stock an upgrade leaves behind is cleared **once per scope**,
+inside the nightly catalog-sync task (scope `knowledge` for the global
+L2 run, `store:<id>` for a store's L3 run). The contract each scope was
+last cleaned to lives in server-owned `app_settings`; a scope whose
+record is older than `KNOWLEDGE_CONTRACT` gets one extra instruction in
+its catalog task and runs even when its catalog is current. The record
+is written only when that task COMPLETES — a failed run (out of credits,
+a crash) leaves the scope owing, so the next catalog sync runs it again.
+
+While a cleanup runs, its writes are held to two rules, enforced at the
+`vibe_seller_write_workspace_file` boundary and re-checked after the
+run: **deletion only** — every line kept must already exist, in order
+(nothing added or reworded; a store-rule line like `acos_no_lower: 20`
+is a user-set standard and is never deleted) — and **its own tier** —
+the global run edits `knowledge/` but not the read-only
+`knowledge/project/`, a store's run edits `stores/<slug>/` only. A file
+changed by more than deleting lines is restored from the pre-run
+snapshot, unless someone else wrote it through the endpoint meanwhile —
+their edit is not undone. A run that restored anything leaves the scope
+owing and is retried by the next catalog sync.
+
 ## Skills System
 
-Reusable agent procedures with scripts, bundled in `app/skills/` and synced to `~/.vibe-seller/.claude/skills/`. Skills must be direct children of `skills/` for Claude Code auto-discovery.
+Reusable agent procedures with scripts, bundled in `app/skills_v2/` and synced to `~/.vibe-seller/.claude/skills/`. Skills must be direct children of `skills/` for Claude Code auto-discovery. (`app/skills/` is the frozen legacy tree for clients on browser-use 0.12 — never add files there; see [CLAUDE.md § Skill hosting across release lines](https://github.com/zpoint/vibe-seller/blob/main/CLAUDE.md#skill-hosting-across-release-lines) and [docs/browser-use-0.13-migration.md](browser-use-0.13-migration.md).)
 
-- **Three-tier sync**: local package → workspace `skills/`, remote GitHub via `MANIFEST.txt`, on-demand with 24h cooldown
+- **Three-tier sync**: local package → workspace `skills/`, remote GitHub via `MANIFEST.txt`, driven by the central sync scheduler's daily `skills` job (plus the Sync button) — see `app/sync/scheduler.py`
 - **User skills**: created via UI at `~/.vibe-seller/.claude/skills/{slug}/` (same directory as built-in, distinguished by `.sync_meta.json`)
 - **Import via presigned archive upload**: importing a local skill is `manage_skill(begin_upload)` → raw `PUT` of a `.tar.gz`/`.tar`/`.zip` of the skill dir to the signed one-shot `put_url` (`PUT /api/skill-uploads/{upload_id}`, `app/skill_uploads.py`) → `manage_skill(import, upload_id=…)`. The file BYTES never pass through the agent's LLM (no token cost, no base64 corruption, no emit-size ceiling); the archive is extracted strictly (regular files only, safe names, one common top-level dir stripped, `SKILL.md` at the root) and installed byte-identical, executable bits taken from the archive. The slug derives from the SKILL.md frontmatter `name`
 - **Inline writes stay small**: `PUT /api/workspace/skills/{slug}` (and `update`) carry text `files` (stored as UTF-8), `files_bin` (base64) and `executables` for tiny text-only skills and edits — a real skill import goes through the archive flow above
@@ -139,8 +181,8 @@ Reusable agent procedures with scripts, bundled in `app/skills/` and synced to `
 
 The `amazon-ads-api` skill is not in this repo: it ships from the bound
 ads service, which versions it (a content hash). It is pulled once a store is authorized, at
-boot, and by the same pre-task skills sync as the GitHub skills (24h
-cooldown, `skills_auto_sync_enabled`) and the Sync button; the bundle is
+boot, and by the sync scheduler's daily `ads-skill` job (after the
+GitHub `skills` job) and the Sync button; the bundle is
 downloaded only when the service's version differs. A pulled bundle is
 data: anything but documentation is dropped (`app/ads_skill.py`) — no
 `gates/*.py` or scripts from a remote source ever run here. Revoking the
@@ -175,7 +217,7 @@ schedule over an API store and a console store against a fake service.
 
 Per-store **run artifacts** (reports, captures, exports) live outside the
 knowledge tree so they never surface as knowledge (catalog injection, the
-UI knowledge tab, reflection writes):
+UI knowledge tab, agent knowledge writes):
 
 ```
 ~/.vibe-seller/
@@ -240,14 +282,14 @@ Proxies `POST /api/chat-bots/{id}/send`. Formerly `vibe_seller_send_wecom_messag
 
 ### Adding a Built-in Skill
 
-1. Create `app/skills/my-skill/SKILL.md` with YAML frontmatter (`name`, `description`)
+1. Create `app/skills_v2/my-skill/SKILL.md` with YAML frontmatter (`name`, `description`)
 2. Add implementation files (scripts, `requirements.txt`)
-3. Update `app/skills/MANIFEST.txt` with relative paths to all files
+3. Update `app/skills_v2/MANIFEST.txt` with relative paths to all files
 4. Sync copies files to `~/.vibe-seller/.claude/skills/my-skill/`
 
 ## Optional Integration Bundles
 
-Some third-party SDKs (e.g., the Google Workspace `gws` CLI) ship their own large pool of SKILL.md files. We do **not** vendor them into `app/skills/` — that would bloat every agent's skill index and pull in externally-copyrighted content. Instead, such bundles are opt-in integrations gated by an admin toggle in Settings → Integrations.
+Some third-party SDKs (e.g., the Google Workspace `gws` CLI) ship their own large pool of SKILL.md files. We do **not** vendor them into `app/skills_v2/` — that would bloat every agent's skill index and pull in externally-copyrighted content. Instead, such bundles are opt-in integrations gated by an admin toggle in Settings → Integrations.
 
 ### Google Workspace (`gws`)
 
@@ -270,4 +312,4 @@ Implementation: `app/workspace/gws_integration.py`. Endpoints: `GET /api/setting
 
 **Uninstall** (`uninstall_skills()`): `shutil.rmtree` on `.claude/skills/gws/`. Idempotent. Sibling skills (browser-use, amazon-invoice, user-created) are untouched.
 
-**Sync safety**: `skills_sync.fetch()` only manages dirs that have a matching source in `app/skills/` — `gws/` has no package source, so startup sync never deletes it. The `skills_sync.is_gws_installed()` flag (in `sync_meta.json`) is set by the enable endpoint as a hint for future extensions.
+**Sync safety**: `skills_sync.fetch()` only manages dirs that have a matching source in the bundled skills tree (`app/skills_v2/`) — `gws/` has no package source, so startup sync never deletes it. The `skills_sync.is_gws_installed()` flag (in `sync_meta.json`) is set by the enable endpoint as a hint for future extensions.

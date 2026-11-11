@@ -14,7 +14,10 @@ import pytest
 
 from app.ai.profiles import ProfileManager
 from app.models.app_settings import AppSettings
+from app.models.email_account import EmailAccount
 from app.scheduler.heartbeat import send_install_heartbeat
+from app.sync import state as sync_state
+from app.sync.scheduler import sync_scheduler
 
 pytestmark = pytest.mark.workflow
 
@@ -42,6 +45,8 @@ EXPECTED = {
     'mcp_calls_last_24h': int,
     'ai_custom_providers': list,
     'schedules_fired_7d': int,
+    'email_send_disabled_count': int,
+    'sync_failed_jobs': list,
 }
 
 
@@ -123,6 +128,34 @@ class TestHeartbeatShape:
         assert len(person) == 1
         assert set(props) <= set(person[0])
         assert person[0]['app_version']
+
+
+class TestHeartbeatHealth:
+    async def test_send_disabled_mailboxes_and_failed_sync_jobs(
+        self, override_async_session, isolated_profiles, monkeypatch
+    ):
+        events, _person = _capture(monkeypatch)
+        async with override_async_session() as db:
+            for i, allow in enumerate((True, False, False)):
+                db.add(
+                    EmailAccount(
+                        email=f'box{i}@example.com',
+                        encrypted_password='x',
+                        imap_host='imap.example.com',
+                        allow_send=allow,
+                        created_by='u-1',
+                    )
+                )
+            await db.commit()
+        await sync_state.record('job-a', status='failed', error='boom')
+        await sync_state.record('job-b', status='updated')
+        monkeypatch.setattr(
+            sync_scheduler, '_jobs', {'job-a': object(), 'job-b': object()}
+        )
+        await send_install_heartbeat()
+        beat = next(p for e, p in events if e == 'install_heartbeat')
+        assert beat['email_send_disabled_count'] == 2
+        assert beat['sync_failed_jobs'] == ['job-a']
 
 
 class TestHeartbeatNoLeaks:

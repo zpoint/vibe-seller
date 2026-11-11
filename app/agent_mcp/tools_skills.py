@@ -330,7 +330,9 @@ async def manage_skill(ctx: McpContext, args: dict) -> dict:
         )
 
     if action == 'list':
-        skills = await call_route(workspace_route.list_skills, _user=ctx.user)
+        skills = await call_route(
+            workspace_route.list_skills, task_id=None, _user=ctx.user
+        )
         return {'skills': skills}
 
     if action == 'sync':
@@ -380,7 +382,9 @@ async def manage_skill(ctx: McpContext, args: dict) -> dict:
     if action == 'get':
         # The UI's skill editor reads the SKILL.md through the
         # workspace file route; the metadata comes from list_skills.
-        skills = await call_route(workspace_route.list_skills, _user=ctx.user)
+        skills = await call_route(
+            workspace_route.list_skills, task_id=None, _user=ctx.user
+        )
         meta = next((s for s in skills if s.get('slug') == slug), None)
         if meta is None:
             raise ToolError(f'Skill not found: {slug}')

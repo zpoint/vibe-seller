@@ -311,7 +311,6 @@ async def _fire_finalize(batch_id: str, sched: Schedule) -> None:
             description=_as_text(sched.finalize_description) + _RESULTS_POINTER,
             status=TaskStatus.PENDING,
             plan_mode=False,
-            skip_reflection=True,
             source=TaskSource.SCHEDULE,
             ai_profile_id=await resolve_schedule_profile(sched, db),
         )

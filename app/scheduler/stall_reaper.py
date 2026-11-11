@@ -16,7 +16,7 @@ The terminal status depends on WHEN the stream died:
   The stall is a transport failure, not a task failure — the work
   is done and presenting it as FAILED ("Re-run to retry") tells
   the user to redo a finished job. (Observed: a daily ads audit
-  whose md + review + PDF + reflection all completed, then the
+  whose deliverable was fully complete, then the
   provider dropped the SSE stream post-completion.)
 - **Mid-work** (no declared result) → ``FAILED``, preserving the
   last substantial assistant message as a PARTIAL result.

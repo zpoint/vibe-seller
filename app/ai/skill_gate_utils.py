@@ -24,7 +24,7 @@ def parse_skill_gates(skill_md_path: Path) -> list[str]:
     inline-list format as ``requires:``). Returns ``[]`` if the file
     is missing, has no frontmatter, or declares no gates. Resolved
     against ``stop_gates.get_registered_gates`` at submit time — the
-    skill names WHICH reviewers apply to its outputs; the reviewers
+    skill names WHICH gates apply to its outputs; the gates
     themselves stay server-side code.
     """
     if not skill_md_path.is_file():

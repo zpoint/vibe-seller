@@ -11,10 +11,6 @@ import uuid
 
 from sqlalchemy import func, select
 
-from app.ai.bash_safety import (
-    check_exec_review_status,
-    check_review_status,
-)
 from app.ai.skill_gate_utils import find_skill_md
 from app.config import WEB_BROWSER_SLUG
 from app.database import async_session
@@ -322,7 +318,7 @@ DRAIN_TIMEOUT = 2  # for _task to finish after force-kill
 TOOL_APPROVAL_CALLBACK = 'tool_approval'
 
 
-def sdk_initialize_request(mode: str, skip_reflection: bool) -> dict:
+def sdk_initialize_request(mode: str) -> dict:
     """The SDK ``initialize`` control request registering this launch's
     hooks.
 
@@ -336,7 +332,8 @@ def sdk_initialize_request(mode: str, skip_reflection: bool) -> dict:
       path; everything else is auto-approved with the circuit breaker
       (no ExitPlanMode hook).
 
-    ``skip_reflection`` drops the Stop hook (the reflection pass).
+    Every session gets the Stop hook: it refuses to end a turn whose own
+    work is still open (see ``claude_backend_hooks``).
     """
     if mode == 'plan_then_execute':
         interactive = '^(ExitPlanMode|AskUserQuestion)$'
@@ -355,9 +352,8 @@ def sdk_initialize_request(mode: str, skip_reflection: bool) -> dict:
                 'hookCallbackIds': [AUTO_APPROVE_CALLBACK],
             },
         ],
+        'Stop': [{'hookCallbackIds': [STOP_CALLBACK]}],
     }
-    if not skip_reflection:
-        hooks['Stop'] = [{'hookCallbackIds': [STOP_REFLECTION_CALLBACK]}]
     return {
         'type': 'control_request',
         'request_id': str(uuid.uuid4()),
@@ -366,7 +362,7 @@ def sdk_initialize_request(mode: str, skip_reflection: bool) -> dict:
 
 
 AUTO_APPROVE_CALLBACK = 'auto_approve'
-STOP_REFLECTION_CALLBACK = 'stop_reflection'
+STOP_CALLBACK = 'stop'
 
 # Circuit breaker: stop agent after N identical consecutive tool calls
 MAX_REPEAT_TOOL_CALLS = Options.MAX_REPEAT_TOOL_CALLS.get_int()
@@ -493,8 +489,8 @@ def check_skill_prereqs(
     loaded_skills: set[str],
     task_id_prefix: str = '',
 ) -> str | None:
-    """Return a deny-reason if loading ``skill_name`` would skip a
-    prerequisite the agent hasn't loaded yet; ``None`` otherwise.
+    """A hint naming the prerequisites of ``skill_name`` that this
+    session has not loaded yet; ``None`` otherwise. Advice only.
 
     Read-only: does not mutate ``loaded_skills``. The hook handler
     is responsible for tracking successful loads. Lives here (not in
@@ -523,66 +519,10 @@ def check_skill_prereqs(
     missing = [r for r in requires if r not in loaded_skills]
     if not missing:
         return None
-    first = missing[0]
+    names = ', '.join(missing)
     return (
-        f"Skill '{skill_name}' requires '{first}' to be loaded"
-        f' first. Call the Skill tool with skill={first!r}, then'
-        f' retry skill={skill_name!r}.'
-    )
-
-
-def get_open_tasklist_items(task_id: str) -> list[tuple[str, str]]:
-    """Return [(id, subject), ...] for pending/in_progress TaskList
-    entries belonging to this task.
-
-    Claude Code stores each TaskList item as a JSON file at
-    ``~/.claude/tasks/<task_list_id>/<n>.json``. We pin
-    ``CLAUDE_CODE_TASK_LIST_ID=vibe-<task_id_short>`` in the agent
-    env (see ``claude_backend.py``) so the directory path is
-    predictable from the task id.
-
-    Used by the Stop-hook completion gate to deny stop while the
-    agent still has open work. Returns empty list when the
-    directory is absent (agent never created any TaskList items —
-    no gate to enforce; let stop proceed).
-    """
-    task_list_id = f'vibe-{task_id[:8]}'
-    tasks_dir = Path.home() / '.claude' / 'tasks' / task_list_id
-    if not tasks_dir.is_dir():
-        return []
-    open_items: list[tuple[str, str]] = []
-    for path in sorted(tasks_dir.glob('*.json')):
-        if path.name.startswith('.'):
-            continue
-        try:
-            data = json.loads(path.read_text())
-        except (OSError, ValueError):
-            continue
-        if data.get('status', '') in ('pending', 'in_progress'):
-            open_items.append((
-                str(data.get('id', path.stem)),
-                str(data.get('subject', '')),
-            ))
-    return open_items
-
-
-def build_tasklist_open_reason(open_items: list[tuple[str, str]]) -> str:
-    """Build the deny-stop reason text from open TaskList items.
-
-    Lives here so the Stop-hook call site stays small under the
-    800-line file limit. ``open_items`` is the output of
-    ``get_open_tasklist_items``.
-    """
-    lst = '\n'.join(f'- [#{i}] {s}' for i, s in open_items[:20])
-    more = f'\n…and {len(open_items) - 20} more' if len(open_items) > 20 else ''
-    return (
-        f'TaskList still has {len(open_items)} open item(s):\n'
-        f'{lst}{more}\n\n'
-        'Continue executing the next pending item. After every'
-        ' action: TaskUpdate to "completed". Phase 4 is only done'
-        ' when TaskList shows zero open items. Re-call TaskList'
-        ' NOW to confirm current state, then pick the lowest-ID'
-        ' open item.'
+        f"Skill '{skill_name}' builds on {names}; load "
+        f'{"it" if len(missing) == 1 else "them"} with the Skill tool too.'
     )
 
 
@@ -635,52 +575,15 @@ async def validate_fanout_plan_text(task_id: str, plan_text: str) -> str | None:
     return None
 
 
-# ATTEMPT bound on review-gate re-drives per session. Past this the
-# gate FAILS OPEN: the stream banner-marks the result UNVERIFIED and the
+# ATTEMPT bound on open-work re-drives per turn. Past this the
+# hold FAILS OPEN: the stream banner-marks the result and the
 # Stop hook stands down so the CLI exits cleanly (never a closed
 # approval channel with a live deny).
 #
 # Attempts are the cheap half of the bound and say nothing about cost —
 # five of these at 100-150s/turn is 500-750s, more clock than a caller
 # gives a whole run. The wall-clock half lives in
-# ``app/ai/review_redrive.py``; ``AgentSession._review_redrive_exhausted``
+# ``app/ai/turn_hold_budget.py``; ``AgentSession._hold_exhausted``
 # is the ONE predicate that reads both. Do not compare against this
 # constant directly — that is how the four fail-open sites drifted apart.
-REVIEW_REDRIVE_MAX = 5
-
-
-def check_review_status_for_stop(
-    task_dir: Path | None, subagent_ran=None, review_writers=None
-) -> str | None:
-    """Return a deny reason for Stop if the ads-audit reviewer
-    hasn't run (or returned gaps); otherwise ``None``.
-
-    Thin wrapper around ``bash_safety.check_review_status`` that
-    handles the empty-task_dir case for the hook caller. Quiet
-    no-op for non-ads tasks (no ``AD_AUDIT_*.md`` in the workspace).
-    ``subagent_ran`` (False when the stream saw no review-subagent spawn
-    this turn) makes an accepting verdict get rejected as self-written.
-    ``review_writers`` (per-file authorship from the stream) makes an
-    accepting verdict count ONLY when the reviewer subagent itself
-    wrote the file — see ``report_reviewer.reviewer_verdict``.
-    See ``amazon-ads/references/reviewer-loop.md`` for the contract.
-    """
-    if task_dir is None:
-        return None
-    return check_review_status(task_dir, subagent_ran, review_writers)
-
-
-def check_exec_review_status_for_stop(
-    task_dir: Path | None, review_writers=None
-) -> str | None:
-    """Return a deny reason for Stop if the ads-execution reviewer
-    hasn't returned ok; otherwise ``None``.
-
-    Thin wrapper around ``bash_safety.check_exec_review_status``.
-    Quiet no-op when ``EXECUTION_LOG.md`` is absent in the workspace
-    (task is not in execution mode). See
-    ``amazon-ads/references/reviewer-loop.md § Execution-review mode``.
-    """
-    if task_dir is None:
-        return None
-    return check_exec_review_status(task_dir, review_writers)
+TURN_HOLD_MAX = 5

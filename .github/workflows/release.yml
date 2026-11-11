@@ -276,14 +276,28 @@ jobs:
       - name: Run agent smoke against installed daemon
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
-          E2E_PROVIDER_MAP: deepseek
-          DEEPSEEK_API_KEY:  ${{ secrets.DEEPSEEK_API_KEY }}
+          # One provider, a repo variable (see docs/testing.md).
+          E2E_PROVIDER_MAP: ${{ vars.E2E_SMOKE_PROVIDER }}
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          MINIMAX_BASE_URL: ${{ secrets.MINIMAX_BASE_URL }}
+          MINIMAX_MODEL: ${{ secrets.MINIMAX_MODEL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
-          DEEPSEEK_MODEL:    ${{ secrets.DEEPSEEK_MODEL }}
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          GLM_BASE_URL: ${{ secrets.GLM_BASE_URL }}
+          GLM_MODEL: ${{ secrets.GLM_MODEL }}
+          QWEN_TOKEN_API_KEY: ${{ secrets.QWEN_TOKEN_API_KEY }}
+          QWEN_TOKEN_BASE_URL: ${{ secrets.QWEN_TOKEN_BASE_URL }}
+          QWEN_TOKEN_MODEL: ${{ secrets.QWEN_TOKEN_MODEL }}
           API_TIMEOUT_MS: '3000000'
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
           VIBE_SELLER_TELEMETRY: '0'
         run: |
+          if [ -z "$E2E_PROVIDER_MAP" ]; then
+            echo "::error::repo variable E2E_SMOKE_PROVIDER is not set"
+            exit 1
+          fi
           export PATH="$(uv tool dir)/vibe-seller/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           pytest \
             tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage \
@@ -443,14 +457,28 @@ jobs:
       - name: Run agent smoke against installed daemon
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
-          E2E_PROVIDER_MAP: deepseek
-          DEEPSEEK_API_KEY:  ${{ secrets.DEEPSEEK_API_KEY }}
+          # One provider, a repo variable (see docs/testing.md).
+          E2E_PROVIDER_MAP: ${{ vars.E2E_SMOKE_PROVIDER }}
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          MINIMAX_BASE_URL: ${{ secrets.MINIMAX_BASE_URL }}
+          MINIMAX_MODEL: ${{ secrets.MINIMAX_MODEL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
-          DEEPSEEK_MODEL:    ${{ secrets.DEEPSEEK_MODEL }}
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          GLM_BASE_URL: ${{ secrets.GLM_BASE_URL }}
+          GLM_MODEL: ${{ secrets.GLM_MODEL }}
+          QWEN_TOKEN_API_KEY: ${{ secrets.QWEN_TOKEN_API_KEY }}
+          QWEN_TOKEN_BASE_URL: ${{ secrets.QWEN_TOKEN_BASE_URL }}
+          QWEN_TOKEN_MODEL: ${{ secrets.QWEN_TOKEN_MODEL }}
           API_TIMEOUT_MS: '3000000'
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
           VIBE_SELLER_TELEMETRY: '0'
         run: |
+          if [ -z "$E2E_PROVIDER_MAP" ]; then
+            echo "::error::repo variable E2E_SMOKE_PROVIDER is not set"
+            exit 1
+          fi
           export PATH="$(uv tool dir)/vibe-seller/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           pytest \
             tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage \

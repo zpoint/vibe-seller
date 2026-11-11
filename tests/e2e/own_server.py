@@ -12,6 +12,7 @@ refuses the shared server's port outright, so no caller — including
 the helpers below — can ever stop or restart it.
 """
 
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import socket
@@ -20,6 +21,7 @@ import time
 
 import httpx
 
+from tests.e2e import e2e_helpers
 from tests.e2e.e2e_helpers import SHARED_PORT, start_sh_log_path
 
 
@@ -43,11 +45,140 @@ def assert_owned_port(port: int) -> int:
     return int(port)
 
 
+def _listening(port: int) -> bool:
+    with socket.socket() as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(('127.0.0.1', port)) == 0
+
+
+def _path_with_the_agent_cli() -> str:
+    """``PATH`` with the shared server's ``claude`` CLI first on it.
+
+    The server spawns the CLI from ``<its VIBE_HOME>/node_modules``, else
+    from ``PATH``. An owned server's home is a fresh temp dir with no
+    install, and in CI the CLI lives only in the shared home (install.sh
+    puts it there): observed, every agent on an owned server failed with
+    "No such file or directory". The test process's home IS the shared
+    server's, so the product's own resolver names the right binary.
+    """
+    from app.ai.claude_backend_utils import (  # noqa: PLC0415 — app import
+        resolve_claude_binary,  # needs the e2e home set by conftest
+    )
+
+    rest = os.environ.get('PATH', '')
+    cli = Path(resolve_claude_binary())
+    if not cli.is_absolute():  # not installed anywhere: nothing to add
+        return rest
+    return str(cli.parent) + (os.pathsep + rest if rest else '')
+
+
 def pick_free_port() -> int:
     """A port nothing is listening on right now."""
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
         return sock.getsockname()[1]
+
+
+#: For the e2e that test the sync jobs themselves: their server reads a
+#: fake GitHub and fake services, so the outside sources are on even when
+#: the surrounding run (CI) turns them off for every other server.
+SYNC_SWITCHES_ON = {'VIBE_GITHUB_MAIN_SYNC': 'on', 'VIBE_EXTERNAL_SYNC': 'on'}
+
+#: What a test-owned server needs to run REAL AGENTS like the shared CI
+#: server does. The pytest step's environment is not the server step's:
+#: CI sets ``MAX_AGENT_CONCURRENCY`` (and the sync-off / telemetry-off
+#: switches) when it STARTS the shared server, so an owned server started
+#: from the test step would silently run with the app's default 2 agent
+#: slots — a 12-task catalog fanout would queue instead of fan out — and
+#: would pull skills/knowledge from GitHub main and phone home mid-run.
+#: Same choice ci.yml makes for the shared server ("the tree under test is
+#: this PR, not main"); the sync e2e opt back in with SYNC_SWITCHES_ON.
+#: An explicit ``env`` on the owned server still wins over this.
+AGENT_SERVER_ENV = {
+    'MAX_AGENT_CONCURRENCY': os.environ.get('MAX_AGENT_CONCURRENCY', '16'),
+    'VIBE_GITHUB_MAIN_SYNC': 'off',
+    'VIBE_EXTERNAL_SYNC': 'off',
+    'VIBE_SELLER_TELEMETRY': '0',
+}
+
+
+@contextmanager
+def owned_agent_stack(tmp_path_factory, name: str, env: dict | None = None):
+    """One server this MODULE owns, with every helper pointed at it.
+
+    The whole owned-stack ritual in one place, because a test that
+    touches server-global state must do ALL of it to leave the shared
+    server behind, and a half-done move is worse than none:
+
+      * a dedicated free port and a dedicated temp ``VIBE_HOME`` — so
+        its catalogs, its settings rows, its ``.claude`` memory dir and
+        its agent venv are nobody else's;
+      * ``AGENT_SERVER_ENV`` — the shared server's agent capacity and
+        its no-outside-calls switches;
+      * ``e2e_helpers.point_at_server`` — the helpers, the worker's
+        provider profile and an SSE auto-answer for THIS server.
+
+    Use it from a module-scoped fixture (``scope='module'`` runs the
+    setup once PER WORKER: if xdist splits the module's tests over two
+    workers, each gets its own server and its own home — which is the
+    point of owning one).
+    """
+    home = tmp_path_factory.mktemp(name)
+    server = OwnServer(
+        port=pick_free_port(),
+        home=home,
+        env={**AGENT_SERVER_ENV, **(env or {})},
+    )
+    server.start()
+    try:
+        with e2e_helpers.point_at_server(server.base_url):
+            yield server
+    finally:
+        server.stop()
+
+
+#: Every server THIS process started, kept for the session-end leak
+#: check (:func:`assert_no_owned_server_leaked`). A per-process list is
+#: exactly right under xdist: each worker owns the servers it started,
+#: and the worker that leaked one is the one that says so.
+_STARTED: list['OwnServer'] = []
+
+
+def assert_no_owned_server_leaked() -> None:
+    """Fail loudly if a server this worker started is still around.
+
+    A server that outlives the run holds its port, keeps writing to its
+    ``logs/backend_<port>.log``, and leaves ``.pids_<port>`` behind for
+    the next ``./stop.sh`` — or the next test session — to act on. The
+    module fixtures stop their servers today, so this is not a fix for a
+    leak seen; it is the check that keeps a future fixture that forgets
+    ``stop()`` from silently becoming one, since the symptom shows up
+    much later and somewhere else.
+
+    It only ever LOOKS (a connect probe and a file check): it never
+    signals a process, and the shared server's port is refused by
+    :func:`assert_owned_port` on the way in, so there is nothing here
+    that could touch it.
+    """
+    leaked = []
+    for server in _STARTED:
+        if int(server.port) == shared_port():
+            # Not ours to police, and it is SUPPOSED to outlive the
+            # run: counting it would fail every session of the tier.
+            continue
+        holding = []
+        if _listening(server.port):
+            holding.append('still listening')
+        if server._pidfile.exists():
+            holding.append(f'{server._pidfile} still there')
+        if holding:
+            leaked.append(f'{server.base_url} ({", ".join(holding)})')
+    if leaked:
+        raise AssertionError(
+            'owned e2e servers outlived the run — a module fixture '
+            'started them and never stopped them: ' + '; '.join(leaked)
+        )
+    _STARTED.clear()
 
 
 class OwnServer:
@@ -103,24 +234,51 @@ class OwnServer:
                     break
                 time.sleep(1)
         pidfile.unlink(missing_ok=True)
+        # Stopped means the PORT is free: the pid file holds `uv run`,
+        # whose uvicorn child still listens through its shutdown, and
+        # start.sh refuses a port something listens on (observed: a
+        # restart with no frontend build in between found it busy).
+        deadline = time.time() + 30
+        while _listening(self.port):
+            if time.time() > deadline:
+                raise AssertionError(
+                    f'port {self.port} still listened on 30s after stopping '
+                    'this server'
+                )
+            time.sleep(0.2)
 
     def start(self, env: dict | None = None) -> None:
         """(Re)start this server with its home and any env additions."""
         assert_owned_port(self.port)
         self._stop_own()
         self.home.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
+        done = subprocess.run(
             ['./start.sh', str(self.port)],
             env={
                 **os.environ,
                 'VIBE_HOME': str(self.home),
                 **self.extra_env,
                 **(env or {}),
+                # Rebuilding would empty the frontend the shared server
+                # serves from this same checkout (observed: a UI test's
+                # page load got 404 during a restart here).
+                'VIBE_SKIP_FRONTEND_BUILD': '1',
+                'PATH': _path_with_the_agent_cli(),
             },
             check=False,
             capture_output=True,
+            text=True,
         )
+        if done.returncode != 0:
+            raise AssertionError(
+                f'start.sh {self.port} failed ({done.returncode}):\n'
+                f'{(done.stdout or "")[-1500:]}{(done.stderr or "")[-1500:]}'
+            )
         self.wait_health()
+        # Booked as soon as it is up: the session-end check reports the
+        # servers this worker started, whether or not their fixture got
+        # as far as calling stop().
+        _STARTED.append(self)
 
     def wait_health(self, timeout: float = 60) -> None:
         deadline = time.time() + timeout

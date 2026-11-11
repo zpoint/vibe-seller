@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
+import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 import { SecretReveal } from '../SecretReveal'
 import type { EmailAccount, Store } from '../../types'
 
@@ -114,7 +115,7 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
       const res = await api.post('/api/email-accounts/test', {
         email: emailForm.email, imap_host: emailForm.imap_host,
         imap_port: emailForm.imap_port, password: emailForm.password,
-      })
+      }, { timeoutMs: LONG_TIMEOUT_MS })
       setTestResult(res.ok ? 'success' : 'failed')
       if (!res.ok) setTestMessage(res.message || '')
     } catch (e) {

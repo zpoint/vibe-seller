@@ -23,6 +23,7 @@ from app.scheduler.heartbeat import heartbeat_trigger
 from app.telemetry_tasks import (
     accumulate_run_usage,
     send_question_answered,
+    send_task_cancelled,
     send_task_completed,
     send_task_created,
     send_task_failed,
@@ -108,6 +109,22 @@ async def test_outcome_events_carry_task_id(task_env):
         assert by_name[name]['task_id'] == 't-telemetry-1', name
     assert by_name['task_created']['source'] == 'ui'
     assert by_name['task_failed']['source'] == 'ui'
+
+
+async def test_cancel_carries_usage_and_context_fill(task_env):
+    _maker, task, calls = task_env
+    task.context_tokens = 60_000
+    task.context_window = 100_000
+    task.cache_read_tokens = 250_000
+    task.cache_write_tokens = 0
+    task.usage_model = 'model-x'  # never reported
+    send_task_cancelled(task, status_at='running')
+    props = dict(calls)['task_cancelled']
+    assert props['context_fill_bucket'] == '50-75%'
+    assert props['cache_read_tokens_bucket'] == '100k-1m'
+    assert props['cache_write_tokens_bucket'] == '0'
+    assert 'usage_model' not in props
+    assert 'input_tokens' in props
 
 
 # ── Run-start event ──────────────────────────────────────────

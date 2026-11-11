@@ -79,15 +79,20 @@ for arg in "$@"; do
 done
 PORT="${_port:-${PORT:-7777}}"
 
-# Check if port is occupied
-if lsof -ti:"$PORT" >/dev/null 2>&1; then
+# Check if a server already LISTENS on the port. A plain ``lsof -i:PORT``
+# also matches client sockets — a local proxy still holding a closed
+# connection to the port — and refused to start on a free port.
+if lsof -ti:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
     _error "Port $PORT is already in use. Stop the existing server or choose another port."
     exit 1
 fi
 
-# Build frontend
+# Build frontend. `pnpm build` empties frontend/dist before writing it, so
+# every other server running from this checkout serves 404s meanwhile —
+# a second server on the same checkout (an e2e test's own server) sets
+# VIBE_SKIP_FRONTEND_BUILD=1 and serves the build that is already there.
 FRONTEND_DIR="$SCRIPT_DIR/frontend"
-if [ -f "$FRONTEND_DIR/package.json" ]; then
+if [ -z "${VIBE_SKIP_FRONTEND_BUILD:-}" ] && [ -f "$FRONTEND_DIR/package.json" ]; then
     echo "Building frontend SPA..."
 
     # Install/update dependencies if package.json is newer than node_modules

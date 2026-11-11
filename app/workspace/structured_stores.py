@@ -1,7 +1,7 @@
 """Store entries for the workspace UI: knowledge + run data, joined.
 
 Disk keeps two roots on purpose — ``stores/<slug>/`` (curated
-knowledge, wired into catalogs/prompts/reflection) and
+knowledge, wired into catalogs and prompts) and
 ``store-data/<slug>/`` (run artifacts, never knowledge). The STORE
 is one domain entity though, so the slug join happens HERE in the
 backend; the frontend renders one entry per store with no combining.

@@ -1,17 +1,23 @@
 # Tuning per campaign type — observed differences
 
-> **Reference of the `amazon-ads` skill.** See `../SKILL.md` for the
-> catalog. Pair with `tuning-workflow.md` (Phase 3 branches on type)
-> and `tuning-toolbox.md` (the 8 levers). Every claim here is from
-> hands-on browser-use verification on a live merchant account
-> running multiple types — `(verified)` markers note the specific
-> page each fact was observed on; `(inferred)` markers flag claims
-> derived from the campaign-list view but not yet drilled into.
+Pair with `tuning-workflow.md` (what to read per campaign) and
+`tuning-toolbox.md` (the levers). `(verified)` marks facts observed on a
+live account's pages; `(inferred)` marks claims from the campaign list
+not yet drilled into — for those, say so in the report and prefer
+conservative, reversible actions.
 
-The 5-phase workflow and the 8-lever toolbox are written generically.
+The workflow and the toolbox are written generically.
 But the **data shape**, **which tabs exist**, and **which levers
 actually apply** differ by campaign type. This file is the per-type
 lookup.
+
+- [How to identify the type](#how-to-identify-the-type)
+- [Campaign-list filter tabs](#campaign-list-filter-tabs-campaign-manager)
+- [Sidebar tabs by type](#sidebar-tabs-by-type)
+- [Type-specific data shapes](#type-specific-data-shapes) — SP-Auto,
+  SP-Manual-Keyword, SP-Manual-Product, SB-Keyword, SB-Product, SBV, SD
+- [Summary lever-applicability matrix](#summary-lever-applicability-matrix)
+- [Verification status](#verification-status--at-a-glance)
 
 ## How to identify the type
 
@@ -121,7 +127,7 @@ job is "find queries", Manual's job is "exploit known winners".
 ### SP — Manual Keyword (verified — see other tuning references)
 
 This is what the rest of the skill describes by default. See
-`tuning-workflow.md` Phase 3 numbered steps and the worked example
+`tuning-workflow.md` § Per-campaign reading and the worked example
 in `tuning-recommendation-format.md`.
 
 **Ad-group level Targeting tab columns**: Active / Keyword / Match
@@ -147,7 +153,7 @@ work in principle):
   Category targeting (queries within the category are harvestable).
 
 **Field-verification status**: campaign creation flow verified
-(`mechanics.md` § 3e). Tuning surfaces inferred to match SP-Manual-
+(`mechanics-create.md` §7). Tuning surfaces inferred to match SP-Manual-
 Keyword based on shared URL path and tab structure; per-row data
 columns not yet captured on a live Manual-Product campaign.
 
@@ -254,8 +260,8 @@ into.
 The merchant account browsed during this verification pass did not
 have visible SD campaigns under the `Display, Video, & Audio` tab —
 that tab returned only SBV campaigns. SD coverage in this skill is
-**not field-verified**; mark Confidence Low for any SD-specific
-recommendation and bias to conservative reversible actions.
+**not field-verified**; say so in the row's `reason` and the report,
+and bias to conservative reversible actions.
 
 ## Summary lever-applicability matrix
 
@@ -289,4 +295,4 @@ verified, **(default skill assumes SP-Manual-Keyword):**
 | SD-Product | not seen on this account | — | — | — |
 
 When recommending actions on a row not marked ✓, **note the
-verification gap** in the recommendation's Confidence field.
+verification gap** in the row's `reason` and in the report.

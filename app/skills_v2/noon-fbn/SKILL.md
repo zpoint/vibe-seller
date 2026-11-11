@@ -2,58 +2,33 @@
 name: noon-fbn
 description: "Noon Fulfilled-by-noon (FBN) — ASN creation flow, ASN status enum, inventory export, barcode print, and the FBN Reports page for PER-SKU storage / RTV-removal fee reports. Load when scheduling a shipment, managing FBN inventory, creating an ASN, exporting warehouse stock, or pulling per-SKU storage / return fees."
 requires: [noon-shared]
-review:
-  criteria: |
-    - The ASN was ACTUALLY created: it has an ASN number and appears in
-      My ASN & Storage with a valid status; its product list and
-      quantities match the request. A "submitted" claim without the ASN
-      showing in the list is not done.
-    - If an inventory export was requested, the CSV exists and is
-      non-empty with the expected columns.
-    - If per-SKU FBN fees were requested: ALL FOUR Finance reports
-      (Monthly Storage, Long Term Storage, Non Saleable Storage, RTV
-      Removal) exist for EVERY requested country x service month, each
-      as its own file whose name states the country and month. A report
-      that was missing on the page and never generated is a gap, not
-      "not applicable".
-    - Empty reports were CLASSIFIED, not waved through. Run
-      scripts/check_fee_rows.py over the output folder. A header-only
-      rtv_removal file is fine (removals are events; a month can have
-      none). A header-only monthly/longterm/nonsaleable storage file is
-      NOT fine — storage accrues against held stock, so zero rows means
-      the service month is not published yet. Report those as pending
-      for the month they belong to; never present one as a delivered
-      figure, and never retry them (a second generation returns a
-      byte-identical empty file).
-    - Every non-empty storage report was OPENED and its own
-      `country_code` / `service_month` columns match the country and
-      month in its filename. The filename is a manual rename applied
-      after the download, so it proves nothing on its own — a
-      mis-clicked row yields a perfectly named file full of the wrong
-      country's money. Two files for the same report type and month must
-      not be byte-identical, and the two ads xlsx must not have equal
-      `Spends` totals.
-    - The reconciliation in references/fee-reports.md § 4 was actually
-      computed and closes: sum(charged_amount) over the four reports for
-      service month M-1, x (1+VAT), equals month M's Transaction View
-      balance_transfer. An unreconciled pull is not done.
-  verify_by: |
-    Open the FBN ASN page (fbn.noon.partners/.../asn); confirm the new
-    ASN number + status + shipment contents match. If inventory export
-    was asked, open the CSV and confirm non-zero rows + warehouse/stock
-    columns. For per-SKU fees: list the output dir and confirm one file
-    per (report type x country), each with a sku (or barcode) column and
-    a charged_amount column; then print the § 4 reconciliation showing
-    the detail total, the VAT gross-up, and the settlement it matches.
 ---
 
 # Noon — FBN (Fulfilled by noon)
 
-> **PREREQUISITE:** Read `../noon-shared/SKILL.md` for login, page
-> structure, and common modals.
+Load the `noon-shared` skill with the Skill tool first; it covers login,
+page structure and common modals.
 
-ASN (Advance Shipping Notice) creation, inventory management, and
-barcode printing for noon's fulfillment service.
+ASN (Advance Shipping Notice) creation, inventory management, barcode
+printing and per-SKU fee reports for noon's fulfilment service.
+
+## Done when
+
+- **ASN:** it has an ASN number and appears on My ASN & Storage
+  (`fbn-inbound.noon.partners/en-{cc}`) with a valid status, and its
+  products and quantities match the request.
+- **Inventory export:** the CSV exists with rows and the warehouse/stock
+  columns.
+- **Per-SKU fees:** all four Finance reports (Monthly Storage, Long Term
+  Storage, Non Saleable Storage, RTV Removal) exist for every requested
+  country × service month, each opened and checked against its filename
+  (`country_code`, `service_month`), and `scripts/check_fee_rows.py` has
+  classified any empty ones. An empty monthly-storage file means the
+  month is not published yet — report it as pending, not as a figure, and
+  don't regenerate it (a retry returns the same empty file).
+- **Reconciliation:** `references/fee-reports.md` § 4 closes — the four
+  reports for service month M−1 × (1 + VAT) equal month M's Transaction
+  View `balance_transfer`.
 
 ## 1. Overview
 
@@ -105,7 +80,7 @@ From the Status filter dropdown on the Shipments tab:
 Button entry points:
 - "Create ASN" link in left nav
 - "Create ASN" button on My ASN & Storage
-- "Add FBN Stock" button on product edit page (see `noon-listing § 2.3`)
+- "Add FBN Stock" button on product edit page (the `noon-listing` skill § 3.3)
 
 A **4-step wizard** (stepper at the top):
 **1 Logistics Mode → 2 Select SKUs → 3 Review ASN Creation →
@@ -130,11 +105,11 @@ SKU. Continue advances to Review, then Seal & Schedule.
 ### Quota commitment — read before Agree
 
 On the way to sealing, noon asks you to acknowledge a **penalty
-warning** (delivery commitment; sellers who consistently deliver as
-committed are not affected). **Proceeding past it reserves inbound
-quota** — noon counts this against your allocation. Only continue
-if you actually intend to ship. For exploration without committing,
-**Cancel** / step back.
+warning** (delivery commitment; sellers who deliver as committed are not
+affected). **Agree & Proceed reserves inbound quota** against the
+store's allocation, and a missed commitment can be penalised, so continue
+only when the user intends to ship this shipment. To explore without
+committing, **Cancel** or step back.
 
 ```bash
 # exit without reserving:
@@ -211,7 +186,8 @@ Four things that will bite you, each covered in the reference:
    `en-{cc}` URL segment. The report *list* is project-wide, so you
    only switch URL to generate, not to download.
 2. **Downloads are named by report type only** (no country, no month) —
-   rename each file immediately or SA/AE overwrite each other.
+   rename each file as it arrives (`monthly_storage_<cc>_<YYYY-MM>.csv`,
+   lowercase country code) or SA/AE overwrite each other.
 3. **`charged_amount` is ex-VAT and the settlement lags by one month** —
    month M's settlement is service month M−1, grossed up by VAT
    (SA 15% / AE 5%).
@@ -220,14 +196,15 @@ Four things that will bite you, each covered in the reference:
    (`Z…Z-<n>`), NOT the seller codes in the Transaction View's
    `Partner SKUs`; that export's `SKUs` column is the bridge.
 
-> **Read `references/fee-reports.md`** before generating or downloading
-> anything here — it has the generation flow, the download/rename
-> pattern, the reconciliation formula, and the join keys.
+Read `references/fee-reports.md` before generating or downloading
+anything here — it has the generation flow, the download/rename pattern,
+the file layout a monthly report run is checked against, the
+reconciliation formula and the join keys.
 
 ## Tips
 
-- **Don't "Agree & Proceed" ASN unless committing** — it reserves
-  quota that counts against your allocation.
+- **"Agree & Proceed" on an ASN commits inbound quota** — only when the
+  user intends to ship.
 - **A country can be missing a fee report entirely.** Reconcile (see
   the reference § 4); if the sum doesn't close, generate the missing
   report rather than assuming rounding.

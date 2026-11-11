@@ -21,6 +21,7 @@ pytestmark = pytest.mark.unit
 def _fresh_state(monkeypatch):
     monkeypatch.setattr(upgrade_restart, '_pending_version', None)
     monkeypatch.setattr(upgrade_restart, '_restart_requested', False)
+    monkeypatch.setattr(upgrade_restart, '_drain_started_at', None)
     monkeypatch.setattr(upgrade_restart, 'get_version', lambda: '1.0.0')
 
 
@@ -139,3 +140,24 @@ def test_live_agents_are_exactly_what_a_shutdown_stops():
     }
     assert backend.live_agent_count() == 2
     assert {tid for tid, _ in backend._live_sessions()} == {'live', 'closing'}
+
+
+def test_the_restart_is_reported(monkeypatch):
+    events = []
+    monkeypatch.setattr(
+        upgrade_restart.telemetry,
+        'send',
+        lambda e, p=None: events.append((e, dict(p or {}))),
+    )
+    _check('2.0.0', live=1)
+    _check('2.0.0', live=0)
+    assert events == [
+        (
+            'upgrade_restarted',
+            {
+                'from_version': '1.0.0',
+                'to_version': '2.0.0',
+                'drain_wait_bucket': '<30s',
+            },
+        )
+    ]

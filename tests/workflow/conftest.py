@@ -288,7 +288,9 @@ def install_fake_agent(fake_agent, monkeypatch):
         'app.ai.claude_backend_manager.agent_backend', fake_agent
     )
     monkeypatch.setattr('app.routers.tasks.agent_manager', fake_agent)
-    monkeypatch.setattr('app.routers.tasks_files.agent_manager', fake_agent)
+    monkeypatch.setattr(
+        'app.routers.tasks_ad_declaration.agent_manager', fake_agent
+    )
     monkeypatch.setattr(
         'app.routers.tasks_conversation.agent_manager', fake_agent
     )
@@ -700,7 +702,7 @@ def mock_workspace(monkeypatch, tmp_path):
     monkeypatch.setattr(
         'app.routers.tasks_conversation.workspace_manager', mock
     )
-    monkeypatch.setattr('app.task_runner.workspace_manager', mock)
+    monkeypatch.setattr('app.store_metadata.workspace_manager', mock)
     monkeypatch.setattr('app.task_runner_auto.workspace_manager', mock)
     monkeypatch.setattr('app.task_runner_exec.workspace_manager', mock)
     monkeypatch.setattr('app.scheduler.finalize_reaper.workspace_manager', mock)

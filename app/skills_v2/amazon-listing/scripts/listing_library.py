@@ -51,7 +51,7 @@ def task_workspace():
     VIBE_HOME (else ~/.vibe-seller) / tasks / VIBE_TASK_ID. None outside a
     task. Gate artifacts are resolved against THIS, never against the
     caller's $PWD: an agent that worked from a scratch dir once scattered
-    a whole run's markers and review into /tmp, where no gate looks.
+    a whole run's markers into /tmp, where the completion check never looks.
     """
     tid = os.environ.get('VIBE_TASK_ID')
     if not tid:
@@ -357,9 +357,10 @@ def report_saved(batch_id, messages=()):
 def write_verdict(batch_id, n_err, n_warn, error_msgs):
     """Write ``BATCH_<id>_VERDICT.json`` to the task workspace (and CWD).
 
-    The machine-checkable verdict the completion gate matches against the
-    ``UPLOAD_BATCH_<id>.json`` marker bh_upload_flatfile wrote: the task
-    cannot finish while a batch has non-image errors. When the caller
+    The machine-checkable verdict the upload check matches against the
+    ``UPLOAD_BATCH_<id>.json`` marker bh_upload_flatfile wrote. Checked
+    once when the result is submitted: a batch with non-image errors is
+    raised there, and unresolved it ships as a caveat. When the caller
     could not extract per-error text, every error counts as non-image
     (conservative -- never lets an unknown error pass as deferrable).
     """

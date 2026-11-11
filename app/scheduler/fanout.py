@@ -23,6 +23,7 @@ import uuid
 
 from sqlalchemy import select
 
+from app import knowledge_contract
 from app.ai.profiles import resolve_schedule_profile
 from app.browser.manager import store_slug as _store_slug
 from app.config import DEFAULT_USER_ID
@@ -41,7 +42,7 @@ from app.prompts import (
 from app.scheduler.task_queue import task_queue_scheduler
 from app.task_states import TaskStatus, assert_transition, can_transition
 from app.telemetry_events import TaskSource
-from app.telemetry_schedules import send_schedule_fired
+from app.telemetry_schedules import send_fire_skipped, send_schedule_fired
 from app.telemetry_tasks import send_task_created
 from app.workspace.knowledge_sync import knowledge_sync
 
@@ -144,7 +145,6 @@ async def run_fanout_job(
     saved_plan_version: int | None = None
     two_phase = False
     is_catalog = False
-    skip_reflection = False
     resolved_profile: str = ai_profile_id or 'default'
     async with async_session() as db:
         sched = await db.get(Schedule, schedule_id)
@@ -166,12 +166,12 @@ async def run_fanout_job(
                     'plan_status': sched.plan_status,
                 },
             )
+            send_fire_skipped(schedule_id, sched.plan_status)
             return
         saved_plan = sched.plan
         saved_plan_version = sched.plan_version
         two_phase = sched.phase_mode == PhaseMode.TWO_PHASE
         is_catalog = sched.staleness_check == StalenessCheck.CATALOG
-        skip_reflection = sched.skip_reflection
         schedule_type = sched.schedule_type
         phase_mode_value = sched.phase_mode
         resolved_profile = await resolve_schedule_profile(sched, db)
@@ -207,7 +207,6 @@ async def run_fanout_job(
             ai_profile_id=resolved_profile,
             saved_plan=saved_plan,
             batch_id=batch_id,
-            skip_reflection=skip_reflection,
         )
 
     # ── Phase 2: per-store fanout ──
@@ -247,7 +246,6 @@ async def run_fanout_job(
                     description=task_description,
                     status=TaskStatus.PENDING,
                     plan_mode=plan_mode,
-                    skip_reflection=skip_reflection,
                     source=TaskSource.SCHEDULE,
                     ai_profile_id=resolved_profile,
                     batch_id=batch_id,
@@ -318,7 +316,6 @@ async def run_single_job(
 
     saved_plan = None
     saved_plan_version: int | None = None
-    skip_reflection = False
     resolved_profile: str = ai_profile_id or 'default'
     async with async_session() as db:
         sched = await db.get(Schedule, schedule_id)
@@ -339,10 +336,10 @@ async def run_single_job(
                     'plan_status': sched.plan_status,
                 },
             )
+            send_fire_skipped(schedule_id, sched.plan_status)
             return
         saved_plan = sched.plan
         saved_plan_version = sched.plan_version
-        skip_reflection = sched.skip_reflection
         single_schedule_type = sched.schedule_type
         resolved_profile = await resolve_schedule_profile(sched, db)
 
@@ -370,7 +367,6 @@ async def run_single_job(
             description=description or task_title,
             status=TaskStatus.PENDING,
             plan_mode=plan_mode,
-            skip_reflection=skip_reflection,
             source=TaskSource.SCHEDULE,
             ai_profile_id=resolved_profile,
         )
@@ -409,7 +405,6 @@ async def _run_l2_phase(
     ai_profile_id: str | None,
     saved_plan: str | None,
     batch_id: str,
-    skip_reflection: bool = False,
 ) -> None:
     """Create and await the L2 (global) catalog sync task.
 
@@ -428,6 +423,11 @@ async def _run_l2_phase(
     """
     l2_stale, _ = knowledge_sync.catalog_needs_update(None)
     if not l2_stale:
+        async with async_session() as db:
+            l2_stale = await knowledge_contract.needs_cleanup(
+                db, knowledge_contract.L2_SCOPE
+            )
+    if not l2_stale:
         logger.info('L2 catalog up-to-date, skipping Phase 1')
         return
 
@@ -443,7 +443,6 @@ async def _run_l2_phase(
             description=CATALOG_DESC_L2,
             status=TaskStatus.PENDING,
             plan_mode=plan_mode,
-            skip_reflection=skip_reflection,
             source=TaskSource.SCHEDULE,
             ai_profile_id=ai_profile_id or 'default',
             batch_id=batch_id,

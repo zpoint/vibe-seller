@@ -1,6 +1,7 @@
 import { sendEvent, lengthBucket } from '../lib/telemetry'
 import { FrontendEvent } from '../lib/telemetryEvents'
 import type { Task, AgentMessage, ConversationItem, StagedAttachment } from '../types'
+import { LONG_TIMEOUT_MS } from '../lib/requestDeadline'
 
 interface SendChatResponse {
   woken?: boolean
@@ -12,7 +13,11 @@ interface SendChatResponse {
 }
 
 export interface SendChatApi {
-  post(url: string, body: unknown): Promise<SendChatResponse>
+  post(
+    url: string,
+    body: unknown,
+    opts?: { timeoutMs?: number },
+  ): Promise<SendChatResponse>
 }
 
 export interface SendChatDeps {
@@ -29,6 +34,10 @@ export interface SendChatDeps {
   setConversationItems: React.Dispatch<React.SetStateAction<ConversationItem[]>>
   setSelectedTask: React.Dispatch<React.SetStateAction<Task | null>>
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
+  /** Whether `taskId` is still the open task. The response can arrive
+   *  after the user opened another one; the open task's state (its
+   *  conversation, status, profile) is then left alone. */
+  isOpen?: (taskId: string) => boolean
 }
 
 /**
@@ -36,7 +45,9 @@ export interface SendChatDeps {
  * plus any staged attachment ids; the server promotes the attachments and
  * returns the canonical transcript content, which we render (thumbnails,
  * not paths). Sends fine with text only, attachments only, or both.
- * `sendingRef` de-dupes rapid double-submits.
+ * `sendingRef` de-dupes rapid double-submits. Rejects when the server
+ * did not accept the message (error, unreachable, or past the request
+ * deadline) so the caller can say so.
  */
 export async function sendChatMessage(deps: SendChatDeps): Promise<void> {
   const { selectedTask } = deps
@@ -56,12 +67,18 @@ export async function sendChatMessage(deps: SendChatDeps): Promise<void> {
     const response = await deps.api.post(
       `/api/tasks/${selectedTask.id}/messages`,
       { content, profile_id: deps.profileId, attachment_ids: attachmentIds },
+      // Stored server-side before it answers, and a profile switch can
+      // take a while: a short deadline reported a delivered message as
+      // failed, and resending it duplicated it.
+      { timeoutMs: LONG_TIMEOUT_MS },
     )
     // Render the server's canonical content (falls back to prose if the
     // response predates this field). SSE will dedup its own copy by content.
     const canonical = response.content ?? content
-    deps.setAgentMessages(prev => [...prev, { role: 'user', content: canonical }])
-    deps.setConversationItems(prev => {
+    const id = selectedTask.id
+    const stillOpen = deps.isOpen?.(id) ?? true
+    if (stillOpen) deps.setAgentMessages(prev => [...prev, { role: 'user', content: canonical }])
+    if (stillOpen) deps.setConversationItems(prev => {
       const dup = prev.some(c =>
         c.type === 'user_message' && c.message?.content === canonical &&
         Date.now() - new Date(c.timestamp).getTime() < 5000)
@@ -74,11 +91,16 @@ export async function sendChatMessage(deps: SendChatDeps): Promise<void> {
       }]
     })
     if (response.woken) {
-      deps.setSelectedTask(prev => prev ? { ...prev, status: 'queued' } : prev)
-      deps.setTasks(prev => prev.map(t2 => t2.id === selectedTask.id ? { ...t2, status: 'queued' } : t2))
+      deps.setSelectedTask(prev => prev && prev.id === id ? { ...prev, status: 'queued' } : prev)
+      deps.setTasks(prev => prev.map(t2 => t2.id === id ? { ...t2, status: 'queued' } : t2))
     }
     if (response.profile_switched) {
-      deps.setSelectedTask(prev => prev ? { ...prev, ai_profile_id: deps.profileId } : prev)
+      deps.setSelectedTask(prev => prev && prev.id === id ? { ...prev, ai_profile_id: deps.profileId } : prev)
     }
-  } catch (err) { console.error('Failed to send message:', err) } finally { deps.sendingRef.current = false }
+  } finally {
+    // A rejection propagates: the composer shows why and restores the
+    // text. Swallowing it here made a failed send look like a sent one
+    // — the box cleared and nothing arrived.
+    deps.sendingRef.current = false
+  }
 }

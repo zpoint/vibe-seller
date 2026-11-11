@@ -2,7 +2,6 @@
 
 import asyncio
 from datetime import UTC, datetime
-import json
 import logging
 import mimetypes
 import os
@@ -19,14 +18,6 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
-from app.ai.claude_backend_manager import agent_manager
-from app.ai.skill_review import skills_requiring_review
-from app.ai.stop_gates import (
-    ad_scope,
-    record_attempt,
-    recorded_skills,
-    report_reviewer,
-)
 from app.ai.stop_gates.ad_rules import resolve_rules
 from app.auth import get_current_user
 from app.browser.manager import store_slug
@@ -45,56 +36,6 @@ router = APIRouter(prefix='/api/tasks', tags=['tasks'])
 logger = logging.getLogger(__name__)
 
 _TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
-
-
-def apply_report_reviewer_gate(task_id, task_root, final_result):
-    """Reviewer sign-off for review-declaring skills at ``set_task_result``.
-
-    The live session's per-file verdict-authorship map (who wrote each
-    review file this turn) is read from ``agent_manager``; an accepting
-    verdict then counts only when the reviewer subagent itself wrote
-    the file.
-
-    The active reviewer is enforced here (not only in the Stop hook) so a
-    backend that finishes via this endpoint can't complete with the
-    reviewer never spawned. Fires when the task bound EITHER an ads skill
-    OR any skill declaring a ``review:`` block in its SKILL.md (Phase 2:
-    listing / reports / invoice / fbn / review-collect). The reviewer
-    itself decides whether there was real work to verify or nothing to
-    review (it signs off fast on a lookup); the server never pre-judges.
-
-    Returns ``(deny_reason, final_result)``. A non-None ``deny_reason``
-    means the caller should 400. On a bounded stall the reviewer fails
-    open: ``deny_reason`` is None but ``final_result`` is banner-marked
-    UNVERIFIED — never a silent "done".
-    """
-    skills = recorded_skills(task_id)
-    skill_reviews = skills_requiring_review(skills, task_root)
-    needs_review = bool(skills & report_reviewer.AD_SKILLS) or bool(
-        skill_reviews
-    )
-    if not needs_review:
-        return None, final_result
-    session = agent_manager.get_session(task_id)
-    deny = report_reviewer.reviewer_verdict(
-        task_root,
-        review_writers=getattr(session, '_review_file_writers', None),
-        skill_reviews=skill_reviews,
-        result_text=final_result,
-    )
-    if not deny:
-        return None, final_result
-    attempt = record_attempt(task_id, 'ads_report_reviewer')
-    if attempt <= report_reviewer.REVIEWER_STALL_CAP:
-        return deny, final_result
-    logger.warning(
-        'Reviewer stalled for task %s after %d denials — accepting result '
-        'as UNVERIFIED. Last reason: %s',
-        task_id,
-        attempt,
-        deny[:200],
-    )
-    return None, report_reviewer.partial_banner() + final_result
 
 
 _SKIP_NAMES = {'.claude', '.mcp.json', 'CLAUDE.md'}
@@ -210,8 +151,8 @@ async def resolve_store_rules(db, store_id: str | None) -> dict | None:
 
     Defaults from ``ad_rules.DEFAULT_RULES`` overlaid with any override
     lines found in ``stores/<slug>/notes.md`` (e.g. ``scale_roas: 6``).
-    Used by ``set_task_result`` so the completeness reviewer and the
-    folded-in bid-rule gates honor per-store tuning.
+    Used by ``set_task_result`` so the ad gates honour per-store
+    tuning.
     """
     if not store_id:
         return None
@@ -227,143 +168,6 @@ async def resolve_store_rules(db, store_id: str | None) -> dict | None:
     except OSError:
         notes_text = None
     return resolve_rules(notes_text)
-
-
-# A combo section header ("## Amazon SA", "## noon AE 市场") — the shape
-# that makes a text an ad-audit REPORT rather than prose about one. Kept
-# in sync with ``bash_safety._SERVER_REVIEWED_RE``; both answer the same
-# question ("is this the audit deliverable?") and must not disagree.
-_AUDIT_SECTION_RE = re.compile(r'(?i)' + ad_scope.AUDIT_SECTION_PATTERN)
-
-
-def resolve_audit_deliverable(task_root: Path, submitted: str) -> Path | None:
-    """The audit report file this run produced, when ``submitted`` isn't it.
-
-    An ad audit's deliverable is a FILE by contract — the skill tells the
-    agent to call ``set_task_result("./AD_AUDIT_<date>.md")`` because the
-    report runs to tens of KB. When the agent instead submits a chat
-    SUMMARY of that file, every content gate downstream grades the
-    summary, and the summary is not the report: it has no combo sections,
-    so the completeness reviewer reports every combo as never started.
-
-    Observed live: a complete 20/20 Amazon SA report (82 KB, real
-    per-keyword tables, 20 reconciliation lines — it PASSES the reviewer
-    when the reviewer is handed the file) was denied 24 times because the
-    agent submitted a 694-character summary. The run stalled, failed
-    open, and stored the summary as its deliverable while the report sat
-    unread in the workspace. Grading narration also cuts the other way:
-    prose has nothing to check, so an under-drilled run can pass by
-    submitting a paragraph.
-
-    So: the artifact a run PRODUCED is what gets graded and stored, not
-    the prose it narrated. Returns the newest ``AD_AUDIT_*.md`` the run
-    wrote — in ``task_root`` OR in the canonical store-data home (see
-    ``_audit_candidates``) — when all of these hold, else None:
-
-    * ``submitted`` carries no combo section of its own — an agent that
-      inlines the full report is submitting the deliverable already, and
-      must not be silently downgraded to a stale file from an earlier
-      round;
-    * no ``EXECUTION_LOG.md`` — a Phase-4 execution task legitimately
-      reports what it executed, and the audit it worked from is an
-      INPUT there, not its deliverable.
-
-    Callers additionally gate on the task's bound skills, so this never
-    fires for a non-ads task that happens to hold a similarly-named file.
-    """
-    if _AUDIT_SECTION_RE.search(submitted):
-        return None
-    if (task_root / 'EXECUTION_LOG.md').exists():
-        return None
-    candidates = _audit_candidates(task_root)
-    if not candidates:
-        return None
-    # Newest by mtime: a task may hold several dated reports (a resumed
-    # run, a re-audit); the one it just finished writing is the one it
-    # meant to deliver.
-    return max(candidates, key=lambda p: p.stat().st_mtime)
-
-
-def _declared_store_slug(task_root: Path) -> str | None:
-    """Slug the SERVER recorded for this task in ``AUDIT_TARGETS.json``.
-
-    Read from the task root rather than via ``ad_scope.declared_slug``
-    (which keys off ``task_id``) so candidate resolution needs nothing
-    but the path it was handed. A single path component only: the value
-    is interpolated into a glob, and ``../`` or a nested slug would let
-    it escape the store it is supposed to pin.
-    """
-    try:
-        data = json.loads(
-            (task_root / 'AUDIT_TARGETS.json').read_text(encoding='utf-8')
-        )
-    except (OSError, ValueError, TypeError):
-        return None
-    slug = data.get('slug') if isinstance(data, dict) else None
-    if not slug or not isinstance(slug, str):
-        return None
-    if slug in ('.', '..') or '/' in slug or '\\' in slug:
-        return None
-    return slug
-
-
-def _audit_candidates(task_root: Path) -> list[Path]:
-    """Every audit report this run could be delivering.
-
-    Two writable copies, one graded artifact — that is the whole bug.
-    The agent keeps the report where the workspace layout says a dated
-    artifact goes (``store-data/<slug>/ads-audit/<YYYY-MM>/``, per
-    ``app/workspace/store_data_migrate.py``) and ALSO drops a copy at the
-    task root, then hand-copies one onto the other before submitting.
-    Nothing enforced that copy: the contract lived in skill prose while
-    the filesystem offered two equally writable homes.
-
-    Observed live: the agent spent 12 minutes applying a round of fixes
-    to the store-data copy (19:57) while the task-root copy sat at 19:45.
-    Had it submitted without copying back, the gate would have re-graded
-    the STALE report and returned byte-identical gaps — the agent's fixes
-    invisible, the run indistinguishable from one that had stopped
-    converging, and the operator chasing an agent failure that never
-    happened.
-
-    So grade whichever copy the run touched last, and the "remember to
-    copy" step stops being load-bearing.
-
-    SCOPED TO THIS TASK'S STORE. ``store-data`` is one shared tree
-    symlinked into every task root, so an unscoped ``store-data/*/``
-    sweep collects OTHER stores' audits — caught against the live tree,
-    where a second store's dated reports showed up as candidates for this
-    run and would have been graded had one of them been newest. That is a
-    worse failure than the stale copy this function exists to prevent, so
-    with no server-declared slug to pin the store, fall back to the task
-    root alone rather than guessing.
-    """
-    slug = _declared_store_slug(task_root)
-    patterns = ['AD_AUDIT_*.md']
-    if slug:
-        patterns.append(f'store-data/{slug}/ads-audit/*/AD_AUDIT_*.md')
-    seen: dict[tuple, Path] = {}
-    for pattern in patterns:
-        try:
-            found = list(task_root.glob(pattern))
-        except OSError:
-            continue
-        for p in found:
-            try:
-                if not p.is_file():
-                    continue
-                # Dedupe by identity, not by path: the task-root copy and
-                # the store-data copy may be the same inode (a link
-                # rather than a real copy), and resolve() alone would
-                # still list a hardlinked pair twice.
-                st = p.stat()
-                key = (st.st_dev, st.st_ino)
-            except OSError:
-                continue
-            prior = seen.get(key)
-            if prior is None or len(str(p)) < len(str(prior)):
-                seen[key] = p
-    return list(seen.values())
 
 
 _DOC_EXTS = ('.md', '.txt', '.html', '.csv', '.tsv', '.json')

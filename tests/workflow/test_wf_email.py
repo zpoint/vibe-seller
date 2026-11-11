@@ -574,6 +574,21 @@ class TestInTaskSendTool:
         assert result['ok'] is True
         smtp_spy[0].return_value.sendmail.assert_called_once()
 
+    async def test_telemetry_error_never_fails_a_sent_email(
+        self, admin_client, monkeypatch, smtp_spy
+    ):
+        """A send reported as failed gets resent: the buyer gets two."""
+        await _create_account(admin_client)
+        _route_mcp_call_api(admin_client, monkeypatch)
+
+        def boom(_email):
+            raise RuntimeError('telemetry')
+
+        monkeypatch.setattr('app.telemetry.email_provider_kind', boom)
+        result = await _in_task_send()
+        assert result['ok'] is True
+        smtp_spy[0].return_value.sendmail.assert_called_once()
+
 
 class TestAllowSendMigration:
     """A DB from before ``allow_send`` upgrades in place, every
@@ -701,3 +716,27 @@ class TestSyncNow:
 
         assert r.status_code == 502
         assert 'IMAP connection refused' in r.json()['detail']
+
+
+class TestSendTelemetry:
+    async def test_permission_change_and_sends_are_sent(
+        self, admin_client, smtp_spy, monkeypatch
+    ):
+        events: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            'app.telemetry.send',
+            lambda e, p=None: events.append((e, dict(p or {}))),
+        )
+        acct = await _create_account(admin_client)
+        await _permit(admin_client, acct['id'], False)
+        await admin_client.post(
+            f'/api/email-accounts/{acct["id"]}/send', json=SEND_BODY
+        )
+        await _permit(admin_client, acct['id'], True)
+        await admin_client.post(
+            f'/api/email-accounts/{acct["id"]}/send', json=SEND_BODY
+        )
+        perms = [p for e, p in events if e == 'email_send_permission_changed']
+        assert perms == [{'allow_send': False}, {'allow_send': True}]
+        sent = [p['outcome'] for e, p in events if e == 'email_sent']
+        assert sent == ['refused', 'ok']

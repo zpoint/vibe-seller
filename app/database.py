@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app import knowledge_contract
 from app.config import (
     AI_BOT_USER_ID,
     DATABASE_URL,
@@ -243,8 +244,22 @@ async def init_db():
                     is_system=True,
                     phase_mode=PhaseMode.TWO_PHASE,
                     staleness_check=StalenessCheck.CATALOG,
-                    skip_reflection=True,
                     created_by=AI_BOT_USER_ID,
+                )
+            )
+            await session.commit()
+        # Where this install's knowledge stands (app/knowledge_contract):
+        # a fresh install has nothing from an older harness to clean; an
+        # install that existed before the floor did owes one cleanup.
+        if await session.get(AppSettings, knowledge_contract.FLOOR_KEY) is None:
+            session.add(
+                AppSettings(
+                    key=knowledge_contract.FLOOR_KEY,
+                    value=str(
+                        knowledge_contract.KNOWLEDGE_CONTRACT
+                        if not catalog_sched
+                        else 1
+                    ),
                 )
             )
             await session.commit()

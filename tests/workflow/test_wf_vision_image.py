@@ -511,3 +511,70 @@ async def test_inflight_handle_is_not_reused_for_a_different_model(
         assert tid not in vision_router._INFLIGHT
     finally:
         vision_router._INFLIGHT.pop(tid, None)
+
+
+async def test_confirm_and_generation_telemetry(admin_client, monkeypatch):
+    monkeypatch.setenv('VISION_FAKE', '1')
+    events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        'app.telemetry.send',
+        lambda e, p=None: events.append((e, dict(p or {}))),
+    )
+    tid = str(uuid.uuid4())
+    queue = event_bus.subscribe()
+    try:
+        gen = asyncio.create_task(
+            admin_client.post(
+                f'/api/tasks/{tid}/image/generate',
+                json={
+                    'prompt': 'white background',
+                    'model': 'nano-banana-pro-2k',
+                    'kind': 'main',
+                },
+            )
+        )
+        req = await _drain_until(queue, 'image_request')
+        c = await admin_client.post(
+            f'/api/tasks/{tid}/image/confirm',
+            json={
+                'request_id': req['request_id'],
+                'action': 'confirm',
+                'model': 'nano-banana-pro-2k',
+                'added_references': ['uploads/ref.png'],
+            },
+        )
+        assert c.json()['ok'] is True
+        await asyncio.wait_for(gen, timeout=10)
+    finally:
+        event_bus.unsubscribe(queue)
+        shutil.rmtree(_TASKS_DIR / tid, ignore_errors=True)
+    resolved = [p for e, p in events if e == 'image_request_resolved']
+    assert resolved == [
+        {
+            'task_id': tid,
+            'action': 'confirm',
+            'model_changed': False,
+            'added_reference_count_bucket': '1-5',
+        }
+    ]
+    generated = [p for e, p in events if e == 'image_generated']
+    assert len(generated) == 1
+    assert generated[0]['ok'] is True
+    assert 'model' not in generated[0]
+    assert generated[0]['kind'] == 'main'
+    assert generated[0]['price_bucket'] != 'unknown'
+
+
+@pytest.mark.parametrize(
+    ('kind', 'sent'),
+    [
+        ('Infographic', 'infographic'),
+        ('', 'none'),
+        ('widget-006', 'other'),
+        ('acme-shop', 'other'),
+    ],
+)
+def test_image_kind_is_reported_from_a_fixed_set(kind, sent):
+    props = vision_router._image_props('nano-banana-pro-2k', kind)
+    assert props['kind'] == sent
+    assert 'model' not in props

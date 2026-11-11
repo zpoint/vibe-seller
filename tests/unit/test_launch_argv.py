@@ -6,7 +6,7 @@ died with ``TypeError: 'str' object is not callable`` — in CI, because
 no test ran ``WorkspaceAssistantSession.start()`` far enough to build
 its command. Both session launches are run here to the spawn boundary
 (the subprocess spawn is faked) and their ``--append-system-prompt-file``
-/ ``--settings`` / ``--agents`` flags must name files that exist and
+/ ``--settings`` flags must name files that exist and
 carry the right bytes. Those files are written by the one
 ``asyncio.to_thread`` hop, so a lost function argument fails HERE
 instead of in production.
@@ -20,7 +20,6 @@ import pytest
 
 from app.ai import launch_artifacts
 from app.ai.claude_backend import AgentSession, ProfileManager
-from app.ai.reviewer_agent import reviewer_agents_payload
 from app.ai.workspace_assistant import WorkspaceAgentSession
 from app.workspace.manager import workspace_manager
 
@@ -96,11 +95,8 @@ def test_the_task_launch_argv_names_the_hops_files(tmp_path, monkeypatch):
 
     ((cmd, _kw),) = captured
     _assert_common_argv(cmd, 'SYS PROMPT')
-    agents_file = _flag(cmd, '--agents')
-    written = json.loads(agents_file.read_text(encoding='utf-8'))
-    assert written == reviewer_agents_payload()
-    assert 'ads-report-review' in written
-    assert 'ads-execution-review' in written
+    # No product-defined agent types are registered.
+    assert '--agents' not in cmd
 
 
 def test_the_workspace_launch_argv_names_the_hops_files(tmp_path, monkeypatch):
@@ -116,5 +112,29 @@ def test_the_workspace_launch_argv_names_the_hops_files(tmp_path, monkeypatch):
 
     ((cmd, _kw),) = captured
     _assert_common_argv(cmd, 'WS SYS PROMPT')
-    # The workspace assistant has no reviewer subagents: no --agents.
     assert '--agents' not in cmd
+
+
+def test_the_workspace_assistant_spawns_the_binary_tasks_use(
+    tmp_path, monkeypatch
+):
+    """Observed in CI: task agents ran, the workspace assistant failed to
+    start with FileNotFoundError — it spawned a bare ``claude`` found on
+    PATH, while the CLI is installed project-locally (node_modules), the
+    path tasks resolve. One resolution for every agent this app starts."""
+    captured = _prepare(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        'app.ai.workspace_assistant.resolve_claude_binary',
+        lambda: '/opt/vibe/node_modules/.bin/claude',
+    )
+    session = WorkspaceAgentSession(
+        session_key='ws-binary',
+        prompt='hello',
+        system_prompt_extra='',
+    )
+
+    with pytest.raises(_Spawned):
+        asyncio.run(session.start())
+
+    ((cmd, _kw),) = captured
+    assert cmd[0] == '/opt/vibe/node_modules/.bin/claude', cmd[:2]

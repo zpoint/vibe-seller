@@ -515,7 +515,6 @@ def test_chat_bot_agent_send(api_client, platform, webhook_url, secret):
             api_client,
             f'Chat bot e2e {platform} {nonce}',
             description=description,
-            skip_reflection=True,
         )
         task_id = task['id']
         # A store-less task is ALWAYS plan mode (app/routers/tasks.py:

@@ -253,8 +253,8 @@ only, so skill scripts that legitimately touch images
 unaffected. The deny message routes the agent to the correct fix —
 regenerate with the previous generated image as a `reference_image` and
 a prompt naming only the change — and states that the rule is platform
-policy, so a reflection pass does not record a local-processing
-workaround as knowledge.
+policy, so the agent does not record a local-processing workaround as
+knowledge.
 
 **Why it is a guard and not just prose.** Task `2fde3b9c` ("keep the
 content, only remove the background") generated the image with the
@@ -264,7 +264,7 @@ substituted a numpy pixel audit, judged the background off-white
 (254,254,253) and the product over-filled, and rebuilt the deliverable
 with `rembg` + Pillow **over the tool's own PNG at the same path**. The
 user's inline card still read `model: gpt-image-2-2k` while displaying
-a locally composited image, and the reflection wrote "prefer rembg over
+a locally composited image, and the agent's knowledge update wrote "prefer rembg over
 `vibe_seller_generate_image`" into store knowledge — which would have
 made every later image task do the same. Hence the companion rule in
 the tool description and `amazon-image-studio` §3: **if you cannot

@@ -21,8 +21,8 @@ is what turns absence into a gap.
 Storage accrues against held inventory, so a month with inventory and
 zero storage rows has not been published yet. Removals are discrete
 events, so zero rows can simply be the truth. Encoding that distinction
-here is what lets a checker resolve an ambiguity a reviewer cannot
-resolve by eye — and it is why ``min_rows`` is a per-entry property
+here is what lets a checker resolve an ambiguity that cannot be
+resolved by eye — and it is why ``min_rows`` is a per-entry property
 rather than one global rule.
 """
 

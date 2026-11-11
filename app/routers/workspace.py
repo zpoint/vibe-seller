@@ -1,19 +1,34 @@
+import asyncio
 import mimetypes
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import ads_routing, knowledge_contract
+from app.ai.stop_gates import forget_attempt, record_attempt
 from app.auth import get_current_user
+from app.browser.manager import store_slug
 from app.browser.wrapper import validate_store_slug
+from app.database import get_db
+from app.models.schedule import Schedule
+from app.models.schedule_constants import StalenessCheck
+from app.models.store import Store
+from app.models.task import Task
 from app.models.user import User
 from app.schemas.workspace import (
+    DeleteLinesRequest,
     FileResetRequest,
     FileWriteRequest,
     SkillCreateRequest,
     SkillSaveRequest,
     StoreProfileCreateRequest,
 )
-from app.workspace.catalog_validation import reject_wrong_stubs
+from app.workspace.catalog_validation import (
+    canonical_rel,
+    catalog_problems,
+    catalog_rejection,
+)
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
 
@@ -82,23 +97,162 @@ async def read_file_raw(
     )
 
 
+async def _cleanup_write_error(
+    db: AsyncSession, task_id: str, path: str, content: str
+) -> str | None:
+    """Hold a knowledge-cleanup run to deleting lines in its own tier.
+
+    A catalog-sync task whose scope still owes the one-time cleanup
+    (app/knowledge_contract.py) may rewrite notes — but only its own
+    tier's, and only to remove outdated passages, never to add or
+    reword. Any other writer is unaffected.
+    """
+    task = await db.get(Task, task_id)
+    if task is None or not task.schedule_id:
+        return None
+    schedule = await db.get(Schedule, task.schedule_id)
+    if not schedule or schedule.staleness_check != StalenessCheck.CATALOG:
+        return None
+    if not await knowledge_contract.needs_cleanup(
+        db, knowledge_contract.cleanup_scope(task.store_id)
+    ):
+        return None
+    slug = None
+    if task.store_id is not None:
+        store = await db.get(Store, task.store_id)
+        slug = store_slug(store.name, store.id) if store else ''
+    err = knowledge_contract.tier_error(path, slug)
+    if err:
+        return err
+    try:
+        old = await workspace_manager.read_file(path)
+    except (FileNotFoundError, ValueError):
+        return (
+            'This one-time cleanup only removes passages from existing '
+            f'files; {path} does not exist.'
+        )
+    return knowledge_contract.deletion_only_error(old, content)
+
+
 @router.put('/file')
 async def write_file(
     path: str = Query(...),
     body: FileWriteRequest = ...,
+    task_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
     try:
-        # Enforce the catalog stub contract at the write boundary: a
-        # CATALOG.md that marks a substantive file "Empty/stub" is
-        # rejected so the sync agent must summarize it (catalog-first
-        # navigation depends on real summaries). See catalog_validation.
+        if task_id and not path.endswith('CATALOG.md'):
+            err = await _cleanup_write_error(db, task_id, path, body.content)
+            if err:
+                raise ValueError(err)
+        # Enforce the catalog contract at the write boundary: a tier
+        # CATALOG.md that drops a file, breaks the table format,
+        # carries another store's rows, or stubs a substantive file is
+        # rejected naming the rows to fix. See catalog_validation.
         if path.endswith('CATALOG.md'):
-            reject_wrong_stubs(body.content, workspace_manager.resolve_file)
+            # The tier is decided by the file the write lands on, not by
+            # how the caller spelled it: `./stores/<s>/CATALOG.md` and
+            # `stores//<s>/CATALOG.md` are the same tier catalog, and a
+            # round key per spelling would be one round per spelling.
+            rel = canonical_rel(path)
+            if rel is None:
+                raise ValueError(
+                    f'{path} cannot be read as a tier catalog: write it as '
+                    'knowledge/CATALOG.md or stores/<slug>/CATALOG.md.'
+                )
+            hard, content_errors = await asyncio.to_thread(
+                catalog_problems,
+                rel,
+                body.content,
+                root=workspace_manager.root,
+                resolve_file=workspace_manager.resolve_file,
+            )
+            # Rows outside the tier are always refused; the content rules
+            # are told once, and a second write goes through as written.
+            writer, gate = task_id or 'workspace', f'catalog:{rel}'
+            if hard or (content_errors and record_attempt(writer, gate) == 1):
+                raise ValueError(catalog_rejection(rel, hard + content_errors))
+            # A write that only went through because its round was spent
+            # keeps the round spent: forgetting it here told the same
+            # content rule again on the third write. Only a write the
+            # rules had nothing to say about starts a new episode.
+            if not content_errors:
+                forget_attempt(writer, gate)
         await workspace_manager.write_file(path, body.content)
+        # The FILE the write landed on, not the string that asked for it:
+        # a cleanup's shield is only as good as the file it names (see
+        # app/knowledge_contract.note_write).
+        knowledge_contract.note_write(
+            await asyncio.to_thread(workspace_manager.resolve_file, path),
+            task_id,
+        )
         return {'path': path, 'status': 'ok'}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post('/file/delete-lines')
+async def delete_lines(
+    path: str = Query(...),
+    body: DeleteLinesRequest = ...,
+    task_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Remove whole lines from a file without the caller rewriting it.
+
+    A note cleanup only drops passages; making the model retype a long
+    file to do that slips (see app/mcp_workspace_tool_schemas.py). The
+    server deletes the named 1-based inclusive ranges itself, and only
+    from the file as the caller read it.
+    """
+    if path.endswith('CATALOG.md'):
+        # A catalog is rewritten whole and validated as a table; line
+        # deletion would bypass that check.
+        raise HTTPException(
+            status_code=400,
+            detail='Write CATALOG.md with vibe_seller_write_workspace_file.',
+        )
+    try:
+        old = await workspace_manager.read_file(path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f'Not found: {path}')
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    lines = old.split('\n')
+    if old.endswith('\n'):
+        lines = lines[:-1]
+    if body.line_count != len(lines):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f'{path} has {len(lines)} lines now, not {body.line_count}; '
+                're-read it and give the ranges again.'
+            ),
+        )
+    drop: set[int] = set()
+    for first, last in body.ranges:
+        if not 1 <= first <= last <= len(lines):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'range [{first}, {last}] is outside lines 1-{len(lines)}'
+                ),
+            )
+        drop.update(range(first, last + 1))
+    kept = [ln for i, ln in enumerate(lines, 1) if i not in drop]
+    new = '\n'.join(kept) + ('\n' if kept and old.endswith('\n') else '')
+    if task_id:
+        err = await _cleanup_write_error(db, task_id, path, new)
+        if err:
+            raise HTTPException(status_code=400, detail=err)
+    await workspace_manager.write_file(path, new)
+    knowledge_contract.note_write(
+        await asyncio.to_thread(workspace_manager.resolve_file, path), task_id
+    )
+    return {'path': path, 'status': 'ok', 'deleted_lines': len(drop)}
 
 
 @router.delete('/file')
@@ -115,14 +269,23 @@ async def delete_file(
 
 
 @router.get('/skills')
-async def list_skills(_user: User = Depends(get_current_user)):
+async def list_skills(
+    task_id: str | None = Query(None),
+    _user: User = Depends(get_current_user),
+):
     """List skills as {slug, name, description, source, updatable}.
 
     Used by the save-skill flow to decide whether to extend an
-    existing user-space skill or create a new one.
+    existing user-space skill or create a new one. Asked from inside a
+    task, the list leaves out the skills routed away from that task's
+    workspace (``ads_routing``): a store not bound to the ads service
+    must not be shown the API skill — observed, an agent that saw it
+    listed spent minutes probing whether its store was authorized.
     """
     await workspace_manager.ensure_init()
-    return await workspace_manager.list_skills()
+    skills = await workspace_manager.list_skills()
+    barred = ads_routing.excluded(task_id)
+    return [s for s in skills if s.get('slug') not in barred]
 
 
 @router.put('/skills/{slug}')

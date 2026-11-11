@@ -11,6 +11,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { useState } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { TasksView } from '../views/TasksView'
+import { createDraftStore } from '../lib/draftStore'
 import { MessageBubble } from '../components/conversation/MessageBubble'
 import { sendChatMessage } from '../handlers/sendChatMessage'
 import type { Task, StagedAttachment, ConversationItem } from '../types'
@@ -50,7 +51,7 @@ function makeProps(over: Record<string, unknown> = {}) {
     selectedTask: runningTask(), steps: [], screenshots: [], logs: [],
     agentMessages: [], todoItems: [], pendingQuestions: null,
     conversationItems: [], selectedAnswers: {}, otherInputs: {},
-    showOtherInput: {}, chatInput: '', setChatInput: noop,
+    showOtherInput: {}, chatDraft: createDraftStore(),
     chatAttachments: [], setChatAttachments: noop, debugMode: false,
     setDebugMode: noop, profiles: [], selectedProfileId: 'default',
     setSelectedProfileId: noop, currentUser: null, showAllTasks: false,
@@ -72,10 +73,10 @@ function makeProps(over: Record<string, unknown> = {}) {
 // Stateful wrapper so setChatAttachments actually updates rendered chips.
 function Harness(props: Record<string, unknown>) {
   const [atts, setAtts] = useState<StagedAttachment[]>([])
-  const [input, setInput] = useState('')
+  const [draft] = useState(() => createDraftStore())
   return (
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    <TasksView {...(props as any)} chatInput={input} setChatInput={setInput}
+    <TasksView {...(props as any)} chatDraft={draft}
       chatAttachments={atts} setChatAttachments={setAtts} />
   )
 }
@@ -161,7 +162,8 @@ describe('sendChatMessage: text / attachment / both combinations', () => {
     await sendChatMessage(deps as any)
     expect(post).toHaveBeenCalledWith('/api/tasks/task-1/messages', {
       content: 'hello', profile_id: 'default', attachment_ids: [],
-    })
+
+    }, expect.anything())
   })
 
   it('sends attachments only (empty content)', async () => {
@@ -173,7 +175,8 @@ describe('sendChatMessage: text / attachment / both combinations', () => {
     await sendChatMessage(deps as any)
     expect(post).toHaveBeenCalledWith('/api/tasks/task-1/messages', {
       content: '', profile_id: 'default', attachment_ids: ['id1'],
-    })
+
+    }, expect.anything())
     // Clears input + staged attachments after send.
     expect(deps.setChatInput).toHaveBeenCalledWith('')
     expect(deps.setAttachments).toHaveBeenCalledWith([])
@@ -189,7 +192,8 @@ describe('sendChatMessage: text / attachment / both combinations', () => {
     await sendChatMessage(deps as any)
     expect(post).toHaveBeenCalledWith('/api/tasks/task-1/messages', {
       content: 'look', profile_id: 'default', attachment_ids: ['id1', 'id2'],
-    })
+
+    }, expect.anything())
   })
 })
 

@@ -352,6 +352,10 @@ async def workspace_file(ctx: McpContext, args: dict) -> dict:
             workspace_route.write_file,
             path=path,
             body=FileWriteRequest(content=content),
+            # An external agent is no task: the cleanup-run write rule
+            # (app/knowledge_contract.py) never applies to it.
+            task_id=None,
+            db=ctx.db,
             _user=ctx.user,
         )
         return result

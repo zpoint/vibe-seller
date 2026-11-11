@@ -125,7 +125,7 @@ and the reveal endpoint below.
 | POST | `/api/tasks/{task_id}/questions/answer` | Answer agent question (batch) |
 | POST | `/api/tasks/{task_id}/result` | Record task result summary (agent-only via MCP `vibe_seller_set_task_result`). Does NOT transition status; `_auto_run_task` handles that. |
 | POST | `/api/tasks/{task_id}/error` | Record unrecoverable task error (agent-only via MCP `vibe_seller_set_task_error`). Does NOT transition status; `_auto_run_task` sees `task.error` during cleanup and transitions to FAILED. |
-| POST | `/api/tasks/{task_id}/ad-declaration` | Declare what THIS PHASE of an ad task is for, before any browser work (agent-only via MCP `vibe_seller_declare_ad_task`). Body: `{kind, scope}` where kind ∈ audit/create/execute/investigate — there is no `edit`; "change these three bids" is a one-campaign `audit`. `scope` = `{combos[], campaigns[], products[]}`; **absent `combos` means every marketplace the store sells on**. Append-only: a second declaration is 409 unless a NEW user message has arrived since the last one, so only the person typing can open a phase. **Two exceptions, both ratchets** (`ad_declaration.supersedes`) — within a turn you may narrow at the same kind (recording campaign ids only enumeration could reveal), or correct `investigate` → `audit` at the same-or-narrower reach. The latter is legal because it *adds* obligation (the audit's marketplace coverage); `audit` → `investigate` and every other pair stay 409, as does any widening. On accept, mirrored to `AD_TASK.json` in the task workspace for the stop gates (the row stays authoritative). |
+| POST | `/api/tasks/{task_id}/ad-declaration` | Declare what THIS PHASE of an ad task is for, before any browser work (agent-only via MCP `vibe_seller_declare_ad_task`). Body: `{kind, scope}` where kind ∈ audit/create/execute/investigate — there is no `edit`; "change these three bids" is a one-campaign `audit`. `scope` = `{combos[], campaigns[], products[]}`; **absent `combos` means every marketplace the store sells on**. Append-only, one row per declaration. Like every check, one round: within a turn, narrowing at the same kind or correcting `investigate` → `audit` is always accepted (`ad_declaration.supersedes`); any other re-declaration is answered 409 once, and the same call again is recorded as declared. `execute` normally follows a user reply to a declared audit (this task's or its parent's); without one it is 409 once, and on a second call the frozen changes are posted to the conversation marked as not confirmed by the user. On accept, mirrored to `AD_TASK.json` in the task workspace for the stop gates (the row stays authoritative). |
 | GET | `/api/tasks/{task_id}/ad-declarations` | Every declaration this task has made, oldest first — one row per phase (`seq`), with `kind`, `scope`, `user_turn`, `created_at`. The sequence is the task's phase history: a task that created a listing and then audited its ads has two declarations, one per phase. |
 | GET | `/api/tasks/{task_id}/schedule-state/{key}` | Read a cross-run cursor persisted by a prior run of the same schedule (agent-only via MCP `vibe_seller_get_schedule_state`). Scope resolved server-side from `task.schedule_id`; non-scheduled tasks → 400. Response omits `schedule_id` so the MCP tool output cannot leak it to the agent. Keys must match `[A-Za-z0-9_.-]{1,64}`. |
 | PUT | `/api/tasks/{task_id}/schedule-state/{key}` | Upsert a cross-run cursor (agent-only via MCP `vibe_seller_set_schedule_state`). Body: `{value: string}` (non-empty). Uses SQLite `INSERT ON CONFLICT DO UPDATE` so concurrent manual triggers can't race the PK insert. Same scoping / key rules as GET. Typed keys: `email_watermark` must be a unix epoch seconds integer string (regex `^[0-9]{1,15}$`) — ISO timestamps are rejected because lex compare with microseconds / timezone variants is unsafe. |
@@ -138,6 +138,66 @@ and the reveal endpoint below.
 `TaskResponse` includes `created_by_name: str | null` — the creator's display name resolved from the users table (defaults to `"admin"` if not found).
 
 `TaskResponse` also carries the usage meter's totals across every run: `cost_usd`, `input_tokens` (uncached), `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `num_turns`, plus the main agent's latest `context_tokens` / `context_window` / `usage_model`, and `cost_basis` (`catalog` = priced from the provider's per-token rates, `included` = plan / free model, `unpriced` = tokens only). The same fields stream live as the `task_usage` SSE event. See [subsystems.md § Task usage meter](subsystems.md#task-usage-meter--price-catalog-model_pricing).
+
+### `POST /api/tasks/{task_id}/result` — what `set_task_result` checks
+
+The submission is retained first (`submitted_result`), so a refusal (400)
+annotates it rather than discarding it. Then every check below runs.
+
+Every check gets **one round**, and a submit is refused at most once
+(`task_submission.apply_round`): if any check reports for the first time
+on the task, the submit is a 400 listing everything every check found;
+a check that already had its round never refuses again, so the next
+submit is accepted with the findings as caveats (`review_gaps`).
+Findings that contradict each other — or a change the user did not
+approve — are also marked with a banner at the top of the result, and
+of the retained submission, so a run that ends after the refusal still
+ships the warning.
+
+1. **Listing upload verdict** (`app/ai/stop_gates/listing_upload_gate.py`).
+   A listing batch this turn uploaded to the live account should have a
+   clean `BATCH_<id>_VERDICT.json`.
+2. **Report deliverables** (`app/deliverables/gate.py`): a
+   report-download run delivered every report the calendar says it owed.
+3. **Skill-declared gates** — only those named in the `gates:` frontmatter
+   of a skill the task loaded (bindings persist per task under
+   `data/gate_bindings/`). The ad skills (`amazon-ads`, `noon-ads`)
+   declare `ad_changes` and `ad_coverage`; `review-collect` declares
+   `review_completeness_review` and `review_output_gate` (every enumerated
+   product collected into well-formed `reviews/v1` JSON).
+
+**Ad gates read fixed-header TSVs, never the report prose.** The audit
+writes `CAMPAIGNS.tsv` and `CHANGES.tsv` in the task dir and per-campaign
+`<campaign_id>.tsv` / `.searchterms.tsv` under
+`store-data/<slug>/ads/<platform>/<country>/`; execution writes
+`EXECUTION_LOG.tsv` (parsed by `app/ai/stop_gates/ad_tables.py`). The
+column contract the agent follows is
+`app/skills_v2/amazon-ads/references/data-contract.md` (`noon-ads`
+ships a byte-identical copy) — that file is the
+source of truth; do not restate it.
+
+- `ad_changes`: `CHANGES.tsv` obeys the store rules (`ad_rules.py` —
+  `acos_no_lower`, `cpc_floor_multiplier`, `scale_roas`,
+  `change_cooldown_days`, …; each default is overridable by a
+  `key: value` line in `stores/<slug>/notes.md`); an `investigate` phase
+  proposes nothing; every `EXECUTION_LOG.tsv` row matches an approved
+  change (bid within 0.01) and the per-campaign `applied_*` columns agree.
+  Execution findings and broken tables are contradictions (banner);
+  store-rule findings on a proposal are caveats.
+- **Approval freeze**: when the phase declares `execute`, its
+  `CHANGES.tsv` is copied to `data/approved_changes/<task_id>.tsv`, out of
+  the agent's reach. Execution is checked against that copy (this task's
+  or its nearest ancestor's), so editing `CHANGES.tsv` mid-execution
+  changes nothing. A re-declared `execute` re-freezes; earlier freezes
+  are kept, so changes made under them stay approved.
+- `ad_coverage`: only an `audit` declaration owes coverage
+  (`ad_declaration.owed_combos`) — every owed marketplace has rows in
+  `CAMPAIGNS.tsv`, live campaigns are drilled with both files, and
+  search terms reconcile with targeting spend. Spend that cannot be true
+  (search terms above targeting) is a contradiction.
+
+`vibe_seller_ads_call` (Ads API) is separately scope-checked against the
+declaration by `ads_call_refusal` (`app/ai/ad_scope_access.py`).
 
 ## `agent_mcp/` — Hosted MCP endpoint (external agents)
 

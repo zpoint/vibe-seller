@@ -325,6 +325,138 @@ class TestBidUpdate:
         _title, _header, rows = _read_rows(tmp_path / 'bid.xlsx')
         assert [r[Col.BID] for r in rows] == [1.25, 1.25]
 
+    def test_from_changes_moves_only_the_approved_rows(self, tmp_path):
+        """Approving one of two keywords must move only that one — a
+        whole-campaign --set-bid/--scale would have moved both."""
+        _make_export(tmp_path / 'export.xlsx')
+        changes = tmp_path / 'CHANGES.tsv'
+        changes.write_text(
+            'platform\tcountry\tcampaign_id\tad_group\ttarget\tmatch_type'
+            '\taction\tcurrent_bid\ttarget_bid\n'
+            'amazon\tSA\tC1\tag1\tblue widget\texact\tlower\t3.00\t2.40\n',
+            encoding='utf-8',
+        )
+        ads_bulk.cmd_bid_update(self._args(tmp_path, from_changes=str(changes)))
+        _title, _header, rows = _read_rows(tmp_path / 'bid.xlsx')
+        assert [(r[Col.KEYWORD_TEXT], r[Col.BID]) for r in rows] == [
+            ('blue widget', 2.4)
+        ]
+
+    def test_from_changes_refuses_a_row_it_cannot_find(self, tmp_path):
+        _make_export(tmp_path / 'export.xlsx')
+        changes = tmp_path / 'CHANGES.tsv'
+        changes.write_text(
+            'campaign_id\ttarget\tmatch_type\taction\ttarget_bid\n'
+            'C1\tred widget\texact\tlower\t1.00\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(SystemExit):
+            ads_bulk.cmd_bid_update(
+                self._args(tmp_path, from_changes=str(changes))
+            )
+
+    @pytest.mark.parametrize(
+        'cell',
+        ['', '-', 'as cheap as possible', None],
+        ids=['blank', 'dash', 'prose', 'column missing'],
+    )
+    def test_from_changes_names_the_row_whose_bid_is_no_number(
+        self, tmp_path, cell
+    ):
+        """Observed: `float(row['target_bid'])` raised a bare
+        ValueError/KeyError traceback naming no row, mid-execution — and
+        the pivot away from a crashing script is typing bids into the
+        console by hand, where only the crude magnitude guard is left.
+        The approval is agent-authored: refuse it, naming the row, before
+        anything is written."""
+        _make_export(tmp_path / 'export.xlsx')
+        cols = [
+            'campaign_id',
+            'ad_group',
+            'target',
+            'match_type',
+            'action',
+            'current_bid',
+            'target_bid',
+        ]
+        cells = ['C1', 'ag1', 'blue widget', 'exact', 'lower', '3.00']
+        if cell is None:  # a CHANGES.tsv without the column at all
+            cols = cols[:-1]
+        else:
+            cells.append(cell)
+        changes = tmp_path / 'CHANGES.tsv'
+        changes.write_text(
+            '\t'.join(cols) + '\n' + '\t'.join(cells) + '\n', encoding='utf-8'
+        )
+
+        with pytest.raises(SystemExit) as ei:
+            ads_bulk.cmd_bid_update(
+                self._args(tmp_path, from_changes=str(changes))
+            )
+        assert 'C1/blue widget' in str(ei.value), str(ei.value)
+        assert 'is not a number' in str(ei.value)
+        assert not (tmp_path / 'bid.xlsx').exists()
+
+    def test_from_changes_moves_only_the_named_ad_group(self, tmp_path):
+        """The same keyword in two ad groups of one campaign: approving
+        it in ag1 must not move the ag2 copy."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = ZH_SHEET
+        ws.append(ZH_HEADER)
+        ws.append(
+            _row(
+                ENTITY='广告活动',
+                CAMPAIGN_ID='C1',
+                CAMPAIGN_NAME=SRC_CAMPAIGN,
+                STATE='已启用',
+            )
+        )
+        for ag in ('AG1', 'AG2'):
+            ws.append(
+                _row(
+                    ENTITY='广告组',
+                    CAMPAIGN_ID='C1',
+                    AD_GROUP_ID=ag,
+                    AD_GROUP_NAME=ag.lower(),
+                    STATE='已启用',
+                )
+            )
+            ws.append(
+                _row(
+                    ENTITY='关键词',
+                    CAMPAIGN_ID='C1',
+                    AD_GROUP_ID=ag,
+                    CAMPAIGN_NAME_INFO=SRC_CAMPAIGN,
+                    STATE='已启用',
+                    BID=3.0,
+                    KEYWORD_TEXT='blue widget',
+                    MATCH_TYPE='精准',
+                )
+            )
+        wb.save(tmp_path / 'export.xlsx')
+        changes = tmp_path / 'CHANGES.tsv'
+        changes.write_text(
+            'campaign_id\tad_group\ttarget\tmatch_type\taction\ttarget_bid\n'
+            'C1\tag1\tblue widget\texact\tlower\t2.40\n',
+            encoding='utf-8',
+        )
+        ads_bulk.cmd_bid_update(self._args(tmp_path, from_changes=str(changes)))
+        _title, _header, rows = _read_rows(tmp_path / 'bid.xlsx')
+        assert [(r[Col.AD_GROUP_ID], r[Col.BID]) for r in rows] == [
+            ('AG1', 2.4)
+        ]
+        # Without an ad group the row is ambiguous: refused, not guessed.
+        changes.write_text(
+            'campaign_id\tad_group\ttarget\tmatch_type\taction\ttarget_bid\n'
+            'C1\t\tblue widget\texact\tlower\t2.40\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(SystemExit):
+            ads_bulk.cmd_bid_update(
+                self._args(tmp_path, from_changes=str(changes))
+            )
+
     def test_no_lever_exits(self, tmp_path):
         _make_export(tmp_path / 'export.xlsx')
         with pytest.raises(SystemExit):

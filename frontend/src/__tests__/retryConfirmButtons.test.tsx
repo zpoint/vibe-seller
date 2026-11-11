@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { TasksView } from '../views/TasksView'
+import { createDraftStore } from '../lib/draftStore'
 import type { Task } from '../types'
 import i18n from '../i18n'
 
@@ -50,8 +51,7 @@ function makeProps(over: Record<string, unknown> = {}) {
     selectedAnswers: {},
     otherInputs: {},
     showOtherInput: {},
-    chatInput: '',
-    setChatInput: noop,
+    chatDraft: createDraftStore(),
     chatAttachments: [],
     setChatAttachments: noop,
     debugMode: false,

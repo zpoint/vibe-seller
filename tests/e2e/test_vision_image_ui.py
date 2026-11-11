@@ -12,11 +12,15 @@ that call blocks awaiting the user's confirmation, exactly as in
 production. The server must run with ``VISION_FAKE=1`` so generation is
 deterministic and offline.
 
+**This module owns its server**, booted with ``VISION_FAKE=1`` and a
+dedicated ``VIBE_HOME``: what it writes is SERVER-GLOBAL — the Settings
+save writes the one kie.ai key the whole server generates with, and it is
+never restored — and the vision config is read by other modules (the MCP
+image gates, the catalog) while it holds a test key. Owning the server
+keeps the test key and the fake mode in this module, where they belong.
+
 Run:
-  VISION_FAKE=1 MOCK_CLI=tests/e2e/mock_cli.py PORT=7799 \
-    VIBE_HOME=~/.vibe-seller-vision-e2e ./start.sh --dev
-  E2E_BASE_URL=http://127.0.0.1:7799 \
-    .venv/bin/python -m pytest --e2e tests/e2e/test_vision_image_ui.py
+  .venv/bin/python -m pytest --e2e tests/e2e/test_vision_image_ui.py
 """
 
 import threading
@@ -26,40 +30,57 @@ import httpx
 from playwright.sync_api import expect
 import pytest
 
-from tests.e2e.conftest import BASE_URL
+from tests.e2e.own_server import owned_agent_stack
 
 pytestmark = [pytest.mark.e2e]
 
+# Set by the module fixture (own_stack) to this module's own server.
+BASE_URL = ''
+
+
+@pytest.fixture(scope='module', autouse=True)
+def own_stack(tmp_path_factory):
+    """A server of this module's own, in fake-vision mode.
+
+    The fake mode is no longer something the module probes and hopes the
+    shared server was started with — it starts its own with it, so the
+    gate below is a check on what it built, not a race with a stranger.
+    """
+    global BASE_URL
+    with owned_agent_stack(
+        tmp_path_factory, 'vision-ui', env={'VISION_FAKE': '1'}
+    ) as server:
+        BASE_URL = server.base_url
+        # Skip the whole module unless the server carries the vision
+        # route AND runs in VISION_FAKE mode. The fake-mode gate is the
+        # contract, not a convenience: against a real image API these
+        # tests would (a) hit it with a bogus key — the confirm flow then
+        # never emits image_generated and times out (seen live on CI),
+        # and (b) the settings test would overwrite a real user's
+        # configured key.
+        probe = _login_api()
+        try:
+            resp = probe.get(f'{BASE_URL}/api/vision/config')
+            cfg = resp.json() if resp.status_code == 200 else {}
+        finally:
+            probe.close()
+        if not cfg.get('fake'):
+            pytest.skip(
+                'vision e2e requires a VISION_FAKE=1 server (offline, '
+                'deterministic, and safe to write test keys) — this '
+                f'one at {BASE_URL} reports {cfg!r}'
+            )
+        yield server
+
 
 def _login_api() -> httpx.Client:
+    """Login as the seeded admin — the only account on this home."""
     client = httpx.Client(timeout=30)
     client.post(
         f'{BASE_URL}/api/auth/login',
         json={'identifier': 'admin@vibe-seller.local', 'password': 'admin'},
     )
     return client
-
-
-# Skip the whole module unless the server is up, carries the vision
-# route, AND runs in VISION_FAKE mode. The fake-mode gate is the
-# contract, not a convenience: against a real server these tests would
-# (a) hit the real image API with a bogus key — the confirm flow then
-# never emits image_generated and times out (seen live on CI), and
-# (b) the settings test would overwrite a real user's configured key.
-try:
-    _probe = _login_api()
-    _resp = _probe.get(f'{BASE_URL}/api/vision/config')
-    _cfg = _resp.json() if _resp.status_code == 200 else {}
-    _probe.close()
-except Exception:
-    _cfg = {}
-if not _cfg.get('fake'):
-    pytest.skip(
-        'vision e2e requires a VISION_FAKE=1 server (offline, '
-        'deterministic, and safe to write test keys) — start it with '
-        'VISION_FAKE=1 ./start.sh',
-        allow_module_level=True,
-    )
 
 
 def _create_task(client: httpx.Client, title: str) -> str:

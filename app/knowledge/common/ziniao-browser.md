@@ -11,12 +11,12 @@ Ziniao browser has a built-in password manager and 2FA handler. When you encount
 5. For **2FA/OTP prompts**, wait 5 seconds for Ziniao to fetch and fill the code, then read the field's value to confirm, then click Submit.
 6. Only ask the user for credentials if reading the value confirms fields are still empty after 10+ seconds.
 
-See the browser-use skill for the exact commands to inspect the page,
+See the browser skill for the exact commands to inspect the page,
 read a field's value, and click elements.
 
 ## Example: Amazon Seller Central Login
 
-Neutral workflow (see the browser-use skill for exact commands):
+Neutral workflow (see the browser skill for exact commands):
 
 1. Navigate to `https://sellercentral.amazon.com/home` (redirects to
    sign-in).

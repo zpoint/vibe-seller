@@ -2,6 +2,7 @@
 
 import pytest
 
+from app import ads_routing
 from app.models.app_settings import AppSettings
 from app.sync.scheduler import (
     Cadence,
@@ -210,3 +211,27 @@ class TestSaveSkillEndpoints:
             json={'skill_md': self.SKILL_MD},
         )
         assert r.status_code == 400
+
+
+async def test_a_task_is_not_listed_the_skills_routed_away_from_it(
+    admin_client,
+):
+    """A store not bound to the ads service: its workspace leaves out the
+    API skill, and so must the skill list the agent can ask for —
+    observed, an agent shown it spent minutes probing whether its store
+    was authorized."""
+    r = await admin_client.put(
+        '/api/workspace/skills/wf-routed-away',
+        json={'skill_md': TestSaveSkillEndpoints.SKILL_MD},
+    )
+    assert r.status_code == 200, r.text
+    ads_routing.remember('t-routed', {'wf-routed-away'})
+    try:
+        mine = (
+            await admin_client.get('/api/workspace/skills?task_id=t-routed')
+        ).json()
+        assert 'wf-routed-away' not in {s['slug'] for s in mine}
+        everyone = (await admin_client.get('/api/workspace/skills')).json()
+        assert 'wf-routed-away' in {s['slug'] for s in everyone}
+    finally:
+        ads_routing.remember('t-routed', set())

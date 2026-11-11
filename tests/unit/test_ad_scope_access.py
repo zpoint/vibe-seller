@@ -17,7 +17,6 @@ import pytest
 
 from app.ai import ad_scope_access
 from app.ai.ad_scope_access import ads_call_refusal, campaign_targets
-from app.ai.tool_call_guards import ad_scope_access_deny, tool_call_deny
 
 pytestmark = pytest.mark.unit
 
@@ -122,25 +121,4 @@ def test_the_ads_call_surface_is_refused_too(monkeypatch):
             'task', {'path': '/campaign/A1234567/keywords', 'params': {}}
         )
         is None
-    )
-
-
-def test_only_browser_use_commands_are_the_ad_surface(monkeypatch):
-    _declared(monkeypatch, campaigns=['A1234567'])
-
-    class _Session:
-        task_id = 'task'
-
-    assert ad_scope_access_deny(_Session(), 'Bash', {'command': PROBE_COMMAND})
-    # an id in ordinary shell text is not a navigation target
-    assert (
-        ad_scope_access_deny(
-            _Session(), 'Bash', {'command': 'echo /campaign/A7654321'}
-        )
-        is None
-    )
-    # and the wired chain reaches the same refusal
-    assert tool_call_deny(
-        _Session(),
-        {'tool_name': 'Bash', 'tool_input': {'command': PROBE_COMMAND}},
     )

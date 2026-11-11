@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
+import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 import { ChatBotSection } from '../ChatBotSection'
 import { ApiTokensPanel } from './ApiTokensPanel'
 import { Dida365Panel } from './Dida365Panel'
@@ -66,10 +67,10 @@ export function IntegrationsPanel({
     setBusy(true)
     try {
       if (status.enabled) {
-        await api.post('/api/settings/google-workspace/disable', {})
+        await api.post('/api/settings/google-workspace/disable', {}, { timeoutMs: LONG_TIMEOUT_MS })
         setMessage(t('integrations.gws.disabled'))
       } else {
-        const r = (await api.post('/api/settings/google-workspace/enable', {})) as { count: number }
+        const r = (await api.post('/api/settings/google-workspace/enable', {}, { timeoutMs: LONG_TIMEOUT_MS })) as { count: number }
         setMessage(t('integrations.gws.enabledMsg', { count: r.count }))
       }
       await refresh()

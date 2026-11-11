@@ -37,7 +37,7 @@ from app.scheduler.task_queue import task_queue_scheduler
 from app.scheduler.waiting import check_waiting_tasks
 from app.task_states import TaskStatus
 from app.telemetry_events import TaskSource
-from app.telemetry_schedules import send_schedule_fired
+from app.telemetry_schedules import send_fire_skipped, send_schedule_fired
 from app.telemetry_tasks import send_task_created
 from app.telemetry_via import unattributed
 from app.utils.timezone import get_server_timezone
@@ -240,6 +240,7 @@ async def _run_task_job(
                             'plan_status': sched.plan_status,
                         },
                     )
+                    send_fire_skipped(schedule_id, sched.plan_status)
                     return
                 saved_plan = sched.plan
                 saved_plan_version = sched.plan_version

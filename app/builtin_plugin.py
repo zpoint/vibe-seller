@@ -14,20 +14,9 @@ never from here.
 
 from __future__ import annotations
 
-from app.ai.bash_safety import (
-    check_bid_value_shape,
-    check_catalog_first,
-    check_dangerous_kill,
-    check_report_script_write,
-)
+from app.ai.bash_safety import check_bid_value_shape, check_dangerous_kill
 from app.ai.image_guards import check_local_image_edit
-from app.ai.stop_gates import (
-    ad_change_cooldown,
-    ad_completeness_review,
-    ad_execution_fidelity,
-    ad_negation_allowlist,
-    ad_writeback_backing,
-)
+from app.ai.stop_gates import ad_changes, ad_coverage
 from app.browser.chrome import ChromeBackend
 from app.browser.winchrome import WinChromeBackend
 from app.browser.ziniao import ZiniaoBackend
@@ -57,19 +46,12 @@ class BuiltinPlugin(Plugin):
         # into amazon-ads/gates/). The review-collect gates now ship in
         # review-collect/gates/ and are discovered + loaded once by the
         # skill-gate loader at startup, so they are NOT registered here.
-        ctx.register_gate('ad_change_cooldown', ad_change_cooldown)
-        ctx.register_gate('ad_completeness_review', ad_completeness_review)
-        ctx.register_gate('ad_negation_allowlist', ad_negation_allowlist)
-        ctx.register_gate('ad_writeback_backing', ad_writeback_backing)
-        ctx.register_gate('ad_execution_fidelity', ad_execution_fidelity)
+        ctx.register_gate('ad_changes', ad_changes)
+        ctx.register_gate('ad_coverage', ad_coverage)
 
     @staticmethod
     def _install_pretool_gates(ctx: ExtensionContext) -> None:
-        # Order matches the historical first_bash_deny chain:
-        # kill → bid value → local-image edit → report-script →
-        # catalog-first. Local-image sits above catalog-first so an
-        # agent reaching for rembg gets the "regenerate with the model"
-        # message rather than a generic read-the-catalog nudge.
+        # First deny wins: kill → bid value → local-image edit.
         ctx.register_pretool_gate(
             'Bash safety',
             lambda cmd, task_dir, catalog_read: check_dangerous_kill(cmd),
@@ -81,18 +63,6 @@ class BuiltinPlugin(Plugin):
         ctx.register_pretool_gate(
             'Local-image edit',
             lambda cmd, task_dir, catalog_read: check_local_image_edit(cmd),
-        )
-        ctx.register_pretool_gate(
-            'Report-script guard',
-            lambda cmd, task_dir, catalog_read: check_report_script_write(
-                cmd, task_dir
-            ),
-        )
-        ctx.register_pretool_gate(
-            'Catalog-first',
-            lambda cmd, task_dir, catalog_read: check_catalog_first(
-                cmd, catalog_read
-            ),
         )
 
     @staticmethod

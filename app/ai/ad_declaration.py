@@ -117,6 +117,20 @@ _EXCLUSION_SHAPE = re.compile(
 _EXCLUSION_SHAPE_ZH = re.compile(
     r'除外|除了|以外|之外|不包括|不包含|不含|排除|不在|不要|不算|剔除|去掉'
 )
+# An entry standing for the whole set ("all", "*", "every campaign …",
+# "全部"). Anchored at the start, and "all" must be a whole word followed
+# by a space or the end, so a product named "All-Purpose Cleaner" stays a
+# name.
+_WHOLE_SET_SHAPE = re.compile(
+    # the whole entry is a sentinel: "all", "*", "everything"
+    r'\s*(?:\*|all|any|every|everything)\s*$'
+    # or it starts "all/every [the] campaigns|products|…"
+    r'|\s*(?:all|every)\s+(?:the\s+)?'
+    r'(?:campaigns?|products?|ads?|skus?|keywords?|listings?|items?)\b'
+    # or it starts 全部 / 所有
+    r'|\s*(?:全部|所有)',
+    re.IGNORECASE,
+)
 
 
 def scope_entry_error(value: str) -> str | None:
@@ -128,6 +142,15 @@ def scope_entry_error(value: str) -> str | None:
     scope, expressed by omission.
     """
     text = str(value or '')
+    if _WHOLE_SET_SHAPE.match(text):
+        # Observed: an "audit everything" request declared as
+        # campaigns=["all"] — a one-entry list, which reads as narrowed
+        # to a campaign called "all".
+        return (
+            f'scope entry {text!r} names the whole set, not one thing in '
+            'it. To mean every campaign or product, leave that list empty '
+            '(an empty list is "all of them").'
+        )
     hit = _EXCLUSION_SHAPE.search(text) or _EXCLUSION_SHAPE_ZH.search(text)
     if hit is None:
         return None

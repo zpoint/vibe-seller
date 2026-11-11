@@ -1,8 +1,8 @@
 """Skill-declared exit gates: the SKILL.md frontmatter names WHICH
-reviewers apply to that skill's outputs (``gates: [...]``), resolved
+gates apply to that skill's outputs (``gates: [...]``), resolved
 through ``stop_gates.get_registered_gates`` at ``set_task_result``.
 Tasks that loaded no gate-declaring skill get only the generic gates
-— ad reviewers must never fire for a listing/email task again."""
+— ad gates must never fire for a listing/email task again."""
 
 import asyncio
 from pathlib import Path
@@ -40,8 +40,8 @@ def _mk_skill(root: Path, name: str, frontmatter: str) -> Path:
 
 class TestParseSkillGates:
     def test_parses_inline_list(self, tmp_path):
-        p = _mk_skill(tmp_path, 'x', 'name: x\ngates: [ad_completeness_review]')
-        assert parse_skill_gates(p) == ['ad_completeness_review']
+        p = _mk_skill(tmp_path, 'x', 'name: x\ngates: [ad_coverage]')
+        assert parse_skill_gates(p) == ['ad_coverage']
 
     def test_no_gates_field(self, tmp_path):
         p = _mk_skill(tmp_path, 'x', 'name: x')
@@ -53,9 +53,9 @@ class TestParseSkillGates:
 
 class TestResolveSkillGates:
     def test_loaded_skill_brings_its_gate(self, tmp_path):
-        _mk_skill(tmp_path, 'ads', 'name: ads\ngates: [ad_completeness_review]')
+        _mk_skill(tmp_path, 'ads', 'name: ads\ngates: [ad_coverage]')
         gates = resolve_skill_gates({'ads'}, tmp_path)
-        assert [name for name, _ in gates] == ['ad_completeness_review']
+        assert [name for name, _ in gates] == ['ad_coverage']
 
     def test_unknown_gate_name_ignored(self, tmp_path):
         # A typo in a skill must not break submits.
@@ -68,9 +68,7 @@ class TestResolveSkillGates:
 
     def test_duplicate_declarations_collapse(self, tmp_path):
         for n in ('a', 'b'):
-            _mk_skill(
-                tmp_path, n, f'name: {n}\ngates: [ad_completeness_review]'
-            )
+            _mk_skill(tmp_path, n, f'name: {n}\ngates: [ad_coverage]')
         gates = resolve_skill_gates({'a', 'b'}, tmp_path)
         assert len(gates) == 1
 

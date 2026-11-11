@@ -7,7 +7,7 @@ stores, follow them, answer the task agent's questions and review plans.
 
 The agent acts **through tasks**. It never drives the browser itself, so
 every gate on the server (plan approval, ad-scope declarations, the
-completeness review) still applies. See
+ad-change and upload checks at `set_task_result`) still applies. See
 [What the agent can and cannot do](#4-what-the-agent-can-and-cannot-do).
 
 ## 1. Mint an API key
@@ -492,7 +492,7 @@ server machine, and it is a developer tool, not an external-agent feature.
 > `--task-id`, and it exposes tools such as `set_task_result` and
 > `declare_ad_task`. It is never exposed over the network — an outside
 > agent holding it could forge a task's result or walk around the
-> server's review gates.
+> server's result gates.
 
 ## 5. Troubleshooting
 

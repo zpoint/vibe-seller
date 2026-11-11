@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
+import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 
 export function Dida365Panel() {
   const { t } = useTranslation()
@@ -64,7 +65,8 @@ export function Dida365Panel() {
     // Step 1: Install ticktick-mcp if needed
     setInstalling(true)
     try {
-      await api.post('/api/dida365/setup-mcp')
+      // git clone + uv install: minutes on a slow link, not seconds.
+      await api.post('/api/dida365/setup-mcp', undefined, { timeoutMs: LONG_TIMEOUT_MS })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setError(t('settings.dida365SetupFailed', { error: msg }))

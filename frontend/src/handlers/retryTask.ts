@@ -35,6 +35,9 @@ export interface RetryTaskDeps {
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
   setSelectedTask: React.Dispatch<React.SetStateAction<Task | null>>
   setScheduleTasks: React.Dispatch<React.SetStateAction<Task[]>>
+  /** The POST failed. The handler still reconciles the row and
+   *  resolves; the caller shows the error. */
+  onError?: (err: unknown) => void
   /** Called after the optimistic patch so the caller can clear
    *  scratch UI state (steps, screenshots, conversation, …). */
   onCleared?: () => void
@@ -72,7 +75,8 @@ export async function retryTask(
     await deps.api.post(`/api/tasks/${taskId}/retry`, {
       profile_id: deps.profileId,
     })
-  } catch {
+  } catch (err) {
+    deps.onError?.(err)
     // POST failed (network / auth / 500). The optimistic clear
     // would otherwise leave the row stuck at `pending` forever —
     // no agent started, so no SSE will ever land. Refetch the

@@ -1,23 +1,28 @@
+import asyncio
 from datetime import UTC, datetime
 import json
 import logging
 
+from app import knowledge_contract
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.external_config import (
     ExternalConfigOverrideError,
     assert_profile_compatible,
 )
 from app.ai.profiles import DEFAULT_PROFILE_ID
-from app.ai.review_redrive import reset_ledger
+from app.ai.turn_hold_budget import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
+from app.config import VIBE_SELLER_DIR
 from app.database import async_session
 from app.env_options import Options
 from app.events.bus import event_bus
+from app.knowledge_contract import L2_SCOPE, cleanup_scope
 from app.models.schedule import Schedule
 from app.models.schedule_constants import StalenessCheck
 from app.models.store import Store
 from app.models.task import Task
 from app.routers.dida365_oauth import refresh_token_if_needed
+from app.store_metadata import sync_store_metadata
 from app.sync import jobs as sync_jobs
 from app.sync.scheduler import sync_scheduler
 from app.task_finalize import (
@@ -30,7 +35,6 @@ from app.task_runner import (
     build_system_extra,
     get_store_emails,
     maybe_inject_pending_answers,
-    sync_store_metadata,
 )
 from app.task_session_lifecycle import (
     wait_for_session_with_retry,
@@ -40,6 +44,7 @@ from app.task_states import (
     assert_transition,
     can_transition,
 )
+from app.telemetry_harness import send_cleanup_finished
 from app.workspace.actor import clear_request_actor
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
@@ -59,10 +64,12 @@ async def auto_run_task(task_id: str, store: Store | None):
     Multiple tasks for the same store can run concurrently
     with CDP-level isolation via CDPMuxProxy.
     """
-    # A new turn — the review gate's budget starts over here and
+    # A new turn — the turn hold's budget starts over here and
     # nowhere else. See reset_ledger.
     reset_ledger(task_id)
     catalog_backups: dict = {}
+    cleanup_pending: str | None = None
+    cleanup_snapshot: dict = {}
     schedule: Schedule | None = None
     try:
         # Check task wasn't cancelled while queued.  Also load the
@@ -138,9 +145,27 @@ async def auto_run_task(task_id: str, store: Store | None):
             schedule is not None
             and schedule.staleness_check == StalenessCheck.CATALOG
         ):
+            # A scope still owing the one-time knowledge cleanup runs
+            # even when its catalog is current (app/knowledge_contract).
+            async with async_session() as db:
+                if await knowledge_contract.needs_cleanup(
+                    db, cleanup_scope(task.store_id)
+                ):
+                    cleanup_pending = cleanup_scope(task.store_id)
+            if cleanup_pending is not None:
+                tier_slug = (
+                    None
+                    if task.store_id is None
+                    else _store_slug(store.name, store.id)
+                )
+                knowledge_contract.watch_writes(task_id)
+                cleanup_snapshot = await asyncio.to_thread(
+                    knowledge_contract.snapshot_tier, VIBE_SELLER_DIR, tier_slug
+                )
             if task.store_id is None:
                 # L2: global catalog only
                 l2_stale, _ = knowledge_sync.catalog_needs_update(None)
+                l2_stale = l2_stale or cleanup_pending is not None
                 if not l2_stale:
                     async with async_session() as db:
                         task = await db.get(Task, task_id)
@@ -169,6 +194,7 @@ async def auto_run_task(task_id: str, store: Store | None):
                 _, l3_stale = knowledge_sync.catalog_needs_update(
                     store_slug,
                 )
+                l3_stale = l3_stale or cleanup_pending is not None
                 if not l3_stale:
                     async with async_session() as db:
                         task = await db.get(Task, task_id)
@@ -273,7 +299,6 @@ async def auto_run_task(task_id: str, store: Store | None):
             ),
             store_slug=(_store_slug(store.name, store.id) if store else None),
             on_start=_on_start,
-            skip_reflection=task.skip_reflection,
             resume=resume_existing_session,
         )
         if not started:
@@ -318,7 +343,7 @@ async def auto_run_task(task_id: str, store: Store | None):
         # 5c. Sync store metadata.json → DB
         if store:
             async with async_session() as db_meta:
-                await sync_store_metadata(store.id, db_meta)
+                await sync_store_metadata(store.id, db_meta, task_id)
 
         # 6. Re-check supersession before terminal writes — the
         #    awaits above (knowledge commit, metadata sync) may
@@ -353,6 +378,52 @@ async def auto_run_task(task_id: str, store: Store | None):
                 task_id,
             )
     finally:
+        if cleanup_pending is not None:
+            # Held to the outcome: any tier file changed by more than
+            # deleting lines — by whatever means — is put back, and the
+            # scope stays owing. Recorded only on COMPLETED: a failed run
+            # (out of credits, a crash) also leaves it owing, so the next
+            # catalog sync runs the cleanup again.
+            tier = 'l2' if cleanup_pending == L2_SCOPE else 'l3'
+            restored = []
+            others = knowledge_contract.end_watch(task_id)
+            try:
+                restored = await asyncio.to_thread(
+                    knowledge_contract.undo_non_deletions,
+                    cleanup_snapshot,
+                    others,
+                )
+                if restored:
+                    logger.warning(
+                        'Knowledge cleanup %s changed more than lines; '
+                        'restored %s and left the scope owing',
+                        task_id,
+                        ', '.join(str(p) for p in restored),
+                    )
+                cleaned = False
+                async with async_session() as db_kc:
+                    t = await db_kc.get(Task, task_id)
+                    if t and t.status == TaskStatus.COMPLETED and not restored:
+                        await knowledge_contract.mark_cleaned(
+                            db_kc, cleanup_pending
+                        )
+                        await db_kc.commit()
+                        cleaned = True
+                outcome = (
+                    'cleaned'
+                    if cleaned
+                    else 'restored'
+                    if restored
+                    else 'failed'
+                )
+                send_cleanup_finished(task_id, tier, outcome, len(restored))
+            except Exception:
+                send_cleanup_finished(task_id, tier, 'failed', len(restored))
+                logger.warning(
+                    'Recording knowledge cleanup failed for %s',
+                    task_id,
+                    exc_info=True,
+                )
         if catalog_backups:
             try:
                 async with async_session() as db_cat:

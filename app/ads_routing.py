@@ -44,6 +44,11 @@ def remember(
         _storeless.add(task_id)
 
 
+def excluded(task_id: str | None) -> frozenset[str]:
+    """Skills routed away from *task_id* (empty for an unknown task)."""
+    return _excluded.get(task_id or '', frozenset())
+
+
 def refusal_for(task_id: str, tool: str, tool_input: dict) -> str | None:
     """Why this tool call may not load a skill routed away from the task.
 

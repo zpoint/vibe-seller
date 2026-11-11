@@ -1,10 +1,9 @@
 """No fixed-length ``sleep`` while background work is pending.
 
-A foreground ``sleep 200; ls REVIEW_…`` waiting on a reviewer subagent
-blocks for the full 200s even when the subagent is done in 60: its
-completion notice is delivered only after the Bash call returns. The
-wait primitive that returns on completion is ``TaskOutput`` (see
-``report_reviewer.WAIT_FOR_BACKGROUND``). Narrow on purpose: only a
+A foreground ``sleep 200`` waiting on a subagent blocks for the full
+200s even when the subagent is done in 60: its completion notice is
+delivered only after the Bash call returns. The wait primitive that
+returns on completion is ``TaskOutput`` (see ``WAIT_FOR_BACKGROUND``). Narrow on purpose: only a
 ``sleep`` in command position, only at or above the threshold, only in
 a foreground call, and only while the session tracks background work it
 launched — short poll sleeps (``sleep 20`` between page checks) are
@@ -17,7 +16,15 @@ command, and this one needs the session's pending-work set.
 import re
 
 from app.ai.shell_patterns import COMMAND_PREFIX
-from app.ai.stop_gates.report_reviewer import WAIT_FOR_BACKGROUND
+
+WAIT_FOR_BACKGROUND = (
+    'A subagent or background command reports back on its own: its '
+    'completion notice arrives between your tool calls. So keep working on '
+    'anything else left to do; if nothing is left, wait in short steps '
+    '(a `sleep` under 30s, then check again), or block on TaskOutput with '
+    'its task id if your tools include it. Never one long `sleep N` — the '
+    'notice cannot reach you while a foreground command is blocking.'
+)
 
 _SLEEP_INVOCATION = re.compile(
     COMMAND_PREFIX + r'sleep\s+(\d+(?:\.\d+)?)([smhd]?)\b'

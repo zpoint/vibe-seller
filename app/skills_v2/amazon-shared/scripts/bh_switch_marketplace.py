@@ -1,7 +1,7 @@
 # ruff: noqa: F821 — browser-harness globals (new_tab, js, wait_for_load, ...)
 """Switch the Seller Central session to ONE marketplace, in one call.
 
-§4a of SKILL.md, made deterministic. On a unified account the session is
+§4a-bis of SKILL.md, made deterministic. On a unified account the session is
 pinned to one marketplace whatever the URL subdomain says, so moving from
 SA to AE means the account-switcher page -- and an agent driving it by hand
 spent ~45 calls there: it found the target row, clicked it (the row ticks),
@@ -174,7 +174,7 @@ time.sleep(4)
 
 # The row for the target country, by its name in the page's own language.
 # Collapsed accounts show only their active marketplace, so expand any
-# account row first (§4a step 2) and look again.
+# account row first (§4a-bis step 2) and look again.
 _ROW_JS = (
     'var name;try{name=new Intl.DisplayNames([document.documentElement.lang'
     f'||"en"],{{type:"region"}}).of("{cc}");}}catch(e){{return "{{}}";}}'
@@ -246,7 +246,7 @@ click_at_xy(box['x'], box['y'])
 time.sleep(6)
 wait_for_load()
 
-# The label is the truth (§4a step 4): read the marketplace back on a fresh
+# The label is the truth (§4a-bis step 4): read the marketplace back on a fresh
 # ordinary page rather than trusting the click.
 out['marketplace'] = _session_marketplace()
 out['ok'] = out['marketplace'] == mid

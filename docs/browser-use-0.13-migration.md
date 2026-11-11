@@ -256,7 +256,7 @@ Two ways to restore task↔daemon mapping:
 Pick one before touching the three files; the proxy route removes an entire
 bug class (cmdline parsing races).
 
-### 4.4 Bash safety — `app/ai/bash_safety.py:700-716`
+### 4.4 Bash safety — `app/ai/bash_safety.py:check_bid_value_shape`
 `check_bid_value_shape` parses `browser-use input <idx> "<val>"`. In 0.13 a
 bid is set inside a heredoc Python call. Re-target the check to the new form
 (inspect the heredoc body / helper call), or the concatenated-bid guard goes
@@ -267,7 +267,7 @@ Rewrite the CLI examples to 0.13 heredoc form in:
 - `app/task_runner_context.py:120-236` (Ziniao dual-browser, non-Ziniao "run
   browser-use CLI" guidance, Ziniao auto-fill login flow)
 - `app/workspace/templates.py:16-27` (`WORKSPACE_CLAUDE_MD`)
-- `app/prompts/reflection.md:50`, and any `dual_browser.md` CLI snippets
+- any `dual_browser.md` CLI snippets
 
 ### 4.6 Knowledge docs — `app/knowledge/common/*` ⚠️ SYNCED — DECIDED: version-neutral
 `ziniao-browser.md`, `amazon-sites.md`, `noon-sites.md`,
@@ -318,7 +318,6 @@ contract, so they must flip with it):
 - `tests/unit/test_browser/test_manager.py:92-141,333` — new exec/env shape.
 - `tests/workflow/test_daemon_reaper.py` — fake daemons carry the new
   identity (env or proxy map), not `--cdp-url`/`--session` cmdlines.
-- `tests/unit/test_ad_execution_fidelity.py:350-356` — new bid-shape input.
 - Add a test pinning the **hosting split**: `_get_local_source` →
   `app/skills_v2`, `SKILLS_REPO_URL` default ends `/app/skills_v2`, commit
   path is `app/skills_v2`; and a regression test that `app/skills/` still

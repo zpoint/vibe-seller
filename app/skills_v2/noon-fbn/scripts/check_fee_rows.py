@@ -5,8 +5,7 @@ An FBN finance report for a service month the marketplace has not posted
 yet still reaches ``Complete`` on the Reports page and still downloads
 successfully. What arrives is a valid CSV holding its header row and no
 data — a few hundred bytes, so it passes every "the file exists and is
-non-empty" check. One such file shipped as a delivered monthly report
-inside a run that was marked complete and independently reviewed as ok.
+non-empty" check, and can be mistaken for a delivered monthly report.
 
 The list page hints at it: the *Nr. of Rows* column shows a number for a
 populated report and an ellipsis for an empty one. That hint is easy to

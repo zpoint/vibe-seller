@@ -26,6 +26,7 @@ import {
 } from '../test/factories'
 import { i18nTestInstance } from '../test/helpers'
 import { TasksView } from '../views/TasksView'
+import { createDraftStore } from '../lib/draftStore'
 import type { TasksViewProps } from '../views/TasksView'
 import { triggerSchedule } from '../handlers/triggerSchedule'
 import { api } from '../api'
@@ -202,8 +203,7 @@ describe('TasksView Run Now button reflects scheduleTasks', () => {
     selectedAnswers: {},
     otherInputs: {},
     showOtherInput: {},
-    chatInput: '',
-    setChatInput: vi.fn(),
+    chatDraft: createDraftStore(),
     chatAttachments: [],
     setChatAttachments: vi.fn(),
     sendChatMessage: vi.fn(),

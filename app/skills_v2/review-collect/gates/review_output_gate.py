@@ -1,38 +1,18 @@
-"""Hard structural backstop for ``review-collect`` at ``set_task_result``.
+"""Structural check for ``review-collect`` at ``set_task_result``.
 
-Where ``review_completeness_review`` is the soft converge-over-rounds
-reviewer, this is the final binary check: if ANY enumerated product is
-missing or its JSON malformed, deny the result so the ALC sync never
-reads a half-finished run (the sync walks these files and upserts the
-production DB — a partial run would silently drop ratings/reviews).
-
-Soft fail-open after ``STALL_CAP`` denials so a parser/filesystem edge
-case can never trap a task forever — the completeness reviewer is the
-exhaustive coverage check; this is the cheap "don't ship a broken dump"
-guard that makes a malformed per-product file impossible to publish
-silently.
+If any enumerated product is missing or its JSON malformed, the first
+submit is refused: the ALC sync walks these files and upserts the
+production DB, so a half-finished dump would silently drop ratings and
+reviews. One round, like every gate — what is still broken on the next
+submit ships as caveats on the result.
 """
 
 from __future__ import annotations
 
 from app.ai.review_manifest import audit_run
-from app.ai.stop_gates import GateDeny, record_attempt
+from app.ai.stop_gates import GateDeny
 
 GATE_NAME = 'review_output_gate'
-
-STALL_CAP = 3
-
-_denials: dict[str, int] = {}
-
-
-def reset_progress(task_id: str) -> None:
-    """Drop per-task denial state (call on terminal success)."""
-    _denials.pop(task_id, None)
-
-
-def is_stalled(task_id: str) -> bool:
-    """Fail open once the run has been denied ``STALL_CAP`` times."""
-    return _denials.get(task_id, 0) >= STALL_CAP
 
 
 def check(
@@ -58,9 +38,6 @@ def check(
 
     if not problems:
         return None
-
-    record_attempt(task_id, GATE_NAME)
-    _denials[task_id] = _denials.get(task_id, 0) + 1
 
     listed = '\n'.join(f'  - {p}' for p in problems[:25])
     more = '' if len(problems) <= 25 else f'\n  …及另外 {len(problems) - 25} 个'

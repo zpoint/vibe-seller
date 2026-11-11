@@ -1,10 +1,4 @@
-"""Generic, deterministic gates that run at ``set_task_result``.
-
-These are task-agnostic — every task's declared result is validated
-the same way. The ad-tuning reviewer gates in ``bash_safety.py``
-remain for the audit-specific structure checks; these gates target
-problems that span every task (malformed markdown tables, prose in
-the wrong language).
+"""Deterministic gates that run at ``set_task_result``.
 
 Each gate returns either ``None`` (pass / not applicable) or a
 ``GateDeny`` carrying a structured reason the agent will see when
@@ -18,9 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from sqlalchemy import event
+
 from app.ai.skill_gate_loader import discover_skill_gates, load_gate_from_path
 from app.ai.skill_gate_utils import find_skill_md, parse_skill_gates
 from app.config import DATA_DIR
+from app.models.task import TERMINAL_STATES, Task
 from app.plugins import registered_gates
 
 # Module-level attempt counter, keyed by (task_id, gate_name). Lost
@@ -40,14 +37,10 @@ class GateDeny:
     item list leaves it empty and only its prose is kept.
 
     ``contradictions`` is the subset of ``gaps`` that are not "unfinished"
-    but "cannot be true" — a number the report states about itself that
-    is impossible, not merely incomplete. The stall fail-open exists so a
-    weak model is never trapped by work it cannot finish, and that logic
-    is right for incompleteness. It is wrong here: accepting an
-    impossible figure ships a report whose numbers feed real decisions.
-    Callers must therefore keep refusing while these are unmet, and — if
-    the agent never resolves them — mark the affected rows untrustworthy
-    in the delivered result rather than let them pass silently.
+    but "cannot be true" — figures that disagree with each other, or a
+    change the user did not approve. Same one round as every gap; what
+    is left after it is marked with a banner at the top of the result,
+    so it cannot pass silently.
     """
 
     gate: str
@@ -63,72 +56,30 @@ def record_attempt(task_id: str, gate: str) -> int:
     return _attempts[key]
 
 
-#: Review refusals spent per (task, check), across BOTH completion paths —
-#: set_task_result and the Stop hook. Not cleared when a result is
-#: accepted: the Stop hook runs after that, and re-refusing the same gaps
-#: there was a second round by another door.
-_review_rounds: dict[tuple[str, str], int] = {}
-
-
-def review_round_left(task_id: str, check: str) -> bool:
-    """Has *check* a refusal left on *task_id*? Looks, spends nothing.
-
-    For the Stop hook and the idle watchdog, which ask "may this turn
-    end?" over and over: asking must not use up the refusal that
-    ``set_task_result`` spends when it actually refuses.
-    """
-    return _review_rounds.get((task_id, check), 0) < AD_REVIEW_ROUNDS
-
-
-def take_review_round(task_id: str, check: str) -> bool:
-    """Spend one review refusal for *check* on *task_id*, if any is left.
-
-    True means refuse now (and it is recorded); False means this check has
-    had its ``AD_REVIEW_ROUNDS`` and must let the result through.
-    """
-    key = (task_id, check)
-    if _review_rounds.get(key, 0) >= AD_REVIEW_ROUNDS:
-        return False
-    _review_rounds[key] = _review_rounds.get(key, 0) + 1
-    return True
+def forget_attempt(task_id: str, gate: str) -> None:
+    """Drop one (task, gate) counter: the next problem gets its round."""
+    _attempts.pop((task_id, gate), None)
 
 
 def reset_attempts(task_id: str) -> None:
-    """Drop all attempt counters for a task.
-
-    Called by ``app/routers/tasks.py``:
-    - after ``set_task_result`` persists a result (terminal success)
-    - after ``delete_task`` removes a task
-
-    Both paths guarantee no further gates will fire for that task,
-    so the in-memory counters are dead weight from then on. This
-    keeps the dict bounded over a long-running server.
-    """
+    """Drop all attempt counters for a task: when a result is accepted
+    (the next turn gets its own round), when the task ends, and when it
+    is deleted or retried — keeping the dict bounded over a long-running
+    server."""
     for key in [k for k in _attempts if k[0] == task_id]:
         _attempts.pop(key, None)
 
 
-# Cap: after this many denials per gate per task, the gate becomes a
-# pass-through (the agent gets a warning, but the task finishes). The
-# user explicitly asked for "let agent fix once but not mandatory" —
-# 1 is the smallest value that still gives the agent feedback.
-SOFT_GATE_MAX_DENIALS = 1
+@event.listens_for(Task.status, 'set')
+def _forget_on_terminal(target: Task, value, oldvalue, _initiator) -> None:
+    new = str(value) if value is not None else ''
+    old = str(oldvalue) if oldvalue is not None else ''
+    if new in TERMINAL_STATES and old not in TERMINAL_STATES and target.id:
+        reset_attempts(target.id)
 
-# How many times an ads task's result is reviewed before it is accepted:
-# one refusal per skill-declared gate, one reviewer pass, one execution
-# review. The fix is asked for once and not demanded again — a review
-# that loops for 14 or 41 rounds costs more than the gaps it finds, and
-# whatever stays unmet ships as caveats on the result rather than
-# vanishing. Only the browser skill declares review; a store worked over
-# the ads API is reviewed zero times (its skill declares no gates).
-AD_REVIEW_ROUNDS = 1
 
-# A contradiction is refused as often as any other review finding, once.
-# It is always resolvable in one edit — fix the figures, or declare the
-# campaign untrustworthy. Past the cap the result is accepted but
-# banner-marked, so the failure mode is "impossible to miss", never
-# "impossible to pass".
-CONTRADICTION_MAX_DENIALS = AD_REVIEW_ROUNDS
+# The ad skills whose deliverable is an audit report file.
+AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
 
 
 def contradiction_banner(contradictions) -> str:
@@ -136,16 +87,16 @@ def contradiction_banner(contradictions) -> str:
 
     Prepended by ``set_task_result`` when an agent never resolved a
     contradiction. The report still ships — trapping the run helps nobody
-    — but it may not ship looking clean, because the affected rows carry
-    bid recommendations computed from figures that cannot be right.
+    — but it may not ship looking clean. Each item states its own
+    problem, so the header stays generic: it once explained one specific
+    check (search-term vs targeting spend) and mislabelled every other
+    gap, such as a bid applied at a different value than approved.
     """
     items = '\n'.join(f'- {c}' for c in contradictions)
     return (
-        '> ⚠️ **本报告有未解决的对账矛盾——以下活动的数字不可信，'
-        '请勿直接执行它们的出价建议。**\n>\n'
-        '> 搜索词层花费不可能超过该活动定向层的花费（同窗口下实测比值'
-        '上限为 1.00）。出现这种情况通常是两层数据取自不同活动，因此'
-        '这些活动的花费/ROAS/建议都可能是错的。其余活动不受影响。\n>\n'
+        '> ⚠️ **本报告有未解决的问题，请先核对以下各项，再据此操作：**\n'
+        '> **This report has unresolved problems — check each item '
+        'below before acting on it:**\n>\n'
         f'{items}\n\n'
     )
 
@@ -212,13 +163,10 @@ def clear_skill_bindings(task_id: str) -> None:
 
 # ── Skill-declared gate registry ────────────────────────────────────
 #
-# Generic gates (markdown_format, result_language) run for EVERY task.
 # Domain gates run only when a skill the session loaded DECLARES them
-# in its SKILL.md frontmatter (``gates: [ad_completeness_review]``).
+# in its SKILL.md frontmatter (``gates: [ad_changes, ad_coverage]``).
 # This keeps ``set_task_result`` free of task-type special cases: a
-# listing skill, an email skill, etc. each bring their own reviewers,
-# and a task that loaded no gate-declaring skill gets only the
-# generic checks. Names below are the public contract skills use.
+# task that loaded no gate-declaring skill gets none. Names below are the public contract skills use.
 
 
 def get_registered_gates() -> dict[str, object]:

@@ -181,13 +181,20 @@ class TestMcpDispatch:
     """The two new MCP tools call the right endpoints."""
 
     async def test_list_skills_dispatch(self):
-        with patch(
-            'app.mcp_server.call_api',
-            new_callable=AsyncMock,
-            return_value=[{'slug': 'x', 'updatable': True}],
-        ) as mock_api:
+        # Asked from a task, so the list leaves out what that task's
+        # workspace was routed away from (the ads skills).
+        with (
+            patch.dict('app.mcp_server._config', {'task_id': 't-1'}),
+            patch(
+                'app.mcp_server.call_api',
+                new_callable=AsyncMock,
+                return_value=[{'slug': 'x', 'updatable': True}],
+            ) as mock_api,
+        ):
             result = await handle_tool_call('vibe_seller_list_skills', {})
-            mock_api.assert_awaited_once_with('GET', '/api/workspace/skills')
+            mock_api.assert_awaited_once_with(
+                'GET', '/api/workspace/skills?task_id=t-1'
+            )
             assert json.loads(result)[0]['slug'] == 'x'
 
     async def test_save_skill_dispatch(self):

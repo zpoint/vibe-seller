@@ -188,15 +188,9 @@ class ExtensionContext:
         self._frontend_bundles.append((route, handler, early))
 
     def register_review_marker(self, pattern: str) -> None:
-        """Declare a regex marking audit deliverables this plugin already
-        reviews server-side (at ``set_task_result``).
-
-        Core's legacy REVIEW-file Stop-hook gate
-        (``bash_safety.check_review_status``) stands down for any
-        ``AD_AUDIT_*`` whose text matches a registered marker — so a
-        plugin that ships its own completeness gate doesn't get its
-        audits double-gated. Core registers no markers itself; its
-        amazon/noon set is matched separately.
+        """Retired: core no longer runs a REVIEW-file gate a marker could
+        stand down. Kept so plugins built against it still load; the
+        markers are recorded and read by nothing.
         """
         self._review_markers.append(pattern)
 
@@ -383,10 +377,6 @@ def registered_skill_sources() -> list[Path]:
 
 def registered_sync_jobs() -> list[SyncJob]:
     return get_extension_context().sync_jobs
-
-
-def registered_review_markers() -> list[str]:
-    return get_extension_context().review_markers
 
 
 def registered_prompt_fragments(slot: str) -> list[str]:

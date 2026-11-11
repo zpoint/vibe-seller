@@ -47,12 +47,13 @@ pytestmark = pytest.mark.integration
 def _armed_schedule(monkeypatch):
     """Arm the schedule unless a test says otherwise.
 
-    The suite-wide ``VIBE_SYNC_DISABLED`` disarms the timers so nothing
-    polls a network on its own; these tests are about the schedule and
+    The suite-wide ``VIBE_*_SYNC=off`` switches stop the outside pulls,
+    so nothing polls a network on its own; these tests are about the schedule and
     the state table, so they run armed. (What the knob does is pinned
     in tests/unit/test_sync_scheduler.py.)
     """
-    monkeypatch.delenv('VIBE_SYNC_DISABLED', raising=False)
+    monkeypatch.delenv('VIBE_GITHUB_MAIN_SYNC', raising=False)
+    monkeypatch.delenv('VIBE_EXTERNAL_SYNC', raising=False)
 
 
 class _NullAPS:

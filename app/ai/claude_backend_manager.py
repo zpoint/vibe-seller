@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import shutil
 
 from app import ads_routing
 from app.ai.base import AIAgentBackend
@@ -29,6 +30,10 @@ class ClaudeCodeBackend(AIAgentBackend):
         self._sessions: dict[str, AgentSession] = {}
         self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
         self._in_flight = 0
+        # Launches past the semaphore that have not spawned yet, and the
+        # ones a stop asked to drop (``run`` checks before spawning).
+        self._launching: set[str] = set()
+        self._cancelled: set[str] = set()
 
     def set_max_concurrent(self, n: int) -> None:
         """Update concurrency limit at runtime.
@@ -64,18 +69,20 @@ class ClaudeCodeBackend(AIAgentBackend):
         auto_approve_plan: bool = False,
         store_slug: str | None = None,
         on_start=None,
-        skip_reflection: bool = False,
         persist_prompt: bool = True,
     ) -> bool:
         if task_id in self._sessions and self._sessions[task_id].running:
             return False
         await self._semaphore.acquire()
         self._in_flight += 1
+        self._launching.add(task_id)
         try:
             # Notify caller that semaphore was acquired (e.g. to
             # transition task status).  Return False to abort.
             if on_start is not None:
                 if not await on_start():
+                    self._launching.discard(task_id)
+                    self._cancelled.discard(task_id)
                     self._in_flight -= 1
                     self._semaphore.release()
                     return False
@@ -131,6 +138,26 @@ class ClaudeCodeBackend(AIAgentBackend):
                             task_id,
                         )
 
+            # A stop that arrived while this launch was still preparing
+            # (skill deps, workspace copy) found no session to stop, so it
+            # left this note; honour it instead of spawning (observed: a
+            # task stopped and deleted mid-launch got an agent that ran on
+            # for minutes with no row, which nothing could stop).
+            if task_id in self._cancelled:
+                self._cancelled.discard(task_id)
+                self._launching.discard(task_id)
+                logger.info(
+                    'Task %s was stopped before its agent started',
+                    task_id[:8],
+                )
+                if task_dir is not None:
+                    await asyncio.to_thread(
+                        shutil.rmtree, task_dir, ignore_errors=True
+                    )
+                self._in_flight -= 1
+                self._semaphore.release()
+                return False
+
             session = AgentSession(
                 task_id,
                 prompt,
@@ -142,7 +169,6 @@ class ClaudeCodeBackend(AIAgentBackend):
                 no_store=no_store,
                 auto_approve_plan=auto_approve_plan,
                 task_dir=task_dir,
-                skip_reflection=skip_reflection,
                 persist_prompt=persist_prompt,
             )
             # Carry per-TASK hook state from the previous turn. A
@@ -163,7 +189,14 @@ class ClaudeCodeBackend(AIAgentBackend):
                         session.resume_session_id = task.session_id
             self._sessions[task_id] = session
             await session.start()
+            self._launching.discard(task_id)
+            if task_id in self._cancelled:
+                # Stopped between the check above and the spawn.
+                self._cancelled.discard(task_id)
+                await session.stop()
         except Exception:
+            self._launching.discard(task_id)
+            self._cancelled.discard(task_id)
             self._in_flight -= 1
             self._semaphore.release()
             raise
@@ -243,7 +276,6 @@ class ClaudeCodeBackend(AIAgentBackend):
                 no_store=prior.no_store,
                 auto_approve_plan=prior.auto_approve_plan,
                 task_dir=prior.task_dir,
-                skip_reflection=prior.skip_reflection,
                 # The first attempt already persisted the prompt (or
                 # the router did, for follow-ups) — a retry must never
                 # write the same user message a second time.
@@ -253,15 +285,15 @@ class ClaudeCodeBackend(AIAgentBackend):
             # Both of these describe a fact about the TASK — "the agent
             # has seen the store manifest", "amazon-shared is loaded" —
             # not about a process. Rebuilding the session on a follow-up
-            # or a gate redrive re-armed them, and the agent had no way
-            # to know: it read the catalog in turn 1 exactly as
-            # instructed, then in turn 2 was denied for searching
-            # `stores/` with the message "Read the catalog first".
+            # or a hold redrive re-armed them, and the agent had no way
+            # to know what turn 1 had already established: it read the
+            # catalog and loaded its skills exactly as instructed, then
+            # found them unset again mid-task.
             #
-            # Observed live: five such denials while the agent was trying
-            # to read the ad-change TSVs it needed to satisfy a cooldown
-            # gate, plus a skill-prereq error for a skill already loaded
-            # earlier in the same task.
+            # Observed live: an agent re-deriving what it had already
+            # established in turn 1 — re-reading the ad-change TSVs it
+            # needed for a cooldown gate, plus re-loading a skill it had
+            # loaded earlier in the same task.
             new_session._catalog_read = prior._catalog_read
             new_session._loaded_skills = set(prior._loaded_skills)
             self._sessions[task_id] = new_session
@@ -350,6 +382,9 @@ class ClaudeCodeBackend(AIAgentBackend):
     async def stop(self, task_id: str) -> bool:
         session = self._sessions.get(task_id)
         if not session or not session.running:
+            if task_id in self._launching:
+                self._cancelled.add(task_id)
+                return True
             return False
         await session.stop()
         return True

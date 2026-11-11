@@ -32,7 +32,7 @@ import time
 import httpx
 import pytest
 
-from tests.e2e.own_server import OwnServer, pick_free_port
+from tests.e2e.own_server import SYNC_SWITCHES_ON, OwnServer, pick_free_port
 from tests.fixtures.fake_github import FakeGitHub, client_for
 
 pytestmark = pytest.mark.e2e
@@ -92,6 +92,7 @@ def owned_stack(tmp_path_factory):
         home=home,
         env={
             **fake.urls(),
+            **SYNC_SWITCHES_ON,
             'VIBE_SYNC_JITTER': '0',
             'VIBE_SYNC_CADENCE_OVERRIDE': ('skills=20,knowledge=20,presets=30'),
         },

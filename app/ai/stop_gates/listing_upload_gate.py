@@ -5,11 +5,11 @@ template lands (an upload is now intended this turn), and
 ``bh_upload_flatfile`` records every submitted batch as an
 ``UPLOAD_BATCH_<id>.json`` marker. ``listing_bulk.py parse-feedback
 --batch-id <id>`` writes the matching ``BATCH_<id>_VERDICT.json`` after
-reading THAT batch's processing report. This gate closes the loop: a
-task that entered the upload flow cannot finish until the uploaded
-batch has a verdict, and the verdict shows no non-image errors (the
-missing-main-image deferral is the one accepted "done with caveat"
-state).
+reading THAT batch's processing report. This check closes the loop: a
+task that entered the upload flow is told (once, like every check) when
+the uploaded batch has no verdict, or its verdict shows non-image
+errors (the missing-main-image deferral is the one accepted "done with
+caveat" state); left unresolved, it ships as a caveat.
 
 Arming is deliberately redundant: the batch marker requires the upload
 HELPER to have succeeded, and the observed bypass was exactly a helper
@@ -21,11 +21,11 @@ must exist, and the latest one must be clean. If no upload happened
 after all, the agent removes the pending marker (explicitly, visibly)
 instead of the gate silently not existing.
 
-This makes report freshness structural instead of prompted: a reviewer
-can no longer pass the turn by reading a stale report from a prior
+This makes report freshness structural instead of prompted: the turn
+can no longer pass on a stale report from a prior
 turn or another marketplace — the verdict is keyed to the batch id the
 upload actually produced this turn. Markers/verdicts are moved aside
-at turn start together with the review files (``rollover_reviews``),
+at turn start (``rollover_upload_markers``),
 so each turn is gated only on its own uploads.
 
 No markers → quiet no-op (the gate arms itself only when the helpers
@@ -44,7 +44,7 @@ _MARKER_RE = re.compile(r'^UPLOAD_BATCH_(\w+)\.json$')
 _VERDICT_RE = re.compile(r'^BATCH_(\w+)_VERDICT\.json$')
 
 # Glob patterns for the turn-scoped artifacts this gate reads; also used
-# by ``rollover_reviews`` to move them aside at turn start.
+# by ``rollover_upload_markers`` to move them aside at turn start.
 MARKER_GLOB = 'UPLOAD_BATCH_*.json'
 VERDICT_GLOB = 'BATCH_*_VERDICT.json'
 PENDING_GLOB = 'UPLOAD_PENDING*.json'
@@ -115,8 +115,7 @@ def check_upload_verdicts(task_dir) -> str | None:
                 f'parse-feedback <report> --batch-id {batch_id} FROM THE '
                 'TASK WORKSPACE ROOT — the verdict is written to the '
                 'current directory and must land at '
-                f'{verdict_path}. The task cannot finish on an '
-                'unverified upload.'
+                f'{verdict_path}. Until then the upload is unverified.'
             )
 
     # Batch ids are monotonically increasing within an account, so the
@@ -144,3 +143,38 @@ def check_upload_verdicts(task_dir) -> str | None:
             'error is deferrable.'
         )
     return None
+
+
+PREV_TURNS_DIR = '.prev_turns'
+
+
+def rollover_upload_markers(task_dir) -> None:
+    """Move the prior turn's upload markers and verdicts aside.
+
+    A follow-up is a new turn with its own uploads; its gate must not be
+    armed or satisfied by an earlier turn's batches. Files are moved,
+    not deleted, under ``.prev_turns/turn_<n>/``. Best-effort; called
+    once per session at the ``system/init`` event.
+    """
+    if task_dir is None:
+        return
+    try:
+        d = Path(task_dir)
+        stale = [
+            p
+            for glob in (MARKER_GLOB, VERDICT_GLOB, PENDING_GLOB)
+            for p in d.glob(glob)
+        ]
+        if not stale:
+            return
+        root = d / PREV_TURNS_DIR
+        root.mkdir(parents=True, exist_ok=True)
+        dest = root / f'turn_{1 + sum(1 for _ in root.glob("turn_*"))}'
+        dest.mkdir(parents=True, exist_ok=True)
+        for p in stale:
+            try:
+                p.rename(dest / p.name)
+            except OSError:  # pragma: no cover
+                pass
+    except OSError:  # pragma: no cover — best-effort
+        pass

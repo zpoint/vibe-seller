@@ -26,22 +26,26 @@ asked for, and the console store's transcript is searched for an API
 call — refused calls never reach the service, so the transcript is the
 only place one would show.
 
-Fanout covers every store on the server, so the test cancels the
-children of stores it did not create. It needs the server started with
-``VIBE_ADS_SERVICE_URL`` pointing at the fake (``fake_ads_service``),
-and skips otherwise: syncing stores against the real service would
-register this test server with it.
+**This module owns its server AND its fake ads service.** Fanout is
+server-global by construction: ONE schedule fires a child for EVERY store
+on the server, so on the shared server this test planned, started and
+`/agent/stop`ed tasks belonging to stores another worker created, and
+``POST /api/ads/stores/sync`` rewrites the ads binding of every store row
+it finds. Its own server has only its own two stores on it, and the fake
+service it boots on a free port is the one its server was configured
+with — so the real ads service is never registered with, which is what
+the old "skip unless the server points at the fake" gate protected, and
+it is now impossible instead of hoped for.
 """
 
 import json
 import logging
-import os
 import time
+from urllib.parse import urlparse
 
 import pytest
 
 from tests.e2e import fake_ads_service
-from tests.e2e.conftest import BASE_URL
 from tests.e2e.e2e_helpers import (
     PIPELINE_TIMEOUT,
     POLL_INTERVAL,
@@ -49,6 +53,7 @@ from tests.e2e.e2e_helpers import (
     get_messages,
 )
 from tests.e2e.fake_ads_console import serve as serve_console
+from tests.e2e.own_server import owned_agent_stack, pick_free_port
 
 logger = logging.getLogger(__name__)
 logging.getLogger('httpx').setLevel(logging.WARNING)
@@ -58,22 +63,38 @@ pytestmark = [pytest.mark.e2e]
 TERMINAL = {'completed', 'failed', 'cancelled'}
 CONSOLE_SPEND = '300'
 
+# Set by the module fixture (own_stack): this module's own server and
+# the own fake ads service it was booted against.
+BASE_URL = ''
+ADS_URL = ''
 
-@pytest.fixture
-def ads_service():
-    if os.environ.get('VIBE_ADS_SERVICE_URL') != fake_ads_service.URL:
-        pytest.skip(
-            'server not started against the fake ads service '
-            f'(VIBE_ADS_SERVICE_URL={fake_ads_service.URL})'
-        )
-    service = fake_ads_service.serve()
+
+@pytest.fixture(scope='module', autouse=True)
+def own_stack(tmp_path_factory):
+    """A server of this module's own, pointed at a fake it owns too."""
+    global BASE_URL, ADS_URL
+    port = pick_free_port()
+    ADS_URL = f'http://127.0.0.1:{port}'
+    with owned_agent_stack(
+        tmp_path_factory,
+        'ads-fanout',
+        env={'VIBE_ADS_SERVICE_URL': ADS_URL},
+    ) as server:
+        BASE_URL = server.base_url
+        yield server
+
+
+@pytest.fixture(scope='module')
+def ads_service(own_stack):
+    """The fake ads service THIS module's server calls."""
+    service = fake_ads_service.serve(port=urlparse(ADS_URL).port)
     yield service
     service.shutdown()
     service.server_close()
 
 
-@pytest.fixture
-def console():
+@pytest.fixture(scope='module')
+def console(own_stack):
     server = serve_console()
     yield server
     server.shutdown()

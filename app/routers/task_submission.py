@@ -1,11 +1,11 @@
 """Submission and verdict — the two halves of ``set_task_result``.
 
-A reviewer gate refuses by raising, and the raise used to happen before
-``task.result`` was assigned, so a refusal DESTROYED the submission: N
-refusals left the run holding nothing and the end-of-turn fallback had
-only chat prose to offer. What the agent submitted and what the review
-said about it are separate facts, recorded separately here, and only a
-submission that clears every gate becomes ``accepted_result``.
+A result gate refuses by raising, and the raise used to happen before
+``task.result`` was assigned, so a refusal DESTROYED the submission and
+a run that ended after it had only chat prose to offer. What the agent
+submitted and what the checks said about it are separate facts,
+recorded separately here; a submission becomes ``accepted_result`` once
+every check has had its one round.
 
 Split out of ``routers/tasks.py`` (over the per-file line limit) as one
 cohesive unit rather than by cutting lines to fit.
@@ -20,22 +20,16 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.stop_gates import (
-    SOFT_GATE_MAX_DENIALS,
-    markdown_format as md_format_gate,
-    record_attempt,
-    report_reviewer,
-    result_language as language_gate,
-)
+from app.ai.stop_gates import contradiction_banner, record_attempt
 from app.config import VIBE_SELLER_DIR
 from app.deliverables.gate import check_deliverables
 from app.models.task import Task
 from app.routers.tasks_files import (
     looks_like_result_path,
-    recorded_skills,
-    resolve_audit_deliverable,
     resolve_workspace_result_path,
 )
+from app.telemetry_events import GateOutcome
+from app.telemetry_harness import send_result_gated
 from app.text_utils import SafeStr
 
 
@@ -98,7 +92,6 @@ async def refuse(
 
 async def resolve_submitted_result(
     raw: str,
-    task_id: str,
     task_root,
 ) -> tuple[str, bool]:
     """``(text_to_grade, came_from_a_file)``.
@@ -107,7 +100,7 @@ async def resolve_submitted_result(
     ``resolved_from_file`` so the agent can tell whether its pointer was
     followed, and a contract test pins that key.
 
-    Three shapes arrive here and only one is content:
+    Two shapes arrive here and only one is content:
 
     * A POINTER into the task workspace — read the file. An agent saving a
       multi-100KB report would block the event loop, so the read is
@@ -117,12 +110,6 @@ async def resolve_submitted_result(
       gate vacuously (no ad sections to check) and complete the task with
       a literal path as its "result"; that bypass let a quoted pointer end
       an audit that had drilled a handful of campaigns.
-    * NARRATION where a file was required — the mirror of the dangling
-      case: the file exists, the agent just described it instead of
-      pointing at it. Both end with the gates grading a string that is not
-      the report. An ad audit's deliverable is a file by contract, so when
-      the task's bound skills make it an ad task and the workspace holds a
-      report the submission is not, the FILE is what gets graded.
 
     Raises ``HTTPException`` for the dangling case, with the fix spelled
     out — the agent is the caller and has to know what to do next.
@@ -149,72 +136,86 @@ async def resolve_submitted_result(
             ),
         )
 
-    if resolved_content is None and (
-        recorded_skills(task_id) & report_reviewer.AD_SKILLS
-    ):
-        deliverable = resolve_audit_deliverable(task_root, raw)
-        if deliverable is not None:
-            try:
-                resolved_content = await asyncio.to_thread(
-                    deliverable.read_text, encoding='utf-8'
-                )
-            except OSError:
-                resolved_content = None
-            if resolved_content is not None:
-                logger.info(
-                    'Task %s submitted narration (%d chars); grading its '
-                    'audit deliverable %s (%d chars) instead',
-                    task_id,
-                    len(raw),
-                    deliverable.name,
-                    len(resolved_content),
-                )
-
     if resolved_content is not None:
         return resolved_content, True
     return raw, False
 
 
-async def apply_soft_gates(
+async def gate_denials(
     db: AsyncSession,
     task: Task,
-    task_id: str,
+    skill_gates,
+    final_result: str,
+    rules,
+) -> list:
+    """What every check found on this submission: the report-deliverable
+    check every task gets, then the gates the loaded skills declared."""
+    denies = []
+    deny = await check_deliverables(
+        db, task, (VIBE_SELLER_DIR / 'tasks' / task.id).resolve()
+    )
+    if deny:
+        denies.append(deny)
+    for _gate_name, gate in skill_gates:
+        deny = await asyncio.to_thread(gate.check, final_result, task.id, rules)
+        if deny:
+            denies.append(deny)
+    return denies
+
+
+async def apply_round(
+    db: AsyncSession,
+    task: Task,
+    denies: list,
     final_result: str,
     declared: tuple[str, ...],
-) -> None:
-    """The gates every task gets, regardless of which skills it loaded.
+) -> tuple[str, tuple[str, ...]]:
+    """One round per check, one refusal per submit: ``(result, caveats)``.
 
-    Each gate gets at most ``SOFT_GATE_MAX_DENIALS`` refusals per task;
-    past the cap the text is allowed through so a stubborn failure cannot
-    trap the agent in a loop it has no way to exit. Run here rather than
-    from the Stop hook because some agent backends never emit Stop.
+    If any check reports for the first time on this task, the submit is
+    refused once, listing everything every check found — so the agent
+    sees it all at once instead of one check per submit. A check that
+    already had its round never refuses again: on the next submit the
+    result goes through with the findings as caveats. Findings that
+    contradict each other (or a change the user did not approve) are
+    also marked with a banner at the top — on the retained submission
+    too, so a run that ends after the refusal still ships the warning.
     """
-    # Deliverable check first: "you are missing three files" is more
-    # actionable than "your table is malformed", and a run that has to
-    # go back for a file will rewrite the prose anyway.
-    denials = []
-    deliverable_deny = await check_deliverables(
-        db, task, (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
-    )
-    if deliverable_deny:
-        denials.append(deliverable_deny)
-    for gate_module, gate_args in (
-        (md_format_gate, (final_result,)),
-        (language_gate, (final_result, task.title, task.description)),
-    ):
-        deny = gate_module.check(*gate_args)
-        if deny:
-            denials.append(deny)
-
-    for deny in denials:
-        attempt = record_attempt(task_id, deny.gate)
-        if attempt <= SOFT_GATE_MAX_DENIALS:
-            await refuse(db, task, deny.reason, declared + deny.gaps)
-        logger.warning(
-            'Soft gate %s exceeded %d denials for task %s — allowing '
-            'result through anyway. Reason: %s',
-            deny.gate,
-            SOFT_GATE_MAX_DENIALS,
-            task_id,
-            deny.reason[:200],
+    if not denies:
+        return final_result, ()
+    fresh = {d.gate for d in denies if record_attempt(task.id, d.gate) == 1}
+    gaps = tuple(g for d in denies for g in (d.gaps or (d.reason,)))
+    contradictions = tuple(c for d in denies for c in d.contradictions)
+    for d in denies:
+        send_result_gated(
+            task.id,
+            d.gate,
+            # Only the check that is spending its round is a refusal.
+            # The others had theirs already: what is left of them is a
+            # caveat (banner-marked when it contradicts), and counting
+            # them as refusals made one fresh check look like every
+            # check refusing at once.
+            GateOutcome.REFUSED
+            if d.gate in fresh
+            else GateOutcome.BANNER_MARKED
+            if d.contradictions
+            else GateOutcome.FAILED_OPEN,
+            attempt=1 if d.gate in fresh else 2,
+            gap_count=len(d.gaps or (d.reason,)),
         )
+    if contradictions:
+        final_result = contradiction_banner(contradictions) + final_result
+    if fresh:
+        task.submitted_result = final_result
+        await refuse(
+            db, task, '\n\n'.join(d.reason for d in denies), declared + gaps
+        )
+    logger.warning(
+        'Checks %s had their round for task %s — shipping %d finding(s) '
+        'as caveats. First: %s',
+        ', '.join(sorted({d.gate for d in denies})),
+        task.id,
+        len(gaps),
+        ' | '.join(g[:110] for g in gaps[:4]),
+    )
+    return final_result, gaps

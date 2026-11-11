@@ -15,27 +15,17 @@ Two structural rules live here:
   Bash that exceeds its blocking budget — a slow ``find`` is the classic
   case — and ``run_in_background`` does so explicitly). Closing stdin
   under either default-denies its remaining tool calls / orphans the
-  process (observed live: a DoD reviewer died mid-verification claiming
+  process (observed live: a subagent died mid-verification claiming
   it was "running in the background"; and an orphaned background ``find``
   poisoned the next ``--resume`` with a reconciliation notification that
   aborted the turn). Both are tracked in ``_async_agents`` so the turn
   waits for each one's ``<task-notification>`` before ending.
-- **A review verdict counts only if the reviewer subagent wrote it.**
-  The stream attributes each review-file Write/Edit to subagent/main
-  via the event's ``parent_tool_use_id``; the gates reject an
-  accepting verdict the main agent authored itself.
 """
 
 import logging
 import re
 
-from app.ai.claude_backend_utils import (
-    build_tasklist_open_reason,
-    check_exec_review_status_for_stop,
-    check_review_status_for_stop,
-    get_open_tasklist_items,
-)
-from app.ai.stop_gates.report_reviewer import WAIT_FOR_BACKGROUND
+from app.ai.background_wait import WAIT_FOR_BACKGROUND
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +44,8 @@ _BG_LAUNCH_RE = re.compile(
 # (``<task_id>X</task_id> … <status>completed</status>``) or TaskStop
 # ("Task X is not running (status: completed)"). Either is as final as a
 # <task-notification>, and sometimes it is the only completion there is:
-# an agent that polls its reviewer with TaskOutput consumes the result,
-# and no notification reached the stream for it.
+# an agent that polls a background subagent with TaskOutput consumes the
+# result, and no notification reached the stream for it.
 _DONE_STATES = r'(?:completed|failed|killed|cancelled|canceled|stopped|error)'
 _TASK_OUTPUT_DONE_RE = re.compile(
     r'<task_id>\s*([A-Za-z0-9_-]+)\s*</task_id>.*?<status>\s*'
@@ -76,16 +66,11 @@ class _SubagentMixin:
     def _init_subagent_state(self):
         """Per-session stream signals; see the module docstring.
 
-        ``_review_subagent_ran`` flips when a review-ish Agent/Task
-        spawn is seen (weak, spawn-time). ``_review_file_writers`` maps
-        each review file written this turn to ``'subagent'``/``'main'``
-        (strong authorship signal). ``_agent_spawn_ids`` are the
+        ``_agent_spawn_ids`` are the
         Agent/Task tool_use ids spawned by the main agent;
         ``_async_agents`` the subset confirmed ASYNC (launch ack) with
         no ``<task-notification>`` completion yet.
         """
-        self._review_subagent_ran: bool = False
-        self._review_file_writers: dict[str, str] = {}
         self._agent_spawn_ids: set[str] = set()
         self._async_agents: dict[str, str] = {}
         # tool_use ids a SUBAGENT made (its events carry a parent id), so
@@ -131,7 +116,7 @@ class _SubagentMixin:
           ``<task-notification …>`` user message (older CLIs echoed it;
           attribute OR element id form); or the CLI's own TaskOutput /
           TaskStop tool_result. The last is not optional: an agent that
-          polled its reviewer with TaskOutput got
+          polled a background subagent with TaskOutput got
           ``<status>completed</status>`` and nothing else reached the
           stream. A user-message notification carrying no id we can match
           clears the whole set (fail open — never wedge a turn on a format
@@ -143,9 +128,10 @@ class _SubagentMixin:
             # ``<task-notification>`` message it feeds the model (zero of
             # them across whole CI runs), so an entry held until that
             # message arrives is held forever. Every turn that launched a
-            # reviewer then read as "still running" at its result, burnt
-            # all five gate re-drives, and shipped UNVERIFIED with the
-            # last re-drive's one-liner ("Done.") as its card. A finished
+            # subagent then read as "still running" at its result, burnt
+            # all five hold re-drives, and shipped with the open-work
+            # banner and the last re-drive's one-liner ("Done.") as its
+            # card. A finished
             # task is not running: release it here. If the CLI still runs
             # a turn to deliver the notice, that turn's result is just a
             # later card (last-wins, see claude_backend_turns).
@@ -239,33 +225,21 @@ class _SubagentMixin:
         return bool(matched)
 
     # ── Stop-hook deny chain ────────────────────────────────────────
-    # Called in order by the STOP_REFLECTION_CALLBACK handler in
+    # Called in order by the STOP_CALLBACK handler in
     # claude_backend_hooks; first deny wins.
-
-    async def _deny_stop_if_tasklist_open(self, request_id: str) -> bool:
-        """Deny stop if TaskList has open items; return True if denied."""
-        items = get_open_tasklist_items(self.task_id)
-        if not items:
-            return False
-        logger.info('Stop denied %s — %d open', self.task_id[:8], len(items))
-        await self._send_hook_response(
-            request_id,
-            {'decision': 'block', 'reason': build_tasklist_open_reason(items)},
-        )
-        return True
 
     async def _deny_stop_if_async_agents_running(self, request_id) -> bool:
         """Deny Stop while background subagents launched this turn are
         still running; return True if denied.
 
-        Same fail-open bound as the review gates: past the re-drive
+        Bounded like every turn hold: past the re-drive
         budget the hook stands down so a lost completion notification
         can never wedge the turn (the result then ships banner-marked
-        by the stream path). ``_review_redrive_exhausted`` is that bound
+        by the stream path). ``_hold_exhausted`` is that bound
         — attempts AND wall clock, one predicate shared with the result
         branch and the quiescence watchdog.
         """
-        if self._review_redrive_exhausted():
+        if self._hold_exhausted():
             return False
         deny = self._async_agents_pending_reason()
         if not deny:
@@ -275,57 +249,6 @@ class _SubagentMixin:
             self.task_id[:8],
             len(self._async_agents),
         )
-        await self._send_hook_response(
-            request_id, {'decision': 'block', 'reason': deny}
-        )
-        return True
-
-    async def _deny_stop_if_review_unsatisfied(self, request_id: str) -> bool:
-        """Deny stop if the ads-audit reviewer hasn't returned
-        ``Status: ok`` (or ``incomplete`` at iter 5+); return True if
-        denied.
-
-        See ``check_review_status_for_stop`` in
-        ``claude_backend_utils`` for the contract and
-        ``amazon-ads/references/reviewer-loop.md`` for the loop the
-        main agent runs to satisfy this gate. Quiet no-op for non-ads
-        tasks (no ``AD_AUDIT_*.md`` in the workspace).
-        """
-        # Past the re-drive budget the gate FAILS OPEN: the stream
-        # banner-marks the result UNVERIFIED and this hook stands down so
-        # the CLI can exit (a live deny + closed approval channel had
-        # every tool default-denied mid-recovery).
-        if self._review_redrive_exhausted():
-            return False
-        deny = check_review_status_for_stop(
-            self.task_dir,
-            subagent_ran=getattr(self, '_review_subagent_ran', False),
-            review_writers=getattr(self, '_review_file_writers', None),
-        )
-        if not deny:
-            return False
-        logger.info(
-            'Stop denied %s — ads-audit reviewer unsatisfied',
-            self.task_id[:8],
-        )
-        await self._send_hook_response(
-            request_id,
-            {'decision': 'block', 'reason': deny},
-        )
-        return True
-
-    async def _deny_stop_if_exec_review_unsatisfied(self, request_id):
-        """Stop-hook variant of the exec-review gate. The primary gate
-        is in the ``set_task_result`` MCP endpoint; this is a backstop
-        for backends that do emit Stop events.
-        """
-        deny = check_exec_review_status_for_stop(
-            self.task_dir,
-            review_writers=getattr(self, '_review_file_writers', None),
-        )
-        if not deny:
-            return False
-        logger.info('Stop denied %s — exec-review', self.task_id[:8])
         await self._send_hook_response(
             request_id, {'decision': 'block', 'reason': deny}
         )

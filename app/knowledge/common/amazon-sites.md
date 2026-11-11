@@ -89,8 +89,8 @@ use `/business-reports`.
 ## How to Determine the Correct URL
 
 Given a store with `countries: [SA]`, the seller center base URL is
-`https://sellercentral.amazon.sa`. **Do NOT guess** — always look up the
-country in the table above.
+`https://sellercentral.amazon.sa`. Don't guess — look the country up in
+the table above.
 
 Common mistakes:
 - **WRONG**: `sellercentral.amazon.com.sa` (not a valid Amazon domain)
@@ -100,40 +100,16 @@ Common mistakes:
 
 ## Country Switching (In-Session)
 
-Amazon Seller Central supports **global country switching** without re-login
-for accounts that have multiple marketplaces linked (e.g. SA + AE).
-
-The country switcher button is near the store name at the top of the page
-(`button aria-label=Switch Accounts`). It shows the current country name.
-
-Workflow (see the browser-use skill for exact commands):
-1. Inspect the page to find the "Switch Accounts" button.
-2. Click it.
-3. Inspect the page again to find the country options.
-4. Click the target country option — the page reloads with the new
-   country context.
-
-The reliable switcher is the full-page one,
-`/account-switcher/default/merchantMarketplace` — see
-`skills_v2/amazon-shared/SKILL.md § 4a-bis` for the verified recipe
-(rows are `button.full-page-account-switcher-account-details`; clicking
-a row only ticks it; a `kat-button[data-test=confirm-selection]`
-rendering "Select account" appears at the bottom of the list only after
-a row is selected and needs a real coordinate click; on success the
-session redirects to the target marketplace's own domain and `ue_mid`
-becomes that marketplace's id).
-
-After switching, all pages load data for the new country automatically.
-You do NOT need separate login sessions for different countries under the
-same account.
-
-**Note**: Some accounts may have the switcher inside the
-`#ngstrim-account-switcher-dropdown` div. If the button is not visible,
-try clicking on the store name / country text area to reveal it.
+Accounts with several linked marketplaces (e.g. SA + AE) switch country
+in-session, without a new login: use the full-page switcher
+`/account-switcher/default/merchantMarketplace`. The recipe and its
+helper script are in the `amazon-shared` skill (marketplace switcher
+section). After switching, pages load the new country's data; do not
+open the other marketplace's domain and sign in again.
 
 ## Order Search URL Patterns
 
-Navigate to these URLs with the browser-use skill (see it for exact
+Navigate to these URLs with the browser skill (see it for exact
 commands):
 
 ```

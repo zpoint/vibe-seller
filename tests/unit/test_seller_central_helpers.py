@@ -427,7 +427,7 @@ def test_listing_status_reads_the_page_by_structure():
 
 
 def test_listing_skill_verifies_through_the_helper():
-    """The DoD's verify_by is what the reviewer follows -- it must name
+    """The skill's verify_by is what verification follows -- it must name
     the helper, not the skucentral page that renders empty (19 calls in
     one live run went to it)."""
     skill = (_SCRIPTS / 'amazon-listing' / 'SKILL.md').read_text(

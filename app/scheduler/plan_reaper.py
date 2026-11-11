@@ -16,7 +16,7 @@ from app.database import async_session
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
 from app.models.task import Task
-from app.plan_states import PlanStatus
+from app.plan_states import PlanStatus, freeze_schedule_plan
 from app.task_states import TaskStatus, can_transition
 
 logger = logging.getLogger(__name__)
@@ -75,11 +75,14 @@ async def reap_stuck_planning_tasks() -> None:
 
             # Already terminal — schedule should have been flipped by
             # the hook, but sync up defensively.
-            if task.status == TaskStatus.COMPLETED and sched.plan:
-                sched.plan_status = PlanStatus.READY.value
-                sched.current_planning_task_id = None
-                sched.plan_error = None
-                sched.updated_at = datetime.now(UTC).isoformat()
+            # The plan the task wrote is frozen the way the hook would
+            # have done it, contract stamp included. The schedule's own
+            # (possibly pre-upgrade) text is never promoted to ready:
+            # a replan keeps it only so the UI can diff.
+            if task.status == TaskStatus.COMPLETED and task.plan:
+                freeze_schedule_plan(
+                    sched, task.plan, datetime.now(UTC).isoformat()
+                )
                 continue
             # COMPLETED but the schedule has no plan = agent skipped
             # ExitPlanMode (model decided nothing to plan / chat-only
@@ -88,7 +91,7 @@ async def reap_stuck_planning_tasks() -> None:
             # schedules stuck pre-fix still land here — flip the
             # schedule so the UI / reaper surface the error instead
             # of silently staying in `planning` forever.
-            if task.status == TaskStatus.COMPLETED and not sched.plan:
+            if task.status == TaskStatus.COMPLETED and not task.plan:
                 sched.plan_status = PlanStatus.FAILED.value
                 sched.plan_error = (
                     task.error

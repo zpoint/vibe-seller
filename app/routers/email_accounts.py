@@ -280,6 +280,10 @@ async def set_send_permission(
         user.username,
         getattr(request.state, 'auth_via', None),
     )
+    telemetry.send(
+        TelemetryEvent.EMAIL_SEND_PERMISSION_CHANGED,
+        {'allow_send': bool(account.allow_send)},
+    )
     return account
 
 

@@ -16,11 +16,12 @@ import pytest
 from app.ai import source_guard as sg
 from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import AUTO_APPROVE_CALLBACK
+from app.config import DATA_DIR
 
 pytestmark = pytest.mark.unit
 
 APP = sg.PROTECTED_DIRS[0]
-GATE = APP / 'ai' / 'stop_gates' / 'report_reviewer.py'
+GATE = APP / 'ai' / 'stop_gates' / 'ad_changes.py'
 
 
 class TestSourceAccessDeny:
@@ -39,6 +40,31 @@ class TestSourceAccessDeny:
         deny = sg.source_access_deny(tool, tool_input)
         assert deny and 'source code' in deny
 
+    @pytest.mark.parametrize(
+        ('tool', 'tool_input'),
+        [
+            (
+                'Bash',
+                {'command': f'sqlite3 {DATA_DIR}/vibe_seller.db .tables'},
+            ),
+            (
+                'Bash',
+                {'command': f'cd /tmp && sqlite3 -json {DATA_DIR / "x.db"}'},
+            ),
+            ('Bash', {'command': f'ls -la {DATA_DIR}/ 2>/dev/null'}),
+            ('Read', {'file_path': str(DATA_DIR / 'email_dbs' / 'a.db')}),
+            (
+                'Write',
+                {'file_path': str(DATA_DIR / 'approved_changes' / 'x')},
+            ),
+        ],
+    )
+    def test_the_apps_own_data_is_refused(self, tool, tool_input):
+        """Observed: a planner spent six minutes in the app DB and the
+        mailbox DBs instead of planning."""
+        deny = sg.source_access_deny(tool, tool_input)
+        assert deny and "vibe-seller's own data" in deny
+
     def test_checkout_tests_are_protected_when_present(self):
         tests_dir = APP.parent / 'tests'
         if tests_dir not in sg.PROTECTED_DIRS:
@@ -49,7 +75,7 @@ class TestSourceAccessDeny:
     @pytest.mark.parametrize(
         ('tool', 'tool_input'),
         [
-            ('Read', {'file_path': '/tmp/task/REVIEW_x_iter1.md'}),
+            ('Read', {'file_path': '/tmp/task/report_x.md'}),
             ('Read', {'file_path': 'stores/acme/notes.md'}),  # relative
             ('Bash', {'command': 'ls ~/.vibe-seller/tasks'}),
             ('Bash', {'command': f'ls {APP}le'}),  # a sibling, not app/

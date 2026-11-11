@@ -116,12 +116,14 @@ else:
         atexit.register(shutil.rmtree, _TEST_HOME, ignore_errors=True)
     os.environ['VIBE_HOME'] = _TEST_HOME
 
-# Arm NO sync timers across the suite (jobs still register, so a test
-# can trigger one). Left armed, every test that boots the app would poll
-# GitHub (and an ads service) on its own; e2e runs opt back in
-# explicitly, because their server is pointed at a fake GitHub.
+# No scheduled outside calls across the suite (the jobs still register,
+# so a test can trigger one): nothing from GitHub main — the tree under
+# test is this checkout — and nothing from any other host. Mail polling
+# and the daemon reaper have no switch and run as in production. e2e
+# runs configure their own server.
 if not _E2E_RUN:
-    os.environ.setdefault('VIBE_SYNC_DISABLED', '1')
+    os.environ.setdefault('VIBE_GITHUB_MAIN_SYNC', 'off')
+    os.environ.setdefault('VIBE_EXTERNAL_SYNC', 'off')
 # Same for the boot-time browser-engine check: it runs a Playwright
 # subprocess and may download Chromium. Its own tests enable it.
 os.environ.setdefault('VIBE_ENSURE_BROWSER_ENGINE', 'false')
@@ -149,7 +151,7 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 # fails later with "no such table: <name>".
 from app import models  # noqa: F401, E402
 from app.ai import provider_presets_sync as presets_sync  # noqa: E402
-from app.ai.review_redrive import _ledgers  # noqa: E402, PLC2701
+from app.ai.turn_hold_budget import _ledgers  # noqa: E402, PLC2701
 from app.auth import create_token  # noqa: E402
 from app.config import VIBE_SELLER_DIR  # noqa: E402
 from app.database import get_db  # noqa: E402
@@ -224,6 +226,21 @@ assert_test_home_isolated(
 
 
 @pytest.fixture(autouse=True)
+def _isolate_gate_rounds():
+    """Each test starts with every gate's one round unspent.
+
+    The counters are process memory keyed by task id — and, for a
+    catalog written without a task, by path — so a refusal one test
+    spends would otherwise be gone for the next test that writes it.
+    """
+    from app.ai.stop_gates import _attempts  # noqa: PLC0415, PLC2701
+
+    _attempts.clear()
+    yield
+    _attempts.clear()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_wrapper_bin_dir(tmp_path_factory, monkeypatch):
     """Keep wrapper writes/reaps out of the developer's real
     ``~/.vibe-seller/bin/``.
@@ -269,21 +286,6 @@ def _isolate_presets_sync(tmp_path_factory, monkeypatch):
     presets_sync.reset()
 
 
-@pytest.fixture(autouse=True)
-def _isolate_followup_dir(tmp_path_factory, monkeypatch):
-    """Keep follow-up markers out of the developer's real data dir.
-
-    Any test that posts a message to a COMPLETED task marks it a
-    follow-up (``report_reviewer.mark_followup``); unisolated, every run
-    left one file per test task under ``~/.vibe-seller/data/``.
-    """
-    d = tmp_path_factory.mktemp('vs_followups')
-    monkeypatch.setattr(
-        'app.ai.stop_gates.report_reviewer.FOLLOWUP_DIR', d, raising=False
-    )
-    return d
-
-
 def pytest_addoption(parser):
     parser.addoption(
         '--e2e',
@@ -307,6 +309,16 @@ def pytest_collection_modifyitems(config, items):
     if not run_windows:
         items[:] = [i for i in items if 'windows' not in i.keywords]
 
+    # An --e2e run is ordered by MEASURED durations, longest first, by
+    # tests/e2e/conftest.py — that hook already ran (conftests are
+    # called innermost-first), and re-sorting here would undo it.
+    # Longest-first subsumes this rule's intent: the head of the
+    # collection is the heaviest test, the next heads land on the next
+    # workers, so no chunk carries two long-budget tests and none starts
+    # minutes late. The marker stays as the record of WHICH tests the
+    # budget was measured for (tests/unit/test_schedule_sim.py).
+    if config.getoption('--e2e'):
+        return
     # Long-budget tests lead their worker's queue (worksteal's
     # contiguous split gives each worker at most one) AND land on
     # distinct provider keys when the map allows — two heavy
@@ -541,11 +553,11 @@ def sample_browser_config():
 
 
 @pytest.fixture(autouse=True)
-def _isolate_review_redrive_ledger():
-    """Keep one test's review-gate spend out of the next test's turn.
+def _isolate_turn_hold_ledger():
+    """Keep one test's turn-hold spend out of the next test's turn.
 
     The re-drive budget is keyed by task so a respawn inside a turn
-    inherits it (``app/ai/review_redrive.py``). In production a turn ends
+    inherits it (``app/ai/turn_hold_budget.py``). In production a turn ends
     and an orchestrator resets it; unit tests build ``AgentSession``
     directly, never enter an orchestrator, and reuse the same
     ``task_id='test-task'`` — so without this a test that spends the

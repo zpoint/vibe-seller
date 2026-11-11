@@ -1,18 +1,15 @@
-"""Single source of truth for ad-audit bid-rule thresholds.
+"""Ad-rule thresholds: defaults, overridden by the store's own notes.
 
-Both bid-rule gates (``ad_bid_floor``, ``ad_scale_winners``) and the
-completeness reviewer resolve their threshold through here instead of
-hardcoding it, so each number lives in ONE place (``DEFAULT_RULES``).
+Every number here is a default target, not a law. A store owner — or
+the agent, when the user states a different standard — overrides one by
+writing a line in ``stores/<slug>/notes.md`` (case-insensitive, ``:`` or
+``=``)::
 
-A per-store ``stores/<slug>/notes.md`` may override a default, letting a
-store owner tune the rules without code changes. Write a line anywhere
-in that file (case-insensitive, ``:`` or ``=``):
+    acos_no_lower: 20
+    cpc_floor_multiplier: 1.0
 
-    scale_roas: 6        # ROAS strictly above this → raise or justify
-    acos_no_lower: 28    # ACOS % below this → never lower the bid
-
-``set_task_result`` reads the task's store notes and passes the resolved
-dict to the gates; ``resolve_rules`` itself is pure (takes the notes
+``set_task_result`` reads the task's store notes and passes the
+resolved dict to the gates; ``resolve_rules`` is pure (takes the notes
 text) so it stays trivially testable.
 """
 
@@ -22,8 +19,10 @@ import re
 
 # THE one place to change a default ad-rule threshold.
 DEFAULT_RULES: dict[str, float] = {
-    # ACOS % at/below which a bid may never be lowered (only hold/raise).
-    'acos_no_lower': 30.0,
+    # ACOS % under which a bid is not lowered (only hold/raise). Equal to
+    # the default margin: above it a keyword loses money, so a cut must be
+    # possible there.
+    'acos_no_lower': 25.0,
     # ROAS strictly above which a converter must be raised or have its
     # hold explicitly justified (a bare Hold is a defect).
     'scale_roas': 5.0,
@@ -59,14 +58,6 @@ DEFAULT_RULES: dict[str, float] = {
     # data. Same floor for both platforms; the fix on the agent side is
     # "use the export", documented in noon-ads.
     'noon_reconcile_floor': 0.85,
-    # Zero-order waste floors: a row with no orders must be cut (search
-    # term → 否定; targeting keyword → 暂停/降) once EITHER threshold is
-    # met — spend (store currency) or clicks. Clicks are the stronger
-    # evidence: 10+ clicks with zero orders is a proven loser even at
-    # low spend (store-owner rule: anything with spend and zero results
-    # should be removed/disabled outright).
-    'negate_waste_spend': 10.0,
-    'negate_waste_clicks': 10.0,
     # Days a target is left alone after a change is APPLIED to it.
     #
     # A bid moved yesterday has yesterday's data behind it, so adjusting
@@ -79,46 +70,42 @@ DEFAULT_RULES: dict[str, float] = {
     # Cadence genuinely varies by seller — some tune hourly, some
     # monthly — so this is overridable per store like every other rule.
     'change_cooldown_days': 7.0,
+    # A new bid may not drop to/below the row's actual CPC times this:
+    # below the price it already clears, the auction stops serving it.
+    'cpc_floor_multiplier': 1.1,
 }
 
-# Per-store override patterns — matched anywhere in notes.md.
+# Per-store override patterns — a ``key: value`` line of its own in
+# notes.md (optionally a list item); an underscore in the key may also be
+# written as a space. A mention inside prose ("we once tried
+# cpc_floor_multiplier: 0 and it failed") is not a standard.
 _OVERRIDE_RES: dict[str, re.Pattern[str]] = {
-    'acos_no_lower': re.compile(
-        r'acos[_ ]?no[_ ]?lower\s*[:=]\s*(\d+(?:\.\d+)?)', re.IGNORECASE
-    ),
-    'scale_roas': re.compile(
-        r'scale[_ ]?roas\s*[:=]\s*(\d+(?:\.\d+)?)', re.IGNORECASE
-    ),
-    'reconcile_tolerance': re.compile(
-        r'reconcile[_ ]?tolerance\s*[:=]\s*(\d+(?:\.\d+)?)', re.IGNORECASE
-    ),
-    'noon_reconcile_floor': re.compile(
-        r'noon[_ ]?reconcile[_ ]?floor\s*[:=]\s*(\d+(?:\.\d+)?)',
-        re.IGNORECASE,
-    ),
-    'negate_waste_spend': re.compile(
-        r'negate[_ ]?waste[_ ]?spend\s*[:=]\s*(\d+(?:\.\d+)?)',
-        re.IGNORECASE,
-    ),
-    'negate_waste_clicks': re.compile(
-        r'negate[_ ]?waste[_ ]?clicks\s*[:=]\s*(\d+(?:\.\d+)?)',
-        re.IGNORECASE,
-    ),
-    'change_cooldown_days': re.compile(
-        r'change[_ ]?cooldown[_ ]?days\s*[:=]\s*(\d+(?:\.\d+)?)',
-        re.IGNORECASE,
-    ),
+    key: re.compile(
+        r'^[ \t]*(?:[-*][ \t]+)?'
+        + key.replace('_', '[_ ]?')
+        + r'[ \t]*[:=][ \t]*(\d+(?:\.\d+)?)[ \t]*%?[ \t]*$',
+        re.IGNORECASE | re.MULTILINE,
+    )
+    for key in DEFAULT_RULES
 }
 
 
 def resolve_rules(notes_text: str | None = None) -> dict[str, float]:
     """Return effective thresholds: ``DEFAULT_RULES`` overlaid with any
     overrides found in ``notes_text`` (a store's notes.md contents).
+
+    A key written more than once takes its LAST line: notes grow by
+    appending, so the later line is the standard the user stated since.
     """
     rules = dict(DEFAULT_RULES)
     if notes_text:
         for key, rx in _OVERRIDE_RES.items():
-            m = rx.search(notes_text)
-            if m:
-                rules[key] = float(m.group(1))
+            found = rx.findall(notes_text)
+            if found:
+                rules[key] = float(found[-1])
     return rules
+
+
+def is_rule_line(line: str) -> bool:
+    """Whether *line* is a store-rule override line."""
+    return any(rx.fullmatch(line.rstrip('\n')) for rx in _OVERRIDE_RES.values())

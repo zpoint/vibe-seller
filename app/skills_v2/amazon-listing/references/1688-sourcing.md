@@ -1,5 +1,13 @@
 # Sourcing a listing from a supplier link (1688) → filled template
 
+Contents:
+- 1. Open the offer and extract core data
+- 2. Download the images (referer-protected)
+- 3. OCR the detail images (local, no GPU)
+- 4. Generate the Amazon copy
+- 5. Bilingual review (required, interactive)
+- 6. Fill + upload
+
 > **Load this when the task starts from a product link.** The goal:
 > turn a 1688 offer URL into a reviewed, filled Amazon template. The
 > agent (an LLM) does the extraction, copywriting, and review; the two
@@ -43,10 +51,13 @@ a bare `curl`. Read the `src`s from the DOM (above) and fetch each with
 a 1688 referer:
 
 ```bash
-curl -sL -e "https://detail.1688.com/" -o /tmp/<task>/img_$N.webp "<img-src>"
+D=store-data/<slug>/listing-copy/<YYYY-MM>/<family>; mkdir -p "$D"
+curl -sL -e "https://detail.1688.com/" -o "$D/img_$N.webp" "<img-src>"
 ```
 
-Save captures to `/tmp/<task>/`, never `knowledge/` (capture rule).
+Keep supplier images and OCR output under `store-data/<slug>/listing-copy/`
+so a later relist can reuse them; they don't belong in `knowledge/`, which
+every task reads.
 
 ## 3. OCR the detail images (local, no GPU)
 
@@ -54,7 +65,7 @@ Save captures to `/tmp/<task>/`, never `knowledge/` (capture rule).
 inside the long **description images**, not the HTML. OCR them locally:
 
 ```bash
-$PY $S/ocr_1688.py /tmp/<task>/ --json --min-conf 0.6 > /tmp/<task>/ocr.json
+$PY $S/ocr_1688.py "$D" --json --min-conf 0.6 > "$D/ocr.json"
 ```
 
 `ocr_1688.py` uses `rapidocr-onnxruntime` (ONNX runtime on CPU — no GPU,
@@ -101,9 +112,3 @@ judgement, not mechanics. Only after confirmation proceed to fill.
 Build the spec (parent + one child per confirmed colour/size) and hand
 off to the template round trip (`template-round-trip.md` §3–4): `fill`,
 upload, `parse-feedback`, iterate on row errors.
-
-The reference implementation that predates this skill
-(`AmazonListingCreator/listing_util`) fills a **single** variant and
-matches by localised label; this skill supersedes it with multi-row
-parent/child filling keyed by field API name and an explicit operation
-column.

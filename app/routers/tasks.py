@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 import json
 import logging
@@ -7,23 +8,19 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.bash_safety import check_exec_review_status
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import (
     DEFAULT_PROFILE_ID,
     resolve_owner_profile,
 )
-from app.ai.review_redrive import reset_ledger
 from app.ai.stop_gates import (
-    CONTRADICTION_MAX_DENIALS,
+    GateDeny,
     clear_skill_bindings,
-    contradiction_banner,
-    record_attempt,
     reset_attempts,
     resolve_skill_gates,
-    take_review_round,
 )
-from app.ai.stop_gates.report_reviewer import clear_followup
+from app.ai.stop_gates.listing_upload_gate import check_upload_verdicts
+from app.ai.turn_hold_budget import reset_ledger
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
@@ -34,16 +31,13 @@ from app.models.task_step import TaskStep
 from app.models.user import User
 from app.routers.task_submission import (
     SetTaskResultRequest,
-    apply_soft_gates,
+    apply_round,
     declared_gaps,
-    refuse as _refuse,
+    gate_denials,
     resolve_submitted_result,
     retain_submission as _retain_submission,
 )
-from app.routers.tasks_files import (
-    apply_report_reviewer_gate,
-    resolve_store_rules,
-)
+from app.routers.tasks_files import resolve_store_rules
 from app.scheduler.task_queue import task_queue_scheduler
 from app.schemas.task import TaskCreate, TaskResponse, TaskStepResponse
 from app.schemas.user import TaskModeToggle
@@ -191,7 +185,6 @@ async def create_task(
         country=data.country,
         status=TaskStatus.PENDING,
         plan_mode=plan_mode,
-        skip_reflection=bool(data.skip_reflection),
         source=source,
         ai_profile_id=(
             data.profile_id
@@ -267,13 +260,12 @@ async def delete_task(
         await delete_task_record(db, task_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    # Drop the gate-attempt counters, the review gate's re-drive
+    # Drop the gate-attempt counters, the turn hold's re-drive
     # ledger, and the durable skill→gate binding file with the task
     # (bounded server state).
     reset_attempts(task_id)
     reset_ledger(task_id)
     clear_skill_bindings(task_id)
-    clear_followup(task_id)
     return {'ok': True}
 
 
@@ -371,7 +363,6 @@ async def start_agent(
         system_extra=system_extra,
         profile_id=task.ai_profile_id or DEFAULT_PROFILE_ID,
         store_slug=slug,
-        skip_reflection=True,
     )
     if not started:
         raise HTTPException(
@@ -594,20 +585,13 @@ async def set_task_result(
 
     task_root = (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
 
-    # Phase-4 execution review gate (no-op unless ``EXECUTION_LOG.md``
-    # exists). The audit-report reviewer runs below (completeness floor +
-    # apply_report_reviewer_gate), not here.
-    deny = check_exec_review_status(task_root)
-    if deny:
-        raise HTTPException(status_code=400, detail=deny)
-
     # File-pointer mode: if `body.result` points at a file inside this
     # task's workspace, read the file and use its contents (see
     # ``resolve_workspace_result_path`` for the path-resolution
     # contract). Otherwise treat the value as direct content.
     raw = body.result
     final_result, resolved_from_file = await resolve_submitted_result(
-        raw, task_id, task_root
+        raw, task_root
     )
 
     # RETAIN BEFORE REVIEW. Every gate below refuses by raising, and a
@@ -615,88 +599,44 @@ async def set_task_result(
     # left the run holding nothing, so the finalizer had only streamed
     # prose to offer. Submission and verdict are separate facts: what
     # the agent submitted is recorded now, unconditionally, and a
-    # refusal only annotates it (see ``_refuse``). ``task.result`` is
+    # refusal only annotates it (``task_submission.refuse``). ``task.result`` is
     # still set only once every gate accepts.
     declared = declared_gaps(body)
     await _retain_submission(db, task, final_result)
 
-    await apply_soft_gates(db, task, task_id, final_result, declared)
-
     # Skill-declared domain gates: the session's loaded skills name WHICH
-    # reviewers apply (``gates: [...]`` in SKILL.md → get_registered_gates).
+    # gates apply (``gates: [...]`` in SKILL.md → get_registered_gates).
     # A session that loaded no gate-declaring skill gets only the generics.
     rules = await resolve_store_rules(db, task.store_id)
-    loaded, workspace = agent_manager.loaded_skills_and_workspace(task_id)
-    skill_gates = resolve_skill_gates(loaded, workspace or VIBE_SELLER_DIR)
-
-    stalled_gaps: list[str] = []
-    for gate_name, gate in skill_gates:
-        deny = gate.check(final_result, task_id, rules)
-        if not deny:
-            continue
-        # Fail open only on STALL when the gate tracks one (see
-        # ad_completeness_review for the stall design).
-        # And at most AD_REVIEW_ROUNDS refusals per gate in any case: the
-        # fix is asked for once, then what is still unmet ships as caveats.
-        is_stalled = getattr(gate, 'is_stalled', None)
-        if (
-            is_stalled is None or not is_stalled(task_id)
-        ) and take_review_round(task_id, gate_name):
-            await _refuse(db, task, deny.reason, declared + deny.gaps)
-        # A CONTRADICTION is not the kind of gap the stall exists to
-        # forgive. The fail-open is there so a weak model is never trapped
-        # by work it cannot finish; accepting a figure that cannot be true
-        # is a different act, because the number ships into decisions.
-        # Keep refusing past the stall — the agent always has a legal move
-        # (fix it, or mark the campaign untrustworthy), so this cannot
-        # trap. Bounded anyway: past the cap the banner below makes the
-        # contradiction impossible to miss instead of impossible to pass.
-        if deny.contradictions:
-            n = record_attempt(task_id, f'{gate_name}:contradiction')
-            if n <= CONTRADICTION_MAX_DENIALS:
-                await _refuse(
-                    db, task, deny.reason, declared + deny.contradictions
-                )
-            logger.warning(
-                'Gate %s: %d contradiction(s) unresolved after %d refusals '
-                'for task %s — banner-marking the result. First: %s',
-                gate_name,
-                len(deny.contradictions),
-                n,
-                task_id,
-                deny.contradictions[0][:160],
-            )
-            final_result = (
-                contradiction_banner(deny.contradictions) + final_result
-            )
-            stalled_gaps.extend(deny.contradictions)
-        # Log the GAPS, not ``deny.reason`` — the reason opens with a
-        # fixed instruction banner and appends the gap list at the END,
-        # so a truncated prefix of it is pure boilerplate. Six of these
-        # lines in one run read byte-identical while the underlying gaps
-        # went 14 → 8 → 7, which is worse than silence: it looks like a
-        # run repeating itself when it is converging. Say "failing open"
-        # rather than "accepting": the reviewer gate runs next and may
-        # still refuse, so the result is not accepted here.
-        logger.warning(
-            'Gate %s stalled for task %s — failing open with %d unmet gap(s) '
-            '(reviewer may still refuse). Gaps: %s',
-            gate_name,
-            task_id,
-            len(deny.gaps or ()),
-            ' | '.join(g[:110] for g in (deny.gaps or ())[:4])
-            or deny.reason[:160],
-        )
-        # Failed open on a stall: the result ships, but the unmet gaps
-        # ride along as caveats instead of vanishing into a log line.
-        stalled_gaps.extend(deny.gaps or (deny.reason,))
-
-    # Active reviewer sign-off (see apply_report_reviewer_gate).
-    deny_reason, final_result = apply_report_reviewer_gate(
-        task_id, task_root, final_result
+    # Gates and their inputs read files and the task DB synchronously;
+    # keep each off the event loop.
+    loaded, workspace = await asyncio.to_thread(
+        agent_manager.loaded_skills_and_workspace, task_id
     )
-    if deny_reason:
-        await _refuse(db, task, deny_reason, declared)
+    skill_gates = await asyncio.to_thread(
+        resolve_skill_gates, loaded, workspace or VIBE_SELLER_DIR
+    )
+    denies = []
+    # A listing batch this turn uploaded to the live account should have
+    # a clean verdict (no-op without uploads).
+    reason = await asyncio.to_thread(check_upload_verdicts, task_root)
+    if reason:
+        denies.append(
+            GateDeny(
+                gate='upload_verdict',
+                # What to do is the agent's; what is missing is the
+                # seller's caveat.
+                reason=reason,
+                gaps=(
+                    'A listing batch uploaded to the live account has '
+                    'no clean processing-report verdict.',
+                ),
+            )
+        )
+    denies += await gate_denials(db, task, skill_gates, final_result, rules)
+    final_result, stalled_gaps = await apply_round(
+        db, task, denies, final_result, declared
+    )
 
     # Recovery: a valid result supersedes an earlier agent-reported
     # error this turn (error → recovered → result must not ship as
@@ -713,7 +653,7 @@ async def set_task_result(
     # A gate that failed open still had unmet items; keep them so the
     # outcome carries its caveats. Otherwise the verdict is clean.
     task.review_gaps = (
-        json.dumps(declared + tuple(stalled_gaps), ensure_ascii=False)
+        json.dumps(declared + stalled_gaps, ensure_ascii=False)
         if (stalled_gaps or declared)
         else None
     )
@@ -723,16 +663,10 @@ async def set_task_result(
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
 
-    # Result persisted — drop the per-task gate-attempt counters, the
-    # review gate's re-drive ledger, and any gate-owned progress state
-    # so a long-running server doesn't accumulate stale entries (and a
-    # later retry starts fresh).
+    # Result persisted — drop the per-task gate-attempt counters and the
+    # turn hold's re-drive ledger, so the next turn gets its own round.
     reset_attempts(task_id)
     reset_ledger(task_id)
-    for _name, gate in skill_gates:
-        reset = getattr(gate, 'reset_progress', None)
-        if reset is not None:
-            reset(task_id)
 
     # Emit a result message so the frontend conversation stream
     # renders the Result section immediately via SSE. Don't

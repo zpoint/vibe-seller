@@ -209,7 +209,14 @@
     "attachmentUnsupported": "{{name}}：不支持的文件类型，未添加",
     "attachmentTooLarge": "{{name}}：超过 {{size}}，未添加",
     "attachmentClipboardItem": "剪贴板内容",
-    "startFailed": "任务已创建，但未能启动。附件可能未上传成功——请打开任务后重试。"
+    "startFailed": "任务已创建，但未能启动。附件可能未上传成功——请打开任务后重试。",
+    "openingTask": "正在打开任务…",
+    "openFailed": "无法打开此任务：{{error}}",
+    "openTimeout": "无法打开此任务：服务器未及时响应。",
+    "tryAgain": "重试",
+    "actionFailed": "操作未完成：{{error}}",
+    "actionTimeout": "服务器未及时响应，操作可能没有生效。请刷新查看任务的当前状态。",
+    "loadingConversation": "正在加载对话…"
   },
   "events": {
     "title": "事件",
@@ -352,7 +359,10 @@
     "noCustomSkills": "暂无自定义技能 — 创建一个或询问助手",
     "noImportedSkills": "暂无导入技能 — 让助手从URL安装",
     "noBuiltinSkills": "尚未同步内置技能",
-    "restartNeeded": "已同步的技能更新了门禁（gates）——重启 Vibe Seller 后生效。"
+    "restartNeeded": "已同步的技能更新了门禁（gates）——重启 Vibe Seller 后生效。",
+    "saveFailed": "文件保存失败：{{error}}",
+    "createFailed": "文件创建失败：{{error}}",
+    "deleteFailed": "文件删除失败：{{error}}"
   },
   "settings": {
     "title": "设置",
@@ -601,7 +611,10 @@
     "profile": "配置文件",
     "profileMismatch": "此任务由 {{current}} 执行，不同供应商可能不兼容，切换后结果无法保证",
     "taskProfile": "任务",
-    "manageProfiles": "管理配置文件"
+    "manageProfiles": "管理配置文件",
+    "sending": "发送中…",
+    "sendFailed": "消息未发送：{{error}}。内容已放回输入框。",
+    "sendTimeout": "服务器未及时响应，消息可能没有送达。请先查看对话再决定是否重发；内容已放回输入框。"
   },
   "profiles": {
     "default": "Claude",

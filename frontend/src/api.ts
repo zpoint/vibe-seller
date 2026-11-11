@@ -4,6 +4,11 @@
 // session redirects to the login screen — no per-caller handling
 // needed (App.tsx listens once and clears auth state).
 import type { ApiToken, CreatedApiToken } from './types'
+import {
+  DEFAULT_TIMEOUT_MS, RequestTimeoutError, type RequestOptions,
+} from './lib/requestDeadline'
+import { apiRouteShape, sendEvent } from './lib/telemetry'
+import { FrontendEvent } from './lib/telemetryEvents'
 
 export const AUTH_EXPIRED_EVENT = 'auth:expired'
 
@@ -36,17 +41,59 @@ const jsonInit = (method: string, body?: unknown): RequestInit => ({
   credentials: 'include',
 })
 
+// Every request carries a deadline — see lib/requestDeadline.ts.
+async function request(
+  url: string,
+  init: RequestInit,
+  opts?: RequestOptions,
+) {
+  const ms = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const ctrl = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => { timedOut = true; ctrl.abort() }, ms)
+  try {
+    // The deadline covers the body too: a server can send headers and
+    // then stall mid-body.
+    return await handleResponse(await fetch(url, { ...init, signal: ctrl.signal }))
+  } catch (e) {
+    const status = (e as { status?: number })?.status
+    const kind = timedOut ? 'timeout'
+      : e instanceof TypeError ? 'network'
+        : status !== undefined && status >= 500 ? 'http_5xx' : null
+    if (kind) reportFailure(url, init.method ?? 'GET', kind, ms)
+    if (timedOut) throw new RequestTimeoutError(url, ms)
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function reportFailure(url: string, method: string, kind: string, ms: number) {
+  try {
+    const path = new URL(url, window.location.origin).pathname
+    if (path.startsWith('/api/telemetry')) return
+    sendEvent(FrontendEvent.API_REQUEST_FAILED, {
+      path: apiRouteShape(path).split('/').slice(0, 5).join('/'),
+      method,
+      kind,
+      timeout_ms: ms,
+    })
+  } catch {
+    // ignore
+  }
+}
+
 export const api = {
-  get: async (url: string) =>
-    handleResponse(await fetch(url, { credentials: 'include' })),
-  post: async (url: string, body?: unknown) =>
-    handleResponse(await fetch(url, jsonInit('POST', body))),
-  put: async (url: string, body?: unknown) =>
-    handleResponse(await fetch(url, jsonInit('PUT', body))),
-  patch: async (url: string, body?: unknown) =>
-    handleResponse(await fetch(url, jsonInit('PATCH', body))),
-  del: async (url: string) =>
-    handleResponse(await fetch(url, { method: 'DELETE', credentials: 'include' })),
+  get: (url: string, opts?: RequestOptions) =>
+    request(url, { credentials: 'include' }, opts),
+  post: (url: string, body?: unknown, opts?: RequestOptions) =>
+    request(url, jsonInit('POST', body), opts),
+  put: (url: string, body?: unknown, opts?: RequestOptions) =>
+    request(url, jsonInit('PUT', body), opts),
+  patch: (url: string, body?: unknown, opts?: RequestOptions) =>
+    request(url, jsonInit('PATCH', body), opts),
+  del: (url: string, opts?: RequestOptions) =>
+    request(url, { method: 'DELETE', credentials: 'include' }, opts),
 }
 
 // ─── API tokens (external-agent access) ───────────────

@@ -96,7 +96,6 @@ plugins:
             Testing: 测试
             Telemetry: 遥测
             Vision — AI Images: AI 图像生成
-            Skill Review Mechanism: Skill 审查机制
         - locale: en
           name: English
           build: true
@@ -157,7 +156,6 @@ nav:
       - Testing: testing.md
       - Telemetry: telemetry.md
       - Vision — AI Images: vision.md
-      - Skill Review Mechanism: skill-review-mechanism.md
 
 extra:
   social:

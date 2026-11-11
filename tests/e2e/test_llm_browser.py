@@ -14,7 +14,6 @@ Requires: provider credentials matching E2E_PROVIDER_MAP.
 """
 
 import http.server
-import json
 import logging
 import re
 import threading
@@ -98,7 +97,7 @@ class _TestHandler(http.server.BaseHTTPRequestHandler):
 @pytest.fixture(scope='module')
 def test_site():
     """Start a local HTTP server serving the 2-page site."""
-    server = http.server.HTTPServer(('127.0.0.1', 0), _TestHandler)
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _TestHandler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -225,75 +224,6 @@ class TestLLMBrowserAPI:
         )
         assert '555-0123' in norm_hyphens, (
             f'Phone not found in messages: {all_text[:500]}'
-        )
-
-        # Stop hook should have forced the agent to reflect. For a
-        # local test server the agent may correctly decide "no
-        # reusable knowledge" — so we verify that the reflection
-        # PHASE happened, not that files were written.
-        #
-        # Reflection happens between the agent finishing its work
-        # and the agent session actually exiting (the Stop hook
-        # injects the reflection prompt on first stop, then
-        # approves on retry). `auto_run_task` only marks the task
-        # COMPLETED after the session exits, so reflection always
-        # precedes completion — but the structured ``reflection_*``
-        # agent_events take a moment to flush; poll with a bounded
-        # cap.
-        #
-        # Earlier versions of this test scanned ``thinking`` /
-        # ``assistant`` content for keywords like ``learn`` /
-        # ``knowledge``. That coupled the test to model vocabulary
-        # and broke whenever a model phrased its reflection
-        # without those words (e.g. "Nothing to write" / "no
-        # gotchas"). The server now emits explicit
-        # ``reflection_started`` and ``reflection_completed``
-        # agent_events from the Stop-hook code path — these are a
-        # structural contract independent of model wording.
-        deadline = time.time() + 30
-        msgs_last: list[dict] = msgs
-        reflection_events: list[dict] = []
-        while time.time() < deadline:
-            msgs_last = get_messages(api_client, data['id'])
-            reflection_events = []
-            for m in msgs_last:
-                if m['role'] != 'agent_event':
-                    continue
-                try:
-                    payload = json.loads(m['content'])
-                except (ValueError, TypeError):
-                    continue
-                ev = payload.get('event') if isinstance(payload, dict) else None
-                if ev in ('reflection_started', 'reflection_completed'):
-                    reflection_events.append({'role': m['role'], 'event': ev})
-            # Wait for the full bracket: reflection_started pins that the
-            # Stop-hook block fired, reflection_completed pins the retry
-            # approve. Breaking on either alone would let the test pass
-            # on a half-emitted run and weaken what the contract proves.
-            event_names = [e['event'] for e in reflection_events]
-            if (
-                'reflection_started' in event_names
-                and 'reflection_completed' in event_names
-            ):
-                break
-            time.sleep(1)
-
-        logger.info(
-            'Reflection events: %d (%s)',
-            len(reflection_events),
-            [e['event'] for e in reflection_events],
-        )
-        event_names = [e['event'] for e in reflection_events]
-        assert 'reflection_started' in event_names, (
-            'Stop hook should emit a reflection_started agent_event '
-            'within 30s of task completion. '
-            f'Got events: {event_names}. '
-            f'Roles seen: {[m["role"] for m in msgs_last]}'
-        )
-        assert 'reflection_completed' in event_names, (
-            'Stop hook should emit reflection_completed after the '
-            'retry approves; got only '
-            f'{event_names}.'
         )
 
 

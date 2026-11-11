@@ -37,6 +37,7 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
 from app.release_channel import channel_of
+from app.sync.scheduler import sync_scheduler
 from app.telemetry_events import TelemetryEvent
 from app.telemetry_mcp import mcp_calls_last_24h
 from app.utils.timezone import get_server_timezone
@@ -105,6 +106,13 @@ async def send_install_heartbeat() -> None:
             ).scalar() or 0
             email_count = (
                 await db.execute(select(func.count(EmailAccount.id)))
+            ).scalar() or 0
+            email_send_disabled_count = (
+                await db.execute(
+                    select(func.count(EmailAccount.id)).where(
+                        EmailAccount.allow_send.is_(False)
+                    )
+                )
             ).scalar() or 0
             chat_bot_count = (
                 await db.execute(select(func.count(ChatBot.id)))
@@ -175,6 +183,7 @@ async def send_install_heartbeat() -> None:
             ).scalar() or 0
             gws_enabled = await db.get(AppSettings, 'google_workspace_enabled')
             gws_on = bool(gws_enabled and gws_enabled.value == 'true')
+        sync_failed_jobs = await sync_scheduler.failed_jobs()
     except Exception:
         logger.warning('install_heartbeat counts failed', exc_info=True)
         return
@@ -206,6 +215,8 @@ async def send_install_heartbeat() -> None:
         'mcp_calls_last_24h': mcp_calls_last_24h(),
         'ai_custom_providers': custom_provider_entries(),
         'schedules_fired_7d': schedules_fired_7d,
+        'email_send_disabled_count': email_send_disabled_count,
+        'sync_failed_jobs': sync_failed_jobs,
     }
     telemetry.send(TelemetryEvent.INSTALL_HEARTBEAT, payload)
     telemetry.set_person_properties({

@@ -1,30 +1,20 @@
-"""
-E2E test: skill prerequisite hook enforces load order.
+"""E2E: a skill's prerequisites reach the agent without a refusal.
 
-The bug this protects against: when an agent calls
-``Skill(noon-ads)`` without first loading ``noon-shared``, the
-backend hook must deny the call with a clear retry message — and
-after the agent loads ``noon-shared``, the same ``Skill(noon-ads)``
-call must succeed and the prerequisite's content reaches the agent.
+``noon-ads`` declares ``requires: [noon-shared]``; the noon login URL
+lives only in ``noon-shared``. Loading ``noon-ads`` alone is allowed —
+the hook attaches a hint naming the prerequisite instead of denying the
+call — and the agent then loads ``noon-shared`` and answers from it.
+Inventing a noon URL after skipping the prerequisite was the production
+failure this protects against.
 
-This mirrors a real failure mode observed in production: an agent
-session skipped the prerequisite, missed the login URL in
-``noon-shared/SKILL.md``, and invented a non-existent noon URL
-instead. The hook turns that prose contract into a mechanism.
-
-Verification strategy: we cannot trust the agent's free-text to
-prove the hook fired (the agent could narrate it without it
-actually happening). Instead we read the **server hook log** —
-the deny path emits ``Skill prereq: agent <task_id_prefix>
-tried 'X' without ...`` via ``logger.info``, which is the
-authoritative record. We assert the marker exists for the
-denied skill load, and assert the successful tool_result
-sequence exists in ``task_messages``.
+The hint is verified from the SERVER log (the hook logs ``Skill prereq:
+agent <id> loaded 'noon-ads' early; hint: ...`` when it attaches one),
+not from the agent's narration: an agent that happens to load
+``noon-shared`` on its own would otherwise pass with the hook deleted.
 
 Requires: real ``claude`` CLI + LLM API key + running server.
 """
 
-import logging
 import re
 import time
 
@@ -41,24 +31,53 @@ from tests.e2e.e2e_helpers import (
     server_log_candidates,
 )
 
-logger = logging.getLogger(__name__)
-
 pytestmark = [pytest.mark.e2e]
 
-# Unique substring that only appears in noon-shared/SKILL.md among
-# the loaded skills — used to assert the prerequisite's content
-# actually reached the agent after the corrected load order.
+# Appears only in noon-shared/SKILL.md among the loaded skills.
 NOON_SHARED_MARKER = 'https://login.noon.partners/en/'
 
-# Server hook log lines look like:
-#   ... app.ai.claude_backend_hooks INFO Skill prereq: agent abc12345 \
-#       tried 'noon-ads' without "Skill 'noon-ads' requires 'noon-shared'..."
-#
-# The server's own log — every candidate for the one port the tests
-# talk to comes from the shared helper (the app's log is per-port and
-# lives wherever the SERVER's LOG_DIR points: the runtime home in CI,
-# the checkout for start.sh runs).
-HOOK_LOG_CANDIDATES = server_log_candidates()
+
+def _skill_load_order(messages: list[dict]) -> list[str]:
+    """Skill names in the order the agent loaded them with the Skill tool."""
+    order: list[str] = []
+    for m in messages:
+        if m.get('role') != 'tool_use':
+            continue
+        hit = re.search(r'"skill":\s*"([^"]+)"', m.get('content', ''))
+        if hit and '"Skill"' in m.get('content', ''):
+            order.append(hit.group(1))
+    return order
+
+
+def hint_owed(messages: list[dict]) -> bool:
+    """Whether the agent reached for noon-ads before noon-shared.
+
+    The hook fires on a Skill-tool load of noon-ads that noon-shared did
+    not precede. An agent that never loaded noon-ads with the Skill tool
+    (observed: it read noon-shared's SKILL.md with sed and answered from
+    it) gave the hook nothing to hint on — padding the missing names in
+    a fixed order once read that as "noon-ads first".
+    """
+    order = _skill_load_order(messages)
+    if 'noon-ads' not in order:
+        return False
+    return 'noon-shared' not in order or order.index('noon-ads') < (
+        order.index('noon-shared')
+    )
+
+
+def _hint_logged(task_id_prefix: str) -> bool:
+    """Whether the hook logged a prerequisite hint for this task."""
+    pat = re.compile(
+        rf'Skill prereq: agent {re.escape(task_id_prefix)} '
+        r"loaded 'noon-ads' early; hint: .*noon-shared"
+    )
+    for path in server_log_candidates():
+        if path.is_file() and pat.search(
+            path.read_text(encoding='utf-8', errors='replace')
+        ):
+            return True
+    return False
 
 
 @pytest.fixture(scope='module')
@@ -69,144 +88,39 @@ def api_client():
     client.close()
 
 
-@pytest.fixture(scope='module')
-def prereq_store(api_client: httpx.Client) -> dict:
-    ts = int(time.time())
-    return create_store(
+def test_prerequisite_is_loaded_and_used(api_client: httpx.Client):
+    store = create_store(
+        api_client, f'prereq-hint-{int(time.time())}', browser_backend='chrome'
+    )
+    task = create_task(
         api_client,
-        f'prereq-hook-test-{ts}',
-        browser_backend='chrome',
+        title='Where do I sign in to run our noon ads?',
+        store_id=store['id'],
+        description=(
+            'Just tell me the sign-in page address for running our noon '
+            'ad campaigns. No need to open anything.'
+        ),
     )
-
-
-def _read_hook_log() -> str:
-    """Read the server log file from whichever path the deploy
-    happens to use. Returns the first non-empty match.
-    """
-    for path in HOOK_LOG_CANDIDATES:
-        if path.is_file() and path.stat().st_size > 0:
-            return path.read_text(encoding='utf-8', errors='replace')
-    return ''
-
-
-def _hook_denied(log_text: str, task_id_prefix: str, skill: str) -> bool:
-    """True iff the backend hook emitted a Skill-prereq deny for
-    this task's attempt to load `skill`.
-
-    The deny path in ``_handle_hook_callback`` logs:
-        Skill prereq: agent <prefix> tried '<skill>' without ...
-    """
-    pat = re.compile(
-        rf'Skill prereq: agent {re.escape(task_id_prefix)}'
-        rf"\s+tried\s+'{re.escape(skill)}'"
+    result = poll_task_status(
+        api_client,
+        task['id'],
+        target_statuses={'completed', 'failed'},
+        timeout=PIPELINE_TIMEOUT,
     )
-    return bool(pat.search(log_text))
-
-
-class TestSkillPrereqHookEndToEnd:
-    """Full agent-loop verification of the Skill prereq hook."""
-
-    def test_direct_load_denied_then_succeeds_after_prereq(
-        self,
-        api_client: httpx.Client,
-        prereq_store: dict,
-    ):
-        """The agent must observe both halves of the contract.
-
-        1. ``Skill(noon-ads)`` without ``noon-shared`` → backend
-           hook logs a deny line for this task.
-        2. The agent then loads ``noon-shared`` and retries; both
-           Skill tool_results appear in task_messages and the
-           noon-shared body (containing the noon login URL)
-           reaches the agent's context.
-
-        We grep the server log (authoritative source) for the deny
-        event rather than trusting the agent's transcript, because
-        the agent could narrate a deny that never happened.
-        """
-        task = create_task(
-            api_client,
-            title='Skill prereq hook smoke test',
-            store_id=prereq_store['id'],
-            description=(
-                'You are validating a backend safety hook — '
-                'do NOT open a browser, do NOT do real work.\n\n'
-                '1. First, call the Skill tool with '
-                '`skill="noon-ads"` directly. The backend WILL '
-                'reject it because `noon-ads` requires '
-                '`noon-shared`. That rejection is expected — '
-                'continue.\n\n'
-                '2. Then call the Skill tool with '
-                '`skill="noon-shared"`. It will succeed.\n\n'
-                '3. Then call the Skill tool with '
-                '`skill="noon-ads"` again. It will now succeed.\n\n'
-                '4. Echo back the noon login URL '
-                '(https://login.noon.partners/en/) on its own line '
-                'in your final response. Copy it exactly from the '
-                'noon-shared content you loaded.'
-            ),
-        )
-        task_id = task['id']
-        task_id_prefix = task_id[:8]
-        logger.info('Created prereq-hook task %s', task_id_prefix)
-
-        # This task loads ``noon-ads``, an AD_SKILL, which binds it to the
-        # ad DoD-review gate — ORTHOGONAL to the prereq hook under test.
-        # Whether the agent's fast-signoff reviewer lets the task reach
-        # ``completed`` (or it ends ``failed``/UNVERIFIED on that gate) is
-        # non-deterministic agent behavior and NOT this test's contract.
-        # The prereq-hook contract — (1) the deny fired, (2) noon-shared's
-        # content reached the agent — is fully observable either way (both
-        # happen while the agent works, before it attempts to finish), so
-        # we wait for any TERMINAL state and assert on those two, never on
-        # the final status. Coupling to status imported the flaky gate.
-        result = poll_task_status(
-            api_client,
-            task_id,
-            target_statuses={'completed', 'failed'},
-            timeout=PIPELINE_TIMEOUT,
-        )
-        logger.info(
-            'prereq-hook task %s reached terminal status=%s',
-            task_id_prefix,
-            result.get('status'),
-        )
-
-        # ── Assertion 1: the hook actually fired a deny ─────────
-        # Read the server log AFTER task completion so we capture
-        # every event for this task_id.
-        log_text = _read_hook_log()
-        assert log_text, (
-            f'No server log found at any of {[str(p) for p in HOOK_LOG_CANDIDATES]}'
-            " — can't verify hook fired."
-        )
-        assert _hook_denied(log_text, task_id_prefix, 'noon-ads'), (
-            f"Hook log has no 'Skill prereq: agent {task_id_prefix} "
-            "tried 'noon-ads' without ...' entry. The backend never "
-            'denied the bad load order, which is the whole point '
-            'of this test.\n\n'
-            'Log excerpt around task_id:\n'
-            + '\n'.join(
-                line for line in log_text.splitlines() if task_id_prefix in line
-            )[:2000]
-        )
-
-        # ── Assertion 2: noon-shared content reached the agent ──
-        # The login URL only lives in noon-shared/SKILL.md, so its
-        # presence in task_messages proves the prereq successfully
-        # loaded after the retry — which can only happen if the
-        # agent corrected its load order in response to the deny.
-        messages = get_messages(api_client, task_id)
-        all_text = (
-            ' '.join(m.get('content', '') for m in messages)
-            + ' '
-            + (result.get('result') or '')
-        )
-        assert NOON_SHARED_MARKER in all_text, (
-            f'Expected the noon login URL {NOON_SHARED_MARKER!r} '
-            "(from noon-shared) to appear in the agent's "
-            'transcript after the prerequisite load succeeded. '
-            'Either the agent never loaded noon-shared, or its '
-            'content never reached the context.\n'
-            f'Transcript first 800 chars: {all_text[:800]!r}'
+    messages = get_messages(api_client, task['id'])
+    transcript = ' '.join(m.get('content', '') for m in messages)
+    assert 'noon-shared' in transcript, (
+        'the agent never loaded noon-shared; transcript starts: '
+        + transcript[:800]
+    )
+    answer = transcript + ' ' + (result.get('result') or '')
+    assert NOON_SHARED_MARKER in answer, answer[:800]
+    # When the agent reached for noon-ads first — the production failure
+    # — the hook must have hinted. Loading noon-shared first needs no
+    # hint (the hook itself is pinned by tests/unit/test_skill_prereq_hint).
+    if hint_owed(messages):
+        assert _hint_logged(task['id'][:8]), (
+            'noon-ads was loaded before noon-shared but no prerequisite '
+            'hint was logged. Logs searched: '
+            f'{[str(p) for p in server_log_candidates()]}'
         )

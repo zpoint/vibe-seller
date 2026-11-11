@@ -86,7 +86,6 @@ class _FakeSession:
         self.no_store = kwargs.get('no_store', False)
         self.auto_approve_plan = kwargs.get('auto_approve_plan', False)
         self.task_dir = kwargs.get('task_dir')
-        self.skip_reflection = kwargs.get('skip_reflection', False)
         self.resume_session_id: str | None = None
         self.session_id: str | None = None
         self._task: asyncio.Task | None = None
@@ -96,11 +95,11 @@ class _FakeSession:
         self.running = True
         self.done = asyncio.Event()
         self.plan_saved_event = asyncio.Event()
-        # Per-TASK PreToolUse guard state. The real AgentSession sets
+        # Per-TASK derived state. The real AgentSession sets
         # both in __init__ and the manager carries them onto a restarted
-        # session — without them a follow-up re-arms the catalog-first
-        # guard and the skill-prereq check, denying the agent for work it
-        # already did. Present here so this stub keeps matching the
+        # session — without them a follow-up starts the task's derived
+        # state over, as if turn 1 had not read the catalog and loaded
+        # the skill. Present here so this stub keeps matching the
         # contract the manager actually relies on.
         self._catalog_read = False
         self._loaded_skills: set[str] = set()
@@ -174,7 +173,6 @@ class TestRetryWithoutResume:
             no_store=False,
             resume=True,
             auto_approve_plan=True,
-            skip_reflection=True,
         )
         assert started is True
 
@@ -217,7 +215,6 @@ class TestRetryWithoutResume:
         assert retry.profile_id == prior.profile_id == 'p1'
         assert retry.system_prompt_extra == prior.system_prompt_extra
         assert retry.auto_approve_plan == prior.auto_approve_plan is True
-        assert retry.skip_reflection == prior.skip_reflection is True
         assert retry.task_dir == prior.task_dir
         # Registry now holds the retry, not the prior.
         assert backend.get_session('task-retry') is retry
@@ -267,25 +264,24 @@ class TestRetryWithoutResume:
 
         second = _FakeSession.instances[1]
         assert second._catalog_read is True, (
-            'the follow-up re-armed the catalog-first guard, so the agent '
-            'is denied for reading the catalog it already read'
+            'the follow-up reset the per-task state, as if the catalog '
+            'read in turn 1 never happened'
         )
         assert second._loaded_skills == {'amazon-shared'}
 
     async def test_per_task_guard_state_survives_the_restart(
         self, _db, monkeypatch
     ):
-        """The catalog-first and skill-prereq guards must not re-arm.
+        """Per-task derived state must survive a session rebuild.
 
         Both track a fact about the TASK — the agent has read the store
         manifest; a prerequisite skill is loaded — but live on the
-        session, which a follow-up or gate redrive rebuilds. Observed
-        live: an agent read `stores/<slug>/CATALOG.md` as its fourth
-        action and was then denied five times in the next turn for
-        searching `stores/`, told to "read the catalog first". It was
-        trying to reach the ad-change TSVs it needed to satisfy a
-        cooldown gate that was refusing its report — two guards blocking
-        each other, neither denial clearable from the agent's side.
+        session, which a follow-up or hold redrive rebuilds. Observed
+        live: a rebuilt session lost both facts, and the agent spent its
+        next turn re-deriving what turn 1 had established — re-reading
+        `stores/<slug>/CATALOG.md` and re-loading a skill it had already
+        loaded — while a cooldown gate was refusing its report and it
+        needed the ad-change TSVs to answer it.
         """
         _FakeSession.instances = []
         _patch_backend(monkeypatch, _db)
@@ -318,8 +314,8 @@ class TestRetryWithoutResume:
 
         retry = _FakeSession.instances[1]
         assert retry._catalog_read is True, (
-            'the restarted session re-armed the catalog-first guard, so '
-            'the agent is denied for reading the catalog it already read'
+            'the restarted session reset the per-task state, as if the '
+            'catalog read in turn 1 never happened'
         )
         assert retry._loaded_skills == {'amazon-shared'}
         # Copied, not shared: a later load must not reach backwards.

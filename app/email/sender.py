@@ -24,8 +24,10 @@ import os
 import smtplib
 import uuid
 
+from app import telemetry
 from app.email.db import init_email_db, store_emails
 from app.models.email_account import EmailAccount
+from app.telemetry_events import TelemetryEvent
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +89,12 @@ async def send_email(
         SendNotAllowedError: the account's ``allow_send`` is off. Raised
             before any SMTP connection is opened.
     """
-    ensure_send_allowed(account)
     recipients = [to] if isinstance(to, str) else list(to)
+    try:
+        ensure_send_allowed(account)
+    except SendNotAllowedError:
+        _send_telemetry(account, 'refused', recipients, attachments)
+        raise
 
     def _send_sync() -> dict:
         return _do_send(
@@ -101,7 +107,42 @@ async def send_email(
             attachments,
         )
 
-    return await asyncio.to_thread(_send_sync)
+    try:
+        result = await asyncio.to_thread(_send_sync)
+    except Exception:
+        _send_telemetry(account, 'error', recipients, attachments)
+        raise
+    _send_telemetry(
+        account,
+        'ok' if result.get('ok') else 'error',
+        recipients,
+        attachments,
+    )
+    return result
+
+
+def _send_telemetry(
+    account: EmailAccount,
+    outcome: str,
+    recipients: list[str],
+    attachments: list[str] | None,
+) -> None:
+    try:
+        telemetry.send(
+            TelemetryEvent.EMAIL_SENT,
+            {
+                'outcome': outcome,
+                'provider_kind': telemetry.email_provider_kind(account.email),
+                'recipient_count_bucket': telemetry.count_bucket(
+                    len(recipients)
+                ),
+                'attachment_count_bucket': telemetry.count_bucket(
+                    len(attachments or ())
+                ),
+            },
+        )
+    except Exception:
+        logger.debug('email telemetry failed', exc_info=True)
 
 
 def _do_send(

@@ -63,3 +63,41 @@ def test_caller_property_overrides_base(monkeypatch):
         monkeypatch, 'app_started', {'app_version': 'override'}
     )
     assert props['app_version'] == 'override'
+
+
+@pytest.mark.parametrize(
+    ('gate', 'sent'),
+    [
+        ('ad_coverage', 'ad_coverage'),
+        ('upload_verdict', 'upload_verdict'),
+        ('acme_widget_006_gate', 'custom'),
+    ],
+)
+def test_result_gated_reports_only_builtin_gate_names(monkeypatch, gate, sent):
+    from app import telemetry_harness  # noqa: PLC0415
+
+    sends = []
+    monkeypatch.setattr(
+        telemetry, 'send', lambda e, p=None: sends.append(dict(p))
+    )
+    telemetry_harness.send_result_gated(
+        't1', gate, 'refused', attempt=1, gap_count=2
+    )
+    assert sends[0]['gate'] == sent
+
+
+def test_runtime_os_reads_the_platform_once(monkeypatch):
+    calls = []
+    real = telemetry.platform.system
+    monkeypatch.setattr(
+        telemetry.platform,
+        'system',
+        lambda: calls.append(1) or real(),
+    )
+    telemetry.runtime_os.cache_clear()
+    try:
+        telemetry.base_properties()
+        telemetry.base_properties()
+    finally:
+        telemetry.runtime_os.cache_clear()
+    assert len(calls) == 1

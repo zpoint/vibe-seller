@@ -151,17 +151,41 @@ class TestReaper:
             task_status='completed',
             minutes_ago=1,
         )
-        # Give the schedule a plan so reaper can mark it READY.
+        # The planning task holds the plan it wrote (where ExitPlanMode
+        # puts it); the hook that would have frozen it never ran.
         async with maker() as db:
-            s = await db.get(Schedule, sched_id)
-            s.plan = 'P'
+            t = await db.get(Task, task_id)
+            t.plan = 'P'
             await db.commit()
 
         await _reaper.reap_stuck_planning_tasks()
         async with maker() as db:
             s = await db.get(Schedule, sched_id)
             assert s.plan_status == 'ready'
+            assert s.plan == 'P'
             assert s.current_planning_task_id is None
+
+    async def test_a_replan_never_promotes_the_old_plan(self, reaper_env):
+        """A replan keeps the old plan text on the schedule (for the UI
+        diff). If the planning task completes without writing a new plan,
+        that old text — possibly from before an upgrade — must not become
+        ready."""
+        maker, _ = reaper_env
+        sched_id, _task_id = await _mk(
+            maker,
+            plan_status='planning',
+            task_status='completed',
+            minutes_ago=1,
+        )
+        async with maker() as db:
+            s = await db.get(Schedule, sched_id)
+            s.plan = 'old plan'
+            await db.commit()
+
+        await _reaper.reap_stuck_planning_tasks()
+        async with maker() as db:
+            s = await db.get(Schedule, sched_id)
+            assert s.plan_status == 'failed'
 
     async def test_completed_task_with_empty_plan_flips_failed(
         self, reaper_env

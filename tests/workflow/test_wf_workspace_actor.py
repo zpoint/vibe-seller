@@ -33,7 +33,7 @@ _PATCH_SITES = [
     'app.routers.workspace.workspace_manager',
     'app.routers.stores.workspace_manager',
     'app.routers.tasks_conversation.workspace_manager',
-    'app.task_runner.workspace_manager',
+    'app.store_metadata.workspace_manager',
     'app.task_runner_auto.workspace_manager',
     'app.task_runner_exec.workspace_manager',
     'app.scheduler.finalize_reaper.workspace_manager',

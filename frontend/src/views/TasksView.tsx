@@ -7,7 +7,9 @@ import { formatScheduleBadge } from '../lib/scheduleBadge'
 import { StatusBadge } from '../components/ui'
 import { ConversationStream } from '../components/conversation/ConversationStream'
 import { useChatUploads } from '../hooks/useChatUploads'
-import { ChatComposer } from '../components/conversation/ChatComposer'
+import { useTaskAction } from '../hooks/useTaskAction'
+import { TaskComposer } from '../components/conversation/TaskComposer'
+import type { DraftStore } from '../lib/draftStore'
 import { isAwaitingUser } from '../handlers/composerGate'
 import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
@@ -18,6 +20,7 @@ import { MobileMenuButton } from '../components/MobileMenuButton'
 import { getUI, hasProgressingTask } from '../taskStates'
 import type { Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, Schedule, Store, ConversationItem, StagedAttachment } from '../types'
 import { TaskUsageMeter } from '../components/TaskUsageMeter'
+import { TaskOpenState, TranscriptLoading } from '../components/TaskOpenState'
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
@@ -34,6 +37,11 @@ export interface TasksViewProps {
   tasks: Task[]
   tasksLoading: boolean
   selectedTask: Task | null
+  /** The task being opened (error null) or that failed to open. */
+  taskLoad?: { taskId: string; error: unknown } | null
+  onRetryTaskLoad?: () => void
+  /** Leave a task that is opening or failed to open (back to its list). */
+  onLeaveTaskLoad?: () => void
   steps: TaskStep[]
   screenshots: Record<string, string>
   logs: string[]
@@ -44,8 +52,9 @@ export interface TasksViewProps {
   selectedAnswers: Record<string, string>
   otherInputs: Record<string, string>
   showOtherInput: Record<string, boolean>
-  chatInput: string
-  setChatInput: (v: string) => void
+  /** The composer's draft. Only the composer subscribes to it, so
+   *  typing does not re-render this view. */
+  chatDraft: DraftStore
   chatAttachments: StagedAttachment[]
   setChatAttachments: React.Dispatch<React.SetStateAction<StagedAttachment[]>>
   debugMode: boolean
@@ -58,16 +67,19 @@ export interface TasksViewProps {
   // Callbacks
   openCreateModal: () => void
   selectTask: (task: Task) => void
-  stopAgent: () => void
-  retryTask: (taskId: string) => void
-  continueTask: (taskId: string) => void
+  // Header actions: each rejects when the server did not carry it out,
+  // so the view can say so (see useTaskAction).
+  stopAgent: () => Promise<void> | void
+  retryTask: (taskId: string) => Promise<void> | void
+  continueTask: (taskId: string) => Promise<void> | void
   deleteTask: (taskId: string) => void
   selectAnswer: (questionText: string, answer: string) => void
   toggleOtherInput: (questionText: string) => void
   setOtherAnswer: (questionText: string, text: string) => void
   submitAllAnswers: (overrideAnswers?: Record<string, string>) => void
   submitImageDecision: (requestId: string, action: 'confirm' | 'cancel', prompt: string, model: string, addedReferences: string[]) => void
-  sendChatMessage: () => void
+  /** Sends the composer's draft; rejects when the server did not accept it. */
+  sendChatMessage: () => Promise<void> | void
   setSelectedTask: React.Dispatch<React.SetStateAction<Task | null>>
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
   setCurrentUser: React.Dispatch<React.SetStateAction<AuthUser | null>>
@@ -102,6 +114,9 @@ export function TasksView({
   tasks,
   tasksLoading,
   selectedTask,
+  taskLoad = null,
+  onRetryTaskLoad,
+  onLeaveTaskLoad,
   steps,
   screenshots,
   logs,
@@ -112,8 +127,7 @@ export function TasksView({
   selectedAnswers,
   otherInputs,
   showOtherInput,
-  chatInput,
-  setChatInput,
+  chatDraft,
   chatAttachments,
   setChatAttachments,
   debugMode,
@@ -184,14 +198,9 @@ export function TasksView({
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const userNearBottom = useRef(true)
 
-  // Auto-grow chat textarea up to ~8 lines, then scroll
+  // The composer's textarea (TaskComposer auto-grows it); "request
+  // changes" on a plan focuses it.
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
-  useEffect(() => {
-    const el = chatInputRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 192)}px`
-  }, [chatInput, selectedTask?.id])
 
   const { chatFileInputRef, chatUploading, uploadChatFiles, removeAttachment } =
     useChatUploads(selectedTask?.id ?? null, setChatAttachments)
@@ -202,8 +211,6 @@ export function TasksView({
   // Unified send bar state
   const canSend = taskCfg?.canSendMessage ?? false
   const isActive = taskCfg?.isActive ?? false
-  // A message may be text-only, attachment-only, or both.
-  const hasText = chatInput.trim().length > 0 || chatAttachments.length > 0
 
   // The agent is parked awaiting the user (live confirm card, or a
   // pending question) → a follow-up REDIRECTS it rather than queueing.
@@ -222,13 +229,19 @@ export function TasksView({
     return t('tasks.chatPlaceholder')
   }
 
-  const handleConfirmPlan = async () => {
+  // Header / plan actions: pending while in flight, error when they fail.
+  const taskAction = useTaskAction(selectedTask?.id ?? null)
+  const busy = (key: string) => taskAction.pending === key
+  const busyCls = (key: string) => (busy(key) ? ' opacity-60 cursor-wait animate-pulse' : '')
+
+  const handleConfirmPlan = () => {
     if (!selectedTask) return
-    try {
-      await api.post(`/api/tasks/${selectedTask.id}/execute-plan`)
-      setSelectedTask(prev => prev ? { ...prev, status: 'running' } : prev)
-      setTasks(prev => prev.map(t2 => t2.id === selectedTask.id ? { ...t2, status: 'running' } : t2))
-    } catch { /* ignore */ }
+    const id = selectedTask.id
+    void taskAction.run('confirmPlan', async () => {
+      await api.post(`/api/tasks/${id}/execute-plan`)
+      setSelectedTask(prev => prev && prev.id === id ? { ...prev, status: 'running' } : prev)
+      setTasks(prev => prev.map(t2 => t2.id === id ? { ...t2, status: 'running' } : t2))
+    })
   }
 
   const getScheduleBadge = (s: Schedule) => formatScheduleBadge(s, t)
@@ -238,9 +251,17 @@ export function TasksView({
   // Mobile drill-down: the list and detail are separate full-screen
   // steps. Show detail (task or schedule) full-width and hide the list
   // once something is selected; otherwise the list fills the screen.
-  const mobileShowDetail = isMobile && (!!selectedTask || !!selectedSchedule)
+  // A task being opened (or that failed to open) takes the detail pane
+  // over whatever was open before, so the click visibly did something.
+  // A failure while its transcript loads replaces the half-loaded task.
+  const openingTask = taskLoad && (selectedTask?.id !== taskLoad.taskId || taskLoad.error != null) ? taskLoad : null
+  // The header is up; its transcript is still on the way.
+  const loadingTranscript = !!taskLoad && !openingTask
+  const mobileShowDetail = isMobile && (!!selectedTask || !!selectedSchedule || !!openingTask)
   const onMobileBack = () => {
-    if (selectedTask) setSelectedTask(null)
+    // The opening / failed-to-open pane is route state: leave the route.
+    if (openingTask) onLeaveTaskLoad?.()
+    else if (selectedTask) setSelectedTask(null)
     else setSelectedSchedule(null)
   }
 
@@ -377,7 +398,9 @@ export function TasksView({
             {t('common.back', 'Back')}
           </button>
         )}
-        {selectedSchedule && !selectedTask ? (
+        {openingTask ? (
+          <TaskOpenState error={openingTask.error} onRetry={onRetryTaskLoad} />
+        ) : selectedSchedule && !selectedTask ? (
           <ScheduleDetailView
             schedule={selectedSchedule}
             scheduleTasks={scheduleTasks}
@@ -482,7 +505,11 @@ export function TasksView({
                     </span>
                   )}
                   {getUI(selectedTask.status).canStopHeader && (
-                    <button onClick={stopAgent} className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700">
+                    <button
+                      onClick={() => taskAction.run('stop', stopAgent)}
+                      disabled={busy('stop')} aria-busy={busy('stop')}
+                      className={`px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700${busyCls('stop')}`}
+                    >
                       {t('tasks.stopTask')}
                     </button>
                   )}
@@ -490,8 +517,9 @@ export function TasksView({
                     <>
                       {/* Continue: non-destructive resume — keeps context. */}
                       <button
-                        onClick={() => continueTask(selectedTask.id)}
-                        className="px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
+                        onClick={() => taskAction.run('continue', () => continueTask(selectedTask.id))}
+                        disabled={busy('continue')} aria-busy={busy('continue')}
+                        className={`px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100${busyCls('continue')}`}
                       >
                         {t('tasks.continue')}
                       </button>
@@ -499,10 +527,11 @@ export function TasksView({
                       <button
                         onClick={() => {
                           if (confirm(t('tasks.retryConfirm'))) {
-                            retryTask(selectedTask.id)
+                            void taskAction.run('retry', () => retryTask(selectedTask.id))
                           }
                         }}
-                        className="px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
+                        disabled={busy('retry')} aria-busy={busy('retry')}
+                        className={`px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100${busyCls('retry')}`}
                       >
                         {selectedTask.status === 'completed'
                           ? t('tasks.rerun')
@@ -517,6 +546,11 @@ export function TasksView({
                     >
                       {t('common.delete')}
                     </button>
+                  )}
+                  {taskAction.error && (
+                    <span role="alert" data-testid="task-action-error" className="text-xs text-red-600 self-center">
+                      {taskAction.error}
+                    </span>
                   )}
                 </div>
               </div>
@@ -534,6 +568,7 @@ export function TasksView({
               className="flex-1 overflow-y-auto px-4 sm:px-6 py-6"
             >
               <div className="w-full">
+              {loadingTranscript && <TranscriptLoading />}
               {debugMode ? (
                 /* Debug mode: raw messages */
                 <div className="mb-4">
@@ -662,18 +697,19 @@ export function TasksView({
                   const description = planMode
                     ? t('tasks.modePlanDesc')
                     : t('tasks.modeAutoDesc')
-                  const setMode = async (newVal: boolean) => {
+                  const setMode = (newVal: boolean) => {
                     if (newVal === planMode) return
-                    try {
-                      await api.patch(`/api/tasks/${selectedTask.id}/review-plan`, { plan_mode: newVal })
-                      setSelectedTask(prev => prev ? { ...prev, plan_mode: newVal } : prev)
-                      setTasks(prev => prev.map(t2 => t2.id === selectedTask.id ? { ...t2, plan_mode: newVal } : t2))
+                    const id = selectedTask.id
+                    void taskAction.run('mode', async () => {
+                      await api.patch(`/api/tasks/${id}/review-plan`, { plan_mode: newVal })
+                      setSelectedTask(prev => prev && prev.id === id ? { ...prev, plan_mode: newVal } : prev)
+                      setTasks(prev => prev.map(t2 => t2.id === id ? { ...t2, plan_mode: newVal } : t2))
                       setCurrentUser(prev => prev ? { ...prev, plan_mode_default: newVal } : prev)
-                    } catch { /* ignore */ }
+                    })
                   }
                   return selectedTask.store_id ? (
                     <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <div className="inline-flex items-center rounded-md border border-gray-200 bg-gray-50 p-0.5">
+                      <div aria-busy={busy('mode')} className={`inline-flex items-center rounded-md border border-gray-200 bg-gray-50 p-0.5${busyCls('mode')}`}>
                         <button
                           type="button"
                           aria-pressed={!planMode}
@@ -726,11 +762,13 @@ export function TasksView({
                 </div>
               )}
 
-              <ChatComposer
+              <TaskComposer
+                key={selectedTask.id}
+                draft={chatDraft} taskId={selectedTask.id}
                 fileInputRef={chatFileInputRef} uploading={chatUploading}
                 uploadFiles={uploadChatFiles} attachments={chatAttachments}
+                setAttachments={setChatAttachments}
                 onRemoveAttachment={removeAttachment} inputRef={chatInputRef}
-                input={chatInput} setInput={setChatInput} hasContent={hasText}
                 canSend={canSend} isActive={isActive} awaitingUser={awaitingUser}
                 onSend={sendChatMessage} placeholder={getPlaceholder()}
               />

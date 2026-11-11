@@ -91,6 +91,7 @@ from app.sync.state import clear_restart_flags
 from app.telemetry_events import TelemetryEvent
 from app.uploads import UploadBodyLimitMiddleware
 from app.version import get_version
+from app.workspace.claude_memory_cleanup import purge_on_boot
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
 from app.workspace.skills_sync import skills_sync
@@ -185,6 +186,9 @@ async def lifespan(app: FastAPI):
     # the background below; agent runs await it via their own
     # ensure_init() before launching, so nothing runs without it.
     await workspace_manager.ensure_init(create_venv=False)
+    # Agents run with Claude Code auto-memory off; drop what earlier
+    # releases left so nothing can read it back (claude_memory_cleanup).
+    await purge_on_boot()
     # Drop half-built sync trees BEFORE anything copies the skills tree
     # (skills_sync._staging_root): a sync interrupted by a crash must not
     # leave a staging dir behind for the next task workspace to pick up.

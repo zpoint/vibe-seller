@@ -8,21 +8,12 @@ from pathlib import Path
 
 
 def write_catalog_stub(store_dir: Path, slug: str, name: str) -> Path:
-    """Write a minimal ``CATALOG.md`` so the catalog-first hook can
-    succeed on turn 1 of a brand-new store.
+    """Write a minimal ``CATALOG.md`` so turn 1 of a brand-new store has
+    a catalog to read.
 
     Idempotent: skips if a real catalog already exists (the L3
     catalog-sync scheduled job overwrites this stub later with
     actual content). Returns the catalog path.
-
-    See ``app/ai/bash_safety.py::should_mark_catalog_read`` for
-    the read-side contract: the hook flips ``_catalog_read`` on
-    any ``Read`` of a catalog-shaped path. With this stub the
-    agent's first ``Read CATALOG.md`` succeeds immediately, which
-    avoids a class of failures where the post-Read parallel
-    ``Bash ls`` calls get hook-denied and the resulting assistant
-    turn (thinking block + denied tool_use) malforms the next
-    request for strict thinking-mode providers (DeepSeek).
     """
     catalog_md = store_dir / 'CATALOG.md'
     if catalog_md.exists():

@@ -21,7 +21,7 @@ For the user-facing landing page, see [`../README.md`](../README.md).
 
 - **Store Management**: Configure e-commerce stores with pluggable browser backends (Chrome, Ziniao, custom CDP)
 - **Task Execution**: Create tasks that auto-plan and auto-execute via AI agent — no manual buttons needed
-- **AI Agent**: Pluggable AI agent backend (Claude Code CLI for MVP) with workspace memory and knowledge
+- **AI Agent**: Pluggable AI agent backend (Claude Code CLI for MVP); agents keep what they learn in the shared `knowledge/` + `stores/` trees (Claude Code auto-memory is off)
 - **Knowledge System**: Two-layer knowledge — project-level (synced from repo) + local (agent-generated)
 - **Task Integration**: TickTick/Dida365 via OAuth — AI agent gets MCP tools for task management
 - **Skills System**: Reusable agent procedures with per-skill venvs, synced from repo with user config preservation
@@ -79,7 +79,7 @@ Other server commands:
 1. Click **+ New Store** in the left sidebar, name it "My Store"
 2. Type `Navigate to google.com` in the chat input at the bottom
 3. Press Enter or click Send
-4. Watch the browser launch, navigate, and see the screenshot appear in the step timeline
+4. Watch the browser launch and navigate — progress and screenshots stream into the task conversation
 
 ## Development
 
@@ -172,7 +172,7 @@ See `CLAUDE.md` for Claude Code conventions and workflows. See `DESIGN.md` for t
 | GET | `/api/ziniao-accounts/:id/browsers` | List browser profiles |
 | GET | `/api/ziniao/launcher` | Download ziniao_webdriver.bat |
 | GET | `/api/tasks?store_id=&include_archived=` | List tasks (filter by store, archived) |
-| POST | `/api/tasks` | Create task (auto plan+execute) |
+| POST | `/api/tasks` | Create task (auto-executes on creation; plan mode opt-in) |
 | GET | `/api/tasks/:id` | Get task detail |
 | POST | `/api/tasks/:id/retry` | Retry a failed task |
 | POST | `/api/tasks/:id/agent/stop` | Stop running agent |
@@ -259,7 +259,7 @@ curl -N http://localhost:7777/api/sse
 1. Start server: `./start.sh`
 2. Open http://localhost:7777
 3. Create a store, send a task like "Navigate to github.com"
-4. Verify: Chromium launches, navigates, screenshots appear in the step timeline with execution logs
+4. Verify: Chromium launches, navigates, and the conversation streams the result and screenshots
 
 ## Technology Stack
 
@@ -286,10 +286,10 @@ curl -N http://localhost:7777/api/sse
 - Ziniao guard: account conflict detection (one Ziniao account per machine, multiple profiles OK)
 - Per-store task concurrency: tasks run concurrently by default; only queued when same platform + different country (Ziniao country-switch constraint)
 - AI agent abstraction layer (`AIAgentBackend` ABC with `ClaudeCodeBackend`)
-- Auto plan+execute pipeline: tasks auto-design and auto-execute on creation
+- Task pipeline: tasks auto-execute on creation (auto mode by default; opt-in plan mode for reviewable plans)
 - AskUserQuestion UX: multi-question batching, "Other" free-text option, chat reply to agent
 - Browser enforcement: agents use per-store browser-use wrapper scripts in `~/.vibe-seller/bin/{slug}/`
-- Two-layer knowledge system (project repo sync + local agent-generated)
+- Three-tier knowledge system (project repo sync + cross-store + per-store, agent-written)
 - Task queue scheduler with concurrent execution and platform/country awareness
 - Scheduled tasks (daily/weekly/monthly) with APScheduler MemoryJobStore
 - Schedule CRUD API with pause/resume/trigger, sub-tab UI (One-time / Scheduled)
@@ -315,5 +315,3 @@ curl -N http://localhost:7777/api/sse
 - Own agent runtime (replace CLI wrapper with direct LLM API calls)
 - Custom CDP endpoint backend
 - Credential vault (partially implemented — email passwords encrypted via Fernet)
-- Task templates (create listing, shipment, etc.)
-- Composite tasks (parent decomposes into child tasks)

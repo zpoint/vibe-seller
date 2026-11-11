@@ -66,15 +66,15 @@ class Options(enum.Enum):
     TURN_LINGER_QUIET_S = ('VIBE_TURN_LINGER_QUIET_S', '5')
     TURN_HARD_IDLE_S = ('VIBE_TURN_HARD_IDLE_S', '600')
 
-    # Wall clock a review gate may spend re-driving the agent before it
-    # fails open with the UNVERIFIED banner. Counted from the FIRST
+    # Wall clock the turn hold may spend re-driving the agent before it
+    # fails open with the open-work banner. Counted from the FIRST
     # re-drive, alongside (not instead of) the attempt cap in
     # app/ai/claude_backend_utils.py. Exists because five attempts at
     # 100-150s/turn outlast any budget a caller allows a run, so the
-    # gate could consume the whole clock and have the run killed while
-    # holding a finished deliverable. 0 = attempts only (old behavior).
-    # See app/ai/review_redrive.py.
-    REVIEW_REDRIVE_BUDGET_S = ('VIBE_REVIEW_REDRIVE_BUDGET_S', '300')
+    # hold could consume the whole clock and have the run killed while
+    # holding a finished deliverable. 0 = attempts only.
+    # See app/ai/turn_hold_budget.py.
+    TURN_HOLD_BUDGET_S = ('VIBE_TURN_HOLD_BUDGET_S', '300')
 
     # Browser lifecycle: terminate a store's browser (main/aux/web)
     # when no active task is bound to it AND its CDP mux has been
@@ -146,13 +146,22 @@ class Options(enum.Enum):
     # (default: https://models.dev/api.json). See app/ai/model_pricing.py.
     MODEL_PRICING_URL = ('MODEL_PRICING_URL', '')
 
-    # Central sync scheduler (app/sync/scheduler.py) knobs. All three
-    # exist for tests: DISABLED registers no job at all (so nothing
-    # under tests/ ever reaches GitHub), CADENCE_OVERRIDE compresses
-    # named jobs to seconds ('skills=20,presets=30'), and JITTER=0
-    # zeroes the deterministic per-install stagger so a compressed
-    # cadence fires on the nose.
-    SYNC_DISABLED = ('VIBE_SYNC_DISABLED', '')
+    # Central sync scheduler (app/sync/scheduler.py) knobs.
+    # GITHUB_MAIN_SYNC=off stops the scheduled pulls from the project's
+    # public GitHub main (skills, knowledge, provider presets, vision
+    # catalog) — for a dev checkout, a branch or CI, whose tree is ahead
+    # of main. EXTERNAL_SYNC=off stops scheduled calls to any other
+    # outside host (models.dev, kie.ai, the ads service) — for CI tests.
+    # Mail polling and the daemon reaper have no switch.
+    # CADENCE_OVERRIDE compresses named jobs to seconds
+    # ('skills=20,presets=30') and JITTER=0 zeroes the per-install
+    # stagger so a compressed cadence fires on the nose (tests).
+    GITHUB_MAIN_SYNC = ('VIBE_GITHUB_MAIN_SYNC', 'on')
+    EXTERNAL_SYNC = ('VIBE_EXTERNAL_SYNC', 'on')
+    # Retired: the single kill switch the two above replaced. Nothing
+    # reads it except a boot warning naming the replacements, so a
+    # setting left over from an older install is not silently ignored.
+    SYNC_DISABLED_RETIRED = ('VIBE_SYNC_DISABLED', '')
     SYNC_CADENCE_OVERRIDE = ('VIBE_SYNC_CADENCE_OVERRIDE', '')
     SYNC_JITTER = ('VIBE_SYNC_JITTER', '')
     # How long a task launch waits for an in-flight sync before

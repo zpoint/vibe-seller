@@ -1,420 +1,202 @@
-# Ad-audit QUICKREF — the whole procedure on one page
+# Ad audit — the procedure
 
-This is the lean end-to-end. Follow it top to bottom. Load a heavy
-reference **only when a step says to** — do NOT pre-read every file
-(that buries the model and causes shortcutting). The contract for the
-finished report is [`output-spec.md`](output-spec.md); read that first,
-then run this.
+Shared by `amazon-ads` and `noon-ads`. File names, paths and columns
+are defined once in [`data-contract.md`](data-contract.md); this page
+says how to produce them. Load other references only when a step points
+to them.
 
-## Loop shape (important)
+1. [Declare, then read the menu](#1-declare-then-read-the-menu)
+2. [Pin the window](#2-pin-the-window)
+3. [Enumerate every campaign → CAMPAIGNS.tsv](#3-enumerate-every-campaign--campaignstsv)
+4. [Drill each live campaign → two TSVs](#4-drill-each-live-campaign--two-tsvs)
+5. [Decide → CHANGES.tsv](#5-decide--changestsv)
+6. [Write the report and submit](#6-write-the-report-and-submit)
+7. [PDF copy](#7-pdf-copy)
 
-You build the report **across several rounds**, not in one pass: do a
-batch, call `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")`, and the
-server's completeness reviewer replies with a short **"what's still
-missing"** list. Fix the top gaps, write to the file, call
-set_task_result again. Repeat — the report converges.
+## 1. Declare, then read the menu
 
-**But the task is NOT done until EVERY active campaign is drilled** — the
-`进度` line of every `## <Platform> <Country>` section must read
-`drilled <A>/<A>` (D == A). The server **blocks finishing while any
-active campaign is still un-drilled** — this includes simply ending your
-turn, not just `set_task_result`. So keep drilling and re-submitting
-until D == A for every combo. **Do NOT stop early, and never defer
-campaigns to a "next round" / "next audit"** — there is no next round;
-finish them now. "Missing this round" is fine only as an *intermediate*
-state on the way to a full drill, never as the final report.
+Call `vibe_seller_declare_ad_task` first (`amazon-ads` SKILL §0 explains
+kind and scope). The server then writes `./AUDIT_TARGETS.json`:
+`{"combos": [{"platform": "amazon", "country": "SA"}, …]}`, every
+marketplace the store is configured for. Your declaration picks what you
+owe from that menu: the combos you declared, or all of them if you
+declared none. Stay inside the declaration even when the menu is longer —
+auditing marketplaces the user didn't ask about is work nobody wanted. If
+you think the scope is wrong, say so in the result.
 
-## Step 0 — scope + scaffold with append-markers
+An empty menu (`"combos": []`) means the store has no marketplace
+configured. Audit the one marketplace the console shows (its switcher,
+else its currency) under this skill's platform. Leave store settings and
+`metadata.json` alone.
 
-**Declare first, then read `./AUDIT_TARGETS.json`.** The server writes
-that file at the task root: `{"combos": [{"platform": "amazon",
-"country": "SA"}, …]}`, every marketplace the store is configured for in
-Settings. It is the MENU — not your judgement, and **not a market list
-in the task description** (prose goes stale when a store gains a
-marketplace; this file is regenerated from store config every run).
+## 2. Pin the window
 
-**Your declaration fixes the combo list**, not the menu. Audit every
-combo you declared, each with its own `AUDIT_SCOPE.json` entry (Step 1)
-and its own `## <Platform> <Country>` section. If you declared no combos
-at all, you owe every combo in the file. Never audit a marketplace
-outside your declaration because the file lists it.
-**An empty menu (`"combos": []`) is a complete answer**, not a file still
-being written: the store has no marketplace configured in Settings. Use
-this skill's platform and the country the console itself shows (its
-marketplace switcher, else its currency), declare that combo in
-`AUDIT_SCOPE.json`, and carry on. Never edit the store's
-`metadata.json` or settings to build a menu. 30-day window. Create
-`./AD_AUDIT_<YYYY-MM-DD>.md` with the header.
+Default: last 30 days, unless the user named another. Write down the
+exact start and end dates and use them on every page and export; they go
+into `window_start` / `window_end`.
 
-**Scaffold every section up front, each with a unique append-marker.**
-One section per DECLARED combo — including the ones you expect to be
-empty. For each combo write its `## <Platform> <Country>`
-heading, its `进度` line, and ONE marker line you will append against:
+Check an export's window before trusting its metrics. Amazon's bulk file
+is named `bulk-<entity>-<START>-<END>-<epoch>.xlsx`, and Campaign
+Manager's date picker defaults to two days. On a two-day window sales
+haven't attributed yet, so spend with zero sales looks like ACOS 0 —
+that is "no data yet", not "great". Generate a fresh export when the file
+doesn't span your window.
 
-```
-## noon EG
-**进度**: drilled 0/46 active (70 total, 5 pages)
-<!-- INSERT: noon EG -->
-```
+## 3. Enumerate every campaign → CAMPAIGNS.tsv
 
-The marker is how you append reliably (see Step 2). Do this for all
-combos before drilling so every section has a stable, unique anchor.
+Get the full list for each owed marketplace before drilling anything.
 
-## Step 1 — enumerate EVERY campaign (per platform, country)
+**Amazon.** Open Campaign Manager through the in-page menu. Clear the
+campaign-search box with a real click on its ✕ and clear the status
+filter (`mechanics-reading.md` §1), then note the grid's `aria-rowcount` — the
+account's true total. Enumerate from the Bulk Operations export, not the
+grid or its inline Export button (`mechanics-reading.md` §2). Reuse the newest
+existing `bulk-*.xlsx` if its window covers yours; otherwise request a
+fresh one with the search-term boxes ticked, so the same workbook carries
+the `SP Search Term Report` / `SB Search Term Report` sheets you need in
+step 4. `python3 .claude/skills/amazon-ads/scripts/ads_bulk.py scope
+<export> --platform amazon --country <CC>` prints the enabled campaign
+ids and their count — a quick cross-check that every live campaign has a
+row. Per-country accounts need one export per country.
 
-Completeness is the #1 thing the reviewer checks. Get the FULL active
-set before drilling.
+**noon.** The Campaigns tab is a lazy-loaded inner-scroll table. Read the
+`Live N` / `All N` chip, scroll the list's own container until the
+`/campaign/details/` link count stops growing and equals the chip, and
+enumerate live — a leftover export under-counts. Selectors and snippet:
+the `noon-ads` skill (campaign enumeration).
 
-- **Amazon**: open Campaign Manager via the in-page menu (not a typed
-  URL). **Clear the campaign-search box with a real `click_at_xy` on its
-  ✕ (`aria-label="Clear search terms"`) — NOT by setting the input value
-  and NOT via the list-level "clear filters" control** (a persisted term
-  hides most campaigns; the native-setter clear is a false-CLEARED trap —
-  see `mechanics.md` §2a). **Verify by the grid's `aria-rowcount`**
-  (language-neutral), never by the input going blank: a real clear makes
-  it jump to the whole-account count, and that number is your
-  completeness target. Also clear the default status filter so
-  paused/archived campaigns count too. Then set the date
-  to 30 days. The grid virtualizes — do NOT count DOM rows, and do NOT
-  use the grid's **own inline 导出/Export button** (its "当前表格数据 /
-  current table data → 下载" option dumps only the current ~50-row page —
-  a page-scoped trap, NOT the account; verified live it returned 50/146
-  then the grid's Next-Page refused to advance). Use **Bulk
-  Operations**. On that page, **reuse
-  the newest existing export first** — walk shadow roots for the
-  `<a download …/bulk-operations/download/…xlsx>` links and, if the
-  newest one's filename date range covers your window, just click it
-  (no modal, no 5–15 min wait). Only generate a fresh export
-  (`Download campaigns` — a shadow-DOM button, not a plain `<button>`)
-  when no recent file covers the window. Then parse the XLSX for the
-  full list. Selectors + the reuse/shadow-DOM details: `mechanics.md` §2d.
-  - **⚠️ VERIFY the export's window before trusting its metrics.** The
-    filename is `bulk-<entity>-<START>-<END>-<epoch>.xlsx`; `<START>-<END>`
-    is the metric window. **A 2-day export (e.g. `…-20260701-20260702-…`)
-    is NOT a 30-day analysis** — on a short window sales haven't attributed
-    yet, so `spend > 0, sales = 0, ACOS = 0`, which reads as "great" but is
-    just "no data yet". Confirm `<START>-<END>` spans your requested window
-    (≥ ~28 days for "30 天"); if it doesn't, generate a fresh 30-day export
-    (Campaign Manager date picker defaults to **2 days** — set it to 30
-    first). Never label the report "最近30天" off a 2-day file.
-- **noon**: open the Ad Manager **Campaigns** tab
-  (`…/home?…&tab=campaigns`). ⚠️ **The old Ant-Design paginator is GONE —
-  do NOT click `li.ant-pagination-item-N` (it no longer exists).** The
-  list is now a **lazy-loaded inner-scroll table**: only ~20 rows render
-  on first paint and `window.scroll` does nothing. Enumerate live, and
-  do **NOT** enumerate from a pre-existing/downloaded export file — a
-  stale export silently under-counts (the live failure: an agent drilled
-  a leftover 20-campaign export and reported "20/20" while the account
-  had 45 Live). Steps: (1) read the **`Live N` / `All N` status chip** as
-  the completeness target; (2) scroll the **list's own container** (not
-  the window) to the bottom repeatedly until the unique
-  `a[href*="/campaign/details/"]` count stops growing AND **equals that
-  chip count**; (3) only then is the manifest complete — that chip count
-  is `<A>`. If your id count is less than the chip, you have not scrolled
-  the full list. Exact selectors + scroll snippet: `../../noon-ads/SKILL.md`
-  "Enumerate EVERY campaign".
+**Writing `CAMPAIGNS.tsv`** (task dir). One row per campaign, inactive
+ones included, with the campaign's real name — the console shows one on
+every row and the export carries `Campaign Name`; a reader can't act on
+a bare id. `state` is the console's own state. `drill_status`:
 
-Then write the **进度 line** for that section (the reviewer reads it):
-`**进度**: drilled <D>/<A> active (<T> total, <P> pages)` — `<A>` is the
-true active count you just enumerated.
+- `drilled` — both per-campaign files written (step 4);
+- `inactive` — not live in the window, not drilled;
+- `blocked` — live but you could not read it; `note` says why.
 
-**You MUST persist the authoritative active set to `./AUDIT_SCOPE.json`**
-(task root) as you enumerate each combo. This is **required**, not
-optional: any section that writes a `进度` line without a matching combo
-entry is rejected with a `[基线]` gap, because a `D/A` you wrote yourself
-proves nothing. It is the ground truth the server checks coverage against
-— every listed id must get its own `### <id> …` drill block. **One entry
-per `AUDIT_TARGETS.json` combo, no exceptions** — a declared combo with
-no scope entry is a `[基线]` gap that blocks submission. Append one
-entry per combo:
+Every live campaign ends as `drilled` or `blocked`. A paused campaign
+that spent inside the window may be drilled too — its spend is part of
+the period. A marketplace with no campaigns gets one row with an empty
+`campaign_id` and a `note`. Write the file as you enumerate and update
+`drill_status` as you go, so progress survives context compaction.
 
-```json
-{"combos": [
-  {"platform": "amazon", "country": "SA",
-   "total_active": 2,
-   "total_active_source": "bulk:bulk-<acct>-20260628-20260728-<n>.xlsx",
-   "active_ids": ["600000000001", "600000000002"]},
-  {"platform": "noon", "country": "AE",
-   "total_active": 1,
-   "total_active_source": "chip:Live 1",
-   "active_ids": ["C_DEMO0001"]}
-]}
-```
+Auditing a subset on purpose (the declaration names campaigns) is fine:
+list those campaigns.
 
-- `active_ids` = every **active** campaign id you enumerated.
-  - **Amazon**: the `state=enabled` Campaign ids from the bulk export —
-    `ads_bulk.py scope <export>.xlsx --platform amazon --country <c>`
-    prints a ready combo object (ids **and** `total_active`).
-  - **noon**: the ids from every `/campaign/details/<id>` link after
-    scrolling the campaign list's inner container to the bottom — see
-    `noon-ads` SKILL § 2. A first-paint read gets ~20 rows and is wrong.
-- `total_active` = the active count **observed independently of the id
-  list**: Amazon's enabled-row count from the export, noon's `Live N`
-  status-chip number. The server requires
-  `total_active == len(active_ids)` and rejects the scope when they
-  disagree — that mismatch is exactly how a half-scrolled noon list gets
-  caught (ids 20, chip 45 → rejected as stale, not accepted as `20/20`).
-- **`total_active_source` = where that number was read — REQUIRED
-  whenever `total_active` is present** (missing it is a `[基线]` gap).
-  `total_active == len(active_ids)` only proves the two numbers agree,
-  not that either was *observed*, and it is trivially true when both come
-  from the same parse. Observed live: a run declared a 12-campaign
-  marketplace as `4/4` because its script silently dropped TSVs it
-  couldn't read, and every check passed. Two accepted forms:
-  - **`"bulk:<exact export filename>.xlsx"` — Amazon.** The server finds
-    that file in the downloads dir, opens it, counts `state=enabled`
-    campaign rows itself, and checks you did not declare FEWER than that.
-    Declaring MORE is fine — a campaign that spent inside the window and
-    was paused before the export still deserves a drill. A file that is
-    missing or unreadable counts as unverified, never as a failure, so a
-    lost download can't block a sound report. Copy the filename exactly
-    as downloaded.
-  - **`"chip:Live N"` — noon**, `N` = the reading on the campaign-list
-    status chip. Not verifiable from disk, but stating the reading turns
-    an invented total from an omission into a checkable claim, and gives
-    the reviewer something to compare against the live page.
-- `<A>` in the 进度 line must equal `len(active_ids)` for that combo.
+## 4. Drill each live campaign → two TSVs
 
-A declared combo that genuinely has NO live campaigns is still written
-down: an entry with `"active_ids": []` and `"total_active": 0`, plus its
-`## <Platform> <Country>` section stating that. 可以为空，但不能不写。
+A drill is two layers on the same window: every target (keyword, product
+target, auto-target group) and the full search-term set. Both files go
+to `store-data/<slug>/ads/<platform>/<country>/` via
+`vibe_seller_write_workspace_file`. Write them right after drilling each
+campaign, before the next — a long audit gets compacted, and only what is
+on disk survives.
 
-Auditing only part of an account on purpose (a one-off "investigate this
-one ad" task) is still fine — declare it: list just those ids and add
-`"exhaustive": false`, which skips the `total_active` cross-check (and
-with it the `total_active_source` requirement). What
-you may **not** do is omit the file, drop a combo YOU DECLARED, or write
-an empty `active_ids` for a combo that DOES have live campaigns; all
-three are rejected. (A combo that is in `AUDIT_TARGETS.json` but not in
-your declaration is simply out of scope — not a gap.) A narrow scope is a claim the server
-can check; no scope is not.
+How to fill the columns (paused targets included, `ad_group`,
+`source_target`, zero-sales rows, missing clicks): [`output-spec.md`](output-spec.md)
+§ Filling the TSVs. What to look at on each tab:
+[`tuning-workflow.md`](tuning-workflow.md).
 
-## Step 2 — drill EACH active campaign, build the report with `Edit`
+Sources, in order of preference:
 
-You process **one active campaign at a time**, and for each one you do
-**two tool calls only: `Read` then `Edit`** (no scripts — see the box).
+- **Amazon:** the bulk export from step 3. Targets come from the keyword
+  / product-targeting rows, search terms from the `SP/SB Search Term
+  Report` sheets, both filtered by `Campaign ID` — one file for both
+  layers means the windows match by construction. Fallback per campaign:
+  the Search Terms page's Export CSV with the date range set first (the
+  grid shows about 13 rows). Sponsored Display has no search-term
+  report; write the header-only file and say so in the report.
+- **noon:** the Targets tab (Manual) and the Customer Queries tab's
+  Export (the on-page table shows only the top 15). Details in
+  `noon-ads`.
 
-**The drill is TWO layers per campaign — targets AND search terms —
-both on the SAME 30-day window.** A campaign is drilled only when BOTH
-TSVs exist: `stores/<slug>/ads/<platform>/<country>/<id>.tsv` (targets)
-and `<id>.searchterms.tsv` (customer queries). For each campaign **in
-the active set you enumerated in Step 1**:
-- **Both TSVs exist** (from a prior round) → `Read` them, then `Edit`
-  the block into the report. No re-drill, no browser.
-- **Missing either** → capture it:
-  1. *Targeting layer*: campaign detail → per-keyword / per-target
-     table (noon Manual: Targets tab). **Per-target ROWS or it isn't a
-     drill** — a table whose only row restates the campaign total
-     (合计 / 总计 / 汇总 / 整体活动 / 定位层汇总 / overall / total) is
-     rejected as `[定向层]`; 合计 is a footer, never the only row. SP
-     Auto: one row per auto-target group; noon Auto (no Targets tab):
-     one row per Customer-Query-derived target. 页面确实无数据时在块内
-     写「无数据」。
-     **Include PAUSED targets that spent in the window — never filter by
-     `state=enabled`.** Spend made before a target was paused still counts
-     in the campaign total; dropping those rows under-counts the targeting
-     layer, the search-term layer then reads higher than it (impossible),
-     and you go chasing a platform defect that does not exist. Self-check:
-     the targeting 合计 == that campaign's row spend; if not, rows are
-     missing.
-     **Carry the group level**: add a `广告组` column — Amazon from the
-     export's `Ad Group Name` (one campaign can have several; 25 groups
-     across 23 campaigns in one live account), noon from `Sku` (noon has
-     no ad group). Keep same-group rows together.
-  **Both TSVs use the FIXED header in `output-spec.md` § TSVs** — tabs not
-  pipes, `currency` as its own column (never `spend_SAR` in the header),
-  `ad_group` always filled. 22 different targeting headers appeared across
-  one store before this was pinned, and the agent's own summary script
-  mis-summed because of it.
+**Check the layers add up before moving on.** Search terms are part of
+the targeting spend. The server checks, on both platforms:
 
-  2. *Search-term layer* (REQUIRED — the actual customer queries).
-     **`建议` / `Recommendation` must name the exact action AND its match
-     type** (spelling follows the report language, vocabulary table in
-     `output-spec.md` → *Report language*; English: `Add as keyword (exact|
-     phrase, bid X)` / `Negative keyword (exact|phrase)` / `Keep`) —
-     `添加为关键词（精准|词组，建议出价 X）` / `否定关键词（精准|词组）` /
-     `维持`, never a bare `否定`: the console turns your recommendation into
-     the pre-selected button, and 精准-vs-词组 differs enough in blast
-     radius that only the audit can choose — when adding as well as when
-     negating. Leave it unstated and the console falls back to 精准 and
-     labels the row `报告未指定`. (`拓词` / `否定精确` / `否定词组` are still
-     read, but prefer the explicit spelling.)
-     **Exception — category / product placements** (`Subcat`, `Category`,
-     `Product`, an ASIN): match type belongs to keywords, so those rows
-     have no phrase-vs-exact variant and cannot be promoted to a keyword.
-     Use `否定投放` / `维持` (English `Negative target` / `Keep`) only, and never invent a match type to fit
-     the keyword rule. Amazon rows
-     carry `Ad Group ID` + `Keyword ID` + `Keyword Text`, so fill
-     `广告组` / `来源关键词` from them; noon's `(Product) Queries` has only
-     `Campaign Name` / `Sku` / `Query`, so put the SKU in `广告组`, write
-     `—` for `来源关键词`, and never guess a source target.
-     **Amazon — prefer the BULK EXPORT you already downloaded in Step 1.**
-     Tick the search-term boxes when requesting it and the workbook
-     carries `SP Search Term Report` and `SB Search Term Report` sheets
-     covering every campaign for the same window as the targeting rows
-     (observed live: 973 SP + 331 SB rows in one file). One download
-     serves the whole account, and because BOTH layers come from the same
-     file the 对账 line reconciles by construction — no window mismatch
-     is even possible. Read the sheet with openpyxl, filtering
-     `Campaign ID`.
-     *Fallback, per campaign:* Search Terms page → Export CSV button,
-     then parse the downloaded CSV. The on-screen grid is virtualized
-     (~13 rows visible of often 200+), so never scrape it — Export is
-     the only full-coverage method **on that page**. Set the date range
-     BEFORE exporting, and match it to the targeting window exactly;
-     this is where 对账 mismatches come from. **noon: Customer Queries
-     tab** (Manual and Auto).
-  3. *Reconcile*: write the machine-checkable line into the block:
-     `搜索词对账: 定向花费 <币> X / 点击 A = 搜索词花费 <币> Y / 点击 B (✓)`
-     **Two checks on the spend pair, and they are NOT symmetric** —
-     search-term spend can only ever be a PART of targeting spend
-     (每个搜索词的花费已经计在定向层里了):
-     - `Y` **below the floor** (Amazon 85% of `X`; noon 40%, its Customer
-       Queries page attributes only part of campaign spend) → `[对账]`,
-       an incomplete capture: the two pages are on different date windows
-       (the 30d-vs-7d bug) or you missed rows — re-pin both and recapture.
-       Stallable like any other gap.
-     - `Y` **above `X × 1.02`** → `[对账·不可能]`, a CONTRADICTION — 实测
-       同窗口下这个比值上限就是 1.00, so it isn't imprecision, it's
-       arithmetically impossible; almost always one campaign's targeting
-       rows joined to a DIFFERENT campaign's search terms (wrong
-       `Campaign ID`). **This one does NOT fail open on a stall** — fix
-       the figures from the same `Campaign ID`, or write in that block
-       ONE line carrying BOTH halves (unreliable + do-not-execute):
-       `⚠️ 数据不可信：本活动两层对账矛盾，请勿执行本活动的出价建议`
-       —「仅供参考」 by itself does not count. Otherwise the
-       server banner-marks the delivered report and names the campaign.
-       Full rule: `output-spec.md` § the reconciliation line.
-  4. `vibe_seller_write_workspace_file` BOTH TSVs (full search-term
-     set in `.searchterms.tsv`, not just the top rows).
+- search-term spend is at least `noon_reconcile_floor` (0.85) of the
+  targeting total — below that is a gap;
+- search-term spend is at most `1 + reconcile_tolerance` (1.15) times
+  the targeting total — above that is a contradiction;
+- the targeting total matches the campaign's spend in `CAMPAIGNS.tsv`
+  within `reconcile_tolerance` of it (or 1.00, whichever is larger) — a
+  larger difference is a contradiction.
 
-The campaign's report block = targeting table (+合计 row) + top-20-by-
-spend search-terms table + the 对账 line. **Every term with impressions
-gets its own row** — never fold live terms into `其余 N 个` (the
-reviewer rejects collapse rows with traffic; all-zero filler may
-collapse but must say `0 展示`). SD-type campaigns with no search-term
-report write `无搜索词报告`.
+What to do when they don't:
 
-**Append with the section's marker — this is the ONLY anchor that never
-drifts.** To add a campaign's block, `Edit` with
-`old_string = "<!-- INSERT: noon EG -->"` and
-`new_string = "<campaign block>\n<!-- INSERT: noon EG -->"`. The marker
-moves down, your block lands above it, and the next append matches the
-same marker. **Never** anchor an `Edit` on the previous campaign's table
-text or the `进度` line — those vary and you'll get *"String to replace
-not found"*, the error that stalled noon at 3/46. If an `Edit` ever
-fails to match, `Read` the file to get the exact current text, then
-retry against the marker — do NOT give up and do NOT switch to a script.
+- Search terms short of the targeting total: the capture is incomplete or
+  the windows differ — re-pin both and recapture (noon: use the Export).
+- Search terms above the targeting total: impossible for one campaign.
+  The usual cause is a `state=enabled` filter that dropped paused targets
+  from the targeting layer; otherwise two campaigns' figures were joined
+  under one id. Re-read both layers for the same `Campaign ID`.
+- If it still won't reconcile, mark the campaign `blocked` with the
+  numbers in `note`, and propose no bid changes for it.
 
-After appending, `Edit` the `进度` line to bump `<D>` by one. **Only ever
-touch campaigns in the active set** — ignore TSVs on disk for campaigns
-NOT in your active enumeration (paused/archived leftovers). `<D>` must
-converge to `<A>`, **never exceed it**: `drilled > active` means you
-dumped non-active campaigns and the server rejects it ([越界]).
+**Before overwriting last run's file**, read it. Carry forward
+`applied_*` values on rows you are not changing — they are the record of
+what was done and drive the cooldown. If a target's bid or state differs
+from last time with no `applied_*` record behind it, someone changed it
+outside these runs; mention it in the report.
 
-> **Build the report with the native `Read`+`Edit` tools, one campaign
-> at a time. NEVER write a python/bash script that loops over the TSVs
-> and emits the report.** `Edit` is an exact string-replacement that
-> *adds* one campaign's block onto the existing report (like editing
-> code), so prior campaigns are never touched and `<D>` only ever goes
-> up. A script that re-emits the whole `AD_AUDIT.md` is the banned
-> anti-pattern — it both drops campaigns (the lossy rewrite that
-> collapsed Amazon US 31→2) and sweeps in non-active leftovers (the
-> dump that produced `drilled 105/56`). Reading a TSV with `Read` and
-> appending it with `Edit` is the ONLY accepted way to grow the report.
-> Yes, that's one `Read`+`Edit` pair per campaign even for ~140
-> campaigns — do them; it is not "too long". Don't sample, don't
-> batch-generate — the reviewer counts D vs A and names the shortfall.
+## 5. Decide → CHANGES.tsv
 
-## Step 3 — recommendations (the bid rules)
+Apply [`tuning-recommendation-format.md`](tuning-recommendation-format.md)
+to every drilled row, using the store's thresholds
+([`tuning-thresholds.md`](tuning-thresholds.md), overrides in
+`stores/<slug>/notes.md`). Write one `CHANGES.tsv` row (task dir) per
+proposed change, with the row's `acos`, `roas` and actual `cpc` so the
+reasoning can be checked. Add a `hold` row when the hold itself needs
+explaining — a high-ROAS row you are not raising, or a target inside its
+cooldown — with the reason. Columns and the store rules the server
+checks: [`data-contract.md`](data-contract.md).
 
-The recommendation column MUST obey (thresholds `acos_no_lower` default
-30, `scale_roas` default 5 — the single source is `ad_rules.py`; a
-store's `notes.md` may override, e.g. `scale_roas: 6`):
-0. **⚠️ `ACOS = 0`/blank means ZERO SALES, not "good".** `spend > 0` +
-   `orders = 0` ⇒ Amazon prints `ACOS = 0.00` — worst case (effective
-   ACOS ∞), a money-loser → `降价/暂停`, never `维持/表现良好/<5%`. The
-   rules below apply ONLY when `orders ≥ 1`. Compute ACOS = spend÷sales;
-   sales=0 ⇒ write `0 转化，花费全部浪费`, never a `<5%` placeholder.
-1. **ACOS < `acos_no_lower`% (and `orders ≥ 1`) → never lower the bid.**
-   Only Hold or raise. High bid-vs-suggested is not a trim reason.
-2. **ACOS ≥ `acos_no_lower`% → trim allowed**, but new bid never ≤
-   actual CPC.
-3. **ROAS > `scale_roas` converter → raise** (or state why not: bid at
-   suggested-high / high impression share / budget-capped / low search
-   volume). Never a bare Hold on a winner.
-4. Zero-order waste → negate the search term (not a bid cut).
+Mapping to `action`:
 
-(Deeper lever selection: load `tuning-toolbox.md` only if needed.)
+| Decision | `action` | Notes |
+|---|---|---|
+| raise / lower a target's bid | `raise` / `lower` | `target_bid` required |
+| pause a target | `pause` | |
+| negate a search term or product placement | `negate` | `target` = the term or ASIN; `match_type` = `exact` / `phrase` for keyword negatives, the placement type otherwise |
+| keep, with a reason worth recording | `hold` | |
 
-## Step 4 — submit + converge (the server IS the reviewer)
+Proposals that don't fit a target row — harvesting a search term as a
+new keyword, a budget or placement-modifier change, a bidding-strategy
+switch, pausing a whole campaign — go in the report as a separate list
+for the user to approve, not in `CHANGES.tsv`.
 
-**Submit the report FILE — pass the PATH, never a summary of it.** The
-argument is `"./AD_AUDIT_<date>.md"`, because whatever string you pass is
-what the reviewer grades. Hand it a chat summary and it grades the
-summary: a summary has no `## <Platform> <Country>` sections, so every
-combo reads as never started (a complete report was denied 24 rounds in a
-row exactly this way). The server does fall back to reading the newest
-`AD_AUDIT_*.md` when it detects narration — that is a safety net, not the
-interface. Pass the path.
+An `investigate` task writes no `CHANGES.tsv` rows other than `hold`.
 
-Call `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")` every **3–5
-drilled campaigns** — the server's completeness reviewer replies with
-exactly what's still missing. **Do NOT spawn your own format-review
-subagent and do NOT iterate on format polish** — the server check is
-the only review that counts, and the gap that actually blocks you is
-almost always *quantity* (D < A), which only more drilling fixes.
-Review-loop iterations that don't raise any `<D>` are wasted rounds (3
-no-progress submits = the server stops listening and accepts a partial
-report — don't burn them on cosmetics).
+## 6. Write the report and submit
 
-**Converge — don't restart:**
+Write `AD_AUDIT_<YYYY-MM-DD>.md` in the task dir, for the person
+([`output-spec.md`](output-spec.md) § The report). Then call
+`vibe_seller_set_task_result("./AD_AUDIT_<date>.md")` — the path, not a
+summary.
 
-- **Grow the report with `Edit`, never regenerate it.** When a gap says
-  "noon EG drilled 13/46" (or a `[回退]` regression), open ONLY the
-  not-yet-drilled campaigns, write each one's TSV, and `Edit`-append each
-  campaign's block into its section (bumping `进度 <D>`). You are *adding*
-  to the existing `AD_AUDIT.md`, not rewriting it.
-- **NEVER `python … Write` the whole report from memory.** After context
-  compaction your memory of earlier drills is incomplete, so a from-
-  memory rewrite silently drops campaigns you already did — that is the
-  exact bug that collapsed Amazon US 31→2. `Edit` touches only the lines
-  you name, so prior campaigns are safe. (If you ever need to recover a
-  section, the per-campaign TSVs on disk are the durable backup — read
-  the missing ones and `Edit` them back in.)
-- Each round D must go UP, never down — the server rejects any combo
-  whose D regressed below a prior round (`[回退]`). Repeat until the gap
-  list is empty (or the server accepts after the round cap). Each round
-  *completes onto the last*; you only start a fresh report on a task
-  retry, never mid-task.
+The server reads the TSVs and replies with anything that doesn't hold up:
+a live campaign without both files, a marketplace far smaller than its
+recent history with no note, layers that don't add up, a change that
+breaks a store rule. Fix the data (usually by drilling or recapturing),
+update the report, and submit again. Gaps you genuinely can't close are
+delivered as caveats; rule violations on `CHANGES.tsv` are about money
+and have to be fixed.
 
-## Step 5 — export the PDF (once the report is complete)
+Your CWD is the task dir. Keep its top level to the deliverables
+(report, `CAMPAIGNS.tsv`, `CHANGES.tsv`, PDF); put scratch scripts and
+captures in a subfolder of it. The per-campaign TSVs live under
+`store-data/` ([`data-contract.md`](data-contract.md)).
 
-After every combo is `drilled A/A` and the server accepts the result,
-render the report to a PDF for the user (better than reading raw
-markdown):
+## 7. PDF copy
+
+Once the result is accepted, render a PDF for the user:
 
 ```bash
-PY=<project-venv>/bin/python3            # needs `markdown` (requirements.txt)
-S=<skills>/amazon-ads/scripts/md_to_pdf.py
+PY=python3   # the agent venv's python; install requirements.txt if `markdown` is missing
+S=.claude/skills/amazon-ads/scripts/md_to_pdf.py
 $PY "$S" ./AD_AUDIT_<date>.md            # writes AD_AUDIT_<date>.pdf next to it
 ```
 
-It renders CJK + tables via headless Chrome (throwaway profile — safe to
-run while the store browser is up) and fails loudly if the PDF has no
-pages. Mention the `.pdf` path in your result summary.
-
-Run it once and accept what it produces — the `.md` report is the
-deliverable, the PDF is a convenience copy. Do not install packages,
-write your own renderer, screenshot pages, or iterate on the PDF's
-layout; a wide table that wraps is fine.
-
-## Reference index (load on demand only)
-
-- `output-spec.md` — the report contract (read first).
-- `mechanics.md` — exact Amazon selectors, column layouts, bulk flow.
-- `noon-ads/SKILL.md` — noon pagination, drill tabs, span structure.
-- `tuning-toolbox.md` / `tuning-thresholds.md` — lever choice, margins.
-- `tuning-recommendation-format.md` — table column format.
-- Others (`tuning-workflow`, `tuning-campaign-types`, `funnel-diagnosis`,
-  `reviewer-loop`, `format-anchor`) — only if a specific question arises.
+It renders CJK and tables through headless Chrome with a throwaway
+profile (safe while the store browser is up) and fails loudly on an
+empty PDF. Run it once and mention the `.pdf` path in your result; the
+`.md` is the deliverable, so don't iterate on the PDF's layout.

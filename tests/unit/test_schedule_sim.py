@@ -40,12 +40,15 @@ MEASURED: dict[str, tuple[int, int]] = {
     'test_create_then_extend': (0, 547),
     'test_different_platforms_run_concurrently': (0, 70),
     'test_different_stores_fully_independent': (0, 2),
-    'test_direct_load_denied_then_succeeds_after_prereq': (166, 59),
     'test_each_store_reads_its_ads_its_own_way': (608, 496),
-    'test_first_turn_reviewed_followups_not': (511, 254),
     'test_full_pipeline_completes': (0, 4),
     'test_llm_follows_instructions': (13, 0),
     'test_llm_responds': (0, 289),
+    # Phase-1-only observations from the 2026-11-10 h5 run (lower
+    # bounds: the approval + execute phases add on top). 775s =
+    # a completed audit (task 429b2070); 1206s = the phase budget
+    # expiring mid-audit (task 408d6ed3, agent stopped by the test).
+    'test_audit_then_apply_exactly_what_was_approved': (775, 1206),
     'test_profile_switch_preserves_context_via_history_file': (197, 45),
     'test_profile_switch_retry': (0, 51),
     'test_question_answer_completes': (359, 178),
@@ -71,11 +74,11 @@ RECORDED_MARKERS = {
     'test_reviewing_everything_looks_at_everything',
     'test_each_store_reads_its_ads_its_own_way',
     'test_create_then_extend',
-    'test_first_turn_reviewed_followups_not',
     'test_cookie_persists_across_tasks_same_store',
     'test_llm_responds',
     'test_two_browser_tasks_both_complete',
     'test_question_answer_completes',
+    'test_audit_then_apply_exactly_what_was_approved',
 }
 
 DEFAULT = 30
@@ -184,11 +187,19 @@ def _e2e_step_budget_s() -> int:
     return int(minutes.group(1)) * 60
 
 
+# The narrowest map CI is meant to run (one worker per E2E_PROVIDER_MAP
+# entry, a repo variable): the step budget must hold at this width, and a
+# wider map only shortens the critical path.
+MIN_CI_WORKERS = 6
+
+
 def _e2e_workers() -> int:
-    """E2E_WORKERS from ci.yml — the width the simulation models."""
-    match = re.search(r'E2E_WORKERS:\s*(\d+)', _ci())
-    assert match, 'ci.yml has no E2E_WORKERS'
-    return int(match.group(1))
+    """The width the simulation models: the map's length when the
+    environment carries it, else the narrowest supported width."""
+    entries = [
+        p for p in os.environ.get('E2E_PROVIDER_MAP', '').split(',') if p
+    ]
+    return max(len(entries), MIN_CI_WORKERS) if entries else MIN_CI_WORKERS
 
 
 def _e2e_provider_map() -> list:
@@ -202,8 +213,8 @@ def test_the_scheduled_critical_path_matches_the_documented_numbers():
     """The scheduling claim, pinned.
 
     The docstring/report figures are produced by THIS calculation on
-    the recorded suite at the ci.yml width (6 workers): p50 path 1362s
-    (22.7 min) and max-duration path 1546s (25.8 min). Both must fit the CI e2e
+    the recorded suite at the ci.yml width (6 workers): p50 path 1234s
+    (20.6 min) and max-duration path 1405s (23.4 min). Both must fit the CI e2e
     step budget, read from ci.yml (40 min since the old 32 min was
     shown too tight by the 4-worker figures 1907s/2112s). A collection
     that differs in shape (platform filters) shifts the absolute
@@ -219,5 +230,5 @@ def test_the_scheduled_critical_path_matches_the_documented_numbers():
     assert max(worst) <= step, (
         f'the worst-case path no longer fits {step}s: {worst}'
     )
-    if _e2e_workers() == 6 and p50 == [1362, 1134, 1087, 1352, 932, 936]:
-        assert worst == [1546, 1269, 1046, 1209, 841, 921], worst
+    if _e2e_workers() == 6 and p50 == [1234, 976, 1060, 1126, 890, 924]:
+        assert worst == [1405, 934, 921, 947, 842, 768], worst

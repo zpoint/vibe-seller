@@ -41,18 +41,15 @@ Safety
 
 Usage
 -----
-ALL SIX subcommands are listed here on purpose. This block is the
-inventory an agent reads to learn what the script can do, and while it
-listed only three, agents concluded the other three did not exist and
-hand-rolled openpyxl for work already implemented here — observed live
-on an audit that re-derived ``scope`` by hand.
+All six subcommands are listed here: this block is the inventory to
+check before hand-parsing a workbook with openpyxl.
 
   ads_bulk.py inspect        EXPORT.xlsx
   ads_bulk.py scope          EXPORT.xlsx [--platform amazon --country sa]
                              # -> JSON {platform, country, total_active,
                              #    active_ids}: the state=enabled campaign
-                             #    set + its independently-counted total,
-                             #    i.e. exactly what AUDIT_SCOPE.json needs
+                             #    set + its count -- a cross-check for the
+                             #    live rows of CAMPAIGNS.tsv
   ads_bulk.py clone-campaign EXPORT.xlsx --src "<name>" --new "<name>" \
                              --sku SELLER-SKU --asin B0XXXXXXXX \
                              [--daily-budget 1] [--default-bid 0.75] \
@@ -63,7 +60,7 @@ on an audit that re-derived ``scope`` by hand.
   ads_bulk.py archive-campaign EXPORT.xlsx --campaign "<name>" \
                              [--out OUT.xlsx]
   ads_bulk.py negate         EXPORT.xlsx --campaign "<name>" \
-                             --terms "<term>[,<term>…]" \
+                             --keywords "<term>[,<term>…]" \
                              [--level adgroup|campaign] \
                              [--match negativePhrase|negativeExact] \
                              [--out OUT.xlsx]
@@ -72,8 +69,10 @@ Requires: openpyxl.
 """
 
 import argparse
+import csv
 import datetime
 import json
+import math
 import sys
 
 try:
@@ -379,13 +378,82 @@ def cmd_clone_campaign(args):
 
 
 # --- bid-update ---------------------------------------------------------
+def _approved_bids(path):
+    """``{(campaign_id, keyword, match_type): [(ad_group, bid), ...]}``
+    for the raise/lower rows of a CHANGES.tsv — each at its own value.
+    The ad group is kept: one keyword can sit in several ad groups of a
+    campaign, and only the named one may move.
+
+    A raise/lower row whose bid is missing, blank or not a number stops
+    the tool naming that row, before anything is written: this is the
+    money path reading an agent-authored file, and a bare traceback was
+    the observed pivot into typing bids into the console by hand."""
+    out = {}
+    with open(path, encoding='utf-8', newline='') as f:
+        for row in csv.DictReader(f, delimiter='\t'):
+            if (row.get('action') or '').strip().lower() not in (
+                'raise',
+                'lower',
+            ):
+                continue
+            key = (
+                str(row.get('campaign_id') or '').strip(),
+                str(row.get('target') or '').strip().lower(),
+                str(row.get('match_type') or '').strip().lower(),
+            )
+            ad_group = str(row.get('ad_group') or '').strip().lower()
+            raw = str(row.get('target_bid') or '').strip()
+            try:
+                bid = float(raw)
+            except ValueError:
+                bid = math.nan
+            if not math.isfinite(bid):
+                sys.exit(
+                    f'error: {key[0]}/{key[1]}: target_bid "{raw}" '
+                    'is not a number'
+                )
+            out.setdefault(key, []).append((ad_group, bid))
+    return out
+
+
+def _keyword_key(r):
+    return (
+        str(r[Col.CAMPAIGN_ID] or '').strip(),
+        str(r[Col.KEYWORD_TEXT] or '').strip().lower(),
+        (match_type_api(r[Col.MATCH_TYPE]) or '').lower(),
+    )
+
+
+def _row_ad_groups(r, ag_names):
+    """The ids/names a keyword row's ad group is known by (lowercased)."""
+    ag_id = str(r[Col.AD_GROUP_ID] or '').strip()
+    names = {ag_id, ag_names.get(ag_id, ''), str(r[Col.AD_GROUP_NAME] or '')}
+    return {n.strip().lower() for n in names if n and n.strip()}
+
+
 def cmd_bid_update(args):
-    if args.scale is None and args.set_bid is None:
-        sys.exit('error: pass --scale FACTOR or --set-bid VALUE')
+    from_changes = getattr(args, 'from_changes', None)
+    levers = [args.scale, args.set_bid, from_changes]
+    if sum(v is not None for v in levers) != 1:
+        sys.exit(
+            'error: pass exactly one of --from-changes CHANGES.tsv, '
+            '--scale FACTOR or --set-bid VALUE'
+        )
+    approved = _approved_bids(from_changes) if from_changes else None
     _wb, ws, header, data = load(args.file)
     id_to_name = build_campaign_index(data)
+    ag_names = {
+        str(r[Col.AD_GROUP_ID] or '').strip(): str(r[Col.AD_GROUP_NAME] or '')
+        for r in data
+        if is_entity(r, 'ad_group')
+    }
+    copies: dict = {}
+    for r in data:
+        if is_entity(r, 'keyword'):
+            copies[_keyword_key(r)] = copies.get(_keyword_key(r), 0) + 1
 
     out_rows = []
+    matched = set()
     for r in data:
         if not is_entity(r, 'keyword'):
             continue
@@ -394,7 +462,27 @@ def cmd_bid_update(args):
         cur = r[Col.BID]
         if cur in (None, ''):
             continue
-        if args.set_bid is not None:
+        if approved is not None:
+            key = _keyword_key(r)
+            wants = approved.get(key)
+            if not wants:
+                continue
+            groups = _row_ad_groups(r, ag_names)
+            hit = [w for w in wants if w[0] and w[0] in groups]
+            if not hit and copies[key] > 1:
+                if any(not w[0] for w in wants):
+                    sys.exit(
+                        f'error: {key[1]!r} ({key[2]}) is in several ad '
+                        f'groups of {key[0]}: name its ad_group in '
+                        'CHANGES.tsv'
+                    )
+                continue
+            if not hit and groups and all(w[0] for w in wants):
+                continue  # this copy is in another ad group
+            want = (hit or wants)[0]
+            matched.add((key, want[0]))
+            new_bid = want[1]
+        elif args.set_bid is not None:
             new_bid = args.set_bid
         else:
             new_bid = round(float(cur) * args.scale, 2)
@@ -418,13 +506,23 @@ def cmd_bid_update(args):
         u[Col.BID] = new_bid
         out_rows.append(u)
 
+    wanted = {
+        (key, ag) for key, rows in (approved or {}).items() for ag, _b in rows
+    }
+    if approved is not None and wanted - matched:
+        missing = ', '.join(
+            f'{c}/{ag or "-"}/{k}/{m}'
+            for (c, k, m), ag in sorted(wanted - matched)
+        )
+        sys.exit(f'error: approved rows not found in the export: {missing}')
     if not out_rows:
         sys.exit('error: no keyword bids matched / changed')
-    how = (
-        f'scale x{args.scale}'
-        if args.scale is not None
-        else f'set={args.set_bid}'
-    )
+    if approved is not None:
+        how = 'from the approved CHANGES.tsv'
+    elif args.scale is not None:
+        how = f'scale x{args.scale}'
+    else:
+        how = f'set={args.set_bid}'
     print(f'bid update: {len(out_rows)} keyword row(s) {how}')
     out_path = args.out or 'bulk_bid_update.xlsx'
     write_upload(ws.title, header, out_rows, out_path)
@@ -463,14 +561,13 @@ def cmd_archive_campaign(args):
 
 
 def cmd_scope(args):
-    """Print the ACTIVE (state=enabled) Campaign ids for AUDIT_SCOPE.json.
+    """Print the ACTIVE (state=enabled) Campaign ids in an export.
 
-    The completeness gate (audit-quickref Step 1) grades coverage against
-    this set so the agent cannot pass by shrinking its own denominator:
-    with --platform/--country this prints a combo object, otherwise just
-    the id array. The combo carries both ``total_active`` (the enabled-
-    row count) and ``active_ids``; the gate requires them to agree, so a
-    hand-truncated id list is rejected — copy the object verbatim.
+    Use it to check CAMPAIGNS.tsv: every id printed here should be a row
+    with ``drill_status`` ``drilled`` (or ``blocked`` with a note). With
+    --platform/--country it prints an object carrying ``total_active``
+    (the enabled-row count) next to ``active_ids``; otherwise just the
+    id array.
     """
     _wb, _ws, _header, data = load(args.file)
     active_ids = [
@@ -596,7 +693,7 @@ def main():
     p.set_defaults(func=cmd_inspect)
 
     p = sub.add_parser(
-        'scope', help='print active Campaign ids for AUDIT_SCOPE.json'
+        'scope', help='print active Campaign ids (cross-check CAMPAIGNS.tsv)'
     )
     p.add_argument('file')
     p.add_argument('--platform', help='e.g. amazon (emit a full combo obj)')
@@ -638,6 +735,11 @@ def main():
     p.add_argument('--campaign', help='limit to one campaign name')
     p.add_argument('--scale', type=float, help='multiply each bid by F')
     p.add_argument('--set-bid', type=float, help='set every bid to V')
+    p.add_argument(
+        '--from-changes',
+        help='CHANGES.tsv: set each raise/lower row to its own '
+        'target_bid in its own ad_group, and nothing else',
+    )
     p.add_argument('--out')
     p.set_defaults(func=cmd_bid_update)
 

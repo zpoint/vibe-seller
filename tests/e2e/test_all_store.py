@@ -4,10 +4,38 @@ E2E test: Feature 1 - "All" store selection for store-independent tasks.
 
 import time
 
+import httpx
 from playwright.sync_api import Page, expect
 import pytest
 
+from tests.e2e.e2e_helpers import BASE_URL, login
+
 pytestmark = [pytest.mark.e2e]
+
+
+@pytest.fixture
+def created_titles():
+    """Stop and delete the tasks this test created through the UI.
+
+    The UI creates a real task, and its agent runs on after the test's
+    assertions. Observed in CI: such an agent, left running for minutes,
+    searched the shared workspace for its title's number, found another
+    test's store and opened that test's fake console -- the very access
+    log that test asserts on. A test leaves no work running behind it.
+    """
+    titles: list[str] = []
+    yield titles
+    with httpx.Client(timeout=30) as client:
+        login(client)
+        tasks = client.get(f'{BASE_URL}/api/tasks').json()
+        for task in tasks if isinstance(tasks, list) else []:
+            if task.get('title') in titles:
+                client.post(f'{BASE_URL}/api/tasks/{task["id"]}/agent/stop')
+                for _ in range(30):
+                    r = client.delete(f'{BASE_URL}/api/tasks/{task["id"]}')
+                    if r.status_code != 409:
+                        break
+                    time.sleep(1)
 
 
 def test_all_tasks_button_visible(authenticated_page: Page):
@@ -17,10 +45,13 @@ def test_all_tasks_button_visible(authenticated_page: Page):
     expect(all_btn).to_be_visible()
 
 
-def test_create_store_independent_task(authenticated_page: Page):
+def test_create_store_independent_task(
+    authenticated_page: Page, created_titles: list[str]
+):
     """Click 'All Stores' -> create a task via modal -> task appears with no store."""
     page = authenticated_page
     task_title = f'Process reports {int(time.time())}'
+    created_titles.append(task_title)
 
     # Click "All Stores"
     page.locator('button', has_text='All Stores').click()

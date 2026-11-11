@@ -28,9 +28,7 @@ Team collaboration platform for e-commerce store automation. Users create browse
 - UUIDs for all primary keys
 - API routes prefixed with `/api/`
 - i18n translations in `frontend/src/i18n/locales/{en,zh}/`
-- **Ad tasks declare their kind + scope before working, and are held to what they declared.** The ad skills tell the agent to call `vibe_seller_declare_ad_task` (`kind` ∈ audit/create/execute/investigate, `scope` = combos/campaigns/products) before touching a browser. That declaration — not the shape of the report — decides how much marketplace coverage the completeness gate demands and whether the report may hand out change recommendations at all (an `investigate` report may not). Declarations are append-only and a new one needs a new USER message, so an agent cannot re-declare around a gate. **Never reintroduce an "is this an audit?" heuristic over the agent's own output**: that is what let a two-campaign task be told it owed five marketplaces, which it satisfied by transcribing the previous week's report. See `app/ai/ad_declaration.py` and [docs/api.md](docs/api.md).
-  - **The in-turn ratchet** (`ad_declaration.supersedes`) — a re-declaration inside the same turn may never widen reach and may never shed an obligation. Two moves qualify: narrowing at the same kind (recording campaign ids you could only learn by enumerating), and correcting `investigate` → `audit` at the same-or-narrower scope. The upgrade is legal precisely because it *adds* what the phase owes — the audit's coverage obligation — so it is not an escape hatch; `audit` → `investigate` and every other pair stay refused. Without it, a phase that under-declared had no move but to delete the recommendations the user asked for.
-  - **Scope of the guarantee** — the requirement rides on the ad skills: `declaration_gaps` lives inside `ad_completeness_review`, which those skills register via `gates:` frontmatter, so a run that never loads an ad skill can finish without declaring. That is the fail-safe direction and is intentional: no declaration → no obligation is inferred from the report's shape. Do not "fix" it by inferring a declaration from the report — that is the heuristic above, wearing a new hat. Within that gate, the checks that *compare a report against an existing declaration* are not so limited, and must not be scoped to incidental formatting: the "`investigate` may not hand out decisions" check deliberately runs whether or not the report carries `## <platform> <CC>` sections, because conditioning it on headings let a bid review declared `investigate` deliver bid changes with no gap raised.
+- **Ad tasks declare their kind + scope before working, and are checked from TSVs, never from prose.** The ad skills have the agent call `vibe_seller_declare_ad_task` (`kind` ∈ audit/create/execute/investigate, `scope` = combos/campaigns/products). The declaration decides what a phase owes: only `audit` owes marketplace coverage, `investigate` proposes nothing. Declarations are append-only. The agent's numbers and decisions live in fixed-header TSVs (`app/skills_v2/amazon-ads/references/data-contract.md`): `CAMPAIGNS.tsv`, per-campaign targeting/search-term files, `CHANGES.tsv` (the approval, frozen when the phase declares `execute`) and `EXECUTION_LOG.tsv`. `ad_changes` (store rules, investigate, execution vs the frozen approval) and `ad_coverage` (coverage, reconciliation) compare fields. **Every check is one round**: refused once naming what is unmet, then the result ships with caveats (contradictions and unapproved changes get a banner) — the same for declarations (a widening re-declaration, or `execute` without a user reply, is answered once). Never add a check that refuses twice; the decision after one round is the agent's. Thresholds are defaults; a `key: value` line in the store's `notes.md` overrides them. **Never parse the report's prose or infer "is this an audit?" from output shape** — no declaration means no inferred obligation.
 - **Release channels: stable never sees nightly.** `.github/workflows/nightly.yml` publishes `<next patch>.dev<UTC timestamp>` to PyPI plus a rolling `nightly` GitHub prerelease, only when `main` moved. The channel is read from the version string (`app/release_channel.py`). The stable update paths (PyPI `info.version`, `releases/latest`, plain `uv tool upgrade`) are untouched and must stay unable to name a pre-release. A nightly install is offered the highest newer nightly or stable build, and upgrades by **pinning the exact version**, never with `--prerelease allow`/`--pre`, which would admit alpha dependencies too. Keep the rolling tag digit-free, or setuptools-scm will read it as a version.
 - Agents write to `stores/` and `knowledge/` via MCP `vibe_seller_write_workspace_file` (not the built-in Write tool — it can't write through workspace symlinks; see [docs/workspace.md](docs/workspace.md#symlink-write-caveat))
 
@@ -146,6 +144,17 @@ Ask in this order, every time:
 4. **Only after the design fix:** are tests pinning this invariant?
    If not, add them. Tests are the second line of defence, not the
    fix itself.
+
+**Establish the design intent before calling it a bug.** A behaviour
+that is right in production can look broken in a dev checkout, a
+feature branch or CI — the environments where local code is AHEAD of
+what production assumes (public `main`, a released package). Example:
+the remote skill sync adds `main`'s files to the local tree; that IS the
+update mechanism for an installed release, and only "wrong" on a branch
+that deleted a file `main` still has. The fix there is an explicit
+environment switch for that environment (point the content source at
+the branch, or turn remote content pulls off), never a change to the
+product semantics. Ask "what is this for in production?" first.
 
 If the natural fix touches a file the current task didn't, fix it
 anyway. The goal is "this bug class can't recur," not "this PR is
@@ -267,19 +276,20 @@ All LLM system prompts live in `app/prompts/*.md`, loaded once at import via `ap
 
 | File | Purpose |
 |------|---------|
-| `design_system.md` | Base agent instructions (phases, `{workspace_guidance}` slot for catalog restriction, subagent rules) |
-| `reflection.md` | Post-task knowledge/skill creation (delivered via Stop hook, skipped for catalog sync) |
-| `scheduled_pretask.md` | Injected by `_build_system_extra()` when `task.schedule_id` is set (non-catalog) — tells the agent to load prior cursor via `vibe_seller_get_schedule_state` |
-| `scheduled_watermark.md` | Appended to reflection in Stop hook for scheduled tasks — nudges the agent to persist cursor via `vibe_seller_set_schedule_state` |
+| `design_system.md` | Base agent instructions (knowledge recall, keeping knowledge correct, `{workspace_guidance}` slot for catalog restriction, subagent rules) |
+| `scheduled_pretask.md` | Injected by `build_system_extra()` when `task.schedule_id` is set (non-catalog) — the cross-run cursor contract (`vibe_seller_get_schedule_state` / `set_schedule_state`) |
 | `waiting_instruction.md` | Wait-condition signaling docs |
-| `dual_browser.md` | Ziniao vs Chrome routing (injected by `_build_store_context`) |
+| `dual_browser.md` | Ziniao vs Chrome routing (injected by `build_store_context`) |
+| `ticktick_tools.md` | TickTick/Dida365 tool reference — appended when TickTick is connected (`ticktick_context()`) |
+| `vision_setup_breadcrumb.md` | One-line breadcrumb to Settings → AI → Vision when no image key is configured — the same gate that hides the image tool |
+| `workspace_assistant.md` | The Workspace page assistant's own system prompt (`{stores_list}` filled at runtime) — not a task prompt |
 | `event_extraction.md` | Event extraction (used by `extractor.py`, not task prompts) |
 
 ### Design Principle
 
-**All task prompts go through one function: `_build_system_extra()` in `app/task_runner.py`.**
+**All task prompts go through one function: `build_system_extra()` in `app/task_runner.py`.**
 
-- One template (`design_system.md`) with `{workspace_guidance}` slot (used only for catalog sync restriction; empty for regular tasks)
+- One template (`design_system.md`) with `{workspace_guidance}` slot (used for the catalog-sync restriction or the one-time knowledge-cleanup instruction; empty for regular tasks)
 - One builder assembles all context in fixed order for every task type
 - Callers pass `TaskHeader` enum + optional `extra_context`, get back `PromptBundle(prompt, system_extra, mode)`
 - No inline prompt assembly outside the builder (except `start_agent` which is intentionally minimal)
@@ -288,17 +298,19 @@ All LLM system prompts live in `app/prompts/*.md`, loaded once at import via `ap
 
 ### Prompt Assembly Order
 
-`_build_system_extra()` always assembles in this order:
+`build_system_extra()` always assembles in this order:
 1. Base prompt (`design_system.md` with `{workspace_guidance}` filled)
 2. Language hint (Chinese/English)
 3. Waiting instruction
 4. Store context OR all-stores context
 5. TickTick integration (if configured)
 6. System context (task type, integrations, capabilities)
-7. Header-derived extra (plan text for execute/woken)
-8. Caller extra context (conversation history, wake trigger)
+7. Vision-setup breadcrumb (only when no image key is configured), scheduled-task / plan-only blocks
+8. Header-derived extra (plan text for execute/woken)
+9. Caller extra context (conversation history, wake trigger)
+10. Store ads note (the last word — a fanout plan is shared), then plugin `system_extra` fragments
 
-Post-task reflection is delivered via the Stop hook (not in the system prompt). A one-liner reminder is included in the system prompt so the agent can plan accordingly.
+There is no post-task reflection turn: the agent keeps `knowledge/` and `stores/` correct in-task, after its result is recorded (`design_system.md` § Keeping knowledge correct). Claude Code's own auto-memory is off for every agent (`profiles.disable_auto_memory`); `knowledge/` + `stores/` is the only memory.
 
 `start_agent()` (ad-hoc agent start) intentionally skips full context — it's for raw interaction.
 

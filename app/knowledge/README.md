@@ -57,14 +57,14 @@ NOT shared between stores. Each store has its own isolated knowledge tree.
 
 Each level has a `CATALOG.md` index so agents read one file instead of scanning:
 
-- L1: `knowledge/project/CATALOG.md` — maintainer runs `generate_catalog.sh`
+- L1: `knowledge/project/CATALOG.md` — maintainer-edited by hand (one row per file)
 - L2: `knowledge/CATALOG.md` — daily scheduled task (AI-generated)
 - L3: `stores/<slug>/CATALOG.md` — daily scheduled task (pure file ops)
 
 ## Contributing Builtin Knowledge
 
 - Add markdown files with platform-specific information to `common/`
-- Run `cd app/knowledge && bash generate_catalog.sh` to regenerate CATALOG.md
+- Add a row for each new file to `CATALOG.md` (File | Relevance | Summary)
 - Update MANIFEST.txt:
   `cd app/knowledge && find . -type f -not -name MANIFEST.txt -not -name '.*' | sed 's|^\./||' | sort > MANIFEST.txt`
 - Commit both the new file and updated CATALOG.md + MANIFEST.txt

@@ -11,7 +11,7 @@ from app.ai.external_config import (
     assert_profile_compatible,
 )
 from app.ai.profiles import DEFAULT_PROFILE_ID
-from app.ai.review_redrive import reset_ledger
+from app.ai.turn_hold_budget import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
 from app.errors import categorize_ziniao_error
@@ -226,7 +226,6 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 store_slug=(
                     _store_slug(store.name, store.id) if store else None
                 ),
-                skip_reflection=task.skip_reflection,
                 # RUNNING is committed only AFTER the concurrency
                 # semaphore is acquired (mirrors auto_run_task's
                 # _on_start). Setting it before run() left fan-out
@@ -549,7 +548,6 @@ async def execute_woken_task(task_id: str, store: Store | None):
             # execute_planned_task above.
             on_start=_make_exec_on_start(task_id),
             store_slug=(_store_slug(store.name, store.id) if store else None),
-            skip_reflection=task.skip_reflection,
         )
 
         # Event-driven wait on the resumed session.  Bail on

@@ -1,22 +1,13 @@
-"""Convergence reviewer for ``review-collect`` runs.
+"""Completeness check for ``review-collect`` runs.
 
 Runs at ``set_task_result``. Walks the run's on-disk output (via
-``app.ai.review_manifest``) and returns a structured "what's still
-missing" diff so a model converges over rounds: each submit it lists the
-combos still short of their enumerated universe and the per-product JSON
-files that are missing or malformed; the agent collects more and
-re-submits; the diff shrinks. Partial is accepted every round.
+``app.ai.review_manifest``) and lists the combos still short of their
+enumerated universe and the per-product JSON files that are missing or
+malformed. Like every gate it gets one round: the first submit with
+gaps is refused with this list, and what is still missing on the next
+ships as caveats on the result.
 
-Mirrors ``ad_completeness_review``'s stall design — fail-open is keyed on
-STALL, not a round count. A round counts toward the stall budget only
-when neither the collected-OK total nor the report text moved; an agent
-still pulling pages makes progress every round and is never cut off,
-while one re-submitting an unchanged report ``STALL_CAP`` times is
-genuinely wedged and gets the partial accepted. Because the enumerated
-universe is finite, a progressing agent reaches ``total_ok ==
-total_expected`` and the gate returns None on its own.
-
-Contract: ``app/skills/review-collect/references/output-spec.md``.
+Contract: ``app/skills_v2/review-collect/references/output-spec.md``.
 """
 
 from __future__ import annotations
@@ -25,27 +16,6 @@ from app.ai.review_manifest import audit_run
 from app.ai.stop_gates import GateDeny
 
 GATE_NAME = 'review_completeness_review'
-
-# PROGRESS MEANS THE GAP LIST GOT SHORTER — see the same re-keying in
-# ``app/ai/stop_gates/ad_completeness_review.py``. Resetting the budget
-# on a report-text delta made the fail-open unreachable for any gap
-# fixed by editing prose rather than by collecting more: rewriting the
-# report moves thousands of characters while closing nothing.
-STALL_CAP = 5
-
-_min_gaps: dict[str, int] = {}
-_stall_rounds: dict[str, int] = {}
-
-
-def reset_progress(task_id: str) -> None:
-    """Drop per-task progress/stall state (call on terminal success)."""
-    _min_gaps.pop(task_id, None)
-    _stall_rounds.pop(task_id, None)
-
-
-def is_stalled(task_id: str) -> bool:
-    """True once ``STALL_CAP`` rounds have failed to close a single gap."""
-    return _stall_rounds.get(task_id, 0) >= STALL_CAP
 
 
 def check(
@@ -90,15 +60,6 @@ def check(
     if not gaps:
         return None
 
-    # Stall tracking (read via is_stalled). Progress = strictly fewer
-    # unmet gaps than the best round so far; nothing else resets it.
-    best = _min_gaps.get(task_id)
-    if best is None or len(gaps) < best:
-        _min_gaps[task_id] = len(gaps)
-        _stall_rounds[task_id] = 0
-    else:
-        _stall_rounds[task_id] = _stall_rounds.get(task_id, 0) + 1
-
     body = '\n'.join('- ' + g for g in gaps[:12])
     extra = '' if len(gaps) <= 12 else f'\n…还有 {len(gaps) - 12} 项'
     reason = (
@@ -106,7 +67,7 @@ def check(
         '个商品；缺失可接受——逐轮补全即可）。\n**这是续作（RESUME，不是重做）**：'
         '已写好的 per-product JSON 和 _MANIFEST 都还在，保留它们，只补下面列出的'
         '缺口——打开尚未采集的商品评论页（按日期排序、逐页翻到底），写对应 JSON，'
-        '把 product_id 加入 manifest 的 collected。补完后重新 set_task_result，'
-        '评审会再列剩余缺口，直到采全：\n' + body + extra
+        '把 product_id 加入 manifest 的 collected。补完后重新 set_task_result；'
+        '仍未补上的会作为备注随结果交付：\n' + body + extra
     )
     return GateDeny(gate=GATE_NAME, reason=reason, gaps=tuple(gaps))

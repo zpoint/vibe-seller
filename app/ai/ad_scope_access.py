@@ -7,10 +7,12 @@ simply not report it. Observed in CI 201i — a follow-up turn's
 "OTHER ROUTES PROBE" fetched ``/campaign/A7654321``, and only the
 test's console-hit ground truth caught it.
 
-Invariant: once a turn has declared a campaign-narrowed scope, the
-agent cannot READ an out-of-scope campaign through the product's ad
-surfaces — the ads service (``vibe_seller_ads_call``) and the browser
-(browser-use commands). Same fail-safe direction as the report gates:
+Invariant: once a turn has declared a campaign-narrowed scope, a
+``vibe_seller_ads_call`` request — a typed call that may also WRITE —
+cannot address an out-of-scope campaign. Browser commands are not
+parsed: what the agent reads in the console is its own judgement, held
+to the declaration by the prompt. Same fail-safe direction as the
+report gates:
 no declaration — or one whose ``campaigns`` list is empty ("every
 campaign in the declared combos") — restricts nothing. No obligation
 is ever inferred without a declaration.

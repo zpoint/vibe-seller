@@ -18,6 +18,7 @@ from app.ai.agent_proxy import (
     launch_settings,
 )
 from app.ai.claude_backend import AgentSession
+from app.ai.claude_backend_utils import resolve_claude_binary
 from app.ai.launch_artifacts import build_launch_artifacts
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
 from app.env_options import Options
@@ -212,8 +213,11 @@ class WorkspaceAgentSession(AgentSession):
                 '--mode=workspace',
             ]
         else:
+            # The same binary task agents spawn: the project-local
+            # install first, PATH only as the fallback. A bare 'claude'
+            # failed to start wherever the CLI is not on PATH.
             cmd = [
-                'claude',
+                resolve_claude_binary(),
                 '-p',
                 '--output-format',
                 'stream-json',
@@ -260,7 +264,6 @@ class WorkspaceAgentSession(AgentSession):
             None,
             self.system_prompt_extra or '',
             settings,
-            agents=False,
         )
         if artifacts['system_prompt'] is not None:
             cmd.extend([

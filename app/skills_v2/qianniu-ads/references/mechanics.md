@@ -1,8 +1,8 @@
 # 万相台无界 — mechanics (routes, date window, plan-list read, 报表 export)
 
-How to *read* live 万相台 state on `one.alimama.com`. All APPLY actions
-(toggle / 预算 edit / delete) are at the end and are **writes — forbidden
-during analysis; surface for review, never auto-execute.** Drive everything
+How to read live 万相台 state on `one.alimama.com`. The APPLY actions
+(toggle / 预算 edit / delete) at the end are writes: during analysis surface
+them for the user's review instead of performing them. Drive everything
 with the 0.13 heredoc CLI (`qianniu-shared`): `new_tab`, `js(...)`,
 `click_at_xy`, `cdp(...)`. Run the popup-close loop after every load.
 
@@ -20,23 +20,24 @@ with the 0.13 heredoc CLI (`qianniu-shared`): `new_tab`, `js(...)`,
 | plan detail | `#!/manage/onesite-detail?...&campaignId=<计划ID>` |
 
 SSO from the 千牛 session (`qianniu-shared`); no separate login. A redirect to
-the Taobao login means the session died → **human step** (QR / slider+SMS).
+the Taobao login means the session died → a human step (QR / slider+SMS);
+ask the user.
 
 ## 2. Date window
 
 Above the KPI block: 今日 / 昨日 / 过去 7 天 / 过去 15 天 / 自定义. Select the
-one matching the audit window **before** reading the plan table — the per-plan
+one matching the audit window before reading the plan table — the per-plan
 metric columns follow this selector. Export the 报表 for the same window.
 
 ## 3. 报表 export (the performance source of truth — DEFAULT)
 
 The plan list warns 「页面数据仅供参考，历史推广数据以报表数据为准」, so treat
-the **报表 export** as truth for performance and the plan list as *live state*
+the 报表 export as truth for performance and the plan list as *live state*
 (状态 / 预算 / 出价). Flow:
 
 1. Open 报表 from the 万相台 nav; pick the report (e.g. 计划报表 / 商品报表) and
    the date window.
-2. Trigger the export/download (a **read**). It lands in
+2. Trigger the export/download (a read). It lands in
    `~/.vibe-seller/downloads/<slug>/` — CSV is **GB18030** (`qianniu-shared § 5`),
    `.xlsx` is fine.
 3. Parse with `scripts/ads_report.py FILE` → normalised TSV (计划/宝贝 ×
@@ -69,7 +70,7 @@ return JSON.stringify({count:out.length, plans:out});
 PY
 ```
 
-**§4's snippet is `#!/manage/onesite` ONLY.** Other 场景 have different DOM:
+§4's snippet fits `#!/manage/onesite` only; other 场景 have different DOM:
 
 | Route | Body table | Plan ↔ product |
 |---|---|---|
@@ -85,9 +86,10 @@ PY
 close loop after every route change; if a synthetic `.click()` fails, dispatch
 a trusted `cdp('Input.dispatchMouseEvent', ...)` at the X's centre.
 
-## 6. APPLY actions — WRITES (surface for review, never auto-execute)
+## 6. APPLY actions — writes (only with the user's approval)
 
 Toggling 状态, editing 每日预算 / 出价, adding/removing a product or keyword,
-新建计划, and 自动规则 changes are all **writes**. During an audit they are
-**forbidden**: produce a recommendation (which 计划, what change, why, per the
-store's `ads-rules.md`) and let the human apply it in the visible window.
+新建计划, and 自动规则 changes are all writes that spend the store's money.
+During an audit, produce a recommendation instead (which 计划, what change,
+why, per the store's rules in `notes.md`) and let the human apply it in the
+visible window.

@@ -19,17 +19,16 @@ import { WorkspaceView } from './views/WorkspaceView'
 import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
 import { SettingsView, type SettingsTab } from './views/SettingsView'
 import { useSSE } from './hooks/useSSE'
+import { createDraftStore } from './lib/draftStore'
 import { parseNav, settingsTabToSlug } from './lib/route'
 import { registerUserHash, unregisterUserHash } from './lib/telemetry'
-import { loadTaskById as loadTaskByIdHandler } from './handlers/loadTaskById'
+import { useTaskOpener } from './hooks/useTaskOpener'
+import { useTaskActions } from './hooks/useTaskActions'
 import { api, AUTH_EXPIRED_EVENT, uploadTaskAttachment } from './api'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
 import { submitCreateTask as submitCreateTaskHandler } from './handlers/submitCreateTask'
-import { retryTask as retryTaskHandler } from './handlers/retryTask'
-import { continueTask as continueTaskHandler } from './handlers/continueTask'
-import { deleteTask as deleteTaskHandler } from './handlers/deleteTask'
 import { fetchBrowserProfiles as fetchBrowserProfilesHandler, restartZiniao as restartZiniaoHandler } from './handlers/fetchBrowserProfiles'
 import { sendChatMessage as sendChatMessageHandler } from './handlers/sendChatMessage'
 import type {
@@ -75,9 +74,6 @@ export default function App() {
   // changed, so a slow response for the previous store can't clobber
   // the newly-selected store's list (stale-response-wins race).
   const inFlightTasksKeyRef = useRef<string | null>(null)
-  // Monotonic token for loadTaskById: only the latest selection applies
-  // its fetched state (stale-response-wins guard for fast task switches).
-  const loadTaskSeqRef = useRef(0)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [steps, setSteps] = useState<TaskStep[]>([])
   const [screenshots, setScreenshots] = useState<Record<string, string>>({})
@@ -107,11 +103,30 @@ export default function App() {
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({})
   const [otherInputs, setOtherInputs] = useState<Record<string, string>>({})
   const [showOtherInput, setShowOtherInput] = useState<Record<string, boolean>>({})
-  const [chatInput, setChatInput] = useState('')
+  // The composer draft lives in a store, not App state: as state, every
+  // keystroke re-rendered the whole app. App clears it (task open /
+  // create / send) and reads it on send; only the composer subscribes.
+  const [chatDraft] = useState(() => createDraftStore())
+  const setChatInput = chatDraft.set
   const [chatAttachments, setChatAttachments] = useState<StagedAttachment[]>([])
   const [conversationItems, setConversationItems] = useState<ConversationItem[]>([])
   const questionBannerRef = useRef<HTMLDivElement>(null)
   const [debugMode, setDebugMode] = useState(false)
+  // Opens the route's task and tracks the load (pending / failed).
+  // What is on screen, for a task load to keep the cards that arrive live
+  // while its fetches are in flight.
+  const conversationItemsRef = useRef(conversationItems)
+  conversationItemsRef.current = conversationItems
+  const pendingQuestionsRef = useRef(pendingQuestions)
+  pendingQuestionsRef.current = pendingQuestions
+  const taskOpener = useTaskOpener({
+    setSelectedTask, setLogs, setScreenshots, setAgentMessages, setTodoItems,
+    setSelectedAnswers, setOtherInputs, setShowOtherInput, setChatInput,
+    setChatAttachments, setPendingQuestions, setConversationItems, setSteps,
+    liveItems: () => conversationItemsRef.current,
+    livePendingQuestions: () => pendingQuestionsRef.current,
+  })
+  const loadTaskById = taskOpener.open
 
   // Profile state
   const [profiles, setProfiles] = useState<Profile[]>([])
@@ -274,15 +289,22 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listScopeKey, currentUser, stores])
 
+  // Keyed on user identity, not the object: profile edits (the Auto/Plan
+  // switch saves the default) re-ran this and retired the open task's
+  // own in-flight load, leaving its conversation empty.
+  const currentUserId = currentUser?.id
   useEffect(() => {
-    if (!currentUser) return
+    if (!currentUserId) { taskOpener.retire(); return } // signed out
     if (routeTaskId) {
+      // Back on the open task: retire a load for a different task.
       if (selectedTask?.id !== routeTaskId) loadTaskById(routeTaskId)
-    } else if (selectedTask) {
-      setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
+      else taskOpener.retire(routeTaskId)
+    } else {
+      taskOpener.retire()
+      if (selectedTask) { setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([]) }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeTaskId, currentUser])
+  }, [routeTaskId, currentUserId])
 
   useEffect(() => {
     if (!currentUser) return
@@ -438,44 +460,20 @@ export default function App() {
         })
       : navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
 
-  const loadTaskById = (taskId: string) =>
-    loadTaskByIdHandler(taskId, {
-      api, seqRef: loadTaskSeqRef,
-      setSelectedTask, setLogs, setScreenshots, setAgentMessages, setTodoItems,
-      setSelectedAnswers, setOtherInputs, setShowOtherInput, setChatInput,
-      setChatAttachments, setPendingQuestions, setConversationItems, setSteps,
-    })
 
-  const stopAgent = async () => { if (!selectedTask) return; try { await api.post(`/api/tasks/${selectedTask.id}/agent/stop`) } catch { /* ignore */ }; setPendingQuestions(null) }
-  const handlerDeps = {
-    api,
-    profileId: selectedProfileId,
-    setTasks,
-    setSelectedTask,
-    setScheduleTasks,
-  }
-  const retryTask = (taskId: string) =>
-    retryTaskHandler(taskId, {
-      ...handlerDeps,
-      onCleared: () => {
-        setSteps([]); setScreenshots({}); setAgentMessages([]); setTodoItems([]); setLogs([]); setConversationItems([]); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({})
-      },
-    })
-  const continueTask = (taskId: string) =>
-    continueTaskHandler(taskId, handlerDeps)
-  const deleteTask = (taskId: string) =>
-    deleteTaskHandler(taskId, {
-      api, tasks, scheduleTasks, selectedTask, setTasks, setScheduleTasks,
-      onSelectedCleared: () => {
-        setSelectedTask(null)
-        setSteps([]); setScreenshots({}); setLogs([]); setConversationItems([])
-        setAgentMessages([]); setTodoItems([]); setPendingQuestions(null)
-      },
-    })
+  // Header actions of the open task; each rejects when it did not go
+  // through (TasksView shows why), and a late response leaves another
+  // task's state alone.
+  const { stopAgent, retryTask, continueTask, deleteTask, isOpen } = useTaskActions({
+    selectedTask, profileId: selectedProfileId, tasks, scheduleTasks,
+    setTasks, setSelectedTask, setScheduleTasks,
+    clearQuestions: () => { setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}) },
+    clearDetail: () => { setSteps([]); setScreenshots({}); setAgentMessages([]); setTodoItems([]); setLogs([]); setConversationItems([]) },
+  })
   const selectAnswer = (questionText: string, answer: string) => { setSelectedAnswers(prev => ({ ...prev, [questionText]: answer })); setShowOtherInput(prev => ({ ...prev, [questionText]: false })); setOtherInputs(prev => ({ ...prev, [questionText]: '' })) }
   const toggleOtherInput = (questionText: string) => { setShowOtherInput(prev => { const show = !prev[questionText]; if (show) { setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } else { setOtherInputs(p => ({ ...p, [questionText]: '' })); setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } return { ...prev, [questionText]: show } }) }
   const setOtherAnswer = (questionText: string, text: string) => { setOtherInputs(prev => ({ ...prev, [questionText]: text })); if (text.trim()) { setSelectedAnswers(prev => ({ ...prev, [questionText]: text.trim() })) } else { setSelectedAnswers(prev => { const n = { ...prev }; delete n[questionText]; return n }) } }
-  const submitAllAnswers = async (overrideAnswers?: Record<string, string>) => { if (!selectedTask || !pendingQuestions) return; const answers = overrideAnswers || selectedAnswers; await api.post(`/api/tasks/${selectedTask.id}/questions/answer`, { request_id: pendingQuestions.request_id, answers }); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}) }
+  const submitAllAnswers = async (overrideAnswers?: Record<string, string>) => { if (!selectedTask || !pendingQuestions) return; const answers = overrideAnswers || selectedAnswers; const id = selectedTask.id; await api.post(`/api/tasks/${id}/questions/answer`, { request_id: pendingQuestions.request_id, answers }); if (!isOpen(id)) return; setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}) }
   const submitImageDecision = async (requestId: string, action: 'confirm' | 'cancel', prompt: string, model: string, addedReferences: string[] = []) => {
     if (!selectedTask) return
     // Optimistically mark the card resolved so its controls disable at
@@ -489,13 +487,18 @@ export default function App() {
       await api.post(`/api/tasks/${selectedTask.id}/image/confirm`, { request_id: requestId, action, prompt, model, added_references: addedReferences })
     } catch { /* the tool call will time out server-side if unresolved */ }
   }
-  const sendingRef = useRef(false)
+  // One in-flight guard per task: a send on B is not blocked by A's.
+  const sendingRefs = useRef(new Map<string, { current: boolean }>())
+  const sendingRefFor = (id: string) => {
+    if (!sendingRefs.current.has(id)) sendingRefs.current.set(id, { current: false })
+    return sendingRefs.current.get(id)!
+  }
   const sendChatMessage = () =>
     sendChatMessageHandler({
-      api, selectedTask, chatInput, attachments: chatAttachments,
-      profileId: selectedProfileId, conversationItems, sendingRef,
+      api, selectedTask, chatInput: chatDraft.get(), attachments: chatAttachments,
+      profileId: selectedProfileId, conversationItems, sendingRef: sendingRefFor(selectedTask?.id ?? ''),
       setChatInput, setAttachments: setChatAttachments, setAgentMessages,
-      setConversationItems, setSelectedTask, setTasks,
+      setConversationItems, setSelectedTask, setTasks, isOpen,
     })
 
   // ─── Profile helpers ───────────────────────────────
@@ -638,11 +641,13 @@ export default function App() {
           onOpenVisionSetup={() => { setAppView('settings'); setSettingsTab('aiAgent') }}
           isMobile={isMobile} onOpenNav={() => setNavOpen(true)}
           taskPanelActive={!!taskPanelActive} taskPanelTitle={taskPanelTitle}
-          tasks={tasks} tasksLoading={tasksLoading} selectedTask={selectedTask} steps={steps} screenshots={screenshots} logs={logs}
+          tasks={tasks} tasksLoading={tasksLoading} selectedTask={selectedTask} steps={steps}
+          taskLoad={taskOpener.taskLoad} onRetryTaskLoad={taskOpener.retry}
+          onLeaveTaskLoad={() => (routeStoreId ? navigate({ to: '/stores/$storeId', params: { storeId: routeStoreId } }) : navigate({ to: '/tasks' }))} screenshots={screenshots} logs={logs}
           agentMessages={agentMessages} todoItems={todoItems} pendingQuestions={pendingQuestions}
           conversationItems={conversationItems}
           selectedAnswers={selectedAnswers} otherInputs={otherInputs} showOtherInput={showOtherInput}
-          chatInput={chatInput} setChatInput={setChatInput}
+          chatDraft={chatDraft}
           chatAttachments={chatAttachments} setChatAttachments={setChatAttachments} debugMode={debugMode} setDebugMode={setDebugMode}
           profiles={profiles} selectedProfileId={selectedProfileId} setSelectedProfileId={setSelectedProfileId}
           currentUser={currentUser} showAllTasks={showAllTasks}

@@ -200,6 +200,11 @@ jobs:
         env:
           MOCK_CLI: tests/e2e/mock_cli.py
           VIBE_SELLER_TELEMETRY: '0'
+          # The tree under test is this PR, not main: no scheduled pulls
+          # from GitHub main, and no outside calls except in the e2e that
+          # test the sync jobs (they start their own server, switches on).
+          VIBE_GITHUB_MAIN_SYNC: 'off'
+          VIBE_EXTERNAL_SYNC: 'off'
           # The MCP files e2e parks an image-confirm card; fake vision
           # keeps it offline + deterministic (same flag the e2e-test
           # job sets).
@@ -368,12 +373,17 @@ jobs:
           # to the worker profile, so even UI-created tasks use it.
           API_TIMEOUT_MS: 3000000
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
-          # 6 workers each run one task, and the concurrency e2e
+          # Each worker runs one task, and the concurrency e2e
           # tests briefly run three — 16 keeps every slot prompt
           # without promising a stream burst the providers never see.
           MAX_AGENT_CONCURRENCY: 16
           AGENT_DEBUG: '1'
           VIBE_SELLER_TELEMETRY: '0'
+          # The tree under test is this PR, not main: no scheduled pulls
+          # from GitHub main, and no outside calls except in the e2e that
+          # test the sync jobs (they start their own server, switches on).
+          VIBE_GITHUB_MAIN_SYNC: 'off'
+          VIBE_EXTERNAL_SYNC: 'off'
           # Vision e2e must be offline + deterministic: fake image
           # generation. The vision test module skips itself unless the
           # server reports fake mode.
@@ -427,34 +437,58 @@ jobs:
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
           GLM_BASE_URL: ${{ secrets.GLM_BASE_URL }}
           GLM_MODEL: ${{ secrets.GLM_MODEL }}
-          E2E_WORKERS: 6
-          # 6 workers on the two providers this suite has always been
-          # proven on: minimax x4, glm x2 (no rate-limit event exists in
-          # any run's logs). The two-model tests (profile switch,
-          # compaction) take the first two DISTINCT providers here, so
-          # minimax and glm lead the map.
-          E2E_PROVIDER_MAP: minimax,glm,minimax,glm,minimax,minimax
+          QWEN_TOKEN_API_KEY: ${{ secrets.QWEN_TOKEN_API_KEY }}
+          QWEN_TOKEN_BASE_URL: ${{ secrets.QWEN_TOKEN_BASE_URL }}
+          QWEN_TOKEN_MODEL: ${{ secrets.QWEN_TOKEN_MODEL }}
+          # Which provider each worker runs on — a repo variable, so the
+          # mix AND the worker count change without a code change
+          # (Settings → Variables): one entry per worker, named after a
+          # preset whose {NAME}_API_KEY / _MODEL secrets are above. The two-model tests (profile switch,
+          # compaction) take the first two DISTINCT entries.
+          E2E_PROVIDER_MAP: ${{ vars.E2E_PROVIDER_MAP }}
           VIBE_ADS_SERVICE_URL: http://127.0.0.1:7791
         run: |
-          E2E_N="${E2E_WORKERS:-0}"
+          if [ -z "$E2E_PROVIDER_MAP" ]; then
+            echo "::error::repo variable E2E_PROVIDER_MAP is not set"
+            exit 1
+          fi
+          # One worker per map entry.
+          E2E_N=$(printf '%s' "$E2E_PROVIDER_MAP" | tr ',' '\n' | grep -c .)
           XDIST_ARGS=""
           if [ "$E2E_N" -gt 1 ] 2>/dev/null; then
-            # --dist worksteal: workers start with an even split and idle
-            # workers steal queued tests from busy ones, so one long LLM
-            # test no longer strands the tail on a single worker while
-            # the rest sit shut down (a 7-min skill test once landed as
-            # the suite's last queued item behind another test and the
-            # step timed out with three workers idle).
+            # --dist load --maxschedchunk 1: the controller hands the
+            # HEAD of the collection to whichever worker is free, ONE
+            # test at a time (xdist's own help: "send tests to workers
+            # one by one - might be useful for a small number of slow
+            # tests" — here a handful of 400s LLM runs), so the order the
+            # tests are collected in IS the order they start in — and
+            # tests/e2e/conftest.py collects them longest-first, from the
+            # measured durations.json. A measured run said why: 4880s of
+            # work over 6 workers took 1344s of wall time because the two
+            # ~400s tests only started at 910s and 943s, and four workers
+            # then sat idle for the last ~600s. The same durations,
+            # longest first, finish in ~814s — the floor (work / 6).
+            #
+            # worksteal cannot reach that by ordering alone: it cuts the
+            # collection into CONTIGUOUS chunks up front, steals only
+            # from the TAIL of another worker's queue, and never touches
+            # a RUNNING test, so a long test sitting late in a chunk
+            # starts late however the collection is sorted (a 7-min skill
+            # test once landed behind another test as a worker's last
+            # queued item and the step timed out with three workers
+            # idle).
             #
             # Do NOT go back to --dist loadgroup expecting
-            # @pytest.mark.xdist_group to serialize anything: in
-            # pytest-xdist 3.8 workers are launched without the CLI
-            # flags, so the worker-side `@group` nodeid rename never
-            # fires and loadgroup schedules exactly like `load`. The
-            # skill-mutating tests are safe to run concurrently because
-            # each owns exactly the skills it created (provenance-scoped
-            # snapshots + per-run slugs), not because of any pin.
-            XDIST_ARGS="-n $E2E_N --dist worksteal"
+            # @pytest.mark.xdist_group to serialize anything: since
+            # pytest 9.2 the worker-side `@group` nodeid rename no longer
+            # takes effect (nodeid is read-only over a structured id;
+            # pytest-xdist #1386, fix #1388 unreleased), so grouping
+            # silently degrades — and no test here carries the mark
+            # anyway. The skill-mutating tests are safe to run
+            # concurrently because each owns exactly the skills it
+            # created (provenance-scoped snapshots + per-run slugs), not
+            # because of any pin.
+            XDIST_ARGS="-n $E2E_N --dist load --maxschedchunk 1"
           fi
           uv run pytest tests/e2e --e2e -v --log-cli-level=INFO \
             --reruns 1 \
@@ -471,5 +505,19 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: e2e-server-logs
-          path: ~/.vibe-seller/logs/*.log
+          # TWO places, because the tier runs TWO kinds of server:
+          #   * the SHARED server, started by `vibe-seller start`, whose
+          #     daemon stdout/stderr the CLI captures into the runtime
+          #     home's logs/backend_<port>.log;
+          #   * every server a test OWNS (tests/e2e/own_server.py) is
+          #     started through ./start.sh, which exports
+          #     LOG_DIR="<checkout>/logs" — its backend_<port>.log and
+          #     backend_stdout_<port>.log land in the repo's logs/ (the
+          #     shared server's own app log does too, since LOG_DIR is
+          #     unset there and defaults to the checkout). Without this
+          #     path an owned server's log is lost exactly when its test
+          #     failed.
+          path: |
+            ~/.vibe-seller/logs/*.log
+            logs/*.log
           retention-days: 14

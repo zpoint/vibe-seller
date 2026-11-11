@@ -8,10 +8,10 @@ Three shipped reference docs used to instruct agents to regenerate it
 inline with every wrapper call. An agent following that landed each
 command in a DIFFERENT, empty session — one live run made 204
 browser-use calls and paid 34 re-navigations and 122 sleeps because no
-page state carried over. It also leaked from the reviewer docs into the
+page state carried over. It also leaked from the reference docs into the
 main agent, which reads the same references.
 
-A reviewer subagent does not need its own id: session and client id both
+A background subagent does not need its own id: session and client id both
 derive from the same variable, so inheriting it puts the subagent on the
 same daemon as the parent, where calls serialize and the page persists.
 """

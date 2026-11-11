@@ -12,11 +12,16 @@ import logging
 import pytest
 
 import app.browser.daemon_reaper as reaper
+from app.env_options import Options
+from app.plugins import ExtensionContext
 import app.scheduler.cron as cron
 from app.sync import jobs as sync_jobs, state as sync_state
 from app.sync.scheduler import (
+    REASON_EVENT,
     REASON_MANUAL,
     REASON_TICK,
+    SOURCE_EXTERNAL,
+    SOURCE_GITHUB_MAIN,
     Cadence,
     SyncContext,
     SyncJob,
@@ -25,6 +30,7 @@ from app.sync.scheduler import (
     cadence_seconds,
     offset_seconds,
     parse_cadence_overrides,
+    timers_armed,
 )
 from tests.fixtures.fake_sync_state import FakeState
 
@@ -69,10 +75,11 @@ class Recorder:
 def _armed_schedule(monkeypatch):
     """Every test here is about the schedule — arm it by default.
 
-    The suite-wide ``VIBE_SYNC_DISABLED`` (which disarms the timers)
-    is what the disarm test exercises, explicitly.
+    The suite-wide ``VIBE_GITHUB_MAIN_SYNC=off`` (which keeps the
+    GitHub-main pulls from ticking) is exercised explicitly below.
     """
-    monkeypatch.delenv('VIBE_SYNC_DISABLED', raising=False)
+    monkeypatch.delenv('VIBE_GITHUB_MAIN_SYNC', raising=False)
+    monkeypatch.delenv('VIBE_EXTERNAL_SYNC', raising=False)
 
 
 @pytest.fixture
@@ -122,7 +129,8 @@ async def test_duplicate_job_name_is_refused(sched):
 async def test_plugin_sync_jobs_are_registered_alongside_core(
     monkeypatch, aps, state
 ):
-    monkeypatch.delenv('VIBE_SYNC_DISABLED', raising=False)
+    monkeypatch.delenv('VIBE_GITHUB_MAIN_SYNC', raising=False)
+    monkeypatch.delenv('VIBE_EXTERNAL_SYNC', raising=False)
     plugin_job = job('plugin_thing', run=Recorder())
     monkeypatch.setattr(sync_jobs, 'registered_sync_jobs', lambda: [plugin_job])
     names = await sync_jobs.register_jobs(SyncScheduler(aps))
@@ -513,7 +521,8 @@ async def test_email_and_daemon_reaper_are_on_the_registry(
     aps, state, monkeypatch
 ):
     """M3: both left their own loops behind for the one scheduler."""
-    monkeypatch.delenv('VIBE_SYNC_DISABLED', raising=False)
+    monkeypatch.delenv('VIBE_GITHUB_MAIN_SYNC', raising=False)
+    monkeypatch.delenv('VIBE_EXTERNAL_SYNC', raising=False)
     sched = SyncScheduler(aps)
     await sched.register_all(sync_jobs.core_jobs())
     jobs = sched.jobs
@@ -546,3 +555,126 @@ async def test_ready_times_out_instead_of_holding_a_launch(sched, state):
 
     rec.release.set()
     await running
+
+
+# ── the two switches: only outside sources can be stopped ─────────
+
+GITHUB_MAIN_JOBS = {'skills', 'knowledge', 'presets', 'vision_catalog'}
+EXTERNAL_JOBS = {'model_pricing', 'ads_skill', 'vision_catalog'}
+SWITCHES = ('VIBE_GITHUB_MAIN_SYNC', 'VIBE_EXTERNAL_SYNC')
+
+
+@pytest.fixture
+def switches_on(monkeypatch):
+    for name in SWITCHES:
+        monkeypatch.delenv(name, raising=False)
+
+
+def _stopped():
+    return {j.name for j in sync_jobs.core_jobs() if not timers_armed(j)}
+
+
+def test_each_job_names_its_outside_sources():
+    jobs = {j.name: j.sources for j in sync_jobs.core_jobs()}
+    assert {n for n, s in jobs.items() if SOURCE_GITHUB_MAIN in s} == (
+        GITHUB_MAIN_JOBS
+    )
+    assert {n for n, s in jobs.items() if SOURCE_EXTERNAL in s} == (
+        EXTERNAL_JOBS
+    )
+    assert jobs['email'] == frozenset()
+    assert jobs['daemon_reaper'] == frozenset()
+
+
+@pytest.mark.parametrize('value', ['off', 'OFF', '0', 'false', 'no'])
+def test_github_main_switch_stops_only_github_main_pulls(
+    switches_on, monkeypatch, value
+):
+    monkeypatch.setenv('VIBE_GITHUB_MAIN_SYNC', value)
+    assert _stopped() == GITHUB_MAIN_JOBS
+
+
+def test_external_switch_stops_only_outside_hosts(switches_on, monkeypatch):
+    monkeypatch.setenv('VIBE_EXTERNAL_SYNC', 'off')
+    assert _stopped() == EXTERNAL_JOBS
+
+
+@pytest.mark.parametrize('value', ['', 'on', '1', 'true'])
+def test_every_job_ticks_by_default(switches_on, monkeypatch, value):
+    for name in SWITCHES:
+        monkeypatch.setenv(name, value)
+    assert _stopped() == set()
+
+
+def test_no_env_var_can_stop_the_products_own_work(monkeypatch):
+    """Mail polling and the daemon reaper have no switch: set every
+    option the app reads to every 'off' spelling and they still tick."""
+    own = [j for j in sync_jobs.core_jobs() if not j.sources]
+    assert {j.name for j in own} == {'email', 'daemon_reaper'}
+    for off in ('off', '0', 'false', 'no', '1'):
+        for opt in Options:
+            monkeypatch.setenv(opt.value[0], off)
+        assert all(timers_armed(j) for j in own), off
+
+
+async def test_a_stopped_job_still_runs_on_demand(monkeypatch, aps, state):
+    monkeypatch.setenv('VIBE_GITHUB_MAIN_SYNC', 'off')
+    rec = Recorder()
+    sched = SyncScheduler(aps)
+    await sched.register(
+        job('skills', run=rec, sources=frozenset({SOURCE_GITHUB_MAIN}))
+    )
+    assert 'skills' not in sched._next
+    await sched.trigger('skills', reason=REASON_EVENT, force=True)
+    assert len(rec.calls) == 1
+
+
+async def test_external_switch_stops_a_plugin_job_that_names_no_source(
+    switches_on, monkeypatch, aps, state
+):
+    """A plugin job reaches some outside host; unless it says otherwise
+    it is an external source, so ``VIBE_EXTERNAL_SYNC=off`` (what CI
+    sets) keeps it from ticking — it must not poll a network in tests."""
+    ctx = ExtensionContext()
+    ctx.register_sync_job(
+        SyncJob(name='plugin_thing', cadence=Cadence.DAILY, run=Recorder())
+    )
+    monkeypatch.setattr(
+        sync_jobs, 'registered_sync_jobs', lambda: ctx.sync_jobs
+    )
+    monkeypatch.setenv('VIBE_EXTERNAL_SYNC', 'off')
+    sched = SyncScheduler(aps)
+    await sync_jobs.register_jobs(sched)
+    assert 'plugin_thing' in sched.names()
+    assert 'plugin_thing' not in sched._next
+    assert 'email' in sched._next
+
+
+@pytest.mark.parametrize('value', ['1', 'true'])
+async def test_retired_sync_disabled_warns_at_boot_naming_replacements(
+    switches_on, monkeypatch, aps, state, caplog, value
+):
+    monkeypatch.setenv('VIBE_SYNC_DISABLED', value)
+    monkeypatch.setattr(sync_jobs, 'registered_sync_jobs', lambda: [])
+    with caplog.at_level(logging.WARNING, logger='app.sync'):
+        await sync_jobs.register_jobs(SyncScheduler(aps))
+    warnings = [
+        r.getMessage()
+        for r in caplog.records
+        if 'VIBE_SYNC_DISABLED' in r.getMessage()
+    ]
+    assert len(warnings) == 1
+    assert 'VIBE_GITHUB_MAIN_SYNC=off' in warnings[0]
+    assert 'VIBE_EXTERNAL_SYNC=off' in warnings[0]
+
+
+async def test_no_retired_switch_warning_when_unset(
+    switches_on, monkeypatch, aps, state, caplog
+):
+    monkeypatch.delenv('VIBE_SYNC_DISABLED', raising=False)
+    monkeypatch.setattr(sync_jobs, 'registered_sync_jobs', lambda: [])
+    with caplog.at_level(logging.WARNING, logger='app.sync'):
+        await sync_jobs.register_jobs(SyncScheduler(aps))
+    assert not any(
+        'VIBE_SYNC_DISABLED' in r.getMessage() for r in caplog.records
+    )

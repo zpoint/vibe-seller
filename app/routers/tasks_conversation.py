@@ -6,19 +6,19 @@ import json
 import logging
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import telemetry, vision
+from app import question_cards, telemetry, vision
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID
-from app.ai.stop_gates import report_reviewer
 from app.auth import get_current_user
 from app.browser.manager import browser_manager
 from app.database import get_db
 from app.events.bus import event_bus
+from app.models.ad_declaration import AdTaskDeclaration
 from app.models.schedule import Schedule
 from app.models.store import Store
 from app.models.task import Task
@@ -31,6 +31,7 @@ from app.routers.dida365_oauth import refresh_token_if_needed
 from app.routers.tasks_files import promote_staged_attachments
 from app.scheduler.task_queue import task_queue_scheduler
 from app.task_chat_context import build_chat_context
+from app.task_delete import clear_gate_state
 from app.task_launch import schedule_or_run
 from app.task_outcome import clear_run_state
 from app.task_runner import (
@@ -102,6 +103,7 @@ async def get_next_seq(db: AsyncSession, task_id: str) -> int:
 async def send_task_message(
     task_id: str,
     body: dict,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
@@ -110,6 +112,13 @@ async def send_task_message(
     If profile_id differs from the task's current profile, the agent is
     restarted with the new profile environment and full chat history.
     """
+    # A user message is a person's (the app, or their API token): it is
+    # what lets an ad task execute what an audit proposed. The service
+    # credential an agent's environment holds may not speak as them.
+    if getattr(request.state, 'auth_via', None) == 'service':
+        raise HTTPException(
+            status_code=403, detail='Task messages come from a person.'
+        )
     # Untyped body — sanitize here, since SafeStr cannot reach it. The
     # content is written to the agent's stdin, which encodes UTF-8.
     body = sanitize_json(body)
@@ -130,16 +139,6 @@ async def send_task_message(
         send_plan_verdict(task_id, approved=False)
     else:
         send_message_submitted(task_id)
-
-    # A message on a task that already COMPLETED is a follow-up to
-    # finished, reviewed work: the DoD reviewer stands down for it (see
-    # ``report_reviewer.mark_followup``). Decided from the status AT
-    # ARRIVAL, before any branch below moves it. A failed/stopped run
-    # being continued is not a follow-up — its deliverable was never
-    # accepted, so it is still reviewed. A plan-only task never executed
-    # anything, so there is nothing finished to follow up on.
-    if task.status == TaskStatus.COMPLETED and not task.is_plan_only:
-        report_reviewer.mark_followup(task_id)
 
     requested_profile_id = body.get(
         'profile_id', task.ai_profile_id or DEFAULT_PROFILE_ID
@@ -209,10 +208,6 @@ async def send_task_message(
     # content so promoted attachments reach it (send_message stdin, wake
     # trigger_data, resume/fresh-session prompt all read ``content``).
     content = agent_content
-    # Tell the agent too: a skill's review loop — already in a resumed
-    # session, or loaded later this turn — would have it review anyway.
-    if report_reviewer.is_followup(task_id):
-        content += report_reviewer.FOLLOWUP_NOTE
 
     # Canonical "message accepted" fields every return path echoes, so the
     # client can render the exact stored bubble (thumbnails, not paths).
@@ -345,7 +340,8 @@ async def send_task_message(
     # plan-feedback routes above. FAILED counts ONLY with ``started_at is
     # None`` — a plan-mode task that failed BEFORE plan approval died in
     # planning, so a follow-up must resume PLANNING (else it fell through
-    # to auto and ran a review-first task unreviewed under bypass). A
+    # to auto and executed a plan-mode task whose plan nobody ever
+    # reviewed, under bypass). A
     # COMPLETED task with no ``started_at`` (plan-skip: result without
     # ExitPlanMode) stays auto — its work is done, per the plan-skip
     # contract.
@@ -564,6 +560,7 @@ async def answer_question(
     # The answer lands on the agent's own task later — hand the
     # answering channel over by request_id (see app.telemetry_via).
     note_answer_via(request_id)
+    question_cards.note(task_id)
 
     # Path 1: live session
     submitted = await agent_manager.submit_answer(task_id, request_id, answers)
@@ -642,13 +639,18 @@ async def retry_task(
         )
     )
     await db.execute(delete(TaskLog).where(TaskLog.task_id == task_id))
+    # The run's ad declarations go with its messages: left behind, the
+    # fresh run (zero user turns) read as the same turn as the old
+    # "execute", so it could execute without the user answering.
+    await db.execute(
+        delete(AdTaskDeclaration).where(AdTaskDeclaration.task_id == task_id)
+    )
 
     # Retry = a truly fresh start: wipe on-disk runtime state (workspace +
     # Claude Code's per-task Task/todo store + project transcripts) so a
     # prior run's todos/refs can't leak into the new session. See helper.
     await asyncio.to_thread(reset_task_runtime_state, task_id)
-    # A retry starts the task over: its first run is reviewed again.
-    report_reviewer.clear_followup(task_id)
+    await asyncio.to_thread(clear_gate_state, task_id)
 
     store = None
     if task.store_id:
@@ -726,11 +728,11 @@ async def retry_task(
     # If this child was retried, revert parent to WAITING
     await reopen_parent_if_child_active(task, db)
     # Retry is a DESTRUCTIVE fresh restart, so WIPE the per-task
-    # workspace (best-effort). Leftover run data — above all the review
-    # dumps under tasks/<id>/reviews/ — must not survive into the new
-    # run: a prior run's files let the agent "resume" stale data or bless
-    # them via a DoD-reviewer subagent instead of re-collecting, which is
-    # exactly the freshness hole this closes. Incremental resume that
+    # workspace (best-effort). Leftover run data — above all a prior
+    # run's collected captures — must not survive into the new run: a
+    # prior run's files let the agent "resume" stale data instead of
+    # re-collecting, which is exactly the freshness hole this closes.
+    # Incremental resume that
     # WANTS to keep banked progress (ad-audit reports/TSVs) goes through
     # Continue (POST /messages), which never wipes — see
     # test_wf_continue_vs_retry.

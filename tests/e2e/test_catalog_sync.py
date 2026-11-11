@@ -7,6 +7,17 @@ Single test flow:
   4. Verify isolation (L1 ⊄ L2, L2 ⊄ L3, store_a ⊄ store_b)
   5. Agent finds SECRET via catalog (not by globbing)
   6. No Glob/Grep on symlinked dirs (knowledge/, stores/)
+
+**This module owns its server.** Every step is server-global: the
+catalog sync is ONE system schedule whose fanout rebuilds the catalog of
+EVERY store on the server, and a knowledge file written for it makes
+every store's catalog stale. On the shared e2e server another xdist
+worker was inside that same tree while this test sat between its syncs
+(observed in CI: the store the knowledge-cleanup test expected to be
+skipped was rebuilt under it). A dedicated port and a dedicated
+``VIBE_HOME`` — ``owned_agent_stack`` over ``tests/e2e/own_server.py`` —
+make that impossible rather than merely locked: no worker can observe or
+change this test's catalogs, and this test cannot touch anybody else's.
 """
 
 from datetime import UTC, datetime
@@ -20,36 +31,52 @@ import httpx
 import pytest
 
 from app.browser.manager import store_slug as _store_slug
-from app.config import VIBE_SELLER_DIR
 from app.models.schedule_constants import SYSTEM_CATALOG_SYNC_ID
 from tests.e2e import e2e_helpers
 from tests.e2e.e2e_helpers import (
-    BASE_URL,
     PIPELINE_TIMEOUT,
     create_store,
     create_task,
     get_messages,
     poll_task_status,
 )
+from tests.e2e.own_server import owned_agent_stack
 
 pytestmark = [pytest.mark.e2e]
 
 FAKE_PLATFORM = 'amazon'
 FAKE_COUNTRY = 'PL'
 
-# The SERVER's workspace, resolved through app.config: the root
-# conftest points the test process's home at the server's home for
-# e2e runs (E2E_VIBE_HOME / VIBE_HOME), so seeding files here lands
-# where the server's workspace manager reads them — never blindly in
-# the developer's ~/.vibe-seller.
-KNOWLEDGE_DIR = VIBE_SELLER_DIR / 'knowledge'
-STORES_DIR = VIBE_SELLER_DIR / 'stores'
+# Set by the module fixture (own_stack) to THIS module's own server and
+# its own home: seeding files here lands where the server's workspace
+# manager reads them, and never in a shared or a developer's
+# ~/.vibe-seller.
+BASE_URL = ''
+HOME: Path = Path()
+KNOWLEDGE_DIR: Path = Path()
+STORES_DIR: Path = Path()
+
+
+@pytest.fixture(scope='module', autouse=True)
+def own_stack(tmp_path_factory):
+    """Run this module against a server, and a home, it owns alone.
+
+    One per WORKER (a module-scoped fixture): the module's tests are
+    the module's own, so whoever runs them gets a private stack.
+    """
+    global BASE_URL, HOME, KNOWLEDGE_DIR, STORES_DIR
+    with owned_agent_stack(tmp_path_factory, 'catalog-sync') as server:
+        BASE_URL = server.base_url
+        HOME = server.home
+        KNOWLEDGE_DIR = HOME / 'knowledge'
+        STORES_DIR = HOME / 'stores'
+        yield server
 
 
 @pytest.fixture(scope='module')
-def api_client():
+def api_client(own_stack):
     client = httpx.Client(timeout=30)
-    _login_client(client)
+    login_client(client, BASE_URL)
     yield client
     client.close()
 
@@ -80,11 +107,16 @@ def store_b(api_client: httpx.Client) -> dict:
     )
 
 
-def _login_client(client: httpx.Client) -> None:
+def login_client(client: httpx.Client, base_url: str) -> None:
+    """Login as the seeded admin on the server this module owns.
+
+    Its own home means its own fresh DB, so the seeded credentials are
+    what is there — no shared-server account to inherit.
+    """
     for attempt in range(5):
         try:
             client.post(
-                f'{BASE_URL}/api/auth/login',
+                f'{base_url}/api/auth/login',
                 json={
                     'identifier': 'admin@vibe-seller.local',
                     'password': 'admin',
@@ -98,7 +130,7 @@ def _login_client(client: httpx.Client) -> None:
                 raise
 
 
-def _write_file(path: Path, content: str) -> None:
+def write_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding='utf-8')
 
@@ -154,9 +186,10 @@ def _warn_if_glob_grep_on_symlinks(
                     return
 
 
-def _trigger_catalog_sync(
+def trigger_catalog_sync(
     client: httpx.Client,
     keep_store_ids: set[str],
+    base_url: str,
 ) -> tuple[list[dict], list[dict]]:
     """Trigger real catalog sync fanout, poll until done.
 
@@ -166,8 +199,16 @@ def _trigger_catalog_sync(
     Returns ``(relevant, others)`` where *relevant* are L2 + test
     store tasks and *others* are tasks for unrelated stores
     (expected to skip via staleness check).
+
+    *base_url* is required, never defaulted: this drives the ONE system
+    schedule whose fanout rebuilds every store's catalog on THAT server,
+    so it must name the server it owns the run on — and it refuses the
+    shared one outright.
     """
-    base = f'{BASE_URL}/api/schedules/{SYSTEM_CATALOG_SYNC_ID}'
+    e2e_helpers.assert_not_the_shared_server(
+        base_url, 'the global catalog sync fanout'
+    )
+    base = f'{base_url}/api/schedules/{SYSTEM_CATALOG_SYNC_ID}'
 
     # Snapshot the batch ids that already exist, so the trigger below can
     # be identified by the one it adds. Every task a fanout creates — the
@@ -187,15 +228,14 @@ def _trigger_catalog_sync(
     resp.raise_for_status()
     seen_batches = {t['batch_id'] for t in resp.json() if t.get('batch_id')}
 
-    # Pin the shared system schedule to THIS worker's provider before
-    # firing. conftest's _setup_worker_profile pins every 'default'
-    # schedule at session start so nothing falls through to Claude —
-    # but `_catalog_sync` is one row on one server, and each xdist worker
-    # runs that setup. Observed live: two workers both saw 'default' and
-    # both wrote, so the last writer's provider won, and this test ran
-    # its catalog tasks on a provider its worker was never assigned (one
-    # that had run out of quota), failing a GLM-mapped worker on MiniMax.
-    # The worker that triggers the sync owns its provider for the run.
+    # Pin the system schedule to the provider THIS run was configured
+    # with, at trigger time. The profile setup pins every schedule still
+    # resolving to 'default', but `_catalog_sync` is ai_bot-owned and the
+    # run may re-point the provider after that setup — and on the shared
+    # server it used to be one row that several workers wrote: two saw
+    # 'default' and both pinned, so the last writer's provider won and
+    # the catalog tasks ran on a provider the worker was never assigned
+    # (one out of quota). Trigger-time pinning is the one that holds.
     profile_id = e2e_helpers.DEFAULT_PROFILE_ID
     if profile_id:
         pinned = client.put(base, json={'ai_profile_id': profile_id})
@@ -303,12 +343,13 @@ class TestCatalogSystem:
 
         # ── Setup: write knowledge + store files ──
         # Enforce the invariant "exactly one verification secret exists".
-        # This test writes into the SHARED ~/.vibe-seller/knowledge; a
-        # prior run (or a rerun after a failure) leaves its PL-*.md secret
-        # file behind, so the find-secret agent below sees TWO secrets and
-        # can report the wrong one (observed flake: two tokens present,
-        # agent returned the first-listed). Delete stale verification
-        # stubs first so the invariant is guaranteed, not hoped for.
+        # The home is this module's own, but a rerun (or a retry of the
+        # task) reuses it inside the same session and its PL-*.md secret
+        # file is still there, so the find-secret agent below would see
+        # TWO secrets and could report the wrong one (observed flake: two
+        # tokens present, agent returned the first-listed). Delete stale
+        # verification stubs first so the invariant is guaranteed, not
+        # hoped for.
         _amazon_dir = KNOWLEDGE_DIR / FAKE_PLATFORM
         for stale in _amazon_dir.glob(f'{FAKE_COUNTRY}-*.md'):
             try:
@@ -339,33 +380,34 @@ class TestCatalogSystem:
         # "near-empty" and gets stubbed as "Empty/stub", which hides
         # WHERE the secret is and forces the find-secret agent to grep
         # instead of using the catalog).
-        _write_file(
+        write_file(
             KNOWLEDGE_DIR / l2_file,
             (
                 '# Catalog Verification\n\n'
-                'This knowledge file exists to verify the catalog-first '
+                'This knowledge file exists to verify the catalog '
                 'lookup flow end to end. Its topic is the verification '
                 'secret that a catalog-driven task should return.\n\n'
                 f'SECRET: {secret}\n'
             ),
         )
 
-        _write_file(
+        write_file(
             STORES_DIR / slug_a / 'notes.md',
             '# Store A Notes\n\nStore A specific.\n',
         )
         _write_store_metadata(slug_a, {FAKE_PLATFORM: [FAKE_COUNTRY]})
 
-        _write_file(
+        write_file(
             STORES_DIR / slug_b / 'notes.md',
             '# Store B Notes\n\nStore B specific.\n',
         )
         _write_store_metadata(slug_b, {FAKE_PLATFORM: ['SG']})
 
         # ── Step 1: Trigger real catalog sync fanout (L2 + L3) ──
-        sync_tasks, other_tasks = _trigger_catalog_sync(
+        sync_tasks, other_tasks = trigger_catalog_sync(
             api_client,
             keep_store_ids={store_a['id'], store_b['id']},
+            base_url=BASE_URL,
         )
         for t in sync_tasks:
             assert t['status'] == 'completed', (
@@ -441,7 +483,6 @@ class TestCatalogSystem:
                 'files for this store. Report just the '
                 'SECRET value.'
             ),
-            skip_reflection=True,
         )
 
         result = poll_task_status(
@@ -461,11 +502,9 @@ class TestCatalogSystem:
         # The agent is judged on its answer, not on its route to it. Two
         # stricter checks lived here — a cap of 8 total turns, then "no
         # search between reading the catalog and opening the file" — and
-        # both tracked model habit instead: GLM passed by trying a grep
-        # first (refused by the server's catalog guard), MiniMax failed for
-        # re-checking its answer and narrating. What the catalog system
-        # owes is asserted above: the secret's file is in store A's
-        # catalog (``l2_file in l3_a``). Searching before the catalog is
-        # refused server-side (``catalog_guard``), not here.
+        # both tracked model habit instead: MiniMax failed for re-checking
+        # its answer and narrating. What the catalog system owes is
+        # asserted above: the secret's file is in store A's catalog
+        # (``l2_file in l3_a``).
         messages = get_messages(api_client, task['id'])
         _warn_if_glob_grep_on_symlinks(messages, 'find_secret')

@@ -1,18 +1,17 @@
 """Refuse a report-download result that under-delivered.
 
-Called directly from ``set_task_result`` (the same shape as
-``check_exec_review_status``) rather than registered as a skill-declared
-stop gate, because deciding what a run owed needs the store row and the
-calendar — a DB session and a date, neither of which the sync gate
+Called directly from ``set_task_result`` rather than registered as a
+skill-declared stop gate, because deciding what a run owed needs the
+store row and the calendar — a DB session and a date, neither of which the sync gate
 contract carries.
 
 Scope is deliberately narrow, and narrow in the fail-safe direction: the
 check only engages for a store-scoped task whose workspace already holds
 at least one ``reports_*`` folder. A task that downloaded no report
 folders is not a report run and is left alone. This mirrors how the ad
-completeness gate only bites a report presenting per-marketplace
-sections — the failure mode is "we asked for less than we could have",
-never "we invented an obligation".
+coverage gate owes only what the task declared — the failure mode is
+"we asked for less than we could have", never "we invented an
+obligation".
 
 The month is taken from the calendar, never from the folder names the
 agent produced. Reading the expected set out of the agent's own output is

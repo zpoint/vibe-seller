@@ -90,7 +90,7 @@ def test_turn_close_blocked_while_bg_shell_running():
     s._track_async_agents(
         _notification('<task-notification>\n<task-id>bg-1</task-id>')
     )
-    # No audit files in the temp workspace → review gate is a no-op, so
+    # No audit files in the temp workspace → the turn hold is a no-op, so
     # once the bg command clears the turn is closable.
     assert s._turn_close_blocked() != 'async_work_running'
 
@@ -115,7 +115,7 @@ def test_reading_or_stopping_a_task_does_not_track():
     assert not s._async_agents
 
 
-def _spawned_reviewer(s):
+def _spawned_subagent(s):
     s._agent_spawn_ids = {'spawn-1'}
     s._track_async_agents(
         _tool_result(
@@ -136,14 +136,14 @@ _TASK_OUTPUT = (
 def test_task_output_reporting_completed_clears_the_subagent():
     """The CLI's own TaskOutput answer is a completion.
 
-    Observed live: an agent polled its DoD reviewer with TaskOutput and
-    got ``<status>completed</status>``; no <task-notification> ever
-    reached the stream, so the tracker kept the reviewer "running", the
-    gate re-drove the turn five times, then shipped the result as
-    UNVERIFIED although the reviewer had written ``Status: ok``.
+    Observed live: an agent polled a background subagent with TaskOutput
+    and got ``<status>completed</status>``; no <task-notification> ever
+    reached the stream, so the tracker kept the subagent "running", the
+    hold re-drove the turn five times, then shipped the result with the
+    open-work banner although the subagent had written ``Status: ok``.
     """
     s = _session()
-    _spawned_reviewer(s)
+    _spawned_subagent(s)
     s._track_async_agents(
         _tool_result(_TASK_OUTPUT.format(tid='agt-9', status='completed'))
     )
@@ -153,7 +153,7 @@ def test_task_output_reporting_completed_clears_the_subagent():
 
 def test_task_output_reporting_running_keeps_it_tracked():
     s = _session()
-    _spawned_reviewer(s)
+    _spawned_subagent(s)
     s._track_async_agents(
         _tool_result(_TASK_OUTPUT.format(tid='agt-9', status='running'))
     )
@@ -162,7 +162,7 @@ def test_task_output_reporting_running_keeps_it_tracked():
 
 def test_task_stop_on_a_finished_task_clears_it():
     s = _session()
-    _spawned_reviewer(s)
+    _spawned_subagent(s)
     s._track_async_agents(
         _tool_result(
             '<tool_use_error>Task agt-9 is not running (status: completed)'
@@ -174,7 +174,7 @@ def test_task_stop_on_a_finished_task_clears_it():
 
 def test_another_tasks_completion_does_not_clear_this_one():
     s = _session()
-    _spawned_reviewer(s)
+    _spawned_subagent(s)
     s._track_async_agents(
         _tool_result(_TASK_OUTPUT.format(tid='agt-other', status='completed'))
     )
@@ -194,11 +194,12 @@ def _system_notification(status: str, **ids) -> dict:
 def test_the_streams_system_notification_releases_the_subagent():
     """On current CLIs the system event is the ONLY completion record —
     stream-json never echoes the ``<task-notification>`` message (zero in
-    whole CI runs). Held until that message, a finished reviewer read as
-    "still running" at every result: five gate re-drives, then the turn
-    shipped UNVERIFIED with "Done." as its card (observed in CI)."""
+    whole CI runs). Held until that message, a finished subagent read as
+    "still running" at every result: five hold re-drives, then the turn
+    shipped with the open-work banner and "Done." as its card (observed
+    in CI)."""
     s = _session()
-    _spawned_reviewer(s)
+    _spawned_subagent(s)
     assert 'still running' in s._async_agents_pending_reason()
     s._track_async_agents(
         _system_notification(
@@ -212,21 +213,21 @@ def test_the_streams_system_notification_releases_the_subagent():
 @pytest.mark.parametrize('status', ['failed', 'killed', 'stopped'])
 def test_any_terminal_status_releases(status):
     s = _session()
-    _spawned_reviewer(s)
+    _spawned_subagent(s)
     s._track_async_agents(_system_notification(status, tool_use_id='spawn-1'))
     assert s._async_agents == {}
 
 
 def test_a_running_system_notification_keeps_it_tracked():
     s = _session()
-    _spawned_reviewer(s)
+    _spawned_subagent(s)
     s._track_async_agents(_system_notification('running', task_id='agt-9'))
     assert s._async_agents.get('spawn-1') == 'agt-9'
 
 
 def test_partly_finished_work_still_says_wait():
     s = _session()
-    _spawned_reviewer(s)
+    _spawned_subagent(s)
     s._track_async_agents(_tool_result('running in background with ID: bg-1'))
     s._track_async_agents(
         _system_notification('completed', task_id='agt-9', tool_use_id='x')

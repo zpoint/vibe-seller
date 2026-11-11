@@ -1,9 +1,17 @@
 # Noon FBN — per-SKU fee reports (storage, RTV removal)
 
-> Loaded from `noon-fbn/SKILL.md` § 8. Read this when a task needs
-> **per-SKU** FBN charges — monthly storage, long-term storage,
-> non-saleable ageing storage, RTV removal — rather than the single
-> lumped settlement line the Transaction View gives you.
+Read from `noon-fbn` § 8 when a task needs **per-SKU** FBN charges —
+monthly storage, long-term storage, non-saleable ageing storage, RTV
+removal — rather than the single lumped settlement line the Transaction
+View gives you.
+
+## Contents
+
+1. Page + report catalogue
+2. Generating a missing report
+3. Downloading — naming, checking, empty files
+4. Reconciliation
+5. Column shapes + join keys
 
 The Transaction View export (see `noon-exports` § 2) reports the whole
 month's FBN storage settlement as **one `balance_transfer` row** with an
@@ -28,157 +36,149 @@ Reports page is where the per-SKU decomposition lives.
 The **four bolded Finance reports are the complete decomposition** of the
 storage settlement (see § 4). The others are not needed for fee work.
 
-### Critical facts
+### Facts that shape the flow
 
-1. **There is NO country field in the modal.** The report's country comes
+1. **There is no country field in the modal.** The report's country comes
    from the **`en-{cc}` segment of the page URL**. To generate an AE
-   report you must be on `…/en-ae/fbnreports…`. Generating from
+   report, be on `…/en-ae/fbnreports…`. Generating from
    `en-sa` silently produces an `sa` report.
 2. **The report LIST is project-wide** — an `en-sa` page lists both `sa`
    and `ae` rows. So you only need to switch URL to *generate*, never to
    *download*.
 3. **`Service Month` is a month picker**, not a date range. Future
-   months are greyed out. The field must read `YYYY-MM` before the
-   modal's `Generate Report` submits — verify it, don't assume the click
-   landed.
-4. **Modal geometry moves.** The category select sits higher when no
-   report is chosen yet (fewer fields rendered). Never hardcode
-   coordinates — locate each control by its placeholder
-   (`Select a category` / `Select a report` / `Select month`) and read
-   its rect. Reload the page between generations; a stale modal is the
-   usual cause of a "category not found" failure.
+   months are greyed out. Read the field back as `YYYY-MM` before
+   submitting rather than assuming the click landed.
+4. **The modal layout moves** as fields render, so locate each control
+   by its placeholder (`Select a category` / `Select a report` /
+   `Select month`) at click time. Reload the page between generations; a
+   stale modal is the usual cause of a "category not found" failure.
 5. **Status is `Pending → Complete`.** Small reports finish in well
    under a minute; a data-heavy Monthly Storage report can take a few.
-   `Nr. of Rows` shows `...` for some completed reports — that is a UI
-   placeholder, **not** an error and **not** an empty report.
+   `Nr. of Rows` shows a number for a populated report and `...` for an
+   empty one. `...` is not an error, but don't assert on it either —
+   download the file and classify it (§ 3).
 
 ## 2. Generating a missing report
 
-Reports are not auto-generated for every month/country — a country can
-simply be **missing** one (observed live: a store had Monthly / LTS /
-Non-Saleable for one month but **no RTV Removal report at all** for one
-of its two countries). Always reconcile (§ 4); if the sum doesn't close,
-a report is missing, not "noon rounds differently".
+Reports are not generated automatically for every month and country — a
+country can simply be missing one (e.g. Monthly / LTS / Non-Saleable
+present but no RTV Removal). Reconcile (§ 4); if the sum doesn't close, a
+report is missing, not rounded differently.
 
-> **Two quoting rules for these heredocs, both learned the hard way.**
-> A `js()` string is Python *and* JavaScript at once, so nested quotes
-> collide: `js("...querySelector('input[placeholder="Select month"]')...")`
-> is a Python syntax error, and the `SyntaxError` you get back points at
-> the JS, not the quote. Build any JS string literal with
-> `json.dumps(value)` instead of hand-quoting. And never `return` a bare
-> JS object from `js()` — CDP hands back `[object Object]`; always
-> `JSON.stringify` it.
+Locate every control by its text or placeholder and read its rect at
+click time: the modal renders asynchronously and its layout shifts as
+fields appear, so fixed coordinates break. Build JS string literals with
+`json.dumps(value)` — a `js()` string is Python and JavaScript at once,
+and hand-nested quotes produce a `SyntaxError` that points at the wrong
+language. `js()` returns JS objects as Python dicts, so return the object
+directly.
 
 ```bash
 browser-use <<'PY'
 import time, json
-def rect(expr):
-    """Centre point of an element, or None when it isn't on the page yet."""
-    r = js("(function(){%s})()" % expr)
-    return json.loads(r) if r and r.startswith('{') else None
 
-def must_click(expr, what):
-    """Click a located element, or fail with a message that names it.
+def centre(expr):
+    """Centre {x, y} of the element the JS body returns, or None."""
+    r = js("(function(){var e=(function(){%s})(); if(!e) return null;"
+           "var b=e.getBoundingClientRect();"
+           "return {x:Math.round(b.x+b.width/2), y:Math.round(b.y+b.height/2)};})()" % expr)
+    return r if isinstance(r, dict) else None
 
-    ALWAYS go through this rather than `click_at_xy(rect(...)['x'], ...)`.
-    The modal renders asynchronously, so `rect()` returning None is the
-    NORMAL slow-page case — and subscripting None gives you
-    `TypeError: 'NoneType' object is not subscriptable` with no clue
-    which control was missing. Retry, then say what was not found.
-    """
-    for attempt in range(3):
-        r = rect(expr)
-        if r:
-            click_at_xy(r['x'], r['y'])
-            return True
+def click(expr, what, tries=3):
+    """Click the located element; name the control if it never appears."""
+    for _ in range(tries):
+        c = centre(expr)
+        if c:
+            click_at_xy(c['x'], c['y']); time.sleep(2); return True
         time.sleep(2)
-    print(f'NOT FOUND after 3 tries: {what} — page state: {page_info()}')
+    print(f'NOT FOUND: {what} — {page_info()}')
     return False
 
-def click_ph(ph):                      # click a control by its placeholder
-    r = rect("""
-      var ph=%s;
-      var e=Array.from(document.querySelectorAll('input')).find(x=>x.placeholder===ph)
-         || Array.from(document.querySelectorAll('div,span')).find(
-              x=>x.children.length===0 && (x.textContent||'').trim()===ph);
-      if(!e) return 'nf';
-      var b=e.getBoundingClientRect();
-      return JSON.stringify({x:Math.round(b.x+b.width/2), y:Math.round(b.y+b.height/2)});
-    """ % json.dumps(ph))
-    if not r: return False
-    click_at_xy(r['x'], r['y']); time.sleep(2); return True
+def by_placeholder(ph):
+    return """var ph=%s;
+      return Array.from(document.querySelectorAll('input')).find(x=>x.placeholder===ph)
+          || Array.from(document.querySelectorAll('div,span')).find(
+               x=>x.children.length===0 && (x.textContent||'').trim()===ph);""" % json.dumps(ph)
 
-def click_opt(t, below):               # click a dropdown option below y=below
-    r = rect("""
-      var want=%s, lo=%d;
-      var el=Array.from(document.querySelectorAll('div,li,span')).filter(e=>
+def option(text):
+    """A visible option in the open dropdown or month picker, by exact text."""
+    return """var want=%s;
+      var pop=document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden),'
+        + '.ant-picker-dropdown:not(.ant-picker-dropdown-hidden),[role=listbox]') || document;
+      return Array.from(pop.querySelectorAll('div,li,span,td')).find(e=>
         e.children.length===0 && (e.textContent||'').trim()===want
-        && e.getBoundingClientRect().y>lo && e.getBoundingClientRect().height>5);
-      if(!el.length) return 'nf';
-      var b=el[0].getBoundingClientRect();
-      return JSON.stringify({x:Math.round(b.x+b.width/2), y:Math.round(b.y+b.height/2)});
-    """ % (json.dumps(t), below))
-    if not r: return False
-    click_at_xy(r['x'], r['y']); time.sleep(2); return True
+        && e.getBoundingClientRect().height>5);""" % json.dumps(text)
 
-# ALWAYS reload first — a stale modal breaks the next generation.
+def generate_button(in_modal):
+    """The page's own Generate Report button, or the modal's submit."""
+    return """var m=document.querySelector('.ant-modal,[role=dialog]');
+      var bs=Array.from(document.querySelectorAll('button')).filter(
+        x=>/generate report/i.test(x.textContent));
+      return bs.find(x=>%s(m && m.contains(x)));""" % ('' if in_modal else '!')
+
+# Reload first — a stale modal is the usual cause of "category not found".
 goto_url("https://fbn.noon.partners/en-{cc}/fbnreports?project=PRJ{project_id}")
-wait_for_load(); time.sleep(7)
-js("window.scrollTo(0,0)")
+wait_for_load(); time.sleep(5)
 
-must_click("""var b=Array.from(document.querySelectorAll('button')).find(
-             x=>/generate report/i.test(x.textContent) && x.getBoundingClientRect().y<200);
-           if(!b) return 'nf'; var q=b.getBoundingClientRect();
-           return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2)});""",
-           'top-right Generate Report button')
-time.sleep(3)
+click(generate_button(in_modal=False), 'page Generate Report button')
+click(by_placeholder('Select a category'), 'category select'); click(option('Finance'), 'Finance')
+click(by_placeholder('Select a report'), 'report select');     click(option('<Report Name>'), 'report')
+click(by_placeholder('Select month'), 'month picker')
+# The picker opens on the current year. For a month in an earlier year,
+# click the picker header's previous-year arrow (« ,
+# .ant-picker-header-super-prev-btn) first, then the month cell.
+click(option('<Mon>'), 'month cell')        # 3-letter month, e.g. 'Jun'
 
-click_ph("Select a category"); click_opt("Finance", 150)
-click_ph("Select a report");   click_opt("<Report Name>", 200)
-click_ph("Select month")
-# month grid: click the 3-letter month cell (y>380); page back with the
-# «  arrow near y 350-395 / x 580-620 if the picker opened on a later year.
-click_opt("<Mon>", 380)
-
-val = js("(function(){var i=document.querySelector('input[placeholder=\"Select month\"]');"
-         "return i? i.value : '?'})()")
+val = js("var i=document.querySelector('input[placeholder=\"Select month\"]'); return i ? i.value : '?'")
 assert val == "<YYYY-MM>", f"service month did not take: {val}"
 
-# submit = the SECOND 'Generate Report' button (y>200); the first is the
-# page's top-right one, which would just re-open the modal.
-must_click("""var b=Array.from(document.querySelectorAll('button')).filter(
-             x=>/generate report/i.test(x.textContent) && x.getBoundingClientRect().y>200);
-           if(!b.length) return 'nf'; var q=b[0].getBoundingClientRect();
-           return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2)});""",
-           "the modal's submit button")
+click(generate_button(in_modal=True), "the modal's submit button")
 time.sleep(5)
 PY
 ```
 
-## 3. Downloading — the filename collision
+If the modal submit is not found, the modal is probably not an
+`.ant-modal` / `[role=dialog]` on the current build: take the
+`Generate Report` button that is not the page's top-right one.
+
+## 3. Downloading — naming, checking, empty files
 
 `Download` in the Actions column is a real `<button>` that writes the CSV
 straight to `~/.vibe-seller/downloads/<slug>/`. No modal, no signed URL.
 
-> **The filename contains ONLY the report type** — e.g.
-> `fbn_finance_monthlystoragechargereport.csv`. It carries **no country
-> and no service month**. Downloading `sa` then `ae` for the same report
-> overwrites / produces ` (1)` suffixes and you lose track of which is
-> which. **Rename immediately after each download, before clicking the
-> next one**, to something like
-> `monthly_storage_{CC}_{YYYY-MM}.csv`.
+**The filename carries only the report type** (e.g.
+`fbn_finance_monthlystoragechargereport.csv`) — no country, no service
+month. Downloading `sa` then `ae` of the same report produces ` (1)`
+suffixes and you lose track of which is which, so move and rename each
+file before clicking the next Download.
+
+Names to use (lowercase country code; these four stems are what
+`scripts/check_fee_rows.py` and the server's monthly-report check
+recognise):
+
+```
+monthly_storage_<cc>_<YYYY-MM>.csv
+longterm_storage_<cc>_<YYYY-MM>.csv
+nonsaleable_storage_<cc>_<YYYY-MM>.csv
+rtv_removal_<cc>_<YYYY-MM>.csv
+```
+
+For a monthly report-download run, put them in the task workspace under
+`reports_noon_<MM>_<slug>/`, `<MM>` being the service month — that is the
+layout checked at `set_task_result`. Copies kept for later analysis go
+under `store-data/<slug>/fbn/<YYYY-MM>/`.
 
 Two mechanical gotchas:
 
 - **Scroll the row into view first.** `click_at_xy` on a row below the
-  viewport does nothing (silently). `row.scrollIntoView({block:'center'})`,
+  viewport silently does nothing. `row.scrollIntoView({block:'center'})`,
   wait, then re-read the button's rect — the coordinates change.
 - Match the row by its **Report Code** (`EXP…`), not by report name —
   names repeat across countries and months.
 
 ```bash
 browser-use <<'PY'
-import time, json
+import time
 CODE = "EXP..."          # the row's Report Code
 r = js("""
 var rows=document.querySelectorAll('table tr');
@@ -193,37 +193,34 @@ var rows=document.querySelectorAll('table tr');
 for(var i=0;i<rows.length;i++){
   if(/%s/.test(rows[i].textContent||'')){
     var b=rows[i].querySelector('button'); var q=b.getBoundingClientRect();
-    return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2)});
+    return {x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2)};
   }
 }
 return 'rownf';
 """ % CODE)
-if not r.startswith('{'):
-    print(f'row {CODE} not on screen: {r}')      # never json.loads('rownf')
+if isinstance(r, dict):
+    click_at_xy(r['x'], r['y'])
 else:
-    c=json.loads(r); click_at_xy(c['x'], c['y'])
+    print(f'row {CODE} not on screen: {r}')
 PY
 # then, in the shell, rename the newest file before the next download:
-#   mv ~/.vibe-seller/downloads/<slug>/fbn_finance_*.csv \
-#      <out>/monthly_storage_SA_2026-06.csv
+#   mv ~/.vibe-seller/downloads/<slug>/fbn_finance_monthlystoragechargereport.csv \
+#      reports_noon_06_<slug>/monthly_storage_sa_2026-06.csv
 ```
 
-### Assert what you just downloaded — the rename is a claim, not a fact
+### Check each file against its name
 
-The file you saved as `monthly_storage_SA_2026-01.csv` is only SA and
-only January because *you* said so. Click one row too far and the name
-is still perfect while the contents are another country's or another
-month's money. This has happened: an `ae` / `2026-05` Non Saleable
-report landed in the `sa` / `2026-01` slot, and the error only surfaced
-much later as a reconciliation that missed by 3%.
-
-Every storage report carries its own `country_code` and `service_month`.
-Check the file against its name immediately, before the next download —
-one command, and it turns a silent wrong number into an instant retry:
+The name is your claim, not the file's: click one row too far and a
+perfectly named file holds another country's or month's money, which
+surfaces only much later as a reconciliation that misses by a few
+percent. Every storage report carries its own `country_code` and
+`service_month`, so check the file against its name before the next
+download (pass the path, the lowercase country and the month):
 
 ```bash
-python3 - <<'PY'          # NOTE: needs pandas — use the project venv's
-import pandas as pd, sys  # python if bare python3 lacks it
+# needs pandas — use the project venv's python if bare python3 lacks it
+python3 - reports_noon_06_<slug>/monthly_storage_sa_2026-06.csv sa 2026-06 <<'PY'
+import pandas as pd, sys
 path, want_cc, want_sm = sys.argv[1], sys.argv[2], sys.argv[3]
 df = pd.read_csv(path)
 if len(df) == 0:
@@ -239,33 +236,30 @@ PY
 
 ### An empty file is two different facts — resolve which
 
-A header-only download is **not** self-explanatory, and guessing has
-already cost real money-accuracy. Run the checker rather than eyeballing:
+A header-only download is not self-explanatory. Run the checker rather
+than judging by eye:
 
 ```bash
-python "$SKILL_DIR/scripts/check_fee_rows.py" <out-dir> --service-month 2026-07
-# exit 1 ⇒ at least one storage report is empty and should not be trusted
+python3 .claude/skills/noon-fbn/scripts/check_fee_rows.py <out-dir> --service-month 2026-07
+# exit 1 ⇒ something is unposted or undecidable
 ```
 
 It splits the two cases by what the report measures:
 
 | Report | Zero rows means |
 |---|---|
-| `monthly_storage`, `longterm_storage`, `nonsaleable_storage` | **Not published yet.** Storage accrues against stock held all month; if the store held inventory there is a charge. Treat as pending. |
+| `monthly_storage` | **Not published yet.** It bills all held stock, so any inventory produces rows; it is the publication witness for its country and month. Treat as pending. |
+| `longterm_storage`, `nonsaleable_storage` | Genuinely zero **if** that country's monthly storage has rows (a small, fast-turning store often has no aged or damaged stock); not published if monthly storage is empty too. |
 | `rtv_removal` | **Genuinely zero** — removals are discrete events and a month can have none. Keep the file; it is proof the question was asked. |
 
-Two things that make this trap so quiet:
+Why this is easy to miss:
 
 - The service month is selectable in the picker and the report still
   reaches `Complete` for a month with no data. Selectable ≠ published.
-- **Retrying does not help.** A second, independent generation of the
-  same unpublished month returns a byte-identical empty file. Verified.
-  Report it as pending; do not burn the run on retries.
-
-Measured for one project on the 3rd of the following month: that
-month's storage report came back with 0 rows while the month before it —
-generated the same day — came back populated. So the emptiness is about
-the *service month*, never about the generator.
+- Retrying does not help: a second generation of an unpublished month
+  returns a byte-identical empty file. Report it as pending. Fee months
+  are reliably published from about the 15th of the following month;
+  emptiness is about the service month, not the generator.
 
 RTV Removal has neither column — bucket it by `currency_code` instead.
 The Ad Manager xlsx has no country column at all, so for those the only
@@ -288,9 +282,8 @@ Transaction View  balance_transfer."Others including VAT"  for month M
   M's transaction export is service month **M − 1**'s storage. So
   per-SKU storage for analysis month M must be read from the **service
   month M** reports — never from month M's `balance_transfer`.
-- Verified live to the **cent** on both countries of a two-country
-  store across two consecutive service months. If your sum doesn't
-  close, in order of likelihood: (a) a report for that country/month
+- The identity holds to the cent. If your sum doesn't close, in order of
+  likelihood: (a) a report for that country/month
   was never generated (§ 2); (b) you compared ex-VAT to incl-VAT;
   (c) you used the wrong service month.
 
@@ -323,12 +316,12 @@ human-readable fee name — use it as the fee-type label.
 
 > To attribute RTV removal per SKU, join `rtv.barcode` →
 > `storage.pbarcode` → `storage.sku`. The storage reports for the same
-> month are the barcode→SKU dictionary; this joined 100% of rows live.
+> month are the barcode→SKU dictionary; in practice this joins every row.
 > Use `currency_code` (not `country_code`) to bucket RTV by country.
 
 ### The SKU keyspace trap
 
-Three different keys are in play — do **not** assume they match:
+Three different keys are in play, and they don't match each other:
 
 | Source | SKU column | Form |
 |---|---|---|
@@ -356,5 +349,5 @@ dropping them, or the per-SKU total stops matching § 4.
 
 - `noon-exports` § 2 — the Transaction View export that provides both
   the settlement line to reconcile against and the SKU bridge
-- `noon-ads` § Export campaigns — per-SKU **ad spend**, same
-  keyspace trap, same rename-on-arrival rule
+- `noon-ads` — per-SKU **ad spend** export, same keyspace trap, same
+  rename-on-arrival rule

@@ -91,6 +91,8 @@ class Task(Base):
     # Snapshot of Schedule.plan_version at fire time (audit only —
     # NOT used to cascade edits onto in-flight child tasks).
     plan_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Retired: the post-task reflection phase is gone. Still mapped so
+    # inserts satisfy the NOT NULL column existing databases carry.
     skip_reflection: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )

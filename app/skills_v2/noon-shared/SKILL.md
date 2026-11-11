@@ -13,9 +13,9 @@ load this first.
 
 ## 1. Login — Auto-fetch OTP When Email Is Bound
 
-Noon uses **email OTP only** (no password). Before doing ANYTHING,
-decide how the OTP will be retrieved — do NOT bother the user if an
-email MCP integration can do it for you.
+Noon uses **email OTP only** (no password). Decide first how the OTP
+will be retrieved: when an email integration can fetch it, the user
+doesn't need to be involved.
 
 > **Run `scripts/bh_noon_signin.py` instead of driving the page.** Call
 > it once without `OTP` (it clicks "Continue with this user" and returns
@@ -24,7 +24,7 @@ email MCP integration can do it for you.
 > between. Hand-driven, this login cost 20-25 calls per run. The steps
 > below are what it does, and the fallback when it reports a problem.
 
-### Decision flow (follow in order, do NOT skip steps)
+### Decision flow
 
 1. Open the login page and look at the email it's about to send OTP to:
    ```bash
@@ -44,8 +44,8 @@ email MCP integration can do it for you.
    email shown on screen:
    - **Match** → fetch the OTP yourself via email MCP (Case A).
    - **No email system section**, OR **emails do not match** →
-     ask the user (Case B). Never guess — mismatched emails mean
-     a different inbox.
+     ask the user (Case B). Mismatched emails mean a different inbox,
+     so a code from the bound one would be wrong.
 
 ### Case A — Auto-fetch OTP via email MCP (preferred)
 
@@ -57,20 +57,15 @@ email. One round trip, no user prompt:
 vibe_seller_sync_email_now(account_email='<bound-email>')
 
 # 2. Get the per-account DB path — COPY the exact db_path string it
-#    returns; do NOT hand-build the path from the account id:
+#    returns rather than building the path from the account id:
 vibe_seller_email_info(store_id='<store-id>')
 # Returns: { accounts: [{ email, db_path, ... }] }
 ```
 
-> ⚠️ **Use the `db_path` string verbatim from `email_info` — never
-> retype the account UUID into a path.** `sqlite3 <bad-path>` does NOT
-> error on a missing file: it **creates a new empty DB and returns zero
-> rows**, so a one-character typo in the UUID silently looks like "no OTP
-> email arrived." (Live failure: an agent hand-retyped the account UUID
-> with two hex digits transposed in the tail — `…b7a` where the real id
-> ended `…ba7` — queried the empty DB it just created, found nothing,
-> then grepped random 6-digit numbers out of an unrelated dump and
-> submitted two wrong codes — see the "Invalid OTP" note below.)
+> **Copy the `db_path` string verbatim from `email_info`** rather than
+> building it from the account id. `sqlite3 <bad-path>` doesn't error on
+> a missing file — it creates an empty DB and returns zero rows — so a
+> one-character typo looks exactly like "no OTP email arrived".
 
 Then read the **latest** Noon OTP email — the one that arrived *after*
 you clicked to send the code (noon issues a fresh code on every send /
@@ -96,8 +91,8 @@ for m in re.findall(r'>\s*(\d{6})\s*<', html):
 
 If this prints nothing, the DB path is wrong or the sync hasn't landed
 — re-run `email_info` (copy the path), re-run `sync_email_now`, and
-retry. **Do NOT** fall back to grepping 6-digit numbers out of other
-files/dumps; those are IDs/timestamps, not the OTP.
+retry. Six-digit numbers grepped out of other files or dumps are ids and
+timestamps, not the OTP.
 
 Then fill it and continue:
 ```bash
@@ -111,25 +106,16 @@ js("Array.from(document.querySelectorAll('button')).find(b=>/maybe later/i.test(
 PY
 ```
 
-> **The programmatic fill WORKS — noon's OTP input is not anti-bot
-> protected.** Setting the input via the native
-> `HTMLInputElement.value` setter + dispatching `input`/`change` (what
-> `fill_input` does) registers fine: Continue enables and the form
-> submits. If you enter a **correct, fresh** code it logs you in. Do NOT
-> assume the input is blocked.
+> **The programmatic fill works** — noon's OTP input is not anti-bot
+> protected. The native `HTMLInputElement.value` setter + `input`/`change`
+> events (what `fill_input` does) enable Continue and submit the form; a
+> correct, fresh code logs you in.
 
-> **`Invalid OTP` (with a `Trace ID`) means the CODE is wrong or stale —
-> NOT that the input was blocked.** The server accepted and validated
-> your submission; the value you typed just wasn't the current code. This
-> is the #1 noon-login failure and it is almost always one of: (a) you
-> read an **empty DB** because the `db_path` was hand-typed with a typo
-> (see the ⚠️ above — always copy it from `email_info`); (b) you used a
-> **stale** code from a previous send instead of the newest email; or (c)
-> you grepped a **random 6-digit number** out of a non-email file. Fix
-> the retrieval and re-fill — do NOT conclude "anti-bot" and give up.
-> (Live failure this note fixes: an agent queried an empty typo'd DB,
-> submitted `127660` then `667599` — neither was a real code — got
-> `Invalid OTP` twice, and wrongly reported noon as "anti-bot blocked".)
+> **`Invalid OTP` (with a `Trace ID`) means the code is wrong or stale**,
+> not that the input was blocked — the server validated your submission.
+> The usual causes: an empty DB from a hand-typed `db_path`, a stale code
+> from an earlier send instead of the newest email, or a 6-digit number
+> taken from a non-email file. Fix the retrieval and re-fill.
 
 > **Only escalate to Case B if a verified-fresh, correct code is rejected
 > repeatedly** (re-fetched from the right DB, newest email, entered
@@ -156,8 +142,8 @@ AskUserQuestion(questions=[{
 }])
 ```
 
-If the user can't receive the OTP, don't guess or retry — escalate
-and let them resolve.
+If the user can't receive the OTP, stop and report it; guessing or
+re-sending only invalidates more codes.
 
 ### After login — discover `{project_id}` from the URL
 
@@ -171,9 +157,8 @@ PY
 # Redirects to welcome.noon.partners/... with project=PRJ{project_id}
 ```
 
-**Do NOT ask the user for the project ID** if the store profile
-(`stores/<slug>/STORE.md`) doesn't have it. Read it from the post-
-login URL — the welcome / store-home page always carries
+When the store profile (`stores/<slug>/STORE.md`) lacks the project id,
+read it from the post-login URL rather than asking the user — the welcome / store-home page always carries
 `?project=PRJ{project_id}` (e.g. `NNNNNN`). Capture it once, then
 reuse for the rest of the task. A project's countries share the same
 numeric project ID; only the URL country suffix (`/en-<cc>/`) differs.
@@ -216,14 +201,11 @@ most pages; sidebar only for Support/Help.
 > ```
 > To switch, click the `.ns-store-list__item` whose `[class*=item-flag]`
 > background-image ends in the target `<cc>.svg` — the entries can share
-> an identical store NAME across countries, so match on the flag, never
+> an identical store name across countries, so match on the flag, never
 > on the label.
 >
-> Live failure this prevents: a whole-catalogue stock/live-status audit
-> was read off this page while the switcher sat on a neighbouring
-> market, and the resulting "these SKUs have stock but no ads" list was
-> used to plan campaigns in the *other* country. Nothing in the URL,
-> the page title, or the project id revealed the mismatch.
+> Nothing in the URL, the page title or the project id reveals a
+> mismatch — only the flag does.
 
 | Page | URL |
 |------|-----|
@@ -278,7 +260,7 @@ Each row has:
 Click the product title anchor to open the edit page (see
 `noon-listing` skill).
 
-### `wait_for_load()` is NOT enough — poll until the rows render
+### `wait_for_load()` is not enough — poll until the rows render
 
 noon's portal is a React/Next app that reaches `readyState:'interactive'`
 with `document.body.innerText === ''` and paints seconds later. Right
@@ -308,9 +290,10 @@ PY
 ```
 
 Pick the marker per page: `PSKU` on My Catalog, `Barcode` on the Offer
-tab, `Total`/`items` for a count. Never `time.sleep(n)` once and hope.
+tab, `Total`/`items` for a count. A single fixed `time.sleep(n)` is a
+guess; the marker is evidence.
 
-### Enumerate a subset via URL params — do NOT fight the search box
+### Enumerate a subset via URL params, not the search box
 
 The list page's filters and pagination are **URL state**. Set them in
 the URL and read the rows; that is exact, resumable, and avoids the
@@ -328,7 +311,7 @@ search box entirely:
 
 Read `N items` first, then walk `page=1…⌈N/20⌉`. **Anchor `href`s carry
 the `code=` param you need** for each row's detail page — collect
-`(PSKU, href)` while you page, don't reconstruct URLs later (§ below).
+`(PSKU, href)` while you page rather than reconstructing URLs later.
 
 > **One page per `browser-use` invocation.** The store wrapper kills any
 > single invocation at **120 s** and counts it as a wedge strike (see
@@ -359,7 +342,7 @@ When leaving a page with unsaved changes:
 > "Do you want to save the changes you made to this page?"
 > [Discard Changes] [Save Changes]
 
-Always click **Save Changes** unless intentionally reverting.
+Click **Save Changes** unless you mean to revert.
 
 ### Penalty Warning (ASN)
 
@@ -421,9 +404,10 @@ PY
   store has a bound email account matching the Noon login email,
   fetch the OTP yourself (Case A). Only ask when no binding applies.
 - **Project ID is required** in the URL: `?project=PRJ{project_id}`.
-- **Country switching varies by page** — Sales/Transaction use bottom-left
-  store dropdown; Ad Manager uses URL country suffix; FBN paths embed
-  the country code directly. Check per-page.
+- **Country switching varies by page** — portals whose path carries
+  `/en-{cc}/` (Ad Manager, FBN) are country-scoped by URL; the `/en/`
+  portals (Catalog, Sales, Transaction View, Vantage) are scoped by the
+  sidebar store switcher — read the flag (§ 2).
 - **Save changes before navigating** — warning modal can silently
   lose data if you click Discard.
 - **`fill_input(sel, text)` vs `type_text(text)`.** `fill_input`
@@ -434,8 +418,8 @@ PY
 - **`AskUserQuestion` needs 2+ options** — a single-option call
   fails schema validation; always give at least a confirm and a
   "didn't work" option.
-- **Captures → `/tmp/<run-slug>/`.** Per-run live data goes to a
-  temp dir, never under `~/.vibe-seller/knowledge/`.
+- **Captures → your task directory (CWD).** Per-run live data stays in the task
+  directory, never under `~/.vibe-seller/knowledge/`.
 
 ## See also
 

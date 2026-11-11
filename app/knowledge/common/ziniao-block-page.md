@@ -2,9 +2,10 @@
 
 ## Symptom
 
-When you navigate to a URL and then inspect the page, it shows **"Empty
-DOM tree"** even after waiting. The page URL and title may look correct,
-but the actual content is a Ziniao block page.
+When you navigate to a URL and then inspect the page, it has **no
+content** — `document.body.innerText` is empty even after waiting. The
+page URL and title may look correct, but the actual content is a Ziniao
+block page.
 
 ## Root Cause
 
@@ -53,13 +54,13 @@ configuration answer, not a flaky one. If the profile is affected and a
 sibling store reaches the same platform normally, it is that profile's
 access that differs — report it rather than burning the run on retries.
 
-## Detection: Always Check When DOM Is Empty
+## Detection: check when the DOM is empty
 
-When inspecting the page returns "Empty DOM tree" after opening it,
-**always run this diagnostic** before retrying or assuming a slow load:
+When the page has no content after opening it, **always run this
+diagnostic** before retrying or assuming a slow load:
 evaluate JavaScript on the page (via browser-use) that reports
 `document.title`, `window.location.href`, and the first ~3000 chars of
-`document.body.innerText`. See the browser-use skill for the exact
+`document.body.innerText`. See the browser skill for the exact
 command to run JavaScript on the page.
 
 **Indicators of a Ziniao block:**
@@ -77,7 +78,7 @@ The block page offers a self-whitelist button (申请加白). Steps:
 3. Wait for approval (usually instant for known e-commerce sites).
 4. Retry navigating to the URL.
 
-Workflow (see the browser-use skill for the exact commands):
+Workflow (see the browser skill for the exact commands):
 1. Run the block-detection JavaScript (title / url / bodyText) on the
    page.
 2. If blocked, take a screenshot to see the block page.
@@ -98,7 +99,7 @@ If self-whitelist is not available for the URL, inform the user:
 
 - **Do NOT re-navigate to the same URL repeatedly** — the block page won't
   change without user action
-- **Do NOT assume slow loading** — "Empty DOM tree" after 5+ seconds with a
+- **Do NOT assume slow loading** — an empty body after 5+ seconds with a
   `chrome-extension://` URL means a block, not a slow page
 - **Do NOT try alternative URLs** — if `sellercentral.amazon.<tld>` is blocked,
   trying `sellercentral.amazon.com.<tld>` or other wrong domains won't help
@@ -106,7 +107,7 @@ If self-whitelist is not available for the URL, inform the user:
 ## Quick Diagnostic Flowchart
 
 ```
-inspect page → "Empty DOM tree"?
+inspect page → body empty?
   ├─ No → page loaded normally, proceed
   └─ Yes → run block-detection JS (title, url, bodyText)
        ├─ url starts with chrome-extension:// → ZINIAO BLOCK

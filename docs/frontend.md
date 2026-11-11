@@ -76,6 +76,27 @@ src/
 
 This makes "any button on any page redirects to login when the JWT cookie has expired" a property of the shared `api` client, not of each caller. New views/handlers automatically inherit the behavior — they only need to use `api.*` instead of raw `fetch`. Raw `fetch` calls (e.g., the `/api/auth/status` probe at startup, `handleLogin`) deliberately bypass the redirect path because they execute *before* the user is logged in.
 
+## Responsiveness
+
+Two rules keep the UI from feeling (or being) stuck:
+
+- **The composer draft is not app state.** It lives in
+  `lib/draftStore.ts`, a small external store read with
+  `useSyncExternalStore`: a keystroke re-renders the composer and
+  nothing else (as `App.tsx` state it re-rendered the sidebar, task list
+  and the whole conversation). The shell still owns the draft's
+  lifecycle — cleared when a task opens or is created, read on send —
+  and a failed send is stashed per task (`UnsentMessage`) so its
+  composer gets the text back with the error.
+- **Every request has a deadline** (`lib/requestDeadline.ts`, wired into
+  `api.ts`): 30 s by default, 5 minutes where a caller passes
+  `timeoutMs` (git sync, browser launch, integration install). A raw
+  `fetch` has none — against a server that accepted the connection and
+  never answers, a send box never clears its "sending" guard — so the
+  deadline rejects with `RequestTimeoutError` and callers show an error
+  instead of hanging. The timeout's message carries no URL (routes hold
+  store names), for exception telemetry.
+
 ## Internationalization
 
 Translations stored in `src/i18n/locales/`:

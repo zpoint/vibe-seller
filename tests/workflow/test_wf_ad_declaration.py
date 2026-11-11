@@ -92,23 +92,22 @@ class TestDeclaringAPhase:
 
 
 class TestOnlyTheUserOpensANewPhase:
-    async def test_redeclaring_in_the_same_turn_is_refused(
+    async def test_widening_in_the_same_turn_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
         task_id = await _make_task(admin_client)
         assert (
             await _declare(admin_client, task_id, 'create', _ONE_MARKET)
         ).status_code == 200
-        # The agent, having been denied by a gate, tries to widen its
-        # own remit. This is the hole the whole design closes.
+        # The agent widens its own remit in the same turn: told once what
+        # that normally needs...
         r = await _declare(admin_client, task_id, 'audit', {})
         assert r.status_code == 409
-        # The refusal has to name the one legal in-turn move, or an agent
-        # that genuinely needs to record enumerated campaign ids has no
-        # way to learn it may.
-        detail = r.json()['detail']
-        assert 'NARROW' in detail
-        assert 'USER' in detail
+        assert 'USER' in r.json()['detail']
+        # ...and if it declares again, it is recorded as declared.
+        r = await _declare(admin_client, task_id, 'audit', {})
+        assert r.status_code == 200, r.text
+        assert r.json()['kind'] == 'audit'
 
     async def test_a_user_follow_up_opens_a_new_phase(
         self, admin_client, install_fake_agent
@@ -194,7 +193,7 @@ class TestNarrowingWithinATurn:
         )
         assert r.status_code == 200, r.text
 
-    async def test_widening_the_campaign_list_is_refused(
+    async def test_widening_the_campaign_list_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
         task_id = await _make_task(admin_client)
@@ -209,8 +208,16 @@ class TestNarrowingWithinATurn:
             dict(market, campaigns=['A1234567', 'A7654321']),
         )
         assert r.status_code == 409, r.text
+        # Asked once: the same call again is recorded as declared.
+        r = await _declare(
+            admin_client,
+            task_id,
+            'audit',
+            dict(market, campaigns=['A1234567', 'A7654321']),
+        )
+        assert r.status_code == 200, r.text
 
-    async def test_dropping_the_campaign_list_is_refused(
+    async def test_dropping_the_campaign_list_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
         # Going back to "every campaign in this market" is widening.
@@ -221,11 +228,14 @@ class TestNarrowingWithinATurn:
         )
         r = await _declare(admin_client, task_id, 'audit', market)
         assert r.status_code == 409, r.text
+        # Asked once: the same call again is recorded as declared.
+        r = await _declare(admin_client, task_id, 'audit', market)
+        assert r.status_code == 200, r.text
 
-    async def test_adding_a_marketplace_is_refused(
+    async def test_adding_a_marketplace_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
-        # The move the whole design exists to prevent.
+        # Widening reach mid-turn: asked about once.
         task_id = await _make_task(admin_client)
         r = await _declare(
             admin_client,
@@ -247,20 +257,37 @@ class TestNarrowingWithinATurn:
             },
         )
         assert r.status_code == 409, r.text
+        # Asked once: the same call again is recorded as declared.
+        r = await _declare(
+            admin_client,
+            task_id,
+            'audit',
+            {
+                'combos': [
+                    {'platform': 'amazon', 'country': 'SA'},
+                    {'platform': 'noon', 'country': 'AE'},
+                ],
+                'campaigns': ['A1234567'],
+            },
+        )
+        assert r.status_code == 200, r.text
 
-    async def test_shedding_an_obligation_by_changing_the_kind_is_refused(
+    async def test_shedding_an_obligation_by_changing_the_kind_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
         # `investigate` owes no marketplace coverage. Reaching it from
-        # `audit` mid-turn is how an agent would shed the obligation,
-        # so it is the move that has to stay shut.
+        # `audit` mid-turn sheds that obligation, so it is asked about
+        # once.
         task_id = await _make_task(admin_client)
         market = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
         await _declare(admin_client, task_id, 'audit', market)
         r = await _declare(admin_client, task_id, 'investigate', market)
         assert r.status_code == 409, r.text
+        # Asked once: the same call again is recorded as declared.
+        r = await _declare(admin_client, task_id, 'investigate', market)
+        assert r.status_code == 200, r.text
 
-    async def test_an_unrelated_kind_change_is_refused(
+    async def test_an_unrelated_kind_change_is_asked_about_once(
         self, admin_client, install_fake_agent
     ):
         task_id = await _make_task(admin_client)
@@ -270,6 +297,11 @@ class TestNarrowingWithinATurn:
             admin_client, task_id, 'audit', dict(market, campaigns=['A1234567'])
         )
         assert r.status_code == 409, r.text
+        # Asked once: the same call again is recorded as declared.
+        r = await _declare(
+            admin_client, task_id, 'audit', dict(market, campaigns=['A1234567'])
+        )
+        assert r.status_code == 200, r.text
 
 
 class TestCorrectingAnUnderDeclaredPhase:
@@ -405,3 +437,93 @@ class TestTheGateSeesWhatWasAccepted:
         assert ad_declaration.owed_combos(loaded, store) == [
             {'platform': 'amazon', 'country': 'AE'}
         ], 'a scoped audit owes what it named, not every marketplace'
+
+
+class TestDeclarationTelemetry:
+    async def test_accepted_and_refused_declarations_are_sent(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        events: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            'app.telemetry.send',
+            lambda e, p=None: events.append((e, dict(p or {}))),
+        )
+        task_id = await _make_task(admin_client)
+        r = await _declare(admin_client, task_id, 'audit', _ONE_MARKET)
+        assert r.status_code == 200
+        r = await _declare(admin_client, task_id, 'create')
+        assert r.status_code == 409
+        sent = [p for e, p in events if e == 'ad_task_declared']
+        assert [(p['kind'], p['scope_kind'], p['outcome']) for p in sent] == [
+            ('audit', 'products', 'accepted'),
+            ('create', 'store', 'refused'),
+        ]
+        assert sent[0]['task_id'] == task_id
+
+
+class TestTheDeclarationNamesTheAdSkill:
+    """Declared with only the browser skill loaded, an agent wrote the
+    user's standard as a sentence and no CHANGES.tsv: it never saw the
+    data contract. The declaration is when the server knows it is ad
+    work, so its answer names the skill to load."""
+
+    async def test_without_an_ad_skill_the_answer_names_it(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        monkeypatch.setattr(
+            'app.routers.tasks_ad_declaration.agent_manager.'
+            'loaded_skills_and_workspace',
+            lambda _t: ({'browser-harness'}, None),
+        )
+        task_id = await _make_task(admin_client)
+        r = await _declare(admin_client, task_id, 'audit', _ONE_MARKET)
+        assert r.status_code == 200, r.text
+        assert 'amazon-ads' in r.json()['load_skill']
+
+    async def test_the_hint_names_only_the_skills_that_keep_the_tsvs(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        """`qianniu-ads` documents no CAMPAIGNS.tsv and declares no
+        gates: telling a 千牛 run to follow that contract sends it after
+        a rule nothing checks and its own skill cannot satisfy."""
+        monkeypatch.setattr(
+            'app.routers.tasks_ad_declaration.agent_manager.'
+            'loaded_skills_and_workspace',
+            lambda _t: (set(), None),
+        )
+        task_id = await _make_task(admin_client)
+        r = await _declare(admin_client, task_id, 'audit', _ONE_MARKET)
+        assert r.status_code == 200, r.text
+        note = r.json()['load_skill']
+        assert 'amazon-ads' in note and 'noon-ads' in note
+        assert 'qianniu' not in note, note
+
+    async def test_with_the_ad_skill_loaded_nothing_is_added(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        monkeypatch.setattr(
+            'app.routers.tasks_ad_declaration.agent_manager.'
+            'loaded_skills_and_workspace',
+            lambda _t: ({'amazon-ads'}, None),
+        )
+        task_id = await _make_task(admin_client)
+        r = await _declare(admin_client, task_id, 'audit', _ONE_MARKET)
+        assert r.status_code == 200, r.text
+        assert 'load_skill' not in r.json()
+
+    @pytest.mark.parametrize('skill', ['amazon-ads', 'noon-ads', 'qianniu-ads'])
+    async def test_an_ad_skill_loaded_is_no_nag_whatever_the_platform(
+        self, admin_client, install_fake_agent, monkeypatch, skill
+    ):
+        """AD_SKILLS still counts qianniu-ads: an ad skill loaded is an
+        ad skill loaded, and a 千牛 run must not be told to load
+        another platform's skill."""
+        monkeypatch.setattr(
+            'app.routers.tasks_ad_declaration.agent_manager.'
+            'loaded_skills_and_workspace',
+            lambda _t: ({skill}, None),
+        )
+        task_id = await _make_task(admin_client)
+        r = await _declare(admin_client, task_id, 'audit', _ONE_MARKET)
+        assert r.status_code == 200, r.text
+        assert 'load_skill' not in r.json()

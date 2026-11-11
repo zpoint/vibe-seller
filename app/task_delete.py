@@ -17,6 +17,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.claude_backend_manager import agent_manager
+from app.ai.stop_gates import reset_attempts
+from app.ai.stop_gates.ad_changes import remove_approvals
 from app.models.screenshot import Screenshot
 from app.models.task import Task
 from app.models.task_attachment import TaskAttachment
@@ -40,6 +42,20 @@ def _task_workspace_dir(task_id: str) -> Path:
             f'Refusing to resolve task dir outside root: {task_id}'
         )
     return candidate
+
+
+def clear_gate_state(task_id: str) -> None:
+    """Drop a task's gate counters and frozen ad approval.
+
+    Blocking (file unlink) — call off the event loop.
+    """
+    reset_attempts(task_id)
+    try:
+        remove_approvals(task_id)
+    except OSError:
+        logger.warning(
+            'Failed to remove approved changes for %s', task_id, exc_info=True
+        )
 
 
 async def collect_descendants(db: AsyncSession, root_task_id: str) -> list[str]:
@@ -162,6 +178,7 @@ async def delete_task(
 
     # Remove workspace dirs off the event loop.
     for tid in ids:
+        await asyncio.to_thread(clear_gate_state, tid)
         try:
             task_dir = _task_workspace_dir(tid)
         except ValueError:

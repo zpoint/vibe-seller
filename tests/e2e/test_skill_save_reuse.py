@@ -88,7 +88,7 @@ def _skill_md(client, slug):
 # Ownership is attributed by TASK, not by content. The namespace is
 # workspace-global (every xdist worker shares it), so a raw namespace
 # delta can contain skills this test did not create — a sibling test's
-# install, or a skill any agent's post-task reflection minted mid-window
+# install, or a skill any agent saved mid-window
 # (observed in CI: a `wecom-post` skill). But the server records every
 # skill write an agent makes as a ``tool_use`` message on ITS task,
 # carrying the full tool input (app/ai/claude_backend_stream.py):
@@ -171,7 +171,7 @@ def wecom_stub(api_client):
         def log_message(self, *args):
             pass
 
-    server = http.server.HTTPServer(('127.0.0.1', 0), _Handler)
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _Handler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -338,7 +338,7 @@ class TestSaveAndReuseSkill:
         # ── Follow-up 2: save again → EXTEND, don't duplicate ──
         # Snapshot HERE, not after the first save. Task 2's own turn may
         # legitimately save a NEW capability while it works (observed in
-        # CI: its post-task reflection saved a `wecom-post` skill for the
+        # CI: it saved a `wecom-post` skill for the
         # posting step it had just learned) -- that is not this request
         # duplicating anything. What this request must not do is answer
         # "update that same skill" by minting another slug.
@@ -360,7 +360,7 @@ class TestSaveAndReuseSkill:
         # The second save must EXTEND the existing slug, not mint a new
         # near-duplicate. Scope the check to skills THIS test's tasks
         # wrote: the raw namespace delta would also flag a skill any
-        # sibling test (or its agent's reflection) minted inside the
+        # sibling test (or its agent) minted inside the
         # window, which is not this request duplicating anything.
         dup_slugs = _skills_saved_by(api_client, task1['id'], task2['id']) & (
             set(customs_final) - set(customs_before_update)

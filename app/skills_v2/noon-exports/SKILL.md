@@ -1,331 +1,146 @@
 ---
 name: noon-exports
-description: "Noon data exports — Sales report (per country), Transaction View (multi-contract CSV with status enum gotchas), Catalog Exports (Content / Pricing / Stock / Reports). Load when downloading sales, finance, transaction, or catalog data from noon."
+description: "Noon data exports — Sales report (per country), Transaction View (one multi-contract CSV, long-running job, two Export buttons), Catalog Exports (Content / Pricing / Stock / Reports). Load when downloading sales, finance, transaction, or catalog data from noon."
 requires: [noon-shared]
-review:
-  criteria: |
-    - The requested export file(s) exist, are non-empty, and have rows >
-      0, covering the requested scope (every requested country / contract
-      / date window). A partial pull, or a status stuck at
-      Requested/Exporting with no file written, is a gap.
-  verify_by: |
-    Open the downloaded CSV(s) in ~/.vibe-seller/downloads/<slug>/;
-    confirm the header columns + a non-zero row count. For multi-country
-    / multi-contract (e.g. Transaction View), confirm the Contract column
-    covers every country asked for, not just one.
 ---
 
 # Noon — Data Exports
 
-> **PREREQUISITE:** Read `../noon-shared/SKILL.md` for login, page
-> structure, and the per-store download directory.
+Load the `noon-shared` skill with the Skill tool first; it covers login,
+page structure and the store (country) switcher.
 
-Three export surfaces, each with its own quirks: Sales (per
-country), Transaction View (multi-contract, long polling, status
-enum), Catalog Exports (typed templates).
+Three export surfaces: Sales (per country), Transaction View (one CSV for
+every contract, slow), Catalog Exports (typed templates).
 
-## 1. Sales Export (Per Country)
+## Done when
+
+The requested files exist with a header and data rows, covering every
+requested country / contract / date window. An export left at
+Requested/Exporting with no file written, or a multi-country request whose
+Transaction View `Contract` column covers only one country, is a gap.
+
+## Where files go
+
+Downloads land in `~/.vibe-seller/downloads/<slug>/` (managed by the CDP
+proxy, not `~/Downloads`). Move each file into the task workspace as soon
+as it arrives, under a name that says what it is — repeat downloads only
+get ` (1)` suffixes. For a monthly report-download run the expected
+layout is `reports_noon_<MM>_<slug>/noon_financeweb_transactionviewreport.csv`
+(one file for all countries); the server checks the task workspace for it
+at `set_task_result`. Keep copies you want to reuse across runs under
+`store-data/<slug>/exports/<YYYY-MM>/`.
+
+## Choosing the country
+
+Sales, Transaction View and Catalog are `/en/` portals: the URL is the
+same for every country, and the market shown is whatever the **sidebar
+store switcher** is set to. It persists across sessions, so read the flag
+before trusting a page and switch by matching the entry's flag, as
+described in the `noon-shared` skill (§ 2). Not the "Destination" filter
+in the Sales toolbar, which filters rows rather than switching the store.
+
+## 1. Sales export (per country)
 
 **URL**: `https://reports.noon.partners/en/sales/?project=PRJ{project_id}`
 
-### Country Switching
-
-Use the **"My Stores" dropdown at bottom-left**, NOT the "Destination"
-filter in the toolbar. Each store shows a flag icon.
-
-### Date Range for Last Month
-
-> ⚠️ **The page opens on a ROLLING 30-DAY window, not last month.** On
-> 3 August the inputs read `2026-07-04 → 2026-08-03`. Export without
-> touching them and you get a file that **misses the first days of the
-> month and includes days from this one** — the same trap as the Amazon
-> FBA-returns preset, and just as quiet: the CSV looks perfectly normal.
-> Observed live twice, once by hand and once in a scheduled run.
->
-> So: set the range, then **read it back before you export**. A monthly
-> report whose window is off by three days at each end is worse than a
-> missing one, because nothing downstream can tell.
->
-> ```bash
-> browser-use <<'PY'
-> # Read the two date inputs BY NAME. Collecting every input on the page
-> # returns unrelated controls too, and then it is guesswork which pair of
-> # values is the committed range — which is the same guessing this
-> # readback exists to remove.
-> print(js("return ['Start date','End date'].map(function(p){"
->          "var i=document.querySelector('input[placeholder=\"'+p+'\"]');"
->          "return p+'='+(i?i.value:'MISSING');});"))
-> # MUST show the 1st and the last day of the target month before you
-> # click Export. If it shows today's date or a 30-day window, the range
-> # never committed — set it again.
-> PY
-> ```
+**The page opens on a rolling 30-day window, not last month.** Exporting
+without changing it gives a file that silently misses the start of the
+month and includes days from the current one. Set the range, then read it
+back before exporting:
 
 ```bash
 browser-use <<'PY'
-# The date inputs carry no name= — address them by placeholder:
+# The date inputs have no name=; address them by placeholder.
 fill_input('input[placeholder="Start date"]', "01 Mar 2026")
 fill_input('input[placeholder="End date"]',   "31 Mar 2026")
-# Calendar popup opens; click the end date cell (td title) to confirm:
-js("document.querySelector('td[title=\"2026-03-31\"]')?.click()")
+js("document.querySelector('td[title=\"2026-03-31\"]')?.click()")   # confirm in the calendar popup
+print(js("return ['Start date','End date'].map(function(p){"
+         "var i=document.querySelector('input[placeholder=\"'+p+'\"]');"
+         "return p+'='+(i?i.value:'MISSING');});"))
 PY
 ```
 
-URL reflects dates: `?from_date=2026-03-01&to_date=2026-03-31`.
+The readback should show the first and last day of the target month, and
+the URL carries `?from_date=2026-03-01&to_date=2026-03-31`. If it still
+shows a 30-day window, the range did not commit — set it again. Read the
+two inputs by placeholder; scanning every input on the page returns
+unrelated controls.
 
-### Export Flow (Verified)
+**Export:** Export → the modal shows the previous file (if any) → **New
+export** → wait 10–30 s for "Exporting" to finish → click the download
+link (`sales_export_{date}_{time}_{project}_{country}_{seq}.csv`) → close
+the modal. For another country, switch the store (above) and repeat.
 
-1. Click Export button → modal appears
-2. Modal shows previous export file with download link (if any)
-3. Click "New export" to regenerate
-4. Wait ~10-30s for "Exporting" spinner to finish
-5. Download link appears with filename:
-   `sales_export_{date}_{time}_{project}_{country}_{seq}.csv`
-6. Click download link
-7. Close modal
-
-### Both Countries
-
-After the first country's export, close modal, switch "My Stores" to the next country, repeat.
-
-## 2. Transaction View Export
+## 2. Transaction View export
 
 **URL**: `https://noon-payments.noon.partners/en/transaction-view?project=PRJ{project_id}`
 
 Left nav: SOA, Statements, Transaction View, Invoices & Creditnotes,
-Legacy Exports.
+Legacy Exports. Step-by-step flow, recovery after a disconnect and the CSV
+columns: `references/transaction-view.md`.
 
-### Critical facts (read before acting)
+What shapes the approach:
 
-1. **One unfiltered export covers every contract in the project.**
-   A single Transaction View export for a project that has multiple
-   country contracts produces **one CSV with rows for every
-   contract** — identifiable by the `Contract` / `Contract Title`
-   columns (e.g. `MPXXXXXXXXEG,Noon EG` and `MPXXXXXXXXKW,Noon
-   KW`). See "Transaction CSV Structure" below. **Do not run one
-   export per country** — run one, then split locally with pandas /
-   awk. To limit the export to a single country, filter the
-   Contracts dropdown to that country's contract *before* clicking
-   Download.
-2. **Status enum is `Requested → Exporting → Processed`** (not
-   "Processing → Completed"). When the panel row reads `Processed`,
-   click the **Export** button on the right of that row — that is
-   what actually writes the CSV. The first Download click only
-   queues the export job.
-2b. **There are TWO "Export" buttons — do not confuse them.** The
-   **main** button (top of the page, near the Contracts / Transaction
-   Type controls) *initiates* the job and its text flips to
-   `Exporting`, then reverts to `Export` when done — clicking it again
-   just queues a **second** job, it does NOT download. The button that
-   actually downloads is a **separate** one inside the results panel
-   (`ExportBox_content__*`) that renders **below the transaction
-   table** after the job completes. Because both read "Export", a bare
-   `find(b => /^export$/.test(b.textContent))` matches the MAIN button
-   first — always scope the panel click to the `ExportBox_content`
-   container (see step 4). The reverting main button is easy to
-   misread as "done, file saved" when nothing downloaded.
-3. **Exports can take several minutes**, occasionally >5. Do not
-   re-click Download while a previous export is still `Exporting` —
-   each click queues a *new* `EXP{…}` job that competes for the
-   same backend and usually extends the wait.
-4. **Download location depends on the browser backend**, not on
-   noon. The file is not guaranteed to land in `~/Downloads`. See
-   "Finding the downloaded file" below.
-5. **`No data` disables the Download button.** Date ranges with no
-   activity show a greyed-out button and no panel appears — that's
-   a no-op, not a bug. Skip that range.
+- **One unfiltered export covers every contract in the project.** The
+  CSV has rows for each country contract, identified by `Contract` /
+  `Contract Title`. Run it once and split locally; filter the Contracts
+  dropdown first only if you want one country. The Contracts dropdown
+  lists the contracts of the store selected in the sidebar switcher.
+- **Status runs `Requested → Exporting → Processed`.** Jobs can take
+  several minutes and up to ~35 for data-heavy months.
+- **There are two "Export" buttons.** The main one near the Contracts /
+  Transaction Type controls queues the job; its text flips to
+  `Exporting` and back. The one that writes the CSV is inside the results
+  panel (`ExportBox_content__*`) below the table, after the job reaches
+  Processed. A bare text match finds the main button first, so scope the
+  click to the panel.
+- **Click the main button once.** Each further click queues another
+  `EXP…` job on the same backend and slows every job down. After a page
+  refresh, recover through the status API instead (reference § 2).
+- **`No data` disables the button.** A range with no activity shows a
+  greyed-out button and no panel; skip that range.
 
-### Country switching on Transaction View
-
-The top-of-page **flag widget** (little arrow next to the country
-flag) is the country switcher — not the Contracts dropdown. The
-Contracts dropdown lists only contracts for the *currently selected
-country*, so after switching flag the dropdown repopulates.
-
-But since unfiltered Download already covers all contracts, you
-usually don't need to switch country at all.
-
-### Download flow
-
-```bash
-# 1. Navigate + set the date range, confirm via page_info().
-browser-use <<'PY'
-new_tab("https://noon-payments.noon.partners/en/transaction-view?project=PRJ{project_id}")
-wait_for_load()
-fill_input('input[placeholder="Start date"]', "YYYY-MM-DD")
-fill_input('input[placeholder="End date"]',   "YYYY-MM-DD")
-# Optional: filter Contracts dropdown to a single country's contract.
-print(page_info())
-PY
-
-# 2. Click the MAIN Export/Download button ONCE to queue the job.
-#    (It is labelled "Export" on the current build — text flips to
-#    "Exporting" — or "Download" on older builds.) NEVER re-click —
-#    each click queues a new export job on Noon's backend, backing up
-#    the queue and making every subsequent attempt take longer.
-browser-use <<'PY'
-print(js("var b=Array.from(document.querySelectorAll('button')).find(b=>/^(export|download)$/i.test(b.textContent.trim())); if(b){b.click(); 'clicked: '+b.textContent.trim();} else 'main export button not found';"))
-PY
-
-# 3. Poll for Processed status. Exports can take up to 35 min
-#    (data-heavy months are slower). Keep waiting — do NOT
-#    re-click Download, do NOT close the panel.
-for i in $(seq 1 70); do
-  sleep 30
-  browser-use <<'PY' | grep -q "Processed" && break
-print(page_info())
-PY
-done
-
-# 4. Click the Export button INSIDE the results panel — the one that
-#    actually writes the file. Scope the search to the ExportBox_content
-#    container so it does NOT match the main Export button (which would
-#    queue another job — see critical fact 2b). Scroll down first; the
-#    panel renders below the transaction table.
-browser-use <<'PY'
-js("window.scrollTo(0, document.body.scrollHeight)")
-print(js("var p=document.querySelector('[class*=ExportBox_content]'); if(!p) 'panel not rendered yet — poll longer'; else {var b=Array.from(p.querySelectorAll('button')).find(b=>/export/i.test(b.textContent)); if(b){b.click(); 'clicked panel export';} else 'no export button inside ExportBox panel';}"))
-PY
-```
-
-### API fallback (if page refreshes or panel disappears)
-
-If the browser session disconnects or the page refreshes during
-the long wait, do NOT click Download again — the export job is
-still running on Noon's backend.  Instead, query the status API
-directly and download via curl:
-
-```bash
-# Poll the status API for the export code you recorded earlier.
-browser-use <<'PY'
-print(js("""
-  var xhr = new XMLHttpRequest();
-  xhr.open('POST', '/_svc/mp-partner-impex-api/export/status', false);
-  xhr.setRequestHeader('Content-Type', 'application/json');
-  xhr.send(JSON.stringify({exportCode: '<EXP_CODE>'}));
-  return xhr.responseText;
-"""))
-PY
-# Response: {"export": {"status_code": "COMPLETE",
-#   "download_url": "https://storage.googleapis.com/..."}}
-
-# Once status_code is COMPLETE, download via curl:
-curl -sL -o transaction_view.csv "<download_url>"
-```
-
-This avoids re-triggering the export and lets you recover a
-completed export even after a browser disconnect.
-
-### Finding the downloaded file
-
-Downloads go to `~/.vibe-seller/downloads/<store-slug>/`.
-This is a stable per-store directory managed by the CDP proxy
-(it overrides browser-use's random temp dirs).
-
-File names for Transaction View exports start with
-`noon_financeweb_transactionviewreportonitemlevelwithcontractselection`
-and end with `.csv`. Repeat downloads get ` (1)`, ` (2)` suffixes —
-always take the newest by `mtime`, then copy into the task
-workspace (dropping the `(N)` suffix). See the amazon-reports
-skill's "Download Behavior" section for the general pattern.
-
-### Transaction CSV Structure
-
-Header columns (in order):
-
-```csv
-Contract,Contract Title,Reference Nr,Order Nr,Item Nr,Order Date,
-Transaction Date,Title,SKUs,Partner SKUs,Transaction Type,Currency,
-Net Proceeds,Referral Fee including VAT,
-Fullfilment & Logistics Fees including VAT,  ← sic, Noon misspells this
-Shipping Credits including VAT,Other Order Fees including VAT,
-Order Subsidies including VAT,Non-Order Fees including VAT,
-Non-Order Subsidies including VAT,Others including VAT,Total
-```
-
-- **`Contract`** is the contract code — 12 chars, `MP` prefix,
-  country-code suffix (e.g. `MPXXXXXXXXEG`, `MPXXXXXXXXKW`,
-  `MPXXXXXXXXOM`). Use the last 2 chars to bucket by country.
-- **`Contract Title`** is the human-readable name (`Noon EG`,
-  `Noon KW`, …).
-- Use either column to split a mixed-country export locally:
-
-```python
-import pandas as pd
-
-df = pd.read_csv('<exported-file>.csv')
-for cc in df['Contract'].str[-2:].unique():
-    df[df['Contract'].str.endswith(cc)].to_csv(
-        f'transactions_{cc}.csv', index=False
-    )
-```
-
-Observed `Transaction Type` values include `order`, `order_update`,
-`statement_fee`, `payment`, `balance_transfer`. Noon may add more;
-filter liberally when aggregating.
-
-## 3. Catalog Exports
+## 3. Catalog exports
 
 **URL**: `https://noon-catalog.noon.partners/en/exports?project=PRJ{project_id}`
 
-Click **Add Export** → a modal with a **Type** dropdown button (and
-Cancel / Create):
+**Add Export** → modal with a **Type** dropdown (and Cancel / Create):
 
 | Type | Description |
 |------|-------------|
 | Catalog Export | Full catalog data |
-| Content | Product titles, descriptions, images, attributes |
+| Content | Titles, descriptions, images, attributes |
 | Pricing | Current + promotional prices |
 | Stock | Inventory levels |
-| Partner SKU Generate | Generate partner SKU mappings |
+| Partner SKU Generate | Partner SKU mappings |
 | Reports | Performance/sales report data |
 | Global Catalog Export | Global catalog across markets |
 
-Select type → Create → wait → download from Result column when
-Status shows "Completed" (1-10 minutes depending on size).
+Select the type → Create → download from the Result column once Status
+reads "Completed" (1–10 minutes depending on size).
 
-## Tips
+## 4. What the Transaction View does not give you
 
-- **Transaction View export covers all contracts by default** —
-  one click produces one CSV with rows from every country contract.
-  Don't export twice (see § 2).
-- **Transaction View status enum is `Requested → Exporting →
-  Processed`**, not "Processing → Completed". Click the Export
-  button on the panel only after it reads `Processed`.
-- **Exports can take up to 35 min** — data-heavy months are
-  slower. Poll for at least 35 min before giving up. NEVER click
-  Download again while a previous export is still processing — it
-  queues a new job and makes everything slower.
-- **Export files land in `~/.vibe-seller/downloads/<store-slug>/`**,
-  not `~/Downloads`.
+It is order-grained for sales but lumped for FBN fees:
 
-## 4. What the Transaction View does NOT give you
+- **Per-SKU storage / return fees.** The month's FBN storage settles as
+  one `balance_transfer` row with an opaque `Others including VAT`.
+  Per-SKU storage and RTV removal fees come from FBN Reports — the
+  `noon-fbn` skill § 8 and its `references/fee-reports.md`, which also
+  reconciles the four reports to this settlement (one-month lag, VAT
+  gross-up).
+- **Per-SKU ad spend.** `statement_fee` rows carry only an account-level
+  `Advertising Fee`; per-SKU spend comes from Ad Manager's export (the
+  `noon-ads` skill).
 
-The Transaction View is **order-grained for sales but lumped for FBN
-fees**. Two things a finance/profitability task usually needs are not in
-it:
-
-- **Per-SKU storage / return fees.** The whole month's FBN storage
-  settles as a single `balance_transfer` row whose `Others including
-  VAT` is opaque. Per-SKU monthly / long-term / non-saleable storage and
-  RTV removal fees come from the **FBN Reports** page — see
-  `noon-fbn` § 8 and `noon-fbn/references/fee-reports.md`. That
-  reference also carries the reconciliation proving the four reports sum
-  to this settlement (with a **one-month lag** and a **VAT gross-up**).
-- **Per-SKU ad spend.** `statement_fee` rows give only an account-level
-  `Advertising Fee`. Per-SKU spend comes from Ad Manager's
-  *Export campaigns* — see `noon-ads` § 7.1.
-
-**This export is, however, the SKU bridge for both.** Its `SKUs` column
-is the noon-internal key (`Z…Z-<n>`) and `Partner SKUs` the seller's own
-code, on the same row — the only place the two keyspaces meet. Keep the
-transaction CSV alongside the fee/ads files; without it the per-SKU
-numbers cannot be mapped to seller SKUs.
+It is, however, the SKU bridge for both: its `SKUs` column (noon's
+internal `Z…Z-<n>` key) and `Partner SKUs` (the seller's code) sit on the
+same row, and nowhere else do the two keyspaces meet. Keep the
+transaction CSV next to the fee and ads files.
 
 ## See also
 
-- `noon-shared` — login, page structure (prerequisite)
-- `noon-fbn` § 8 + `references/fee-reports.md` — per-SKU FBN storage /
-  RTV-removal fees, and the reconciliation against § 2's settlement line
-- `noon-ads` § 7.1 — per-SKU ad spend export
-- `amazon-reports` — Amazon equivalent + general "Download Behavior" pattern
+- `noon-shared` — login, page structure, store switcher
+- `noon-fbn` § 8 + `references/fee-reports.md` — per-SKU FBN fees and the
+  reconciliation against § 2's settlement line
+- `noon-ads` — per-SKU ad spend export

@@ -1,48 +1,25 @@
 ---
 name: amazon-ads
-description: "Amazon Sponsored Products / Sponsored Brands / Sponsored Display ads + Coupons on Seller Central / advertising console. ONE catalog covering BOTH mechanics (URLs, click paths, modal patterns, kat-* component gotchas, field input ranges) AND workflows (tuning existing campaigns, weekly review, search-term harvest, ACOS improvement). Load this skill BEFORE any browser-use action that creates, edits, captures, archives, or downloads campaigns / ad-groups / keywords / product targets / coupons on amazon.<tld> or advertising.amazon.<tld>. The catalog below points to topical references — load whichever ones the task needs. Defaults to last 30 days for tuning analysis but accepts any user-specified window."
+description: "Amazon advertising for a store — Sponsored Products / Brands / Display campaigns and coupons. Load for any of the store's Amazon ad work (review, audit, tune, create, apply approved changes), wherever its ad console is reached: it carries the data contract and the change rules the server checks. References cover console mechanics (URLs, click paths, kat-* component gotchas, input ranges) and workflows (weekly review, search-term harvest, ACOS tuning); load the ones the task needs. Tuning analysis defaults to the last 30 days unless the user names a window."
 allowed-tools: Bash(browser-use:*)
 requires: [amazon-shared]
-gates: [ad_change_cooldown, ad_completeness_review, ad_negation_allowlist, ad_execution_fidelity, ad_writeback_backing]
-review:
-  criteria: |
-    - Every active campaign in the declared scope was drilled: its
-      targeting table and its search terms are in the report, read from
-      the console for the same date window.
-    - The report's figures (spend, sales, orders, clicks, bids — per
-      keyword and per search term) match what the live console shows.
-    - Every recommendation names a keyword or search term that really
-      exists on the console, with an exact action.
-    - For an `investigate` task (figures only, no recommendations), the
-      figures in the answer match the console; nothing more is owed.
-  verify_by: |
-    Open the console with the wrapper. Count the active campaigns
-    yourself (do not trust the report's total), open a sample of
-    campaign pages and compare their figures with the report, and
-    confirm a few recommended keywords / search terms exist. Do NOT
-    re-check the report's format — headings, the 进度 line, the
-    reconciliation-line syntax, table layout: the server's completeness
-    check owns format and runs on every submission. Write the verdict as
-    soon as the data is checked.
+gates: [ad_changes, ad_coverage]
 ---
 
 # Amazon Ads — Catalog
 
-> **PREREQUISITE:** Read `../amazon-shared/SKILL.md` for marketplace
-> TLD map, version-aware navigation (New Seller Central vs classic;
-> navigate by direct URL), the Ziniao login challenge-loop (password /
-> OTP / hosted-passkey),
-> and the ad-console vs seller-central account caveat.
+Load the `amazon-shared` skill first (Skill tool): marketplace TLD
+map, navigation, the Ziniao login challenge loop, and the ad-console
+vs seller-central account caveat live there.
 
-## 0. FIRST — declare what this task is for
+## 0. Declare what this task is for
 
-**Before any browser action, call `vibe_seller_declare_ad_task`.** This is
-a precondition, not a courtesy: a report with no declaration behind it is
-refused.
-
-What follows from the declaration cannot be changed afterwards: how much
-the completeness gate asks of you. Read it off what the person actually
-asked for, not off what you expect to find once you look.
+Before any browser action, call `vibe_seller_declare_ad_task` (already
+in your tool list as `mcp__vibe-seller__vibe_seller_declare_ad_task`;
+ToolSearch only lists deferred tools, so it will not show it). The
+declaration decides how much coverage the server expects from you and
+whether you may propose changes at all, so read it off what the person
+actually asked for — not off what you expect to find once you look.
 
 | They asked for | `kind` | `scope` |
 |---|---|---|
@@ -54,347 +31,180 @@ asked for, not off what you expect to find once you look.
 | "我们 SA 的 ACOS 大概多少" | `investigate` | the market asked about |
 
 **Numbers or changes?** That is the line between `investigate` and
-`audit`, and it matters more than the table above. If the answer the
-person wants is a FIGURE — what did we spend, what is our ROAS, how did
-last month go — that is `investigate`, however many markets it spans:
-you are reading, not proposing. If they want to know what to CHANGE, or
-asked "is this right?", that is `audit`.
-Observed live: a plain "how much did we spend on ads this month, and
-what came back?" was declared a whole-store `audit`, which put five
-marketplaces of drill work behind a question that wanted four numbers. And the other way round, observed in
-CI: "review the keyword bids on <campaign>" was declared `investigate`,
-so the bid recommendations it produced contradicted its own declaration.
+`audit`. If the person wants a figure — what did we spend, what is our
+ROAS, how did last month go — it is `investigate`, however many markets
+it spans: you are reading, not proposing. If they want to know what to
+change, or asked "is this right?", it is `audit`. Declaring a figures
+question as a whole-store audit buys hours of drilling nobody asked for;
+declaring a bid review as `investigate` leaves you unable to hand over
+the recommendations they wanted.
 
-**What an `investigate` task does — and does not.** You declared you are
-reading figures, not proposing changes. So: read the figures from the
-console (summary / campaign list, for the window asked), answer them with
-`vibe_seller_set_task_result`, done. The audit procedure is for `audit` —
-an optimization report — and does not apply here: no `output-spec.md` /
-`audit-quickref.md`, no per-campaign drill, no TSVs, no
-`AUDIT_SCOPE.json`, no `AD_AUDIT_*.md` report. The server still asks the
-verification reviewer to confirm your figures against the console; that
-is a quick check of the numbers, nothing more. If the answer turns into
-recommendations, re-declare `audit` and follow the full procedure.
+**`investigate` reads and proposes nothing.** Read the figures from the
+console (summary or campaign list, for the window asked) and answer with
+`vibe_seller_set_task_result`. No per-campaign drill, no
+`CAMPAIGNS.tsv`, no `AD_AUDIT_*.md`, and no `CHANGES.tsv` rows other
+than `hold`.
 
-**If you got it wrong, correct it upward.** If you declared
-`investigate` and the work turned out to produce decisions — a table
-telling someone to raise, cut, pause or negate — call
-`vibe_seller_declare_ad_task` again with `kind: "audit"` and the same
-scope, or a narrower one. That is the ONLY kind change allowed inside a
-turn, and it is allowed because it only ever makes you owe more: the
-coverage obligation appears. Going the
-other way (`audit` → `investigate`), adding a marketplace, or widening
-the campaign list are all still refused, and still need a new message
-from the user. Do not instead delete your recommendations to fit the
-declaration — the person asked what to change.
+**If you under-declared, correct it upward.** When an `investigate`
+turns out to need decisions — raise, lower, pause, negate — call the tool
+again with `kind: "audit"` and the same or a narrower scope. That is the
+only kind change allowed inside a turn, because it only adds what you
+owe. `audit` → `investigate`, adding a marketplace, or widening the
+campaign list need a new message from the user. Don't delete
+recommendations the person asked for to fit a declaration.
 
 **There is no `edit` kind.** A request to change specific bids is an
-`audit` whose scope names those campaigns — the user still reviews the
-change before it is applied, and the scope is what makes it small.
+`audit` scoped to those campaigns: the user still approves the change
+before it is applied.
 
-**The scope trap:** omitting `combos` means EVERY marketplace this store
-sells on, and you will be held to all of them. Omit it only when the
-request really is store-wide. A store selling on five marketplaces has
-been asked for all five because a one-product task left the field out.
+**The scope trap: omitting `combos` means every marketplace the store
+sells on**, and you owe all of them. Omit it only for a genuinely
+store-wide request.
 
-**If the request names a product, not a campaign** ("widget-006 的广告"),
-declare the MARKET now and the campaigns later. You cannot know campaign
-ids before you have looked, and declaring a market with no campaign list
-means **every campaign in it** — which is how a one-product request turns
-into an audit owing a whole marketplace.
+**When the request names a product, not a campaign** ("widget-006 的
+广告"), declare the market first with `products`, enumerate the campaign
+list, find the campaigns carrying that SKU family, then call the tool
+again with the same kind and combos plus `campaigns: [...]`. That
+narrowing call is accepted within the turn. Refining may only remove
+reach. If something seems to need a wider scope, say so in your result
+and let the user widen it.
 
-So: declare `{kind, combos, products}` first, enumerate the campaign list,
-find the campaigns carrying that SKU family, then call the tool AGAIN with
-the same kind and the same combos plus `campaigns: [...]`. That second
-call is a **narrowing refinement** and is accepted within the same turn.
+**A new user message that changes the work is a new phase — declare
+again.** After a `create`, "now review what you created" is an `audit`
+that may name the campaigns you just made. When the user replies with
+which suggested changes to make, declare `execute` scoped to those
+campaigns.
 
-**Refining may only ever remove reach.** Same kind, same marketplaces, and
-a campaign list going from "all of them" to a named subset. You cannot add
-a marketplace, change the kind, or widen the campaign list — a wider scope
-needs a new message from the user. If a gate asks for something outside
-your scope, say so in your result and let the user redirect you; do not
-try to re-declare around it.
+## What each kind produces
 
-**When the user sends a NEW message that changes what you are doing,
-declare again.** That is a new phase, and it is the only way a
-declaration changes. Two cases you will hit often:
+| kind | Deliverable | Reference |
+|---|---|---|
+| `audit` | `AD_AUDIT_<YYYY-MM-DD>.md` for the user, plus `CAMPAIGNS.tsv`, two TSVs per live campaign, and `CHANGES.tsv` | [`audit-quickref.md`](references/audit-quickref.md) (procedure), [`data-contract.md`](references/data-contract.md) (files and columns) |
+| `execute` | Approved changes applied and verified, `EXECUTION_LOG.tsv`, `applied_*` columns filled | [`execution.md`](references/execution.md) |
+| `create` | New campaigns, verified live | [`bulk-operations.md`](references/bulk-operations.md), [`mechanics-create.md`](references/mechanics-create.md) |
+| `investigate` | The figures asked for, as the task result | this page, §0 |
 
-- "现在把刚创建的广告复核一下" after a `create` phase → declare `audit`,
-  and its scope may name the campaigns you created earlier in this same
-  task.
-- The user replies with which of the suggested changes to make → declare
-  `execute`, scoped to the campaigns they named.
+The server checks the TSVs, never the report's prose, so write the
+report in whatever shape reads best for the person and put the numbers
+and decisions in the files. For an audit, start with
+[`audit-quickref.md`](references/audit-quickref.md) and load other
+references only when a step points to them — pre-reading everything
+crowds out the work.
 
----
+`AUDIT_TARGETS.json` (task dir, written by the server after you
+declare) lists every marketplace the store is configured for. It is the
+menu; your declaration picks what you owe from it. A market list in the
+task description is prose that may be stale — the declaration is the
+source of scope.
 
-This skill is a **catalog**. The actual content lives in topical
-references in `references/`. Load whichever ones apply to the task.
+## When the recipe doesn't fit — recover, don't stall
 
-## When something doesn't fit the recipe — recover, don't stall
+The references are worked examples, not the whole space. When a step
+meets a shape it didn't expect, reason from the invariants below and take
+the next concrete step rather than handing a half-finished task back.
+Ask a human only when a credential or permission is genuinely missing,
+or before a live change whose approval is unclear (which row, which
+value, or no audit to execute against — see
+[`execution.md`](references/execution.md)).
 
-The references below are worked examples, not the full space of what
-you'll hit. Amazon's UI, campaign types, and account states vary; a step
-that assumes one shape will sometimes meet another. **A gap in these
-docs is not a stop sign — it's a cue to reason from first principles.**
-You are a capable agent; the recipe is a starting point, not a cage.
-When a documented step doesn't fit, do NOT hand a half-finished task
-back to the user ("please do X manually"). Work the problem:
+- **The export is ground truth; the grid is fragile.** Amazon's grids
+  are virtualized (about 13 of hundreds of rows exist in the DOM), so
+  read campaigns, keywords and search terms from the Bulk Operations
+  export or a Search Terms CSV. If you catch yourself scrolling and
+  re-reading a grid, export instead.
+- **The grid's own Export button is page-scoped.** Campaign Manager's
+  inline "导出 / Export → 当前表格数据 / current table data" dumps only
+  the ~50 rows on the current page, and the grid's Next Page control
+  often refuses to advance. Enumerate from the Bulk Operations download
+  ([`mechanics-reading.md`](references/mechanics-reading.md) §2; reuse the newest
+  `bulk-*.xlsx` whose window covers yours). After any download, compare
+  its campaign-row count with the grid's `aria-rowcount`; a file with
+  about 50 rows is the page, not the account.
+- **A persisted search filter hides campaigns.** The campaign-search box
+  keeps the last term in the browser profile. Clearing it takes a real
+  coordinate click on its ✕ (`aria-label="Clear search terms"`); the
+  list-level "clear filters" control, setting `.value`, and synthetic
+  clicks all leave it applied. Then read `aria-rowcount` — a real clear
+  makes it jump. Also clear the default status filter so paused and
+  archived campaigns count. Snippet and fallbacks:
+  [`mechanics-reading.md`](references/mechanics-reading.md) §1 — load it
+  before your first campaign-list read.
+- **Data is scoped to the marketplace on screen.** Some accounts show
+  one country at a time (top-left `Sponsored ads, <Country>` switcher,
+  each country a separate entity); others list several countries with a
+  Country column. Check which you have, and confirm every requested
+  country is actually in the data you read. A country's absence means it
+  lives behind the switcher, not that it has no ads — switch, export it
+  separately, and look before you claim a negative. A stored note saying
+  a market is empty is a stale snapshot.
+- **Build from the export's own structure.** `scripts/ads_bulk.py` has
+  `inspect`, `scope`, `clone-campaign`, `bid-update`, `negate` and
+  `archive-campaign`; check them before hand-parsing a workbook. For a
+  case they don't cover (an SB negative, an unusual entity), copy a
+  working row of that kind from the export and change only your values —
+  the export shows the exact tokens this account and locale accept.
+- **Poll async jobs in short calls.** A bulk export or upload takes
+  minutes; poll with a few `sleep 20` + re-open cycles. One long sleep,
+  or blocking on a Monitor for page state, looks like a hang.
+- **Verify by re-reading ground truth.** A bulk `Success` only means the
+  file was accepted. Re-export or re-open the campaign and confirm the
+  committed state: enabled, advertising the intended SKU (a cloned
+  campaign can still point at the old one), negatives present.
 
-- **The export is ground truth; the live UI is fragile.** For anything
-  data-heavy — reading campaigns, keywords, search terms, deciding what
-  to negate — use the **bulk export** (or a Search-Terms CSV), never the
-  on-screen grid. Amazon's grids are **virtualized** (only ~13 of
-  hundreds of rows exist in the DOM; `innerText` is undefined
-  mid-scroll). Scraping them is the single most common way a run wastes
-  itself. If you catch yourself scrolling a grid and re-reading, stop —
-  export instead.
-
-- **The grid's OWN inline "导出 / Export" button is a PAGE-SCOPED trap —
-  it is NOT the bulk export.** On the Campaign Manager grid the Export
-  control opens a menu whose "当前表格数据 / current table data → 下载 /
-  Download" option dumps **only the ~50 rows on the current grid page**,
-  not the account. It looks exactly like "the export," so trusting it is
-  the single most common way a run under-counts a large account —
-  **verified live: it returned 50 of 146 campaigns, and the grid's own
-  "下一页 / Next Page" then silently refused to advance (JS click returns
-  `clicked:false`; the grid virtualizes), trapping the run at page 1.**
-  Do **NOT** enumerate by paging the grid or by its inline Export. The
-  account-wide export is the **Bulk Operations download** (`mechanics.md`
-  §2d) — one XLSX covering every campaign regardless of grid pagination
-  (reuse the newest `bulk-*.xlsx` first). **After any download, verify its
-  campaign-row count equals the grid's `aria-rowcount`; if it's ~50 (one
-  page), you grabbed the page-scoped file — discard it and use Bulk
-  Operations.** A file whose count ≠ the grid total is not the account.
-
-- **A persisted search/status filter silently hides campaigns — clear
-  it FIRST, and trust the grid's own total, not a scraped row count.**
-  The Campaign Manager's campaign-search box keeps whatever term was last
-  typed (stored in the browser profile, not the URL), so it stays applied
-  when you open the list and can show a small fraction of a much larger
-  account. **Before enumerating, if the campaign-search input has a
-  non-empty value, campaigns are hidden — clear it.** Three traps make
-  this the most common under-count cause, all verified live:
-    - **The list-level "clear filters" / "remove all" control does NOT
-      clear it** — that only drops the status/type filter *chips*; the
-      search term survives.
-    - **Setting the input `.value` does NOT clear it** — the field is
-      React-controlled: it re-applies the old filter, and a `value===''`
-      check then *falsely* passes ("false-cleared").
-    - **A synthetic `dispatchEvent` click on the ✕ does nothing** — the
-      widget only honors a *trusted* pointer event.
-  **What works: a REAL coordinate click (`click_at_xy`) on the search
-  box's own clear ✕** — locate it by the aria-label `Clear search terms`
-  (aria-labels stay English even on a localized UI; the visible
-  placeholder/footer text does not, so never key on that). Then read the
-  grid's **`aria-rowcount`** (language-neutral; the full filtered total,
-  not the ~13 virtualized DOM rows) — a real clear makes it jump. **A
-  suspiciously low total = a filter still applied; do not report it.**
-  Also clear the default status filter so paused/archived campaigns
-  count. Amazon ships more than one console layout — the exact selectors
-  are the common ag-grid case, but the invariant holds on all of them:
-  trust the grid's own total over any DOM scrape. Snippet + fallbacks:
-  [`mechanics.md`](references/mechanics.md) §2a (**load it before your
-  first campaign-list read**).
-
-- **Data is scoped to whatever marketplace the console is showing — so a
-  country's absence is never proof it's empty.** Amazon's ad console comes
-  in more than one shape, and you must not assume which you're on:
-    - *Per-country account* — the console shows **one marketplace at a
-      time**, selected by the top-left `Sponsored ads, <Country>` control;
-      each country is a **separate account/entity** (the brand name can
-      even differ per market). The list — and a bulk export — cover only
-      the selected country.
-    - *Unified multi-market entity* — a **single list spans several
-      countries**, distinguished by a Country column, and the export may
-      carry a marketplace/country column covering all of them.
-  Don't guess which you have — **check**: does the current view (or the
-  switcher menu) actually name the country you were asked about? Is there
-  a per-row Country column, and does the export contain that country's
-  rows? The invariant, true in every shape: **confirm each requested
-  country is actually represented in the data you read.** If a country
-  isn't present, it lives behind the switcher (or under another entity) —
-  go get it; do **not** conclude it has no ads. When the user asks about
-  more than one country (or "all", or one the console isn't currently
-  showing) and the layout is per-country, **switch to each country and
-  export separately** — one download per country — then compare. To prove
-  any negative ("no ads in X"), put X in view and look. A stored note
-  claiming a market is empty is a stale per-run snapshot, not a fact —
-  re-verify it live before you trust it.
-
-- **If a command/recipe doesn't cover your case, build it from the
-  export's own structure.** `ads_bulk.py` has `inspect` / **`scope`** /
-  `clone-campaign` / `bid-update` / `negate` / `archive-campaign` — check
-  this list before hand-parsing the workbook; `scope` in particular
-  already emits the `state=enabled` id set plus its independently-counted
-  total, which is exactly what `AUDIT_SCOPE.json` needs, so re-deriving it
-  with openpyxl is wasted work. But if your case isn't one of them (a
-  campaign type, an entity, a field with no
-  helper), open the export, find a row of the kind you need (a working
-  example of exactly this on this account), and emit the same columns
-  with your values changed. The export **teaches you the exact tokens**
-  this account+locale accepts — you never have to invent them. (Worked:
-  an SB-video negative isn't in the SP script, so read an SB row and
-  build the SB negative sheet from it.)
-
-- **Poll async jobs in separate, short calls — never one long silent
-  sleep, and never block on a Monitor for browser/job state.** A bulk
-  export or upload takes minutes; check it with a short poll (a few
-  `sleep 20` + re-open), returning to the loop between checks so
-  progress stays observable. A single 15-minute `sleep` — or blocking a
-  `Monitor`/`TaskOutput` waiting for a page/job event — looks like a hang
-  and strands the run.
-
-- **Verify by re-reading ground truth, not by trusting "Success".** A
-  bulk `Success` status only means the file was accepted; re-export (or
-  re-read the campaign) and confirm the committed state — the campaign
-  is `enabled`, the Product Ad advertises the *intended* SKU (a cloned
-  campaign renamed to the new product can still point at the old SKU),
-  the negatives are present.
-
-- **Never exit-in-the-half.** If you're blocked, restate the invariant
-  ("I must end this campaign as `enabled` advertising SKU X"), find the
-  ground-truth source, and take the next concrete step toward it. Ask a
-  human only when a credential/permission is genuinely missing, not when
-  a recipe merely ran out.
-
-The references are the map; these principles are how you travel when the
-map ends.
-
-## What this skill produces
-
-For tuning / audit tasks ("review the ads", "improve ACOS", "audit"):
-**one Markdown report** (`AD_AUDIT_<YYYY-MM-DD>.md`) + **two TSVs per
-active campaign** (`stores/<slug>/ads/<platform>/<country>/<id>.tsv`
-targets + `<id>.searchterms.tsv` full customer-query set). Every
-campaign is drilled in TWO layers on the same date window — targets AND
-search terms — proven by a `搜索词对账` reconciliation line the server
-reviewer parses.
-
-**START HERE — do NOT pre-read every reference (it buries the model and
-causes shortcutting). Just two files, then run:**
-
-1. **[`output-spec.md`](references/output-spec.md)** — the report
-   contract (what "done" looks like).
-2. **[`audit-quickref.md`](references/audit-quickref.md)** — the entire
-   procedure on one page. Load a heavy reference only when a step there
-   tells you to.
-
-Write the report to `AD_AUDIT_<YYYY-MM-DD>.md`, and persist the
-authoritative active-campaign ids per marketplace to `AUDIT_SCOPE.json`
-(run `python3 .claude/skills/amazon-ads/scripts/ads_bulk.py scope
-<each market's export>` — your CWD is the task workspace, so the
-script must be addressed through the synced skill path) — the
-coverage floor checks against it.
-
-**What you owe is what you DECLARED.** `AUDIT_TARGETS.json` at the task
-root lists every marketplace the store is configured for — it is the
-MENU, written by the server from Settings, not your inference and not a
-market list in the task description (prose goes stale when a store gains
-a marketplace). Your `vibe_seller_declare_ad_task` call is what turns
-part of that menu into an obligation:
-
-* declared `combos` → you owe exactly those, each with an
-  `AUDIT_SCOPE.json` entry AND a `## <Platform> <Country>` report
-  section, even one with no live campaigns (`"active_ids": []`,
-  `"total_active": 0`);
-* declared NO `combos` (a whole-store audit) → you owe every combo in
-  `AUDIT_TARGETS.json`, same rules.
-
-An empty menu (`"combos": []`) means the store has no marketplace
-configured — see `references/output-spec.md` for the one-combo rule;
-never edit store metadata to build a menu.
-
-Do NOT expand past your declaration because the menu is longer. A user
-who asked about one marketplace gets one marketplace; auditing the other
-four is work nobody asked for, and reporting on them is a `[基线]`
-out-of-scope gap. If you believe the scope is wrong, say so in your
-result and let the user widen it — you may not widen it yourself.
-
-**Before `vibe_seller_set_task_result`, you MUST pass verification — the
-report is not done until it's checked against the live console:**
-
-1. The server's **coverage floor** (deterministic): every marketplace
-   enumerated, every active id drilled, drills never regress. It replies
-   with "what's still missing"; fix and re-submit until clean.
-2. The **`ads-report-review` reviewer** (active verification): spawn
-   the reviewer subagent ONCE per
-   [`reviewer-loop.md`](references/reviewer-loop.md) — it **opens the live
-   console / re-exports and cross-checks your report against reality**
-   (samples your claimed drills, switches to any "empty" marketplace to
-   confirm, rejects count/category summaries that aren't word-level).
-   Fix the gaps it writes in place, then finish. The verdict is
-   single-round — one verdict, whatever it says; the Stop-hook will
-   not let you finish until it exists, and never asks for a second one.
-
-Both must pass. This is how "done" is defined for an ad report: verified
-against the live console, drilled to the word level — never a claim.
-
-**Then submit the FILE**:
-`vibe_seller_set_task_result("./AD_AUDIT_<date>.md")` — the path, never a
-chat summary of the report. The reviewer grades whatever string you pass
-it, and a summary has no `##` combo sections to grade.
-
-## Workflow references — the "what to do" thinking
+## References
 
 | Reference | Load when |
 |---|---|
-| [`output-spec.md`](references/output-spec.md) | **Read first for every audit.** The report contract the server completeness reviewer checks against — per-(platform,country) 进度 line, header table, per-campaign drills, the 4 bid rules, TSV-per-campaign. |
-| [`audit-quickref.md`](references/audit-quickref.md) | **The procedure, one page.** Run this top-to-bottom; it points to heavy refs on demand. |
-| [`format-anchor.md`](references/format-anchor.md) | _Legacy detail._ Per-campaign table column shape; load only if you need the exact table layout. (The mandatory subagent reviewer-loop is superseded by the server completeness reviewer — partial is accepted, it lists gaps each round.) |
-| [`reviewer-loop.md`](references/reviewer-loop.md) | **Required before finishing ANY ad report.** Phase-3 `ads-report-review` = active verification, one round only (opens the live console/export, cross-checks your report; fix its gaps in place and finish — no re-run). Phase-4 `ads-execution-review` for apply tasks (`EXEC_REVIEW_*`). |
-| [`tuning-workflow.md`](references/tuning-workflow.md) | User asks to tune ads, improve ACOS, "review last month's ads", harvest search terms, lower bids on losers, weekly ad review, "why is X campaign burning money", or any ongoing-campaign refinement task. |
-| [`tuning-campaign-types.md`](references/tuning-campaign-types.md) | A campaign isn't SP-Manual-Keyword. The skill defaults to SP-Manual-Keyword; for SP-Auto / SP-Manual-Product / Sponsored Brands / Sponsored Brands Video / Sponsored Display, this reference has the per-type sidebar tabs, Targeting-tab columns, and lever-applicability matrix observed on a live merchant account. Pair with `tuning-workflow.md` Phase 3 — that phase branches on type. |
-| [`tuning-thresholds.md`](references/tuning-thresholds.md) | Need to derive per-store thresholds (breakeven ACOS = margin %, target ACOS = 0.7 × breakeven, protect-zone, waste/harvest cutoffs). Always heuristic, never hardcoded. |
-| [`tuning-toolbox.md`](references/tuning-toolbox.md) | Picking the right lever — 8 levers + 2 advanced (dayparting, structural splits) disabled by default. Ordered surgical-first (search-term negate / harvest, per-keyword bid trim) → blanket-last (bidding strategy, pause campaign). For which levers apply per type, see `tuning-campaign-types.md`. |
-| [`tuning-funnel-diagnosis.md`](references/tuning-funnel-diagnosis.md) | Distinguishing listing-side problems (low CTR = image / title; low CVR = PDP / price / reviews) from ad-side problems (ACOS) before reaching for a bid lever. Bad CTR is not an ad-tuning problem. |
-| [`tuning-recommendation-format.md`](references/tuning-recommendation-format.md) | Composing the per-campaign output table at the end of a tuning session — header table → per-campaign data → per-problem subsections with per-entity data tables. Targeting-first, placement-second. Data table shape varies by type — see `tuning-campaign-types.md`. |
-| [`tuning-history.md`](references/tuning-history.md) | The per-campaign TSV under git that records every observed state (bid, status, suggested range, recent metrics) across audits. Read at Phase 2 to diff scrape against record (catches OBSERVED_DRIFT); read at Phase 3 for recency check before recommending changes (< 7 days since last change → downgrade to Hold); written at Phase 4 after each verified apply (cause-and-effect ledger). One TSV per campaign, written via `vibe_seller_write_workspace_file`; the workspace auto-commits. |
-
-## Mechanics reference — the "how to click" lookup
-
-| Reference | Load when |
-|---|---|
-| [`bulk-operations.md`](references/bulk-operations.md) | **DEFAULT for creating a campaign or applying bids across keywords/campaigns.** Export → edit with `scripts/ads_bulk.py` → import → verify. Locale-general (positional 52-col schema, template-cloned headers) and guards the ASIN-as-SKU trap in code. The click paths below are the **fallback** — a single tweak, a field with no bulk column, or two failed imports. |
-| [`mechanics.md`](references/mechanics.md) | Any time you're about to issue a `browser-use` call against Amazon Ads or Coupons. Sections: § 0 preconditions, § 1 URLs, § 2 reading existing campaigns, § 3 creating a new campaign, § 4 bulk download / upload, § 5 coupons, § 6 wedged-daemon recovery, § 7 per-store conventions, § 8 reading playbook for tuning (Bid Adjustments date-range alignment rule, Search terms tab, bidding-strategy edit, daily-budget edit), § 9 scope. **§3 (UI create) and §4a0 (ag-Grid edits) are the fallback to `bulk-operations.md`.** |
+| [`data-contract.md`](references/data-contract.md) | Writing any ad TSV: file names, paths, columns, store-rule keys and defaults. |
+| [`audit-quickref.md`](references/audit-quickref.md) | Running an audit — the procedure end to end. |
+| [`output-spec.md`](references/output-spec.md) | Filling the per-campaign TSVs correctly and writing the human report. |
+| [`tuning-recommendation-format.md`](references/tuning-recommendation-format.md) | Deciding each row's action: PROTECT, bid floor and step cap, missing margin, zero-sales rows, search-term actions. |
+| [`tuning-workflow.md`](references/tuning-workflow.md) | What to read on each campaign tab and how to diagnose it; handling follow-up replies to an audit. |
+| [`tuning-thresholds.md`](references/tuning-thresholds.md) | Deriving the store's breakeven / target ACOS, waste and harvest cutoffs. |
+| [`tuning-toolbox.md`](references/tuning-toolbox.md) | Choosing a lever (negate, pause, bid, placement, strategy, harvest, budget) and where it lives in the UI. |
+| [`tuning-funnel-diagnosis.md`](references/tuning-funnel-diagnosis.md) | Telling a listing problem (CTR, CVR) from an ad problem before touching bids. |
+| [`tuning-campaign-types.md`](references/tuning-campaign-types.md) | The campaign isn't SP Manual Keyword: per-type tabs, columns, and which levers apply. |
+| [`execution.md`](references/execution.md) | Applying approved changes and recording them. |
+| [`bulk-operations.md`](references/bulk-operations.md) | Default path for creating campaigns or changing many bids: export → `ads_bulk.py` → upload → verify. |
+| [`mechanics.md`](references/mechanics.md) | Any `browser-use` call against Amazon Ads or Coupons: preconditions, URLs, which marketplace layout you are on, field ranges, wedged-daemon recovery — and the index to the four files below. |
+| [`mechanics-reading.md`](references/mechanics-reading.md) | Reading the console: campaign-list filters and `aria-rowcount`, bulk download, date pickers, Targeting / Search terms / Bid adjustments tabs, Brand Analytics. |
+| [`mechanics-edit.md`](references/mechanics-edit.md) | Changing a live campaign by clicks: bids, pause, negatives, harvest, placement / strategy / budget, Sponsored Brands edits. |
+| [`mechanics-create.md`](references/mechanics-create.md) | Creating a campaign or ad group in the UI (fallback to bulk), verifying the Product Ad, the bulk sheet schema. |
+| [`mechanics-coupons.md`](references/mechanics-coupons.md) | Coupons and the promotions wizard. |
 
 ## Safety rails
 
-- **Never auto-execute** any tuning change. Output is always a
-  recommendations table; the user confirms each row before any
-  click that modifies state.
-- **Derive thresholds from this store's data**, not from absolute
-  numbers. Computed, not hardcoded.
-- **Verify the lever before recommending it.** Every numeric
-  recommendation specifies field's current value, proposed value,
-  valid range, direction. Never recommend a value the field will
-  reject (e.g. negative placement modifiers — Amazon SP only
-  allows 0% to +900%, increase-only).
-- **Don't kill the goose.** Order-driving keywords / campaigns get
-  tagged PROTECT regardless of ACOS. Surface, never auto-cut.
-- **Per-run captures → `/tmp/<run-slug>/`** (per `amazon-shared § 5`).
+- **Never apply a change the user has not approved.** An audit ends with
+  `CHANGES.tsv` and the report; execution happens only in an `execute`
+  phase, on rows the user approved.
+- **Derive thresholds from this store's data and notes.** Defaults are in
+  [`data-contract.md`](references/data-contract.md); a store overrides
+  them with `key: value` lines in `stores/<slug>/notes.md`. When the user
+  states a different standard, write it there with
+  `vibe_seller_write_workspace_file` so later runs use it.
+- **Check the field's valid range before proposing a value** (e.g.
+  placement modifiers are 0% to +900%, increase-only).
+- **Protect what drives orders** — see
+  [`tuning-recommendation-format.md`](references/tuning-recommendation-format.md)
+  § PROTECT.
+- **Per-run captures go to a subfolder of the task dir (your CWD)**,
+  never into `stores/` or `knowledge/` (`amazon-shared` §5). The
+  per-campaign TSVs go where
+  [`data-contract.md`](references/data-contract.md) says.
 
 ## Default analysis window
 
-**Last 30 days** by default. The user may override with any window
-("last 14 days", "March 1 – March 31", "year to date", custom calendar
-dates). When set, **pin the same window across every page in the
-session** — campaign top-tile, ad-group list, Bid Adjustments,
-Search terms, Targeting. Each of those pages has its own independent
-date picker; defaults drift. Misaligned dates cause the per-placement
-breakdown to not sum to the campaign top-tile and lead to wrong
-recommendations.
+Last 30 days, unless the user names another window. Pin the same window
+on every page you read — campaign list, ad groups, Targeting, Search
+terms, Bid adjustments — because each page has its own date picker and
+defaults drift. Misaligned windows make layers that should add up
+disagree, and lead to wrong recommendations.
 
-## What this skill is NOT
+## What this skill is not
 
-- Not for new-campaign creation as a workflow → that's the separate
-  `new-product-launch` skill (which uses this skill's mechanics
-  reference for click paths).
-- Not for non-Amazon marketplaces — different platforms have
-  different UI / mechanics; document those in their own skills.
-- Sponsored Brands tuning is **partially verified** (campaign +
-  ad-group + Targeting tab observed; Bid adjustments tab present
-  with "New" badge but cell semantics not yet drilled). Sponsored
-  Brands Video and Sponsored Display are **listed-only** — the
-  per-type playbook in `tuning-campaign-types.md` calls out which
-  rows are verified vs inferred. For inferred-only types, mark
-  Confidence accordingly and bias to conservative reversible actions.
+- Not for other marketplaces — noon has `noon-ads`.
+- Sponsored Brands tuning is partially verified; Sponsored Brands Video
+  and Sponsored Display are listed-only (see
+  [`tuning-campaign-types.md`](references/tuning-campaign-types.md)).
+  For inferred types, say so in the report and prefer conservative,
+  reversible actions.

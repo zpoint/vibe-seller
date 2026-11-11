@@ -207,7 +207,14 @@
     "attachmentUnsupported": "{{name}}: unsupported file type, not attached",
     "attachmentTooLarge": "{{name}}: larger than {{size}}, not attached",
     "attachmentClipboardItem": "Clipboard item",
-    "startFailed": "Task created, but it could not be started. Its attachments may not have uploaded — open the task and retry."
+    "startFailed": "Task created, but it could not be started. Its attachments may not have uploaded — open the task and retry.",
+    "openingTask": "Opening task…",
+    "openFailed": "Could not open this task: {{error}}",
+    "openTimeout": "Could not open this task: the server did not answer in time.",
+    "tryAgain": "Try again",
+    "actionFailed": "That did not go through: {{error}}",
+    "actionTimeout": "The server did not answer in time — the action may not have gone through. Refresh to see the task's current state.",
+    "loadingConversation": "Loading the conversation…"
   },
   "events": {
     "title": "Events",
@@ -350,7 +357,10 @@
     "noCustomSkills": "No custom skills yet — create one or ask the assistant",
     "noImportedSkills": "No imported skills yet — ask the assistant to install from a URL",
     "noBuiltinSkills": "No built-in skills synced yet",
-    "restartNeeded": "A synced skill changed its gates — restart Vibe Seller to load them."
+    "restartNeeded": "A synced skill changed its gates — restart Vibe Seller to load them.",
+    "saveFailed": "Could not save the file: {{error}}",
+    "createFailed": "Could not create the file: {{error}}",
+    "deleteFailed": "Could not delete the file: {{error}}"
   },
   "settings": {
     "title": "Settings",
@@ -599,7 +609,10 @@
     "profile": "Profile",
     "profileMismatch": "Task was run by {{current}}. Different providers may be incompatible — results are not guaranteed if switched",
     "taskProfile": "Task",
-    "manageProfiles": "Manage Profiles"
+    "manageProfiles": "Manage Profiles",
+    "sending": "Sending…",
+    "sendFailed": "Message not sent: {{error}}. Your text is back in the box.",
+    "sendTimeout": "The server did not answer in time — the message may not have arrived. Check the conversation before sending it again; your text is back in the box."
   },
   "profiles": {
     "default": "Claude",

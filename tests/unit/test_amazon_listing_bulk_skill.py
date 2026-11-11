@@ -25,8 +25,6 @@ import sys
 
 import pytest
 
-from app.ai.skill_review import parse_skill_review
-
 pytestmark = pytest.mark.unit
 
 openpyxl = pytest.importorskip('openpyxl')
@@ -1530,44 +1528,6 @@ def test_parse_feedback_unified_report_finds_child_error(tmp_path, capsys):
     assert 'WIDGET-006-WHT' in out and '8560' in out
 
 
-class TestReviewContractTargetMarketplace:
-    """The DoD review contract must require verifying the listing on the
-    TARGET marketplace — the design fix for the SA/AE confusion where a
-    listing "for AE" completed on an account-level batch that actually
-    showed on SA. Must cover BOTH account structures (unified pan-regional
-    and separate per-marketplace)."""
-
-    def _review(self):
-        skill_md = (
-            Path(__file__).resolve().parents[2]
-            / 'app'
-            / 'skills_v2'
-            / 'amazon-listing'
-            / 'SKILL.md'
-        )
-        review = parse_skill_review(skill_md)
-        assert review is not None, 'amazon-listing must declare a review block'
-        return (review.criteria + '\n' + review.verify_by).lower()
-
-    def test_requires_target_marketplace_verification(self):
-        text = self._review()
-        assert 'target' in text and 'marketplace' in text
-        # Verify on the target marketplace's OWN inventory, not a batch row.
-        assert 'manage inventory' in text or 'inventory' in text
-        assert 'batch' in text  # the account-level batch trap is named
-
-    def test_covers_both_account_structures(self):
-        text = self._review()
-        assert 'unified' in text, 'must name the unified pan-regional case'
-        assert 'separate' in text, 'must name the separate per-marketplace case'
-
-    def test_wrong_marketplace_is_a_gap(self):
-        text = self._review()
-        # A listing on the wrong marketplace / only a batch id must not pass.
-        assert 'gap' in text
-        assert 'wrong marketplace' in text or 'different marketplace' in text
-
-
 # --- region-stamp guard (wrong-marketplace template must not fill) ---
 
 
@@ -2600,7 +2560,7 @@ def test_applied_with_other_errors_is_not_a_failure(
 
     Amazon counts only CLEAN rows as "successful". A row "applied, but
     contain other error(s)" is live. An earlier version of this check
-    read 1/4 as "3 did NOT land ... not done" and sent a reviewer after
+    read 1/4 as "3 did NOT land ... not done" and chased
     a failure that was not there.
     """
     monkeypatch.chdir(tmp_path)

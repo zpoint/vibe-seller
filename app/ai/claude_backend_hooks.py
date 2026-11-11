@@ -12,17 +12,12 @@ import logging
 
 from app import ads_routing
 from app.ai.background_wait import long_sleep_deny
-from app.ai.bash_safety import (
-    check_catalog_first_tool_args,
-    check_report_overwrite,
-    check_skill_file_write,
-    first_bash_deny,
-    should_mark_catalog_read,
-)
+from app.ai.bash_safety import check_skill_file_write, first_bash_deny
+from app.ai.catalog_read import should_mark_catalog_read
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
     AUTO_APPROVE_CALLBACK,
-    STOP_REFLECTION_CALLBACK,
+    STOP_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
     check_skill_prereqs,
     check_tool_loop,
@@ -33,7 +28,6 @@ from app.ai.image_guards import (
     check_image_read_without_vision,
 )
 from app.ai.profiles import ProfileManager, model_sees_images
-from app.ai.reflection_guard import begin_reflection, end_reflection
 from app.ai.skill_gate_utils import find_skill_md, unloaded_skill_read_hint
 from app.ai.stop_gates import record_skill_load
 from app.ai.tool_call_guards import tool_call_deny
@@ -41,12 +35,7 @@ from app.database import async_session
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
 from app.models.task import Task
-from app.plan_states import PlanStatus
-from app.prompts import (
-    REFLECTION_PROMPT,
-    SCHEDULED_WATERMARK_PROMPT,
-    render_prompt,
-)
+from app.plan_states import freeze_schedule_plan
 from app.question_answers import expand_free_text_answers
 from app.task_states import TaskStatus
 from app.telemetry_tasks import (
@@ -203,43 +192,6 @@ class _HookMixin:
                     )
                     await self._deny_pre_tool_use(request_id, deny_reason)
                     return
-            # Catalog-first guard for the Glob/Grep built-in tools.
-            # Same intent as the Bash branch above: agents denied at
-            # the Bash layer pivot to Glob/Grep on the same trees
-            # unless we close that escape hatch too.
-            if inner_name in ('Glob', 'Grep'):
-                deny_reason = check_catalog_first_tool_args(
-                    inner_input, self._catalog_read
-                )
-                if deny_reason:
-                    logger.info(
-                        'Catalog-first: agent %s tried %s(%r) before reading catalog',
-                        self.task_id[:8],
-                        inner_name,
-                        {
-                            k: v
-                            for k, v in inner_input.items()
-                            if k in ('path', 'pattern')
-                        },
-                    )
-                    await self._deny_pre_tool_use(request_id, deny_reason)
-                    return
-            # Catalog-read tracker: flip the catalog-first guard off
-            # once the agent issues a Read against any CATALOG.md —
-            # existence on disk deliberately doesn't matter. See
-            # ``bash_safety.should_mark_catalog_read`` for the
-            # design rationale (fresh stores with no L3 catalog yet
-            # were stuck in a deny loop, breaking DeepSeek thinking
-            # mode in particular).
-            # Report-overwrite guard: Write may not replace an
-            # existing AD_AUDIT report (Edit-only; see bash_safety).
-            deny_reason = check_report_overwrite(
-                inner_name, inner_input, self.task_dir
-            )
-            if deny_reason:
-                logger.warning('Report-overwrite guard: %s', self.task_id[:8])
-                await self._deny_pre_tool_use(request_id, deny_reason)
-                return
             # Skill-file guard: built-in Write/Edit against
             # .claude/skills/** only mutates the throwaway per-task copy
             # and silently fails to persist — force vibe_seller_save_skill.
@@ -305,33 +257,26 @@ class _HookMixin:
                 self._error_category = 'agent_loop'
                 asyncio.create_task(self.stop())
                 return
-            # Skill prerequisite enforcement: when a skill declares
-            # ``requires: [X]`` in its frontmatter, the agent must
-            # have loaded X first this session. Same shape as
-            # Claude Code's Read-before-Write rule — a deny with a
-            # clear retry message turns a prose contract into a
-            # mechanism. See parse_skill_requires for the format.
+            # A skill that declares ``requires: [X]`` gets a hint to load
+            # X too when it has not been loaded yet — advice, not a deny.
             if inner_name == 'Skill':
                 skill_name = inner_input.get('skill', '')
-                deny = self._check_skill_prereqs(skill_name)
-                if deny:
+                prereq_hint = self._check_skill_prereqs(skill_name)
+                if prereq_hint:
+                    # The server's record that the hint was sent (the
+                    # e2e reads it; the agent's own narration is not
+                    # evidence).
                     logger.info(
-                        'Skill prereq: agent %s tried %r without %s',
+                        'Skill prereq: agent %s loaded %r early; hint: %s',
                         self.task_id[:8],
                         skill_name,
-                        deny,
+                        prereq_hint,
                     )
-                    await self._send_hook_response(
-                        request_id,
-                        {
-                            'hookSpecificOutput': {
-                                'hookEventName': 'PreToolUse',
-                                'permissionDecision': 'deny',
-                                'permissionDecisionReason': deny,
-                            },
-                        },
+                    read_hint = (
+                        f'{read_hint}\n{prereq_hint}'
+                        if read_hint
+                        else prereq_hint
                     )
-                    return
                 # Only track skills we actually ship (a SKILL.md
                 # exists in workspace/global skills): otherwise
                 # ``Skill('<arbitrary-name>')`` would "satisfy" a
@@ -356,65 +301,14 @@ class _HookMixin:
             await self._send_hook_response(
                 request_id, {'hookSpecificOutput': allow}
             )
-        elif callback_id == STOP_REFLECTION_CALLBACK:
-            # Stop hook: block to force reflection, approve on retry.
-            # Claude Code sends stop_hook_active=true on the retry
-            # after a block, preventing infinite loops.
-            if tool_input.get('stop_hook_active'):
-                end_reflection(self)  # bracket-end; see reflection_started
-                _ev = json.dumps({'event': 'reflection_completed'})
-                await self._emit_message('agent_event', _ev)
-                await self._send_hook_response(
-                    request_id, {'decision': 'approve'}
-                )
-            else:
-                if await self._deny_stop_if_tasklist_open(request_id):
-                    return
+        elif callback_id == STOP_CALLBACK:
+            # Stop hook: refuse to end while the turn's own work is
+            # still open. Claude Code sends stop_hook_active=true on the
+            # stop that follows a block, so each check fires once.
+            if not tool_input.get('stop_hook_active'):
                 if await self._deny_stop_if_async_agents_running(request_id):
                     return
-                if await self._deny_stop_if_review_unsatisfied(request_id):
-                    return
-                if await self._deny_stop_if_exec_review_unsatisfied(request_id):
-                    return
-                # Save real result before reflection overwrites it.
-                # Prefer full exec-phase transcript (agent may emit
-                # the full report then a brief "Done." closing — the
-                # Stop-hook payload's ``last_assistant_message`` only
-                # contains the closing). Fall back to that field if
-                # we have no accumulated text.
-                pre = '\n\n'.join(p for p in self._exec_phase_text_parts if p)
-                if not pre:
-                    pre = tool_input.get('last_assistant_message', '')
-                # Always set (even to '') so the result handler can
-                # detect that Stop-hook reflection fired. If pre is
-                # empty, the post-reflection text in the next
-                # ``result`` event is reflection content (e.g. 'No
-                # transferable learning…') and MUST NOT become the
-                # user-facing answer.
-                self._pre_reflection_result = pre
-                if pre:
-                    await self._save_result(pre)
-                # Reflection tool calls run after the turn's work is
-                # done — they must not count as progress in the Q&A
-                # finalize check, nor start new work (reflection_guard).
-                begin_reflection(self)
-                # Structured marker — makes the reflection PHASE
-                # observable independently of model wording.
-                _ev = json.dumps({'event': 'reflection_started'})
-                await self._emit_message('agent_event', _ev)
-                reason = render_prompt(
-                    REFLECTION_PROMPT,
-                    store_slug=self.store_slug,
-                )
-                if await self._is_scheduled_task():
-                    reason += '\n\n' + SCHEDULED_WATERMARK_PROMPT
-                await self._send_hook_response(
-                    request_id,
-                    {
-                        'decision': 'block',
-                        'reason': reason,
-                    },
-                )
+            await self._send_hook_response(request_id, {'decision': 'approve'})
         elif callback_id == 'tool_approval':
             # Legacy format — extract inner tool info
             inner_tool = tool_input.get('tool_name', '')
@@ -709,12 +603,7 @@ class _HookMixin:
                         task.status = TaskStatus.COMPLETED
                         task.completed_at = now
                         task.updated_at = now
-                        sched.plan = plan_text
-                        sched.plan_status = PlanStatus.READY.value
-                        sched.plan_version = (sched.plan_version or 0) + 1
-                        sched.plan_error = None
-                        sched.current_planning_task_id = None
-                        sched.updated_at = now
+                        freeze_schedule_plan(sched, plan_text, now)
                         await db.commit()
                         committed = True
                         await event_bus.emit(

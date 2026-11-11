@@ -14,7 +14,7 @@ import types
 
 import pytest
 
-from app.ai.bash_safety import check_review_status, first_bash_deny
+from app.ai.bash_safety import first_bash_deny
 from app.ai.stop_gates import resolve_skill_gates
 from app.browser.manager import BrowserManager
 from app.plugins import (
@@ -113,11 +113,7 @@ def test_builtin_registers_core_gates():
     # Ad-audit gates are still core-registered. The review-collect gates
     # moved into review-collect/gates/ (skill-bundled, discovered by the
     # skill-gate loader), so they are intentionally NOT in the registry.
-    for name in (
-        'ad_completeness_review',
-        'ad_negation_allowlist',
-        'ad_execution_fidelity',
-    ):
+    for name in ('ad_changes', 'ad_coverage'):
         assert name in gates, name
         assert callable(gates[name].check)
     assert 'review_completeness_review' not in gates
@@ -139,16 +135,7 @@ def test_builtin_pretool_gates_in_historical_order():
         names = [n for n, _ in get_extension_context().pretool_gates]
     finally:
         reset_for_tests()
-    assert names == [
-        'Bash safety',
-        'Bid-value sanity',
-        # Above 'Catalog-first' on purpose: an agent reaching for rembg
-        # should get "regenerate with the model", not a read-the-catalog
-        # nudge. See bash_safety.check_local_image_edit.
-        'Local-image edit',
-        'Report-script guard',
-        'Catalog-first',
-    ]
+    assert names == ['Bash safety', 'Bid-value sanity', 'Local-image edit']
 
 
 def test_builtin_registers_no_skill_source():
@@ -170,7 +157,7 @@ def test_fake_plugin_adds_gate_backend_service(install_fake_plugin):
     ctx = install_fake_plugin(_FakeEntryPoint('fake', FakePlugin))
     # Builtin contributions survive alongside the fake plugin's.
     assert 'fake_gate' in ctx.gates
-    assert 'ad_completeness_review' in ctx.gates
+    assert 'ad_coverage' in ctx.gates
     assert ctx.browser_backends['fakebackend'] is _FakeBackend
     assert [n for n, _ in ctx.services] == ['fake_service']
     assert any(str(p) == '/tmp/fake-skills' for p in ctx.skill_sources)
@@ -310,22 +297,9 @@ def test_first_bash_deny_runs_registered_guards(install_fake_plugin):
     assert first_bash_deny('echo hello') is None
 
 
-def test_registered_review_marker_suppresses_legacy_gate(
-    install_fake_plugin, tmp_path
-):
-    # A plugin that reviews its own audits server-side registers a marker;
-    # core's legacy REVIEW-file Stop gate then stands down for a matching
-    # AD_AUDIT (no double-gating) but still fires for an unmarked one.
+def test_retired_review_marker_api_still_loads_plugins(install_fake_plugin):
+    # Core no longer runs the REVIEW-file gate a marker stood down, but a
+    # plugin built against ``register_review_marker`` must still load.
     install_fake_plugin(_FakeEntryPoint('fake', FakePlugin))
-    (tmp_path / 'AD_AUDIT_2026-06-27.md').write_text(
-        '# FAKE 平台审计 — demo\n\n## 1. 汇总\n', encoding='utf-8'
-    )
-    assert check_review_status(tmp_path) is None
-
-    other = tmp_path / 'other'
-    other.mkdir()
-    (other / 'AD_AUDIT_2026-06-27.md').write_text(
-        '# 广告优化建议 — 某平台\n\n## 某场景\n', encoding='utf-8'
-    )
-    deny = check_review_status(other)
-    assert deny is not None and 'ads-report-review' in deny
+    assert first_bash_deny('echo TRIPWIRE') == ('Fake guard', 'denied')
+    assert get_extension_context().review_markers == [r'FAKE 平台审计']

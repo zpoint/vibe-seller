@@ -7,7 +7,7 @@ fire. ``PlanStatus`` tracks that lifecycle on the ``Schedule`` row:
 - ``NONE``     — plan_mode=False schedule, or no plan yet authored.
 - ``PLANNING`` — a plan-only Task is currently authoring the plan.
 - ``READY``    — plan committed; schedule is eligible to fire.
-- ``STALE``    — prompt was edited; the stored plan is no longer valid.
+- ``STALE``    — the prompt was edited; the stored plan is no longer valid.
 - ``FAILED``   — planner task failed; user must /replan.
 
 The scheduler fire-gate refuses to fire a schedule unless
@@ -33,6 +33,20 @@ BLOCKS_FIRE: set[PlanStatus] = {
     PlanStatus.STALE,
     PlanStatus.FAILED,
 }
+
+
+def freeze_schedule_plan(sched, plan_text: str | None, now: str) -> None:
+    """Freeze *plan_text* onto the schedule row: the one commit point.
+
+    Marks it READY and bumps ``plan_version`` (the optimistic-lock
+    token). Callers commit the session.
+    """
+    sched.plan = plan_text
+    sched.plan_status = PlanStatus.READY.value
+    sched.plan_version = (sched.plan_version or 0) + 1
+    sched.plan_error = None
+    sched.current_planning_task_id = None
+    sched.updated_at = now
 
 
 def allows_fire(status: str) -> bool:

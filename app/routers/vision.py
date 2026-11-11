@@ -39,6 +39,7 @@ from app.events.bus import event_bus
 from app.models.task_message import TaskMessage
 from app.models.user import User
 from app.sync import jobs as sync_jobs
+from app.sync.jobs import VISION_JOB
 from app.sync.scheduler import REASON_EVENT, sync_scheduler, timers_armed
 from app.telemetry_events import TelemetryEvent
 from app.text_utils import sanitize_json
@@ -66,6 +67,18 @@ _MAX_PROXIED_IMAGE = 15 * 1024 * 1024  # 15 MB
 # and the taskId is also logged at WARNING for manual recovery.
 _INFLIGHT: dict[str, tuple[str, str]] = {}
 
+_KINDS = frozenset({
+    'main',
+    'secondary',
+    'gallery',
+    'lifestyle',
+    'infographic',
+    'dimension',
+    'aplus',
+    'banner',
+    'fun',
+})
+
 
 def _take_inflight(task_id: str, model: str) -> str | None:
     """Pop and return a resumable kie.ai taskId for this task + model."""
@@ -74,6 +87,18 @@ def _take_inflight(task_id: str, model: str) -> str | None:
         return None
     _INFLIGHT.pop(task_id, None)
     return entry[0]
+
+
+def _image_props(model_id: str, kind: str) -> dict:
+    try:
+        usd = vision.get_model(model_id).usd
+    except Exception:
+        usd = None
+    label = (kind or '').strip().lower()
+    return {
+        'kind': label if label in _KINDS else ('other' if label else 'none'),
+        'price_bucket': telemetry.price_bucket(usd),
+    }
 
 
 def _safe_name(name: str) -> str:
@@ -133,12 +158,13 @@ async def put_vision_config(
     vision.save_vision_config(body.get('kie_api_key', ''))
     key = vision.get_kie_api_key()
     telemetry.send(TelemetryEvent.VISION_KEY_SAVED, {'key_set': bool(key)})
-    if key and timers_armed():
+    catalog_job = sync_scheduler.jobs.get(VISION_JOB)
+    if key and catalog_job and timers_armed(catalog_job):
         # The scheduled run skips while no key is set and re-arms a day
         # out, so a freshly activated install would wait that long for
         # live prices. Run it now, in the background: the save must not
-        # wait on kie.ai. Gated like the schedule itself, so a server
-        # with sync disarmed (tests) never reaches the network.
+        # wait on kie.ai. Gated like the schedule itself: a server that
+        # does not pull from GitHub main does not start this pull either.
         task = asyncio.create_task(_refresh_catalog())
         _BACKGROUND.add(task)
         task.add_done_callback(_BACKGROUND.discard)
@@ -302,7 +328,11 @@ async def generate_task_image(
         _INFLIGHT[task_id] = (e.kie_task_id, final_model)
         telemetry.send(
             TelemetryEvent.IMAGE_GENERATED,
-            {'ok': False, 'error_category': 'timeout'},
+            {
+                'ok': False,
+                'error_category': 'timeout',
+                **_image_props(final_model, kind),
+            },
         )
         logger.warning(
             'Image generation for task %s still running after %ss '
@@ -328,7 +358,11 @@ async def generate_task_image(
     except Exception as e:  # noqa: BLE001 — relay any kie.ai failure
         telemetry.send(
             TelemetryEvent.IMAGE_GENERATED,
-            {'ok': False, 'error_category': 'error'},
+            {
+                'ok': False,
+                'error_category': 'error',
+                **_image_props(final_model, kind),
+            },
         )
         logger.warning('Image generation failed for task %s: %s', task_id, e)
         raise HTTPException(status_code=502, detail=f'Generation failed: {e}')
@@ -357,7 +391,10 @@ async def generate_task_image(
             'kind': kind,
         },
     )
-    telemetry.send(TelemetryEvent.IMAGE_GENERATED, {'ok': True})
+    telemetry.send(
+        TelemetryEvent.IMAGE_GENERATED,
+        {'ok': True, **_image_props(final_model, kind)},
+    )
     # Persist the generated image so it re-renders inline on reload.
     # image_generated is otherwise a live-only SSE event, and the
     # conversation is rebuilt from persisted messages
@@ -412,8 +449,8 @@ async def confirm_task_image(
         'model': body.get('model'),
         'added_references': body.get('added_references') or [],
     }
+    card = vision.get_pending_request(task_id) or {}
     if action == 'confirm':
-        card = vision.get_pending_request(task_id) or {}
         if card.get('request_id') == request_id:
             # The card's own list is the contract: an id it never
             # offered is a forged or stale request, refused rather than
@@ -440,6 +477,24 @@ async def confirm_task_image(
             status_code=404,
             detail='No pending image request (expired or already handled)',
         )
+    proposed = (
+        card.get('model') if card.get('request_id') == request_id else None
+    )
+    telemetry.send(
+        TelemetryEvent.IMAGE_REQUEST_RESOLVED,
+        {
+            'task_id': task_id,
+            'action': action,
+            'model_changed': bool(
+                action == 'confirm'
+                and payload['model']
+                and payload['model'] != proposed
+            ),
+            'added_reference_count_bucket': telemetry.count_bucket(
+                len(payload['added_references'])
+            ),
+        },
+    )
     return {'ok': True}
 
 

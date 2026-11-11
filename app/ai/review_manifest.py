@@ -70,8 +70,7 @@ def _db_path() -> Path:
 def store_slug_for_task(task_id: str) -> str | None:
     """Resolve ``task_id`` → store slug, read-only, or None.
 
-    Mirrors ``ad_negation_allowlist`` DB access: a 2s read-only
-    connection, swallow every error. Returns None when the task has no
+    A 2s read-only connection; every error is swallowed. Returns None when the task has no
     store (non-store tasks never run this gate meaningfully) or the DB
     is unavailable — the gate then no-ops. Used only to confirm this is a
     resolvable store review run and to label the verdict; the review

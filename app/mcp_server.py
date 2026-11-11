@@ -217,10 +217,25 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 {'account_email': arguments['account_email']},
             )
         elif name == 'vibe_seller_write_workspace_file':
+            # The task id lets the server hold a knowledge-cleanup run
+            # to deletion-only edits (app/knowledge_contract.py).
+            tid = _config['task_id']
             result = await call_api(
                 'PUT',
-                f'/api/workspace/file?path={arguments["path"]}',
+                f'/api/workspace/file?path={quote(arguments["path"], safe="/")}'
+                + (f'&task_id={tid}' if tid else ''),
                 {'content': arguments['content']},
+            )
+        elif name == 'vibe_seller_delete_workspace_lines':
+            tid = _config['task_id']
+            result = await call_api(
+                'POST',
+                f'/api/workspace/file/delete-lines?path={quote(arguments["path"], safe="/")}'
+                + (f'&task_id={tid}' if tid else ''),
+                {
+                    'line_count': arguments.get('line_count'),
+                    'ranges': arguments.get('ranges') or [],
+                },
             )
         elif name == 'vibe_seller_set_task_error':
             # Annotate-only. Saves error + category, does NOT
@@ -320,7 +335,10 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 timeout=None,
             )
         elif name == 'vibe_seller_list_skills':
-            result = await call_api('GET', '/api/workspace/skills')
+            task = quote(_config['task_id'], safe='')
+            result = await call_api(
+                'GET', f'/api/workspace/skills?task_id={task}'
+            )
         elif name == 'vibe_seller_save_skill':
             # Upsert a user-space skill in the SHARED workspace. The
             # backend hard-rejects built-in (maintainer-synced) slugs.

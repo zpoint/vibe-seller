@@ -112,9 +112,7 @@ def _run_task(client: httpx.Client, title: str, description: str) -> dict:
     A store-less task is always plan mode, so approve the plan the way
     the UI's confirm button does, then wait for the run to finish.
     """
-    task = e2e_helpers.create_task(
-        client, title, description=description, skip_reflection=True
-    )
+    task = e2e_helpers.create_task(client, title, description=description)
     final = e2e_helpers.poll_task_status(
         client, task['id'], {'planned', 'completed', 'failed'}, timeout=600
     )

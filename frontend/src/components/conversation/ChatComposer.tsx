@@ -22,6 +22,10 @@ interface ChatComposerProps {
   awaitingUser?: boolean
   onSend: () => void
   placeholder: string
+  /** A send is in flight: the button says so and does not re-send. */
+  sending?: boolean
+  /** Why the last send failed, shown under the box until the next try. */
+  sendError?: string | null
 }
 
 /** The task chat send bar: removable attachment chips, attach button,
@@ -35,7 +39,7 @@ interface ChatComposerProps {
 export function ChatComposer({
   fileInputRef, uploading, uploadFiles, attachments, onRemoveAttachment,
   inputRef, input, setInput, hasContent, canSend, isActive, awaitingUser,
-  onSend, placeholder,
+  onSend, placeholder, sending = false, sendError = null,
 }: ChatComposerProps) {
   const { t } = useTranslation()
   return (
@@ -93,7 +97,7 @@ export function ChatComposer({
             if (e.nativeEvent.isComposing || e.keyCode === 229) return
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
-              if (hasContent) onSend()
+              if (hasContent && !sending) onSend()
             }
           }}
           placeholder={placeholder}
@@ -110,7 +114,15 @@ export function ChatComposer({
          *  instead, at a fixed position that never hosts another
          *  action. Rule: a destructive control must never occupy the
          *  position a safe control just vacated. */}
-        {canSend && hasContent ? (
+        {sending ? (
+          <button
+            disabled
+            data-testid="chat-sending"
+            className="px-4 py-2 text-sm font-medium text-white bg-indigo-400 rounded-lg cursor-wait"
+          >
+            {t('chat.sending')}
+          </button>
+        ) : canSend && hasContent ? (
           <button
             onClick={onSend}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
@@ -126,6 +138,11 @@ export function ChatComposer({
           </button>
         )}
       </div>
+      {sendError && (
+        <div role="alert" data-testid="chat-send-error" className="text-xs text-red-600">
+          {sendError}
+        </div>
+      )}
     </>
   )
 }

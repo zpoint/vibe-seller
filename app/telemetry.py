@@ -1,6 +1,7 @@
 """Anonymous PostHog telemetry. Opt out: VIBE_SELLER_TELEMETRY=0."""
 
 from datetime import datetime
+import functools
 from hashlib import sha256
 from importlib.metadata import version
 import logging
@@ -150,6 +151,7 @@ def send(event: str, properties: dict | None = None) -> None:
         logger.debug('Telemetry send failed for %s', event, exc_info=True)
 
 
+@functools.cache
 def runtime_os() -> str:
     s = platform.system().lower()
     if s == 'darwin':
@@ -167,6 +169,11 @@ def runtime_os() -> str:
     return 'other'
 
 
+@functools.cache
+def _is_docker() -> bool:
+    return os.path.exists('/.dockerenv')
+
+
 def base_properties() -> dict:
     return {
         'app_version': APP_VERSION,
@@ -174,7 +181,7 @@ def base_properties() -> dict:
         'os': runtime_os(),
         'os_release': platform.release(),
         'python_version': f'{sys.version_info[0]}.{sys.version_info[1]}',
-        'is_docker': os.path.exists('/.dockerenv'),
+        'is_docker': _is_docker(),
         'app_locale': _app_locale,
     }
 
@@ -222,6 +229,47 @@ def count_bucket(n: int) -> str:
     if n <= 100:
         return '21-100'
     return '100+'
+
+
+def token_bucket(n: int | None) -> str:
+    if not n or n <= 0:
+        return '0'
+    if n < 10_000:
+        return '<10k'
+    if n < 100_000:
+        return '10k-100k'
+    if n < 1_000_000:
+        return '100k-1m'
+    if n < 10_000_000:
+        return '1m-10m'
+    return '10m+'
+
+
+def fill_bucket(used: int | None, total: int | None) -> str:
+    if not used or not total or total <= 0:
+        return 'unknown'
+    pct = used * 100 / total
+    if pct < 25:
+        return '<25%'
+    if pct < 50:
+        return '25-50%'
+    if pct < 75:
+        return '50-75%'
+    if pct < 90:
+        return '75-90%'
+    return '90%+'
+
+
+def price_bucket(usd: float | None) -> str:
+    if usd is None:
+        return 'unknown'
+    if usd < 0.02:
+        return '<0.02'
+    if usd < 0.05:
+        return '0.02-0.05'
+    if usd < 0.1:
+        return '0.05-0.1'
+    return '0.1+'
 
 
 def duration_bucket(seconds: int | float | None) -> str:
