@@ -301,6 +301,8 @@ _apk()    { _check apk; }
 # APT_FALLBACK_SKIP_UPDATE=1.
 _APT_ROOT="${APT_FALLBACK_ROOT:-/etc/apt}"
 _APT_FALLBACK_FILE="$_APT_ROOT/sources.list.d/vibe-seller-fallback.list"
+_APT_MIRRORS_MAIN="$_APT_ROOT/vibe-seller-mirrors.txt"
+_APT_MIRRORS_SECURITY="$_APT_ROOT/vibe-seller-mirrors-security.txt"
 _apt_fallback_checked=false
 
 _apt_host_reachable() {
@@ -371,44 +373,56 @@ _ensure_apt_reachable() {
     done < <(_apt_source_hosts)
     [[ -z "$dead" ]] && return 0
 
-    local mirror base lines
+    # Every reachable fallback goes into one apt mirror list, so a download
+    # that fails on one mirror is retried on the next (apt's mirror+file
+    # method) — observed: a mirror served the indexes, then timed out on
+    # the packages ten minutes later.
+    local mirror ok=()
     for mirror in mirrors.edge.kernel.org mirrors.aliyun.com; do
-        _apt_host_reachable "$mirror" || continue
-        base="http://$mirror"
+        _apt_host_reachable "$mirror" && ok+=("$mirror")
+    done
+    if [[ ${#ok[@]} -gt 0 ]]; then
+        local main_path sec_path comps lines
         if [[ "$distro" == ubuntu ]]; then
             # amd64/i386 live under /ubuntu; every other arch (arm64...)
             # under /ubuntu-ports.
-            local arch path=ubuntu
+            local arch
             arch=$(dpkg --print-architecture 2>/dev/null || echo amd64)
-            [[ "$arch" == amd64 || "$arch" == i386 ]] || path=ubuntu-ports
-            local comps="main restricted universe multiverse"
-            lines="deb $base/$path $codename $comps
-deb $base/$path $codename-updates $comps
-deb $base/$path $codename-security $comps"
+            main_path=ubuntu
+            [[ "$arch" == amd64 || "$arch" == i386 ]] || main_path=ubuntu-ports
+            sec_path=$main_path
+            comps="main restricted universe multiverse"
         else
-            local comps="main contrib non-free non-free-firmware"
-            lines="deb $base/debian $codename $comps
-deb $base/debian $codename-updates $comps
-deb $base/debian-security $codename-security $comps"
+            main_path=debian
+            sec_path=debian-security
+            comps="main contrib non-free non-free-firmware"
         fi
+        for mirror in "${ok[@]}"; do
+            printf 'http://%s/%s/\n' "$mirror" "$main_path"
+        done | _as_root_write "$_APT_MIRRORS_MAIN"
+        for mirror in "${ok[@]}"; do
+            printf 'http://%s/%s/\n' "$mirror" "$sec_path"
+        done | _as_root_write "$_APT_MIRRORS_SECURITY"
+        lines="deb mirror+file:$_APT_MIRRORS_MAIN $codename $comps
+deb mirror+file:$_APT_MIRRORS_MAIN $codename-updates $comps
+deb mirror+file:$_APT_MIRRORS_SECURITY $codename-security $comps"
         printf '%s\n' "$lines" | _as_root_write "$_APT_FALLBACK_FILE"
-        _warn "apt source(s) unreachable:$dead — using $mirror for this install"
+        _warn "apt source(s) unreachable:$dead — using ${ok[*]} for this install"
         if [[ "${APT_FALLBACK_SKIP_UPDATE:-}" != 1 ]]; then
             _as_root apt-get update -qq || true
             _apt_updated=true
         fi
         return 0
-    done
+    fi
     _warn "apt source(s) unreachable:$dead — no fallback mirror reachable either"
 }
 
 _apt_fallback_cleanup() {
-    [[ -f "$_APT_FALLBACK_FILE" ]] || return 0
-    if [[ -w "$(dirname "$_APT_FALLBACK_FILE")" ]]; then
-        rm -f "$_APT_FALLBACK_FILE"
-    else
-        _as_root rm -f "$_APT_FALLBACK_FILE"
-    fi
+    local f
+    for f in "$_APT_FALLBACK_FILE" "$_APT_MIRRORS_MAIN" "$_APT_MIRRORS_SECURITY"; do
+        [[ -f "$f" ]] || continue
+        if [[ -w "$(dirname "$f")" ]]; then rm -f "$f"; else _as_root rm -f "$f"; fi
+    done
 }
 
 _apt_updated=false

@@ -68,6 +68,10 @@ def _fallback(apt):
     return apt / 'sources.list.d' / 'vibe-seller-fallback.list'
 
 
+def _mirrors(apt, name='vibe-seller-mirrors.txt'):
+    return (apt / name).read_text().split()
+
+
 def test_all_sources_reachable_writes_nothing(tmp_path, apt):
     r = _run(tmp_path, ['archive.ubuntu.com'])
     assert r.returncode == 0, r.stderr
@@ -78,15 +82,30 @@ def test_a_dead_source_gets_the_first_reachable_fallback(tmp_path, apt):
     r = _run(tmp_path, ['mirrors.edge.kernel.org'])
     assert r.returncode == 0, r.stderr
     text = _fallback(apt).read_text()
-    assert 'deb http://mirrors.edge.kernel.org/ubuntu noble main' in text
+    lst = apt / 'vibe-seller-mirrors.txt'
+    assert f'deb mirror+file:{lst} noble main' in text
     assert 'noble-updates' in text and 'noble-security' in text
+    assert _mirrors(apt) == ['http://mirrors.edge.kernel.org/ubuntu/']
     assert 'archive.ubuntu.com' in r.stderr  # says which source was dead
+
+
+def test_every_reachable_fallback_is_listed_for_apt_failover(tmp_path, apt):
+    """Observed: a mirror served the indexes, then timed out on the
+    packages. With both in apt's mirror list, a failed download moves on
+    to the next mirror instead of failing the install."""
+    r = _run(tmp_path, ['mirrors.edge.kernel.org', 'mirrors.aliyun.com'])
+    assert r.returncode == 0, r.stderr
+    assert _mirrors(apt) == [
+        'http://mirrors.edge.kernel.org/ubuntu/',
+        'http://mirrors.aliyun.com/ubuntu/',
+    ]
 
 
 def test_the_second_fallback_when_the_first_is_dead_too(tmp_path, apt):
     r = _run(tmp_path, ['mirrors.aliyun.com'])
     assert r.returncode == 0, r.stderr
-    assert 'mirrors.aliyun.com/ubuntu noble' in _fallback(apt).read_text()
+    assert _fallback(apt).exists()
+    assert _mirrors(apt) == ['http://mirrors.aliyun.com/ubuntu/']
 
 
 def test_nothing_reachable_writes_nothing_and_does_not_fail(tmp_path, apt):
@@ -103,8 +122,11 @@ def test_debian_gets_debian_and_debian_security(tmp_path, apt):
     r = _run(tmp_path, ['mirrors.edge.kernel.org'], os_release=DEBIAN)
     assert r.returncode == 0, r.stderr
     text = _fallback(apt).read_text()
-    assert 'mirrors.edge.kernel.org/debian bookworm main' in text
-    assert 'mirrors.edge.kernel.org/debian-security bookworm-security' in text
+    assert 'bookworm main contrib' in text and 'bookworm-security' in text
+    assert _mirrors(apt) == ['http://mirrors.edge.kernel.org/debian/']
+    assert _mirrors(apt, 'vibe-seller-mirrors-security.txt') == [
+        'http://mirrors.edge.kernel.org/debian-security/'
+    ]
 
 
 def test_deb822_and_mirror_file_sources_are_probed(tmp_path, apt):
