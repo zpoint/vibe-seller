@@ -180,7 +180,12 @@ class _HookMixin:
             inner_input = tool_input.get('tool_input', {})
             if inner_name == 'Bash':
                 cmd = inner_input.get('command', '')
-                deny = first_bash_deny(cmd, self.task_dir, self._catalog_read)
+                # One thread hop: the chain is string work except the
+                # bid guard, which may read the task's frozen approval
+                # TSV (see app.ai.bash_safety). Keep that off the loop.
+                deny = await asyncio.to_thread(
+                    first_bash_deny, cmd, self.task_dir, self._catalog_read
+                )
                 deny = deny or long_sleep_deny(inner_input, self._async_agents)
                 if deny:
                     label, deny_reason = deny

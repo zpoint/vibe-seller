@@ -58,7 +58,9 @@ class BuiltinPlugin(Plugin):
         )
         ctx.register_pretool_gate(
             'Bid-value sanity',
-            lambda cmd, task_dir, catalog_read: check_bid_value_shape(cmd),
+            lambda cmd, task_dir, catalog_read: check_bid_value_shape(
+                cmd, task_dir
+            ),
         )
         ctx.register_pretool_gate(
             'Local-image edit',

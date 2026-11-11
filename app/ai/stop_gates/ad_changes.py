@@ -317,6 +317,32 @@ def find_approved(task_id: str) -> Path | None:
     return p if p.exists() else None
 
 
+def approved_bid_values(task_id: str) -> frozenset[float] | None:
+    """Every ``target_bid`` the frozen approvals hold for *task_id*.
+
+    ``None`` when nothing is frozen or an approval cannot be read —
+    callers treat "no approval" as "nothing to check against", never as
+    "deny": ``check`` reconciles the execution log against the approval
+    at the result, and an unreadable file reports there, not mid-flight.
+
+    Blocking (reads TSVs): the mid-flight bid guard calls this off the
+    event loop, in the rare command that types a bid.
+    """
+    files = approval_files(task_id)
+    if not files:
+        return None
+    bids: set[float] = set()
+    for f in files:
+        table = read_table(f, CHANGE_COLUMNS)
+        if table is None or table.error:
+            return None
+        for row in table.rows:
+            value = number(row.get('target_bid'))
+            if value is not None:
+                bids.add(value)
+    return frozenset(bids)
+
+
 # ── checks ──────────────────────────────────────────────────────────
 
 
