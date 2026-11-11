@@ -290,9 +290,10 @@ async def auto_run_task(task_id: str, store: Store | None):
                 # Any schedule-owned task (plan-only authoring OR a
                 # scheduled fire) auto-approves at ExitPlanMode —
                 # the frozen-plan architecture handles review via
-                # the SchedulePlanPanel + Re-plan flow, and the
-                # fanout-plan validator enforces structural rules
-                # at ExitPlanMode time. Standalone tasks still
+                # the SchedulePlanPanel + Re-plan flow. Nothing
+                # reads the plan's wording here: the fanout
+                # no-sub-tasks rule is enforced on the action, at
+                # POST /api/tasks. Standalone tasks still
                 # honor task.plan_mode (user.plan_mode_default
                 # controls that path at task create time).
                 bool(task.schedule_id) or not task.plan_mode

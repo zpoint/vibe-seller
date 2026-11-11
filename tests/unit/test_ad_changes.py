@@ -366,6 +366,74 @@ def test_a_rule_breaking_proposal_is_shown_not_held(task):
     assert any('approved 1.2' in c for c in _contradictions(task))
 
 
+# ── a change the USER named is not a recommendation ─────────────────
+
+
+# "Lower widget-006 to 1.00" — ACOS 20 is under the 25% no-lower floor and
+# 1.00 is under CPC 1.00 x 1.1, so every store rule here says no.
+_CHANGE_SCOPE = {
+    'combos': [{'platform': 'amazon', 'country': 'SA'}],
+    'campaigns': ['A1234567'],
+}
+
+
+def _user_named_cut(**kw):
+    return change(**{
+        'action': 'lower',
+        'acos': '20',
+        'cpc': '1.00',
+        'current_bid': '1.20',
+        'target_bid': '1.00',
+        'reason': 'the user asked for it',
+        **kw,
+    })
+
+
+def test_a_user_named_change_is_not_judged_by_the_defaults(task):
+    """The user's own value is a decision, not a recommendation.
+
+    Declared `audit`, this row owes the whole market's drill AND argues
+    with two defaults the user overrode — the shape that burned 108k
+    output tokens on CI (PR #232) and then timed out. Declared `change`
+    it owes the row."""
+    task.declare('change', _CHANGE_SCOPE)
+    task.changes([_user_named_cut()])
+    assert _gaps(task) == [], _gaps(task)
+    # Control: the identical row judged as the agent's own proposal.
+    task.declare('audit', _CHANGE_SCOPE)
+    assert any('under 25% ACOS' in g for g in _gaps(task))
+
+
+def test_a_user_named_change_still_owes_the_typed_columns(task):
+    """Skipping the store rules is not skipping the contract. A frozen
+    approval is what execution is held to, so a row that cannot be read
+    — an action word that does not exist, a bid action with no bid, a
+    `lower` that raises — is refused whatever named it."""
+    task.declare('change', _CHANGE_SCOPE)
+    for row, expect in (
+        (_user_named_cut(action='bump'), 'use one of'),
+        (_user_named_cut(target_bid=''), 'without a target_bid'),
+        (
+            _user_named_cut(current_bid='1.00', target_bid='1.20'),
+            'goes the other way',
+        ),
+    ):
+        task.changes([row])
+        gaps = _gaps(task)
+        assert any(expect in g for g in gaps), (row, gaps)
+
+
+def test_a_user_named_change_is_still_held_to_the_frozen_approval(task):
+    """The money guard does not move with the kind: what froze from a
+    `change` is exactly what its execution may do."""
+    task.declare('change', _CHANGE_SCOPE)
+    _approve(task, [_user_named_cut()])
+    task.declare('execute')
+    task.execution([_done(action='lower', from_bid='1.20', to_bid='1.35')])
+    found = _contradictions(task)
+    assert any('approved 1.00' in c for c in found), found
+
+
 def test_a_raise_needs_no_cpc(task):
     """A raise (often on a target with no clicks yet) is valid without a
     CPC; the floor only bounds a cut."""

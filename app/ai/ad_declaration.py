@@ -30,6 +30,22 @@ Absent or empty ``campaigns`` means every campaign inside those combos.
 ``products`` is a human-facing anchor ("the widget-006 family") the agent
 resolves to campaigns; it never gates anything on its own, because a
 product name is not something the server can verify against an account.
+
+**What each kind owes** — the only table that matters to a gate, and the
+reason the kind is declared rather than inferred:
+
+- ``audit`` — the agent is judging the ads, so its declared marketplaces
+  must be covered, and each proposed row is checked against the store's
+  rules.
+- ``change`` — the USER named the change. Nothing was judged, so nothing
+  is owed beyond the row itself: no coverage, no drilling, no store-rule
+  check on their value. Its rows still obey the typed contract, the turn
+  still ends by showing them, and execution is still held to the frozen
+  approval.
+- ``execute`` — applies what the user approved; judged only against that
+  approval.
+- ``create`` / ``investigate`` — no coverage; ``investigate`` may propose
+  nothing at all.
 """
 
 from __future__ import annotations
@@ -44,6 +60,7 @@ from app.config import VIBE_SELLER_DIR
 from app.models.ad_declaration import (
     AD_TASK_KINDS,
     KIND_AUDIT,
+    KIND_CHANGE,
     KIND_INVESTIGATE,
 )
 
@@ -313,6 +330,31 @@ def reach_within(prev: dict | None, new: dict | None) -> bool:
 # every other pair.
 KIND_UPGRADES = frozenset({(KIND_INVESTIGATE, KIND_AUDIT)})
 
+# Nothing upgrades INTO ``change``, and that is deliberate: it is the one
+# kind whose rows face no store-rule check, so reaching it from a
+# declaration that owed more would be exactly the escape the ratchet
+# exists to stop (an agent declares ``investigate``, produces proposals,
+# and re-declares its way out of judging them). ``change`` → ``audit``,
+# which only ADDS obligations, is the pair an agent may genuinely need;
+# it is not whitelisted either — like every other same-turn re-declaration
+# it is asked about once and then recorded as the agent declares it.
+
+# The phases that end by putting a list of changes in front of the user.
+# Only a user message AFTER one of these is an answer to something they
+# saw, which is what opens ``execute``.
+PROPOSAL_KINDS = (KIND_AUDIT, KIND_CHANGE)
+
+
+def kind_is_user_named_change(decl: dict | None) -> bool:
+    """Did the user's own message name these changes?
+
+    Their value is a decision, not a recommendation, so the store's
+    numeric defaults (``acos_no_lower``, the CPC floor, the cooldown) do
+    not judge it — the typed contract on the row does, and the frozen
+    approval judges the execution.
+    """
+    return bool(decl) and decl['kind'] == KIND_CHANGE
+
 
 def supersedes(
     prev_kind: str,
@@ -418,9 +460,11 @@ def owed_combos(decl: dict | None, store_combos: list[dict]) -> list[dict]:
     spellings agree, and keeps the property that mattered: a phase is
     held to exactly what it committed to, never to more.
 
-    ``create`` / ``execute`` / ``investigate`` owe nothing. An undeclared
-    phase owes nothing here either — it is refused separately, by
-    ``ad_declaration_checks``, which is a better error than silently
+    ``change`` / ``create`` / ``execute`` / ``investigate`` owe nothing.
+    A ``change`` covers exactly the rows the user named: they settled the
+    value, so the rest of the market is not a question it left open. An
+    undeclared phase owes nothing here either — it is refused separately,
+    by ``ad_declaration_checks``, which is a better error than silently
     demanding five marketplaces of a task nobody scoped.
     """
     if not decl or decl['kind'] != KIND_AUDIT:

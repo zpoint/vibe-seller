@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import create_token
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
+from app.browser.cdp_probe import cdp_proxy_alive
 from app.browser.daemon_reaper import reap_orphaned_daemons
 from app.browser.launch_guards import (
     GlobalLaunchLock,
@@ -34,7 +35,6 @@ from app.browser.ziniao_utils import (
 from app.config import (
     AI_BOT_USER_ID,
     DEMO_MODE,
-    LOCALHOST,
     WEB_BROWSER_SLUG,
 )
 from app.database import async_session
@@ -203,25 +203,8 @@ class BrowserManager:
 
     @staticmethod
     async def _cdp_alive(port: int, timeout: float = 2.0) -> bool:
-        """Quick TCP check to see if the CDP proxy is responding."""
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(LOCALHOST, port),
-                timeout=timeout,
-            )
-            # Send minimal HTTP request
-            request = (
-                f'GET /json/version HTTP/1.0\r\n'
-                f'Host: {LOCALHOST}:{port}\r\n'
-                f'\r\n'
-            )
-            writer.write(request.encode())
-            await writer.drain()
-            data = await asyncio.wait_for(reader.read(256), timeout=timeout)
-            writer.close()
-            return b'200' in data[:50]
-        except Exception:
-            return False
+        """Is the store's CDP proxy answering? See app.browser.cdp_probe."""
+        return await cdp_proxy_alive(port, timeout)
 
     @classmethod
     async def _cdp_alive_with_retry(

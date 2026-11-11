@@ -166,7 +166,7 @@ retry rather than dropping it.
 ## Step 4 — set the result and fill gaps
 
 Write `./REVIEW_COLLECT_<date>.md` and call
-`vibe_seller_set_task_result("./REVIEW_COLLECT_<date>.md")`. The server
+`vibe_seller_set_task_result(result_file="./REVIEW_COLLECT_<date>.md")`. The server
 checks the files against the manifest and, if anything is short, replies
 with the under-collected combos (with missing ids) and malformed files.
 

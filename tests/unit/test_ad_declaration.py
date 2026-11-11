@@ -76,6 +76,15 @@ class TestWhatAPhaseOwes:
     def test_execute_owes_nothing(self):
         assert ad.owed_combos({'kind': 'execute', 'scope': {}}, _STORE) == []
 
+    def test_a_change_the_user_named_owes_nothing(self):
+        # "lower widget-006 to 1.00" — they said the row and the value, so
+        # there is no coverage question left. Declaring it `audit` owed
+        # the market anyway (CI PR #232: 108k tokens, then the turn limit).
+        assert (
+            ad.owed_combos({'kind': 'change', 'scope': _AE_ONLY}, _STORE) == []
+        )
+        assert ad.owed_combos({'kind': 'change', 'scope': {}}, _STORE) == []
+
     def test_never_declared_owes_nothing_here(self):
         # It is refused separately for not declaring at all, which is a
         # better error than silently demanding five marketplaces of a
@@ -194,6 +203,46 @@ class TestTheInTurnRatchet:
         # exist: a kind correction usually leaves the scope alone.
         assert ad.reach_within(self._SA, self._SA)
         assert not ad.is_narrowing(self._SA, self._SA)
+
+    def test_nothing_upgrades_into_change_in_one_turn(self):
+        """`change` is the kind that faces no store-rule check, so
+        reaching it from a declaration that owed more is the escape the
+        ratchet exists to refuse — an agent that declared `investigate`
+        and then produced proposals must correct to `audit`, which adds
+        the obligation, not to `change`, which sheds the judgement.
+        """
+        assert not ad.supersedes('investigate', self._SA, 'change', self._SA)
+        assert not ad.supersedes('audit', self._SA, 'change', self._SA)
+        assert not ad.supersedes('create', self._SA, 'change', self._SA)
+        # Same kind, narrower campaigns: the ordinary refinement, allowed.
+        assert ad.supersedes(
+            'change', self._SA, 'change', dict(self._SA, campaigns=['A1234567'])
+        )
+
+
+class TestTheMirrorKnowsEveryKind:
+    """The gates read `AD_TASK.json`, and a kind the vocabulary does not
+    hold reads back as "never declared" — which for the coverage gate is
+    a refusal, not an exemption. `change` has to be in the enum or the
+    one-row instruction lands back where PR #232 started."""
+
+    def test_a_declared_change_survives_the_round_trip(
+        self, monkeypatch, tmp_path
+    ):
+        _setup(monkeypatch, tmp_path, 't-change')
+        ad.write_declaration_file('t-change', 'change', _AE_ONLY)
+        assert ad.load_declaration('t-change') == {
+            'kind': 'change',
+            'scope': _AE_ONLY,
+        }
+        assert ad.declared_kind('t-change') == 'change'
+
+    def test_an_unknown_kind_is_still_no_declaration(
+        self, monkeypatch, tmp_path
+    ):
+        _setup(monkeypatch, tmp_path, 't-junk')
+        ad.write_declaration_file('t-junk', 'edit', _AE_ONLY)
+        assert ad.load_declaration('t-junk') is None
 
 
 class TestEverySkillThatIsGatedTeachesTheDeclaration:

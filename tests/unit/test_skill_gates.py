@@ -155,6 +155,44 @@ class TestUnloadedSkillReadHint:
         assert unloaded_skill_read_hint('Read', other, set()) is None
 
 
+class TestListingGateIsSkillBound:
+    """``upload_verdict`` reaches a task through amazon-listing's own
+    declaration, exactly like the ad gates.
+
+    It used to run as an unconditional probe of every task workspace on
+    every submit, so a task that never touched listings paid for a
+    directory scan, and a file left by a SCRIPT (a template download)
+    could refuse a result the agent had no part in owing. Binding it to
+    the skill makes the obligation start from the agent's decision to load
+    the skill — and from the upload helper's own marker — not from the
+    shape of what happened to be on disk.
+    """
+
+    SHIPPED = (
+        Path(__file__).resolve().parents[2]
+        / 'app'
+        / 'skills_v2'
+        / 'amazon-listing'
+        / 'SKILL.md'
+    )
+
+    def test_the_shipped_skill_declares_it(self):
+        assert 'upload_verdict' in parse_skill_gates(self.SHIPPED)
+
+    def test_loading_the_skill_brings_the_upload_gate(self, tmp_path):
+        _mk_skill(
+            tmp_path,
+            'amazon-listing',
+            'name: amazon-listing\ngates: [upload_verdict]',
+        )
+        gates = dict(resolve_skill_gates({'amazon-listing'}, tmp_path))
+        assert list(gates) == ['upload_verdict']
+        assert callable(gates['upload_verdict'].check)
+
+    def test_a_task_that_loaded_nothing_gets_no_upload_gate(self, tmp_path):
+        assert resolve_skill_gates(set(), tmp_path) == []
+
+
 class TestDurableSkillBindings:
     """Skill loads bind to the TASK, not the session: a retry-resume
     session that never re-Reads SKILL.md must still face the gates the

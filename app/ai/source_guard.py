@@ -28,7 +28,7 @@ from pathlib import Path
 import re
 
 import app
-from app.config import DATA_DIR
+from app.config import DATA_DIR, VIBE_SELLER_DIR
 
 _APP_DIR = Path(app.__file__).resolve().parent
 _CHECKOUT = _APP_DIR.parent
@@ -38,6 +38,22 @@ SOURCE_DIRS = (_APP_DIR,) + (
 PROTECTED_DIRS = SOURCE_DIRS + (DATA_DIR,)
 
 _HOME = str(Path.home())
+
+# Running from a source checkout, the checkout ROOT is protected too, not
+# only its ``app``/``tests``: observed in CI, an agent read the checkout
+# path from its environment, ran ``cd <checkout> && sed … app/ai/…`` with
+# a RELATIVE path the package match never sees, and spent ten minutes in
+# the gate modules. Its ``.venv`` stays usable (an agent may run the app's
+# interpreter by absolute path), and if the vibe-seller home itself lives
+# inside the checkout the root is left alone rather than blocking the
+# task's own files.
+_ROOT = (
+    _CHECKOUT
+    if (_CHECKOUT / 'pyproject.toml').is_file()
+    and not str(VIBE_SELLER_DIR.resolve()).startswith(str(_CHECKOUT) + os.sep)
+    else None
+)
+_VENV = _CHECKOUT / '.venv'
 
 
 def _spellings(d: Path) -> tuple[str, ...]:
@@ -51,6 +67,16 @@ _PROTECTED_IN_CMD = re.compile(
     '(?:'
     + '|'.join(re.escape(s) for d in PROTECTED_DIRS for s in _spellings(d))
     + r""")(?=$|[/\s'";|&)])"""
+)
+
+_ROOT_IN_CMD = (
+    re.compile(
+        '(?:'
+        + '|'.join(re.escape(s) for s in _spellings(_ROOT))
+        + r""")(?!/\.venv(?=$|[/\s'";|&)]))(?=$|[/\s'";|&)])"""
+    )
+    if _ROOT
+    else None
 )
 
 _DATA_DENY = (
@@ -84,7 +110,9 @@ def source_access_deny(tool_name: str, tool_input) -> str | None:
         return None
     if tool_name == 'Bash':
         cmd = str(tool_input.get('command', ''))
-        m = _PROTECTED_IN_CMD.search(cmd)
+        m = _PROTECTED_IN_CMD.search(cmd) or (
+            _ROOT_IN_CMD.search(cmd) if _ROOT_IN_CMD else None
+        )
         return _deny(m.group(0)) if m else None
     if tool_name in ('Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'):
         path = tool_input.get('file_path') or tool_input.get('notebook_path')
@@ -92,10 +120,11 @@ def source_access_deny(tool_name: str, tool_input) -> str | None:
         path = tool_input.get('path')
     else:
         return None
-    if (
-        path
-        and os.path.isabs(os.path.expanduser(str(path)))
-        and _under(str(path), PROTECTED_DIRS)
+    if not path or not os.path.isabs(os.path.expanduser(str(path))):
+        return None
+    p = str(path)
+    if _under(p, PROTECTED_DIRS) or (
+        _ROOT and _under(p, (_ROOT,)) and not _under(p, (_VENV,))
     ):
-        return _deny(str(path))
+        return _deny(p)
     return None

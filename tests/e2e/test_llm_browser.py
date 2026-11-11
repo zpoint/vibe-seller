@@ -380,7 +380,9 @@ class TestGUITaskExecution:
         task_item = page.locator('button', has_text=task_title).first
         expect(task_item).to_be_visible(timeout=5000)
 
-    def _wait_for_terminal_status(self, page: Page, max_wait: int = 600) -> str:
+    def _wait_for_terminal_status(
+        self, page: Page, max_wait: int = 600, title: str | None = None
+    ) -> str:
         """Poll until task reaches a terminal status."""
         start = time.time()
         last_status = ''
@@ -403,8 +405,28 @@ class TestGUITaskExecution:
 
         pytest.fail(
             f'Task did not reach terminal status within {max_wait}s '
-            f'(last: {last_status})'
+            f'(last: {last_status}; server says: '
+            f'{self._server_status(page, title)})'
         )
+
+    @staticmethod
+    def _server_status(page: Page, title: str | None) -> str:
+        """The task's status as the API reports it, for the failure
+        message: it tells a page that stopped updating apart from a task
+        the server never finished."""
+        if not title:
+            return 'unknown (no title)'
+        try:
+            r = page.request.get(f'{BASE_URL}/api/tasks')
+            data = r.json()
+            rows = data.get('tasks', data) if isinstance(data, dict) else data
+            hits = [t for t in rows if t.get('title') == title]
+            if not hits:
+                return 'task not found'
+            t = hits[0]
+            return f'{t.get("status")} (id {str(t.get("id"))[:8]})'
+        except Exception as exc:  # diagnostics must not mask the failure
+            return f'unavailable ({exc!r})'
 
     def _get_agent_chat_text(self, page: Page) -> str:
         """Extract all visible text from the task detail panel."""
@@ -446,7 +468,7 @@ class TestGUITaskExecution:
         self._create_task(page, task_prompt)
 
         logger.info('Waiting for AI agent to complete task...')
-        final_status = self._wait_for_terminal_status(page)
+        final_status = self._wait_for_terminal_status(page, title=task_prompt)
         logger.info('Task finished with status: %s', final_status)
 
         chat_text = self._get_agent_chat_text(page)

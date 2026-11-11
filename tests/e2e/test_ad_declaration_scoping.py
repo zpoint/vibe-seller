@@ -144,7 +144,13 @@ class TestScopeSurvivesAFollowUp:
         self, api_client, ads_console
     ):
         ts = int(time.time())
-        store = create_store(api_client, f'e2e-adscope-{ts}')
+        # An Amazon US store, as a seller sets one up: with no marketplace
+        # configured the agent was left to guess which one to audit.
+        store = create_store(
+            api_client,
+            f'e2e-adscope-{ts}',
+            platform_countries={'amazon': ['US']},
+        )
 
         # ── Phase 1: a look, not an audit ────────────────────────────
         task = create_task(
@@ -326,7 +332,13 @@ class TestAnUnscopedRequestStaysWide:
         self, api_client, ads_console
     ):
         ts = int(time.time())
-        store = create_store(api_client, f'e2e-adwide-{ts}')
+        # An Amazon US store, as a seller sets one up: with no marketplace
+        # configured the agent was left to guess which one to audit.
+        store = create_store(
+            api_client,
+            f'e2e-adwide-{ts}',
+            platform_countries={'amazon': ['US']},
+        )
         # Ask for what only the campaign PAGES hold. The assertion below
         # is the console access log — "was each campaign's detail page
         # opened?" — so the request has to be one that cannot be answered

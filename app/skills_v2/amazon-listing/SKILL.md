@@ -3,6 +3,7 @@ name: amazon-listing
 description: "Amazon listing CRUD via the category flat-file (Add Products via Upload). Create a variation family (parent + colour/size children) and edit existing listings with partial updates (each row pins its ASIN) — all in one template round trip. Full update runs only when the user asked for one by name (`--ops update`); delete is disabled (refused by the scripts). Also covers the end-to-end sourcing flow: a supplier link (e.g. 1688) or uploaded detail images → read every detail tile into a fact sheet → name the true category → check competitors on the storefront → generate title / bullet points / description → review with the user → propose the parent-child structure → fill the template → upload → read the processing report. Load before any browser-use action on sellercentral.amazon.<tld>/listing/upload, or when the task is to create or edit a listing."
 allowed-tools: Bash(browser-use:*)
 requires: [amazon-shared]
+gates: [upload_verdict]
 verify_by: |
   Read Manage Inventory through the helper, from the task workspace:
   `SKUS=<every attempted SKU, comma-separated>
@@ -121,23 +122,25 @@ recipe:
 ### Finishing an upload
 
 Each upload is tracked by files in the task workspace. The verdict is
-checked once, when you submit the result: a batch with no clean verdict
+checked once, when you submit the result: an upload with no clean verdict
 is raised there and then, and one still unresolved ships as a caveat on
 the result rather than keeping the task from finishing.
 
-- `bh_download_template.py` writes `UPLOAD_PENDING.json` when a template
-  lands — an upload is now intended.
-- `bh_upload_flatfile.py` writes `UPLOAD_BATCH_<id>.json` for each
-  submitted batch.
+- `bh_upload_flatfile.py` writes `UPLOAD_ATTEMPT.json` as soon as its own
+  checks pass and it is about to put the file on the live page — that is
+  the declaration that an upload is happening.
+- The same helper writes `UPLOAD_BATCH_<id>.json` for each submitted
+  batch.
 - `listing_bulk.py parse-feedback <report> --batch-id <id>`, run from the
   task workspace root, writes `BATCH_<id>_VERDICT.json`.
 
-Every batch needs a verdict, and the latest one needs to be clean (no
-errors except the missing main image) — run parse-feedback before you
-submit. If the helper failed and you uploaded by hand, find the batch id
-on the status page and verdict it the same way. If no upload happened
-after all, delete `UPLOAD_PENDING.json` and say in the result why the
-upload was abandoned.
+Nothing else arms this: downloading or inspecting a template, and filling
+one for the user to review, are not uploads. Every batch needs a verdict,
+and the latest one needs to be clean (no errors except the missing main
+image) — run parse-feedback before you submit. If the helper failed and
+you uploaded by hand, find the batch id on the status page and verdict it
+the same way. If no upload happened after all, delete
+`UPLOAD_ATTEMPT.json` and say in the result why the upload was abandoned.
 
 ## Deterministic browser helpers (use these first)
 
@@ -155,10 +158,33 @@ earlier page is not that reason.
 
 If a helper misses on timing, re-run it with its env knobs before
 hand-driving: `bh_upload_flatfile.py` takes `UPLOAD_LOAD_WAIT` (default
-15 s) and `UPLOAD_INTROSPECT_WAIT` (default 12 s). Fall back to hand
-exploration only for a structural reason the helper names (widget absent,
-region-stamp mismatch), and prefer fixing the input (regenerate the
-template, fix the spec) over hand-clicking.
+15 s) and `UPLOAD_INTROSPECT_WAIT` (default 12 s); `bh_download_template.py`
+takes `GENERATOR_WIDTH=<px>` when the wizard's own controls sit outside
+the emulated viewport.
+
+A `PRODUCT_TYPE` is a plain-language query — "phone case", 手机壳, the
+category words you would type into Seller Central. The helper matches it
+against **the page's own result rows** (a Chinese console still labels
+each row with its English product type too) and reports which one it
+picked. Read the failure fields before deciding what went wrong:
+`landed` is the keyword read back out of the search box, `viewport` /
+`tried` are the measurements behind each click, `drawer` is the wizard's
+own state, and `candidates` lists the product types the page actually
+offered. `never reachable` plus `drawer` means the WIZARD IS NOT OPEN on
+this page — verified live: on a 1920-CSS-px window (a maximized dpr-2
+display) Seller Central lays the generator's entry control out at
+x≈2371, past the screen, and the document is only 1905 wide, so there is
+nothing to scroll and no click that can land; growing the emulated
+viewport moves the closed drawer with it. That is a window/screen
+problem — run the store's browser on a wider display, or open the wizard
+once by hand from the screenshot and note which control did it — and it
+says NOTHING about whether the category exists. `matches none of the N
+product types the page offered: …` means re-run with one of those
+labels. The helper will not pick a category you did not name. Fall back
+to hand exploration only for a structural reason the helper names
+(widget absent, region-stamp mismatch, an unreachable control), and
+prefer fixing the input (regenerate the template, fix the spec) over
+hand-clicking.
 
 ```bash
 S=.claude/skills/amazon-listing/scripts
@@ -167,15 +193,16 @@ DL=~/.vibe-seller/downloads/<slug>
 # 1. Generate + download ONE marketplace's template. Ticks the target
 #    store and reads the tick back (kat-checkbox ignores JS clicks);
 #    ok=false means the target never got ticked — don't fill from it.
-#    Writes UPLOAD_PENDING.json.
+#    Reading a template this way arms nothing — no upload is owed.
 SC_HOST=sellercentral.amazon.<tld> PRODUCT_TYPE=<keyword> \
-STORE_LABEL=Amazon.<tld> DOWNLOADS_DIR=$DL MARKER_DIR="$PWD" \
+STORE_LABEL=Amazon.<tld> DOWNLOADS_DIR=$DL \
 browser-use < $S/bh_download_template.py
 # `listing_bulk.py inspect` prints "marketplaces:" — the target has to be
 # listed; `fill --marketplace <CC>` hard-fails on a wrong-region template.
 
 # 2. Stage + submit the filled .txt (file-chooser intercept, two-click
-#    Submit, batch id). Writes UPLOAD_BATCH_<id>.json.
+#    Submit, batch id). Writes UPLOAD_ATTEMPT.json at the arm point, then
+#    UPLOAD_BATCH_<id>.json per submitted batch.
 UPLOAD_FILE=$DL/out.txt SC_HOST=sellercentral.amazon.<tld> \
 MARKER_DIR="$PWD" browser-use < $S/bh_upload_flatfile.py
 

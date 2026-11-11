@@ -101,6 +101,7 @@ from listing_checks import (  # noqa: E402
     merchant_stock_guard as _merchant_stock_guard,
     report_batch_problem as _report_batch_problem,
     report_outcome as _report_outcome,
+    scan_verdict_rows,
     title_repeats as _title_repeats,
     wire_value as _wire_value,
 )
@@ -662,53 +663,7 @@ def cmd_parse_feedback(args):
     if not rows:
         raise SystemExit('error: empty report')
 
-    def idx_of(header, *needles):
-        for j, cell in enumerate(header):
-            c = cell.strip().lower()
-            if any(n in c for n in needles):
-                return j
-        return None
-
-    hdr_i = None
-    for i, row in enumerate(rows):
-        joined = ' '.join(row).lower()
-        if ('error' in joined or 'sku' in joined) and (
-            'sku' in joined or 'record' in joined
-        ):
-            hdr_i = i
-            break
-
-    n_err = n_warn = 0
-    if hdr_i is not None:
-        header = rows[hdr_i]
-        c_sku = idx_of(header, 'sku')
-        c_type = idx_of(header, 'error type', 'type', 'severity')
-        c_msg = idx_of(header, 'message', 'error message', 'description')
-        c_code = idx_of(header, 'code')
-        print(f'report table header at row {hdr_i}: {header}')
-        for row in rows[hdr_i + 1 :]:
-            if not any(cell.strip() for cell in row):
-                continue
-            sku = row[c_sku] if c_sku is not None and c_sku < len(row) else ''
-            typ = (
-                row[c_type] if c_type is not None and c_type < len(row) else ''
-            )
-            msg = row[c_msg] if c_msg is not None and c_msg < len(row) else ''
-            code = (
-                row[c_code] if c_code is not None and c_code < len(row) else ''
-            )
-            tl = typ.strip().lower()
-            if tl == 'error' or 'error' in tl:
-                n_err += 1
-            elif 'warn' in tl:
-                n_warn += 1
-            print(f'  [{typ or "?"}] sku={sku} code={code}: {msg}')
-    else:
-        print('(no structured table found; rows mentioning "error")')
-        for row in rows:
-            if 'error' in ' '.join(row).lower():
-                print('  ' + ' | '.join(row))
-                n_err += 1
+    n_err, n_warn = scan_verdict_rows(rows)
 
     # Field-level fixes live in the Template-tab cell comments (批注):
     # category-specific and unbounded, so read from the report, not coded.

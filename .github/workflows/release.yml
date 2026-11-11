@@ -98,18 +98,18 @@ jobs:
           fetch-depth: 0  # setuptools-scm needs full tag history
 
       # --- Frontend build (staged into the wheel as package data) ---
-      - uses: actions/setup-node@v4
+      # Same Node + pnpm as ci.yml and install.sh: the lockfile is
+      # written by pnpm@latest, and an older pnpm refuses it.
+      - uses: actions/setup-node@v6
         with:
-          node-version: '20'
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '9'
-          run_install: false
+          node-version: '22'
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: pnpm install --frozen-lockfile
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+          pnpm install --frozen-lockfile
 
       - name: Build frontend
         working-directory: frontend

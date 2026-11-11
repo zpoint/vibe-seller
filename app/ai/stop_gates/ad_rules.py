@@ -75,15 +75,20 @@ DEFAULT_RULES: dict[str, float] = {
     'cpc_floor_multiplier': 1.1,
 }
 
-# Per-store override patterns — a ``key: value`` line of its own in
-# notes.md (optionally a list item); an underscore in the key may also be
-# written as a space. A mention inside prose ("we once tried
-# cpc_floor_multiplier: 0 and it failed") is not a standard.
+# Per-store override patterns — a ``key: value`` line in notes.md that
+# STARTS with the declaration (optionally a list item, optionally in a
+# markdown code span or bold), with an optional explanation after a dash,
+# an em/en dash or an opening parenthesis; an underscore in the key may
+# also be written as a space. A mention inside prose ("we once tried
+# cpc_floor_multiplier: 0 and it failed") is not a standard, and neither
+# is a value trailed by more prose with no separator ("20 or so").
 _OVERRIDE_RES: dict[str, re.Pattern[str]] = {
     key: re.compile(
-        r'^[ \t]*(?:[-*][ \t]+)?'
+        r'^[ \t]*(?:[-*][ \t]+)?(?:`|\*\*)?'
         + key.replace('_', '[_ ]?')
-        + r'[ \t]*[:=][ \t]*(\d+(?:\.\d+)?)[ \t]*%?[ \t]*$',
+        + r'[ \t]*[:=][ \t]*(\d+(?:\.\d+)?)[ \t]*%?(?:`|\*\*)?'
+        + r'(?:[ \t]+(?:-{1,2}|[—–])[ \t][^\n]*'
+        + r'|[ \t]*\([^\n]*)?[ \t]*$',
         re.IGNORECASE | re.MULTILINE,
     )
     for key in DEFAULT_RULES

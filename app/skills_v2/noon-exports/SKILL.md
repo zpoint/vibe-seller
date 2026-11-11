@@ -24,11 +24,17 @@ Transaction View `Contract` column covers only one country, is a gap.
 Downloads land in `~/.vibe-seller/downloads/<slug>/` (managed by the CDP
 proxy, not `~/Downloads`). Move each file into the task workspace as soon
 as it arrives, under a name that says what it is — repeat downloads only
-get ` (1)` suffixes. For a monthly report-download run the expected
-layout is `reports_noon_<MM>_<slug>/noon_financeweb_transactionviewreport.csv`
-(one file for all countries); the server checks the task workspace for it
-at `set_task_result`. Keep copies you want to reuse across runs under
-`store-data/<slug>/exports/<YYYY-MM>/`.
+get ` (1)` suffixes. Declare a run with `vibe_seller_declare_report_run`
+(month `YYYY-MM`) before fetching, and only when the task is the monthly
+download — the full month-end set. One export ("the transaction view for
+last month", a single country's sales CSV) is a lookup, not a run: a
+declared run owes every file in the month's set, so declaring a lookup
+gets you refused for exports nobody asked for. Only a declared run is
+checked at `set_task_result`, and the declaration answers with the list it
+will be checked against. For a declared run the expected layout is
+`reports_noon_<MM>_<slug>/noon_financeweb_transactionviewreport.csv`
+(one file for all countries). Keep copies you want to reuse across runs
+under `store-data/<slug>/exports/<YYYY-MM>/`.
 
 ## Choosing the country
 

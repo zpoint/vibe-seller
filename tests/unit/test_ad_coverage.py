@@ -97,6 +97,45 @@ def test_non_audit_kinds_owe_no_coverage(task):
     assert ad_coverage.check('', task.id) is None
 
 
+def test_a_user_named_change_owes_no_coverage(task):
+    """ "Lower widget-006 to 1.00" is not a coverage question.
+
+    Declared `audit` this workspace is refused for an undrilled market:
+    the user named one row, and the kind that owes the whole list made
+    the agent go and read it (CI PR #232, 108k tokens, then a timeout).
+    """
+    scope = {
+        'combos': [{'platform': 'amazon', 'country': 'SA'}],
+        'campaigns': ['A1234567'],
+    }
+    task.declare('change', scope)
+    task.campaigns([campaign(drill_status='drilled')])  # nothing drilled
+    assert ad_coverage.check('', task.id) is None
+    # The kind needs no enumeration file at all — just its own rows.
+    (task.dir / 'CAMPAIGNS.tsv').unlink()
+    task.changes([
+        {
+            'platform': 'amazon',
+            'country': 'SA',
+            'campaign_id': 'A1234567',
+            'ad_group': 'g1',
+            'target': 'widget',
+            'match_type': 'exact',
+            'action': 'lower',
+            'current_bid': '1.20',
+            'target_bid': '1.00',
+            'acos': '',
+            'roas': '',
+            'cpc': '',
+            'reason': 'the user asked for it',
+        }
+    ])
+    assert ad_coverage.check('', task.id) is None
+    # Control: the same workspace declared as the agent's own judgement.
+    task.declare('audit', scope)
+    assert ad_coverage.check('', task.id) is not None
+
+
 def test_undeclared_data_asks_for_a_declaration(task):
     """The agent is told to declare; the seller's caveat says only what
     was not checked — the instruction is not for the seller."""

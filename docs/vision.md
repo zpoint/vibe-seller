@@ -227,21 +227,24 @@ The directory has exactly **one writer**: the vision router, after the
 user confirms a generation. Every file there carries provenance — a
 `generated_image` task message recording the prompt and the model — and
 that message is the claim `GeneratedImageCard` renders those bytes
-under. So an image deliverable must come from the **model**, never from
-local pixel editing, no matter how the request is phrased ("just remove
-the background", "only crop it", "make it pure white" are all
-generation jobs).
+under. So a locally built or edited file may not TAKE OVER a
+`generated_images/` path: to change a generated image — background not
+white enough, product too large, wrong crop — the agent calls
+`vibe_seller_generate_image` again with the previous image as
+`reference_image`. Producing or editing image files anywhere else is
+ordinary work (resizing a user's photo to a platform's minimum,
+webp→jpg, cropping a screenshot), and the guards inspect nothing there.
 
 Two PreToolUse guards in `app/ai/image_guards.py` hold the invariant
 (a third, below the table, is about reading):
 
 | Guard | Denies |
 |---|---|
-| `check_local_image_edit` (Bash, registered in the `first_bash_deny` chain) | `rembg`/`backgroundremover`/`carvekit` in any form (including `pip install`); an inline snippet that both uses an imaging library and calls a produce/mutate function (`.save(`, `imwrite(`, `Image.new(`, `.paste(`, …); ImageMagick/ffmpeg against an image file; any write landing in `generated_images/` (redirect, `cp`/`mv`/`rm`/`tee`, inline save) |
+| `check_local_image_edit` (Bash, registered in the `first_bash_deny` chain) | acts landing on `generated_images/` only: a write into it (redirect, inline save), or a file-moving / converting command (`cp`/`mv`/`rm`/`tee`, `magick`/`ffmpeg` …) with the directory among its arguments. A copy OUT (`cat generated_images/… > work.png`) is a read and stays allowed — edit that copy freely |
 | `check_generated_image_write` (Write/Edit/MultiEdit/NotebookEdit tool args) | the file-tool hop around the above — any `generated_images/**` target |
 
 **Reading an image is not blocked** (`file`, `stat`, `Image.open` +
-numpy): only *producing* one is. The one exception is the built-in
+numpy): only *overwriting the tool's directory* is. The one exception is the built-in
 `Read` tool on a model the catalog labels text-only
 (`profiles.model_sees_images` is `False`, e.g. MiniMax M2.x):
 `check_image_read_without_vision` refuses it and points the agent at

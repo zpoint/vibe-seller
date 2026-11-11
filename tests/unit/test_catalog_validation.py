@@ -7,8 +7,10 @@ Two layers:
   catalog-navigation e2e flake: the sync agent stubbing a file that
   actually has a describable topic;
 - the tier gate (``validate_catalog_write``): accumulation
-  (L1 ⊆ L2 ⊆ L3), completeness (every tier file exactly once),
-  isolation (no other store, no task-output names) and format
+  (L1 ⊆ L2 ⊆ L3), completeness (every tier file exactly once — names
+  set the REQUIREMENT default, a row naming an existing file is the
+  writer's declaration and is always honoured), isolation (no other
+  store, no machine files) and format
   (header, 3 columns, path prefixes; Relevance tags are free-form).
 
 Every gate test builds a workspace on disk, writes a VALID catalog,
@@ -23,8 +25,9 @@ import pytest
 from app.workspace.catalog_validation import (
     STUB_SUMMARY,
     find_wrongly_stubbed,
+    is_machine_file_name,
     is_near_empty,
-    is_task_output_name,
+    is_run_output_name,
     parse_catalog,
     reject_wrong_stubs,
     validate_catalog_write,
@@ -481,14 +484,33 @@ class TestL3Completeness:
             naming='browser-tips.md',
         )
 
-    def test_excluded_names_do_not_force_rows(self, ws):
-        """Task outputs and system files are not knowledge — they
-        neither require a row nor may they have one."""
+    def test_run_output_names_do_not_force_rows(self, ws):
+        """A name that looks like run output exempts a file from
+        REQUIRING a row — the sync agent is not chased into every
+        leaked report. It forbids nothing: the next test shows the
+        same file's row being honoured."""
         root, gate = ws
         (root / 'stores' / 'acme-x' / 'WIDGET_PLAN_2026-01-02.md').write_text(
             '# plan\n\noutput of some task\n'
         )
         gate('stores/acme-x/CATALOG.md', L3_CATALOG)  # no raise
+
+    def test_row_for_output_named_file_is_the_writers_call(self, ws):
+        """The writer declares a file knowledge by giving it a row.
+
+        The user's own ``PROMO_RULES.md`` is an ALL_CAPS name carrying
+        durable rules; the old name heuristic made it permanently
+        uncatalogable — the server guessing from a filename what only
+        the writer can say. A row naming an existing store file is
+        honoured whatever its name shape.
+        """
+        root, gate = ws
+        f = root / 'stores' / 'acme-x' / 'PROMO_RULES.md'
+        f.write_text('# Promo rules\n\nBlack Friday cap is 15%.\n')
+        content = L3_CATALOG + (
+            '| stores/acme-x/PROMO_RULES.md | | User promo rules |\n'
+        )
+        gate('stores/acme-x/CATALOG.md', content)  # no raise — declared
 
 
 # ── Isolation ──────────────────────────────────────────
@@ -505,19 +527,35 @@ class TestL3Isolation:
             naming='stores/beta-y/notes.md',
         )
 
-    def test_task_output_row_rejected(self, ws):
-        _root, gate = ws
-        (ws[0] / 'stores' / 'acme-x' / 'AD_AUDIT_2026-01-02.md').write_text(
-            '# audit\n\nreal audit output with several words\n'
-        )
+    def test_machine_file_row_rejected(self, ws):
+        """The one name-based refusal left: machine files are server
+        state, not prose a reader is pointed at. (A row naming a
+        run-output NAMED file is now honoured — see
+        test_row_for_output_named_file_is_the_writers_call.)"""
+        root, gate = ws
+        (root / 'stores' / 'acme-x' / 'metadata.json').write_text('{}')
         content = L3_CATALOG + (
-            '| stores/acme-x/AD_AUDIT_2026-01-02.md | | audit |\n'
+            '| stores/acme-x/metadata.json | | server state |\n'
         )
         _rejects(
             gate,
             'stores/acme-x/CATALOG.md',
             content,
-            naming='task-output/system file',
+            naming='machine file must not be cataloged',
+        )
+
+    def test_ghost_row_still_rejected_with_new_name(self, ws):
+        """The existence rule does not bend for output-shaped names:
+        a row that names NO file is refused whatever it is called."""
+        _root, gate = ws
+        content = L3_CATALOG + (
+            '| stores/acme-x/AD_AUDIT_2099-01-01.md | | audit |\n'
+        )
+        _rejects(
+            gate,
+            'stores/acme-x/CATALOG.md',
+            content,
+            naming='does not exist',
         )
 
     def test_stub_check_runs_inside_gate(self, ws):
@@ -540,11 +578,13 @@ class TestL3Isolation:
         )
 
 
-class TestTaskOutputName:
-    """The filename classifier mirrored from the sync prompt."""
+class TestRunOutputNames:
+    """Names only set the requirement DEFAULT (no row forced); they
+    never forbid a row. The user's own PROMO_RULES.md is knowledge —
+    an ALL_CAPS name cannot overrule the writer's declaration."""
 
     @pytest.mark.parametrize(
-        ('name', 'expected'),
+        ('name', 'exempt_from_forcing_a_row'),
         [
             ('notes.md', False),
             ('STORE.md', False),
@@ -554,15 +594,33 @@ class TestTaskOutputName:
             ('WIDGET_PLAN.md', True),
             ('AD_AUDIT_REPORT.md', True),
             ('Q4_PLAN.md', True),
+            ('PROMO_RULES.md', True),  # ALL_CAPS name, knowledge file
             ('notes_2026-01-02.md', True),
             ('notes-20260102.md', True),
+            ('metadata.json', False),  # machine, not run-output
+        ],
+    )
+    def test_run_output_shape(self, name, exempt_from_forcing_a_row):
+        assert is_run_output_name(name) is exempt_from_forcing_a_row
+
+
+class TestMachineFileNames:
+    """Machine files are the ONE name rule the server still refuses
+    a row for: the server/tools wrote them, no reader reads them."""
+
+    @pytest.mark.parametrize(
+        ('name', 'expected'),
+        [
             ('metadata.json', True),
             ('anything.lock', True),
             ('anything.cache', True),
+            ('notes.md', False),
+            ('PROMO_RULES.md', False),  # knowledge, whatever the shape
+            ('data.csv', False),
         ],
     )
-    def test_classification(self, name, expected):
-        assert is_task_output_name(name) is expected
+    def test_machine_shape(self, name, expected):
+        assert is_machine_file_name(name) is expected
 
 
 class TestGateDispatch:

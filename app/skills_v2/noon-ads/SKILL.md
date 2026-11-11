@@ -22,7 +22,8 @@ asked for, not off what you expect to find:
 |---|---|---|
 | "审计一下广告" / "review our ads" | `audit` | omit `combos` — whole store |
 | "复核 widget-006 在 noon AE 的广告" | `audit` | that platform+country, those campaign ids |
-| "把这三个词的出价降下来" | `audit` | those campaigns |
+| "把这三个词的出价降下来" | `audit` | those campaigns (they named the rows, you pick the value) |
+| "把 widget-006 的出价降到 1.00" / "lower widget-006 to 1.00" | `change` | those campaigns |
 | "帮 widget-006 建关键词广告" | `create` | the market you are creating in |
 | "执行刚才确认的调整" | `execute` | the campaigns being changed |
 | "我们 AE 的 ROAS 大概多少" | `investigate` | the market asked about |
@@ -31,9 +32,16 @@ asked for, not off what you expect to find:
   ROAS, how last month went) is `investigate`, however many markets it
   spans: read the figures, answer with `vibe_seller_set_task_result`,
   done — no drill, no TSVs, and no proposals. A request about what to
-  change, or "is this right?", is `audit`. There is no `edit` kind: a
-  request to change specific bids is an `audit` scoped to those campaigns,
-  so the user still approves the change before it is applied.
+  change, or "is this right?", is `audit`.
+- **They named the row and the value?** ("把 widget-006 的出价降到
+  1.00") That is `change`, not an audit — they already answered the
+  question. Declare it scoped to that campaign, read the one page the row
+  lives on, write `CHANGES.tsv` with exactly those rows at their value
+  (noon: `ad_group` is the SKU), and end your turn showing them:
+  "widget-006 1.20 → 1.00; reply to apply". No `CAMPAIGNS.tsv`, no drill,
+  and no store rule judges their number. Their reply opens `execute`,
+  which freezes that file and holds every change to what they saw — the
+  confirmation is not skipped, only the audit around it.
 - **The scope trap: omitting `combos` means every marketplace the store
   sells on.** Omit it only for a genuinely store-wide request.
 - **A product, not a campaign?** Declare the market first, enumerate,

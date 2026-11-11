@@ -69,6 +69,9 @@ from app.routers.tasks_ad_declaration import (
 )
 from app.routers.tasks_conversation import router as tasks_conversation_router
 from app.routers.tasks_files import router as tasks_files_router
+from app.routers.tasks_report_declaration import (
+    router as tasks_report_declaration_router,
+)
 from app.routers.tasks_schedule_state import (
     router as tasks_schedule_state_router,
 )
@@ -385,6 +388,7 @@ app.include_router(tasks_router)
 app.include_router(tasks_conversation_router)
 app.include_router(tasks_ad_declaration_router)
 app.include_router(tasks_files_router)
+app.include_router(tasks_report_declaration_router)
 app.include_router(tasks_schedule_state_router)
 app.include_router(telemetry_router)
 app.include_router(browser_router)

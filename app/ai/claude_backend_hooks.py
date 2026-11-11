@@ -21,7 +21,7 @@ from app.ai.claude_backend_utils import (
     TOOL_APPROVAL_CALLBACK,
     check_skill_prereqs,
     check_tool_loop,
-    validate_fanout_plan_text,
+    record_tool_result,
 )
 from app.ai.image_guards import (
     check_generated_image_write,
@@ -149,6 +149,36 @@ class _HookMixin:
             else:
                 await self._send_control_response(request_id, 'allow')
 
+    def _note_tool_results(self, event: dict) -> None:
+        """Feed the loop breaker from the stream.
+
+        Tool answers arrive as ``tool_result`` blocks in user messages.
+        Each fills the matching PreToolUse entry by tool_use_id — so
+        the breaker can tell six identical polls apart by what they
+        came back with (see ``check_tool_loop``).
+        """
+        blocks = event.get('message', {}).get('content', [])
+        if not isinstance(blocks, list):
+            return
+        for block in blocks:
+            if (
+                not isinstance(block, dict)
+                or block.get('type') != 'tool_result'
+            ):
+                continue
+            raw = block.get('content')
+            if isinstance(raw, list):
+                text = ' '.join(
+                    b.get('text', '')
+                    for b in raw
+                    if isinstance(b, dict) and b.get('type') == 'text'
+                )
+            else:
+                text = str(raw or '')
+            record_tool_result(
+                self._recent_tool_calls, block.get('tool_use_id'), text
+            )
+
     async def _handle_hook_callback(self, request_id: str, request: dict):
         """Handle a HookCallback control request."""
         callback_id = request.get('callback_id', '')
@@ -180,7 +210,12 @@ class _HookMixin:
             inner_input = tool_input.get('tool_input', {})
             if inner_name == 'Bash':
                 cmd = inner_input.get('command', '')
-                deny = first_bash_deny(cmd, self.task_dir, self._catalog_read)
+                # One thread hop: the chain is string work except the
+                # bid guard, which may read the task's frozen approval
+                # TSV (see app.ai.bash_safety). Keep that off the loop.
+                deny = await asyncio.to_thread(
+                    first_bash_deny, cmd, self.task_dir, self._catalog_read
+                )
                 deny = deny or long_sleep_deny(inner_input, self._async_agents)
                 if deny:
                     label, deny_reason = deny
@@ -233,7 +268,10 @@ class _HookMixin:
                 inner_name, inner_input, self._loaded_skills
             )
             if check_tool_loop(
-                self._recent_tool_calls, inner_name, inner_input
+                self._recent_tool_calls,
+                tool_input.get('tool_use_id'),
+                inner_name,
+                inner_input,
             ):
                 logger.warning(
                     'Circuit breaker: agent %s stuck in loop (%s), stopping',
@@ -378,7 +416,12 @@ class _HookMixin:
             await self._handle_ask_user_question(request_id, tool_input)
         else:
             # Circuit breaker check
-            if check_tool_loop(self._recent_tool_calls, tool_name, tool_input):
+            if check_tool_loop(
+                self._recent_tool_calls,
+                request.get('tool_use_id'),
+                tool_name,
+                tool_input,
+            ):
                 logger.warning(
                     'Circuit breaker: agent %s stuck in loop (%s), stopping',
                     self.task_id[:8],
@@ -413,33 +456,16 @@ class _HookMixin:
         self._pending_plan_request_id = request_id
         self._pending_plan_tool_input = tool_input
 
-        # Structural validation BEFORE auto-approve / manual review:
-        # if the plan violates fanout-schedule constraints (e.g.,
-        # embeds an orchestrator that calls vibe_seller_create_task
-        # — which would make every per-store fire recursively spawn
-        # more children), reject via ControlResponse deny so the
-        # agent re-plans in the same session. The prompt block in
-        # task_runner.build_system_extra already tells the agent
-        # about this; the validator is the backstop.
-        violation = await validate_fanout_plan_text(self.task_id, plan_text)
-        if violation:
-            logger.info(
-                'Plan-only validation rejected plan for task %s: %s',
-                self.task_id,
-                violation,
-            )
-            await self._send_control_response(
-                request_id,
-                'deny',
-                message=(
-                    'The tool use was rejected because the plan'
-                    ' violates a schedule constraint. Revise the'
-                    ' plan and call ExitPlanMode again. Reason: ' + violation
-                ),
-            )
-            # Reset for the next ExitPlanMode call.
-            self._plan_approval_event = asyncio.Event()
-            return
+        # No validation of the plan's WORDING here, deliberately. A
+        # substring check on the plan text used to deny ExitPlanMode for
+        # mentioning `vibe_seller_create_task` / `parent_task_id` — which
+        # refused the compliant plan, because the prompt tells the agent
+        # not to call those tools and the plan quoting that instruction
+        # tripped it, with no round limit and nothing to fix. The rule a
+        # fanout schedule really has ("a fire of this schedule must not
+        # spawn sub-tasks") is enforced where it can bite: POST
+        # /api/tasks refuses a sub-task whose parent is a fanout-schedule
+        # task — see ``_refuse_fanout_subtask`` in app/routers/tasks.py.
 
         if self.auto_approve_plan:
             # Auto-approve — transition straight to execution

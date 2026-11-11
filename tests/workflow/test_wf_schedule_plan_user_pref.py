@@ -3,10 +3,11 @@
 
 The schedule plan-authoring flow is intentionally decoupled from
 the user-level ``plan_mode_default`` preference so the approve UX
-is consistent across schedules: plan is validated by the
-fanout-plan guardrail (see
-``_validate_fanout_plan_text`` in ``claude_backend_hooks.py``),
-then auto-committed to the schedule. Users review + iterate via
+is consistent across schedules: the plan text is not screened at
+ExitPlanMode (the fanout no-sub-tasks rule is enforced on the
+action, at ``POST /api/tasks`` — see
+``tests/workflow/test_wf_fanout_subtask_guard.py``), then
+auto-committed to the schedule. Users review + iterate via
 the SchedulePlanPanel (Re-plan / edit prompt) rather than a
 blocking "approve" click.
 

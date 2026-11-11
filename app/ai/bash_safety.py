@@ -124,14 +124,30 @@ def check_skill_file_write(tool_name: str, tool_input: dict) -> str | None:
 #
 # The Shadow-DOM bid input does not reliably clear, so a 1.30 target can
 # become 11.3 or 3.002.27 (a real-money overspend that shipped live). The
-# typed value is visible in the Bash command, so we deny the value-SHAPE
-# pathology before it goes live. This guard does NOT know the report
-# target (index→keyword map isn't in the command) — catching the wrong
-# target is the ``ad_changes`` exit gate's job (every EXECUTION_LOG row
-# against the approved CHANGES); this is purely the absurd-magnitude /
-# multi-decimal catch. The value appears in a
+# typed value is visible in the Bash command, so the guard denies what
+# the command and the task's own frozen approval already prove:
+#
+# * a value-SHAPE pathology — one typed value with two decimal points is
+#   a concatenation, never a bid (``3.002.27``);
+# * in an explicit bid context (the command mentions "bid"), a value the
+#   task's FROZEN APPROVAL (``CHANGES.tsv`` frozen at the ``execute``
+#   declaration) does not hold. 113.0 typed while the approval says 3.0
+#   is the shipped clear-failure, and the approval is what says so.
+#
+# There is NO magnitude ceiling: JPY/INR bids are legitimately 50–300,
+# and "how high is a real bid" is a currency-and-approval question, not
+# a constant. With no frozen approval to read (a plain audit, an
+# investigate, a corrupt file) only the shape check fires; the
+# ``ad_changes`` exit gate reconciles every executed bid against the
+# approval when the result ships. This guard also never knows the
+# report target (the index→keyword map is not in the command) — the
+# wrong TARGET stays ``ad_changes``' job. The value appears in a
 # legacy ``browser-use input <idx> "1.30"``, a 0.13 helper
 # (``type_text``/``fill_input``), or a JS ``el.value = "1.30"`` assign.
+#
+# Reading the approval is file I/O and this runs on the hook path: the
+# caller (``claude_backend_hooks``) wraps the chain in one
+# ``asyncio.to_thread`` per Bash call, so the read lands off the loop.
 _BID_INPUT_RE = re.compile(
     r'(?:'
     r'browser-use\s+(?:input|type)\s+\d+\s+["\']?'
@@ -141,57 +157,98 @@ _BID_INPUT_RE = re.compile(
     r')([0-9][0-9.,]*)',
     re.IGNORECASE,
 )
-# Coarse ceiling: real SP/noon CPC bids are single-digit in their
-# currency; anything above this is almost certainly a clear-failure.
-_BID_SANITY_CEILING = 50.0
+# How close a typed value must sit to an approved bid — the same
+# tolerance ``ad_changes`` reconciles executions with.
+_BID_MATCH_TOLERANCE = 0.01
+
+#: A task dir is ``.../tasks/<task_id>``; only that shape locates an
+#: approval (the same id shape ``app/routers/ads.py`` pins).
+_TASK_DIR_ID_RE = re.compile(r'[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}')
 
 
-def check_bid_value_shape(command: str) -> str | None:
-    """Deny a ``browser-use input`` bid that is a concatenation / absurd value.
+def _frozen_approval_bids(task_dir) -> frozenset[float] | None:
+    """The bids frozen for the task owning *task_dir*, None if there is
+    no readable frozen approval. Blocking; call off the event loop."""
+    if not task_dir:
+        return None
+    name = str(task_dir).rstrip('/\\').rsplit('/', 1)[-1].rsplit('\\', 1)[-1]
+    if not _TASK_DIR_ID_RE.fullmatch(name.lower()):
+        return None
+    # Lazy: bash_safety stays a leaf (regex + the plugin registry); the
+    # gate module it needs here pulls the DB and the workspace.
+    from app.ai.stop_gates.ad_changes import (  # noqa: PLC0415
+        approved_bid_values,
+    )
 
-    Returns a deny reason for a value with >1 decimal point (``3.002.27``)
-    or above the sanity ceiling (``113.0`` from a 3.0 clear-failure typed
-    into a field still showing ``11``, concatenating into ``11`` + ``3.0``),
-    else None. Deny-only — never
-    auto-rewrites a live bid.
+    return approved_bid_values(name)
+
+
+def _approved_list(bids: frozenset[float]) -> str:
+    listed = ', '.join(f'{b:g}' for b in sorted(bids)[:10])
+    if len(bids) > 10:
+        listed += ', …'
+    return listed or 'none — the frozen approval holds no bid'
+
+
+def check_bid_value_shape(command: str, task_dir=None) -> str | None:
+    """Deny a typed bid that is a concatenation, or one the task's
+    frozen approval does not hold.
+
+    Returns a deny reason for a value with >1 decimal point
+    (``3.002.27``) in any bid-typing form, and — in an explicit bid
+    context with a frozen approval — a value no approved row carries
+    (``113.0`` typed when the approval says ``3.0``). With no approval
+    frozen there is no ceiling: the magnitude question belongs to the
+    currency and the user's decision, not to a constant here. Deny-only
+    — never auto-rewrites a live bid.
     """
-    m = _BID_INPUT_RE.search(command)
-    if not m:
+    if not command:
+        return None
+    matches = list(_BID_INPUT_RE.finditer(command))
+    if not matches:
         return None
     # The 0.13 helpers (type_text/fill_input/.value=) set ANY field —
     # dates, OTP, quantities — and this gate runs on every Bash command,
     # so only treat their value as a bid when the command mentions "bid".
     # The legacy 0.12 input/type form was already bid-specific.
     legacy = re.search(r'browser-use\s+(?:input|type)\s', command, re.I)
-    if not legacy and 'bid' not in command.lower():
+    bid_context = 'bid' in command.lower()
+    if not legacy and not bid_context:
         return None
-    raw = m.group(1).replace(',', '')
-    if raw.count('.') > 1:
-        return (
-            f'Bid value {raw!r} has more than one decimal point — a '
-            'concatenation: the Shadow-DOM bid input did not clear before '
-            'you typed. Clear it FULLY (keys "Control+a") , retype the exact '
-            'target, verify the cell shows exactly that value, then commit. '
-            'A concatenated bid is a real-money error.'
-        )
-    try:
-        val = float(raw)
-    except ValueError:
+    values = []
+    for m in matches:
+        raw = m.group(1).replace(',', '')
+        if raw.count('.') > 1:
+            return (
+                f'Bid value {raw!r} has more than one decimal point — a '
+                'concatenation: the Shadow-DOM bid input did not clear '
+                'before you typed. Clear it FULLY (keys "Control+a"), '
+                'retype the exact target, verify the cell shows exactly '
+                'that value, then commit. A concatenated bid is a '
+                'real-money error.'
+            )
+        values.append(raw)
+    if not bid_context:
         return None
-    # Fire the ceiling on a decimal (a CPC bid is a currency decimal, so
-    # 113.0 is caught in any context) OR in an explicit bid context ("bid"
-    # in the command → an integer bid like 999 is still caught). The legacy
-    # input form WITHOUT "bid" is OTP/postal/quantity-ambiguous — integers
-    # there pass (firing on a 6-digit OTP blocked live login on two stores).
-    if val > _BID_SANITY_CEILING and ('.' in raw or 'bid' in command.lower()):
-        return (
-            f'Bid value {raw} exceeds the {_BID_SANITY_CEILING:g} sanity '
-            'ceiling — almost certainly a clear-failure concatenation (e.g. '
-            'target 3.0 typed into a field still showing 11 → 113.0). Clear '
-            'the field FULLY (keys "Control+a"), retype the exact target, '
-            'verify, then commit. A real CPC bid is single-digit; if you '
-            'truly intend a bid this high, it is not in the audit report.'
-        )
+    bids = _frozen_approval_bids(task_dir)
+    if bids is None:
+        return None
+    for raw in values:
+        try:
+            val = float(raw)
+        except ValueError:
+            continue
+        if not any(abs(val - b) <= _BID_MATCH_TOLERANCE + 1e-9 for b in bids):
+            return (
+                f'Bid value {raw} is not a bid the frozen approval holds '
+                f'(approved: {_approved_list(bids)}). Clear the field '
+                '(keys "Control+a") and type the exact value the user '
+                'approved. If the user amended a bid after the approval '
+                'was frozen, bring CHANGES.tsv to what they said and '
+                'declare kind "execute" again — the approval is what this '
+                'run is checked against, and a bid outside it is a '
+                'change nobody approved.'
+            )
     return None
 
 
@@ -206,9 +263,10 @@ def first_bash_deny(command, task_dir=None, catalog_read=False):
     :mod:`app.plugins` registry (OSS guards via the builtin plugin;
     any customer guards via their own externally-installed plugin
     wheels) — so core no longer names a customer guard here. The builtin
-    registers: unscoped pkill/killall (sibling-task safety),
-    concatenated/oversized bid value (real-money typo), and local
-    image edits (generated images come from the model).
+    registers: unscoped pkill/killall (sibling-task safety), a typed
+    bid that concatenates or is outside the frozen approval
+    (real-money typo), and takeover of ``generated_images/`` (those
+    files' provenance claim).
 
     Each registered guard has the uniform signature
     ``check(command, task_dir, catalog_read)`` so the chain stays one

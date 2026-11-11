@@ -73,24 +73,13 @@ def _safe_task_file(task_id: str, filename: str) -> Path:
     return resolved
 
 
-def resolve_workspace_result_path(raw: str, task_root: Path) -> Path | None:
-    """Return the file ``raw`` points to inside ``task_root``, else None.
+def _contained_result_file(raw: str, task_root: Path) -> Path | None:
+    """The real file inside ``task_root`` that ``raw`` names, else None.
 
-    File-pointer mode for ``set_task_result``: the agent composes a long
-    report with the built-in ``Write`` tool (streamed, fast) and passes
-    only its path to ``set_task_result`` — avoiding the multi-minute
-    stalls some providers hit when packing a 25KB result into a single
-    MCP tool input. This resolves that path so the *content* is stored
-    (and rendered inline by the UI) rather than the literal path string.
-
-    Only short, single-line strings that look like a path are
-    considered: either slash-bearing / ``./``-prefixed, OR a bare
-    document filename (e.g. ``AD_AUDIT_2026-06-10.md``) — the
-    bare-filename case is intentional and must stay consistent with
-    ``looks_like_result_path`` (see the shape pre-check below). Any
-    other value is direct content and returns None. Both interpretations
-    are tried and whichever lands on a real file inside ``task_root``
-    wins:
+    One layer of matching quotes is stripped (agents hand over the path
+    as the MCP arg showed it, ``'"./AD_AUDIT.md"'``), then both
+    interpretations are tried and whichever lands on a real file inside
+    ``task_root`` wins:
 
     * absolute path (the agent built it from cwd — e.g. a path echoed
       back by browser-use or the ``Write`` tool) — resolve as-is;
@@ -103,6 +92,8 @@ def resolve_workspace_result_path(raw: str, task_root: Path) -> Path | None:
     An absolute path that *did* point at the report therefore fell
     through and the literal path string was stored as the result — so
     the UI showed a path instead of the rendered report.
+
+    Shared by both pointer modes; it never judges what the string MEANS.
     """
     if not (isinstance(raw, str) and 0 < len(raw) <= 512 and '\n' not in raw):
         return None
@@ -112,21 +103,6 @@ def resolve_workspace_result_path(raw: str, task_root: Path) -> Path | None:
     raw = raw.strip()
     if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ('"', "'"):
         raw = raw[1:-1].strip()
-    # Shape pre-check: a pointer carries a path separator / ``./`` prefix,
-    # OR is a bare document filename (e.g. ``AD_AUDIT_2026-06-10.md``).
-    # The bare-filename case MUST be accepted to stay consistent with
-    # ``looks_like_result_path`` (which flags a bare ``*.md`` as a
-    # pointer). Without it, a bare filename that DOES exist in task_root
-    # resolved to None here yet was treated as a dangling pointer there,
-    # so ``set_task_result`` 400'd a perfectly valid report. Anything
-    # else is direct content.
-    if not (
-        '/' in raw
-        or '\\' in raw
-        or raw.startswith('./')
-        or raw.lower().endswith(_DOC_EXTS)
-    ):
-        return None
     if Path(raw).is_absolute():
         candidate = Path(raw)
     else:
@@ -144,6 +120,58 @@ def resolve_workspace_result_path(raw: str, task_root: Path) -> Path | None:
     except (OSError, ValueError):
         return None
     return None
+
+
+def resolve_declared_result_path(raw: str, task_root: Path) -> Path | None:
+    """The file the agent DECLARED as its deliverable (``result_file``).
+
+    The explicit half of the ``set_task_result`` contract: the agent says
+    "my result is this file", so nothing has to be inferred from the
+    string's shape and any name the workspace actually holds is valid —
+    ``report``, ``out/summary``, ``./report.md`` alike. The same
+    containment rules as the legacy pointer mode apply (a real file
+    inside the task workspace, never a symlink escape); only the shape
+    pre-check is skipped, because a declaration is not a guess.
+    """
+    return _contained_result_file(raw, task_root)
+
+
+_DOC_EXTS = ('.md', '.txt', '.html', '.csv', '.tsv', '.json')
+
+
+def resolve_workspace_result_path(raw: str, task_root: Path) -> Path | None:
+    """LEGACY pointer mode: ``raw`` names an existing workspace file.
+
+    Older agents and skills pass the report's PATH as ``result`` (see the
+    tool description and ``review-collect``/``amazon-ads`` quickrefs),
+    so a short path-like string that lands on a real file inside the task
+    workspace is still read — this keeps them working until they move to
+    ``result_file``. What it must NEVER do is refuse a value that does
+    not resolve: whether a result is a pointer is the agent's to state,
+    not the server's to guess from file extensions. A string that is not
+    a workspace path, or names nothing that exists, is the result text.
+
+    Returns None for anything that is not a short single-line path-like
+    string or does not land on a real file inside ``task_root``. The
+    shape pre-check below only decides whether to ATTEMPT a read.
+    """
+    if not (isinstance(raw, str) and 0 < len(raw) <= 512 and '\n' not in raw):
+        return None
+    probe = raw.strip()
+    if len(probe) >= 2 and probe[0] == probe[-1] and probe[0] in ('"', "'"):
+        probe = probe[1:-1].strip()
+    # A pointer carries a path separator / ``./`` prefix, OR is a bare
+    # document filename (e.g. ``AD_AUDIT_2026-06-10.md``). The
+    # bare-filename case is what the ``./``-less calls in the skill docs
+    # rely on. Anything else is direct content.
+    if not (
+        '/' in probe
+        or '\\' in probe
+        or probe.startswith('./')
+        or probe.lower().endswith(_DOC_EXTS)
+    ):
+        return None
+    return _contained_result_file(raw, task_root)
 
 
 async def resolve_store_rules(db, store_id: str | None) -> dict | None:
@@ -168,35 +196,6 @@ async def resolve_store_rules(db, store_id: str | None) -> dict | None:
     except OSError:
         notes_text = None
     return resolve_rules(notes_text)
-
-
-_DOC_EXTS = ('.md', '.txt', '.html', '.csv', '.tsv', '.json')
-
-
-def looks_like_result_path(raw: str) -> bool:
-    """True when ``raw`` is unmistakably a file POINTER, not content.
-
-    Used by ``set_task_result`` to REJECT a dangling pointer (path-like
-    value whose file doesn't exist) instead of falling through to
-    direct-content mode. Without this, a malformed pointer (e.g. the
-    path wrapped in quotes before quote-stripping existed, or a typo'd
-    filename) sails through every content gate vacuously — a 26-char
-    string has no ad sections to check — and the task "completes" with
-    a useless literal path as its result.
-
-    Deliberately stricter than the resolver's shape pre-check so real
-    one-line content containing a slash (e.g. "ACOS 30%/ROAS 3.33") is
-    never rejected: a pointer has no spaces and either carries a known
-    document extension or starts with ``./`` / ``/``.
-    """
-    if not (isinstance(raw, str) and 0 < len(raw) <= 512 and '\n' not in raw):
-        return False
-    s = raw.strip()
-    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
-        s = s[1:-1].strip()
-    if not s or ' ' in s:
-        return False
-    return s.lower().endswith(_DOC_EXTS) or s.startswith(('./', '/'))
 
 
 def _walk_task_files(task_dir: Path):

@@ -183,8 +183,11 @@ class AgentSession(
         # additionally confirmed per-write via ``_send_stdin``'s
         # return value.
         self._input_closed: bool = False
-        # Circuit breaker: track recent tool call signatures
-        self._recent_tool_calls: list[str] = []
+        # Circuit breaker: rolling window of recent tool calls
+        # ({id, sig, result}); answers are filled in from the stream by
+        # claude_backend_subagents._note_tool_results. A loop is the
+        # call AND its result — see claude_backend_utils.check_tool_loop.
+        self._recent_tool_calls: list[dict] = []
         # Review-authorship + async-subagent stream signals — see
         # claude_backend_subagents._init_subagent_state.
         self._init_subagent_state()

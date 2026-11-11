@@ -7,7 +7,12 @@ approval, and an unreadable table, are *contradictions*: also marked
 with a banner at the top of the result.
 
 1. **Owner rules on CHANGES.tsv** — thresholds from ``ad_rules``
-   (store notes override the defaults):
+   (store notes override the defaults), judged on what an ``audit``
+   recommends. A change the USER named (``kind="change"``) is their
+   decision, not a recommendation: the thresholds do not apply to those
+   rows, only what the columns themselves say (a real action word, a
+   target bid where a bid belongs, a row that moves the way its action
+   says). Every other phase is judged in full.
    - no ``lower`` while ACOS is under ``acos_no_lower`` (or ROAS above
      its equivalent) — cutting a converting keyword throws away profit;
    - a new bid not below ``cpc * cpc_floor_multiplier`` — under the
@@ -317,6 +322,32 @@ def find_approved(task_id: str) -> Path | None:
     return p if p.exists() else None
 
 
+def approved_bid_values(task_id: str) -> frozenset[float] | None:
+    """Every ``target_bid`` the frozen approvals hold for *task_id*.
+
+    ``None`` when nothing is frozen or an approval cannot be read —
+    callers treat "no approval" as "nothing to check against", never as
+    "deny": ``check`` reconciles the execution log against the approval
+    at the result, and an unreadable file reports there, not mid-flight.
+
+    Blocking (reads TSVs): the mid-flight bid guard calls this off the
+    event loop, in the rare command that types a bid.
+    """
+    files = approval_files(task_id)
+    if not files:
+        return None
+    bids: set[float] = set()
+    for f in files:
+        table = read_table(f, CHANGE_COLUMNS)
+        if table is None or table.error:
+            return None
+        for row in table.rows:
+            value = number(row.get('target_bid'))
+            if value is not None:
+                bids.add(value)
+    return frozenset(bids)
+
+
 # ── checks ──────────────────────────────────────────────────────────
 
 
@@ -410,8 +441,18 @@ def rule_violations(
     executed: tuple[dict, ...] = (),
     since: datetime | None = None,
     logged: tuple[dict, ...] = (),
+    *,
+    store_rules: bool = True,
 ) -> list[str]:
     """Owner rules on proposed changes.
+
+    ``store_rules=False`` keeps only what the typed contract says: a
+    known action word, a bid change with a target bid, and a row that
+    does what its action says. Use it for a value the USER named
+    (``kind="change"``) — the defaults below judge a recommendation the
+    agent derived, never a number the user wrote, and demanding the
+    ACOS/CPC evidence they feed is what made a one-row instruction
+    compute a whole audit.
 
     *executed* are this task's EXECUTION_LOG rows: their targets were
     just changed by this very execution, so the cooldown — which keeps a
@@ -456,7 +497,7 @@ def rule_violations(
             }
         acos, roas = ev.get('acos'), ev.get('roas')
         cpc, target = ev.get('cpc'), number(row.get('target_bid'))
-        if action in BID_ACTIONS:
+        if action in BID_ACTIONS and store_rules:
             # Without the numbers the owner rules cannot be applied, and
             # a proposal that skips them is the one that must not pass.
             missing = [
@@ -474,6 +515,7 @@ def rule_violations(
                     f'{_label(row)}: {action} with no {" / ".join(missing)} '
                     f'in its campaign TSV or CHANGES.tsv — the store rules cannot be checked'
                 )
+        if action in BID_ACTIONS:
             current = ev.get('bid')
             if (
                 current is not None
@@ -488,13 +530,17 @@ def rule_violations(
                     f'{target:g} goes the other way'
                 )
         # A pause throws away the same converting traffic a cut would.
-        if action in ('lower', 'pause') and (
-            (acos is not None and acos < acos_floor)
-            or (
-                acos is None
-                and roas is not None
-                and roas_equiv
-                and roas > roas_equiv
+        if (
+            store_rules
+            and action in ('lower', 'pause')
+            and (
+                (acos is not None and acos < acos_floor)
+                or (
+                    acos is None
+                    and roas is not None
+                    and roas_equiv
+                    and roas > roas_equiv
+                )
             )
         ):
             out.append(
@@ -507,7 +553,7 @@ def rule_violations(
         if action in BID_ACTIONS:
             if target is None:
                 out.append(f'{_label(row)}: {action} without a target_bid')
-            elif cpc is not None:
+            elif store_rules and cpc is not None:
                 floor = cpc * rules['cpc_floor_multiplier']
                 if target < floor - 1e-9:
                     out.append(
@@ -516,7 +562,8 @@ def rule_violations(
                         f'= {floor:.2f}'
                     )
         if (
-            action == 'hold'
+            store_rules
+            and action == 'hold'
             and roas is not None
             and roas > rules['scale_roas']
             and not row.get('reason')
@@ -525,7 +572,7 @@ def rule_violations(
                 f'{_label(row)}: hold on ROAS {roas:g} (> '
                 f'{rules["scale_roas"]:g}) needs a reason, or raise it'
             )
-        if action != 'hold':
+        if store_rules and action != 'hold':
             stamp = _recently_applied(slug, row, rules['change_cooldown_days'])
             if stamp:
                 out.append(
@@ -664,10 +711,14 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
                 f'proposes {len(proposals)} change(s): drop them, or '
                 're-declare kind "audit" with the same or a narrower scope'
             )
-        # The owner rules shape what an audit PROPOSES. Once the user has
-        # approved and the phase executes, the frozen approval is their
-        # decision and wins over a default (a cut inside the cooldown, a
-        # bid under the floor) — checked below, not re-judged here.
+        # The owner rules shape what an audit PROPOSES. A value the USER
+        # named (`change`), and anything the phase executes under a frozen
+        # approval, is their decision and wins over a default (a cut
+        # inside the cooldown, a bid under the floor) — checked below,
+        # not re-judged here. A `change` still owes the typed contract on
+        # its rows: a real action word, a bid where a bid belongs, and a
+        # row that moves the way its action says.
+        named = ad_declaration.kind_is_user_named_change(decl)
         if not (decl and decl['kind'] == KIND_EXECUTE):
             done = (
                 executed.rows
@@ -682,6 +733,7 @@ def check(final_result: str, task_id: str, rules: dict | None = None):
                     done,
                     _started(task_id),
                     logged,
+                    store_rules=not named,
                 )
             )
     if changes is not None and not changes.error:

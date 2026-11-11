@@ -58,7 +58,7 @@ All three catalog levels use the same shape:
 
 The agent prompt (`design_system.md`, Phase 1 — Knowledge Recall) tells the agent to read every row tagged with a platform the task touches before opening that platform; untagged rows are optional. This is prompt guidance — no hook enforces it (`app/ai/catalog_read.py` only records whether the catalog was read, for the PreToolUse plugin-gate signature). The L2/L3 sync prompts (`CATALOG_DESC_L2`/`CATALOG_DESC_L3` in `app/prompts/__init__.py`) preserve the column when copying rows from L1 → L2 → L3. Earlier versions dropped Relevance at L2 generation; that broke the contract.
 
-The catalog's **structure** is enforced server-side: a write to `knowledge/CATALOG.md` (L2) or `stores/<slug>/CATALOG.md` (L3) through `PUT /api/workspace/file` — the route behind the agent's `vibe_seller_write_workspace_file` — is validated by `app/workspace/catalog_validation.py` before it lands: accumulation (L2 carries every L1 row, L3 every L2 row, Relevance unchanged), completeness (every tier file exactly once, L3 store files by the filename rules), isolation (no other store's files, no task-output names), format (header, 3 columns, tier path prefixes, Relevance tokens known to the workspace) and the stub contract (a substantive file must be summarized). A violation is a 400 naming the rows to fix — that message is the sync agent's redo instruction.
+The catalog's **structure** is enforced server-side: a write to `knowledge/CATALOG.md` (L2) or `stores/<slug>/CATALOG.md` (L3) through `PUT /api/workspace/file` — the route behind the agent's `vibe_seller_write_workspace_file` — is validated by `app/workspace/catalog_validation.py` before it lands: accumulation (L2 carries every L1 row, L3 every L2 row, Relevance unchanged), completeness (every tier file exactly once — a filename only sets which rows are REQUIRED; a row naming an existing store file is the writer declaring it knowledge, and is honoured whatever it is called, so a user's `PROMO_RULES.md` can be cataloged), isolation (no other store's files; machine files — `*.json`, `*.lock`, `*.cache` — are the one name-based refusal: the server wrote them, they are not prose), format (header, 3 columns, tier path prefixes, Relevance tokens known to the workspace) and the stub contract (a substantive file must be summarized). A violation is a 400 naming the rows to fix — that message is the sync agent's redo instruction.
 
 ```
 ~/.vibe-seller/
@@ -119,7 +119,10 @@ Where knowledge goes:
 **L3 naming convention — knowledge vs task output.** L3 holds knowledge:
 procedural, transferable across runs, organized by topic. It is NOT for
 per-run task output (audit reports, improvement plans, captured metric
-tables). The boundary is enforced by the filename:
+tables). The naming below sets the sync agent's default — a
+name that looks like run output exempts a file from FORCING a row,
+but it never forbids one: the writer declares what a row is (see
+after the table):
 
 | Use | Naming | Examples | Path |
 |---|---|---|---|
@@ -127,12 +130,17 @@ tables). The boundary is enforced by the filename:
 | **Per-run output** (does NOT live at L3) | ALL_CAPS, dated, report-y | `*_PLAN_*.md`, `*_REPORT_*.md`, `*_AUDIT_*.md`, `*_2026-04-29.md` | task CWD (`~/.vibe-seller/tasks/<task-id>/<filename>.md`) |
 
 The L3 catalog regen agent (`CATALOG_DESC_L3` in `app/prompts/__init__.py`)
-applies this discriminator: it scans every file under `stores/<slug>/`,
-indexes lowercase topic-named files as knowledge, and skips ALL_CAPS /
-dated filenames as leaked task output. This is defense-in-depth — the
-in-task system prompt (`app/task_runner_context.py`) directs report
-writes to the task CWD, but if a leak ever lands at L3 anyway, the
-catalog won't promote it to "first-class store knowledge".
+scans every file under `stores/<slug>/`: a lowercase topic name is
+included as knowledge by default, and a name that looks like run output
+(ALL_CAPS / dated) is opened before it is skipped — durable facts or a
+rule the user set (the user's own `PROMO_RULES.md`) are knowledge and
+get a row, a one-run numbers dump is left out and named in the result.
+An existing row the sync did not write is a declaration it must keep,
+not silently drop. Only machine files — `metadata.json`, `*.json`,
+`*.lock`, `*.cache` — are refused a row outright: the server or a tool
+wrote them and no reader reads them. The location rule is the other
+defense: the in-task system prompt directs report writes to the task
+CWD / `store-data/`, so per-run output should not land at L3 at all.
 
 ### One-time knowledge cleanup after an upgrade
 

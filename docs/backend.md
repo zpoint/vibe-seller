@@ -90,6 +90,7 @@ SQLAlchemy 2.0 ORM models. All extend `Base` from `app/database.py`.
 | `BrowserSession` | `browser_sessions` | Active browser sessions per store |
 | `Task` | `tasks` | Units of work created by users |
 | `AdTaskDeclaration` | `ad_task_declarations` | What an ad-task phase committed to before working: append-only rows (`seq`, `kind`, `scope`, `user_turn`) from the `vibe_seller_declare_ad_task` tool — see [api.md § tasks](api.md#taskspy--task-management) |
+| `ReportRunDeclaration` | `report_run_declarations` | What a task committed to delivering before downloading: append-only rows (`seq`, `month`) from the `vibe_seller_declare_report_run` tool. The only trigger the monthly deliverable check has — see [subsystems.md § Report-run declarations](subsystems.md#report-run-declarations) |
 | `TaskStep` | `task_steps` | Legacy step rows of the retired step executor — nothing writes them today |
 | `Screenshot` | `screenshots` | Browser screenshot references (file paths on disk) |
 | `TaskLog` | `task_logs` | Execution log entries |

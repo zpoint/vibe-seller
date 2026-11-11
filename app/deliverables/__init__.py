@@ -18,9 +18,14 @@ the list:
 
 :mod:`app.deliverables.manifest` derives the expected set from the
 store's own capabilities and the calendar — both known before the agent
-starts, so there is nothing here for an agent to declare and nothing to
-re-declare around. :mod:`app.deliverables.verify` checks the workspace
-against it and counts rows, because a byte count cannot.
+starts, so the file list is never authored by the run. What the agent
+does supply is the single fact the server cannot know from the store row:
+whether this task is a monthly run at all, and for which month
+(:mod:`app.deliverables.declarations`). A task that declares nothing owes
+nothing here, which is what keeps an ad-hoc lookup from being graded
+against a month it was never asked to produce.
+:mod:`app.deliverables.verify` checks the workspace against the derived
+set and counts rows, because a byte count cannot.
 
 The verdict is not a new terminal state. It rides the existing gate
 contract (``app.ai.stop_gates``): unmet entries come back as ``gaps``,

@@ -12,7 +12,7 @@ currency column per row instead.
 | `CAMPAIGNS.tsv` | task dir | audit |
 | `<campaign_id>.tsv` | `store-data/<slug>/ads/<platform>/<country>/` | audit (+ execution fills `applied_*`) |
 | `<campaign_id>.searchterms.tsv` | same dir | audit |
-| `CHANGES.tsv` | task dir | audit |
+| `CHANGES.tsv` | task dir | audit, change |
 | `EXECUTION_LOG.tsv` | task dir | execution |
 
 `<platform>` is lower-case (`amazon`, `noon`), `<country>` the market
@@ -70,11 +70,22 @@ execution is checked against that copy.
 An `investigate` task proposes nothing: no `CHANGES.tsv` rows other than
 `hold`.
 
+A `change` task (the user named the row and its value) writes this file
+and nothing else. One row per change they named — no `CAMPAIGNS.tsv`, no
+per-campaign drill. Fill `platform`, `country`, `campaign_id`, `target`,
+`match_type`, `action` and their `target_bid`, and `current_bid` from the
+console page you read the row on; `acos` / `roas` / `cpc` may be left
+empty, because the rules below do not judge a value the user wrote. The
+locating columns still have to be exact: they are how the frozen
+approval finds the row that was applied.
+
 ## Store rules the server checks on CHANGES.tsv
 
 Starting defaults, not the store's truth: a `key: value` line in
 `stores/<slug>/notes.md` overrides any of them, and the user's own
-standard or instruction always wins over a default.
+standard or instruction always wins over a default — a row from a
+`change` declaration is that instruction, so no threshold here is
+applied to it.
 Those lines hold standards the user stated for every run — never a
 one-off change ("lower gizmo mini to 1.00" goes in `CHANGES.tsv`; a
 breached default just shows beside it), and never a value you derived

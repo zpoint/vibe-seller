@@ -1,5 +1,6 @@
 """Module-level helpers shared across claude_backend split modules."""
 
+import hashlib
 import json
 import logging
 import os
@@ -13,10 +14,7 @@ from sqlalchemy import func, select
 
 from app.ai.skill_gate_utils import find_skill_md
 from app.config import WEB_BROWSER_SLUG
-from app.database import async_session
 from app.env_options import Options
-from app.models.schedule import Schedule
-from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.platform import IS_WINDOWS, prepend_to_path, venv_bin_dir
 from app.workspace.manager import VIBE_SELLER_DIR
@@ -364,27 +362,65 @@ def sdk_initialize_request(mode: str) -> dict:
 AUTO_APPROVE_CALLBACK = 'auto_approve'
 STOP_CALLBACK = 'stop'
 
-# Circuit breaker: stop agent after N identical consecutive tool calls
+# Circuit breaker: stop an agent after N identical consecutive tool
+# calls THAT ANSWERED IDENTICALLY TOO. A loop is the call AND its
+# result: six polls whose answer keeps changing are progress (a report
+# generating, a sync advancing), and killing them punished the one
+# honest way to wait. Six identical answers to one identical call say
+# the agent is repeating itself for nothing — that is the loop.
 MAX_REPEAT_TOOL_CALLS = Options.MAX_REPEAT_TOOL_CALLS.get_int()
 
 
 def check_tool_loop(
-    recent_calls: list[str], tool_name: str, tool_input: dict
+    recent_calls: list[dict],
+    tool_use_id: str | None,
+    tool_name: str,
+    tool_input: dict,
 ) -> bool:
     """True if the agent is stuck in a degenerate tool loop.
 
-    Appends the call signature to *recent_calls* (the session's
-    rolling window, mutated in place) and reports whether the last
-    ``MAX_REPEAT_TOOL_CALLS`` signatures are all identical.
+    Appends this call to *recent_calls* (the session's rolling window,
+    mutated in place; :func:`record_tool_result` fills each entry's
+    answer when the stream carries it) and reports whether the last
+    ``MAX_REPEAT_TOOL_CALLS`` calls are identical in name+input AND
+    every one already answered said the same thing. An entry with no
+    result yet (this call, or a still-running sibling) is evidence of
+    nothing: the breaker waits for answers rather than assuming them.
     """
     sig = f'{tool_name}:{json.dumps(tool_input, sort_keys=True)}'
-    recent_calls.append(sig)
+    recent_calls.append({'id': tool_use_id, 'sig': sig, 'result': None})
     if len(recent_calls) > MAX_REPEAT_TOOL_CALLS:
         del recent_calls[:-MAX_REPEAT_TOOL_CALLS]
-    return (
-        len(recent_calls) >= MAX_REPEAT_TOOL_CALLS
-        and len(set(recent_calls)) == 1
-    )
+    if len(recent_calls) < MAX_REPEAT_TOOL_CALLS:
+        return False
+    first = recent_calls[0]['sig']
+    if any(c['sig'] != first for c in recent_calls):
+        return False
+    answered = [c['result'] for c in recent_calls[:-1]]
+    if any(r is None for r in answered):
+        return False
+    return len(set(answered)) == 1
+
+
+def record_tool_result(
+    recent_calls: list[dict], tool_use_id: str | None, result_text: str
+) -> None:
+    """Fill in the answer a tool call got, keyed by ``tool_use_id``.
+
+    Stores a digest, not the bytes — the window only ever compares
+    equality. An id the window never saw (already trimmed, or a call
+    this session's breaker does not track) is ignored: no evidence,
+    no kill.
+    """
+    if not tool_use_id:
+        return
+    digest = hashlib.sha256(
+        (result_text or '').encode('utf-8', 'replace')
+    ).hexdigest()
+    for entry in reversed(recent_calls):
+        if entry['id'] == tool_use_id and entry['result'] is None:
+            entry['result'] = digest
+            return
 
 
 async def get_next_seq(db, task_id: str) -> int:
@@ -524,55 +560,6 @@ def check_skill_prereqs(
         f"Skill '{skill_name}' builds on {names}; load "
         f'{"it" if len(missing) == 1 else "them"} with the Skill tool too.'
     )
-
-
-_FANOUT_FORBIDDEN_PATTERNS = (
-    ('vibe_seller_create_task', 'calls the sub-task MCP tool'),
-    ('parent_task_id', 'designs a parent/sub-task hierarchy'),
-)
-
-
-async def validate_fanout_plan_text(task_id: str, plan_text: str) -> str | None:
-    """Return a deny reason if *plan_text* contains fanout-illegal
-    patterns for a plan-only fanout-schedule Task, else None.
-
-    Only runs for ``Task.is_plan_only=True`` whose owning
-    ``Schedule.phase_mode='fanout'``. Other cases (single-mode
-    schedules, standalone interactive plan-mode tasks) are not
-    subject to this check — orchestration is legitimate for them.
-
-    Lives here (not as an AgentSession method) to keep the hook
-    module under the 800-line file limit.
-    """
-    try:
-        async with async_session() as db:
-            task = await db.get(Task, task_id)
-            if not task or not task.is_plan_only or not task.schedule_id:
-                return None
-            sched = await db.get(Schedule, task.schedule_id)
-            if not sched or sched.phase_mode != 'fanout':
-                return None
-    except Exception:
-        logger.debug(
-            'Fanout-plan validator could not load context for %s',
-            task_id,
-            exc_info=True,
-        )
-        return None
-
-    haystack = (plan_text or '').lower()
-    for needle, description in _FANOUT_FORBIDDEN_PATTERNS:
-        if needle.lower() in haystack:
-            return (
-                f'the plan {description}'
-                f' (found {needle!r}), but this schedule is a'
-                ' fanout schedule — the scheduler already creates'
-                ' one per-store Task per fire and runs the plan'
-                ' once per store. Remove the orchestrator step'
-                ' and describe what a single store-bound agent'
-                ' should do with the per-store L3 catalog.'
-            )
-    return None
 
 
 # ATTEMPT bound on open-work re-drives per turn. Past this the

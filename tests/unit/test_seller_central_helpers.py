@@ -23,15 +23,22 @@ Two bug classes these pin, both observed live on a real store:
   so the upload helper must compare them rather than trust the host.
 
 The scan is deliberately source-level: these scripts are fed to
-``browser-use`` on stdin and execute browser globals at import, so they
-cannot be imported in a unit test.
+``browser-use`` on stdin and execute browser globals at import; most
+cannot be imported in a unit test at all (bh_switch_marketplace is
+import-safe and additionally unit-tested for its pure logic in
+test_switch_marketplace_logic.py — the source scan here pins the
+invariants that live in its browser-executed strings, which no import
+can reach).
 """
 
+import fnmatch
 import os
 from pathlib import Path
 import re
 
 import pytest
+
+from app.ai.stop_gates import listing_upload_gate
 
 pytestmark = pytest.mark.unit
 
@@ -164,6 +171,76 @@ def test_upload_helper_compares_marketplace_ids():
         assert src.index(missing) < stage, 'proof check runs after staging'
 
 
+def test_the_template_downloader_arms_nothing():
+    """Reading a category is not a declaration of an upload.
+
+    ``bh_download_template`` used to write ``UPLOAD_PENDING.json`` on
+    every template fetch, and the gate treated that file as "an upload is
+    intended this turn" — so a task that only downloaded a template to
+    INSPECT its field set (step 1-2 of the skill's own loop) was refused
+    for an unverified upload. The helper now carries no marker logic at
+    all.
+    """
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_download_template.py'
+    ).read_text(encoding='utf-8')
+    for armed in ('UPLOAD_PENDING', 'UPLOAD_ATTEMPT', 'MARKER_DIR', 'open('):
+        assert armed not in src, f'template downloader still writes {armed!r}'
+
+
+def test_the_upload_helper_arms_at_the_upload():
+    """The arm point is the upload helper itself, past its own refusals."""
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
+    ).read_text(encoding='utf-8')
+    # The WRITE site, not the constant's definition (which sits at the
+    # top of the file, before every refusal).
+    assert "ARM_MARKER_NAME = 'UPLOAD_ATTEMPT.json'" in src
+    # Exactly one name is written: remote skill sync never overwrites a
+    # file an installed package already has, so a released server only
+    # ever meets ITS OWN helpers — there is no cross-version marker to
+    # keep in step, and an alias would be dead weight that re-arms nothing.
+    assert 'LEGACY_ARM_NAME' not in src
+    assert 'UPLOAD_PENDING' not in src
+    arm = src.index("open(os.path.join(d, ARM_MARKER_NAME), 'w')")
+    stage = src.index('DOM.setFileInputFiles')
+    # Nothing is owed when the helper refused before it could upload: no
+    # disabled-row pass, no signed-out page, no marketplace disagreement.
+    for refused_first in (
+        'REFUSED: the upload file carries',
+        'signed out --',
+        'MARKETPLACE MISMATCH',
+    ):
+        assert src.index(refused_first) < arm, f'{refused_first} arms anyway'
+    # ...and it arms BEFORE the bytes are handed over, so a helper that
+    # staged then missed the Submit click (the observed bypass — the agent
+    # finished by hand) is still gated.
+    assert arm < stage, 'arming after staging misses the hand-finish bypass'
+
+
+def test_the_gate_reads_the_marker_the_helper_writes():
+    """Cross-pin the two halves: a rename on one side breaks this test.
+
+    The gate (server) and the helper (skill script) ship in the SAME
+    release — remote sync cannot replace an installed skill file — so the
+    marker name is an internal contract, and it is exactly the kind of
+    contract that rots silently when someone edits one side.
+    """
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
+    ).read_text(encoding='utf-8')
+    # UPLOAD_BATCH_{ref}.json is an f-string, so the id part is matched
+    # as a placeholder and fnmatch's * covers it below.
+    written = set(re.findall(r"'(UPLOAD_[A-Za-z_{}]+\.json)'", src))
+    assert written, 'the upload helper writes no marker any more'
+    for pattern in (
+        listing_upload_gate.ATTEMPT_GLOB,
+        listing_upload_gate.MARKER_GLOB,
+    ):
+        matched = [n for n in written if fnmatch.fnmatch(n, pattern)]
+        assert matched, f'nothing writes what the gate reads as {pattern!r}'
+
+
 def _disabled_rows_fn():
     """Exec just `_disabled_rows` (and its token set) out of the helper."""
     src = (
@@ -288,9 +365,23 @@ def _marker_dirs_fn(path, marker_dir):
     return ns['_marker_dirs']
 
 
-@pytest.mark.parametrize(
-    'name', ['bh_upload_flatfile.py', 'bh_download_template.py']
-)
+def _marker_writers():
+    """The helpers that write a gate marker (name is a glob-able path).
+
+    Derived from the scripts, not from a list: ``bh_download_template``
+    stopped writing one when arming the upload check moved onto the upload
+    itself, and a pinned list would have kept testing a file with no
+    markers left in it.
+    """
+    scripts = _SCRIPTS / 'amazon-listing' / 'scripts'
+    return [
+        p.name
+        for p in sorted(scripts.glob('bh_*.py'))
+        if 'def _marker_dirs():' in p.read_text(encoding='utf-8')
+    ]
+
+
+@pytest.mark.parametrize('name', _marker_writers())
 def test_gate_markers_always_reach_the_task_workspace(
     name, tmp_path, monkeypatch
 ):
@@ -588,7 +679,7 @@ def test_switch_helper_matches_by_structure_not_words():
     Observed live: an agent driving the switcher by hand never found the
     confirm button (a kat-button) and spent ~45 calls on one switch.
     """
-    src = _switch_src()
+    src = _SEAM.sub('', _switch_src())
     assert 'Intl.DisplayNames' in src
     assert 'kat-button[data-test=confirm-selection]' in src
     assert 'data-test")==="current-account"' in src
@@ -635,13 +726,26 @@ def test_switch_helper_reads_the_session_off_an_ordinary_page():
 
     Read from there, the helper said "already on AE" for a session still
     on SA and reported a switch it never made -- observed live.
+
+    The read must also happen on the TARGET marketplace's own domain,
+    never on whatever SC_HOST the caller passed: the marketplace
+    context is per-domain (live 2026-11-11 -- `.sa` served AE while
+    `.ae` served SA), so verifying on the source host can never see a
+    switch it did make. That is the bug whose ok:false this helper was
+    famous for.
     """
     src = _switch_src()
-    reader = src.index('def _session_marketplace():')
-    assert "new_tab(f'https://{HOST}/home')" in src[reader : reader + 900]
-    first_read = src.index("out['marketplace'] = _session_marketplace()")
-    assert first_read < src.index("new_tab(f'https://{HOST}/account-switcher/")
-    assert src.count("out['marketplace'] = _session_marketplace()") == 2
+    reader = src.index('def _session_marketplace(')
+    assert "_goto(base + '/home')" in src[reader : reader + 900]
+    # base is the target-derived origin, not the raw caller host.
+    assert src.index('base = target_base(host, cc)') < reader
+    first_read = src.index("out['marketplace'] = _session_marketplace")
+    assert first_read < src.index(
+        "_goto(base + '/account-switcher/default/merchantMarketplace')"
+    )
+    # exactly two ordinary-page reads: before the switcher and the
+    # final answer.
+    assert src.count("out['marketplace'] = _session_marketplace") == 2
 
 
 @pytest.mark.parametrize(
@@ -664,3 +768,340 @@ def test_helpers_name_a_missing_parameter(rel):
     exec(src[start : src.index('\n\n\n', start)], ns)  # noqa: S102
     with pytest.raises(SystemExit):
         ns['_env']('VIBE_TEST_SURELY_UNSET')
+
+
+# ── F1: the generator's product-type search ────────────────────────
+#
+# Live failure this pins: an agent asked to inspect a category's template
+# ran bh_download_template with PRODUCT_TYPE="phone case", got
+# `no product-type result for 'phone case'`, and had to find the category
+# by hand — which the page did offer. Reading the run and reproducing it
+# on a live store showed the helper had clicked a rect it could not hit
+# (the modal's keyword input measured x 1959..2526 with the viewport at
+# 1920; a hidden duplicate of the same placeholder measured 0x0 at the
+# origin), so the typed keyword never reached any input — and the reason
+# blamed the CATEGORY for the helper's own miss.
+
+_TEMPLATE_HELPER = (
+    _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_download_template.py'
+)
+
+# Scrubbed capture of the generator's own result list (AE marketplace,
+# Chinese console). Each row carries its ZH name, its browse-node count
+# and the EN product-type name, plus the Select control's rect. Product
+# type names and marketplace codes are Amazon platform vocabulary; no
+# store, account, or file path from the live run is kept here.
+_SEARCH_ROWS = [
+    {
+        'labels': ['手机壳', '分类节点 (1/9)', 'Mobile Phone Basic Cases'],
+        'btn': {
+            'x': 2136,
+            'y': 614,
+            'l': 2072,
+            'tp': 598,
+            'rt': 2200,
+            'bt': 630,
+            'w': 128,
+            'h': 32,
+        },
+    },
+    {
+        'labels': ['手机配件', 'Mobile Phone Accessories'],
+        'btn': {
+            'x': 2136,
+            'y': 700,
+            'l': 2072,
+            'tp': 684,
+            'rt': 2200,
+            'bt': 716,
+            'w': 128,
+            'h': 32,
+        },
+    },
+]
+
+_VP_1920 = {'w': 1920, 'h': 839}
+_VP_2560 = {'w': 2560, 'h': 1600}
+# Measured live at viewport 1920: entirely past the right edge.
+_OFF_RIGHT = {
+    'x': 2243,
+    'y': 543,
+    'l': 1959,
+    'tp': 528,
+    'rt': 2526,
+    'bt': 557,
+    'w': 567,
+    'h': 29,
+}
+# Measured live: the header search box, a hidden duplicate of the same
+# placeholder family — the finder matched it and clicked (0,0).
+_ZERO_SIZE = {'x': 0, 'y': 0, 'l': 0, 'tp': 0, 'rt': 0, 'bt': 0, 'w': 0, 'h': 0}
+
+
+def _pure_ns():
+    """Exec the helper's PURE block (reachability + matching) standalone.
+
+    These scripts are fed to browser-use on stdin and touch browser
+    globals at import, so what is testable is lifted out by anchor — the
+    same way `_disabled_rows_fn` above does it.
+    """
+    src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+    start = src.index('_WORD = re.compile(')
+    end = src.index('_WALK = (')
+    assert start < end, 'the PURE block moved — update these anchors'
+    ns = {'re': re}
+    exec(src[start:end], ns)  # noqa: S102 - our own source, under test
+    return ns
+
+
+class TestClickMustBeAbleToLand:
+    def test_a_rect_past_the_viewport_is_not_clickable(self):
+        assert _pure_ns()['reachable'](_OFF_RIGHT, _VP_1920) is False
+
+    def test_a_zero_size_rect_is_not_clickable(self):
+        # The old finder accepted anything with a truthy width and matched
+        # this one first: the click went to (0,0), the text to nowhere.
+        assert _pure_ns()['reachable'](_ZERO_SIZE, _VP_1920) is False
+
+    def test_the_same_control_is_clickable_in_a_wider_viewport(self):
+        inside = dict(_OFF_RIGHT, l=1490, rt=2057, x=1773)
+        assert _pure_ns()['reachable'](inside, _VP_2560) is True
+
+    def test_the_label_field_is_never_a_coordinate(self):
+        """`t` is the element's TEXT; `tp` is its top edge.
+
+        A first version of `reachable` read `t` as "top", so every box
+        that carried a label raised while comparing '下载商品电子表格' with
+        0 — caught by the live run, which is the point of running helpers
+        for real instead of only reading them.
+        """
+        ns = _pure_ns()
+        labelled = {
+            't': '下载商品电子表格',
+            'x': 700,
+            'y': 360,
+            'w': 140,
+            'h': 34,
+        }
+        assert ns['reachable'](labelled, _VP_1920) is True
+        far_right = {
+            't': '下载商品电子表格',
+            'x': 3000,
+            'y': 360,
+            'w': 140,
+            'h': 34,
+        }
+        assert ns['reachable'](far_right, _VP_1920) is False
+
+    def test_only_one_place_in_the_script_clicks(self):
+        """Every interaction goes through the verified clicker.
+
+        A second `click_at_xy` would be a click nobody checked could
+        land — the exact shape of the F1 bug.
+        """
+        src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+        assert src.count('click_at_xy(') == 1, (
+            'a raw coordinate click reappeared; route it through '
+            '_click_box, which refuses what is not inside the viewport'
+        )
+
+
+class TestThePagesOwnRowsDecide:
+    def test_plain_language_query_meets_the_english_label(self):
+        """'phone case' resolves on the page's own list.
+
+        The console renders Chinese, yet the row still carries the English
+        product type — matching against the row's labels reaches it, while
+        an exact match on an internal name (`cellular_phone_case`) never
+        would.
+        """
+        ns = _pure_ns()
+        row, cands = ns['pick_row']('phone case', _SEARCH_ROWS)
+        assert row is _SEARCH_ROWS[0]
+        assert 'Mobile Phone Basic Cases' in row['labels']
+        assert len(cands) == 2
+
+    def test_query_in_the_console_language_matches_too(self):
+        ns = _pure_ns()
+        row, _c = ns['pick_row']('手机壳', _SEARCH_ROWS)
+        assert row is _SEARCH_ROWS[0]
+
+    def test_a_single_word_query_reaches_a_compound_name(self):
+        ns = _pure_ns()
+        assert ns['row_score']('cases', ['Mobile Phone Basic Cases']) > 0
+
+    def test_no_match_names_the_candidates_and_picks_nothing(self):
+        """The old code clicked the TOPMOST Select whatever it was.
+
+        Silently listing the wrong category is worse than failing: the
+        upload that follows is stamped for a product type nobody asked
+        for.
+        """
+        ns = _pure_ns()
+        row, cands = ns['pick_row']('yoga mat', _SEARCH_ROWS)
+        assert row is None
+        assert any('Mobile Phone Basic Cases' in c for c in cands)
+
+    def test_equal_scores_keep_the_earlier_row(self):
+        rows = [
+            {
+                'labels': ['Phone Case Cover'],
+                'btn': {'x': 1, 'y': 1, 'w': 10, 'h': 10},
+            },
+            {
+                'labels': ['Phone Case Basic'],
+                'btn': {'x': 1, 'y': 2, 'w': 10, 'h': 10},
+            },
+        ]
+        ns = _pure_ns()
+        row, _c = ns['pick_row']('phone case', rows)
+        assert row is rows[0]
+
+    def test_an_empty_result_list_is_not_a_mismatch(self):
+        ns = _pure_ns()
+        row, cands = ns['pick_row']('phone case', [])
+        assert row is None and cands == []
+
+
+def test_the_false_verdict_about_the_category_is_gone():
+    """A miss is reported as the miss it is.
+
+    `no product-type result for X` was drawn from a click that never
+    landed. The flow now reads the keyword back out of the box before it
+    says anything about the category, and reports the measurements when
+    the control is unreachable.
+    """
+    src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+    # The narrative may quote the old verdict; the code may not raise it.
+    assert "_fail(f'no product-type" not in src
+    assert "'no product-type result for'" not in src
+    assert 'never reachable' in src
+    assert 'never reached the search box' in src
+    # Proof the text landed, not that a key was sent.
+    assert '_norm(PTYPE) not in _norm(landed)' in src
+    assert "'landed'" in src and "'boxes'" in src
+
+
+class TestWideControlsStillGetClicked:
+    """The strict rule must not refuse a click the old code got right.
+
+    A control wider than the window — its centre on-screen, its right edge
+    not — is the ordinary case on these modals. Refusing it would trade
+    F1's false verdict for a new failure, so the gate is graded: whole box
+    inside, else centre inside, else no click.
+    """
+
+    @pytest.mark.parametrize(
+        ('box', 'want'),
+        [
+            ({'x': 900, 'y': 400, 'w': 100, 'h': 30}, 'full'),
+            # right edge 2526 of a 1920 viewport, centre 2243 — off-screen.
+            (
+                {'x': 2243, 'y': 543, 'l': 1959, 'rt': 2526, 'w': 567, 'h': 29},
+                None,
+            ),
+            # a whole box inside a 1920-wide viewport.
+            (
+                {'x': 1576, 'y': 543, 'l': 1300, 'rt': 1852, 'w': 552, 'h': 29},
+                'full',
+            ),
+            (
+                {'x': 1900, 'y': 543, 'l': 1600, 'rt': 2200, 'w': 600, 'h': 29},
+                'centre',
+            ),
+            ({'x': 0, 'y': 0, 'w': 0, 'h': 0}, None),
+        ],
+    )
+    def test_tiers(self, box, want):
+        ns = _pure_ns()
+        assert ns['click_tier'](box, _VP_1920) == want
+
+    def test_reachable_is_the_strict_tier(self):
+        ns = _pure_ns()
+        wide = {'x': 1900, 'y': 543, 'l': 1600, 'rt': 2200, 'w': 600, 'h': 29}
+        assert ns['click_tier'](wide, _VP_1920) == 'centre'
+        assert ns['reachable'](wide, _VP_1920) is False
+
+    def test_the_generate_button_is_read_structurally(self):
+        """The page's own disabled state proves the selection landed.
+
+        Amazon keeps Generate Spreadsheet disabled until a product type is
+        chosen, so that — not "a click was sent" — is the evidence the
+        row was selected, and it is the same structural readiness the
+        upload helper already relies on.
+        """
+        src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+        assert 'def _generate_state' in src
+        assert 'aria-disabled' in src and 'hasAttribute("disabled")' in src
+        assert "out['selected'] = chosen" in src
+
+
+class TestWrapperBudget:
+    """A run the wrapper kills mid-call reports NOTHING.
+
+    `browser-use` is alarm-wrapped by the store wrapper (BU_TIMEOUT, 120 s
+    observed live: `Alarm clock: 14` and no RESULT line), so the agent is
+    left with `[wrapper] browser-use timed out` — precisely the blind
+    failure this file exists to end. The F1 viewport sweep hit it: it
+    spent the budget trying widths and never reached the search box.
+    """
+
+    LIMIT, RESERVE, MARGIN = 120.0, 8.0, 8.0
+
+    def _over(self, spent, wait):
+        ns = _pure_ns()
+        return ns['over_budget'](
+            spent, wait, self.LIMIT, self.RESERVE, self.MARGIN
+        )
+
+    def test_the_first_load_is_allowed(self):
+        assert self._over(0, 11) is False
+
+    def test_a_wait_that_cannot_finish_is_refused(self):
+        assert self._over(112, 6) is True
+        # Refused EARLY, not after the time is already gone.
+        assert self._over(100, 12) is True
+
+    def test_the_planned_waits_fit_one_call(self):
+        """Every wait the script can take, in one pass, inside the call.
+
+        The F1 version's bug was structural, not a long sleep: two urls ×
+        four widths × fit rounds re-navigated and re-measured until the
+        alarm fired. So the pin is the SHAPE — one navigation per url, one
+        measured grow — plus the sum of the waits it can still spend.
+        """
+        src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+        assert 'for url in (_WIZARD_URL, _ENTRY_URL)' in src
+        assert 'def _measure(' in src
+        assert '_fit_viewport' not in src, 'the width sweep is back'
+        assert '_WIDTHS' not in src, 'the width sweep is back'
+        waits = [float(x) for x in re.findall(r'_wait\(([\d.]+),', src)]
+        assert len(waits) >= 5, waits
+        # +11: the second url's navigation, same call site.
+        assert sum(waits) + 11 + 20 <= self.LIMIT - self.RESERVE - self.MARGIN
+
+    def test_margin_covers_the_wrapper_clock_starting_early(self):
+        """The alarm starts before python runs; margin 0 is the bug again."""
+        src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+        assert 'RESERVE, MARGIN = 8.0, 8.0' in src
+        assert 'over_budget(spent, seconds, _BUDGET, RESERVE, MARGIN)' in src
+        # The last step is bounded by the deadline, not by blind retries.
+        assert '_stop = _T0 + _BUDGET - MARGIN' in src
+
+
+def test_an_unreachable_control_reports_the_pages_own_state():
+    """The failure names the page fact, not just "couldn't click".
+
+    Measured live on the AE store: clicking the generator's entry control
+    at x=2371 with the viewport at 1920 does NOTHING (verified with an
+    deliberately ungated click — the wizard stayed closed), the window is
+    maximized at 1920 CSS px on a dpr-2 display, and the document is 1905
+    wide, so the control is clipped rather than scrollable. "unreachable"
+    without that is another dead end, so the RESULT carries the drawer's
+    computed style and the controls that ARE on screen.
+    """
+    src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+    assert 'def _drawer_state' in src
+    assert "out['drawer']" in src
+    assert 'getComputedStyle' in src
+    assert 'visibility:hidden' in src, 'the reason must state the page fact'

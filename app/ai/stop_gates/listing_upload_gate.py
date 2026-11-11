@@ -1,35 +1,47 @@
 """Batch-keyed freshness gate for listing flat-file uploads.
 
-``bh_download_template`` writes an ``UPLOAD_PENDING.json`` marker when a
-template lands (an upload is now intended this turn), and
-``bh_upload_flatfile`` records every submitted batch as an
-``UPLOAD_BATCH_<id>.json`` marker. ``listing_bulk.py parse-feedback
---batch-id <id>`` writes the matching ``BATCH_<id>_VERDICT.json`` after
-reading THAT batch's processing report. This check closes the loop: a
-task that entered the upload flow is told (once, like every check) when
-the uploaded batch has no verdict, or its verdict shows non-image
-errors (the missing-main-image deferral is the one accepted "done with
-caveat" state); left unresolved, it ships as a caveat.
+The obligation is armed by the act of UPLOADING, not by any earlier step
+of the listing flow:
 
-Arming is deliberately redundant: the batch marker requires the upload
-HELPER to have succeeded, and the observed bypass was exactly a helper
-failure — the submit click missed, the agent uploaded by hand, no
-marker existed, and the gate stayed a quiet no-op. The pending marker
-(written at template download, several steps earlier) survives that
-fallback, so a manual upload is still gated: at least one batch verdict
-must exist, and the latest one must be clean. If no upload happened
-after all, the agent removes the pending marker (explicitly, visibly)
-instead of the gate silently not existing.
+* ``bh_upload_flatfile`` records an ``UPLOAD_ATTEMPT.json`` marker the
+  moment it accepts an upload — after every refusal it can make before
+  anything could reach Amazon (disabled rows in the file, a signed-out
+  session, a marketplace triple-check that did not agree) and before it
+  hands the file to the page. The agent declared an upload run.
+* The same helper records ``UPLOAD_BATCH_<id>.json`` per submitted batch.
+* ``listing_bulk.py parse-feedback --batch-id <id>`` writes the matching
+  ``BATCH_<id>_VERDICT.json`` after reading THAT batch's processing
+  report.
 
-This makes report freshness structural instead of prompted: the turn
-can no longer pass on a stale report from a prior
-turn or another marketplace — the verdict is keyed to the batch id the
-upload actually produced this turn. Markers/verdicts are moved aside
-at turn start (``rollover_upload_markers``),
-so each turn is gated only on its own uploads.
+This check closes the loop: an upload that was started must end with its
+batch verdicted, and the latest batch must be clean. It is one round like
+every other check — refused once, naming what is unmet, then the result
+ships with the finding as a caveat.
 
-No markers → quiet no-op (the gate arms itself only when the helpers
-ran).
+Arming on the ATTEMPT (not on a successful submit) is what keeps the
+anti-fake-success property: the bypass this gate was written against was
+a helper failure — the Submit click missed, the agent uploaded by hand,
+no batch marker existed, and the gate stayed a quiet no-op. The attempt
+marker survives that fallback, so a hand finish of a started upload is
+still gated: at least one batch verdict must exist, and the latest one
+must be clean. If the upload never happened after all, the agent removes
+the attempt marker (explicitly, visibly) instead of the gate silently not
+existing.
+
+Downloading a TEMPLATE no longer arms anything. ``bh_download_template``
+used to write ``UPLOAD_PENDING.json``, but a template download is step 1
+of every listing task — the skill's own loop is "download, INSPECT,
+fill, upload" — so a run that only fetched a template to read its field
+set was refused for an "upload not verified". An inspection is not a
+declaration of an upload, and the obligation must come from the
+declaration (CLAUDE.md: no declaration, no inferred obligation).
+
+The gate is SKILL-BOUND: ``amazon-listing`` declares
+``gates: [upload_verdict]``, so it runs for the sessions that loaded that
+skill — the agent's own decision — and not as a probe of every task
+workspace on every submit, which is how it used to run.
+
+No markers → quiet no-op (the gate arms only when the upload helper ran).
 """
 
 from __future__ import annotations
@@ -38,16 +50,34 @@ import json
 from pathlib import Path
 import re
 
-GATE_NAME = 'listing_upload_gate'
+from app.ai.stop_gates import GateDeny
+from app.config import VIBE_SELLER_DIR
+
+GATE_NAME = 'upload_verdict'
 
 _MARKER_RE = re.compile(r'^UPLOAD_BATCH_(\w+)\.json$')
 _VERDICT_RE = re.compile(r'^BATCH_(\w+)_VERDICT\.json$')
 
-# Glob patterns for the turn-scoped artifacts this gate reads; also used
-# by ``rollover_upload_markers`` to move them aside at turn start.
+# Glob patterns for the turn-scoped artifacts this gate reads; also the
+# files ``rollover_upload_markers`` moves aside at turn start.
 MARKER_GLOB = 'UPLOAD_BATCH_*.json'
 VERDICT_GLOB = 'BATCH_*_VERDICT.json'
-PENDING_GLOB = 'UPLOAD_PENDING*.json'
+ATTEMPT_GLOB = 'UPLOAD_ATTEMPT*.json'
+# ``UPLOAD_PENDING.json`` — what an OLD release's ``bh_download_template``
+# wrote on a template fetch, and what that release's gate armed on — is
+# deliberately NOT read here at all. A release's own helpers ship inside
+# its package (remote sync never overwrites an installed skill file), so
+# no current install's server is ever fed by that writer; the only copies
+# of that name left behind are in task workspaces that predate an upgrade,
+# and they must arm nothing: an obligation may not be inferred from a
+# download.
+
+
+def task_workspace(task_id: str | None):
+    """The task workspace a gate's markers live in, or None."""
+    if not task_id:
+        return None
+    return (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
 
 
 def _ids(task_dir: Path, glob: str, rx: re.Pattern) -> list[str]:
@@ -63,8 +93,26 @@ def _ids(task_dir: Path, glob: str, rx: re.Pattern) -> list[str]:
     return out
 
 
-def check_upload_verdicts(task_dir) -> str | None:
-    """Deny reason until every batch is verdicted and the LATEST is clean.
+def _attempted_upload(task_dir: Path) -> str | None:
+    """What the upload helper was about to push, or None if it never ran.
+
+    The marker names the FILE, so the refusal can say which upload is
+    unverified instead of telling the agent its own work looks odd.
+    """
+    for path in sorted(Path(task_dir).glob(ATTEMPT_GLOB)):
+        try:
+            payload = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            # Written by the helper; unreadable means the helper died
+            # mid-write, not that no upload was attempted — fail closed.
+            return path.name
+        name = str(payload.get('file') or '').rsplit('/', 1)[-1]
+        return name or path.name
+    return None
+
+
+def check_upload_verdicts(task_dir) -> tuple[str, str] | None:
+    """``(reason for the agent, the one unmet item)`` while unverified.
 
     Rules, matching how the upload loop really converges:
       1. EVERY batch marker needs a verdict — each batch's report must
@@ -73,12 +121,14 @@ def check_upload_verdicts(task_dir) -> str | None:
          Earlier batches are immutable history: a failed intermediate
          that a later upload superseded can never be "fixed", so
          requiring it clean would wedge the loop. "Latest" ranges over
-         marker AND verdict-only ids, so a manually-uploaded batch
+         marker AND verdict-only ids, so a manually-finished upload
          (helper failed → no marker) is judged too.
-      3. A pending marker (template downloaded) with NO batch activity
-         at all means the upload never got verified — or never
-         happened; the agent must parse-feedback the batch it uploaded,
-         or remove the marker if it genuinely didn't upload.
+      3. An upload ATTEMPT with no batch activity at all means the
+         helper got the go-ahead and never produced a verdicted batch —
+         the agent must parse-feedback the batch it uploaded (even by
+         hand), or remove the marker if it genuinely never submitted.
+         Template downloads are NOT in this rule: only the upload
+         helper's own attempt marker arms it.
     Unreadable marker/verdict files count as unresolved (fail closed —
     the agent rewrites them by re-running the helper/parser).
     """
@@ -86,22 +136,20 @@ def check_upload_verdicts(task_dir) -> str | None:
         return None
     marker_ids = _ids(task_dir, MARKER_GLOB, _MARKER_RE)
     verdict_ids = _ids(task_dir, VERDICT_GLOB, _VERDICT_RE)
-    try:
-        pending = any(Path(task_dir).glob(PENDING_GLOB))
-    except OSError:
-        pending = False
+    attempted = _attempted_upload(Path(task_dir))
 
-    if pending and not marker_ids and not verdict_ids:
+    if attempted and not marker_ids and not verdict_ids:
         return (
-            'A listing template was downloaded this turn '
-            '(UPLOAD_PENDING.json) but no uploaded batch has a '
-            'parse-feedback verdict. If you uploaded a flat file '
-            '(even manually), find its batch id on the upload-status '
+            'An upload was started this turn '
+            f'({attempted}) but no uploaded batch has a parse-feedback '
+            'verdict. If you uploaded a flat file (even manually, after '
+            'the helper failed), find its batch id on the upload-status '
             "page, fetch THAT batch's processing report "
             '(bh_fetch_report), and run listing_bulk.py parse-feedback '
-            '<report> --batch-id <id> FROM THE TASK WORKSPACE ROOT. '
-            'If you did NOT upload anything, delete UPLOAD_PENDING.json '
-            'and say why the upload was abandoned.'
+            '<report> --batch-id <id> FROM THE TASK WORKSPACE ROOT. If '
+            'nothing was ever submitted, delete UPLOAD_ATTEMPT.json and '
+            'say why the upload was abandoned.',
+            f'Upload of {attempted} left no verdicted batch.',
         )
 
     for batch_id in marker_ids:
@@ -115,7 +163,8 @@ def check_upload_verdicts(task_dir) -> str | None:
                 f'parse-feedback <report> --batch-id {batch_id} FROM THE '
                 'TASK WORKSPACE ROOT — the verdict is written to the '
                 'current directory and must land at '
-                f'{verdict_path}. Until then the upload is unverified.'
+                f'{verdict_path}. Until then the upload is unverified.',
+                f'Batch {batch_id} was uploaded with no report verdict.',
             )
 
     # Batch ids are monotonically increasing within an account, so the
@@ -132,7 +181,8 @@ def check_upload_verdicts(task_dir) -> str | None:
         return (
             f'{verdict_path.name} is unreadable — re-run '
             f'listing_bulk.py parse-feedback --batch-id {latest_id} '
-            "on the batch's processing report."
+            "on the batch's processing report.",
+            f'Verdict for batch {latest_id} could not be read.',
         )
     if non_image:
         return (
@@ -140,9 +190,27 @@ def check_upload_verdicts(task_dir) -> str | None:
             'unresolved non-image error(s) per its processing report. '
             'Fix exactly the fields the report names, re-upload, and '
             'parse-feedback the new batch. Only the missing-main-image '
-            'error is deferrable.'
+            'error is deferrable.',
+            f'Latest batch {latest_id} has {non_image} unresolved '
+            'non-image error(s).',
         )
     return None
+
+
+def check(result_text=None, task_id=None, rules=None) -> GateDeny | None:
+    """The skill-declared gate contract (``app/ai/stop_gates``).
+
+    ``result_text`` and ``rules`` are unused: what this checks is the
+    turn's upload artifacts, not the wording of the report. They stay in
+    the signature because ``set_task_result`` calls every gate
+    positionally with all three.
+    """
+    found = check_upload_verdicts(task_workspace(task_id))
+    if not found:
+        return None
+    reason, gap = found
+    # What to do is the agent's; the one item is the seller's caveat.
+    return GateDeny(gate=GATE_NAME, reason=reason, gaps=(gap,))
 
 
 PREV_TURNS_DIR = '.prev_turns'
@@ -162,7 +230,7 @@ def rollover_upload_markers(task_dir) -> None:
         d = Path(task_dir)
         stale = [
             p
-            for glob in (MARKER_GLOB, VERDICT_GLOB, PENDING_GLOB)
+            for glob in (MARKER_GLOB, VERDICT_GLOB, ATTEMPT_GLOB)
             for p in d.glob(glob)
         ]
         if not stale:

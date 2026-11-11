@@ -105,6 +105,11 @@ class TestFixedPointToolsAlwaysLoaded:
             'vibe_seller_set_task_error',
             'vibe_seller_declare_ad_task',
             'vibe_seller_ads_call',
+            # The monthly report declaration is the same fixed point for a
+            # report run, and the gate now engages ONLY on it: a run whose
+            # agent could not reach the tool would ship an unverified
+            # month with nothing anywhere saying so.
+            'vibe_seller_declare_report_run',
         }
 
     def test_the_base_prompt_says_they_need_no_search(self):

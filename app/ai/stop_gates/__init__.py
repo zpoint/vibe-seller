@@ -104,15 +104,19 @@ def contradiction_banner(contradictions) -> str:
 # ── Durable per-task skill bindings ──────────────────────────────────
 #
 # Skill loads are tracked per SESSION (claude_backend hooks), but the
-# gate contract is per TASK: a retry-resume session that goes straight
-# to editing the report without re-loading the skill must still face
-# the gates the original session bound. (The hole this closes: a
-# surgical fix session submitted with ZERO skill gates because nothing
-# in that session had loaded the skill — gate coverage depended on
-# a runtime accident.) Bindings persist as one newline-separated file
-# per task under ``data/gate_bindings/`` — server-owned space the
-# agent never touches (unlike the task dir, which the workspace-
-# hygiene step tells the agent to clean before the final submit).
+# gate contract is per TASK: a follow-up that goes straight to editing
+# the report without re-loading the skill must still face the gates the
+# original session bound. (The hole this closes: a surgical fix session
+# submitted with ZERO skill gates because nothing in that session had
+# loaded the skill — gate coverage depended on a runtime accident.)
+# Bindings persist as one newline-separated file per task under
+# ``data/gate_bindings/`` — server-owned space the agent never touches
+# (unlike the task dir, which the workspace-hygiene step tells the
+# agent to clean before the final submit). A RETRY clears them (in
+# ``app.task_delete.clear_gate_state``, where the retry already clears
+# the attempt counters and the frozen approval): retry is a fresh
+# start, and a run that never loaded the skill must not be checked by
+# its gates.
 
 GATE_BINDINGS_DIR = DATA_DIR / 'gate_bindings'
 _TASK_ID_SAFE_RE = re.compile(r'[^A-Za-z0-9_-]')

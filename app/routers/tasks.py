@@ -14,17 +14,17 @@ from app.ai.profiles import (
     resolve_owner_profile,
 )
 from app.ai.stop_gates import (
-    GateDeny,
     clear_skill_bindings,
     reset_attempts,
     resolve_skill_gates,
 )
-from app.ai.stop_gates.listing_upload_gate import check_upload_verdicts
 from app.ai.turn_hold_budget import reset_ledger
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
 from app.events.bus import event_bus
+from app.models.schedule import Schedule
+from app.models.schedule_constants import PhaseMode
 from app.models.store import Store
 from app.models.task import Task
 from app.models.task_step import TaskStep
@@ -141,6 +141,57 @@ async def list_tasks(
     return _tasks_with_creator(tasks, names)
 
 
+async def _validate_parent_task(db: AsyncSession, parent_task_id: str) -> None:
+    """Refuse a sub-task that must not exist, from the ACTION, not prose.
+
+    Two checks, both about the task the caller names as parent:
+
+    * It must be a real task. ``parent_task_id`` is agent-supplied and
+      was never validated, so a typo left an orphan child pointing at
+      nothing, and ``reopen_parent_if_child_active`` quietly did
+      nothing.
+    * Its schedule must not be a FANOUT schedule. A fanout fire is
+      already one task per store per fire; a child spawned from one is
+      spawned once per store and would fan out again — the recursion
+      this rule exists to stop.
+
+    This replaced a scan of the PLAN TEXT for the strings
+    ``vibe_seller_create_task`` / ``parent_task_id`` at ExitPlanMode. That
+    check refused the plan that OBEYS: the prompt tells the agent "Do NOT
+    call ``vibe_seller_create_task``", so a plan quoting the instruction
+    contained the needle and was denied — with no round limit, because a
+    guess from the shape of prose has no unmet item to name. A plan may
+    now say anything; the sub-task is what gets refused.
+    """
+    parent = await db.get(Task, parent_task_id)
+    if parent is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f'parent_task_id {parent_task_id!r} names no task. A '
+                'sub-task points at the task it belongs to (your own '
+                'task id) and that task must still exist.'
+            ),
+        )
+    if not parent.schedule_id:
+        return
+    sched = await db.get(Schedule, parent.schedule_id)
+    if sched is None or sched.phase_mode != PhaseMode.FANOUT:
+        return
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f'Task {parent.id} is a fire of a FANOUT schedule '
+            f'({parent.schedule_id}), and the scheduler already creates '
+            'one task per store per fire. A sub-task spawned here would '
+            'be created once per store and would fan out again. Do the '
+            f'store-bound work inside this task (store {parent.store_id} '
+            'is already bound to it); if separate follow-up work is '
+            'needed, ask the user to create it.'
+        ),
+    )
+
+
 @router.post('', response_model=TaskResponse)
 async def create_task(
     data: TaskCreate,
@@ -157,6 +208,8 @@ async def create_task(
             status_code=400,
             detail='Sub-tasks must have a store_id',
         )
+    if data.parent_task_id:
+        await _validate_parent_task(db, data.parent_task_id)
 
     # Provenance is derived from the via channel (who is calling —
     # app.telemetry_via), never from a request field: a sub-task is
@@ -566,6 +619,10 @@ async def set_task_result(
     MCP tool when it wants the final result shown to the user
     to differ from its last chat message.
 
+    The deliverable is exactly one of: `result` (the text itself)
+    or `result_file` (a file inside this task's workspace, read
+    here so the UI renders the report inline).
+
     This endpoint does NOT transition task status — status is
     owned by `auto_run_task` cleanup after the agent session
     ends. Keeping status transitions in one place avoids the
@@ -585,13 +642,14 @@ async def set_task_result(
 
     task_root = (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
 
-    # File-pointer mode: if `body.result` points at a file inside this
-    # task's workspace, read the file and use its contents (see
-    # ``resolve_workspace_result_path`` for the path-resolution
-    # contract). Otherwise treat the value as direct content.
-    raw = body.result
+    # The agent states which deliverable it means: `result_file` is a
+    # declared file in this task's workspace (read for it), `result` is
+    # the text. A `result` that happens to name a real workspace file is
+    # still read — the legacy pointer mode the skill docs use — but a
+    # value is never REFUSED for looking like a path (see
+    # ``resolve_submitted_result`` for the contract).
     final_result, resolved_from_file = await resolve_submitted_result(
-        raw, task_root
+        body.result, body.result_file, task_root
     )
 
     # RETAIN BEFORE REVIEW. Every gate below refuses by raising, and a
@@ -616,24 +674,11 @@ async def set_task_result(
     skill_gates = await asyncio.to_thread(
         resolve_skill_gates, loaded, workspace or VIBE_SELLER_DIR
     )
-    denies = []
-    # A listing batch this turn uploaded to the live account should have
-    # a clean verdict (no-op without uploads).
-    reason = await asyncio.to_thread(check_upload_verdicts, task_root)
-    if reason:
-        denies.append(
-            GateDeny(
-                gate='upload_verdict',
-                # What to do is the agent's; what is missing is the
-                # seller's caveat.
-                reason=reason,
-                gaps=(
-                    'A listing batch uploaded to the live account has '
-                    'no clean processing-report verdict.',
-                ),
-            )
-        )
-    denies += await gate_denials(db, task, skill_gates, final_result, rules)
+    # The listing upload-verdict gate is one of these: amazon-listing
+    # declares ``gates: [upload_verdict]``, so it runs for sessions that
+    # loaded the skill instead of probing every task workspace on every
+    # submit.
+    denies = await gate_denials(db, task, skill_gates, final_result, rules)
     final_result, stalled_gaps = await apply_round(
         db, task, denies, final_result, declared
     )

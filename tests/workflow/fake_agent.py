@@ -14,6 +14,7 @@ from types import SimpleNamespace as _SNS
 from sqlalchemy import func, select
 
 from app.ai.base import AIAgentBackend
+from app.ai.stop_gates import recorded_skills
 import app.database as _db
 from app.models.schedule import Schedule
 from app.models.task import Task
@@ -276,11 +277,19 @@ class FakeAgent(AIAgentBackend):
     def loaded_skills_and_workspace(self, task_id: str):
         """Mirror ClaudeCodeBackend: (loaded_skills, task_dir).
 
-        The fake binds no skills and has no workspace, so the
-        set_task_result endpoint's skill-declared exit gates resolve
-        to a no-op — matching a real task that loaded no skills.
+        Like the real backend, the durable per-task bindings count —
+        those are what the Skill-tool hook writes, and they survive a
+        session restart. Nothing here binds a skill by default, so the
+        set_task_result endpoint's skill-declared exit gates resolve to a
+        no-op for a scenario that never touched one; a test arms a gate by
+        ``record_skill_load``-ing the skill that declares it.
+
+        ``task_dir`` stays None: the fake has no workspace copy of the
+        skills tree, so ``find_skill_md`` falls back to the runtime
+        ``~/.vibe-seller/.claude/skills`` (the test home) exactly as it
+        does for a task whose workspace copy is missing.
         """
-        return set(), None
+        return recorded_skills(task_id), None
 
     def get_session(self, task_id: str) -> _FakeSession | None:
         """Return the fake session for a task, if any."""

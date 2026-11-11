@@ -26,7 +26,7 @@ output, not shared workspace data):
 - `reviews/_MANIFEST.json` — per `(platform, country)`, the enumerated
   `expected` product set and the `collected` set with files written.
 - `./REVIEW_COLLECT_<YYYY-MM-DD>.md` — a short cover (per-combo totals and
-  progress). Pass its path to `vibe_seller_set_task_result`.
+  progress). Pass its path as `result_file` to `vibe_seller_set_task_result`.
 
 Write all of these with the built-in **Write** tool. `reviews/` is inside
 your CWD, not behind the `stores/` symlink, so

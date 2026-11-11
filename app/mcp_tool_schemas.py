@@ -7,6 +7,8 @@ the matching dispatch branches in ``handle_tool_call``.
 
 from app import vision
 from app.mcp_ad_tool_schemas import _ALWAYS_LOADED, AD_TOOLS
+from app.mcp_email_tool_schemas import EMAIL_TOOLS
+from app.mcp_report_tool_schemas import REPORT_TOOLS
 from app.mcp_workspace_tool_schemas import WORKSPACE_EDIT_TOOLS
 
 # Agent-facing image-model enum + a CONCISE guidance line, both derived
@@ -39,6 +41,7 @@ _IMAGE_MODEL_GUIDE = (
 
 TOOLS = [
     *AD_TOOLS,
+    *REPORT_TOOLS,
     *WORKSPACE_EDIT_TOOLS,
     {
         'name': 'vibe_seller_ads_call',
@@ -176,114 +179,7 @@ TOOLS = [
             'required': ['job_id', 'task_title', 'cron_expression'],
         },
     },
-    {
-        'name': 'vibe_seller_email_info',
-        'description': (
-            'Get email DB paths and schema for a store. '
-            'Returns per-account: email address, SQLite DB '
-            'path, attachments dir, sample sqlite3 queries. '
-            'Emails are synced automatically every 5 minutes. '
-            'Use sqlite3 CLI to query the DBs directly.'
-        ),
-        'inputSchema': {
-            'type': 'object',
-            'properties': {
-                'store_id': {
-                    'type': 'string',
-                    'description': 'Store ID to get email info for',
-                },
-            },
-            'required': ['store_id'],
-        },
-    },
-    {
-        'name': 'vibe_seller_get_new_emails',
-        'description': (
-            'Scheduled email tasks: fetch ONLY the emails that arrived '
-            'since the last run. The server reads the email_watermark '
-            'cursor for your schedule, filters the email DB by it, and '
-            'returns {count, first_run, watermark_used, next_watermark, '
-            'accounts:[{email, new_emails:[{message_id, subject, '
-            'sender, date, epoch, body_text}]}]}. **This is the one '
-            'call to make for a "new since last run" sweep — do NOT '
-            'query the email DB with raw sqlite3 for it.** An '
-            'unfiltered SELECT drags already-processed emails into your '
-            'context and leaks them into this run. After reporting the '
-            'returned bodies, persist the cursor verbatim: '
-            "vibe_seller_set_schedule_state('email_watermark', "
-            'next_watermark). On the first run (no cursor) it returns '
-            'the last 24h. Scope (store + cursor) is resolved '
-            'server-side from your task.'
-        ),
-        'inputSchema': {
-            'type': 'object',
-            'properties': {
-                'lookback_hours': {
-                    'type': 'integer',
-                    'description': (
-                        'First-run window when no cursor exists yet '
-                        '(default 24). Ignored once a cursor is set.'
-                    ),
-                },
-            },
-            'required': [],
-        },
-    },
-    {
-        'name': 'vibe_seller_send_email',
-        'description': (
-            'Send email from a configured account (by address). If the '
-            'user turned off its "Email sending permission" (Settings → '
-            'Email), refused, nothing sent — draft it for the user. '
-            'Returns {ok: true, message_id: ...} on success.'
-        ),
-        'inputSchema': {
-            'type': 'object',
-            'properties': {
-                'account_email': {
-                    'type': 'string',
-                    'description': ('Email address of the sending account'),
-                },
-                'to': {
-                    'type': 'string',
-                    'description': 'Recipient email address',
-                },
-                'subject': {
-                    'type': 'string',
-                    'description': 'Email subject',
-                },
-                'body': {
-                    'type': 'string',
-                    'description': 'Email body (plain text)',
-                },
-                'body_html': {
-                    'type': 'string',
-                    'description': 'Email body (HTML, optional)',
-                },
-            },
-            'required': ['account_email', 'to', 'subject', 'body'],
-        },
-    },
-    {
-        'name': 'vibe_seller_sync_email_now',
-        'description': (
-            'Trigger immediate IMAP sync for one email '
-            'account. Blocks until sync completes. Returns '
-            '{ok, account_email, new_emails, last_polled_at}. '
-            'Has a 30s cooldown per account. '
-            'Then query the email DB via sqlite3 as usual.'
-        ),
-        'inputSchema': {
-            'type': 'object',
-            'properties': {
-                'account_email': {
-                    'type': 'string',
-                    'description': ('Email address of the account to sync'),
-                },
-            },
-            'required': ['account_email'],
-        },
-    },
+    *EMAIL_TOOLS,
     {
         'name': 'vibe_seller_set_task_error',
         **_ALWAYS_LOADED,
@@ -512,25 +408,32 @@ TOOLS = [
             'Record the **final task result** shown to the user '
             'in the GUI. The result field renders as markdown.\n'
             '\n'
-            'Two ways to call this:\n'
+            'Pass exactly ONE of `result` / `result_file`:\n'
             '\n'
-            '1. **Direct content** — pass the result text '
-            'directly. Use when the deliverable is short '
-            '(roughly < 10 KB): a one-line confirmation, a '
-            'short summary, a JSON payload, a metric row.\n'
+            '1. **Direct content** — `result` is the text itself. '
+            'Use when the deliverable is short (roughly < 10 KB): '
+            'a one-line confirmation, a short summary, a JSON '
+            'payload, a metric row. `result` is ALWAYS read as '
+            'text — a short answer like `report.md` or `/2025-Q3` '
+            'is a valid result, not a path.\n'
             '\n'
-            '2. **File pointer** — pass a relative path to a '
-            'file you already wrote in your CWD (e.g. '
+            '2. **Declared file** — `result_file` is a path to a '
+            'file you already wrote in your task workspace (e.g. '
             '`"./NOON_AE_ADS_AUDIT_2026-04-30.md"`). The backend '
-            'detects when the value is a file path inside the '
-            'task workspace, reads the file, and uses its '
-            'contents as the GUI-visible result. **Use this for '
-            'long-form deliverables (full reports, audits, '
-            'plans).** Compose those with the built-in `Write` '
-            'tool first — `Write` streams content as you '
-            'compose it, which is much faster than packing a '
-            '25KB payload into one MCP tool call (some '
-            'providers stall on large monolithic tool inputs).\n'
+            'reads that file and uses its contents as the '
+            'GUI-visible result. **Use this for long-form '
+            'deliverables (full reports, audits, plans).** Compose '
+            'those with the built-in `Write` tool first — `Write` '
+            'streams content as you compose it, which is much '
+            'faster than packing a 25KB payload into one MCP tool '
+            'call (some providers stall on large monolithic tool '
+            'inputs). A `result_file` that names no file in your '
+            'workspace is an error; writing the report is the '
+            'step you skipped.\n'
+            '\n'
+            '(Passing a real workspace path as `result` still '
+            'works, for calls written before `result_file` '
+            'existed — declare `result_file` instead.)\n'
             '\n'
             'Does NOT mark the task completed — completion is '
             'automatic when your agent session ends and the '
@@ -554,7 +457,22 @@ TOOLS = [
             'properties': {
                 'result': {
                     'type': 'string',
-                    'description': 'Result summary to record',
+                    'description': (
+                        'The result TEXT to record. Alternative to '
+                        '`result_file` — send one of the two. Always '
+                        'treated as text, never as a path.'
+                    ),
+                },
+                'result_file': {
+                    'type': 'string',
+                    'description': (
+                        'Path to a file INSIDE the task workspace '
+                        'holding the deliverable (e.g. '
+                        '"./AD_AUDIT_2026-06-10.md"). The backend '
+                        'reads it and records its contents as the '
+                        'result. Alternative to `result` — send one '
+                        'of the two.'
+                    ),
                 },
                 'incomplete': {
                     'type': 'array',
@@ -571,7 +489,9 @@ TOOLS = [
                     ),
                 },
             },
-            'required': ['result'],
+            # Exactly one of the two deliverable fields is enforced by the
+            # handler (app/routers/task_submission.py), not here: the API
+            # rejects a top-level anyOf and the tool silently disappears.
         },
     },
     {
@@ -679,15 +599,20 @@ TOOLS = [
             'look at), say so and let the USER judge — it is displayed '
             'inline in the task. Never substitute a pixel-measurement '
             'script for looking, and never act on what such a script '
-            'measured. (5) EVERY image this tool is asked for — including '
-            '"just remove the background", "only crop it", "make it pure '
-            'white" — is produced by the MODEL, through this tool. NEVER '
-            'build or repair an image deliverable locally: no rembg, no '
-            'Pillow/OpenCV compositing, no ImageMagick, no writing into '
-            "`generated_images/` (that directory is this tool's, and each "
-            "file's recorded prompt+model is what the user's inline card "
-            'claims). Those paths are blocked by a PreToolUse guard. If a '
-            'result is wrong, fix it the way (6) describes. (6) REVISING an image you '
+            'measured. (5) Every image THIS tool is asked to produce is '
+            'produced by the MODEL through this tool, and '
+            "`generated_images/` is this tool's directory: each file's "
+            "recorded prompt+model is what the user's inline card "
+            'claims, so nothing local may write into it or overwrite a '
+            'file there (a PreToolUse guard blocks it). A change to a '
+            'GENERATED image — "just remove the background", "only crop '
+            'it", "make it pure white" — is fixed the way (6) describes, '
+            'not by post-processing it. Local image processing is '
+            "otherwise ordinary work: resize a user's photo to a "
+            "platform's minimum, webp→jpg, crop a screenshot, edit a "
+            'copy of a generated file you wrote OUT to work on — just '
+            'deliver those as your own files, never under '
+            '`generated_images/`. (6) REVISING an image you '
             'already generated — for ANY change, whether the USER asked '
             'for it (lighter/darker, bigger/smaller, recolour, remove or '
             'add an element, change composition) or YOUR OWN audit found '

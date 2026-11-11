@@ -269,9 +269,11 @@ class TestSkillFileWriteGuard:
         )
 
 
-class TestLocalImageEditBlocked:
-    """An image deliverable comes from the image model, never from local
-    pixel editing.
+class TestGeneratedImagesProvenance:
+    """``generated_images/`` has one writer: the vision router. Every
+    file there carries a recorded prompt + model — the claim the user's
+    inline card renders those bytes under — so no local command may
+    write, move, or delete what is inside it.
 
     The incident: asked to "keep the content, only remove the
     background", an agent generated with the tool, could not SEE the
@@ -279,39 +281,42 @@ class TestLocalImageEditBlocked:
     rebuilt the deliverable with rembg + Pillow over the tool's own PNG
     — leaving the user's inline card claiming a model that had not
     produced those bytes.
+
+    Local image processing of anything ELSE is ordinary work: resizing
+    a user's photo to a platform's minimum, webp→jpg, cropping a
+    screenshot. The guard denies only acts landing on the tool's
+    directory.
     """
 
     @pytest.mark.parametrize(
         'command',
         [
-            # The exact detour, both rembg forms.
+            # Editing files outside the directory is not the guard's
+            # business — the whole set the incident over-broadly denied.
             '~/.vibe-seller/.venv/bin/uv pip install rembg 2>&1 | tail -5',
-            'python -c "from rembg import remove; remove(open(\'a.jpg\'))"',
-            'rembg i in.png out.png',
-            # Pillow compositing onto a white canvas.
+            'rembg i in.jpg out.png',
+            # Resize a user's photo to Amazon's minimum.
+            'magick photo.webp -resize 1000x1000 photo.jpg',
+            'convert in.jpg -fuzz 5% -transparent white out.png',
+            'mogrify -background white -flatten shot.png',
+            'ffmpeg -i clip.mp4 -frames:v 1 frame.png',
+            # Pillow / OpenCV writing anywhere outside the directory.
             (
                 'python -c "from PIL import Image; '
                 "c = Image.new('RGB', (2000, 2000), 'white'); "
                 "c.paste(p, (10, 10)); c.save('out.png')\""
             ),
-            # Heredoc form — how the agent actually ran it.
             (
                 "python << 'PYEOF'\nfrom PIL import Image\n"
                 "im = Image.open('a.png')\nim.save('b.png')\nPYEOF"
             ),
-            # OpenCV write.
             'python -c "import cv2; cv2.imwrite(\'out.png\', arr)"',
-            # ImageMagick / ffmpeg.
-            'convert in.jpg -fuzz 5% -transparent white out.png',
-            'magick in.png -resize 2000x2000 out.png',
-            'mogrify -background white -flatten shot.png',
-            'ffmpeg -i clip.mp4 -frames:v 1 frame.png',
+            # Copying a generated file OUT to work on a copy — a read.
+            'cat generated_images/main.png > work/main.png',
         ],
     )
-    def test_local_image_production_denied(self, command):
-        deny = check_local_image_edit(command)
-        assert deny is not None
-        assert 'vibe_seller_generate_image' in deny
+    def test_local_processing_of_other_files_allowed(self, command):
+        assert check_local_image_edit(command) is None
 
     @pytest.mark.parametrize(
         'command',
@@ -325,6 +330,15 @@ class TestLocalImageEditBlocked:
                 'python -c "import pathlib; '
                 "pathlib.Path('generated_images/m.png').write_bytes(b)\""
             ),
+            # A converter may not take over the tool's path either.
+            'magick work/x.png generated_images/main.png',
+            'convert work/x.png generated_images/main.png',
+            'ffmpeg -i clip.mp4 generated_images/frame.png',
+            (
+                'python -c "from PIL import Image; '
+                "im = Image.open('in.png'); "
+                "im.save('generated_images/main.png')\""
+            ),
         ],
     )
     def test_writes_into_generated_images_denied(self, command):
@@ -332,6 +346,7 @@ class TestLocalImageEditBlocked:
         deny = check_local_image_edit(command)
         assert deny is not None
         assert 'generated_images/' in deny
+        assert 'vibe_seller_generate_image' in deny
 
     @pytest.mark.parametrize(
         'command',
@@ -409,9 +424,15 @@ class TestLocalImageEditIsInTheGuardChain:
     """The guard must be reachable through first_bash_deny — a guard
     that exists but is not registered denies nothing."""
 
-    def test_rembg_denied_through_chain(self):
-        deny = first_bash_deny('uv pip install rembg')
+    def test_generated_images_takeover_denied_through_chain(self):
+        deny = first_bash_deny('cp /tmp/fixed.png generated_images/main.png')
         assert deny is not None
         label, reason = deny
         assert label == 'Local-image edit'
         assert 'vibe_seller_generate_image' in reason
+
+    def test_local_processing_outside_the_directory_passes(self):
+        """The other half of the narrowing: a guard that denies
+        nothing unrelated must still be reachable for what it does."""
+        assert first_bash_deny('uv pip install rembg') is None
+        assert first_bash_deny('magick a.webp b.jpg') is None

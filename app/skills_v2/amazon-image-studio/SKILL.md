@@ -64,16 +64,21 @@ prompt and proofread the result character by character.
 - One `vibe_seller_generate_image` call per image (`kind`: "main",
   "infographic", …). Use `nano-banana-pro` for anything with on-image
   text.
-- **Every image comes from `vibe_seller_generate_image`, including
-  "just remove the background".** "Keep the product, only drop the
-  background", "put it on white", "crop it square" are generation jobs:
-  one call whose `reference_images` is the photo and whose prompt says to
-  keep the product identical and change only the background. Local
-  editing (`rembg`, Pillow/OpenCV compositing, ImageMagick) is blocked,
-  and `generated_images/` belongs to the tool — each file's recorded
-  prompt and model is what the user's inline card shows. The model also
-  gives you relit edges, a clean contact shadow and no halo on
-  hair/mesh/glass, which a local cutout loses.
+- **A listing image the user wants CREATED comes from
+  `vibe_seller_generate_image`, including "just remove the
+  background".** "Keep the product, only drop the background", "put it
+  on white", "crop it square" are generation jobs: one call whose
+  `reference_images` is the photo and whose prompt says to keep the
+  product identical and change only the background. That call is also
+  how you FIX a generated image — `generated_images/` belongs to the
+  tool (each file's recorded prompt and model is what the user's inline
+  card shows), and no local edit may overwrite a file there; copy it out
+  first if you need to work on one. The model also gives you relit
+  edges, a clean contact shadow and no halo on hair/mesh/glass, which a
+  local cutout loses. Ordinary image processing is the agent's own
+  work: resizing a user's photo to Amazon's minimum, webp→jpg, cropping
+  a screenshot — deliver those files as your own, not under
+  `generated_images/`.
 - After each image is saved, view the returned workspace `path` and
   compare against the original supplier photo item by item (shape,
   colour, texture, proportions; infographic wording). Regenerate with a
