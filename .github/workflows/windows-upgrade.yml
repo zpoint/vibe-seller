@@ -1,8 +1,10 @@
 name: Windows Upgrade Test
 
-# Release-only: proves the native Windows in-place upgrade works
-# end-to-end. Heavy (two full installer builds), so it's called as a
-# gate from release.yml (must pass before publish-testpypi) rather
+# Release-only: proves the native Windows in-place upgrade from the
+# previous release works end-to-end, including a store task that drives
+# Chromium before and after. Heavy (an installer build + two agent
+# runs), so it's called as a gate from release.yml (must pass before
+# publish-testpypi; needs `secrets: inherit` for the provider) rather
 # than triggered on pull requests — kept in its own file (no
 # pull_request trigger) so it never shows up as a skipped check on
 # PRs. `workflow_call` lets release.yml depend on it via `needs:`;
@@ -14,13 +16,32 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Build two versions, install the old one, point the updater at a
-  # LOCAL mock release (no real GitHub release), upgrade, and assert the
-  # running server reports the NEW version + a smoke passes on it.
+  # Install the PREVIOUS RELEASE's real installer (what users have),
+  # run a store task on it, upgrade to an installer built from this
+  # commit, and run the same task again: the user's actual upgrade path,
+  # e.g. v0.2.0 (browser downloaded after install) -> a build that
+  # bundles Chromium. The updater is pointed at a LOCAL mock release.
   upgrade:
-    name: Upgrade old -> new (in-place)
+    name: Upgrade previous release -> new (in-place)
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      # The light agent e2e (same test + provider as
+      # windows-installer.yml), run before and after the upgrade.
+      E2E_BASE_URL: http://127.0.0.1:7777
+      E2E_PROVIDER_MAP: ${{ vars.E2E_SMOKE_PROVIDER }}
+      MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+      MINIMAX_BASE_URL: ${{ secrets.MINIMAX_BASE_URL }}
+      MINIMAX_MODEL: ${{ secrets.MINIMAX_MODEL }}
+      GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+      GLM_BASE_URL: ${{ secrets.GLM_BASE_URL }}
+      GLM_MODEL: ${{ secrets.GLM_MODEL }}
+      QWEN_TOKEN_API_KEY: ${{ secrets.QWEN_TOKEN_API_KEY }}
+      QWEN_TOKEN_BASE_URL: ${{ secrets.QWEN_TOKEN_BASE_URL }}
+      QWEN_TOKEN_MODEL: ${{ secrets.QWEN_TOKEN_MODEL }}
+      API_TIMEOUT_MS: '3000000'
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+      VIBE_SELLER_TELEMETRY: '0'
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.11
@@ -34,25 +55,58 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
-      - name: Build OLD installer (0.0.1)
+      - name: Download the previous release's installer (OLD)
         shell: pwsh
         env:
-          SETUPTOOLS_SCM_PRETEND_VERSION: '0.0.1'
+          GH_TOKEN: ${{ github.token }}
         run: |
-          .\installer\windows\build.ps1 -AppVersion 0.0.1 `
-            -StagingDir "$env:GITHUB_WORKSPACE\installer\windows\stagingA" `
-            -OutputDir  "$env:GITHUB_WORKSPACE\installer\windows\outA"
+          if (-not $env:E2E_PROVIDER_MAP) {
+            Write-Output "::error::repo variable E2E_SMOKE_PROVIDER is not set"
+            exit 1
+          }
+          # The latest STABLE release (nightlies are prereleases, never
+          # "latest") — during a release run, the one before this tag.
+          $tag = gh release view -R $env:GITHUB_REPOSITORY --json tagName --jq .tagName
+          if ($LASTEXITCODE -ne 0 -or -not $tag) { throw "no previous release found" }
+          $old = $tag.TrimStart('v')
+          $p = $old.Split('.')
+          $new = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+          gh release download $tag -R $env:GITHUB_REPOSITORY `
+            --pattern VibeSeller-Setup.exe --dir "$env:GITHUB_WORKSPACE\installer\windows\outA"
+          if ($LASTEXITCODE -ne 0) { throw "could not download $tag's VibeSeller-Setup.exe" }
+          Write-Host "OLD = $tag (released installer), NEW = $new (this commit)"
+          echo "OLD_VER=$old" >> $env:GITHUB_ENV
+          echo "NEW_VER=$new" >> $env:GITHUB_ENV
 
-      - name: Build NEW installer (0.0.2)
+      # The NEW version only has to sort above OLD for the updater; it is
+      # a label, the code is this commit.
+      - name: Build NEW installer (this commit)
         shell: pwsh
-        env:
-          SETUPTOOLS_SCM_PRETEND_VERSION: '0.0.2'
         run: |
-          .\installer\windows\build.ps1 -AppVersion 0.0.2 `
+          $env:SETUPTOOLS_SCM_PRETEND_VERSION = $env:NEW_VER
+          .\installer\windows\build.ps1 -AppVersion $env:NEW_VER `
             -StagingDir "$env:GITHUB_WORKSPACE\installer\windows\stagingB" `
             -OutputDir  "$env:GITHUB_WORKSPACE\installer\windows\outB"
 
-      - name: Install OLD (0.0.1)
+      # The pytest client for the agent e2e: this commit's wheels, in a
+      # venv of its own, so the installed app's venv is never touched.
+      - name: Set up the e2e client
+        shell: pwsh
+        run: |
+          $venv = "$env:RUNNER_TEMP\e2e-client"
+          python -m venv $venv
+          & "$venv\Scripts\python.exe" -m pip install -q `
+            --find-links "$env:GITHUB_WORKSPACE\installer\windows\stagingB\wheels" `
+            "vibe-seller==$env:NEW_VER" pytest pytest-asyncio httpx pytest-playwright
+          if ($LASTEXITCODE -ne 0) { throw "e2e client install failed" }
+          echo "E2E_PY=$venv\Scripts\python.exe" >> $env:GITHUB_ENV
+          # Browser dirs present before anything is installed: the
+          # cleanup check below only judges dirs the OLD install added.
+          $b = "$env:LOCALAPPDATA\ms-playwright"
+          $base = if (Test-Path $b) { (Get-ChildItem $b -Directory).Name -join ',' } else { '' }
+          echo "PW_BASELINE=$base" >> $env:GITHUB_ENV
+
+      - name: Install OLD (previous release)
         shell: pwsh
         run: |
           $exe = "$env:GITHUB_WORKSPACE\installer\windows\outA\VibeSeller-Setup.exe"
@@ -67,25 +121,67 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "old installer exited $($p.ExitCode)" }
           echo "VS_INSTALL=$env:LOCALAPPDATA\Programs\VibeSeller" >> $env:GITHUB_ENV
 
-      - name: Start OLD server, assert version 0.0.1
+      # The daemon (and the agent it spawns) sees only the BUNDLED
+      # toolchain, as a user's tray launches it — same as
+      # windows-installer.yml's "Start server".
+      - name: Write the server launcher
         shell: pwsh
         run: |
+          $f = Join-Path $env:RUNNER_TEMP 'start_server.ps1'
+          Set-Content -LiteralPath $f -Encoding ascii -Value @'
+          param([string]$Expect)
+          $install = $env:VS_INSTALL
+          $clean = ($env:PATH -split ';' | Where-Object { $_ -and $_ -notlike 'C:\Program Files\Git\*' -and $_ -ne 'C:\Program Files\Git' }) -join ';'
+          $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
+                      "$install\git\cmd;$install\git\bin;" +
+                      "$install\git\usr\bin;$install\git\mingw64\bin;$clean"
+          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\git\bin\bash.exe"
+          $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
+          $env:AGENT_DEBUG = '1'
+          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
+          for ($i = 0; $i -lt 60; $i++) {
+            try {
+              $v = (Invoke-RestMethod http://127.0.0.1:7777/api/version -TimeoutSec 3).version
+              Write-Host "version=$v"; if ($v -eq $Expect) { exit 0 }
+            } catch { }
+            Start-Sleep 2
+          }
+          throw "server did not report $Expect"
+          '@
+          $a = Join-Path $env:RUNNER_TEMP 'agent_e2e.ps1'
+          Set-Content -LiteralPath $a -Encoding ascii -Value @'
+          # The light agent e2e from windows-installer.yml: a store task
+          # that drives the store's Chromium to a page and reads it.
           $install = $env:VS_INSTALL
           $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
                       "$install\git\cmd;$install\git\bin;" +
                       "$install\git\usr\bin;$install\git\mingw64\bin;$env:PATH"
-          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\git\bin\bash.exe"
-          $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
-          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
-          $ok = $false
-          for ($i = 0; $i -lt 60; $i++) {
-            try {
-              $v = (Invoke-RestMethod http://127.0.0.1:7777/api/version -TimeoutSec 3).version
-              Write-Host "version=$v"; if ($v -eq '0.0.1') { $ok = $true; break }
-            } catch { }
-            Start-Sleep 2
-          }
-          if (-not $ok) { throw "OLD server did not report 0.0.1" }
+          & $env:E2E_PY -m pytest `
+            tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage `
+            --e2e -v --log-cli-level=INFO
+          if ($LASTEXITCODE -ne 0) { throw "agent e2e failed" }
+          '@
+
+      - name: Start OLD server, assert the previous release's version
+        shell: pwsh
+        run: '& "$env:RUNNER_TEMP\start_server.ps1" -Expect $env:OLD_VER'
+
+      - name: Agent e2e on OLD (a store task opens the page in Chromium)
+        shell: pwsh
+        run: |
+          & "$env:RUNNER_TEMP\agent_e2e.ps1"
+          # What the upgrade must keep (store browser profiles) and what
+          # it must clean up (the browser dirs the OLD install added).
+          $profiles = "$env:USERPROFILE\.vibe-seller\browser_profiles"
+          $kept = @(Get-ChildItem $profiles -Directory -ErrorAction SilentlyContinue).Name
+          if (-not $kept) { throw "precondition: the OLD task left no store browser profile under $profiles" }
+          $base = $env:PW_BASELINE -split ',' | Where-Object { $_ }
+          $added = @((Get-ChildItem "$env:LOCALAPPDATA\ms-playwright" -Directory).Name |
+            Where-Object { $_ -notin $base })
+          Write-Host "OLD store profiles: $($kept -join ', ')"
+          Write-Host "OLD browser dirs: $($added -join ', ')"
+          echo "OLD_PROFILES=$($kept -join ',')" >> $env:GITHUB_ENV
+          echo "OLD_BROWSER_DIRS=$($added -join ',')" >> $env:GITHUB_ENV
 
       - name: Updater detects + downloads NEW release (local mock)
         shell: pwsh
@@ -99,19 +195,40 @@ jobs:
           # has no invalid \escapes; UTF-8 no BOM.
           $ws = $env:GITHUB_WORKSPACE -replace '\\','/'
           $exeB = "$ws/installer/windows/outB/VibeSeller-Setup.exe"
-          $rel = '{"tag_name":"v0.0.2","assets":[{"name":"VibeSeller-Setup.exe","browser_download_url":"' + $exeB + '"}]}'
+          $rel = '{"tag_name":"v' + $env:NEW_VER + '","assets":[{"name":"VibeSeller-Setup.exe","browser_download_url":"' + $exeB + '"}]}'
           [System.IO.File]::WriteAllText($env:VIBE_SELLER_RELEASES_URL, $rel)
           Write-Host "RELEASES_URL=$env:VIBE_SELLER_RELEASES_URL"
           Get-Content $env:VIBE_SELLER_RELEASES_URL | Write-Host
           # Run from a neutral cwd (NOT the repo root) so `from app` and
-          # importlib.metadata resolve the INSTALLED 0.0.1 package, not the
-          # source tree (which the 0.0.2 build left metadata for).
+          # importlib.metadata resolve the INSTALLED old package, not the
+          # source tree (which the NEW build left metadata for).
           Set-Location $env:TEMP
-          & "$env:VS_INSTALL\.venv\Scripts\python.exe" -c "import os; from pathlib import Path; import tempfile; from app import windows_update as w; print('VER', w.get_version()); print('REL', w._fetch_release()); u = w.check_for_update(); print('UPD', u); assert u and u['version'] == '0.0.2', u; p = w.download_installer(u['url'], Path(tempfile.gettempdir()) / 'dl.exe'); assert p.stat().st_size > 0; print('detected + downloaded', u['version'])"
+          & "$env:VS_INSTALL\.venv\Scripts\python.exe" -c "import os; from pathlib import Path; import tempfile; from app import windows_update as w; print('VER', w.get_version()); print('REL', w._fetch_release()); u = w.check_for_update(); print('UPD', u); assert u and u['version'] == os.environ['NEW_VER'], u; p = w.download_installer(u['url'], Path(tempfile.gettempdir()) / 'dl.exe'); assert p.stat().st_size > 0; print('detected + downloaded', u['version'])"
+          if ($LASTEXITCODE -ne 0) { throw "the OLD updater did not detect + download NEW" }
 
       - name: Stop OLD server (release file locks)
         shell: pwsh
         run: '& "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe" stop --port 7777'
+
+      # From here on the upgraded app must not need Playwright's CDN: the
+      # NEW installer bundles Chromium (see windows-installer.yml).
+      - name: Block the Playwright CDN (simulate an unreachable CDN)
+        shell: pwsh
+        run: |
+          $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
+          $names = 'cdn.playwright.dev',
+                   'playwright.download.prss.microsoft.com',
+                   'playwright.azureedge.net',
+                   'playwright-akamai.azureedge.net',
+                   'playwright-verizon.azureedge.net'
+          Add-Content -Path $hostsFile -Value ($names | ForEach-Object { "0.0.0.0 $_" })
+          ipconfig /flushdns | Out-Null
+          foreach ($n in $names) {
+            curl.exe -s -o NUL --max-time 10 "https://$n/"
+            if ($LASTEXITCODE -eq 0) { throw "$n is still reachable — the block did not take" }
+          }
+          Write-Host "Blocked: $($names -join ', ')"
+          exit 0
 
       - name: Upgrade in place (silent-install NEW)
         shell: pwsh
@@ -127,25 +244,35 @@ jobs:
           $p.WaitForExit()
           if ($p.ExitCode -ne 0) { throw "new installer exited $($p.ExitCode)" }
 
-      - name: Start UPGRADED server, assert version 0.0.2
+      - name: Start UPGRADED server, assert the NEW version
+        shell: pwsh
+        run: '& "$env:RUNNER_TEMP\start_server.ps1" -Expect $env:NEW_VER'
+
+      - name: Upgrade kept the store profiles, swapped in the bundled Chromium
         shell: pwsh
         run: |
-          $install = $env:VS_INSTALL
-          $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
-                      "$install\git\cmd;$install\git\bin;" +
-                      "$install\git\usr\bin;$install\git\mingw64\bin;$env:PATH"
-          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\git\bin\bash.exe"
-          $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
-          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
-          $ok = $false
-          for ($i = 0; $i -lt 60; $i++) {
-            try {
-              $v = (Invoke-RestMethod http://127.0.0.1:7777/api/version -TimeoutSec 3).version
-              Write-Host "version=$v"; if ($v -eq '0.0.2') { $ok = $true; break }
-            } catch { }
-            Start-Sleep 2
+          $profiles = "$env:USERPROFILE\.vibe-seller\browser_profiles"
+          foreach ($p in ($env:OLD_PROFILES -split ',' | Where-Object { $_ })) {
+            if (-not (Test-Path "$profiles\$p")) { throw "store browser profile lost by the upgrade: $p" }
           }
-          if (-not $ok) { throw "UPGRADED server did not report 0.0.2 (upgrade failed)" }
+          $b = "$env:LOCALAPPDATA\ms-playwright"
+          $bundled = @((Get-ChildItem "$env:GITHUB_WORKSPACE\installer\windows\stagingB\ms-playwright" -Directory).Name)
+          foreach ($d in $bundled) {
+            if (-not (Test-Path "$b\$d\INSTALLATION_COMPLETE")) { throw "bundled browser dir incomplete after upgrade: $d" }
+          }
+          # The OLD install's own browser revisions are unreferenced now:
+          # the installer's `playwright install` garbage-collects them.
+          $stale = @($env:OLD_BROWSER_DIRS -split ',' | Where-Object { $_ -and $_ -notin $bundled -and (Test-Path "$b\$_") })
+          if ($stale) { throw "OLD browser dirs left behind by the upgrade: $($stale -join ', ')" }
+          # Complete = nothing to download (the CDN is blocked anyway).
+          $env:PLAYWRIGHT_DOWNLOAD_HOST = 'http://127.0.0.1:9'
+          & "$env:VS_INSTALL\.venv\Scripts\playwright.exe" install chromium
+          if ($LASTEXITCODE -ne 0) { throw "bundled browsers incomplete after upgrade: playwright wanted to download" }
+          Write-Host "OK: profiles kept ($env:OLD_PROFILES); bundled: $($bundled -join ', ')"
+
+      - name: Agent e2e on the UPGRADED build (same store task)
+        shell: pwsh
+        run: '& "$env:RUNNER_TEMP\agent_e2e.ps1"'
 
       # The REAL in-app upgrade path: the tray (pythonw.exe under
       # .venv\Scripts) launches the installer and is still ALIVE when the
@@ -161,7 +288,7 @@ jobs:
         run: |
           $install = $env:VS_INSTALL
           $exe = "$env:GITHUB_WORKSPACE\installer\windows\outB\VibeSeller-Setup.exe"
-          # Server (0.0.2) is still running from the previous step. Also
+          # Server (NEW) is still running from the previous step. Also
           # hold a venv pythonw.exe alive == the tray that launched the
           # upgrade. Importing Pillow's C ext locks a .pyd inside .venv,
           # and the running pythonw.exe image locks .venv\Scripts\pythonw.exe
@@ -217,7 +344,7 @@ jobs:
               $newPid = (Get-NetTCPConnection -LocalPort 7777 -State Listen `
                 -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
               $v = (Invoke-RestMethod http://127.0.0.1:7777/api/version -TimeoutSec 3).version
-              if ($v -eq '0.0.2' -and $newPid -and $newPid -ne $oldPid) { $ok = $true; break }
+              if ($v -eq $env:NEW_VER -and $newPid -and $newPid -ne $oldPid) { $ok = $true; break }
             } catch { }
             Start-Sleep 2
           }
@@ -235,7 +362,7 @@ jobs:
           # Pass "" to skip verify_install.sh's `vibe-seller --version`
           # check (fragile under Git Bash with a Windows-path PATH). The
           # version-after-upgrade is already asserted authoritatively via
-          # /api/version == 0.0.2 in the previous step; this step is the
+          # /api/version == NEW_VER in the previous steps; this step is the
           # API round-trip smoke on the upgraded build.
           bash tests/releases/verify_install.sh ""
 
@@ -315,3 +442,17 @@ jobs:
           & "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe" stop --port 7777
           $log = "$env:USERPROFILE\.vibe-seller\logs\backend_7777.log"
           if (Test-Path $log) { Get-Content -Tail 40 $log }
+          # Stage the logs so a failing agent e2e is debuggable.
+          $dst = "$env:GITHUB_WORKSPACE\ci-logs"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          $logs = "$env:USERPROFILE\.vibe-seller\logs"
+          if (Test-Path $logs) { Copy-Item -Recurse -Force $logs "$dst\logs" }
+
+      - name: Upload server logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-upgrade-server-logs
+          path: ci-logs/
+          if-no-files-found: warn
+          retention-days: 14
