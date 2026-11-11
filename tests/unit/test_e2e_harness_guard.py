@@ -25,13 +25,21 @@ import importlib
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
+import threading
+import time
 
 import pytest
 
 from tests.e2e import e2e_helpers, test_catalog_sync
-from tests.e2e.own_server import OwnServer, assert_owned_port, shared_port
+from tests.e2e.own_server import (
+    OwnServer,
+    assert_owned_port,
+    pick_free_port,
+    shared_port,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -448,6 +456,7 @@ def test_an_owned_server_never_rebuilds_the_shared_frontend(
 
     def fake_run(argv, env=None, **_):
         seen.update(env or {})
+        return subprocess.CompletedProcess(argv, 0, '', '')
 
     monkeypatch.setattr(subprocess, 'run', fake_run)
     monkeypatch.setattr(OwnServer, 'wait_health', lambda self: None)
@@ -506,3 +515,46 @@ def test_e2e_helpers_import_without_posix_only_modules():
         check=False,
     )
     assert done.returncode == 0, done.stderr
+
+
+def test_stopping_an_owned_server_frees_its_port(tmp_path, monkeypatch):
+    """Stopped means the port is free, or start.sh refuses the restart.
+
+    Observed in CI: the pid file holds ``uv run``; its uvicorn child kept
+    listening through its shutdown, and a restart (no frontend build in
+    between any more) found the port busy — "did not come up".
+    """
+    port = pick_free_port()
+    child = (
+        'import signal, socket, sys, time\n'
+        's = socket.socket(); s.setsockopt(socket.SOL_SOCKET, '
+        'socket.SO_REUSEADDR, 1)\n'
+        f's.bind(("127.0.0.1", {port})); s.listen()\n'
+        'signal.signal(signal.SIGTERM, lambda *_: (time.sleep(1.5), '
+        'sys.exit(0)))\n'
+        'while True: time.sleep(0.1)\n'
+    )
+    parent = subprocess.Popen(
+        ['bash', '-c', f"{sys.executable} -c '{child}' & wait"],
+    )
+    # Reap it as its real parent would (otherwise a zombie pid reads as
+    # alive and stop() waits on that instead of the port).
+    threading.Thread(target=parent.wait, daemon=True).start()
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        with socket.socket() as probe:
+            if probe.connect_ex(('127.0.0.1', port)) == 0:
+                break
+        time.sleep(0.1)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / f'.pids_{port}').write_text(str(parent.pid))
+    server = OwnServer(port=port, home=tmp_path / 'home')
+    try:
+        server.stop()
+        with socket.socket() as probe:
+            assert probe.connect_ex(('127.0.0.1', port)) != 0, (
+                'stop() returned while the port was still listened on'
+            )
+    finally:
+        parent.kill()
+        subprocess.run(['pkill', '-P', str(parent.pid)], check=False)

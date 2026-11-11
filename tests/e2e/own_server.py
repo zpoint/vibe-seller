@@ -43,6 +43,12 @@ def assert_owned_port(port: int) -> int:
     return int(port)
 
 
+def _listening(port: int) -> bool:
+    with socket.socket() as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(('127.0.0.1', port)) == 0
+
+
 def pick_free_port() -> int:
     """A port nothing is listening on right now."""
     with socket.socket() as sock:
@@ -109,13 +115,25 @@ class OwnServer:
                     break
                 time.sleep(1)
         pidfile.unlink(missing_ok=True)
+        # Stopped means the PORT is free: the pid file holds `uv run`,
+        # whose uvicorn child still listens through its shutdown, and
+        # start.sh refuses a port something listens on (observed: a
+        # restart with no frontend build in between found it busy).
+        deadline = time.time() + 30
+        while _listening(self.port):
+            if time.time() > deadline:
+                raise AssertionError(
+                    f'port {self.port} still listened on 30s after stopping '
+                    'this server'
+                )
+            time.sleep(0.2)
 
     def start(self, env: dict | None = None) -> None:
         """(Re)start this server with its home and any env additions."""
         assert_owned_port(self.port)
         self._stop_own()
         self.home.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
+        done = subprocess.run(
             ['./start.sh', str(self.port)],
             env={
                 **os.environ,
@@ -129,7 +147,13 @@ class OwnServer:
             },
             check=False,
             capture_output=True,
+            text=True,
         )
+        if done.returncode != 0:
+            raise AssertionError(
+                f'start.sh {self.port} failed ({done.returncode}):\n'
+                f'{(done.stdout or "")[-1500:]}{(done.stderr or "")[-1500:]}'
+            )
         self.wait_health()
 
     def wait_health(self, timeout: float = 60) -> None:
