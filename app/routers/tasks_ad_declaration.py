@@ -31,6 +31,7 @@ from app.ai.claude_backend_utils import get_next_seq
 from app.ai.stop_gates import AD_SKILLS, record_attempt
 from app.ai.stop_gates.ad_changes import (
     approved_summary,
+    declined_earlier,
     freeze_approved_changes,
     unfrozen_changes,
 )
@@ -71,6 +72,47 @@ async def _user_turns(db: AsyncSession, task_id: str) -> int:
             )
         )
     ) or 0
+
+
+async def _not_named_since_last_execute(
+    db: AsyncSession, task: Task, rows: list[dict]
+) -> list[dict]:
+    """The *rows* whose target or campaign id no user message names
+    since this task's last ``execute`` declaration.
+
+    None when the user has not written since: re-declaring in the same
+    turn corrects a freeze (a row frozen as hold by mistake), it does not
+    follow a decision of theirs.
+    """
+    since = await db.scalar(
+        select(func.max(AdTaskDeclaration.created_at)).where(
+            AdTaskDeclaration.task_id == task.id,
+            AdTaskDeclaration.kind == KIND_EXECUTE,
+        )
+    )
+    if not rows or not since:
+        return []
+    said = ' '.join(
+        (
+            await db.scalars(
+                select(TaskMessage.content).where(
+                    TaskMessage.task_id == task.id,
+                    TaskMessage.role == 'user',
+                    TaskMessage.created_at > since,
+                )
+            )
+        ).all()
+    ).lower()
+    if not said:
+        return []
+    return [
+        r
+        for r in rows
+        if not any(
+            v and v.lower() in said
+            for v in (r.get('target'), r.get('campaign_id'))
+        )
+    ]
 
 
 async def _last_user_message_at(db: AsyncSession, task_id: str) -> str | None:
@@ -235,9 +277,10 @@ async def _declare(
         # it", a card whose first option was a raise, and the raise ran).
         # Also after the refusal above: an agent told to show the user the
         # change asked on a card instead, and the card is not a reply.
-        picked_on_a_card = question_cards.answered_after(
+        new = await asyncio.to_thread(unfrozen_changes, task_id)
+        picked_on_a_card = bool(new) and question_cards.answered_after(
             task_id, await _last_user_message_at(db, task_id)
-        ) and bool(await asyncio.to_thread(unfrozen_changes, task_id))
+        )
         if picked_on_a_card:
             # Declared again after being told: recorded, and posted to
             # the user as NOT confirmed by them.
@@ -254,6 +297,25 @@ async def _declare(
                     'approval did, and the user did not name it in a '
                     'message. End your turn asking about it in words; '
                     'declare "execute" once they reply.'
+                ),
+            )
+        # A change the user declined at an earlier approval (it froze as
+        # `hold`) and has not named since (observed: "only lower widget
+        # red, leave everything else"; the agent re-offered the declined
+        # raise, read "go ahead and apply it" as that raise, and ran it).
+        declined = await asyncio.to_thread(declined_earlier, task_id, new)
+        unnamed = await _not_named_since_last_execute(db, task, declined)
+        if unnamed:
+            confirmed = False
+        if unnamed and record_attempt(task_id, 'declare:declined') == 1:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    'The user declined '
+                    + ', '.join(f'"{r["target"]}"' for r in unnamed[:5])
+                    + ' at the last approval and has not named it since. '
+                    'Ask whether they now want it, naming it, and end '
+                    'your turn; change nothing until they say.'
                 ),
             )
     elif prev is not None and turns <= prev.user_turn:

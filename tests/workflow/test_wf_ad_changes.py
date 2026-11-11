@@ -502,3 +502,37 @@ async def test_a_card_after_the_refusal_is_not_the_reply_either(
     r = await _declare(admin_client, task, 'execute')
     assert r.status_code == 409, r.text
     assert 'question card' in r.text
+
+
+async def test_a_declined_change_needs_the_user_to_name_it_again(
+    admin_client, install_fake_agent, monkeypatch
+):
+    """Observed: the user said "only lower widget red, leave everything
+    else" (the raise froze as hold); the agent re-offered the raise, read
+    "go ahead and apply it" as that raise, and ran it. A change declined at
+    an earlier approval is refused once unless a user message since names
+    it."""
+    task = await _running(admin_client, install_fake_agent, monkeypatch, 'A23')
+    raise_ = change(
+        campaign_id='A7654321', target='sprocket', target_bid='1.25'
+    )
+    task.changes([
+        change(target_bid='1.35'),
+        {**raise_, 'action': 'hold', 'reason': 'user: leave it'},
+    ])
+    await _user_answered_an_audit(admin_client, task.id)
+    assert (await _declare(admin_client, task, 'execute')).status_code == 200
+
+    async def say(text):
+        async with _db.async_session() as db:
+            db.add(TaskMessage(task_id=task.id, role='user', content=text))
+            await db.commit()
+
+    task.changes([change(target_bid='1.35'), raise_])
+    await say('Looks right — go ahead and apply it.')
+    r = await _declare(admin_client, task, 'execute')
+    assert r.status_code == 409, r.text
+    assert 'sprocket' in r.text
+    # Control: once the user names it, it is theirs.
+    await say('Yes, also raise sprocket to 1.25.')
+    assert (await _declare(admin_client, task, 'execute')).status_code == 200

@@ -198,6 +198,20 @@ def unfrozen_changes(task_id: str) -> list[dict]:
     ]
 
 
+def declined_earlier(task_id: str, rows: list[dict]) -> list[dict]:
+    """The *rows* an earlier freeze held as ``hold`` — declined then.
+
+    Blocking (reads the approval files).
+    """
+    held: list[dict] = []
+    for f in approval_files(task_id):
+        t = read_table(f, CHANGE_COLUMNS)
+        if t is not None and not t.error:
+            held.extend(r for r in t.rows if r['action'].lower() == 'hold')
+    slug = store_slug_for(task_id)
+    return [r for r in rows if any(_matched(slug, h, r) for h in held)]
+
+
 def remove_approvals(task_id: str) -> None:
     """Drop every approval frozen for *task_id* (blocking)."""
     for path in approval_files(task_id):
