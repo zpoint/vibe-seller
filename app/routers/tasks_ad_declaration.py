@@ -49,6 +49,7 @@ from app.database import get_db
 from app.events.bus import event_bus
 from app.models.ad_declaration import (
     AD_TASK_KINDS,
+    KIND_CHANGE,
     KIND_EXECUTE,
     AdTaskDeclaration,
 )
@@ -375,7 +376,7 @@ async def _declare(
     await asyncio.to_thread(
         ad_declaration.write_declaration_file, task_id, kind, scope
     )
-    note = await _skill_note(task_id)
+    note = await _skill_note(task_id, kind)
 
     # Execution starts here: freeze the approval it will be checked
     # against (a re-declaration re-freezes; earlier freezes are kept).
@@ -388,8 +389,9 @@ async def _declare(
     return 'accepted', out
 
 
-async def _skill_note(task_id: str) -> str | None:
-    """Name the ad skill when the phase declared without one loaded.
+async def _skill_note(task_id: str, kind: str) -> str | None:
+    """Name the ad skill — and only the half of its contract this kind
+    owes — when the phase declared without one loaded.
 
     The declaration is the moment the server knows this is ad work. The
     skill holds the data contract the checks read (CAMPAIGNS.tsv,
@@ -403,15 +405,27 @@ async def _skill_note(task_id: str) -> str | None:
     TSVs and declares no gates, so pointing it at
     CAMPAIGNS.tsv would send the agent to satisfy a contract its own
     skill cannot meet.
+
+    A `change` is told about `CHANGES.tsv` and nothing else: naming the
+    audit's files to a phase the user already decided is how a one-row
+    instruction turns back into the enumeration that timed out.
     """
     loaded, _workspace = await asyncio.to_thread(
         agent_manager.loaded_skills_and_workspace, task_id
     )
     if AD_SKILLS & set(loaded or ()):
         return None
-    return (
+    lead = (
         "Load the ad skill for this store's platform now (amazon-ads or "
         'noon-ads) and follow its data contract: '
+    )
+    if kind == KIND_CHANGE:
+        return lead + (
+            'CHANGES.tsv with exactly the rows the user named — the one '
+            'file this kind owes — and its columns. No CAMPAIGNS.tsv and '
+            'no per-campaign drill: nobody is judging these values.'
+        )
+    return lead + (
         'CAMPAIGNS.tsv, CHANGES.tsv, EXECUTION_LOG.tsv, and a standard the '
         'user states written as a `key: value` line in the store notes.'
     )

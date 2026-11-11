@@ -287,6 +287,42 @@ class TestTheirReplyOpensExecute:
         assert shown and 'NOT confirmed' in shown[-1], shown
 
 
+class TestTheDeclarationSaysWhatTheKindOwes:
+    """The declaration answer names the data contract to load when no ad
+    skill is loaded yet. Telling a `change` about the audit's files sends
+    it back to the enumeration that timed out."""
+
+    @pytest.fixture(autouse=True)
+    def _no_ad_skill(self, monkeypatch):
+        monkeypatch.setattr(
+            'app.routers.tasks_ad_declaration.agent_manager.'
+            'loaded_skills_and_workspace',
+            lambda _t: ({'browser-harness'}, None),
+        )
+
+    async def test_a_change_is_pointed_at_one_file(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        task = await _running(
+            admin_client, install_fake_agent, monkeypatch, 'K11'
+        )
+        r = await _declare(admin_client, task, 'change', _THEIR_CAMPAIGN)
+        assert r.status_code == 200, r.text
+        note = r.json()['load_skill']
+        assert 'CHANGES.tsv' in note, note
+        assert 'EXECUTION_LOG.tsv' not in note, note
+
+    async def test_an_audit_still_owes_the_enumeration(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        task = await _running(
+            admin_client, install_fake_agent, monkeypatch, 'K12'
+        )
+        r = await _declare(admin_client, task, 'audit', _THEIR_CAMPAIGN)
+        assert r.status_code == 200, r.text
+        assert 'CAMPAIGNS.tsv' in r.json()['load_skill'], r.json()
+
+
 class TestTheMoneyGuardIsIntact:
     async def test_execution_that_deviates_from_their_approval_is_caught(
         self, admin_client, install_fake_agent, monkeypatch
