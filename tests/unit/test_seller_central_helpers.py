@@ -768,3 +768,215 @@ def test_helpers_name_a_missing_parameter(rel):
     exec(src[start : src.index('\n\n\n', start)], ns)  # noqa: S102
     with pytest.raises(SystemExit):
         ns['_env']('VIBE_TEST_SURELY_UNSET')
+
+
+# ── F1: the generator's product-type search ────────────────────────
+#
+# Live failure this pins: an agent asked to inspect a category's template
+# ran bh_download_template with PRODUCT_TYPE="phone case", got
+# `no product-type result for 'phone case'`, and had to find the category
+# by hand — which the page did offer. Reading the run and reproducing it
+# on a live store showed the helper had clicked a rect it could not hit
+# (the modal's keyword input measured x 1959..2526 with the viewport at
+# 1920; a hidden duplicate of the same placeholder measured 0x0 at the
+# origin), so the typed keyword never reached any input — and the reason
+# blamed the CATEGORY for the helper's own miss.
+
+_TEMPLATE_HELPER = (
+    _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_download_template.py'
+)
+
+# Scrubbed capture of the generator's own result list (AE marketplace,
+# Chinese console). Each row carries its ZH name, its browse-node count
+# and the EN product-type name, plus the Select control's rect. Product
+# type names and marketplace codes are Amazon platform vocabulary; no
+# store, account, or file path from the live run is kept here.
+_SEARCH_ROWS = [
+    {
+        'labels': ['手机壳', '分类节点 (1/9)', 'Mobile Phone Basic Cases'],
+        'btn': {
+            'x': 2136,
+            'y': 614,
+            'l': 2072,
+            'tp': 598,
+            'rt': 2200,
+            'bt': 630,
+            'w': 128,
+            'h': 32,
+        },
+    },
+    {
+        'labels': ['手机配件', 'Mobile Phone Accessories'],
+        'btn': {
+            'x': 2136,
+            'y': 700,
+            'l': 2072,
+            'tp': 684,
+            'rt': 2200,
+            'bt': 716,
+            'w': 128,
+            'h': 32,
+        },
+    },
+]
+
+_VP_1920 = {'w': 1920, 'h': 839}
+_VP_2560 = {'w': 2560, 'h': 1600}
+# Measured live at viewport 1920: entirely past the right edge.
+_OFF_RIGHT = {
+    'x': 2243,
+    'y': 543,
+    'l': 1959,
+    'tp': 528,
+    'rt': 2526,
+    'bt': 557,
+    'w': 567,
+    'h': 29,
+}
+# Measured live: the header search box, a hidden duplicate of the same
+# placeholder family — the finder matched it and clicked (0,0).
+_ZERO_SIZE = {'x': 0, 'y': 0, 'l': 0, 'tp': 0, 'rt': 0, 'bt': 0, 'w': 0, 'h': 0}
+
+
+def _pure_ns():
+    """Exec the helper's PURE block (reachability + matching) standalone.
+
+    These scripts are fed to browser-use on stdin and touch browser
+    globals at import, so what is testable is lifted out by anchor — the
+    same way `_disabled_rows_fn` above does it.
+    """
+    src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+    start = src.index('_WORD = re.compile(')
+    end = src.index('_WALK = (')
+    assert start < end, 'the PURE block moved — update these anchors'
+    ns = {'re': re}
+    exec(src[start:end], ns)  # noqa: S102 - our own source, under test
+    return ns
+
+
+class TestClickMustBeAbleToLand:
+    def test_a_rect_past_the_viewport_is_not_clickable(self):
+        assert _pure_ns()['reachable'](_OFF_RIGHT, _VP_1920) is False
+
+    def test_a_zero_size_rect_is_not_clickable(self):
+        # The old finder accepted anything with a truthy width and matched
+        # this one first: the click went to (0,0), the text to nowhere.
+        assert _pure_ns()['reachable'](_ZERO_SIZE, _VP_1920) is False
+
+    def test_the_same_control_is_clickable_in_a_wider_viewport(self):
+        inside = dict(_OFF_RIGHT, l=1490, rt=2057, x=1773)
+        assert _pure_ns()['reachable'](inside, _VP_2560) is True
+
+    def test_the_label_field_is_never_a_coordinate(self):
+        """`t` is the element's TEXT; `tp` is its top edge.
+
+        A first version of `reachable` read `t` as "top", so every box
+        that carried a label raised while comparing '下载商品电子表格' with
+        0 — caught by the live run, which is the point of running helpers
+        for real instead of only reading them.
+        """
+        ns = _pure_ns()
+        labelled = {
+            't': '下载商品电子表格',
+            'x': 700,
+            'y': 360,
+            'w': 140,
+            'h': 34,
+        }
+        assert ns['reachable'](labelled, _VP_1920) is True
+        far_right = {
+            't': '下载商品电子表格',
+            'x': 3000,
+            'y': 360,
+            'w': 140,
+            'h': 34,
+        }
+        assert ns['reachable'](far_right, _VP_1920) is False
+
+    def test_only_one_place_in_the_script_clicks(self):
+        """Every interaction goes through the verified clicker.
+
+        A second `click_at_xy` would be a click nobody checked could
+        land — the exact shape of the F1 bug.
+        """
+        src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+        assert src.count('click_at_xy(') == 1, (
+            'a raw coordinate click reappeared; route it through '
+            '_click_box, which refuses what is not inside the viewport'
+        )
+
+
+class TestThePagesOwnRowsDecide:
+    def test_plain_language_query_meets_the_english_label(self):
+        """'phone case' resolves on the page's own list.
+
+        The console renders Chinese, yet the row still carries the English
+        product type — matching against the row's labels reaches it, while
+        an exact match on an internal name (`cellular_phone_case`) never
+        would.
+        """
+        ns = _pure_ns()
+        row, cands = ns['pick_row']('phone case', _SEARCH_ROWS)
+        assert row is _SEARCH_ROWS[0]
+        assert 'Mobile Phone Basic Cases' in row['labels']
+        assert len(cands) == 2
+
+    def test_query_in_the_console_language_matches_too(self):
+        ns = _pure_ns()
+        row, _c = ns['pick_row']('手机壳', _SEARCH_ROWS)
+        assert row is _SEARCH_ROWS[0]
+
+    def test_a_single_word_query_reaches_a_compound_name(self):
+        ns = _pure_ns()
+        assert ns['row_score']('cases', ['Mobile Phone Basic Cases']) > 0
+
+    def test_no_match_names_the_candidates_and_picks_nothing(self):
+        """The old code clicked the TOPMOST Select whatever it was.
+
+        Silently listing the wrong category is worse than failing: the
+        upload that follows is stamped for a product type nobody asked
+        for.
+        """
+        ns = _pure_ns()
+        row, cands = ns['pick_row']('yoga mat', _SEARCH_ROWS)
+        assert row is None
+        assert any('Mobile Phone Basic Cases' in c for c in cands)
+
+    def test_equal_scores_keep_the_earlier_row(self):
+        rows = [
+            {
+                'labels': ['Phone Case Cover'],
+                'btn': {'x': 1, 'y': 1, 'w': 10, 'h': 10},
+            },
+            {
+                'labels': ['Phone Case Basic'],
+                'btn': {'x': 1, 'y': 2, 'w': 10, 'h': 10},
+            },
+        ]
+        ns = _pure_ns()
+        row, _c = ns['pick_row']('phone case', rows)
+        assert row is rows[0]
+
+    def test_an_empty_result_list_is_not_a_mismatch(self):
+        ns = _pure_ns()
+        row, cands = ns['pick_row']('phone case', [])
+        assert row is None and cands == []
+
+
+def test_the_false_verdict_about_the_category_is_gone():
+    """A miss is reported as the miss it is.
+
+    `no product-type result for X` was drawn from a click that never
+    landed. The flow now reads the keyword back out of the box before it
+    says anything about the category, and reports the measurements when
+    the control is unreachable.
+    """
+    src = _TEMPLATE_HELPER.read_text(encoding='utf-8')
+    # The narrative may quote the old verdict; the code may not raise it.
+    assert "_fail(f'no product-type" not in src
+    assert "'no product-type result for'" not in src
+    assert 'never reached the search box' in src
+    assert 'never clickable at any viewport' in src
+    # Proof the text landed, not that a key was sent.
+    assert '_norm(PTYPE) not in _norm(landed)' in src
+    assert "'landed'" in src and "'tried'" in src
