@@ -74,7 +74,7 @@ describe('IntegrationsPanel order', () => {
     })
   })
 
-  it('puts the API-key card first, above the ads card', async () => {
+  it('puts the ads card first, then the API-key card', async () => {
     render(
       <I18nextProvider i18n={i18nTestInstance}>
         <IntegrationsPanel />
@@ -83,11 +83,11 @@ describe('IntegrationsPanel order', () => {
 
     const keysCard = await screen.findByTestId('api-keys-card')
     const adsCard = await screen.findByTestId('ads-card')
-    expectBefore(keysCard, adsCard)
+    expectBefore(adsCard, keysCard)
 
-    // ...and the API-key card is the panel's very first child, so
-    // nothing else can sneak above it.
-    expect(keysCard.parentElement?.firstElementChild).toBe(keysCard)
+    // ...and the ads card is the panel's very first child, so nothing
+    // else can sneak above it.
+    expect(adsCard.parentElement?.firstElementChild).toBe(adsCard)
   })
 
   it('keeps the ads card above Google Workspace', async () => {
