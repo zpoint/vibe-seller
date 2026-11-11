@@ -566,6 +566,10 @@ async def set_task_result(
     MCP tool when it wants the final result shown to the user
     to differ from its last chat message.
 
+    The deliverable is exactly one of: `result` (the text itself)
+    or `result_file` (a file inside this task's workspace, read
+    here so the UI renders the report inline).
+
     This endpoint does NOT transition task status — status is
     owned by `auto_run_task` cleanup after the agent session
     ends. Keeping status transitions in one place avoids the
@@ -585,13 +589,14 @@ async def set_task_result(
 
     task_root = (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
 
-    # File-pointer mode: if `body.result` points at a file inside this
-    # task's workspace, read the file and use its contents (see
-    # ``resolve_workspace_result_path`` for the path-resolution
-    # contract). Otherwise treat the value as direct content.
-    raw = body.result
+    # The agent states which deliverable it means: `result_file` is a
+    # declared file in this task's workspace (read for it), `result` is
+    # the text. A `result` that happens to name a real workspace file is
+    # still read — the legacy pointer mode the skill docs use — but a
+    # value is never REFUSED for looking like a path (see
+    # ``resolve_submitted_result`` for the contract).
     final_result, resolved_from_file = await resolve_submitted_result(
-        raw, task_root
+        body.result, body.result_file, task_root
     )
 
     # RETAIN BEFORE REVIEW. Every gate below refuses by raising, and a
