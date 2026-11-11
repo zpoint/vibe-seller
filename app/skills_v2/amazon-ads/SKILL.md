@@ -25,7 +25,8 @@ actually asked for — not off what you expect to find once you look.
 |---|---|---|
 | "审计一下广告" / "review our ads" | `audit` | omit `combos` — whole store |
 | "复核 widget-006 在 amazon 的广告" | `audit` | that platform+country, those campaign ids |
-| "把这三个词的出价降下来" | `audit` | those campaigns |
+| "把这三个词的出价降下来" | `audit` | those campaigns (they named the rows, you pick the value) |
+| "把 widget-006 的出价降到 1.00" / "lower widget-006 to 1.00" | `change` | those campaigns |
 | "帮 widget-006 建关键词广告" | `create` | the market you are creating in |
 | "执行刚才确认的调整" | `execute` | the campaigns being changed |
 | "我们 SA 的 ACOS 大概多少" | `investigate` | the market asked about |
@@ -34,7 +35,8 @@ actually asked for — not off what you expect to find once you look.
 `audit`. If the person wants a figure — what did we spend, what is our
 ROAS, how did last month go — it is `investigate`, however many markets
 it spans: you are reading, not proposing. If they want to know what to
-change, or asked "is this right?", it is `audit`. Declaring a figures
+change, or asked "is this right?", it is `audit` — unless their message
+already carries the value, which is `change` (below). Declaring a figures
 question as a whole-store audit buys hours of drilling nobody asked for;
 declaring a bid review as `investigate` leaves you unable to hand over
 the recommendations they wanted.
@@ -53,9 +55,27 @@ owe. `audit` → `investigate`, adding a marketplace, or widening the
 campaign list need a new message from the user. Don't delete
 recommendations the person asked for to fit a declaration.
 
-**There is no `edit` kind.** A request to change specific bids is an
-`audit` scoped to those campaigns: the user still approves the change
-before it is applied.
+**`change` — they named the row and the value.** "lower widget-006 to
+1.00" is a thing to do, not a question to answer. Declare `change`, read
+the one campaign page the row lives on, write `CHANGES.tsv` with exactly
+those rows (their `target_bid`; `current_bid` from the page; `acos`,
+`roas`, `cpc` blank if you did not read them), and stop there. One file.
+No `CAMPAIGNS.tsv`, no drill, no search-term export — and no store rule
+judges their number: `acos_no_lower`, the CPC floor and the cooldown
+apply to what *you* recommend, never to what the user wrote. Their
+insistence is not a debate: "I know it converts well, lower it anyway"
+is still `change`.
+
+**It is still confirmed, and then done exactly as approved.** End the
+turn showing the change — `widget-006 1.20 → 1.00; reply to apply` — and
+their reply opens `execute`, which freezes `CHANGES.tsv` and holds every
+logged change to it. That guard does not loosen for this kind. If you
+think the value is wrong, say so in one line beside it; you carry on
+with what they chose.
+
+If they named the rows but left the value to you ("lower the bids that
+waste money", "is 1.20 right?"), that is an `audit` of those campaigns:
+picking a number needs the data behind it.
 
 **The scope trap: omitting `combos` means every marketplace the store
 sells on**, and you owe all of them. Omit it only for a genuinely
@@ -80,6 +100,7 @@ campaigns.
 | kind | Deliverable | Reference |
 |---|---|---|
 | `audit` | `AD_AUDIT_<YYYY-MM-DD>.md` for the user, plus `CAMPAIGNS.tsv`, two TSVs per live campaign, and `CHANGES.tsv` | [`audit-quickref.md`](references/audit-quickref.md) (procedure), [`data-contract.md`](references/data-contract.md) (files and columns) |
+| `change` | `CHANGES.tsv` with the rows the user named — the one file this kind needs — and the turn ends showing them | [`data-contract.md`](references/data-contract.md) (columns), [`execution.md`](references/execution.md) (what their reply opens) |
 | `execute` | Approved changes applied and verified, `EXECUTION_LOG.tsv`, `applied_*` columns filled | [`execution.md`](references/execution.md) |
 | `create` | New campaigns, verified live | [`bulk-operations.md`](references/bulk-operations.md), [`mechanics-create.md`](references/mechanics-create.md) |
 | `investigate` | The figures asked for, as the task result | this page, §0 |
@@ -174,9 +195,9 @@ value, or no audit to execute against — see
 
 ## Safety rails
 
-- **Never apply a change the user has not approved.** An audit ends with
-  `CHANGES.tsv` and the report; execution happens only in an `execute`
-  phase, on rows the user approved.
+- **Never apply a change the user has not approved.** An `audit` or a
+  `change` ends with `CHANGES.tsv` shown to the user; execution happens
+  only in an `execute` phase, on the rows frozen from that file.
 - **Derive thresholds from this store's data and notes.** Defaults are in
   [`data-contract.md`](references/data-contract.md); a store overrides
   them with `key: value` lines in `stores/<slug>/notes.md`. When the user

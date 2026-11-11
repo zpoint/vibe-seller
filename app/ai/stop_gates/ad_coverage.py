@@ -4,7 +4,10 @@ Reads ``CAMPAIGNS.tsv`` and the per-campaign TSVs (``ad_tables``); the
 report's prose is never parsed. What a phase owes comes from its
 declaration (``ad_declaration.owed_combos``), never from the shape of
 its output — only ``audit`` owes coverage, and no declaration means no
-inferred obligation.
+inferred obligation. A change the user named themselves (``change``) is
+not a coverage question: they said which row and what value, so nothing
+is owed but that row, and drilling its market to justify it is the work
+this gate refusing to run for that kind is what stops.
 
 Gaps (refused once, then shipped as caveats on the result):
 - a marketplace the declaration owes has no rows in CAMPAIGNS.tsv
@@ -50,10 +53,10 @@ LIVE_STATES = ('enabled', 'active', 'live', 'running', 'delivering')
 # audit as a caveat while the tool sat in its tool list.
 MISSING_DECLARATION = (
     'No ad task was declared. Declare what this phase did with '
-    'mcp__vibe-seller__vibe_seller_declare_ad_task (audit / create / '
-    'execute / investigate, and which marketplaces and campaigns) — it is '
-    'already in your tool list (always loaded, so ToolSearch does not show '
-    'it) — then submit again.'
+    'mcp__vibe-seller__vibe_seller_declare_ad_task (audit / change / '
+    'create / execute / investigate, and which marketplaces and '
+    'campaigns) — it is already in your tool list (always loaded, so '
+    'ToolSearch does not show it) — then submit again.'
 )
 
 

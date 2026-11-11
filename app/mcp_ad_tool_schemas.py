@@ -16,6 +16,17 @@ run, which is the kind that owes no coverage — so its bid
 recommendations faced no audit obligation at all. The
 skills still carry the longer version with worked examples; the line
 itself belongs at the call site.
+
+**Why the ``change``/``audit`` line is written out here for the same
+reason.** A change the user named themselves used to be declared
+``audit``, the kind that owes a marketplace enumerated and drilled. On
+CI (PR #232) that one-row instruction burned 108k output tokens against
+the 27k the same task used when it finished, and then hit the 1200 s
+turn limit: the agent was computing an audit, and arguing with itself
+over whether ``acos_no_lower`` would refuse the number the user had
+written. Who decided the value is exactly the fact only the agent can
+state and exactly the fact that changes what the phase owes, so the
+declaration says it and the description has to teach it.
 """
 
 # Per-tool ``_meta`` key read by the CLI: the tool's schema stays in
@@ -36,9 +47,11 @@ AD_TOOLS = [
             'Advertising work only. BEFORE opening a browser or reading '
             'any ad data, declare what this phase of the task is for. '
             'The declaration decides how much coverage the result check '
-            'asks of you — so a '
+            'asks of you, and whose judgement the store rules are applied '
+            'to — so a '
             'narrow request stays narrow instead of being expanded into '
-            'a whole-store audit. Declaring is required: ad data with no '
+            'a whole-store audit, and a change the user named stays one '
+            'row. Declaring is required: ad data with no '
             'declaration is refused at submit.\n\n'
             'Declare ONCE per user turn, before browsing. Within that '
             'turn you may call it again for three reasons only: to '
@@ -63,6 +76,7 @@ AD_TOOLS = [
                     'type': 'string',
                     'enum': [
                         'audit',
+                        'change',
                         'create',
                         'execute',
                         'investigate',
@@ -71,10 +85,20 @@ AD_TOOLS = [
                         'audit = judge existing ads and recommend changes '
                         '(the only kind that owes marketplace '
                         'coverage). '
+                        'change = the USER named the change — the row '
+                        'and the value, in their message ("lower '
+                        'widget-006 to 1.00"). Write those rows in '
+                        'CHANGES.tsv and end your turn showing them. You '
+                        'owe NOTHING else for it: no CAMPAIGNS.tsv, no '
+                        'per-campaign drill, no search-term '
+                        'reconciliation, and no store-rule argument with '
+                        'their number — their instruction beats a '
+                        'default. It is still confirmed: their reply is '
+                        'what opens `execute`. '
                         'create = build new campaigns. execute '
                         '= apply changes the user already approved — '
-                        'accepted only after an audit phase whose '
-                        'proposals the user has answered. '
+                        'accepted only after an audit or change phase '
+                        'whose list the user has answered. '
                         'investigate = answer a question, change nothing. '
                         '\n\nNUMBERS OR CHANGES is the line between '
                         'investigate and audit, and it decides more than '
@@ -92,9 +116,16 @@ AD_TOOLS = [
                         'When you cannot tell, ask yourself whether your '
                         'answer will contain a recommendation; if it '
                         'will, declare `audit`. '
-                        '\n\nThere is no "edit": a request to change a '
-                        'few bids is an AUDIT whose scope names those '
-                        'campaigns.'
+                        '\n\nWHOSE JUDGEMENT is the line between change '
+                        'and audit. They said the row AND the number → '
+                        '`change`. They said which rows to look at and '
+                        'left the value to you ("lower the bids that '
+                        'waste money", "is 1.20 the right bid?") → '
+                        '`audit` scoped to those campaigns, because '
+                        'judging needs the data. "I know it converts '
+                        'well, do it anyway" is still `change` — the '
+                        'insistence is the user deciding, not you. There '
+                        'is no "edit" kind.'
                     ),
                 },
                 'scope': {

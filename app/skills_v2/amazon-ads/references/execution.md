@@ -1,9 +1,9 @@
 # Executing approved ad changes
 
 Shared by `amazon-ads` and `noon-ads`. An `execute` phase applies rows
-of an audit's `CHANGES.tsv` that the user approved, verifies each one on
-the console, and records it. File and column definitions:
-[`data-contract.md`](data-contract.md).
+of an `audit`'s or a `change`'s `CHANGES.tsv` that the user approved,
+verifies each one on the console, and records it. File and column
+definitions: [`data-contract.md`](data-contract.md).
 
 - [What is approved](#what-is-approved)
 - [The loop](#the-loop)
@@ -27,8 +27,9 @@ Whenever you ask anything before a money change, the first option
 changes nothing: a hurried click on the first (recommended) option must
 never spend money the user did not name.
 
-1. Bring `CHANGES.tsv` (this task's, or the parent audit's) in line with
-   what they approved. Map their words to rows using the audit's report.
+1. Bring `CHANGES.tsv` (this task's, or the parent `audit`/`change`
+   phase's) in line with what they approved. Map their words to rows
+   using the audit's report.
    If they named a different value ("lower 2 to 0.95 instead"), set that
    row's `target_bid` to it. Rows they did not approve become `hold`.
 2. Declare `execute` with `vibe_seller_declare_ad_task`, scoped to those
@@ -55,18 +56,21 @@ declaring.
   result. They don't go in `EXECUTION_LOG.tsv`, which takes only
   `CHANGES.tsv` rows.
 - **The user asks for a change directly** ("lower widget red to 1.35")
-  with no audit before it: execution only opens after the user has seen
-  a proposal and answered. Declare `audit` for that campaign, put the
-  change in `CHANGES.tsv` (their value, even one the store rules would
-  not have proposed), and end your turn showing it — "lower widget red
-  1.50 → 1.35; reply to apply". Their reply opens `execute`. This holds
-  when they insist or say they know the trade-off: the confirmation costs
-  them one reply and is what makes the change theirs. Any task — a
-  one-time one too — can end its turn to wait; the reply continues it.
-  Confirm by ending the turn, not with `AskUserQuestion`: an answer on a
-  question card is not a reply that opens `execute` (the server counts
-  the user's messages), so executing after one changes money nobody
-  confirmed.
+  with no audit before it: declare `change`, scoped to that campaign.
+  They named the row and the value, so nothing else is owed — no
+  `CAMPAIGNS.tsv`, no drill, and no store rule argues with their number.
+  Read the one page the row lives on, put the change in `CHANGES.tsv` at
+  their value, and end your turn showing it — "lower widget red
+  1.50 → 1.35; reply to apply". Their reply opens `execute`, which
+  freezes that file and holds every logged change to it.
+- **`change` is not a shorter confirmation.** Execution only opens after
+  the user has seen the exact change and answered. This holds when they
+  insist or say they know the trade-off: the confirmation costs them one
+  reply and is what makes the change theirs. Any task — a one-time one
+  too — can end its turn to wait; the reply continues it. Confirm by
+  ending the turn, not with `AskUserQuestion`: an answer on a question
+  card is not a reply that opens `execute` (the server counts the user's
+  messages), so executing after one changes money nobody confirmed.
 - **No audit to execute against** (no report or `CHANGES.tsv` in this
   task or its parent): ask with `AskUserQuestion` whether to run an audit
   first, rather than re-auditing silently.

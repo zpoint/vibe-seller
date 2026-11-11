@@ -115,7 +115,7 @@ After the report is delivered, the user's reply is one of:
 | Reply | What to do |
 |---|---|
 | Approves rows ("do 1, 3", "all of campaign X", "execute the plan") | Declare `execute` and follow [`execution.md`](execution.md). |
-| Corrects a value or a decision ("2 should be 0.95", "don't pause that one") | Declare `audit` scoped to that campaign, update its `CHANGES.tsv` rows and the report in place, and submit again. |
+| Corrects a value or a decision ("2 should be 0.95", "don't pause that one") | They named it: declare `change` scoped to that campaign, update its `CHANGES.tsv` rows and the report in place, and submit again. No new drill is owed — the audit's files are already there. |
 | Asks to re-drill ("redo campaign X with 14 days") | Declare `audit` for those campaigns, re-drill only them, replace their TSVs and report sections. |
 | Changes an assumption ("margin is 30%") | Record it in `stores/<slug>/notes.md`, recompute decisions from the TSVs on disk without re-reading the console, update `CHANGES.tsv` and the report. |
 | Asks a question ("why did you flag X?") | Answer from the TSVs and report. |
