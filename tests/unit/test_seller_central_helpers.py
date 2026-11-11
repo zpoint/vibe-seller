@@ -23,8 +23,12 @@ Two bug classes these pin, both observed live on a real store:
   so the upload helper must compare them rather than trust the host.
 
 The scan is deliberately source-level: these scripts are fed to
-``browser-use`` on stdin and execute browser globals at import, so they
-cannot be imported in a unit test.
+``browser-use`` on stdin and execute browser globals at import; most
+cannot be imported in a unit test at all (bh_switch_marketplace is
+import-safe and additionally unit-tested for its pure logic in
+test_switch_marketplace_logic.py — the source scan here pins the
+invariants that live in its browser-executed strings, which no import
+can reach).
 """
 
 import fnmatch
@@ -675,7 +679,7 @@ def test_switch_helper_matches_by_structure_not_words():
     Observed live: an agent driving the switcher by hand never found the
     confirm button (a kat-button) and spent ~45 calls on one switch.
     """
-    src = _switch_src()
+    src = _SEAM.sub('', _switch_src())
     assert 'Intl.DisplayNames' in src
     assert 'kat-button[data-test=confirm-selection]' in src
     assert 'data-test")==="current-account"' in src
@@ -722,13 +726,26 @@ def test_switch_helper_reads_the_session_off_an_ordinary_page():
 
     Read from there, the helper said "already on AE" for a session still
     on SA and reported a switch it never made -- observed live.
+
+    The read must also happen on the TARGET marketplace's own domain,
+    never on whatever SC_HOST the caller passed: the marketplace
+    context is per-domain (live 2026-11-11 -- `.sa` served AE while
+    `.ae` served SA), so verifying on the source host can never see a
+    switch it did make. That is the bug whose ok:false this helper was
+    famous for.
     """
     src = _switch_src()
-    reader = src.index('def _session_marketplace():')
-    assert "new_tab(f'https://{HOST}/home')" in src[reader : reader + 900]
-    first_read = src.index("out['marketplace'] = _session_marketplace()")
-    assert first_read < src.index("new_tab(f'https://{HOST}/account-switcher/")
-    assert src.count("out['marketplace'] = _session_marketplace()") == 2
+    reader = src.index('def _session_marketplace(')
+    assert "_goto(base + '/home')" in src[reader : reader + 900]
+    # base is the target-derived origin, not the raw caller host.
+    assert src.index('base = target_base(host, cc)') < reader
+    first_read = src.index("out['marketplace'] = _session_marketplace")
+    assert first_read < src.index(
+        "_goto(base + '/account-switcher/default/merchantMarketplace')"
+    )
+    # exactly two ordinary-page reads: before the switcher and the
+    # final answer.
+    assert src.count("out['marketplace'] = _session_marketplace") == 2
 
 
 @pytest.mark.parametrize(

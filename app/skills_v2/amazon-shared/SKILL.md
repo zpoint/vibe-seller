@@ -175,45 +175,80 @@ whose URL you don't have.
 
 ### 4a-bis. Marketplace context and the account switcher
 
-What a Seller Central page shows follows the header switcher label
-(store name + country), not the URL subdomain — a session can be pinned
-so that `sellercentral.amazon.<tld>/...` renders a sibling marketplace.
-Read the label (or better `js("return ue_mid")`) on every page you act
-on. Store display names can differ per marketplace on one account, so
-reconcile by catalog contents, not by name.
+The marketplace context is **per domain**: each
+`sellercentral.amazon.<tld>` renders the marketplace last selected on
+IT, and the domains of one account are pinned independently — observed
+live, `.sa` served AE while `.ae` served SA on the same session. What
+a page shows follows the header switcher label (store name + country),
+not the URL subdomain you typed. Read the label (or better
+`js("return ue_mid")`) on every page you act on. Store display names
+can differ per marketplace on one account, so reconcile by catalog
+contents, not by name.
 
-To switch, run the helper — it selects the row, confirms, and reads the
-marketplace back:
+The per-domain pins **converge asynchronously**: a switch settles on
+the domain you ran it on immediately (the confirm redirects to the
+target's own domain, so the helper's verification right after it is
+reliable), but sibling domains update with a lag of tens of seconds —
+and a late propagation once transiently reverted a domain I had just
+verified back (observed 2026-11-11). Never treat a cross-domain pin
+read minutes after a switch as settled; re-read the domain you are
+about to work on.
+
+To switch, run the helper — it selects the row, confirms, and reads
+the marketplace back **on the target marketplace's own domain**:
 
 ```bash
 SC_MARKETPLACE=<CC> SC_HOST=sellercentral.amazon.<tld> browser-use < .claude/skills/amazon-shared/scripts/bh_switch_marketplace.py
 ```
 
+(`SC_HOST` may also be a full origin, `http://127.0.0.1:PORT` — used
+verbatim; that is how the integration tests drive it.)
+
 It matches the target row by the country's name in the session's own
 language (`Intl.DisplayNames`), presses the confirm button, and returns
-`ok: true` only once `ue_mid` is the target. It refuses a "pending
-registration" row by name.
+`ok: true` only once `ue_mid` on the target domain's `/home` is the
+target. It refuses a row whose label carries a non-"current" marker
+((pending registration) in any language) — selecting one would START a
+registration. The RESULT names the click methods that worked
+(`row_method`, `confirm_method`); on failure it says what it tried and
+leaves a screenshot.
 
-If it fails, the manual route is the full-page switcher. Drive it by
-structure, not by label strings — its language follows the session and
-its rows are whatever this account holds. (The header dropdown's rows
-ignore JS clicks and render off-viewport; the classic header chip's
-"Switch Accounts" entry leads to the same page.)
+**Which click method works is per account.** Live 2026-11-11, four
+stores: rows tick with a JS `.click()` on the
+`button.full-page-account-switcher-account-details` itself and the
+confirm fires only from a JS click on the **shadow-root inner
+`<button>`** of `kat-button[data-test=confirm-selection]` — a
+coordinate click on either did nothing there. Older field notes record
+accounts where only real coordinate clicks count. Never assume a
+method: click, then VERIFY the observable state (the row gains class
+`full-page-account-switcher-account-selected`; the page leaves the
+switcher), and fall back to the other method when it did not change.
+
+If the helper fails, the manual route is the full-page switcher. Drive
+it by structure, not by label strings — its language follows the
+session and its rows are whatever this account holds. (The header
+dropdown's rows ignore JS clicks and render off-viewport; the classic
+header chip's "Switch Accounts" entry leads to the same page.)
 
 1. `new_tab('https://sellercentral.amazon.<tld>/account-switcher/default/merchantMarketplace')`
    (the old `/gp/account/switcher` path 404s).
 2. Rows are `button.full-page-account-switcher-account-details`; the
-   active row's label has `data-test="current-account"`. If the target
-   row is missing, click the account row to expand its list. Rows reading
-   `<Country> (pending registration)` cannot be selected.
-3. Click the row naming your target country (its localized full name).
-   This only ticks it (class `full-page-account-switcher-account-selected`).
-4. The confirm button, `kat-button[data-test=confirm-selection]` ("Select
-   account"), then appears below the last row. It is a custom element —
-   a search over `button` / `a` will not find it — and needs a real
-   coordinate click. The session redirects to the target marketplace's
-   own domain (sometimes via a `mons_sel_mkid=` parameter); confirm with
-   `ue_mid` before trusting later pages.
+   active row's label has `data-test="current-account"`. The country
+   rows load asynchronously under the account row (a spinner is
+   visible) — wait for the row count to settle, don't sleep. If the
+   target row is missing, click the account row to expand its list.
+   Rows carrying a non-"current" marker (e.g. `(pending
+   registration)`) cannot be selected.
+3. Click the row naming your target country (its localized full name) —
+   JS click first, verify the `-selected` class, fall back to a
+   coordinate click as above.
+4. The confirm button, `kat-button[data-test=confirm-selection]`
+   ("Select account"), sits below the rows. It is a custom element —
+   a search over `button` / `a` will not find it; its real button is
+   in its shadow root. The session redirects to the target
+   marketplace's own domain (sometimes via a `mons_sel_mkid=`
+   parameter); confirm with `ue_mid` on a fresh `/home` of the TARGET
+   domain before trusting later pages.
 5. If the page or a step is genuinely absent, open the target subdomain
    in a fresh tab and re-read the label; if that fails too, ask the user
    with what you observed. The aux browser has no seller login, so all
