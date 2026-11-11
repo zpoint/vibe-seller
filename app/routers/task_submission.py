@@ -148,6 +148,12 @@ async def resolve_submitted_result(
     Whether a submission points at a file is now something the agent
     states.
     """
+    # A model often fills an unused optional string with '' — that is a
+    # field it did not send, not a second deliverable.
+    if result_file is not None and not result_file.strip():
+        result_file = None
+    if raw is not None and not raw.strip() and result_file is not None:
+        raw = None
     if (raw is None) == (result_file is None):
         sent = [
             name

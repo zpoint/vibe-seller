@@ -170,8 +170,8 @@ An `investigate` task writes no `CHANGES.tsv` rows other than `hold`.
 
 Write `AD_AUDIT_<YYYY-MM-DD>.md` in the task dir, for the person
 ([`output-spec.md`](output-spec.md) § The report). Then call
-`vibe_seller_set_task_result("./AD_AUDIT_<date>.md")` — the path, not a
-summary.
+`vibe_seller_set_task_result(result_file="./AD_AUDIT_<date>.md")` — the
+file, not a summary.
 
 The server reads the TSVs and replies with anything that doesn't hold up:
 a live campaign without both files, a marketplace far smaller than its

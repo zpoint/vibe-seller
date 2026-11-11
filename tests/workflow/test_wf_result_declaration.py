@@ -178,6 +178,26 @@ class TestDeclaredResultFile:
         gate.set()
         await wait_for_task(admin_client, task_id)
 
+    async def test_an_empty_optional_field_counts_as_not_sent(
+        self, admin_client, install_fake_agent
+    ):
+        """Models often fill an unused optional string with ''. A text
+        result sent alongside ``result_file: ''`` is one deliverable, not
+        two — refusing it would leave the agent unable to finish."""
+        task_id, gate = await _running_task(
+            admin_client, install_fake_agent, 'Decl Store H'
+        )
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result',
+            json={'result': REPORT, 'result_file': ''},
+        )
+        assert r.status_code == 200, r.text
+        data = (await admin_client.get(f'/api/tasks/{task_id}')).json()
+        assert data['result'] == REPORT
+
+        gate.set()
+        await wait_for_task(admin_client, task_id)
+
 
 class TestLegacyPointerCallStillWorks:
     async def test_real_workspace_path_as_result_still_resolves(
