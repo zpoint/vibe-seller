@@ -411,8 +411,11 @@ A legacy TCP relay (`CDPTcpProxy` in `cdp_proxy.py`) is kept as fallback for sin
 An ad-task phase declares what it is for **before** working
 (`vibe_seller_declare_ad_task` → `POST /api/tasks/{id}/ad-declaration`):
 
-- **kind** ∈ `audit` / `create` / `execute` / `investigate` — there is no
-  `edit`; "change these three bids" is a one-campaign `audit`.
+- **kind** ∈ `audit` / `change` / `create` / `execute` / `investigate` —
+  there is no `edit`. `change` is a change the **user** named, row and
+  value ("lower widget-006 to 1.00"): nobody is judging anything, so the
+  phase owes its rows and nothing else. "Change these three bids" —
+  where the value is yours to pick — is a one-campaign `audit`.
 - **scope** = `combos` (platform × country), `campaigns`, `products`.
   Absent/empty `combos` means the **whole store** — declaring nothing
   declares everything, so an unqualified "audit the ads" owes every
@@ -426,13 +429,19 @@ accepted declaration is mirrored to `AD_TASK.json` in the task workspace
 so the stop gates can read it without a DB session — the row stays the
 authority, never the file. What a phase owes is read from the
 declaration, never from the shape of its output: only `audit` owes
-marketplace coverage (`ad_declaration.owed_combos`), `investigate`
-proposes nothing, and no declaration means no inferred obligation.
+marketplace coverage (`ad_declaration.owed_combos`), a `change` the user
+named owes no coverage and no store-rule judgement on its rows (their
+number beats a default — see `ad_changes.rule_violations`'
+`store_rules=False`), `investigate`
+proposes nothing, and no declaration means no inferred obligation. What
+`change` does NOT shed is the confirmation: the turn ends showing the
+rows, only a user reply opens `execute`, and the frozen approval still
+judges the execution.
 
 Like every check, one round: a same-turn re-declaration that widens reach
 or sheds an obligation, and `execute` without a user reply to a declared
-audit, are answered once (409, naming what that normally needs); the same
-call again is recorded as the agent declared it. Narrowing at the same
+`audit` or `change`, are answered once (409, naming what that normally
+needs); the same call again is recorded as the agent declared it. Narrowing at the same
 kind and the `investigate` → `audit` correction are always accepted
 (`ad_declaration.supersedes` — a re-declaration may never reduce what the
 phase owes nor widen its reach).
@@ -482,8 +491,9 @@ Declaring `execute` freezes the `CHANGES.tsv` the phase starts from (its
 own, or its nearest ancestor's) into `data/approved_changes/` — the
 approval its execution is checked against — and posts that frozen list to
 the conversation, headed "approved" or "NOT confirmed" according to
-whether the user replied to the audit it came from. Earlier freezes are
-kept, so changes made under a previous approval stay approved.
+whether the user replied to the `audit` or `change` it came from. Earlier
+freezes are kept, so changes made under a previous approval stay
+approved.
 
 Store-rule thresholds (`acos_no_lower`, `cpc_floor_multiplier`,
 `scale_roas`, `change_cooldown_days`, `reconcile_tolerance`,
@@ -514,7 +524,7 @@ its own round.
 |---|---|
 | `listing_upload_gate.py` (`amazon-listing` skill) | A batch this turn's upload attempt produced has a clean verdict. Armed by the upload helper's own `UPLOAD_ATTEMPT.json` — a template download is reading, not uploading — and it runs only for sessions that loaded that skill. |
 | Deliverables (`app/deliverables/gate.py`) | A run that declared itself a monthly report download (`vibe_seller_declare_report_run`) delivered every file that month's derived manifest names. No declaration → not checked: the trigger is the agent's word, never the workspace's folder names. |
-| `ad_changes.py` | `CHANGES.tsv` obeys store rules (`ad_rules.py`, overridable per store via `key: value` lines in `stores/<slug>/notes.md`); `investigate` proposes nothing; `EXECUTION_LOG.tsv` matches the frozen approvals in `data/approved_changes/` (contradiction). |
+| `ad_changes.py` | `CHANGES.tsv` obeys store rules (`ad_rules.py`, overridable per store via `key: value` lines in `stores/<slug>/notes.md`) — judged on an `audit`'s recommendations, not on a value the user named (`change`); `investigate` proposes nothing; `EXECUTION_LOG.tsv` matches the frozen approvals in `data/approved_changes/` (contradiction). |
 | `ad_coverage.py` | An `audit` covered every owed marketplace (`ad_declaration.owed_combos`), drilled live campaigns, reconciled search terms with targeting; impossible spend is a contradiction. |
 | `review_completeness_review` / `review_output_gate` (`review-collect` skill) | Every enumerated product was collected into well-formed `reviews/v1` JSON — the downstream sync upserts these files, so a half-finished dump would silently drop ratings. |
 

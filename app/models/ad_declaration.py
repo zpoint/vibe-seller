@@ -31,7 +31,8 @@ what each phase declared. ``user_turn`` records how many user messages
 the task had when the declaration was accepted: a same-turn
 re-declaration that widens or lightens what the phase owes is asked
 about once (``routers/tasks_ad_declaration``), and ``execute`` normally
-follows a user message after a declared audit.
+follows a user message after a declared ``audit`` or ``change`` — the
+phases that end by showing the user a list of changes.
 """
 
 from datetime import UTC, datetime
@@ -43,17 +44,35 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base
 from app.text_utils import SafeText
 
-# What an ad task can be. ``edit`` is deliberately absent: "change these
-# three bids" is a one-campaign AUDIT, and the scope carries the
-# difference. Two kinds that mean almost the same thing drift apart —
-# one obligation rule for recommending changes is the whole point.
+# What an ad task can be. ``edit`` is deliberately absent as a word —
+# the distinction that matters is not "audit or edit", it is WHOSE
+# judgement the change is:
+#
+#   ``audit``        the agent judges the ads and recommends changes. It
+#                    owes coverage of what it declared, and its proposals
+#                    are checked against the store's rules.
+#   ``change``       the USER named the change ("lower widget-006 to
+#                    1.00"). Nothing is being judged, so nothing is owed
+#                    beyond the row itself: no coverage, no drilling, and
+#                    no store-rule check on their value. It is still
+#                    confirmed before it is applied, and executed exactly
+#                    as approved — the money guards are the same.
+#
+# A third kind for the same job was refused for years on the reasoning
+# that "two kinds meaning almost the same thing drift apart". They do —
+# and here they had drifted into ONE, which is why a one-row instruction
+# was made to compute a whole audit (CI, PR #232: 108k output tokens
+# deliberating over whether the store rule would refuse the user's own
+# number, then a 1200 s timeout).
 KIND_AUDIT = 'audit'
+KIND_CHANGE = 'change'
 KIND_CREATE = 'create'
 KIND_EXECUTE = 'execute'
 KIND_INVESTIGATE = 'investigate'
 
 AD_TASK_KINDS = frozenset({
     KIND_AUDIT,
+    KIND_CHANGE,
     KIND_CREATE,
     KIND_EXECUTE,
     KIND_INVESTIGATE,

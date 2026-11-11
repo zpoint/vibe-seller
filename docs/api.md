@@ -125,7 +125,7 @@ and the reveal endpoint below.
 | POST | `/api/tasks/{task_id}/questions/answer` | Answer agent question (batch) |
 | POST | `/api/tasks/{task_id}/result` | Record task result summary (agent-only via MCP `vibe_seller_set_task_result`). Does NOT transition status; `_auto_run_task` handles that. |
 | POST | `/api/tasks/{task_id}/error` | Record unrecoverable task error (agent-only via MCP `vibe_seller_set_task_error`). Does NOT transition status; `_auto_run_task` sees `task.error` during cleanup and transitions to FAILED. |
-| POST | `/api/tasks/{task_id}/ad-declaration` | Declare what THIS PHASE of an ad task is for, before any browser work (agent-only via MCP `vibe_seller_declare_ad_task`). Body: `{kind, scope}` where kind ∈ audit/create/execute/investigate — there is no `edit`; "change these three bids" is a one-campaign `audit`. `scope` = `{combos[], campaigns[], products[]}`; **absent `combos` means every marketplace the store sells on**. Append-only, one row per declaration. Like every check, one round: within a turn, narrowing at the same kind or correcting `investigate` → `audit` is always accepted (`ad_declaration.supersedes`); any other re-declaration is answered 409 once, and the same call again is recorded as declared. `execute` normally follows a user reply to a declared audit (this task's or its parent's); without one it is 409 once, and on a second call the frozen changes are posted to the conversation marked as not confirmed by the user. On accept, mirrored to `AD_TASK.json` in the task workspace for the stop gates (the row stays authoritative). |
+| POST | `/api/tasks/{task_id}/ad-declaration` | Declare what THIS PHASE of an ad task is for, before any browser work (agent-only via MCP `vibe_seller_declare_ad_task`). Body: `{kind, scope}` where kind ∈ audit/change/create/execute/investigate — `change` is a change the USER named ("lower widget-006 to 1.00"): no coverage, no store-rule judgement on that row, still confirmed; a request to change bids you pick is a one-campaign `audit`. There is no `edit`. `scope` = `{combos[], campaigns[], products[]}`; **absent `combos` means every marketplace the store sells on**. Append-only, one row per declaration. Like every check, one round: within a turn, narrowing at the same kind or correcting `investigate` → `audit` is always accepted (`ad_declaration.supersedes`); any other re-declaration is answered 409 once, and the same call again is recorded as declared. `execute` normally follows a user reply to a declared `audit` or `change` (this task's or its parent's); without one it is 409 once, and on a second call the frozen changes are posted to the conversation marked as not confirmed by the user. On accept, mirrored to `AD_TASK.json` in the task workspace for the stop gates (the row stays authoritative). |
 | GET | `/api/tasks/{task_id}/ad-declarations` | Every declaration this task has made, oldest first — one row per phase (`seq`), with `kind`, `scope`, `user_turn`, `created_at`. The sequence is the task's phase history: a task that created a listing and then audited its ads has two declarations, one per phase. |
 | POST | `/api/tasks/{task_id}/report-declaration` | Declare that this task IS a monthly report-download run, and for which month (agent-only via MCP `vibe_seller_declare_report_run`). Body: `{month: "YYYY-MM"}` — the only thing declared; the expected file list stays server-derived (`app/deliverables/manifest.py`, from the store's capabilities and the calendar), because a denominator the run authors is the one that once reported "9 of 9" against a set of 19. Store-scoped only (400 otherwise: an orchestrator has no store row to derive from). The month must be one that has ENDED — the derived reporting month, or an earlier one for a back-fill the user asked for; the current or a future month is 400, and the refusal names the expected month. Append-only like the ad declaration, and every declared month is owed, so re-declaring can shed nothing. Answer carries `expected_files`, the same list the check will grade against. |
 | GET | `/api/tasks/{task_id}/report-declarations` | Every report run this task declared, oldest first (`seq`, `month`, `created_at`). |
@@ -178,7 +178,7 @@ ships the warning.
    that only read a category is no longer refused for an "unverified
    upload".
 
-**Ad gates read fixed-header TSVs, never the report prose.** The audit
+**Ad gates read fixed-header TSVs, never the report prose.** An audit
 writes `CAMPAIGNS.tsv` and `CHANGES.tsv` in the task dir and per-campaign
 `<campaign_id>.tsv` / `.searchterms.tsv` under
 `store-data/<slug>/ads/<platform>/<country>/`; execution writes
@@ -191,7 +191,11 @@ source of truth; do not restate it.
 - `ad_changes`: `CHANGES.tsv` obeys the store rules (`ad_rules.py` —
   `acos_no_lower`, `cpc_floor_multiplier`, `scale_roas`,
   `change_cooldown_days`, …; each default is overridable by a
-  `key: value` line in `stores/<slug>/notes.md`); an `investigate` phase
+  `key: value` line in `stores/<slug>/notes.md`) — on what an `audit`
+  recommends. A `change` phase's rows are the user's own value, so the
+  thresholds are not applied to them, only what the columns say (a real
+  action word, a target bid for a bid action, a row that moves the way
+  its action says); an `investigate` phase
   proposes nothing; every `EXECUTION_LOG.tsv` row matches an approved
   change (bid within 0.01) and the per-campaign `applied_*` columns agree.
   Execution findings and broken tables are contradictions (banner);

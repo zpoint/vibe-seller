@@ -10,9 +10,18 @@ Why it is a server endpoint and not a file the agent writes:
   committed to stays on record next to what it produced.
 * **One round.** A same-turn re-declaration that widens or lightens what
   the phase owes, and ``execute`` without a user reply to a declared
-  audit, are answered once (409) naming what that normally needs; the
-  same call again is recorded as declared. The decision is the agent's;
-  the user sees an unconfirmed execution marked as such.
+  ``audit`` or ``change``, are answered once (409) naming what that
+  normally needs; the same call again is recorded as declared. The
+  decision is the agent's; the user sees an unconfirmed execution marked
+  as such.
+
+* **``change`` is the kind for a change the user named** ("lower
+  widget-006 to 1.00"). They decided the value, so the phase owes no
+  coverage and no store-rule judgement on that row — but it is still put
+  in front of them and only their reply opens ``execute``, which freezes
+  the approval and holds execution to it. Inferring "this one is direct"
+  from the report's prose is what the declaration replaces: the kind is
+  said, never guessed.
 """
 
 import asyncio
@@ -40,7 +49,6 @@ from app.database import get_db
 from app.events.bus import event_bus
 from app.models.ad_declaration import (
     AD_TASK_KINDS,
-    KIND_AUDIT,
     KIND_EXECUTE,
     AdTaskDeclaration,
 )
@@ -124,28 +132,33 @@ async def _last_user_message_at(db: AsyncSession, task_id: str) -> str | None:
     )
 
 
-async def _user_replied_to_an_audit(db: AsyncSession, task: Task) -> bool:
-    """Whether the user has answered proposals they were shown.
+async def _user_replied_to_a_proposal(db: AsyncSession, task: Task) -> bool:
+    """Whether the user has answered the changes they were shown.
 
-    Execution may start only after an ``audit`` phase (this task's, or
-    the parent's for an execution task spawned from it) and a USER
-    message that came after that audit's turn. Without it a phase could
-    apply changes nobody saw: an agent acting on its own audit in the
-    same turn, or an orchestrator's child executing a plan the user was
-    never asked about. Whether the reply means yes is still the agent's
-    reading of it; that the user saw the list and answered is enforced.
+    Execution may start only after a phase that PROPOSES a list — an
+    ``audit``, or a ``change`` the user named — (this task's, or the
+    parent's for an execution task spawned from it) and a USER message
+    that came after that phase's turn. Without it a phase could apply
+    changes nobody saw: an agent acting on its own audit in the same
+    turn, or an orchestrator's child executing a plan the user was never
+    asked about. Whether the reply means yes is still the agent's reading
+    of it; that the user saw the list and answered is enforced.
+
+    A ``change`` counts exactly as an ``audit`` does here: naming the
+    value themselves does not skip the confirmation, it only changes what
+    the phase had to compute before showing it.
     """
     for owner_id in (task.id, task.parent_task_id):
         if not owner_id:
             continue
-        audit_turn = await db.scalar(
+        shown_turn = await db.scalar(
             select(func.max(AdTaskDeclaration.user_turn)).where(
                 AdTaskDeclaration.task_id == owner_id,
-                AdTaskDeclaration.kind == KIND_AUDIT,
+                AdTaskDeclaration.kind.in_(ad_declaration.PROPOSAL_KINDS),
             )
         )
-        if audit_turn is not None and (
-            await _user_turns(db, owner_id) > audit_turn
+        if shown_turn is not None and (
+            await _user_turns(db, owner_id) > shown_turn
         ):
             return True
     return False
@@ -234,9 +247,10 @@ async def _declare(
         raise HTTPException(
             status_code=400,
             detail=(
-                f'kind must be one of {sorted(AD_TASK_KINDS)}. '
-                'Note there is no "edit" kind — a request to change a few '
-                'bids is kind="audit" with those campaigns in scope.'
+                f'kind must be one of {sorted(AD_TASK_KINDS)}. A change '
+                'the USER named ("lower widget-006 to 1.00") is '
+                'kind="change"; bids you are judging yourself, however '
+                'few, are kind="audit" with those campaigns in scope.'
             ),
         )
 
@@ -258,17 +272,18 @@ async def _declare(
     # declared; the decision stays the agent's.
     if kind == KIND_EXECUTE:
         # Execution needs a user reply to proposals they were shown.
-        confirmed = await _user_replied_to_an_audit(db, task)
+        confirmed = await _user_replied_to_a_proposal(db, task)
         if not confirmed and record_attempt(task_id, 'declare:execute') == 1:
             raise HTTPException(
                 status_code=409,
                 detail=(
                     'Nothing the user has seen and answered is approved '
                     'yet — a request to make a change is not the user '
-                    'seeing the exact change. Declare kind="audit", list '
-                    'the changes in CHANGES.tsv, and end your turn '
-                    'showing them to the user; declare "execute" once '
-                    'they reply.'
+                    'seeing the exact change. Declare kind="change" (a '
+                    'value they named) or kind="audit" (one you are '
+                    'judging), list the changes in CHANGES.tsv, and end '
+                    'your turn showing them to the user; declare '
+                    '"execute" once they reply.'
                 ),
             )
         # A change the user's message did not name, picked on a question
