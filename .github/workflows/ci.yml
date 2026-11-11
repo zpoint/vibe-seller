@@ -167,7 +167,12 @@ jobs:
 
       # Playwright is dev-only — needed for UI tests (pytest-playwright)
       - name: Install Playwright browsers (UI tests only)
-        run: uv run playwright install --with-deps chromium
+        # If a configured apt source does not resolve or connect (observed:
+        # runners' DNS failing for *.ubuntu.com), add a reachable mirror
+        # first; with every source reachable this changes nothing.
+        run: |
+          bash ./install.sh --apt-fallback
+          uv run playwright install --with-deps chromium
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -294,7 +299,12 @@ jobs:
           uv pip install -e ".[dev]"
 
       - name: Install Playwright browsers
-        run: uv run playwright install --with-deps chromium
+        # If a configured apt source does not resolve or connect (observed:
+        # runners' DNS failing for *.ubuntu.com), add a reachable mirror
+        # first; with every source reachable this changes nothing.
+        run: |
+          bash ./install.sh --apt-fallback
+          uv run playwright install --with-deps chromium
 
       - name: Run integration tests
         run: uv run pytest tests/integration -v

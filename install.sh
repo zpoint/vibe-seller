@@ -21,6 +21,9 @@ set -euo pipefail
 #        curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash -s -- --dev
 #
 # Other flags:
+#   --apt-fallback    Only add a reachable apt mirror if a configured
+#                     source is unreachable, then exit (keeps the file;
+#                     used by CI before `playwright install --with-deps`).
 #   --check-only      Check dev-mode dependencies without installing.
 #                     Implies --dev (only meaningful in a clone).
 #   --help, -h        Print this help and exit.
@@ -32,6 +35,7 @@ HELP=false
 PRINT_PATH=false
 TEST_PYPI=false
 NIGHTLY=false
+APT_FALLBACK=false
 VERSION=""
 # `while + shift` so we can take an argument after --version. Other
 # flags stay positional-agnostic.
@@ -42,6 +46,7 @@ while [ $# -gt 0 ]; do
         --print-path)  PRINT_PATH=true ;;  # emit the tool PATH, for start.sh
         --test-pypi)   TEST_PYPI=true ;;
         --nightly)     NIGHTLY=true ;;
+        --apt-fallback) APT_FALLBACK=true ;;  # CI: only add a reachable apt mirror
         --version)     VERSION="${2:-}"; shift ;;
         --version=*)   VERSION="${1#*=}" ;;
         --help|-h)     HELP=true ;;
@@ -285,8 +290,130 @@ _dnf()    { _check dnf; }
 _yum()    { _check yum; }
 _apk()    { _check apk; }
 
+# -- apt mirror fallback --
+# If a configured apt source cannot be resolved or reached (observed:
+# GitHub-hosted runners' DNS failing for *.ubuntu.com while every other
+# domain resolved; also common for users whose default mirror is blocked),
+# add the first reachable fallback mirror for this run only. All sources
+# reachable -> nothing is written. Overridable for tests:
+# APT_FALLBACK_ROOT (/etc/apt), APT_FALLBACK_OS_RELEASE (/etc/os-release),
+# APT_FALLBACK_PROBE (a command run with a host, exit 0 = reachable),
+# APT_FALLBACK_SKIP_UPDATE=1.
+_APT_ROOT="${APT_FALLBACK_ROOT:-/etc/apt}"
+_APT_FALLBACK_FILE="$_APT_ROOT/sources.list.d/vibe-seller-fallback.list"
+_apt_fallback_checked=false
+
+_apt_host_reachable() {
+    local host="$1"
+    if [[ -n "${APT_FALLBACK_PROBE:-}" ]]; then
+        "$APT_FALLBACK_PROBE" "$host"
+        return
+    fi
+    timeout 3 getent hosts "$host" >/dev/null 2>&1 \
+        && timeout 3 bash -c "exec 3<>/dev/tcp/$host/80" 2>/dev/null
+}
+
+# Every host the configured apt sources point at: classic `deb` lines,
+# deb822 `URIs:` fields, and `mirror+file:` lists (GitHub runners).
+_apt_source_hosts() {
+    local files=() f
+    for f in "$_APT_ROOT/sources.list" "$_APT_ROOT"/sources.list.d/*.list \
+        "$_APT_ROOT"/sources.list.d/*.sources; do
+        [[ -f "$f" && "$f" != "$_APT_FALLBACK_FILE" ]] && files+=("$f")
+    done
+    [[ ${#files[@]} -eq 0 ]] && return 0
+    {
+        cat "${files[@]}"
+        grep -ohE 'mirror\+file:[^ ]+' "${files[@]}" 2>/dev/null \
+            | sed 's/^mirror+file://' | while read -r m; do
+                [[ -f "$m" ]] && cat "$m"
+            done
+    } | grep -vE '^[[:space:]]*#' \
+        | grep -oE 'https?://[^/[:space:]]+' \
+        | sed -E 's#https?://##; s#:.*##' | sort -u
+}
+
+_as_root() {  # run as root: directly when already root (containers), else sudo
+    if [[ "$(id -u)" -eq 0 ]]; then "$@"; else sudo "$@"; fi
+}
+
+_as_root_write() {  # $1 = file; content on stdin
+    if [[ -w "$(dirname "$1")" ]]; then
+        cat > "$1"
+    else
+        _as_root tee "$1" >/dev/null
+    fi
+}
+
+_ensure_apt_reachable() {
+    [[ "$_apt_fallback_checked" == true ]] && return 0
+    _apt_fallback_checked=true
+    local osr="${APT_FALLBACK_OS_RELEASE:-/etc/os-release}"
+    [[ -r "$osr" ]] || return 0
+    local id like codename
+    # shellcheck disable=SC1090  # os-release is a plain KEY=value file
+    id=$(. "$osr"; echo "${ID:-}")
+    like=$(. "$osr"; echo "${ID_LIKE:-}")
+    codename=$(. "$osr"; echo "${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}")
+    local distro=""
+    if [[ "$id" == ubuntu || " $like " == *" ubuntu "* ]]; then
+        distro=ubuntu
+        codename=$(. "$osr"; echo "${UBUNTU_CODENAME:-$codename}")
+    elif [[ "$id" == debian || " $like " == *" debian "* ]]; then
+        distro=debian
+    fi
+    [[ -n "$distro" && -n "$codename" ]] || return 0
+
+    local host dead=""
+    while read -r host; do
+        [[ -z "$host" ]] && continue
+        _apt_host_reachable "$host" || dead="$dead $host"
+    done < <(_apt_source_hosts)
+    [[ -z "$dead" ]] && return 0
+
+    local mirror base lines
+    for mirror in mirrors.edge.kernel.org mirrors.aliyun.com; do
+        _apt_host_reachable "$mirror" || continue
+        base="http://$mirror"
+        if [[ "$distro" == ubuntu ]]; then
+            # amd64/i386 live under /ubuntu; every other arch (arm64...)
+            # under /ubuntu-ports.
+            local arch path=ubuntu
+            arch=$(dpkg --print-architecture 2>/dev/null || echo amd64)
+            [[ "$arch" == amd64 || "$arch" == i386 ]] || path=ubuntu-ports
+            local comps="main restricted universe multiverse"
+            lines="deb $base/$path $codename $comps
+deb $base/$path $codename-updates $comps
+deb $base/$path $codename-security $comps"
+        else
+            local comps="main contrib non-free non-free-firmware"
+            lines="deb $base/debian $codename $comps
+deb $base/debian $codename-updates $comps
+deb $base/debian-security $codename-security $comps"
+        fi
+        printf '%s\n' "$lines" | _as_root_write "$_APT_FALLBACK_FILE"
+        _warn "apt source(s) unreachable:$dead — using $mirror for this install"
+        if [[ "${APT_FALLBACK_SKIP_UPDATE:-}" != 1 ]]; then
+            _as_root apt-get update -qq || true
+            _apt_updated=true
+        fi
+        return 0
+    done
+    _warn "apt source(s) unreachable:$dead — no fallback mirror reachable either"
+}
+
+_apt_fallback_cleanup() {
+    [[ -f "$_APT_FALLBACK_FILE" ]] || return 0
+    if [[ -w "$(dirname "$_APT_FALLBACK_FILE")" ]]; then
+        rm -f "$_APT_FALLBACK_FILE"
+    else
+        _as_root rm -f "$_APT_FALLBACK_FILE"
+    fi
+}
+
 _apt_updated=false
 _apt_update() {
+    _ensure_apt_reachable
     if [[ "$_apt_updated" == false ]]; then
         sudo apt-get update -qq
         _apt_updated=true
@@ -750,6 +877,7 @@ _install_playwright_chromium() {
     local args=(install chromium)
     if [[ "$OS" == "linux" ]]; then
         args=(install --with-deps chromium)
+        _ensure_apt_reachable
     fi
     if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then
         _info "Downloading Chromium from $PLAYWRIGHT_DOWNLOAD_HOST" \
@@ -954,6 +1082,13 @@ main() {
         print_usage
         exit 0
     fi
+
+    if [[ "$APT_FALLBACK" == true ]]; then
+        _ensure_apt_reachable
+        exit 0
+    fi
+    # A fallback mirror added for this run is removed when it ends.
+    trap _apt_fallback_cleanup EXIT
 
     echo ""
     if [[ "$DEV" == true ]]; then
