@@ -9,9 +9,16 @@ fifteen more probing over forty invented ones (``/campaigns``,
 expose. Each 404 looked like a lead, and every call was different, so no
 loop detector saw a loop.
 
-The contract, per task: a path the service answers stays open; after
-``MAX_UNKNOWN`` distinct paths the service did not know, further unknown
-paths are refused before they leave the server.
+The contract, per task: a path the skill documents, or the service has
+already answered for this task, stays open; the budget of
+``MAX_UNKNOWN`` refused paths limits GUESSING — after it is spent, a
+path the service does not know and the skill never named is refused
+before it leaves the server. What counts as documented is the service's
+own declaration: the path shapes written in the skill bundle the
+service ships (``/facts/rollup``, ``/live/*``, ``/data/{dataset}``).
+The budget must never close a documented door — the cap once punished
+the very paths the skill named, because the guard could tell an
+answered path from an unknown one and nothing else.
 
 **Only a missing route counts as a missing path.** The service answers
 404 in two quite different situations: a path it has no route for, and
@@ -26,6 +33,8 @@ apart.
 
 from collections import OrderedDict
 from enum import Enum
+from pathlib import Path
+import re
 
 from app.ads_client import AdsServiceError
 
@@ -34,6 +43,81 @@ _MAX_TASKS = 512
 
 #: task id -> (answered paths, unknown paths), oldest task evicted first.
 _seen: OrderedDict[str, tuple[set[str], set[str]]] = OrderedDict()
+
+# ── What the skill documents ─────────────────────────────────────────
+#
+# The service declares its own surface: the skill bundle it ships names
+# every path it answers (``/facts/rollup``, ``/live/*``,
+# ``/data/{dataset}``). That bundle — installed under the ads skill's
+# directory — is the declared list, so the guessing budget never has to
+# guess which doors are real. Tokens are read from the bundle's
+# markdown, reloaded only when the bundle files change.
+
+_PATH_TOKEN_RE = re.compile(
+    r'(?<![\w./-])/[A-Za-z0-9_*{}…<>-]+'
+    r'(?:/[A-Za-z0-9_*{}…<>-]+)*'
+)
+
+#: (per-file signature, tokens) — recomputed when the signature moves.
+_documented_cache: tuple[tuple, frozenset[str]] | None = None
+
+
+def _bundle_files() -> list[Path]:
+    # Lazy: ads_skill pulls the DB and workspace manager, this guard is
+    # imported by the thin client-facing modules.
+    from app import ads_skill  # noqa: PLC0415
+
+    root = ads_skill.skill_dir()
+    if not root.is_dir():
+        return []
+    return sorted(
+        p
+        for p in (q for q in root.rglob('*') if q.is_file())
+        if p.suffix.lower() in ('.md', '.txt', '.json', '.yaml', '.yml')
+    )
+
+
+def _signature(paths: list[Path]) -> tuple:
+    out = []
+    for p in paths:
+        try:
+            st = p.stat()
+            out.append((str(p), st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append((str(p), None, None))
+    return tuple(out)
+
+
+def _extract(text: str) -> list[str]:
+    tokens = []
+    for m in _PATH_TOKEN_RE.finditer(text):
+        tok = m.group(0).rstrip('.:;,!|')
+        tok = tok.split('?', 1)[0].rstrip('/')
+        if tok and tok != '/' and any(c.isalpha() for c in tok):
+            tokens.append(tok)
+    return tokens
+
+
+def documented_paths() -> frozenset[str]:
+    """Every path shape the installed ads skill bundle names.
+
+    Blocking (reads the bundle) — call off the event loop.
+    """
+    global _documented_cache
+    files = _bundle_files()
+    sig = _signature(files)
+    if _documented_cache is not None and _documented_cache[0] == sig:
+        return _documented_cache[1]
+    found: set[str] = set()
+    for f in files:
+        try:
+            found.update(_extract(f.read_text(encoding='utf-8')))
+        except (OSError, UnicodeDecodeError):
+            continue
+    result = frozenset(found)
+    _documented_cache = (sig, result)
+    return result
+
 
 NOT_A_PATH = (
     ' The service has no such path. Call only the paths your ads skill '
@@ -89,12 +173,71 @@ def _state(task_id: str) -> tuple[set[str], set[str]]:
     return _seen[task_id]
 
 
-def refusal(task_id: str | None, path: str) -> str | None:
-    """Why this call must not be sent, else ``None``."""
+def _matches(token: str, want: list[str]) -> bool:
+    """Whether one declared path shape names this path's segments.
+
+    A ``{dataset}``/``<id>``/``…`` segment stands for exactly one
+    concrete segment; a ``*`` as the last declared segment documents
+    everything below it, and elsewhere it stands for one segment.
+    """
+    segs = [s for s in token.split('/') if s]
+    at = 0
+    for i, seg in enumerate(segs):
+        last = i == len(segs) - 1
+        if seg == '*' and last:
+            return True
+        if at >= len(want):
+            return False
+        if (
+            seg == '…'
+            or (seg.startswith('{') and seg.endswith('}'))
+            or (seg.startswith('<') and seg.endswith('>'))
+        ):
+            at += 1
+            continue
+        if seg != want[at]:
+            return False
+        at += 1
+    return at == len(want)
+
+
+def is_documented(path: str, patterns) -> bool:
+    """Whether the skill's declared paths name this one.
+
+    The query string is not part of the path the skill documents; the
+    service itself decides what a parameter means.
+    """
+    if not patterns:
+        return False
+    want = [s for s in path.split('?', 1)[0].split('/') if s]
+    if not want:
+        return False
+    return any(_matches(t, want) for t in patterns)
+
+
+def refusal(
+    task_id: str | None,
+    path: str,
+    documented: frozenset[str] | None = None,
+) -> str | None:
+    """Why this call must not be sent, else ``None``.
+
+    ``documented`` is the service's own declaration — the path shapes
+    written in the skill bundle it ships (:func:`documented_paths`,
+    loaded from it when not passed: this reads files, so event-loop
+    callers go through ``asyncio.to_thread``). A documented path is
+    never refused: the budget counts and refuses GUESSES, and closing a
+    door the skill names would punish the work for the probing that
+    came before it.
+    """
     if not task_id:
         return None
+    if documented is None:
+        documented = documented_paths()
     answered, unknown = _state(task_id)
-    if path in answered or len(unknown) < MAX_UNKNOWN:
+    if path in answered or is_documented(path, documented):
+        return None
+    if len(unknown) < MAX_UNKNOWN:
         return None
     return _REFUSED.format(n=len(unknown), path=path)
 

@@ -219,7 +219,13 @@ async def agent_call(
         except ads_client.AdsServiceError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-    barred = ads_path_guard.refusal(payload.task_id, path)
+    # The path guard reads the skill bundle's declared path list (the
+    # service's own words on which paths it answers), so it runs off
+    # the loop — the budget closes guessed paths only, never a
+    # documented one.
+    barred = await asyncio.to_thread(
+        ads_path_guard.refusal, payload.task_id, path
+    )
     if barred:
         raise HTTPException(status_code=400, detail=barred)
     # Access-time scope: a campaign-narrowed declaration may not READ

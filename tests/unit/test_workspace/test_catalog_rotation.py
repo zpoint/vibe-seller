@@ -200,22 +200,23 @@ class TestCatalogDescContracts:
         assert '<slug>' not in rendered
         assert 'stores/my-store/' in rendered
 
-    def test_l3_desc_classifier_is_filename_only(self):
-        """The L3 file-classification rule must be filename-based, not
-        content-based.
+    def test_l3_desc_classifier_is_default_by_name_final_by_writer(self):
+        """Ordinary files are classified by NAME (a filename rule
+        never needs the agent to judge content); only the run-output
+        name shapes open a file before skipping, and an existing row
+        is a declaration the sync must not silently revoke.
 
-        Regression guard: e2e test_catalog_sync_and_agent_usage failed
-        when the agent excluded `notes.md` from a store's L3 catalog
-        because its content "looked minimal". The agent's thinking
-        trace explicitly cited the spec phrase
-        "procedural, transferable across runs" as a content
-        criterion that overrode the filename rule, then dropped the
-        file. The fix is to remove every phrase that invites a
-        content-based judgment and to require empty/stub files to be
-        included with a placeholder summary.
+        Regression guards kept: e2e test_catalog_sync_and_agent_usage
+        failed when the agent excluded `notes.md` because its content
+        "looked minimal" — the default INCLUDE list (and the server's
+        missing-row error) still make that impossible; what changed
+        is the OTHER direction: an ALL_CAPS name used to make a file
+        uncatalogable no matter what its writer intended (a user's
+        PROMO_RULES.md is knowledge), so the gate now honours a row
+        and the prompt tells the agent to look before skipping and to
+        keep rows that already exist.
         """
-        # Anchor: the rule is filename-only, stated up front.
-        assert 'by filename only' in CATALOG_DESC_L3.lower()
+        assert 'BY DEFAULT' in CATALOG_DESC_L3.upper()
 
         # Explicit INCLUDE pattern listing — agent should not have to
         # infer it from prose.
@@ -230,17 +231,29 @@ class TestCatalogDescContracts:
                 f'INCLUDE example missing: {example}'
             )
 
-        # Explicit EXCLUDE pattern listing.
-        assert 'EXCLUDE' in CATALOG_DESC_L3
+        # Machine files never get a row (the server wrote them).
+        for example in ('metadata.json', '.lock', '.cache'):
+            assert example in CATALOG_DESC_L3, (
+                f'machine-file example missing: {example}'
+            )
+
+        # Run-output names: default skip, look before deciding, keep
+        # existing declarations.
         for example in ('_PLAN_', '_REPORT_', 'YYYY-MM-DD'):
             assert example in CATALOG_DESC_L3, (
-                f'EXCLUDE example missing: {example}'
+                f'run-output example missing: {example}'
             )
+        body = CATALOG_DESC_L3.lower()
+        assert 'open it before' in body, 'name must not final-skip'
+        assert 'already carries a row' in body, (
+            'existing rows are declarations the sync must keep'
+        )
+        assert 'PROMO_RULES.md' in CATALOG_DESC_L3
 
         # Anti-pattern guard: the prompt must NOT say "decide if it's
         # transferable / procedural / actionable" — that's content
-        # judgment language. Lowercased to catch any casing.
-        body = CATALOG_DESC_L3.lower()
+        # judgment language for ORDINARY files. Lowercased to catch
+        # any casing.
         forbidden = [
             'transferable across runs',
             'is this **l3 knowledge**',
@@ -248,7 +261,7 @@ class TestCatalogDescContracts:
         for phrase in forbidden:
             assert phrase not in body, (
                 f'Content-judgment phrase resurfaced: {phrase!r} — '
-                'the L3 classifier must stay filename-only.'
+                'the default classifier must stay a name rule.'
             )
 
         # Empty/stub files must still be included with a placeholder,

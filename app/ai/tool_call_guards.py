@@ -8,10 +8,12 @@ called while planning, and a shell command that calls the ads service
 around its tool.
 """
 
+import re
 from urllib.parse import urlsplit
 
 from app.ads_client import SERVICE_URL
 from app.ai.mcp_args_guard import missing_args_deny
+from app.ai.shell_patterns import COMMAND_PREFIX
 from app.ai.source_guard import source_access_deny
 
 # Tools that DO the task. While planning, the agent decides what to do;
@@ -59,6 +61,28 @@ def _service_hosts() -> tuple[str, ...]:
 
 _SERVICE_HOSTS = _service_hosts()
 
+# The only Bash shapes that REACH the service over the network: a
+# network client in command position (its arguments carry the URL/host),
+# or an interpreter running inline CODE that names the host. Naming the
+# host some other way — `grep`ping notes that mention the URL, an echo,
+# a plain file path — is not a request and is left alone: that was a
+# substring match over the whole command, which refused reading a store
+# note that happened to quote the endpoint. False negatives stay fine
+# (an obscure socket call slips through), false positives are the cost
+# this narrowing pays to stop blocking ordinary text work.
+_NET_CLIENT_INVOCATION = re.compile(
+    COMMAND_PREFIX
+    + r'(?:curl|wget|http|https|httpie|aria2c|nc|ncat|netcat|telnet|socat)'
+    r'\b([^;&|\n]*)'
+)
+# ``python -c "... host ..."`` / ``node -e`` — inline code that can open
+# a socket; a script invoked by FILENAME is never inspected here.
+_INLINE_CODE_INVOCATION = re.compile(
+    COMMAND_PREFIX
+    + r'(?:python\d*|pypy\d*|node|deno|ruby|perl|php|groovy)\b'
+    + r'[^;&|\n]*?(?:\s-c\b|\s-e\b|--eval\b|--command\b)[^;&|\n]*'
+)
+
 _SERVICE_DENY = (
     'Blocked: the ads service is reached only through '
     "`vibe_seller_ads_call`, which applies the store's binding and the "
@@ -69,18 +93,30 @@ _SERVICE_DENY = (
 
 
 def ads_service_deny(tool_name: str, tool_input) -> str | None:
-    """Refuse a shell command that talks to the ads service directly.
+    """Refuse a shell command that makes a NETWORK request to the service.
 
     Observed in CI: a planner refused `vibe_seller_ads_call` (planning)
     and the API skill (no store) found the service's port and `curl`-ed
     it, with no key and then a store NAME as the key -- the same bypass
-    class as `cat`-ing a skill the routing refused.
+    class as `cat`-ing a skill the routing refused. The guard fires on
+    the request, not on the host name appearing in the command text.
+
+    A network client is checked per invocation (its arguments stop at
+    ``;``/``|``/``&``/newline). Inline interpreter code is checked over
+    the whole command: quotes hide shell separators from a string
+    match, and an inline-code run that names the endpoint anywhere is
+    the act; a FILE-run script (`python parse.py`) is never inspected
+    here, per the convention of these guards.
     """
     if tool_name != 'Bash' or not isinstance(tool_input, dict):
         return None
     cmd = str(tool_input.get('command', ''))
-    if any(h in cmd for h in _SERVICE_HOSTS):
-        return _SERVICE_DENY
+    for m in _NET_CLIENT_INVOCATION.finditer(cmd):
+        if any(h in m.group(1) for h in _SERVICE_HOSTS):
+            return _SERVICE_DENY
+    if _INLINE_CODE_INVOCATION.search(cmd):
+        if any(h in cmd for h in _SERVICE_HOSTS):
+            return _SERVICE_DENY
     return None
 
 

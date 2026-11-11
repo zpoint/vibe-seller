@@ -263,6 +263,10 @@ class _StreamMixin:
 
         if etype in ('user', 'system'):
             self._track_async_agents(event)
+        if etype == 'user':
+            # Feed the loop breaker: a repeat call is only a loop if
+            # its answer repeats too (claude_backend_utils.check_tool_loop).
+            self._note_tool_results(event)
 
         if etype == 'assistant':
             # Capture error category from assistant error events

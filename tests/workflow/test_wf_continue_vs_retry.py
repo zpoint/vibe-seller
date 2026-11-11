@@ -4,21 +4,26 @@ The task-detail panel shows both on a failed task:
   - Continue posts /messages → RESUME the same task, preserving context
     (plan / plan_history stay; only stale run-error is cleared).
   - Retry posts /retry → DESTRUCTIVE fresh restart (plan / plan_history /
-    error wiped, prior messages deleted, back to PENDING).
+    error wiped, prior messages deleted, durable skill bindings
+    cleared, back to PENDING).
 
 These tests pin that split so a future change can't silently make
 Continue destructive or Retry non-destructive.
 """
 
+import asyncio
 import uuid
 
 import pytest
 from sqlalchemy import select
 
+from app.ai.stop_gates import GateDeny, record_skill_load, recorded_skills
 import app.database as _db
 from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.models.user import User
+import app.routers.tasks as tasks_router
+from tests.workflow.conftest import wait_for_task
 from tests.workflow.fake_agent import FakeAgentScenario
 
 pytestmark = pytest.mark.workflow
@@ -177,3 +182,93 @@ class TestContinueVsRetry:
 
         # Continue preserved the banked file.
         assert banked.exists()
+
+
+class _RefusingAdGate:
+    """Stand-in for an ad skill's exit gate: refuses any result once,
+    the way ``ad_coverage`` refuses one without the TSVs it owes."""
+
+    @staticmethod
+    def check(result_text, task_id=None, rules=None):
+        return GateDeny(gate='ad_gate', reason='ad coverage TSVs missing')
+
+
+def _bind_gates_to_durable_loads(install_fake_agent, monkeypatch):
+    """Make the submit path resolve gates from the durable bindings,
+    mirroring the real ``ClaudeCodeBackend.loaded_skills_and_workspace``
+    (the fake returns no skills of its own by design)."""
+    monkeypatch.setattr(
+        install_fake_agent,
+        'loaded_skills_and_workspace',
+        lambda task_id: (recorded_skills(task_id), None),
+    )
+    monkeypatch.setattr(
+        tasks_router,
+        'resolve_skill_gates',
+        lambda loaded, _workspace: (
+            [('ad_gate', _RefusingAdGate)] if 'amazon-ads' in loaded else []
+        ),
+    )
+
+
+class TestSkillBindingsFollowTheRun:
+    """A skill→task gate binding belongs to the run that loaded the
+    skill. Retry is a fresh start, so the retried run must not be
+    checked by the gates of a skill it never loaded; a follow-up
+    continues the same work, so its gates stay."""
+
+    async def test_retry_clears_skill_bindings(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        task_id = await _seed_failed_task()
+        # What run 1's PreToolUse hook wrote when it loaded the skill.
+        record_skill_load(task_id, 'amazon-ads')
+        _bind_gates_to_durable_loads(install_fake_agent, monkeypatch)
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            gate=asyncio.Event()
+        )
+
+        r = await admin_client.post(f'/api/tasks/{task_id}/retry', json={})
+        assert r.status_code == 200
+        assert recorded_skills(task_id) == frozenset()
+
+        # The retried run submits a non-ad result: nothing refuses it.
+        await wait_for_task(admin_client, task_id, 'running')
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result',
+            json={'result': 'Plain answer, no ad work in it.'},
+        )
+        install_fake_agent.default_scenario.gate.set()
+        assert r.status_code == 200, r.text
+
+    async def test_followup_keeps_skill_bindings(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        task_id = await _seed_failed_task()
+        record_skill_load(task_id, 'amazon-ads')
+        _bind_gates_to_durable_loads(install_fake_agent, monkeypatch)
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            gate=asyncio.Event()
+        )
+
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/messages',
+            json={'content': 'continue, summarize what we found'},
+        )
+        assert r.status_code == 200
+        assert recorded_skills(task_id) == {'amazon-ads'}
+
+        # The follow-up continues the ad work: the binding's gate gets
+        # its one round — refused once, then shipped with caveats.
+        await wait_for_task(admin_client, task_id, 'running')
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result',
+            json={'result': 'Summary of the ad audit.'},
+        )
+        assert r.status_code == 400, r.text
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result',
+            json={'result': 'Summary of the ad audit.'},
+        )
+        install_fake_agent.default_scenario.gate.set()
+        assert r.status_code == 200, r.text

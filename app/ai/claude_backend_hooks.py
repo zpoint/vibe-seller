@@ -21,6 +21,7 @@ from app.ai.claude_backend_utils import (
     TOOL_APPROVAL_CALLBACK,
     check_skill_prereqs,
     check_tool_loop,
+    record_tool_result,
 )
 from app.ai.image_guards import (
     check_generated_image_write,
@@ -148,6 +149,36 @@ class _HookMixin:
             else:
                 await self._send_control_response(request_id, 'allow')
 
+    def _note_tool_results(self, event: dict) -> None:
+        """Feed the loop breaker from the stream.
+
+        Tool answers arrive as ``tool_result`` blocks in user messages.
+        Each fills the matching PreToolUse entry by tool_use_id — so
+        the breaker can tell six identical polls apart by what they
+        came back with (see ``check_tool_loop``).
+        """
+        blocks = event.get('message', {}).get('content', [])
+        if not isinstance(blocks, list):
+            return
+        for block in blocks:
+            if (
+                not isinstance(block, dict)
+                or block.get('type') != 'tool_result'
+            ):
+                continue
+            raw = block.get('content')
+            if isinstance(raw, list):
+                text = ' '.join(
+                    b.get('text', '')
+                    for b in raw
+                    if isinstance(b, dict) and b.get('type') == 'text'
+                )
+            else:
+                text = str(raw or '')
+            record_tool_result(
+                self._recent_tool_calls, block.get('tool_use_id'), text
+            )
+
     async def _handle_hook_callback(self, request_id: str, request: dict):
         """Handle a HookCallback control request."""
         callback_id = request.get('callback_id', '')
@@ -179,7 +210,12 @@ class _HookMixin:
             inner_input = tool_input.get('tool_input', {})
             if inner_name == 'Bash':
                 cmd = inner_input.get('command', '')
-                deny = first_bash_deny(cmd, self.task_dir, self._catalog_read)
+                # One thread hop: the chain is string work except the
+                # bid guard, which may read the task's frozen approval
+                # TSV (see app.ai.bash_safety). Keep that off the loop.
+                deny = await asyncio.to_thread(
+                    first_bash_deny, cmd, self.task_dir, self._catalog_read
+                )
                 deny = deny or long_sleep_deny(inner_input, self._async_agents)
                 if deny:
                     label, deny_reason = deny
@@ -232,7 +268,10 @@ class _HookMixin:
                 inner_name, inner_input, self._loaded_skills
             )
             if check_tool_loop(
-                self._recent_tool_calls, inner_name, inner_input
+                self._recent_tool_calls,
+                tool_input.get('tool_use_id'),
+                inner_name,
+                inner_input,
             ):
                 logger.warning(
                     'Circuit breaker: agent %s stuck in loop (%s), stopping',
@@ -377,7 +416,12 @@ class _HookMixin:
             await self._handle_ask_user_question(request_id, tool_input)
         else:
             # Circuit breaker check
-            if check_tool_loop(self._recent_tool_calls, tool_name, tool_input):
+            if check_tool_loop(
+                self._recent_tool_calls,
+                request.get('tool_use_id'),
+                tool_name,
+                tool_input,
+            ):
                 logger.warning(
                     'Circuit breaker: agent %s stuck in loop (%s), stopping',
                     self.task_id[:8],

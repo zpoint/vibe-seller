@@ -120,14 +120,37 @@ def test_the_routing_is_kept_for_the_task_not_the_session():
     [
         f'cat {SHARED}/amazon-ads-api/SKILL.md | head -120',
         f'sed -n 25,200p {SHARED}/amazon-ads-api/SKILL.md',
+        # Running the excluded skill's scripts is taking its procedure.
+        f'python {SHARED}/amazon-ads-api/scripts/ads_bulk.py --apply',
+        f'bash {SHARED}/amazon-ads-api/scripts/setup.sh',
     ],
 )
-def test_a_shell_read_of_the_excluded_skill_is_refused_too(command):
+def test_a_shell_read_or_run_of_the_excluded_skill_is_refused(command):
     """Observed in CI: refused the Read, a planner went straight to `cat`.
     A refusal that one tool honours and another walks around only costs
     time."""
     out = _decision(UNBOUND, 'Bash', {'command': command})
     assert out['permissionDecision'] == 'deny'
+
+
+@pytest.mark.parametrize(
+    'command',
+    [
+        # Not the act: a listing, a search, a count — none print the
+        # procedure or run it. The old substring rule refused even
+        # these, reading the routing as arbitrary.
+        f'ls {SHARED}/amazon-ads-api/',
+        f'ls -la {SHARED}/amazon-ads-api/SKILL.md',
+        f'grep -rn "ads_call" {SHARED}/amazon-ads-api/ | head',
+        f'find {SHARED} -maxdepth 1 -type d',
+        f'wc -l {SHARED}/amazon-ads-api/SKILL.md',
+        # A chain: no segment both acts and names the skill dir.
+        f'ls /tmp; cat notes.md; grep x {SHARED}/amazon-ads-api/SKILL.md',
+    ],
+)
+def test_naming_the_excluded_skill_without_loading_it_is_allowed(command):
+    out = _decision(UNBOUND, 'Bash', {'command': command})
+    assert out['permissionDecision'] == 'allow'
 
 
 def test_a_shell_command_naming_an_allowed_skill_runs():

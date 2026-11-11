@@ -19,6 +19,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 import re
 
+from app.ai.shell_patterns import COMMAND_PREFIX
+
 #: The browser skill, for stores with no ads service binding.
 BROWSER_SKILL = 'amazon-ads'
 #: The API skill, pulled from the bound service.
@@ -52,8 +54,12 @@ def excluded(task_id: str | None) -> frozenset[str]:
 def refusal_for(task_id: str, tool: str, tool_input: dict) -> str | None:
     """Why this tool call may not load a skill routed away from the task.
 
-    Reached by name through the Skill tool, or by reading any file in the
-    skill's folder. None when the call is not such a load.
+    Reached by name through the Skill tool, by reading any file in the
+    skill's folder, or — in Bash — by printing a file from it or
+    running a script in it. None when the call is not such a load:
+    ``ls``-ing or ``grep``-ing the folder names the skill without
+    taking its instructions, and refusing that read the routing as
+    arbitrary (the substring rule once refused even `ls`).
     """
     barred = _excluded.get(task_id, frozenset())
     if tool == 'Skill':
@@ -61,11 +67,15 @@ def refusal_for(task_id: str, tool: str, tool_input: dict) -> str | None:
     elif tool == 'Read':
         names = _SKILL_DIR.findall(str(tool_input.get('file_path', '')))
     elif tool == 'Bash':
-        # `cat …/skills/<name>/SKILL.md` is the same load by another
-        # tool. Observed in CI: a planner refused the Read went straight
-        # to `cat`, so the routing only cost it time and taught it that a
-        # refusal can be walked around.
-        names = _SKILL_DIR.findall(str(tool_input.get('command', '')))
+        # The load by another tool. Observed in CI: a planner refused
+        # the Read went straight to `cat`, so the routing only cost it
+        # time and taught it that a refusal can be walked around. The
+        # act is printing the skill's files (`cat …/SKILL.md`, `sed`
+        # excerpts) or executing its scripts (`python …/scripts/x.py`)
+        # — a reader/interpreter in command position naming a path
+        # inside the skill dir. A search (`grep`) or a listing prints
+        # no procedure and runs nothing.
+        names = _SKILL_ACT.findall(str(tool_input.get('command', '')))
     else:
         return None
     name = next((n for n in names if n in barred), None)
@@ -75,6 +85,18 @@ def refusal_for(task_id: str, tool: str, tool_input: dict) -> str | None:
 
 
 _SKILL_DIR = re.compile(r'(?:^|/)skills/([^/]+)/')
+
+# A shell reader printing a file, or an interpreter/runner executing
+# one, from inside a skill dir — command position, path in the same
+# invocation (args stop at ``;``/``|``/``&``/newline so a following
+# unrelated command cannot dirty the match). Mirrors the read/listing
+# split of ``skill_gate_utils.skill_name_from_read`` (a lookup is not a
+# read), widened to any file of the skill and to execution.
+_SKILL_ACT = re.compile(
+    COMMAND_PREFIX
+    + r'(?:cat|head|tail|less|more|sed|bat|nl|awk|cp|python\d*|bash|sh|zsh'
+    r'|node|source)\b' + r'[^;&|\n]*?(?:^|[\s/~"\'])skills/([A-Za-z0-9_.-]+)/'
+)
 
 
 def refusal(skill: str, *, storeless: bool = False) -> str:

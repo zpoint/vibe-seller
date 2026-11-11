@@ -82,6 +82,37 @@ class TestAdsServiceBypass:
         deny = ads_service_deny('Bash', {'command': cmd})
         assert deny and 'vibe_seller_ads_call' in deny
 
+    def test_wget_and_inline_code_reach_the_service_too(self):
+        h = self._host()
+        assert ads_service_deny('Bash', {'command': f'wget -qO- http://{h}/x'})
+        assert ads_service_deny(
+            'Bash',
+            {
+                'command': f'python -c "import requests; requests.get('
+                f"'http://{h}/facts')\""
+            },
+        )
+
+    def test_naming_the_host_without_requesting_it_passes(self):
+        """The guard denies the REQUEST. Reading a store note that
+        happens to quote the endpoint is not calling it — the old
+        substring match blocked `grep` of prose that mentioned the URL."""
+        h = self._host()
+        assert (
+            ads_service_deny('Bash', {'command': f'grep -rn {h} stores/'})
+            is None
+        )
+        assert (
+            ads_service_deny(
+                'Bash', {'command': f'cat notes.md # {h} is the API'}
+            )
+            is None
+        )
+        assert (
+            ads_service_deny('Bash', {'command': f'python parse_notes.py {h}'})
+            is None
+        )
+
     def test_other_commands_pass(self):
         assert (
             ads_service_deny('Bash', {'command': 'curl -s http://127.0.0.1:9/'})

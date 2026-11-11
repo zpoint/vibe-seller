@@ -708,15 +708,20 @@ TOOLS = [
             'look at), say so and let the USER judge — it is displayed '
             'inline in the task. Never substitute a pixel-measurement '
             'script for looking, and never act on what such a script '
-            'measured. (5) EVERY image this tool is asked for — including '
-            '"just remove the background", "only crop it", "make it pure '
-            'white" — is produced by the MODEL, through this tool. NEVER '
-            'build or repair an image deliverable locally: no rembg, no '
-            'Pillow/OpenCV compositing, no ImageMagick, no writing into '
-            "`generated_images/` (that directory is this tool's, and each "
-            "file's recorded prompt+model is what the user's inline card "
-            'claims). Those paths are blocked by a PreToolUse guard. If a '
-            'result is wrong, fix it the way (6) describes. (6) REVISING an image you '
+            'measured. (5) Every image THIS tool is asked to produce is '
+            'produced by the MODEL through this tool, and '
+            "`generated_images/` is this tool's directory: each file's "
+            "recorded prompt+model is what the user's inline card "
+            'claims, so nothing local may write into it or overwrite a '
+            'file there (a PreToolUse guard blocks it). A change to a '
+            'GENERATED image — "just remove the background", "only crop '
+            'it", "make it pure white" — is fixed the way (6) describes, '
+            'not by post-processing it. Local image processing is '
+            "otherwise ordinary work: resize a user's photo to a "
+            "platform's minimum, webp→jpg, crop a screenshot, edit a "
+            'copy of a generated file you wrote OUT to work on — just '
+            'deliver those as your own files, never under '
+            '`generated_images/`. (6) REVISING an image you '
             'already generated — for ANY change, whether the USER asked '
             'for it (lighter/darker, bigger/smaller, recolour, remove or '
             'add an element, change composition) or YOUR OWN audit found '

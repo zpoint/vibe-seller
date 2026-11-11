@@ -17,7 +17,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.claude_backend_manager import agent_manager
-from app.ai.stop_gates import reset_attempts
+from app.ai.stop_gates import clear_skill_bindings, reset_attempts
 from app.ai.stop_gates.ad_changes import remove_approvals
 from app.models.screenshot import Screenshot
 from app.models.task import Task
@@ -45,11 +45,20 @@ def _task_workspace_dir(task_id: str) -> Path:
 
 
 def clear_gate_state(task_id: str) -> None:
-    """Drop a task's gate counters and frozen ad approval.
+    """Drop a task's gate counters, frozen ad approval and skill bindings.
 
     Blocking (file unlink) — call off the event loop.
+
+    The durable skill→task bindings go with the other gate state on
+    every path that calls this: task deletion, and retry — which is a
+    fresh start (the workspace, the declarations and the approvals all
+    go; a retried run checked by the gates of a skill it never loaded
+    would be reviewed against work it is not doing). A follow-up keeps
+    them: it continues the same work, and the gates a loaded skill
+    declared are that work's contract until a result ships.
     """
     reset_attempts(task_id)
+    clear_skill_bindings(task_id)
     try:
         remove_approvals(task_id)
     except OSError:
