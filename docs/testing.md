@@ -415,9 +415,9 @@ E2E_PROVIDER_MAP=minimax,glm pytest tests/e2e/ --e2e -n 2 --dist load --maxsched
 
 **Relationship**: `MAX_AGENT_CONCURRENCY` must be ≥ 2× the number of `E2E_PROVIDER_MAP` entries to avoid test timeouts from semaphore contention. CI runs one worker per `E2E_PROVIDER_MAP` entry (a repo variable) with `MAX_AGENT_CONCURRENCY=16`; tests that need two models (profile switch, compaction) take the first two *distinct* providers from the map.
 
-**No `--maxfail` in the CI e2e run** — the `e2e-test` step passes no failure cap, so one run reports EVERY failure instead of stopping at the first.
+**The CI e2e run stops at the first failure** (`--maxfail=1`): every test spends real provider credits, so a red run should not run the rest of the tier. When several independent failures are expected (a large harness change), drop the flag for that run to see them all at once.
 
-If you do pass `--maxfail`, know that pytest-xdist alone does not stop on it: each worker runs every test it was already handed before it shuts down, so an early failure drains the suite on fewer workers and can outlive the step timeout, which then kills the run before pytest prints the failure. `tests/e2e/fail_fast.py` makes it stop properly: from the `--maxfail`-th failure on, workers skip every test they have not started; tests already running finish.
+**`--maxfail` under xdist** — pytest-xdist alone does not stop on `--maxfail`: each worker runs every test it was already handed before it shuts down, so an early failure drains the suite on fewer workers and can outlive the step timeout, which then kills the run before pytest prints the failure. `tests/e2e/fail_fast.py` makes it stop: from the `--maxfail`-th failure on, workers skip every test they have not started; tests already running finish.
 
 ### Log Tracing
 

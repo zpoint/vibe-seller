@@ -496,6 +496,7 @@ jobs:
             --only-rerun 'overloaded_error' \
             --only-rerun 'Agent stream stalled' \
             --only-rerun 'Connection closed mid-response' \
+            --maxfail=1 \
             $XDIST_ARGS \
             --ignore=tests/e2e/test_chrome_backend.py
 
