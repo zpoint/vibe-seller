@@ -25,9 +25,7 @@ def _jobs():
 
 
 def _installs_pnpm_deps(steps):
-    return any(
-        'pnpm install' in (s.get('run') or '') for s in steps
-    )
+    return any('pnpm install' in (s.get('run') or '') for s in steps)
 
 
 def test_some_job_installs_frontend_deps():
@@ -46,8 +44,9 @@ def test_pnpm_comes_from_corepack_on_node_22(job, steps):
     runs = '\n'.join(s.get('run') or '' for s in steps)
     assert 'corepack prepare pnpm@latest --activate' in runs, job
     nodes = [
-        s for s in steps if (s.get('uses') or '').startswith(
-            'actions/setup-node')
+        s
+        for s in steps
+        if (s.get('uses') or '').startswith('actions/setup-node')
     ]
     assert nodes, f'{job}: no actions/setup-node step'
     for s in nodes:
