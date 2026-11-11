@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from app import ads_client, ads_path_guard
+from app import ads_client, ads_path_guard, ads_skill
 
 pytestmark = pytest.mark.workflow
 
@@ -144,3 +144,43 @@ class TestWhatCountsAgainstTheTask:
         assert blocked.status_code == 400
         assert 'Blocked' in blocked.json()['detail']
         assert len(service.requests) == 2 * ads_path_guard.MAX_UNKNOWN + 1
+
+
+class TestTheCapNeverClosesADocumentedDoor:
+    """The skill bundle the service ships IS its declared path list.
+
+    A documented path the task has not called yet is not a guess; the
+    budget refused one anyway once three other paths had 404'd, which
+    punished the documented procedure for earlier probing.
+    """
+
+    async def test_documented_path_passes_after_the_cap(
+        self,
+        authenticated_client,
+        test_task,
+        service,
+        authorized_store,
+        tmp_path,
+        monkeypatch,
+    ):
+        bundle = tmp_path / 'skill'
+        bundle.mkdir()
+        (bundle / 'SKILL.md').write_text(
+            'Reads: `GET /facts/rollup` totals per campaign.\n',
+            encoding='utf-8',
+        )
+        monkeypatch.setattr(ads_skill, 'skill_dir', lambda: bundle)
+
+        service.answer(404, {'detail': 'Not Found'})
+        for n in range(ads_path_guard.MAX_UNKNOWN):
+            await _call(authenticated_client, test_task.id, f'/guess/{n}')
+        blocked = await _call(authenticated_client, test_task.id, '/guess/x')
+        assert 'Blocked' in blocked.json()['detail']
+
+        service.answer(200, {'rows': []})
+        documented = await _call(
+            authenticated_client, test_task.id, '/facts/rollup'
+        )
+        assert documented.status_code == 200
+        assert 'Blocked' not in (documented.json().get('detail') or '')
+        assert service.requests.count('https://ads.example/facts/rollup') == 1

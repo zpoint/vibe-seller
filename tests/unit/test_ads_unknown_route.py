@@ -10,10 +10,11 @@ task.
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
-from app import ads_client, ads_path_guard
+from app import ads_client, ads_path_guard, ads_skill
 
 pytestmark = pytest.mark.unit
 
@@ -147,3 +148,107 @@ class TestTheGuardCountsOnlyMissingRoutes:
         """The old heuristic must not be reachable by accident."""
         with pytest.raises(ValueError):
             ads_path_guard.record('task-raw', '/facts/0', 404)
+
+
+DOC = frozenset({'/facts/rollup', '/data/{dataset}', '/live/*'})
+
+
+def _guessed_out(task: str) -> None:
+    """Three invented paths the service said it has no route for."""
+    for n in range(ads_path_guard.MAX_UNKNOWN):
+        path = f'/guess/{n}'
+        ads_path_guard.record(
+            task, path, ads_path_guard.outcome_for(_route_miss(path))
+        )
+
+
+class TestDocumentedPathsStayOpen:
+    """The budget limits GUESSING. A path the skill names is never a
+    guess, and spending the cap must not close it — that made every
+    later step of a documented procedure a refusal."""
+
+    def test_documented_untried_path_passes_after_the_cap(self):
+        _guessed_out('task-doc')
+        assert ads_path_guard.refusal('task-doc', '/facts/rollup', DOC) is None
+
+    def test_placeholder_and_wildcard_open_their_family(self):
+        _guessed_out('task-wild')
+        assert ads_path_guard.refusal('task-wild', '/data/ads', DOC) is None
+        assert (
+            ads_path_guard.refusal('task-wild', '/live/campaigns', DOC) is None
+        )
+        assert ads_path_guard.refusal('task-wild', '/live/a/b', DOC) is None
+
+    def test_undocumented_new_path_is_still_refused(self):
+        _guessed_out('task-undoc')
+        assert ads_path_guard.refusal('task-undoc', '/ads/summary', DOC)
+        # An exact shape does not open its whole prefix.
+        assert ads_path_guard.refusal('task-undoc', '/facts/other', DOC)
+
+    def test_query_string_is_not_part_of_the_path(self):
+        _guessed_out('task-query')
+        assert (
+            ads_path_guard.refusal(
+                'task-query', '/facts/rollup?grain=campaign', DOC
+            )
+            is None
+        )
+
+    def test_no_declaration_means_the_old_cap_behaviour(self):
+        """With no installed bundle nothing is known documented; the
+        answered set is all the guard can honour."""
+        _guessed_out('task-empty')
+        assert ads_path_guard.refusal(
+            'task-empty', '/facts/rollup', frozenset()
+        )
+
+
+class TestTheDeclaredListComesFromTheBundle:
+    """documented_paths() reads the service's own words: the path
+    shapes written in the installed skill bundle."""
+
+    def _install_bundle(self, monkeypatch, tmp_path):
+        d = tmp_path / 'skills' / 'amazon-ads-api'
+        (d / 'references').mkdir(parents=True)
+        (d / 'SKILL.md').write_text(
+            'Start at `/facts/rollup`. Writes: `POST /targets/update`, '
+            'rows `GET /data/{dataset}`, the tree `/live/*`.\n'
+            'The service lives at https://ads.test/ads-api — never '
+            'call it with curl.\n',
+            encoding='utf-8',
+        )
+        (d / 'references' / 'facts.md').write_text(
+            '`/facts/search-terms?target_id=…` lists terms.\n'
+            'A `python -c "x=1"` snippet must not read as a path.\n',
+            encoding='utf-8',
+        )
+        monkeypatch.setattr(ads_skill, 'skill_dir', lambda: d)
+        return d
+
+    def test_bundle_paths_are_extracted(self, monkeypatch, tmp_path):
+        self._install_bundle(monkeypatch, tmp_path)
+        paths = ads_path_guard.documented_paths()
+        assert {
+            '/facts/rollup',
+            '/targets/update',
+            '/data/{dataset}',
+            '/live/*',
+            '/facts/search-terms',
+        } <= paths
+
+    def test_a_url_is_not_a_declared_route(self, monkeypatch, tmp_path):
+        self._install_bundle(monkeypatch, tmp_path)
+        assert '/ads-api' not in ads_path_guard.documented_paths()
+
+    def test_editing_the_bundle_recomputes(self, monkeypatch, tmp_path):
+        d = self._install_bundle(monkeypatch, tmp_path)
+        assert '/live/campaigns' not in ads_path_guard.documented_paths()
+        # A re-synced bundle (new file content) is picked up without
+        # an explicit invalidation call.
+        time.sleep(0.01)
+        (d / 'SKILL.md').write_text('`/live/campaigns` now.\n', 'utf-8')
+        assert '/live/campaigns' in ads_path_guard.documented_paths()
+
+    def test_no_bundle_no_declared_paths(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ads_skill, 'skill_dir', lambda: tmp_path / 'absent')
+        assert ads_path_guard.documented_paths() == frozenset()
