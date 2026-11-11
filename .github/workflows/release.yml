@@ -73,6 +73,8 @@ jobs:
   windows-upgrade-test:
     name: Windows Upgrade Test (gate)
     uses: ./.github/workflows/windows-upgrade.yml
+    # The provider keys for the agent e2e before/after the upgrade.
+    secrets: inherit
 
   sync-upgrade-test:
     name: Sync-state upgrade test (gate)

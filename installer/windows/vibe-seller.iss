@@ -52,19 +52,14 @@ ShowLanguageDialog=auto
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-; Chinese is added only when build.ps1 fetched ChineseSimplified.isl
-; (best-effort); otherwise the wizard is English-only.
-#if FileExists(AddBackslash(SourcePath) + "ChineseSimplified.isl")
+; build.ps1 fetches ChineseSimplified.isl; compiling fails without it.
 Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
-#endif
 
 [CustomMessages]
 english.OpenNow=Open Vibe Seller now
 english.WindowsTooOld=Vibe Seller needs Windows 10 version 1809 / Windows Server 2019 (build 17763) or later. This computer is build %1.%n%nThe AI agent it bundles (Claude Code) uses Windows APIs that older versions do not have, so every task would fail to start. Please upgrade Windows, then run this installer again.
-#if FileExists(AddBackslash(SourcePath) + "ChineseSimplified.isl")
 chinesesimp.OpenNow=现在打开 Vibe Seller
 chinesesimp.WindowsTooOld=Vibe Seller 需要 Windows 10 1809 / Windows Server 2019（内部版本 17763）或更高版本，本机为 %1。%n%n内置的 AI 智能体（Claude Code）依赖旧版 Windows 没有的系统接口，装上后所有任务都无法启动。请先升级 Windows，再运行本安装程序。
-#endif
 
 [Tasks]
 ; Desktop icon, checked by default (the user can uncheck it). On
