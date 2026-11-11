@@ -256,6 +256,12 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                     'scope': arguments.get('scope') or {},
                 },
             )
+        elif name == 'vibe_seller_declare_report_run':
+            result = await call_api(
+                'POST',
+                f'/api/tasks/{_config["task_id"]}/report-declaration',
+                {'month': arguments.get('month')},
+            )
         elif name == 'vibe_seller_get_schedule_state':
             key = quote(arguments['key'], safe='')
             result = await call_api(

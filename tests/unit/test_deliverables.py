@@ -19,6 +19,10 @@ import zipfile
 
 import pytest
 
+# Imported on its own: this module's negative control is that the gate
+# tests below FAIL on the commit before the declaration existed, which
+# needs the file to still import there.
+from app.deliverables.gate import check_deliverables
 from app.deliverables.manifest import (
     Deliverable,
     DeliverableKind,
@@ -506,3 +510,248 @@ class TestMonthArithmetic:
         paths = [d.relpath for d in derive_manifest(store, 'acme', '2026-01')]
         assert any('2026JanMonthlyTransaction.csv' in p for p in paths)
         assert any(p.startswith('reports_01_sa_acme/') for p in paths)
+
+
+# ── The gate's trigger: a declaration, not a folder name ──────────────
+#
+# The imports of the new symbols are local to the fixtures and tests on
+# purpose: this module must still import on the commit before the
+# declaration existed, so its negative control fails on the assertions
+# rather than at collection.
+
+import pytest_asyncio  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+from app import models as _all  # noqa: E402,F401  (registers every table)
+from app.models.base import Base  # noqa: E402
+from app.models.store import Store  # noqa: E402
+from app.models.task import Task  # noqa: E402
+
+#: The month a task created in November 2026 owes: the one before it.
+OCT = '2026-10'
+NOV_CREATE = '2026-11-05T09:00:00+00:00'
+#: Day 11 of the month after the reporting month. September's fee
+#: reports (October's backfill) are due from day 15, so at this date they
+#: are PENDING and cannot be what refuses a run — the gaps a test asserts
+#: are the real ones.
+TODAY = dt.date(2026, 11, 11)
+
+
+@pytest_asyncio.fixture
+async def maker():
+    """A real in-memory DB.
+
+    The trigger IS a DB read, and a fake session that returns whatever the
+    test hands it would also pass a gate that queried the wrong task — or
+    never queried at all.
+    """
+    engine = create_async_engine(
+        'sqlite+aiosqlite://',
+        connect_args={'check_same_thread': False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+    await engine.dispose()
+
+
+#: Two marketplaces, so one monthly file is provably not the whole set.
+PLATFORM_COUNTRIES = {'amazon': ['sa', 'ae']}
+
+
+async def _store_and_task(db, *, with_store=True):
+    """A two-marketplace Amazon store and a task created in November.
+
+    Two countries rather than one because a single-marketplace store whose
+    capabilities are undeclared owes exactly one file: delivering it would
+    satisfy the old folder-scan check too, and the test for the bug would
+    pass before the fix.
+    """
+    store_id = None
+    if with_store:
+        db.add(
+            Store(
+                id='store-1',
+                name='acme',
+                platform_countries=json.dumps(PLATFORM_COUNTRIES),
+                capabilities='{}',
+            )
+        )
+        store_id = 'store-1'
+    task = Task(
+        id='task-1',
+        title='Monthly report download',
+        store_id=store_id,
+        created_by='u',
+        created_at=NOV_CREATE,
+    )
+    db.add(task)
+    await db.commit()
+    return task
+
+
+async def _declare(db, task_id, month, seq=1):
+    from app.models.report_declaration import (  # noqa: PLC0415
+        ReportRunDeclaration,
+    )
+
+    db.add(ReportRunDeclaration(task_id=task_id, seq=seq, month=month))
+    await db.commit()
+
+
+def _monthly_set(root, months=(OCT,)):
+    """Write every file the derived manifest names; return the entries.
+
+    Built with :func:`derive_manifest` (which predates the declaration)
+    rather than the gate's own multi-month helper, so this fixture still
+    runs — and so still proves the old check refused these submissions —
+    on the commit before the declaration existed.
+    """
+    from app.browser.wrapper import store_slug  # noqa: PLC0415
+
+    store = types.SimpleNamespace(
+        id='store-1',
+        name='acme',
+        platform_countries=json.dumps(PLATFORM_COUNTRIES),
+        capabilities='{}',
+    )
+    entries: list[Deliverable] = []
+    seen: set[str] = set()
+    for month in months:
+        for entry in derive_manifest(
+            store,
+            store_slug('acme', 'store-1'),
+            month,
+            fee_month=month_before(month),
+        ):
+            if entry.relpath not in seen:
+                seen.add(entry.relpath)
+                entries.append(entry)
+    assert len(entries) > 1, 'the fixture store must owe a multi-file set'
+    for entry in entries:
+        _write(root / entry.relpath, 'a,b\n1,2\n')
+    return entries
+
+
+class TestTheGateEngagesOnlyOnADeclaration:
+    """What these close is a FALSE obligation, not a missed one.
+
+    An ad-hoc "show me current Amazon sales" filed its CSVs under
+    ``reports_sales_2026-11/`` and the result was refused for a missing
+    monthly transaction report: the check had read the agent's own folder
+    naming as a request. The folder scan is gone — a task that declares
+    nothing is not a report run, whatever it filed where.
+    """
+
+    async def test_a_reports_folder_alone_does_not_engage(
+        self, maker, tmp_path
+    ):
+        async with maker() as db:
+            task = await _store_and_task(db)
+            _write(
+                tmp_path / 'reports_sales_2026-11' / 'current.csv',
+                'a,b\n1,2\n',
+            )
+            assert (
+                await check_deliverables(db, task, tmp_path, today=TODAY)
+                is None
+            )
+
+    async def test_one_report_of_the_monthly_set_is_not_a_declared_run(
+        self, maker, tmp_path
+    ):
+        """A user asking for ONE report owes the rest of the set nothing.
+
+        Last month's transaction report for one marketplace, filed in the
+        real monthly folder with the rest of the month absent: nothing was
+        declared, so the other files are not owed. Refusing here would
+        re-invent the same bug from the other side — grading a lookup
+        against a run nobody asked for.
+        """
+        async with maker() as db:
+            task = await _store_and_task(db)
+            entries = _monthly_set(tmp_path, months=(OCT,))
+            ledger = next(
+                d for d in entries if 'MonthlyTransaction' in d.relpath
+            )
+            for entry in entries:
+                if entry is not ledger:
+                    (tmp_path / entry.relpath).unlink()
+            assert (tmp_path / ledger.relpath).exists()
+            assert (
+                await check_deliverables(db, task, tmp_path, today=TODAY)
+                is None
+            )
+
+    async def test_a_declared_run_with_gaps_is_refused_naming_them(
+        self, maker, tmp_path
+    ):
+        async with maker() as db:
+            task = await _store_and_task(db)
+            await _declare(db, task.id, OCT)
+            # Declared, and nothing delivered: the ledger is a real gap.
+            deny = await check_deliverables(db, task, tmp_path, today=TODAY)
+            assert deny is not None
+            assert deny.gate == 'deliverable_manifest'
+            assert any('MonthlyTransaction.csv' in g for g in deny.gaps)
+            assert OCT in deny.reason
+
+    async def test_a_declared_run_that_delivered_the_set_passes(
+        self, maker, tmp_path
+    ):
+        async with maker() as db:
+            task = await _store_and_task(db)
+            await _declare(db, task.id, OCT)
+            _monthly_set(tmp_path, months=(OCT,))
+            assert (
+                await check_deliverables(db, task, tmp_path, today=TODAY)
+                is None
+            )
+
+    async def test_the_owed_month_is_the_declared_one_not_the_folder(
+        self, maker, tmp_path
+    ):
+        """A back-fill declares its month and owes exactly that.
+
+        The folder scan derived the month from the calendar and could not
+        express "March" at all. Now the manifest is built for the declared
+        month, so October's files do not answer for a March run.
+        """
+        async with maker() as db:
+            task = await _store_and_task(db)
+            await _declare(db, task.id, '2026-03')
+            _monthly_set(tmp_path, months=(OCT,))
+            deny = await check_deliverables(db, task, tmp_path, today=TODAY)
+            assert deny is not None, 'March was declared; March is what is owed'
+            assert '2026-03' in deny.reason
+            assert not any('2026-10' in g for g in deny.gaps)
+
+    async def test_every_declared_month_is_owed(self, maker, tmp_path):
+        """Re-declaring cannot shed a month: a declaration only ever adds."""
+        async with maker() as db:
+            task = await _store_and_task(db)
+            await _declare(db, task.id, OCT, seq=1)
+            await _declare(db, task.id, '2026-09', seq=2)
+            _monthly_set(tmp_path, months=(OCT,))
+            deny = await check_deliverables(db, task, tmp_path, today=TODAY)
+            assert deny is not None
+            assert '2026-09' in deny.reason
+
+    async def test_a_store_less_task_owes_nothing(self, maker, tmp_path):
+        """An orchestrator has no store row to derive a list from."""
+        async with maker() as db:
+            task = await _store_and_task(db, with_store=False)
+            await _declare(db, task.id, OCT)
+            _write(tmp_path / 'reports_10_sa_acme' / 'x.csv', 'a,b\n1,2\n')
+            assert (
+                await check_deliverables(db, task, tmp_path, today=TODAY)
+                is None
+            )

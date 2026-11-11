@@ -19,6 +19,7 @@ from app.browser.manager import browser_manager
 from app.database import get_db
 from app.events.bus import event_bus
 from app.models.ad_declaration import AdTaskDeclaration
+from app.models.report_declaration import ReportRunDeclaration
 from app.models.schedule import Schedule
 from app.models.store import Store
 from app.models.task import Task
@@ -644,6 +645,17 @@ async def retry_task(
     # "execute", so it could execute without the user answering.
     await db.execute(
         delete(AdTaskDeclaration).where(AdTaskDeclaration.task_id == task_id)
+    )
+    # Same reason for the report-run declarations: a declaration describes
+    # the RUN that is being thrown away, and the workspace it promised to
+    # fill is wiped below. A row left behind would hold the fresh run to a
+    # month whose files cannot exist any more — an obligation inherited
+    # from a run nobody is doing, which is the class of false demand this
+    # table exists to prevent.
+    await db.execute(
+        delete(ReportRunDeclaration).where(
+            ReportRunDeclaration.task_id == task_id
+        )
     )
 
     # Retry = a truly fresh start: wipe on-disk runtime state (workspace +

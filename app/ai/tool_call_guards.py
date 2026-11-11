@@ -21,6 +21,11 @@ from app.ai.source_guard import source_access_deny
 _EXECUTION_ONLY = frozenset({
     'mcp__vibe-seller__vibe_seller_ads_call',
     'mcp__vibe-seller__vibe_seller_declare_ad_task',
+    # Same shape: declaring a report run commits this task to a month of
+    # files, which is a thing the plan decides to DO, not a thing planning
+    # does. A planner that declared one would be graded against its own
+    # plan submission.
+    'mcp__vibe-seller__vibe_seller_declare_report_run',
 })
 
 _PLANNING_DENY = (

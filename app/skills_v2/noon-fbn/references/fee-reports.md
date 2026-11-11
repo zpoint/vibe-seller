@@ -163,10 +163,13 @@ nonsaleable_storage_<cc>_<YYYY-MM>.csv
 rtv_removal_<cc>_<YYYY-MM>.csv
 ```
 
-For a monthly report-download run, put them in the task workspace under
-`reports_noon_<MM>_<slug>/`, `<MM>` being the service month — that is the
-layout checked at `set_task_result`. Copies kept for later analysis go
-under `store-data/<slug>/fbn/<YYYY-MM>/`.
+For a monthly report-download run, declare it first with
+`vibe_seller_declare_report_run` (the month it covers, `YYYY-MM`) and put
+them in the task workspace under `reports_noon_<MM>_<slug>/`, `<MM>` being
+the service month — that is the layout checked at `set_task_result`, for a
+declared run and for no other. A run that only wants this month's fee
+numbers ad hoc changes nothing about the layout; it just isn't declared.
+Copies kept for later analysis go under `store-data/<slug>/fbn/<YYYY-MM>/`.
 
 Two mechanical gotchas:
 
