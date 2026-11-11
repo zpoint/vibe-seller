@@ -7,6 +7,7 @@ the matching dispatch branches in ``handle_tool_call``.
 
 from app import vision
 from app.mcp_ad_tool_schemas import _ALWAYS_LOADED, AD_TOOLS
+from app.mcp_report_tool_schemas import REPORT_TOOLS
 from app.mcp_workspace_tool_schemas import WORKSPACE_EDIT_TOOLS
 
 # Agent-facing image-model enum + a CONCISE guidance line, both derived
@@ -39,6 +40,7 @@ _IMAGE_MODEL_GUIDE = (
 
 TOOLS = [
     *AD_TOOLS,
+    *REPORT_TOOLS,
     *WORKSPACE_EDIT_TOOLS,
     {
         'name': 'vibe_seller_ads_call',

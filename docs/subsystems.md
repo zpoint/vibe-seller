@@ -437,6 +437,39 @@ kind and the `investigate` → `audit` correction are always accepted
 (`ad_declaration.supersedes` — a re-declaration may never reduce what the
 phase owes nor widen its reach).
 
+## Report-run declarations
+
+The monthly report check takes its trigger from the same place. A store
+task declares the run it is doing —
+`vibe_seller_declare_report_run` → `POST /api/tasks/{id}/report-declaration`
+— with **one argument, the month** (`YYYY-MM`), and only when the task is
+the month-end download rather than a lookup. That declaration is the whole
+trigger: `app/deliverables/gate.py` returns immediately for a task with no
+declaration, whatever its workspace holds.
+
+It used to engage on a folder scan — any `reports_*` directory in the task
+workspace made the run a report run — and that inferred an obligation from
+how the agent had named its own files. An ad-hoc "show me current Amazon
+sales" filed its CSVs under `reports_sales_2026-11/` and was refused for a
+missing monthly transaction report. Whether a task is a monthly run is
+exactly the fact no server-side heuristic can recover from output shape,
+and exactly the fact the agent alone can state.
+
+What is NOT declared is the file list: `derive_manifest` builds it from the
+store row (platform countries, capability flags) and the calendar, and the
+declare route answers with that list (`expected_files`) so the agent works
+against the same set the gate grades. The month may be the derived
+reporting month (the calendar month before the task was created) or any
+earlier complete month, which is how an explicit back-fill gets checked at
+all — the folder scan could only ever test last month. The current month
+and any future one are refused, naming the expected month: a month that has
+not ended cannot be delivered complete, and letting the agent pick the
+month would let it pick the set of files it happened to have collected.
+Rows are append-only (`report_run_declarations`) and every declared month
+is owed, so re-declaring can only ADD an obligation — which is why there is
+no same-turn ratchet here, unlike the ad kinds. The check is one round like
+every other: gaps refuse the first submit and ride the next as caveats.
+
 Declaring `execute` freezes the `CHANGES.tsv` the phase starts from (its
 own, or its nearest ancestor's) into `data/approved_changes/` — the
 approval its execution is checked against — and posts that frozen list to
@@ -472,7 +505,7 @@ its own round.
 | Check | Concern |
 |---|---|
 | `listing_upload_gate.py` | A listing batch uploaded to the live account this turn has a clean verdict. |
-| Deliverables (`app/deliverables/gate.py`) | A report-download run delivered every report the calendar says it owed (only engages when the workspace holds `reports_*` folders). |
+| Deliverables (`app/deliverables/gate.py`) | A run that declared itself a monthly report download (`vibe_seller_declare_report_run`) delivered every file that month's derived manifest names. No declaration → not checked: the trigger is the agent's word, never the workspace's folder names. |
 | `ad_changes.py` | `CHANGES.tsv` obeys store rules (`ad_rules.py`, overridable per store via `key: value` lines in `stores/<slug>/notes.md`); `investigate` proposes nothing; `EXECUTION_LOG.tsv` matches the frozen approvals in `data/approved_changes/` (contradiction). |
 | `ad_coverage.py` | An `audit` covered every owed marketplace (`ad_declaration.owed_combos`), drilled live campaigns, reconciled search terms with targeting; impossible spend is a contradiction. |
 | `review_completeness_review` / `review_output_gate` (`review-collect` skill) | Every enumerated product was collected into well-formed `reviews/v1` JSON — the downstream sync upserts these files, so a half-finished dump would silently drop ratings. |

@@ -6,6 +6,7 @@ from app.models.chat_bot import ChatBot
 from app.models.email_account import EmailAccount
 from app.models.event import Event
 from app.models.event_activity import EventActivity
+from app.models.report_declaration import ReportRunDeclaration
 from app.models.schedule import Schedule
 from app.models.schedule_state import ScheduleState
 from app.models.screenshot import Screenshot
@@ -23,6 +24,7 @@ from app.models.ziniao_account import ZiniaoAccount
 _all_models = [
     AppSettings,
     AdTaskDeclaration,
+    ReportRunDeclaration,
     ApiToken,
     User,
     Store,

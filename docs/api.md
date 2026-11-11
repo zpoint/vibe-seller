@@ -127,6 +127,8 @@ and the reveal endpoint below.
 | POST | `/api/tasks/{task_id}/error` | Record unrecoverable task error (agent-only via MCP `vibe_seller_set_task_error`). Does NOT transition status; `_auto_run_task` sees `task.error` during cleanup and transitions to FAILED. |
 | POST | `/api/tasks/{task_id}/ad-declaration` | Declare what THIS PHASE of an ad task is for, before any browser work (agent-only via MCP `vibe_seller_declare_ad_task`). Body: `{kind, scope}` where kind ∈ audit/create/execute/investigate — there is no `edit`; "change these three bids" is a one-campaign `audit`. `scope` = `{combos[], campaigns[], products[]}`; **absent `combos` means every marketplace the store sells on**. Append-only, one row per declaration. Like every check, one round: within a turn, narrowing at the same kind or correcting `investigate` → `audit` is always accepted (`ad_declaration.supersedes`); any other re-declaration is answered 409 once, and the same call again is recorded as declared. `execute` normally follows a user reply to a declared audit (this task's or its parent's); without one it is 409 once, and on a second call the frozen changes are posted to the conversation marked as not confirmed by the user. On accept, mirrored to `AD_TASK.json` in the task workspace for the stop gates (the row stays authoritative). |
 | GET | `/api/tasks/{task_id}/ad-declarations` | Every declaration this task has made, oldest first — one row per phase (`seq`), with `kind`, `scope`, `user_turn`, `created_at`. The sequence is the task's phase history: a task that created a listing and then audited its ads has two declarations, one per phase. |
+| POST | `/api/tasks/{task_id}/report-declaration` | Declare that this task IS a monthly report-download run, and for which month (agent-only via MCP `vibe_seller_declare_report_run`). Body: `{month: "YYYY-MM"}` — the only thing declared; the expected file list stays server-derived (`app/deliverables/manifest.py`, from the store's capabilities and the calendar), because a denominator the run authors is the one that once reported "9 of 9" against a set of 19. Store-scoped only (400 otherwise: an orchestrator has no store row to derive from). The month must be one that has ENDED — the derived reporting month, or an earlier one for a back-fill the user asked for; the current or a future month is 400, and the refusal names the expected month. Append-only like the ad declaration, and every declared month is owed, so re-declaring can shed nothing. Answer carries `expected_files`, the same list the check will grade against. |
+| GET | `/api/tasks/{task_id}/report-declarations` | Every report run this task declared, oldest first (`seq`, `month`, `created_at`). |
 | GET | `/api/tasks/{task_id}/schedule-state/{key}` | Read a cross-run cursor persisted by a prior run of the same schedule (agent-only via MCP `vibe_seller_get_schedule_state`). Scope resolved server-side from `task.schedule_id`; non-scheduled tasks → 400. Response omits `schedule_id` so the MCP tool output cannot leak it to the agent. Keys must match `[A-Za-z0-9_.-]{1,64}`. |
 | PUT | `/api/tasks/{task_id}/schedule-state/{key}` | Upsert a cross-run cursor (agent-only via MCP `vibe_seller_set_schedule_state`). Body: `{value: string}` (non-empty). Uses SQLite `INSERT ON CONFLICT DO UPDATE` so concurrent manual triggers can't race the PK insert. Same scoping / key rules as GET. Typed keys: `email_watermark` must be a unix epoch seconds integer string (regex `^[0-9]{1,15}$`) — ISO timestamps are rejected because lex compare with microseconds / timezone variants is unsafe. |
 | POST | `/api/tasks/{task_id}/wake` | Wake a waiting task (optional message) |
@@ -157,8 +159,12 @@ ships the warning.
 1. **Listing upload verdict** (`app/ai/stop_gates/listing_upload_gate.py`).
    A listing batch this turn uploaded to the live account should have a
    clean `BATCH_<id>_VERDICT.json`.
-2. **Report deliverables** (`app/deliverables/gate.py`): a
-   report-download run delivered every report the calendar says it owed.
+2. **Report deliverables** (`app/deliverables/gate.py`): a run that
+   DECLARED itself a monthly report download (`vibe_seller_declare_report_run`,
+   one month or more) delivered every report the calendar and the store's
+   capabilities say that month owed. A task with no declaration is not
+   checked at all — folder names, file counts and the shape of the result
+   are not obligations.
 3. **Skill-declared gates** — only those named in the `gates:` frontmatter
    of a skill the task loaded (bindings persist per task under
    `data/gate_bindings/`). The ad skills (`amazon-ads`, `noon-ads`)

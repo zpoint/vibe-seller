@@ -226,11 +226,26 @@ PY
 
 ## Monthly report-download runs
 
-For a store-scoped task, once the task directory holds any `reports_*`
-folder the server checks it against an expected file list derived from the
-store's declared capabilities and the calendar (not from what you
-produced). For reporting month `M` (the previous calendar month; `MM` =
-its two-digit number, `Mon` = `Jan`…`Dec`), per Amazon country `<cc>`
+Two different tasks land on this page: the monthly download — the full
+month-end set for this store — and a lookup, which wants one report or one
+number. Only you can tell which one this task is, so say it: declare
+(`vibe_seller_declare_report_run`, with the month `YYYY-MM`) when, and
+only when, the task IS the monthly download. Do not declare a lookup: one
+report ("last month's transaction report for AE"), a question about
+numbers you already have, a partial fetch, a retry that pulls the single
+file that failed. A declared run is held to the whole set, so declaring
+one for a lookup gets you refused for files nobody asked you for.
+
+Declaration is what makes the check exist at all. A declared run's result
+is compared against an expected file list derived from the store's
+declared capabilities and the calendar (never from what you produced), and
+the tool answers with that list, so you know what you owe. An undeclared
+task is not looked at: filing CSVs under a `reports_*` folder is not a
+declaration and used to be read as one.
+
+For the declared reporting month `M` — the previous calendar month for an
+ordinary run, or the month the user named for a back-fill (`MM` = its
+two-digit number, `Mon` = `Jan`…`Dec`), per Amazon country `<cc>`
 (lowercase):
 
 | File | Notes |
