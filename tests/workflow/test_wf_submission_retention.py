@@ -17,7 +17,7 @@ import json
 
 import pytest
 
-from app.ai.stop_gates import GateDeny
+from app.ai.stop_gates import GateDeny, record_skill_load
 from app.config import VIBE_SELLER_DIR
 import app.routers.task_submission as task_submission
 from tests.workflow.conftest import wait_for_task
@@ -39,18 +39,46 @@ CLEAN = (
 )
 
 
+def _bind_listing_skill(task_id: str) -> None:
+    """This task loaded amazon-listing, whose SKILL.md declares the gate.
+
+    ``upload_verdict`` is skill-bound: a marker alone does not run it. The
+    durable binding (``record_skill_load``, what the Skill-tool hook writes
+    in production) plus the runtime SKILL.md copy are the two halves of
+    that declaration, so these tests arm the gate the same way a real
+    listing session does.
+    """
+    record_skill_load(task_id, 'amazon-listing')
+    md = (
+        VIBE_SELLER_DIR / '.claude' / 'skills' / 'amazon-listing' / 'SKILL.md'
+    )
+    md.parent.mkdir(parents=True, exist_ok=True)
+    md.write_text(
+        '---\nname: amazon-listing\ngates: [upload_verdict]\n---\n',
+        encoding='utf-8',
+    )
+
+
 def _arm_upload_gate(task_id: str) -> None:
-    """A listing template was fetched and no batch verdict exists: the
-    upload gate refuses every submit until the marker is resolved."""
+    """An upload was STARTED this turn and no batch verdict exists: the
+    upload gate refuses every submit until the marker is resolved.
+
+    ``UPLOAD_ATTEMPT.json`` is what bh_upload_flatfile writes at its arm
+    point. A template download writes nothing like it — fetching one is
+    reading a category, and a run that only inspected one must not be
+    refused for an unverified upload.
+    """
     d = VIBE_SELLER_DIR / 'tasks' / task_id
     d.mkdir(parents=True, exist_ok=True)
-    (d / 'UPLOAD_PENDING.json').write_text(
-        json.dumps({'template': 'WIDGETS.xlsm'}), encoding='utf-8'
+    _bind_listing_skill(task_id)
+    (d / 'UPLOAD_ATTEMPT.json').write_text(
+        json.dumps({'file': 'out.txt', 'host': 'sellercentral.amazon.sa'}),
+        encoding='utf-8',
     )
 
 
 def _disarm_upload_gate(task_id: str) -> None:
-    (VIBE_SELLER_DIR / 'tasks' / task_id / 'UPLOAD_PENDING.json').unlink()
+    (VIBE_SELLER_DIR / 'tasks' / task_id / 'UPLOAD_ATTEMPT.json').unlink()
 
 
 async def _running_task(admin_client, install_fake_agent, name):
@@ -425,32 +453,31 @@ class TestGateTelemetry:
         assert 'a gap' in caveats and 'spend disagrees' in caveats
 
     async def test_an_unverified_upload_is_one_round(
-        self, admin_client, install_fake_agent, monkeypatch
+        self, admin_client, install_fake_agent
     ):
-        """A listing batch without a clean verdict is raised once; the
-        next submit ships with it as a caveat instead of looping. What
-        the AGENT is told to do and what the SELLER is told is missing
-        are two different texts."""
-        why = 'Batch 100000000001 has no parse-feedback verdict.'
-        caveat = (
-            'A listing batch uploaded to the live account has no clean '
-            'processing-report verdict.'
-        )
-        monkeypatch.setattr(
-            'app.routers.tasks.check_upload_verdicts', lambda _root: why
-        )
+        """A started upload with no verdicted batch is raised ONCE; the
+        next submit ships with it as a caveat instead of looping.
+
+        End to end through the real gate: the session's skill binding
+        declares ``upload_verdict``, the upload helper's attempt marker
+        arms it, and the refusal is the agent-facing instruction while the
+        caveat is the seller-facing item — two different texts.
+        """
         task_id, gate = await _running_task(
             admin_client, install_fake_agent, 'Upload Round Store'
         )
+        _arm_upload_gate(task_id)
         url = f'/api/tasks/{task_id}/result'
         r = await admin_client.post(url, json={'result': CLEAN})
-        assert r.status_code == 400 and why in r.text
+        assert r.status_code == 400, r.text
+        assert 'parse-feedback' in r.text and 'UPLOAD_ATTEMPT' in r.text
         r = await admin_client.post(url, json={'result': CLEAN})
         assert r.status_code == 200, r.text
         gate.set()
         done = await wait_for_task(admin_client, task_id)
         gaps = done.get('review_gaps') or ''
-        assert caveat in gaps
+        # The caveat is the one unmet item, not the how-to-fix-it prose.
+        assert 'left no verdicted batch' in gaps
         assert 'parse-feedback' not in gaps
 
     async def test_two_checks_are_one_refusal_listing_both(

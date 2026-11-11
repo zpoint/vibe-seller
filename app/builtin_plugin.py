@@ -16,7 +16,11 @@ from __future__ import annotations
 
 from app.ai.bash_safety import check_bid_value_shape, check_dangerous_kill
 from app.ai.image_guards import check_local_image_edit
-from app.ai.stop_gates import ad_changes, ad_coverage
+from app.ai.stop_gates import (
+    ad_changes,
+    ad_coverage,
+    listing_upload_gate as upload_verdict,
+)
 from app.browser.chrome import ChromeBackend
 from app.browser.winchrome import WinChromeBackend
 from app.browser.ziniao import ZiniaoBackend
@@ -48,6 +52,11 @@ class BuiltinPlugin(Plugin):
         # skill-gate loader at startup, so they are NOT registered here.
         ctx.register_gate('ad_changes', ad_changes)
         ctx.register_gate('ad_coverage', ad_coverage)
+        # The listing upload verdict is skill-bound like these: only a
+        # session that loaded amazon-listing (which declares
+        # `gates: [upload_verdict]`) faces it. It used to run as an
+        # unconditional probe of every task's workspace at every submit.
+        ctx.register_gate('upload_verdict', upload_verdict)
 
     @staticmethod
     def _install_pretool_gates(ctx: ExtensionContext) -> None:

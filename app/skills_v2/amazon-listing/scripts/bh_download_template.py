@@ -8,7 +8,6 @@ left alone). Run through the STORE WRAPPER:
 
   SC_HOST=sellercentral.amazon.ae PRODUCT_TYPE=kettle \
   STORE_LABEL=Amazon.ae DOWNLOADS_DIR=~/.vibe-seller/downloads/<slug> \
-  MARKER_DIR="$PWD" \
   browser-use < .claude/skills/amazon-listing/scripts/bh_download_template.py
 
 Prints exactly one ``RESULT {json}`` line:
@@ -25,10 +24,11 @@ is ``ok: false`` with the observed states. Other leaves left ticked are
 fine — a bundled multi-marketplace template works (``fill`` routes the
 offer by marketplace), so we never fight the other checkboxes.
 
-On success it also writes ``UPLOAD_PENDING.json`` into MARKER_DIR (pass
-your task workspace): the verdict is then checked once, when you submit
-the result — a batch without a parse-feedback verdict ships as a caveat
-(or you remove the marker because no upload happened).
+This downloads a template and NOTHING ELSE. It arms no upload check and
+writes no marker: fetching a template is step 1 of reading a category
+(inspect it before filling), and plenty of tasks stop there — an upload
+obligation has to start from the upload itself, which
+``bh_upload_flatfile.py`` records when it runs.
 
 On any miss it screenshots and reports the step that failed — explore
 from the screenshot rather than blind-retrying.
@@ -65,34 +65,6 @@ HOST = _env('SC_HOST')
 PTYPE = _env('PRODUCT_TYPE')
 STORE = _env('STORE_LABEL')
 DL = os.path.expanduser(_env('DOWNLOADS_DIR'))
-MARKER_DIR = os.environ.get('MARKER_DIR', '.')
-
-
-def _marker_dirs():
-    """Where gate markers go: the TASK WORKSPACE, always, plus MARKER_DIR.
-
-    The completion gate and the accepted-spec library read markers from
-    the task workspace only. MARKER_DIR is caller-supplied, and a caller
-    once pointed it at a scratch dir: every marker of a seven-batch run
-    landed in /tmp, the gate's "every uploaded batch is verdicted" check
-    saw none of them, and no accepted spec was ever filed. The workspace
-    is derived the way the app derives it (VIBE_HOME, else ~/.vibe-seller,
-    then tasks/<VIBE_TASK_ID>), so a wrong MARKER_DIR cannot blind it.
-    """
-    dirs = []
-    tid = os.environ.get('VIBE_TASK_ID')
-    if tid:
-        root = os.environ.get('VIBE_HOME') or os.path.join(
-            os.path.expanduser('~'), '.vibe-seller'
-        )
-        ws = os.path.join(root, 'tasks', tid)
-        if os.path.isdir(ws):
-            dirs.append(ws)
-    if os.path.realpath(MARKER_DIR) not in {os.path.realpath(d) for d in dirs}:
-        dirs.append(MARKER_DIR)
-    return dirs
-
-
 out = {'ok': False, 'template': None, 'picked': None, 'stores': None}
 
 _WALK = (
@@ -327,23 +299,4 @@ else:
                         'Generate clicked but no new .xlsm landed in ' + DL
                     )
                     capture_screenshot()
-                else:
-                    # Arm the upload check: a downloaded template means
-                    # an upload is intended, and its verdict is checked
-                    # once when the result is submitted — unresolved,
-                    # it ships as a caveat (or the agent removes this
-                    # marker because no upload happened). See
-                    # stop_gates/listing_upload_gate.
-                    for d in _marker_dirs():
-                        with open(
-                            os.path.join(d, 'UPLOAD_PENDING.json'), 'w'
-                        ) as fh:
-                            json.dump(
-                                {
-                                    'template': template,
-                                    'store': STORE,
-                                    'host': HOST,
-                                },
-                                fh,
-                            )
                 print('RESULT ' + json.dumps(out))

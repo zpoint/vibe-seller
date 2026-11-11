@@ -154,17 +154,23 @@ approve — are also marked with a banner at the top of the result, and
 of the retained submission, so a run that ends after the refusal still
 ships the warning.
 
-1. **Listing upload verdict** (`app/ai/stop_gates/listing_upload_gate.py`).
-   A listing batch this turn uploaded to the live account should have a
-   clean `BATCH_<id>_VERDICT.json`.
-2. **Report deliverables** (`app/deliverables/gate.py`): a
+1. **Report deliverables** (`app/deliverables/gate.py`): a
    report-download run delivered every report the calendar says it owed.
-3. **Skill-declared gates** — only those named in the `gates:` frontmatter
+2. **Skill-declared gates** — only those named in the `gates:` frontmatter
    of a skill the task loaded (bindings persist per task under
    `data/gate_bindings/`). The ad skills (`amazon-ads`, `noon-ads`)
    declare `ad_changes` and `ad_coverage`; `review-collect` declares
    `review_completeness_review` and `review_output_gate` (every enumerated
-   product collected into well-formed `reviews/v1` JSON).
+   product collected into well-formed `reviews/v1` JSON); `amazon-listing`
+   declares `upload_verdict` (`app/ai/stop_gates/listing_upload_gate.py`)
+   — a listing batch this turn started uploading to the live account
+   should have a clean `BATCH_<id>_VERDICT.json`.
+
+   It arms on the upload, never on an earlier step: `bh_upload_flatfile.py`
+   writes `UPLOAD_ATTEMPT.json` when it is about to put the file on the
+   live page. Downloading or inspecting a template arms nothing, so a run
+   that only read a category is no longer refused for an "unverified
+   upload".
 
 **Ad gates read fixed-header TSVs, never the report prose.** The audit
 writes `CAMPAIGNS.tsv` and `CHANGES.tsv` in the task dir and per-campaign

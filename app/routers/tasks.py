@@ -14,12 +14,10 @@ from app.ai.profiles import (
     resolve_owner_profile,
 )
 from app.ai.stop_gates import (
-    GateDeny,
     clear_skill_bindings,
     reset_attempts,
     resolve_skill_gates,
 )
-from app.ai.stop_gates.listing_upload_gate import check_upload_verdicts
 from app.ai.turn_hold_budget import reset_ledger
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
@@ -676,24 +674,13 @@ async def set_task_result(
     skill_gates = await asyncio.to_thread(
         resolve_skill_gates, loaded, workspace or VIBE_SELLER_DIR
     )
-    denies = []
-    # A listing batch this turn uploaded to the live account should have
-    # a clean verdict (no-op without uploads).
-    reason = await asyncio.to_thread(check_upload_verdicts, task_root)
-    if reason:
-        denies.append(
-            GateDeny(
-                gate='upload_verdict',
-                # What to do is the agent's; what is missing is the
-                # seller's caveat.
-                reason=reason,
-                gaps=(
-                    'A listing batch uploaded to the live account has '
-                    'no clean processing-report verdict.',
-                ),
-            )
-        )
-    denies += await gate_denials(db, task, skill_gates, final_result, rules)
+    # The listing upload-verdict gate is one of these: amazon-listing
+    # declares ``gates: [upload_verdict]``, so it runs for sessions that
+    # loaded the skill instead of probing every task workspace on every
+    # submit.
+    denies = await gate_denials(
+        db, task, skill_gates, final_result, rules
+    )
     final_result, stalled_gaps = await apply_round(
         db, task, denies, final_result, declared
     )
