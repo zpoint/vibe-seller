@@ -315,6 +315,8 @@
 .md-typeset li > .say:only-child {
   display: inline-block;
   max-width: 100%;
+  /* A wrapped bubble sits on the first line, next to its bullet. */
+  vertical-align: top;
 }
 
 /* ------------------------------------------------------------------ *
