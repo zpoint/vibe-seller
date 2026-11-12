@@ -152,18 +152,14 @@ class TestTaskImportsLocalSkillDir:
         md_text = _skill_md(name)
         try:
             store = create_store(api_client, f'e2e-skill-import-{tag}')
-            # PURE human intent — the owner's phrasing, no tool names,
-            # no mechanics (memory: human-style task descriptions).
+            # PURE human intent — no mechanics, no hints (a crutch
+            # invalidates the test; if the agent goes astray the fix
+            # is the product, not this string).
             task = create_task(
                 api_client,
                 title='Install the invoice-check skill',
                 store_id=store['id'],
-                description=(
-                    f'Install the skill at {src} into Vibe Seller so '
-                    'later tasks can use it. It is a local folder, so '
-                    'no browser is needed, and please do not ask me '
-                    'any questions.'
-                ),
+                description=f'Install the skill at {src} into Vibe Seller.',
             )
             final = poll_task_status(
                 api_client,
