@@ -52,9 +52,16 @@ export function UpdateAvailableModal({
     </span>
   )
 
+  // The in-app flow's header and notes follow the version the button
+  // will actually apply (the staged installer / prefetched wheels),
+  // not update-check's PyPI latest — they can differ during a release
+  // window on Windows.
   const notes = (
     <div className="overflow-y-auto p-6 pt-4">
-      <ReleaseNotesSections check={check} />
+      <ReleaseNotesSections
+        check={check}
+        targetVersion={supported ? target : null}
+      />
     </div>
   )
 

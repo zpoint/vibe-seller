@@ -24,6 +24,13 @@ export interface BootOptions {
   tasks?: Task[]
   /** Override a URL's response; return undefined to fall through. */
   route?: (url: string, init?: RequestInit) => unknown
+  /**
+   * Mark the first-run guide as seen before booting. The guide
+   * auto-shows from a rAF callback inside Sidebar (useOnboardingGuide)
+   * and re-renders it whenever the frame lands — noise for the
+   * render-count assertions. The guide has its own component test.
+   */
+  guideSeen?: boolean
 }
 
 /** A long task: ~1000 transcript entries and a large markdown report. */
@@ -67,6 +74,8 @@ export async function bootApp(opts: BootOptions = {}) {
     return { ok: true, status: 200, json: async () => body, blob: async () => new Blob() } as unknown as Response
   })
   vi.stubGlobal('fetch', fetchMock)
+
+  if (opts.guideSeen) localStorage.setItem('vibe-seller-guide-seen', 'harness')
 
   const sources: FakeEventSource[] = []
   vi.stubGlobal('EventSource', vi.fn().mockImplementation(function () {

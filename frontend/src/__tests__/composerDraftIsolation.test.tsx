@@ -45,7 +45,7 @@ describe('typing in the composer', () => {
 
   it('re-renders neither the conversation nor the sidebar', async () => {
     window.history.pushState({}, '', '/tasks/task-1')
-    await bootApp({ messages: longTranscript(300) })
+    await bootApp({ messages: longTranscript(300), guideSeen: true })
     const input = await screen.findByTestId('chat-input') as HTMLTextAreaElement
     // The long transcript is on screen.
     expect(screen.getAllByText('widget-1').length).toBeGreaterThan(0)

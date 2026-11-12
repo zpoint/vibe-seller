@@ -51,6 +51,7 @@ export function useUpdateFlow(currentUser: AuthUser | null) {
   const applyingRef = useRef({ from: '', platform: 'linux' as string })
   const applyingNowRef = useRef(false)
   const firstVersionRef = useRef<string | null>(null)
+  const lastPolledKeyRef = useRef('')
   const [guideSeen, setGuideSeen] = useState(() => {
     try {
       return !!localStorage.getItem(GUIDE_SEEN_KEY)
@@ -101,8 +102,15 @@ export function useUpdateFlow(currentUser: AuthUser | null) {
         if (r.ok) {
           const s = (await r.json()) as UpdateStatus
           if (!stop) {
-            // Review SHOULD 7: another tab must not keep running the
-            // old frontend against a restarted server.
+            // An unchanged payload (the idle steady state polls every
+            // 10 s) must not re-render the app — fewer renders, and
+            // the render-count harness tests around the composer
+            // stay clean.
+            const key = JSON.stringify(s)
+            if (key !== lastPolledKeyRef.current) {
+              lastPolledKeyRef.current = key
+              setPolled(s)
+            }
             if (firstVersionRef.current === null) {
               firstVersionRef.current = s.current_version
             } else if (s.current_version !== firstVersionRef.current) {
@@ -118,7 +126,6 @@ export function useUpdateFlow(currentUser: AuthUser | null) {
               setUserOpen(true)
             }
             stateRef.current = s.state
-            setPolled(s)
           }
         }
       } catch {

@@ -10,13 +10,37 @@ const PROSE =
 const HIGHLIGHT_CAP = 6
 const NOTE_CAP = 4
 
+/** numeric-ish release-tag compare (0.2.1.devX compares by its
+ * leading numbers — good enough to bound a notes list) */
+const cmpVer = (a: string, b: string) => {
+  const pa = a.split('.').map((n) => parseInt(n, 10) || 0)
+  const pb = b.split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (d) return d
+  }
+  return 0
+}
+
 /**
  * Release notes for every version between the installed one and the
  * target, merged BY SECTION (the server did the merge — one 亮点 list
  * and one 升级须知 list, newest version first, each item tagged with
  * its version). 亮点 collapses after 6 entries and 升级须知 after 4.
+ *
+ * `targetVersion` (the in-app flow's actual download target) bounds
+ * the lists: on Windows the installer comes from GitHub Releases
+ * while update-check's `latest_version` comes from PyPI, and in a
+ * release window the two differ — the dialog must describe the
+ * version the button will really apply, not the other one.
  */
-export function ReleaseNotesSections({ check }: { check: UpdateCheckResult }) {
+export function ReleaseNotesSections({
+  check,
+  targetVersion,
+}: {
+  check: UpdateCheckResult
+  targetVersion?: string | null
+}) {
   const { t, i18n } = useTranslation()
   const [showAllHl, setShowAllHl] = useState(false)
   const [showAllNotes, setShowAllNotes] = useState(false)
@@ -28,9 +52,12 @@ export function ReleaseNotesSections({ check }: { check: UpdateCheckResult }) {
   // sub-bullets keep theirs, like the mockup).
   const body = (t: string) => t.replace(/^- /, '')
 
-  const highlights = check.highlights ?? []
-  const notes = check.notes ?? []
-  const versions = (check.releases ?? []).map(r => r.version)
+  const within = (v: string) => !targetVersion || cmpVer(v, targetVersion) <= 0
+  const highlights = (check.highlights ?? []).filter((h) => within(h.version))
+  const notes = (check.notes ?? []).filter((n) => within(n.version))
+  const versions = (check.releases ?? [])
+    .map((r) => r.version)
+    .filter(within)
   if (!highlights.length && !notes.length) {
     // Unfetched/absent notes must not leave an empty bordered band:
     // say so, and still offer the changelog link.
@@ -56,11 +83,11 @@ export function ReleaseNotesSections({ check }: { check: UpdateCheckResult }) {
 
   return (
     <div className="space-y-4">
-      {check.current_version && check.latest_version && versions.length > 0 && (
+      {check.current_version && (targetVersion ?? check.latest_version) && versions.length > 0 && (
         <p className="text-xs text-gray-500">
           {t('update.notesHead', {
             current: check.current_version,
-            latest: check.latest_version,
+            latest: targetVersion ?? check.latest_version,
             count: versions.length,
             versions: versions.map(v => `v${v}`).join(zh ? '、' : ', '),
           })}

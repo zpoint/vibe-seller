@@ -218,6 +218,32 @@ describe('update modal — merged notes', () => {
     expect(screen.getByText('note5')).toBeTruthy()
   })
 
+  it('the in-app flow bounds the notes by the version it will apply', () => {
+    // Windows reality: the installer target (GitHub) can be BEHIND
+    // update-check's PyPI latest or ahead of it — the dialog must
+    // describe the applied version, and notes above it must not show.
+    renderModal('zh', {
+      check: baseCheck({
+        latest_version: '0.3.1',
+        releases: [
+          { version: '0.3.1', name: '', body: '', url: '', published_at: null },
+          { version: '0.2.0', name: '', body: '', url: '', published_at: null },
+        ],
+        highlights: [
+          { version: '0.3.1', zh: '- 太新了', en: '' },
+          { version: '0.2.0', zh: '- 会被应用', en: '' },
+        ],
+        notes: [{ version: '0.3.1', text: '- 也太新' }],
+      }),
+      status: baseStatus({ version: '0.2.0' }),
+    })
+    expect(screen.getByText('新版本 v0.2.0 已下载好')).toBeTruthy()
+    expect(screen.queryByText('太新了')).toBeNull()
+    expect(screen.queryByText('也太新')).toBeNull()
+    expect(screen.getByText('会被应用', { exact: false })).toBeTruthy()
+    expect(screen.getByText(/→ v0\.2\.0/)).toBeTruthy()
+  })
+
   it('version header lists every skipped release newest-first', () => {
     renderModal('zh', {
       check: baseCheck({
