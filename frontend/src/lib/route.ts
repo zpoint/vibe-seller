@@ -35,7 +35,36 @@ export interface NavState {
   storeId: string | null
   scheduleId: string | null
   taskSubTab: 'onetime' | 'scheduled'
+  // The bare landing URL '/': no scope is active until App resolves it
+  // (first store, else /tasks) once the store list arrives.
+  landing: boolean
 }
+
+// Both the task list and the schedule views exist in a flat (all-stores)
+// and a store-nested form (/stores/$storeId/…); the nested form is how
+// the URL keeps its scope — switching sub-tabs or opening a schedule
+// inside a store must not drop the store. These helpers are that rule in
+// one place; App navigates through them.
+export function listTarget(storeId: string | null, scheduled: boolean) {
+  if (storeId) {
+    return scheduled
+      ? { to: '/stores/$storeId/schedules' as const, params: { storeId } }
+      : { to: '/stores/$storeId' as const, params: { storeId } }
+  }
+  return { to: scheduled ? '/schedules' as const : '/tasks' as const }
+}
+export function scheduleTarget(storeId: string | null, scheduleId: string | null) {
+  if (!scheduleId) return listTarget(storeId, true)
+  if (storeId) {
+    return { to: '/stores/$storeId/schedules/$scheduleId' as const, params: { storeId, scheduleId } }
+  }
+  return { to: '/schedules/$scheduleId' as const, params: { scheduleId } }
+}
+
+const STORE_PREFIX = /^\/stores\/([^/]+)/
+const TASK_PATH = /^\/(?:stores\/[^/]+\/)?tasks\/([^/]+)/
+const SCHEDULE_LIST = /^\/(?:stores\/[^/]+\/)?schedules(\/|$)/
+const SCHEDULE_PATH = /^\/(?:stores\/[^/]+\/)?schedules\/([^/]+)/
 
 export function parseNav(pathname: string): NavState {
   const appView: AppView = pathname.startsWith('/workspace')
@@ -47,13 +76,14 @@ export function parseNav(pathname: string): NavState {
   return {
     appView,
     settingsTab: slugToSettingsTab(tabSlug),
-    // A task path is either flat (/tasks/$id, no-store tasks) or nested
-    // under its store (/stores/$storeId/tasks/$id) — the nested form keeps
-    // the store selected while the task is open. Match both; the store id
+    // Task and schedule paths come in a flat and a store-nested form
+    // (/stores/$storeId/tasks|schedules/$id) — the nested form keeps the
+    // store selected while the detail or list is open. The store id
     // comes from the /stores/ prefix, present only in the nested form.
-    taskId: pathname.match(/^\/(?:stores\/[^/]+\/)?tasks\/([^/]+)/)?.[1] ?? null,
-    storeId: pathname.match(/^\/stores\/([^/]+)/)?.[1] ?? null,
-    scheduleId: pathname.match(/^\/schedules\/([^/]+)/)?.[1] ?? null,
-    taskSubTab: pathname.startsWith('/schedules') ? 'scheduled' : 'onetime',
+    taskId: pathname.match(TASK_PATH)?.[1] ?? null,
+    storeId: pathname.match(STORE_PREFIX)?.[1] ?? null,
+    scheduleId: pathname.match(SCHEDULE_PATH)?.[1] ?? null,
+    taskSubTab: SCHEDULE_LIST.test(pathname) ? 'scheduled' : 'onetime',
+    landing: pathname === '/',
   }
 }

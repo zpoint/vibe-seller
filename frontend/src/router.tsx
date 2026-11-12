@@ -10,9 +10,16 @@
  *
  * Paths: /tasks · /tasks/$taskId · /stores/$storeId ·
  * /stores/$storeId/tasks/$taskId · /schedules · /schedules/$scheduleId ·
- * /workspace · /settings/$tab. `/` and `/settings` redirect to sensible
- * defaults. A store-scoped task lives under its store so opening it keeps
- * the store selected (the flat /tasks/$taskId form is for no-store tasks).
+ * /stores/$storeId/schedules · /stores/$storeId/schedules/$scheduleId ·
+ * /workspace · /settings/$tab. `/settings` redirects to a sensible
+ * default. `/` is a real route — the landing: App replaces it with the
+ * first store (or /tasks when there are none) once the store list
+ * arrives, and only while the live URL is still exactly `/`, so a click
+ * or deep link made meanwhile is never overridden.
+ * Scope lives in the path wherever it applies: a store-scoped task or
+ * schedule view lives under its store so opening it keeps the store
+ * selected (the flat forms are for the all-stores view and no-store
+ * tasks).
  *
  * Routes are declared inline (not via a helper) so TanStack can infer
  * each literal path into the type-safe `navigate`/`redirect` surface.
@@ -30,9 +37,10 @@ const rootRoute = createRootRoute({ component: App })
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: () => {
-    throw redirect({ to: '/tasks' })
-  },
+  // Landing: no synchronous redirect (it would send everyone to All
+  // Stores before the store list is even known). App resolves '/' when
+  // /api/stores arrives — see the landing effect.
+  component: () => null,
 })
 const tasksRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -52,6 +60,16 @@ const storeRoute = createRoute({
 const storeTaskRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'stores/$storeId/tasks/$taskId',
+  component: () => null,
+})
+const storeSchedulesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'stores/$storeId/schedules',
+  component: () => null,
+})
+const storeScheduleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'stores/$storeId/schedules/$scheduleId',
   component: () => null,
 })
 const schedulesRoute = createRoute({
@@ -99,6 +117,8 @@ const routeTree = rootRoute.addChildren([
   taskRoute,
   storeRoute,
   storeTaskRoute,
+  storeSchedulesRoute,
+  storeScheduleRoute,
   schedulesRoute,
   scheduleRoute,
   workspaceRoute,
