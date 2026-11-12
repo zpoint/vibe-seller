@@ -359,3 +359,55 @@ class TestBadPartCannotWedgeReview1:
         path = wu.stage_installer(_offer(http_server))
         assert _RangeHandler.seen_ranges == []  # restarted from 0
         assert path.read_bytes() == _BLOB
+
+
+class TestStageMustMatchTheOfferedBytes:
+    """A re-uploaded release asset must not be served from a stale
+    stage: the tag alone does not identify the bytes."""
+
+    def test_stale_digest_meta_rejected(self, staged_root, tmp_path):
+        src = tmp_path / 'a.exe'
+        src.write_bytes(_BLOB)
+        wu.stage_installer(_offer(str(src)))
+        assert wu.staged_installer('0.2.0') is not None
+        other = 'sha256:' + hashlib.sha256(b'other').hexdigest()
+        assert wu.staged_installer('0.2.0', expected_sha=other) is None
+        # The CURRENT offer's own digest/size still accept the stage.
+        assert (
+            wu.staged_installer(
+                '0.2.0',
+                expected_sha=_sha(_BLOB),
+                expected_size=len(_BLOB),
+            )
+            is not None
+        )
+
+    def test_stale_size_meta_rejected(self, staged_root, tmp_path):
+        src = tmp_path / 'a.exe'
+        src.write_bytes(_BLOB)
+        wu.stage_installer(_offer(str(src)))
+        assert wu.staged_installer('0.2.0', expected_size=999) is None
+
+    def test_tray_rejects_the_stale_stage(self, staged_root, tmp_path):
+        src = tmp_path / 'a.exe'
+        src.write_bytes(_BLOB)
+        wu.stage_installer(_offer(str(src)))
+        # The release now offers DIFFERENT bytes under the same tag.
+        src2 = tmp_path / 'b.exe'
+        src2.write_bytes(b'new' * 200)
+        offer = {
+            'version': '0.2.0',
+            'url': str(src2),
+            'size': src2.stat().st_size,
+            'digest': 'sha256:' + hashlib.sha256(b'new' * 200).hexdigest(),
+        }
+        with (
+            patch.object(wu, 'check_for_update', return_value=offer),
+            patch.object(wu, 'run_installer') as run,
+        ):
+            res = wu.upgrade()
+        assert res['status'] == 'updating'
+        # It re-downloaded: the path passed to run_installer is NOT
+        # the stale stage.
+        launched = run.call_args[0][0]
+        assert launched != wu.staged_paths('0.2.0')[0]

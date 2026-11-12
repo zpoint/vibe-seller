@@ -267,16 +267,31 @@ def _read_meta(version: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def staged_installer(version: str, *, verify: bool = True) -> Path | None:
+def staged_installer(
+    version: str,
+    *,
+    verify: bool = True,
+    expected_sha: str | None = None,
+    expected_size: int | None = None,
+) -> Path | None:
     """The verified staged installer for *version*, or None.
 
     With *verify*, the file is re-hashed against the meta's digest (a
     few seconds on a ~700 MB exe — run off the event loop). With
     ``verify=False``, only the recorded size is re-checked — enough for
-    the apply path, where the same file was verified moments ago."""
+    the apply path, where the same file was verified moments ago.
+
+    ``expected_sha`` / ``expected_size`` (from the CURRENT release
+    offer) additionally require the stage to be of those exact bytes:
+    a re-uploaded release asset must not be served from a stale
+    stage — the tag alone does not identify the bytes."""
     final, _part, _meta = staged_paths(version)
     meta = _read_meta(version)
     if not final.exists() or not meta or meta.get('version') != version:
+        return None
+    if expected_sha is not None and meta.get('sha256') != expected_sha:
+        return None
+    if expected_size is not None and meta.get('size') != expected_size:
         return None
     try:
         size = final.stat().st_size
@@ -562,8 +577,18 @@ def upgrade(*, silent: bool = False) -> dict:
             return {'status': 'up-to-date', 'version': get_version()}
         # The server's background download stages the same version
         # under <VIBE_HOME>/updates/: reuse a verified stage instead of
-        # downloading the installer again.
-        staged = staged_installer(upd['version'])
+        # downloading the installer again — but only the stage of the
+        # bytes this release currently offers.
+        exp_sha = (
+            upd['digest'].split(':', 1)[1].lower()
+            if isinstance(upd.get('digest'), str) and ':' in upd['digest']
+            else None
+        )
+        staged = staged_installer(
+            upd['version'],
+            expected_sha=exp_sha,
+            expected_size=upd.get('size'),
+        )
         if staged is not None:
             dest = staged
         else:

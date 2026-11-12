@@ -266,9 +266,18 @@ def _cycle_windows() -> None:
         logger.warning('update check failed: %s', exc)
         offer = None
     if offer:
+        exp_sha = (
+            offer['digest'].split(':', 1)[1].lower()
+            if isinstance(offer.get('digest'), str) and ':' in offer['digest']
+            else None
+        )
         staged_ver = (
             offer['version']
-            if windows_update.staged_installer(offer['version'])
+            if windows_update.staged_installer(
+                offer['version'],
+                expected_sha=exp_sha,
+                expected_size=offer.get('size'),
+            )
             else None
         )
     if offer and staged_ver == offer['version']:
