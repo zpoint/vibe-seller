@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import telemetry, upgrade_restart
+from app import auto_update, telemetry, upgrade_restart
 from app.agent_mcp import router as agent_mcp_router
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.skill_gate_loader import preload_skill_gates
@@ -307,12 +307,18 @@ async def lifespan(app: FastAPI):
     upgrade_task = asyncio.create_task(
         upgrade_restart.watch(task_queue_scheduler, agent_manager)
     )
+    # Background download of the new release (app/auto_update.py):
+    # first check ~60 s after boot, then every 6 h; exits at once when
+    # this install can't update itself (unsupported shape or switched
+    # off).
+    auto_update_task = asyncio.create_task(auto_update.watch())
     yield
     # Cancel background tasks
     for t in [
         venv_task,
         history_task,
         upgrade_task,
+        auto_update_task,
         *service_tasks,
     ]:
         if not t.done():

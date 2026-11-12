@@ -88,6 +88,21 @@ class TelemetryEvent:
     EMAIL_SENT = 'email_sent'
     IMAGE_REQUEST_RESOLVED = 'image_request_resolved'
     UPGRADE_RESTARTED = 'upgrade_restarted'
+    UPDATE_DOWNLOADED = 'update_downloaded'
+    UPDATE_RESTART_REQUESTED = 'update_restart_requested'
+    UPDATE_APPLY_FAILED = 'update_apply_failed'
+
+
+class UpdateStage:
+    """Where in the in-app update flow an attempt failed."""
+
+    CHECK = 'check'
+    DOWNLOAD = 'download'
+    VERIFY = 'verify'
+    PREFETCH = 'prefetch'
+    INSTALLER = 'installer'
+    APPLY = 'apply'
+    WATCH = 'watch'
 
 
 class GateOutcome:

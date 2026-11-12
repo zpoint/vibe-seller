@@ -174,6 +174,19 @@ class Options(enum.Enum):
     # point the probe at a fake without touching what gets downloaded.
     GITHUB_API_BASE = ('VIBE_GITHUB_API_BASE', 'https://api.github.com')
 
+    # In-app auto-update (app/auto_update.py): background download of
+    # the new release, applied when an admin clicks "restart and
+    # update". Unset = on, except under pytest/CI where it stays off
+    # unless explicitly set to 1 (same convention as telemetry).
+    # '' is the default so the code can tell "unset" from an explicit
+    # value — see auto_update.enabled().
+    AUTO_UPDATE = ('VIBE_SELLER_AUTO_UPDATE', '')
+    # Where the update check reads PyPI's JSON document (URL or local
+    # path; empty = https://pypi.org/pypi/vibe-seller/json). The mock
+    # hook for tests/CI, like VIBE_SELLER_RELEASES_URL is for the
+    # Windows installer release source.
+    PYPI_JSON_URL = ('VIBE_SELLER_PYPI_JSON_URL', '')
+
     def __init__(self, env_var: str, default: str) -> None:
         super().__init__()
         self.env_var = env_var

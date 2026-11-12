@@ -8,13 +8,16 @@ them from error payloads or stale env vars.
 import subprocess
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 import httpx
 
-from app import telemetry
+from app import auto_update, telemetry
+from app.ai.claude_backend_manager import agent_manager
+from app.auth import get_current_user, require_admin
 from app.browser.ziniao_utils import get_platform
 from app.config import BASE_DIR
 from app.release_channel import channel_of
+from app.release_notes import merged_notes
 from app.telemetry import APP_VERSION
 from app.update_check import (
     NIGHTLY_PAGE_URL,
@@ -136,6 +139,7 @@ async def _compute_update_check() -> dict:
         if channel_of(latest) == 'nightly'
         else RELEASES_PAGE_URL
     )
+    merged = merged_notes(releases)
     return {
         'dev': False,
         'update_available': True,
@@ -146,7 +150,15 @@ async def _compute_update_check() -> dict:
         'upgrade_command': None if is_windows else 'vibe-seller upgrade',
         'download_url': page if is_windows else None,
         'releases_page_url': page,
+        # Whether the UI should show the in-app flow (background
+        # download + "restart and update") or today's manual popup.
+        'in_app_update': auto_update.in_app_update(),
         'releases': releases,
+        # Release notes for every version between the installed one
+        # and latest, merged BY SECTION (newest version first) —
+        # app/release_notes.py.
+        'highlights': merged['highlights'],
+        'notes': merged['notes'],
     }
 
 
@@ -182,3 +194,46 @@ async def update_check() -> dict:
     _update_check_cache = result
     _update_check_cache_at = now
     return result
+
+
+@router.get('/update-status')
+async def update_status(user=Depends(get_current_user)) -> dict:
+    """In-app auto-update state — cheap, no network I/O; the frontend
+    polls this while an update is downloading or a restart is running.
+
+    ``running_tasks`` is the live-agent count a restart right now would
+    interrupt (the modal warns about it before offering the button).
+    """
+    snap = auto_update.snapshot()
+    return {
+        'supported': auto_update.in_app_update(),
+        'state': snap['state'],
+        'version': snap['version'],
+        'current_version': APP_VERSION,
+        'downloaded_bytes': snap['downloaded_bytes'],
+        'total_bytes': snap['total_bytes'],
+        'error': snap['error'],
+        'running_tasks': agent_manager.live_agent_count(),
+        'platform': get_platform(),
+    }
+
+
+@router.post('/update/restart')
+async def update_restart(user=Depends(require_admin)) -> dict:
+    """Apply the ready update: restart onto it now (admin only).
+
+    Running task agents are interrupted — the modal warned about that
+    before the button was clicked, so there is no drain. 409 unless the
+    background download actually reached ``ready``.
+    """
+    if auto_update.snapshot()['state'] != auto_update.READY:
+        raise HTTPException(
+            status_code=409,
+            detail={'message': 'no downloaded update is ready to restart onto'},
+        )
+    try:
+        return await auto_update.apply_restart(
+            interrupted_tasks=agent_manager.live_agent_count()
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

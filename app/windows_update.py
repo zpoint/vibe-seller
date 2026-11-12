@@ -7,6 +7,13 @@ the release source is overridable via ``VIBE_SELLER_RELEASES_URL`` (a
 ``file://`` or ``http://`` JSON in the GitHub "latest release" shape) so
 the upgrade flow can be tested with a local mock — no real release.
 
+The download/staging primitives live here so the server's background
+auto-download (``app/auto_update.py``) and the tray's "检查更新" share
+one staged installer under ``<VIBE_HOME>/updates/<version>/`` — size +
+sha256 verified, ``.part`` + HTTP ``Range`` resumable. The tray reuses
+a staged installer for the offered version instead of downloading it
+again.
+
 What an upgrade replaces: the **whole bundle**. Each installer is
 self-contained, so running a newer one overwrites the install dir's
 pinned Python, Git for Windows, claude, uv, and dependency wheels, then rebuilds
@@ -24,6 +31,7 @@ Returns plain dicts (never raises to the caller) so the tray can show a
 result and, on failure, a manual-download link.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -100,7 +108,13 @@ def _fetch_release(src: str | None = None) -> dict:
 
 
 def _installer_offer(rel: dict, version: str) -> dict | None:
-    """``{'version', 'url'}`` when *rel* carries the installer asset."""
+    """``{'version', 'url', 'size', 'digest'}`` when *rel* carries the
+    installer asset.
+
+    ``size`` is the asset's byte count and ``digest`` GitHub's
+    ``sha256:<hex>`` — the staged download verifies against them. A
+    mock release may omit either; the verification then covers only
+    what is known."""
     assets = rel.get('assets') or []
     if isinstance(assets, dict):  # PowerShell may unwrap a 1-item array
         assets = [assets]
@@ -114,7 +128,12 @@ def _installer_offer(rel: dict, version: str) -> dict | None:
     )
     if not version or not asset or not asset.get('browser_download_url'):
         return None
-    return {'version': version, 'url': asset['browser_download_url']}
+    return {
+        'version': version,
+        'url': asset['browser_download_url'],
+        'size': asset.get('size'),
+        'digest': asset.get('digest'),
+    }
 
 
 def check_for_update() -> dict | None:
@@ -188,49 +207,286 @@ def download_installer(url: str, dest: Path) -> Path:
     return dest
 
 
-def run_installer(path: Path, *, silent: bool = False) -> None:
-    """Launch the downloaded installer, fully detached from this process.
+# ── Staged installer (shared by the server's background download and
+#    the tray) ────────────────────────────────────────────────────────
+#
+# ``<VIBE_HOME>/updates/<version>/`` holds ``VibeSeller-Setup.exe``
+# (verified, ready to run), its ``.part`` (a download that can be
+# resumed with an HTTP Range request), and ``install-meta.json`` (the
+# size/digest the file was verified under, plus the source url). A
+# verified stage for a version newer than the running one lets the
+# server say ``ready`` on boot without touching the network, and lets
+# the tray's "检查更新" reuse it instead of downloading again.
 
-    This code runs INSIDE the tray's ``pythonw.exe``, which lives at
-    ``{app}\\.venv\\Scripts\\pythonw.exe`` — the very file the installer
-    deletes and rebuilds. So the launch must be truly detached
-    (``DETACHED_PROCESS`` + a new process group) so the installer
-    outlives the tray quitting itself right after (see the tray's
-    ``_on_check_updates``); a plain ``Popen`` child could be torn down
-    with its parent and would keep the install dir locked.
+STAGED_NAME = ASSET_NAME
+PART_NAME = ASSET_NAME + '.part'
+META_NAME = 'install-meta.json'
+_CHUNK = 1024 * 1024
+
+
+class VerifyError(RuntimeError):
+    """A staged/finished download failed its size or sha256 check."""
+
+
+# win32 process-creation flags, as literals (subprocess only exposes
+# some of them, and only on Windows; plain ints keep this module
+# importable and testable everywhere).
+DETACHED_PROCESS = 0x00000008
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+
+
+def updates_root() -> Path:
+    # Late import: app.config creates the data dir at import time —
+    # that side effect belongs to server boot, not to every tray
+    # process that merely imports this module.
+    from app.config import VIBE_SELLER_DIR  # noqa: PLC0415
+
+    return VIBE_SELLER_DIR / 'updates'
+
+
+def staged_paths(version: str) -> tuple[Path, Path, Path]:
+    root = updates_root() / version
+    return root / STAGED_NAME, root / PART_NAME, root / META_NAME
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, 'rb') as f:
+        while chunk := f.read(_CHUNK):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_meta(version: str) -> dict | None:
+    _final, _part, meta = staged_paths(version)
+    try:
+        data = json.loads(meta.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def staged_installer(version: str, *, verify: bool = True) -> Path | None:
+    """The verified staged installer for *version*, or None.
+
+    With *verify*, the file is re-hashed against the meta's digest (a
+    few seconds on a ~700 MB exe — run off the event loop). With
+    ``verify=False``, only the recorded size is re-checked — enough for
+    the apply path, where the same file was verified moments ago."""
+    final, _part, _meta = staged_paths(version)
+    meta = _read_meta(version)
+    if not final.exists() or not meta or meta.get('version') != version:
+        return None
+    try:
+        size = final.stat().st_size
+    except OSError:
+        return None
+    if meta.get('size') is not None and size != meta['size']:
+        return None
+    if verify:
+        if not meta.get('sha256'):
+            # A mock stage with no recorded digest can only be checked
+            # by size; the real GitHub asset always carries one.
+            return final if size == (meta.get('size') or size) else None
+        try:
+            if _sha256_file(final) != meta['sha256']:
+                return None
+        except OSError:
+            return None
+    return final
+
+
+def _prune_old_stages(keep: str) -> None:
+    root = updates_root()
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        if entry.name == keep or not entry.is_dir():
+            continue
+        shutil.rmtree(entry, ignore_errors=True)
+
+
+def _download_stream(url: str, part: Path, progress) -> None:
+    """Stream *url* into *part*, resuming what is already there."""
+    have = part.stat().st_size if part.exists() else 0
+    headers = {'User-Agent': 'vibe-seller'}
+    if have:
+        headers['Range'] = f'bytes={have}-'
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=600) as resp:  # noqa: S310
+        status = getattr(resp, 'status', 200)
+        total: int | None = None
+        content_range = resp.headers.get('Content-Range') or ''
+        content_len = resp.headers.get('Content-Length')
+        if status == 206 and content_range.rpartition('/')[2].isdigit():
+            total = int(content_range.rpartition('/')[2])
+        elif content_len and content_len.isdigit():
+            total = int(content_len) + (have if status == 206 else 0)
+        if have and status != 206:
+            # Server ignored the Range header — start over.
+            have = 0
+            total = int(content_len) if content_len else None
+        mode = 'ab' if have else 'wb'
+        done = have
+        with open(part, mode) as f:
+            while chunk := resp.read(_CHUNK):
+                f.write(chunk)
+                done += len(chunk)
+                if progress:
+                    progress(done, total)
+
+
+def stage_installer(offer: dict, progress=None) -> Path:
+    """Download → verify (size + sha256) → rename, and return the path.
+
+    Resumable: bytes already in the ``.part`` are kept and the fetch
+    continues with an HTTP ``Range`` request. On a size or sha256
+    mismatch the ``.part`` is discarded and a ``RuntimeError`` raised —
+    a corrupt stage must never be launched. *progress* is called as
+    ``progress(downloaded_bytes, total_bytes_or_None)``. A plain local
+    path source (tests/CI mock) is copied — resume does not apply."""
+    version = offer['version']
+    url = offer['url']
+    size = offer.get('size')
+    digest = offer.get('digest')
+    expected_sha = (
+        digest.split(':', 1)[1].lower()
+        if isinstance(digest, str) and ':' in digest
+        else None
+    )
+    final, part, meta = staged_paths(version)
+    part.parent.mkdir(parents=True, exist_ok=True)
+    if final.exists():
+        # A stage left by another flow without meta, or a stale one:
+        # without verified meta it is not trustworthy — replace it.
+        final.unlink(missing_ok=True)
+    if progress:
+        have = part.stat().st_size if part.exists() else 0
+        progress(have, size)
+    complete_part = (
+        size is not None and part.exists() and (part.stat().st_size == size)
+    )
+    if _is_url(url):
+        if not complete_part:
+            # A part at exactly the expected size is complete — asking
+            # for bytes=<size>- would only earn an HTTP 416.
+            _download_stream(url, part, progress)
+    else:
+        if not Path(url).exists():
+            raise RuntimeError(f'installer source not found: {url}')
+        if not complete_part:
+            # A part of exactly the expected size is a complete copy of
+            # this same source (mock reruns) — keep it.
+            part.unlink(missing_ok=True)
+            shutil.copyfile(url, part)
+        if progress:
+            progress(part.stat().st_size, size or part.stat().st_size)
+    got = part.stat().st_size
+    if size is not None and got != size:
+        part.unlink(missing_ok=True)
+        raise VerifyError(
+            f'installer size mismatch: expected {size}, got {got}'
+        )
+    if expected_sha:
+        actual = _sha256_file(part)
+        if actual != expected_sha:
+            part.unlink(missing_ok=True)
+            raise VerifyError(
+                f'installer sha256 mismatch: expected {expected_sha}, '
+                f'got {actual}'
+            )
+    part.replace(final)
+    meta.write_text(
+        json.dumps({
+            'version': version,
+            'url': url,
+            'size': got,
+            'sha256': expected_sha,
+            'staged_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        }),
+        encoding='utf-8',
+    )
+    _prune_old_stages(keep=version)
+    return final
+
+
+#: Wizard modes. ``interactive`` shows the full wizard (the tray menu);
+#: ``silent`` shows ONLY the progress window — /SILENT, so no wizard
+#: questions, but the user sees the install happening (the in-app
+#: "重启并更新"); ``very_silent`` shows nothing (CI).
+INSTALLER_FLAGS = {
+    'interactive': [],
+    'silent': ['/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART'],
+    'very_silent': ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'],
+}
+
+
+def run_installer(path: Path, *, mode: str = 'interactive') -> None:
+    """Launch the installer, fully detached from this process.
+
+    This code can run INSIDE ``{app}\\.venv``'s python(w).exe (the tray)
+    or inside the server — in both cases the installer deletes and
+    rebuilds the very files this process image sits on. So the launch
+    must be truly detached (``DETACHED_PROCESS`` + a new process group)
+    so the installer outlives its launcher; a plain ``Popen`` child
+    could be torn down with the parent and would keep the install dir
+    locked.
+
+    ``CREATE_BREAKAWAY_FROM_JOB`` is tried first: GitHub Actions runners
+    (and some supervisors) put the whole job tree in a job object whose
+    kill-on-close would take the installer down with the server. A
+    process that is not in such a job can't break away — the API just
+    fails — so fall back to the plain detached flags.
 
     Retry on ``WinError 32`` (PermissionError): a freshly-written exe can
     be momentarily locked by an AV scan or a racing download.
     """
-    args = [str(path)]
-    if silent:
-        args += ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART']
-    creationflags = 0
+    args = [str(path), *INSTALLER_FLAGS[mode]]
     if sys.platform == 'win32':
-        creationflags = (
-            subprocess.DETACHED_PROCESS  # no console; survives our exit
-            | subprocess.CREATE_NEW_PROCESS_GROUP
-        )
+        base_flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        # Breakaway first, plain detached as the fallback.
+        choices = (base_flags | CREATE_BREAKAWAY_FROM_JOB, base_flags)
+    else:
+        choices = (0,)
     last_exc: OSError | None = None
     for attempt in range(3):
-        try:
-            subprocess.Popen(  # noqa: S603
-                args, creationflags=creationflags, close_fds=True
-            )
-            return
-        except PermissionError as exc:  # WinError 32 — briefly locked
-            last_exc = exc
-            logger.warning(
-                'installer launch locked (attempt %d): %s', attempt + 1, exc
-            )
-            if attempt < 2:
-                time.sleep(1.0 * (attempt + 1))
+        for i, creationflags in enumerate(choices):
+            try:
+                subprocess.Popen(  # noqa: S603
+                    args, creationflags=creationflags, close_fds=True
+                )
+                return
+            except PermissionError as exc:  # WinError 32 — briefly locked
+                # Other flags won't unlock it: sleep and retry next
+                # round.
+                last_exc = exc
+                logger.warning(
+                    'installer launch locked (attempt %d): %s',
+                    attempt + 1,
+                    exc,
+                )
+                break
+            except OSError as exc:
+                # Breakaway refused (no job object / job disallows it):
+                # try the plain detached flags next.
+                if i == 0 and len(choices) > 1:
+                    logger.debug(
+                        'installer breakaway refused (%s); retrying plain',
+                        exc,
+                    )
+                    continue
+                raise
+        if last_exc is not None and attempt < 2:
+            time.sleep(1.0 * (attempt + 1))
     if last_exc is not None:
         raise last_exc
 
 
 def upgrade(*, silent: bool = False) -> dict:
-    """Full check → download → launch flow.
+    """Full check → (reused stage OR download) → launch flow.
 
     Returns one of:
     - ``{'status': 'up-to-date', 'version': <current>}``
@@ -245,12 +501,22 @@ def upgrade(*, silent: bool = False) -> dict:
         upd = check_for_update()
         if not upd:
             return {'status': 'up-to-date', 'version': get_version()}
-        # Unique dir per run: two concurrent downloads writing the same
-        # fixed %TEMP%\VibeSeller-Setup.exe collide and the launch then
-        # fails with WinError 32 (observed in the field).
-        dest = Path(tempfile.mkdtemp(prefix='vibe-seller-upd-')) / ASSET_NAME
-        download_installer(upd['url'], dest)
-        run_installer(dest, silent=silent)
+        # The server's background download stages the same version
+        # under <VIBE_HOME>/updates/: reuse a verified stage instead of
+        # downloading the installer again.
+        staged = staged_installer(upd['version'])
+        if staged is not None:
+            dest = staged
+        else:
+            # Unique dir per run: two concurrent downloads writing the
+            # same fixed %TEMP%\VibeSeller-Setup.exe collide and the
+            # launch then fails with WinError 32 (observed in the
+            # field).
+            dest = (
+                Path(tempfile.mkdtemp(prefix='vibe-seller-upd-')) / ASSET_NAME
+            )
+            download_installer(upd['url'], dest)
+        run_installer(dest, mode='very_silent' if silent else 'interactive')
         return {
             'status': 'updating',
             'version': upd['version'],
