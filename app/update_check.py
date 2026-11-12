@@ -18,8 +18,13 @@ be *behind* what's actually checked out.
 
 from __future__ import annotations
 
+import asyncio
+import json
+from pathlib import Path
+
 import httpx
 
+from app.env_options import Options
 from app.release_channel import (
     NIGHTLY_TAG,
     best_upgrade,
@@ -35,7 +40,7 @@ NIGHTLY_PAGE_URL = f'https://github.com/{REPO}/releases/tag/{NIGHTLY_TAG}'
 
 # Cap on how many missed releases the "what's new" popup lists, so a
 # user many versions behind doesn't get a wall of changelog text.
-_MAX_RELEASES = 5
+_MAX_RELEASES = 10
 
 # GitHub (and sometimes PyPI) is frequently just *slow* rather than
 # blocked from behind the Great Firewall — a short timeout would treat
@@ -62,15 +67,46 @@ def is_dev_version(v: str) -> bool:
     return channel_of(v) == 'dev'
 
 
+def pypi_json_source() -> str:
+    """Where the PyPI JSON document is read from.
+
+    ``VIBE_SELLER_PYPI_JSON_URL`` overrides it for tests/CI (same role
+    as ``VIBE_SELLER_RELEASES_URL`` for the Windows installer source);
+    the override may be a URL or a plain local path."""
+    return Options.PYPI_JSON_URL.get().strip() or PYPI_JSON_URL
+
+
+def _local_path(src: str) -> str | None:
+    """The local filesystem path behind *src*, or None if it is an
+    http(s) URL. ``file://`` is accepted (scheme stripped) — httpx
+    cannot fetch it, and a mock hook that took ``file://`` silently
+    falling back to the real index would be the worst outcome."""
+    if src.startswith('file://'):
+        return src[len('file://') :]
+    if not src.startswith(('http://', 'https://')):
+        return src
+    return None
+
+
+async def fetch_pypi_json(client: httpx.AsyncClient) -> dict:
+    """The PyPI JSON document, from the URL or local path in
+    ``pypi_json_source()``. Raises on any failure (callers swallow)."""
+    path = _local_path(pypi_json_source())
+    if path is not None:
+        text = await asyncio.to_thread(Path(path).read_text, encoding='utf-8')
+        return json.loads(text)
+    resp = await client.get(pypi_json_source(), timeout=_FETCH_TIMEOUT_SECONDS)
+    resp.raise_for_status()
+    return resp.json()
+
+
 async def fetch_latest_pypi_version(
     client: httpx.AsyncClient,
 ) -> str | None:
     """Latest version per PyPI's JSON API, or None on any failure."""
     try:
-        resp = await client.get(PYPI_JSON_URL, timeout=_FETCH_TIMEOUT_SECONDS)
-        resp.raise_for_status()
-        return resp.json()['info']['version']
-    except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        return (await fetch_pypi_json(client))['info']['version']
+    except (httpx.HTTPError, OSError, KeyError, TypeError, ValueError):
         return None
 
 
@@ -84,17 +120,43 @@ async def fetch_nightly_upgrade(
     the highest newer stable-or-nightly version. None on any failure.
     """
     try:
-        resp = await client.get(PYPI_JSON_URL, timeout=_FETCH_TIMEOUT_SECONDS)
-        resp.raise_for_status()
-        releases = resp.json()['releases']
+        releases = (await fetch_pypi_json(client))['releases']
         versions = [
             v
             for v, files in releases.items()
             if files and not all(f.get('yanked') for f in files)
         ]
-    except (httpx.HTTPError, KeyError, TypeError, ValueError, AttributeError):
+    except (
+        httpx.HTTPError,
+        OSError,
+        KeyError,
+        TypeError,
+        ValueError,
+        AttributeError,
+    ):
         return None
     return best_upgrade(versions, current)
+
+
+async def _fetch_releases_json(client: httpx.AsyncClient) -> list:
+    """The GitHub releases list, from the URL or local path in
+    ``VIBE_SELLER_GITHUB_RELEASES_URL`` (mock hook, like the PyPI
+    source above)."""
+    src = Options.GITHUB_RELEASES_URL.get().strip() or GITHUB_RELEASES_URL
+    path = _local_path(src)
+    if path is not None:
+        text = await asyncio.to_thread(Path(path).read_text, encoding='utf-8')
+        data = json.loads(text)
+        return data if isinstance(data, list) else []
+    resp = await client.get(
+        src,
+        params={'per_page': 10},
+        headers={'User-Agent': 'vibe-seller'},
+        timeout=_FETCH_TIMEOUT_SECONDS,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data if isinstance(data, list) else []
 
 
 async def fetch_release_notes(
@@ -107,15 +169,8 @@ async def fetch_release_notes(
     update-available popup itself.
     """
     try:
-        resp = await client.get(
-            GITHUB_RELEASES_URL,
-            params={'per_page': 10},
-            headers={'User-Agent': 'vibe-seller'},
-            timeout=_FETCH_TIMEOUT_SECONDS,
-        )
-        resp.raise_for_status()
-        releases = resp.json()
-    except (httpx.HTTPError, TypeError, ValueError):
+        releases = await _fetch_releases_json(client)
+    except (httpx.HTTPError, TypeError, ValueError, OSError):
         return []
 
     notes = []

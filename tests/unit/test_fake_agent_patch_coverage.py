@@ -31,6 +31,9 @@ REPO = Path(__file__).resolve().parents[2]
 # conftest patch list instead of extending this allowlist.
 UNPATCHED_ALLOWLIST = {
     'app.main',
+    # Read-only: GET /api/system/update-status only counts live agents
+    # (no session lifecycle to fake; the workflow test asserts 0).
+    'app.routers.system',
     'app.routers.schedule_planning',
     'app.scheduler.plan_reaper',
     'app.task_delete',

@@ -51,7 +51,20 @@ class TestCheckForUpdate:
         assert self._check(payload) == {
             'version': '0.2.0',
             'url': _ASSET['browser_download_url'],
+            'size': None,
+            'digest': None,
         }
+
+    def test_offer_carries_asset_size_and_digest(self):
+        # The background stage verifies against these (a mock may omit
+        # them → size-only check).
+        payload = {
+            'tag_name': 'v0.2.0',
+            'assets': [{**_ASSET, 'size': 42, 'digest': 'sha256:ab'}],
+        }
+        offer = self._check(payload)
+        assert offer['size'] == 42
+        assert offer['digest'] == 'sha256:ab'
 
     def test_same_version_returns_none(self):
         assert self._check({'tag_name': 'v0.1.0', 'assets': [_ASSET]}) is None
@@ -64,6 +77,8 @@ class TestCheckForUpdate:
         assert self._check({'tag_name': 'v0.2.0', 'assets': _ASSET}) == {
             'version': '0.2.0',
             'url': _ASSET['browser_download_url'],
+            'size': None,
+            'digest': None,
         }
 
 

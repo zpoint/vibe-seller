@@ -193,6 +193,7 @@ touch their surface.
 | Workflow | Script / steps | Proves |
 |----------|----------------|--------|
 | `cli-upgrade.yml` (ubuntu + macOS) | `tests/releases/test_cli_upgrade_restart.sh` | `vibe-seller upgrade` restarts the running server: builds the checkout as 99.0.1/99.0.2, `uv tool install`s the first, starts it, runs the real upgrade, and requires the command to report the server on 99.0.2, a **second boot** in the daemon log, and `vibe-seller stop` still working |
+| `cli-upgrade.yml` (ubuntu + macOS) | `tests/releases/test_auto_update.sh` | In-app auto-update (app/auto_update.py): a started OLD server reaches `ready` on its own via the background prefetch (mock PyPI JSON + `UV_FIND_LINKS`), the warm cache is proven with a `UV_OFFLINE=1` re-resolution, a member's restart gets 403, the admin's restart lands the server on NEW with a second daemon-log boot and an idle `update-status` afterwards |
 | `sync-upgrade.yml` | `tests/releases/test_upgrade_sync_state.sh` | an older release's sync bookkeeping migrates into `sync_state` |
 | `windows-upgrade.yml` | inline pwsh | the native installer upgrades in place, including a silent upgrade over a running server that must come back on its own under a new PID |
 

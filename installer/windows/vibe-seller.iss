@@ -188,6 +188,10 @@ function InitializeSetup: Boolean;
 var
   Ver: TWindowsVersion;
 begin
+  // The in-app updater launches the STAGED copy under
+  // <VIBE_HOME>\updates\<version>\; this line is what CI greps in the
+  // debug log (/LOG) to prove the staged installer was the one run.
+  Log('Source: ' + ExpandConstant('{src}'));
   GetWindowsVersionEx(Ver);
   Result := Ver.Build >= MinWindowsBuild;
   if not Result then

@@ -63,6 +63,23 @@ function Build-Wheels {
   # plus every transitive dependency, for offline install on target.
   python -m pip install --upgrade pip wheel build
   python -m pip wheel "$RepoRoot" pystray pillow -w $wheels
+
+  # Every binary wheel must match the interpreter the installer bundles
+  # ($PyVersion). `pip wheel` builds for the RUNNING python, so a host
+  # on a different version silently lands cp3xx wheels here — the
+  # target's offline `uv pip install --no-index` then installs nothing
+  # and the tray dies on `import PIL` (observed with a 3.13 host).
+  # abi3 wheels are forward-compatible and stay fine.
+  $maj, $min = ($PyVersion -split '\.')[0, 1]
+  $want = "cp${maj}${min}"
+  $bad = @(Get-ChildItem $wheels -Filter '*.whl' | Where-Object {
+    $_.Name -match '-cp(\d+)-' -and $_.Name -notmatch 'abi3' -and
+    $Matches[1] -ne "${maj}${min}" })
+  if ($bad.Count -gt 0) {
+    throw ("staged wheels are not for $want (bundled Python " +
+      "$PyVersion): $($bad.Name -join ', ') — run the build with that " +
+      "python on PATH first")
+  }
 }
 
 # -- 2. Relocatable CPython (python-build-standalone) -----------------

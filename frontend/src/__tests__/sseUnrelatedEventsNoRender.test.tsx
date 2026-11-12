@@ -50,7 +50,7 @@ describe('SSE events for other tasks', () => {
     // The list also holds a task that is already running elsewhere.
     const open = makeTask({ id: 'task-1', store_id: null, status: 'completed', title: 'Example task' })
     const running = makeTask({ id: 'task-2', store_id: null, status: 'running', title: 'Background task' })
-    const { emit } = await bootApp({ task: open, tasks: [open, running], messages: longTranscript(200) })
+    const { emit } = await bootApp({ task: open, tasks: [open, running], messages: longTranscript(200), guideSeen: true })
     await screen.findByTestId('chat-input')
 
     const before = { ...renders }
@@ -71,7 +71,7 @@ describe('SSE events for other tasks', () => {
     window.history.pushState({}, '', '/tasks/task-1')
     const open = makeTask({ id: 'task-1', store_id: null, status: 'completed', title: 'Example task' })
     const queued = makeTask({ id: 'task-2', store_id: null, status: 'queued', title: 'Background task' })
-    const { emit } = await bootApp({ task: open, tasks: [open, queued] })
+    const { emit } = await bootApp({ task: open, tasks: [open, queued], guideSeen: true })
     await screen.findByTestId('chat-input')
 
     emit({ type: 'task_update', task_id: 'task-2', status: 'failed', error: 'boom' })

@@ -470,6 +470,21 @@ class TestEmailAccountContracts:
         )
 
 
+# ── Update-status contract ───────────────────────────
+
+UPDATE_STATUS_KEYS = {
+    'supported',
+    'state',
+    'version',
+    'current_version',
+    'downloaded_bytes',
+    'total_bytes',
+    'error',
+    'running_tasks',
+    'platform',
+}
+
+
 # ── Version contract ─────────────────────────────────
 
 
@@ -491,6 +506,61 @@ class TestVersionContracts:
         body = r.json()
         assert body.get('status') == 'ok'
         assert 'version' in body
+
+    async def test_update_status_shape(self, admin_client):
+        # The modal polls this — the key set is its interface.
+        r = await admin_client.get('/api/system/update-status')
+        assert r.status_code == 200
+        assert set(r.json().keys()) == UPDATE_STATUS_KEYS
+
+
+class TestUpdateCheckContract:
+    async def test_update_check_shape(self, admin_client, monkeypatch):
+        from unittest.mock import AsyncMock  # noqa: PLC0415 — test-local
+
+        import app.routers.system as sr  # noqa: PLC0415
+
+        monkeypatch.setattr(sr, 'APP_VERSION', '0.6.0')
+        monkeypatch.setattr(
+            sr, 'fetch_latest_pypi_version', AsyncMock(return_value='0.7.0')
+        )
+        monkeypatch.setattr(
+            sr,
+            'fetch_release_notes',
+            AsyncMock(
+                return_value=[
+                    {
+                        'version': '0.7.0',
+                        'name': 'v0.7.0',
+                        'body': '## Highlights\n\n- a\n',
+                        'url': 'https://x',
+                        'published_at': None,
+                    }
+                ]
+            ),
+        )
+        monkeypatch.setattr(sr, 'get_platform', lambda: 'linux')
+        r = await admin_client.get('/api/system/update-check')
+        assert r.status_code == 200
+        body = r.json()
+        assert set(body.keys()) == {
+            'dev',
+            'update_available',
+            'current_version',
+            'latest_version',
+            'channel',
+            'platform',
+            'upgrade_command',
+            'download_url',
+            'releases_page_url',
+            'in_app_update',
+            'releases',
+            'highlights',
+            'notes',
+        }
+        assert body['highlights'] == [
+            {'version': '0.7.0', 'zh': '- a', 'en': ''}
+        ]
 
 
 async def test_settings_serves_the_upload_cap_the_frontend_reads(

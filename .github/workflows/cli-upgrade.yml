@@ -11,10 +11,18 @@ name: CLI Upgrade Restart Test
 # checks a store created there survives (a release older than the
 # self-restart is stopped and started once, as its users do).
 #
+# The `auto-update` job proves the in-app path the same way end to
+# end: a running OLD server prefetches the offered NEW version into
+# uv's cache on its own, reaches ready, refuses a member's restart
+# (403) and one before ready (409), then applies the admin's restart
+# — detached `vibe-seller upgrade`, re-exec onto the new version,
+# `update-status` idle afterwards (tests/releases/test_auto_update.sh).
+#
 # A release gate (release.yml calls it via workflow_call), and also run
 # on PRs touching the upgrade/restart surface. macOS and Linux because
 # both ship through `vibe-seller upgrade`; native Windows upgrades via
-# the installer and is covered by windows-upgrade.yml.
+# the installer and is covered by windows-upgrade.yml and the
+# auto-update step in windows-installer.yml.
 
 on:
   workflow_call:
@@ -24,11 +32,16 @@ on:
     paths:
       - 'app/cli.py'
       - 'app/upgrade_restart.py'
+      - 'app/auto_update.py'
+      - 'app/update_check.py'
+      - 'app/windows_update.py'
       - 'app/main.py'
       - 'app/scheduler/task_queue.py'
       - 'app/version.py'
       - 'app/platform.py'
+      - 'app/env_options.py'
       - 'tests/releases/test_cli_upgrade_restart.sh'
+      - 'tests/releases/test_auto_update.sh'
       - '.github/workflows/cli-upgrade.yml'
 
 concurrency:
@@ -81,3 +94,42 @@ jobs:
         env:
           OLD_FROM: ${{ matrix.old }}
         run: bash tests/releases/test_cli_upgrade_restart.sh
+
+  # The in-app auto-update path (app/auto_update.py): the server must
+  # prefetch the target version into uv's cache on its own, offer
+  # restart, let ONLY an admin apply it, and come back on the new
+  # version via the detached `vibe-seller upgrade`. macOS and Linux
+  # share this code path (native Windows is gated by
+  # windows-installer.yml's auto-update step).
+  auto-update:
+    name: in-app auto-update (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      VIBE_SELLER_TELEMETRY: '0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install lsof
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y lsof
+
+      - name: Run the auto-update test
+        run: bash tests/releases/test_auto_update.sh

@@ -717,6 +717,74 @@ which starts the server — when one was running before
 (`AppWasRunning`). The installer does stop running tasks; the tray's
 update dialog is the place it is started from.
 
+### In-app auto-update (background download, click to apply)
+
+`app/auto_update.py` owns one state machine —
+`idle → downloading → ready → restarting`, or `error(message)` — and
+the lifespan starts its loop next to `upgrade_restart.watch`: first
+check ~60 s after boot, then every 6 h. It reuses the existing check
+and channel rules (`app/release_channel.py`) — a stable install is
+never offered a nightly. The whole feature is a *fetcher*,
+not an installer: it only ever stages bytes; applying happens when an
+admin clicks "重启并更新" in the UI.
+
+- **Support is install-shaped** (`supported()`): native Windows only
+  from the installer bundle (`unins000.exe` beside the venv —
+  `sys.prefix` is `{app}\.venv`), macOS/Linux only from a uv tool
+  (`uv-receipt.toml` in `sys.prefix`, `uv` on PATH), channel `dev`
+  never. pip / docker / source installs fall through to the old popup
+  (copy command / download link) — with the same merged release notes.
+  `VIBE_SELLER_AUTO_UPDATE` is the kill switch: default on, default
+  **off under pytest/CI** unless explicitly `1` (telemetry's
+  convention). No settings toggle by design.
+- **Windows staging** (`app/windows_update.py`, shared with the
+  tray): the offered asset's `size` + GitHub `digest` (`sha256:<hex>`;
+  a mock may omit it → size-only) are verified against
+  `<VIBE_HOME>/updates/<version>/VibeSeller-Setup.exe`, resumable
+  through a `.part` with HTTP `Range`; `install-meta.json` beside it
+  records what the file was verified under, so a boot scan marks a
+  newer verified stage `ready` without touching the network and the
+  tray's 检查更新 reuses it instead of downloading again. Only the
+  newest version dir is kept.
+- **macOS/Linux prefetch**: `uv tool run --from
+  vibe-seller==<v> --python sys.executable vibe-seller --version`
+  resolves + caches the target's wheels **without touching the
+  installed tool** (exact pins admit pre-releases, so nightlies need
+  no `--prerelease allow` — same rule as `app/cli.py`). Progress is
+  indeterminate there; the proof of a warm cache is an offline rerun
+  (`UV_OFFLINE=1`, `tests/releases/test_auto_update.sh` step 5).
+- **Mock hooks for tests/CI**: `VIBE_SELLER_PYPI_JSON_URL` and
+  `VIBE_SELLER_GITHUB_RELEASES_URL` (URL *or* local path) point the
+  version check and the release-notes fetch at local fixtures — the
+  same role `VIBE_SELLER_RELEASES_URL` already plays for the Windows
+  installer source.
+- **Apply** (`POST /api/system/update/restart`, admin, 409 unless
+  `ready`): Windows launches the staged installer detached
+  (`DETACHED_PROCESS` + `CREATE_NEW_PROCESS_GROUP`, trying
+  `CREATE_BREAKAWAY_FROM_JOB` first so a CI job object can't take the
+  installer down) with `/SILENT /SUPPRESSMSGBOXES /NORESTART` — a
+  progress window, no wizard questions; the server must *not* stop
+  itself (that's `PrepareToInstall`'s job). macOS/Linux spawn the
+  real `vibe-seller upgrade` detached (`start_new_session=True`) and
+  a watcher polls `upgrade_restart.installed_version()` — the moment
+  the disk changes it calls `request_restart()` right away (no drain:
+  the admin already accepted interrupting running tasks, and the UI
+  warned first). A failed upgrade leaves the OLD version serving and
+  moves the state to `error`.
+- **Release notes** for the whole gap (`app/release_notes.py`): every
+  release body between current and latest is parsed
+  (`## Highlights` zh/en paired 1:1 across the `---` line, `## Notes`
+  ending at `---`/`**Full changelog`/next `## `) and merged **by
+  section**, newest version first; a body outside the format becomes
+  one highlight item carrying the whole body. `GET
+  /api/system/update-check` returns them as `highlights` / `notes`.
+- Tests: unit/workflow (`test_auto_update.py`,
+  `test_windows_update_staging.py`, `test_release_notes.py`,
+  `test_wf_update_restart.py`); real end-to-end on Linux/macOS
+  (`tests/releases/test_auto_update.sh`, wired into
+  `cli-upgrade.yml`) and on the Windows host (auto-update gate in
+  `windows-installer.yml`).
+
 ### Native Windows installer
 
 `installer/windows/` builds a self-contained `VibeSeller-Setup.exe`

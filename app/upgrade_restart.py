@@ -116,9 +116,21 @@ async def watch(task_queue, agents) -> None:
             logger.exception('upgrade restart check failed')
 
 
-def request_restart() -> None:
-    """Graceful shutdown now; ``reexec_if_requested`` finishes the job."""
-    global _restart_requested
+def request_restart(version: str | None = None) -> None:
+    """Graceful shutdown now; ``reexec_if_requested`` finishes the job.
+
+    Idempotent: whoever gets here first owns the restart — a second
+    caller (the auto-update watcher and ``check_once`` can both see the
+    same disk change) is a no-op, so exactly one restart event is sent.
+    *version* names the target when the caller knows it (the watcher
+    does; ``check_once`` sets ``_pending_version`` itself before
+    calling), so the log line and the event never report ``None``.
+    """
+    global _restart_requested, _pending_version
+    if _restart_requested:
+        return
+    if version:
+        _pending_version = version
     _restart_requested = True
     logger.warning('Restarting onto vibe-seller %s', _pending_version)
     _send_restarted()

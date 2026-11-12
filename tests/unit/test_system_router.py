@@ -88,7 +88,15 @@ class TestUpdateCheckRoute:
         assert result['upgrade_command'] == 'vibe-seller upgrade'
         assert result['download_url'] is None
         assert result['releases_page_url'] == system_router.RELEASES_PAGE_URL
-        assert result['releases'] == _SAMPLE_RELEASES
+        # Merged notes (app/release_notes.py). A non-conforming body
+        # ('Adds thing.') still shows — as one highlight item per
+        # release, never dropped.
+        assert result['highlights'] == [
+            {'version': '0.7.0', 'zh': 'Adds thing.', 'en': 'Adds thing.'}
+        ]
+        assert result['notes'] == []
+        # Under pytest the auto-update kill switch is off by default.
+        assert result['in_app_update'] is False
 
     async def test_update_available_windows_uses_download_link(
         self, monkeypatch
@@ -141,7 +149,7 @@ class TestUpdateCheckRoute:
         result = await system_router.update_check()
 
         assert result['latest_version'] == '0.7.0'
-        assert [r['version'] for r in result['releases']] == ['0.7.0']
+        assert [h['version'] for h in result['highlights']] == ['0.7.0']
 
 
 class TestUpdateCheckCache:
