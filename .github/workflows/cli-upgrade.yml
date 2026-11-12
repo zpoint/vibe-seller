@@ -6,7 +6,10 @@ name: CLI Upgrade Restart Test
 # install.sh layout), starts it, runs the real `vibe-seller upgrade`,
 # and asserts the server booted again and serves the new version — with
 # no manual start in between (the server restarts itself:
-# app/upgrade_restart.py).
+# app/upgrade_restart.py). The `release` leg starts instead from the
+# latest stable release on PyPI — the upgrade users actually run — and
+# checks a store created there survives (a release older than the
+# self-restart is stopped and started once, as its users do).
 #
 # A release gate (release.yml calls it via workflow_call), and also run
 # on PRs touching the upgrade/restart surface. macOS and Linux because
@@ -37,13 +40,17 @@ concurrency:
 
 jobs:
   cli-upgrade-restart:
-    name: upgrade restarts the server (${{ matrix.os }})
+    name: upgrade from ${{ matrix.old }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        # checkout: this checkout as OLD (the self-restart contract, with
+        # a negative control). release: the latest stable release from
+        # PyPI, as its users installed it, upgraded with its own CLI.
+        old: [checkout, release]
     env:
       VIBE_SELLER_TELEMETRY: '0'
     steps:
@@ -71,4 +78,6 @@ jobs:
         run: sudo apt-get install -y lsof
 
       - name: Run the upgrade-restart test
+        env:
+          OLD_FROM: ${{ matrix.old }}
         run: bash tests/releases/test_cli_upgrade_restart.sh
