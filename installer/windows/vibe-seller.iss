@@ -7,7 +7,8 @@
 ; the Anthropic claude CLI, and the Playwright Chromium build the app's
 ; chrome backend drives — so installing needs no network at all. A
 ; system-tray launcher (tray.py, run via the bundled pythonw.exe) starts
-; the server on login and offers Open / Restart / Quit.
+; the server on login and offers Open / Restart / Check for updates /
+; Start at login / Quit.
 ;
 ; The staging tree is assembled by build.ps1 on a Windows CI runner and
 ; passed in via:  ISCC /DStagingDir=<path>  /DAppVersion=<x.y.z>
@@ -100,6 +101,7 @@ Source: "{#StagingDir}\claude\*";  DestDir: "{app}\claude";  Flags: recursesubdi
 Source: "{#StagingDir}\uv.exe";    DestDir: "{app}";         Flags: ignoreversion
 Source: "{#StagingDir}\tray.py";   DestDir: "{app}";         Flags: ignoreversion
 Source: "{#StagingDir}\dialogs.py"; DestDir: "{app}";        Flags: ignoreversion
+Source: "{#StagingDir}\autostart.py"; DestDir: "{app}";      Flags: ignoreversion
 Source: "{#StagingDir}\vibe-seller.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 #if DirExists(AddBackslash(StagingDir) + "ms-playwright")
 ; Playwright Chromium (+ headless shell, ffmpeg, winldd), prebuilt by
@@ -147,6 +149,13 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{#AppExeTray}"; \
   Parameters: """{app}\tray.py"" --open"; WorkingDir: "{app}"; \
   IconFilename: "{app}\vibe-seller.ico"; Tasks: desktopicon
 ; Login auto-start (no --open, so reboots don't pop a browser window).
+; This entry re-creates the shortcut on EVERY install/upgrade; whether
+; Windows runs it is decided by the per-item StartupApproved flag (HKCU
+; ...\Explorer\StartupApproved\StartupFolder, value "Vibe Seller.lnk")
+; — the same switch Task Manager and Windows Settings show. The tray's
+; "Start at login" item, Task Manager and Settings own that flag; this
+; installer never writes it, so an upgrade keeps the user's choice and
+; a disabled entry still appears in Settings. See {app}\autostart.py.
 Name: "{userstartup}\{#AppName}"; Filename: "{#AppExeTray}"; \
   Parameters: """{app}\tray.py"""; WorkingDir: "{app}"; \
   IconFilename: "{app}\vibe-seller.ico"

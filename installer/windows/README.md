@@ -3,7 +3,11 @@
 A double-click `VibeSeller-Setup.exe` that runs Vibe Seller natively on
 Windows — **no WSL, no manual Ziniao/networking setup**. Modelled on
 Ollama: a per-user install plus a system-tray launcher that starts the
-server on login.
+server on login. Starting on login is on by default and can be
+switched off from the tray menu (**开机自动启动 / Start at login**) —
+that item toggles Windows' own StartupApproved flag for the shortcut,
+the same switch Task Manager and Settings show, so app upgrades keep
+the user's choice.
 
 ## Requirements
 
@@ -25,7 +29,8 @@ reason; there is no supported way to run it on older Windows.
 | **Git for Windows (PortableGit)** | [git-for-windows releases](https://github.com/git-for-windows/git/releases) | `git`, `bash.exe`, and the MSYS userland (`curl`, `perl`, `sleep`). Claude Code's Bash tool **requires a file named `bash.exe`** (with only `sh.exe` it silently falls back to the PowerShell tool, which can't run the extensionless bash wrapper). The browser-use wrapper also shells out to `curl`/`perl`/`sleep`. **MinGit is insufficient** — it ships none of these. |
 | **claude CLI** | Anthropic native installer | The agent runtime |
 | **Playwright Chromium** (+ headless shell, ffmpeg, winldd) | `playwright install chromium` in CI, run by the Playwright from this bundle's own wheel set | The `chrome` backend's browser. Installed to `%LOCALAPPDATA%\ms-playwright\` (Playwright's default per-user dir, so the app needs no env var), each dir carrying its `INSTALLATION_COMPLETE` marker. Bundled — not downloaded at install — because that download went straight to `cdn.playwright.dev`, ignored the Windows system proxy, and ran hidden behind a wizard whose Cancel is disabled: on networks that can't reach the CDN users sat on "Downloading browser engine" for an hour. Adds ~260 MB to the installer (652 MB with Playwright 1.64's chromium-1248, up from 394 MB). |
-| **tray.py** | this dir | Login launcher: Open / Restart / Quit / Check for updates, runs via the bundled `pythonw.exe`. Menu + popups follow the OS language (en/zh). `--open` (used by the finish step) waits for health then opens the browser. |
+| **tray.py** | this dir | Login launcher: Open / Copy LAN address / Restart / Check for updates / Start at login / Quit, runs via the bundled `pythonw.exe`. Menu + popups follow the OS language (en/zh). `--open` (used by the finish step) waits for health then opens the browser. |
+| **autostart.py** | this dir | The "Start at login" switch behind the tray menu. It reads and writes Windows' own StartupApproved flag for the Startup shortcut (`HKCU\...\Explorer\StartupApproved\StartupFolder`), the same switch Task Manager and Settings toggle — never the shortcut's existence, which the installer owns. The installer never writes the flag, so upgrades keep the user's choice. |
 | **vibe-seller.ico** | `make_icon.py` | Shared brand mark (matches the web favicon); installer/Start-Menu/tray icon |
 | **ChineseSimplified.isl** | fetched by `build.ps1` (required; a failed fetch fails the build) | Chinese wizard strings; auto-selected on Chinese systems |
 
@@ -86,7 +91,12 @@ Git for Windows) for reproducible, reviewable bumps.
   3. Create a store + a browser task; confirm the agent drives Chrome
   4. **Restart** / **Quit** from the tray stop/start the daemon
   5. Reboot → tray auto-starts from the Startup shortcut
-  6. Uninstall removes the app; `%LOCALAPPDATA%\vibe-seller` data remains
+  6. Tray → untick **Start at login** → Task Manager's Startup list
+     shows Vibe Seller disabled (same flag, different UI); reboot →
+     the tray does not start. Tick it again → reboot → it starts.
+     (The shortcut stays in the Startup folder either way — that is
+     by design; the installer owns the file, the flag owns the choice.)
+  7. Uninstall removes the app; `%LOCALAPPDATA%\vibe-seller` data remains
 
 ## Process-spawn rules on native Windows
 

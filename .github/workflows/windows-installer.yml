@@ -143,6 +143,15 @@ jobs:
             throw "vibe-seller.exe not found under $install after install"
           }
           echo "VS_INSTALL=$install" >> $env:GITHUB_ENV
+          # The login shortcut must exist after the silent install —
+          # it is what start-at-login (tray menu, Task Manager,
+          # Settings) toggles via the StartupApproved flag. /NOICONS
+          # only skips {group}\ [Icons] entries; {userstartup} is
+          # created (Inno's ShouldProcessIconEntry), so this asserts
+          # the real per-user behaviour.
+          $lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Vibe Seller.lnk'
+          if (-not (Test-Path -LiteralPath $lnk)) { throw "installer created no login shortcut: $lnk" }
+          Write-Host "OK: login shortcut $lnk"
 
       - name: Verify the bundled Chromium (installed offline, launches)
         shell: pwsh
@@ -312,7 +321,7 @@ jobs:
           }
           Write-Host "OK: bundled bash executes extensionless shebang wrappers"
 
-      - name: Tray dialog test (responsive dialog + clipboard, headless)
+      - name: Tray dialog + start-at-login tests (dialog/clipboard, registry, shortcuts)
         shell: pwsh
         run: |
           # Verifies the fix for the unresponsive dialog + Copy-to-clipboard
@@ -323,7 +332,12 @@ jobs:
           # imports it at collection time (even for this sync test).
           & "$env:VS_INSTALL\uv.exe" pip install --python $py `
             pytest pytest-asyncio
-          & $py -m pytest tests\unit\test_tray_dialog.py -v
+          # test_tray_autostart.py additionally round-trips the
+          # StartupApproved flag (scratch HKCU key) and re-creates the
+          # login shortcut through WScript.Shell — real Windows only,
+          # so this runner is where its (c) tests actually execute.
+          & $py -m pytest tests\unit\test_tray_dialog.py `
+            tests\unit\test_tray_autostart.py -v
 
       - name: Install pytest deps into the bundled venv (for agent e2e)
         shell: pwsh
