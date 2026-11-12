@@ -276,11 +276,16 @@ async def _import_url(ctx: McpContext, args: dict, url: str) -> dict:
                 'description': (
                     'import only: a GitHub tree/blob URL of a skill '
                     'folder, or a direct archive URL (.tar.gz/.zip/'
-                    '.skill). The SERVER fetches it (http(s) to '
-                    'public addresses only; loopback only under the '
-                    'e2e test flag) and installs the archive through '
-                    'the same staged path. Mutually exclusive with '
-                    'upload_id and with files / files_bin.'
+                    '.skill). Pass EXACTLY the URL the user gave — '
+                    'scheme, host, port and path verbatim; do NOT '
+                    'rewrite it into a raw or API URL, the server '
+                    'resolves all supported forms itself and a '
+                    'rewritten origin fails. The SERVER fetches it '
+                    '(http(s) to public addresses only; loopback '
+                    'only under the e2e test flag) and installs the '
+                    'archive through the same staged path. Mutually '
+                    'exclusive with upload_id and with files / '
+                    'files_bin.'
                 ),
             },
             'skill_md': {

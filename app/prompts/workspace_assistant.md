@@ -102,4 +102,7 @@ after they agree.
    and retype it — install it whole: `vibe_seller_import_skill(path=...)`.
 9. A URL that names a skill (GitHub tree/blob of a skill folder, a
    `.tar.gz`/`.zip`/`.skill` link): `vibe_seller_import_skill(url=...)`
-   — the server fetches it; you do not curl-and-write.
+   — the server fetches it; you do not curl-and-write. Pass the URL
+   EXACTLY as the user wrote it — scheme, host, port and path
+   verbatim. Do not rewrite it into a raw or API URL: the server
+   resolves every supported form itself, and a rewritten origin fails.

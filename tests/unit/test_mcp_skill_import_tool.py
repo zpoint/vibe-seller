@@ -7,6 +7,7 @@ which bytes); the end-to-end install rides the workflow tier in
 contract is ``tests/unit/test_mcp_skill_import.py``.
 """
 
+import inspect
 import io
 import json
 import tarfile
@@ -14,6 +15,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.agent_mcp.registry import tool_definitions
 import app.mcp_server as mcp
 from app.skill_uploads import entry_name
 
@@ -99,9 +101,7 @@ class TestImportDispatch:
         )
         assert 'exactly one of path / url' in json.loads(result)['error']
 
-    async def test_missing_skill_md_never_reaches_the_server(
-        self, tmp_path
-    ):
+    async def test_missing_skill_md_never_reaches_the_server(self, tmp_path):
         (tmp_path / 'bare').mkdir()
         with patch(
             'app.mcp_server.call_api', new_callable=AsyncMock
@@ -115,8 +115,6 @@ class TestImportDispatch:
     async def test_pack_runs_off_the_event_loop(self):
         """Blocking walk in an async def is the gate's bug class; the
         branch must hand it to asyncio.to_thread."""
-        import inspect
-
         src = inspect.getsource(mcp._import_skill)
         assert 'asyncio.to_thread(pack_skill_dir' in src
 
@@ -181,3 +179,32 @@ class TestListSkillsWithoutTask:
         mock_api.assert_awaited_once_with(
             'GET', '/api/workspace/skills?task_id=t-1'
         )
+
+
+class TestUrlGuidanceIsVerbatim:
+    """Observed failure (shots session): the assistant REWROTE a
+    given skill URL into a raw api.github.com form before calling the
+    tool, and the fetch then hit the real GitHub instead of the
+    origin the user named. The tool text is the guard — pinned here
+    for BOTH tool surfaces."""
+
+    def _url_text(self, schema_node) -> str:
+        return json.dumps(schema_node).lower()
+
+    def test_in_task_tool_says_verbatim(self):
+        tool = next(
+            t for t in mcp.TOOLS if t['name'] == 'vibe_seller_import_skill'
+        )
+        blob = (
+            tool['description'] + self._url_text(tool['inputSchema'])
+        ).lower()
+        assert 'verbatim' in blob
+        assert 'never rewrite' in blob or 'do not rewrite' in blob
+
+    def test_external_manage_skill_says_verbatim(self):
+        defs = tool_definitions()
+        entry = next(d for d in defs if d['name'] == 'manage_skill')
+        blob = (
+            entry['description'] + self._url_text(entry['inputSchema'])
+        ).lower()
+        assert 'verbatim' in blob

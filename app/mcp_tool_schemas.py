@@ -584,7 +584,10 @@ TOOLS = [
             'this machine (it must contain SKILL.md at its root); or '
             '`url` — a GitHub tree/blob URL of a skill folder or a '
             'direct archive URL (.tar.gz / .zip / .skill), which the '
-            'SERVER fetches. Optional `slug` overrides the slug '
+            'SERVER fetches. Pass the url EXACTLY as given (scheme, '
+            'host, port, path verbatim — never rewrite it into a raw '
+            'or API URL; the server resolves all supported forms). '
+            'Optional `slug` overrides the slug '
             "derived from SKILL.md's frontmatter name. `origin_url` "
             '(path imports: defaults to the path; URL imports: '
             'defaults to the URL) records provenance so the skill '
@@ -615,9 +618,14 @@ TOOLS = [
                     'description': (
                         'Skill URL: GitHub tree/blob of the skill '
                         'folder (recommended) or a direct archive '
-                        'URL (.tar.gz/.zip/.skill). The server '
-                        'fetches it — public http(s) only. Mutually '
-                        'exclusive with path.'
+                        'URL (.tar.gz/.zip/.skill). Pass EXACTLY the '
+                        'URL the user gave — scheme, host, port and '
+                        'path verbatim; do NOT rewrite it into a raw '
+                        'or API URL (the server resolves all '
+                        'supported forms itself, a rewritten '
+                        'origin fails). The server fetches it — '
+                        'public http(s) only. Mutually exclusive '
+                        'with path.'
                     ),
                 },
                 'slug': {
