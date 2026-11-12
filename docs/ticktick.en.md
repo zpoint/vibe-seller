@@ -14,6 +14,9 @@ is to register an **app** on its developer portal and copy back a
 Client ID and Client Secret — think of it as issuing Vibe Seller a key
 card. Five minutes, no code.
 
+Where each integration is configured and how they divide up: see the
+[Integrations overview](integrations.en.md).
+
 > The screenshots were taken on macOS; the steps look the same on
 > Windows and Linux.
 
@@ -29,8 +32,8 @@ developer portal of the version you actually use.
 ## Step 1: Register an app on the developer portal
 
 1. Open the portal and sign in:
-   - Dida365 (China): [developer.dida365.com](https://developer.dida365.com/manage);
-   - TickTick (international): [developer.ticktick.com](https://developer.ticktick.com/manage).
+    - Dida365 (China): [developer.dida365.com](https://developer.dida365.com/manage);
+    - TickTick (international): [developer.ticktick.com](https://developer.ticktick.com/manage).
 2. Click **New App**. Any Name works (e.g. `vibe-seller`); leave App
    Service URL and Description empty, then click **Add**.
 
@@ -54,9 +57,10 @@ developer portal of the version you actually use.
 
 1. On the same Edit page, copy the **Client ID** and
    **Client Secret**;
-2. Open **Settings → Integrations → TickTick / Dida365** in Vibe
-   Seller, pick your service (China / International) and paste both
-   values into the step-4 fields;
+2. Open **Settings → Integrations → Dida365 / TickTick** in Vibe
+   Seller (that's the card's label; the page itself is titled
+   "TickTick / Dida365"), pick your service (China / International)
+   and paste both values into the step-4 fields;
 3. Click **Authorize** — a TickTick authorization popup opens; sign in
    and approve. The popup closes by itself and the card's status
    changes to "Connected".

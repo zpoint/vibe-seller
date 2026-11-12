@@ -1,8 +1,12 @@
 ---
-description: Getting an LLM API key — where to sign up, where to click to create a key, pay-as-you-go vs. plan, and which Vibe Seller preset to pick for DeepSeek, Kimi, MiniMax, GLM, Qwen, Xiaomi MiMo and Claude.
+description: Configure AI models — where to sign up, where to click to create a key, pay-as-you-go vs. plan, and which Vibe Seller preset to pick for DeepSeek, Kimi, MiniMax, GLM, Qwen, Xiaomi MiMo and Claude.
 ---
 
-# Get an API Key
+# Configure AI Models
+
+!!! note "These are your model provider's keys"
+    This page is about API keys from **model providers** such as DeepSeek or Claude. You enter them under Settings → AI so Vibe Seller can call the model.
+    They are not the Vibe Seller API keys generated under Settings → Integrations → API keys — those let external AI tools such as Claude or Codex connect to Vibe Seller; see [MCP Setup](mcp.md).
 
 Vibe Seller itself is free; the AI model doing the work runs on **your own API
 key**. Think of it as a password plus billing account the model provider gives

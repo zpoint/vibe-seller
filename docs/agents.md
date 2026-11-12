@@ -75,8 +75,7 @@ No plugin, just the server. The skill is then absent, so the agent has
 the tools but not the guidance on how to use them well.
 
 ```bash
-claude mcp add --scope user --transport http vibe-seller \
-  http://HOST:7777/api/mcp --header "Authorization: Bearer vst_YOUR_TOKEN"
+claude mcp add --scope user --transport http vibe-seller http://HOST:7777/api/mcp --header "Authorization: Bearer vst_YOUR_TOKEN"
 ```
 
 `--scope user` matters: without it the server registers for the current

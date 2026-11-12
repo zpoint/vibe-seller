@@ -5,7 +5,7 @@ description: Google Workspace integration — install and sign in to the gws CLI
 # Google Workspace
 
 Once enabled, the AI can read and write your Google Sheets, Drive files,
-Gmail, Docs and Calendar while running a tasks — filling ad data into a
+Gmail, Docs and Calendar while running a task — filling ad data into a
 weekly-report sheet, filing invoices into the right folder, chasing a
 supplier by email, putting a launch schedule on the calendar.
 
@@ -13,6 +13,9 @@ Under the hood this uses **gws**, the Google Workspace command-line tool
 that covers every Workspace API with one binary. Vibe Seller packages it
 into skills the AI can use; you install gws, sign in to Google once,
 then flip the toggle in Settings.
+
+Where each integration is configured and how they divide up: see the
+[Integrations overview](integrations.en.md).
 
 > The screenshots were taken on macOS; the steps look the same on
 > Windows and Linux.
@@ -81,9 +84,9 @@ Open **Settings → Integrations → Google Workspace**:
 1. The card runs two checks first: **gws binary** (shows the version
    once installed) and **Authentication** ("Logged in" after signing
    in);
-2. When both are green, click **Enable** in the top-right. The first
-   run takes 20–30 seconds — gws generates documentation for every
-   API and the bundle is installed into your workspace;
+2. When both pass, click **Enable** on the right of the "Enable" row.
+   The first run takes 20–30 seconds — gws generates documentation for
+   every API and the bundle is installed into your workspace;
 3. "Enabled — 19 sub-skills installed" means you are done.
 
 ![Google Workspace card: checks green, ready to enable](images/gws_card_en.png)
@@ -101,7 +104,9 @@ The three states side by side:
 
 ## Verify
 
-1. The settings card reads "Enabled";
+1. Back on this card, the hint under the "Enable" row now reads
+   "Agents can invoke the gws umbrella skill." and the button says
+   "Disable";
 2. Try a task: "Summarise the last column of this Google Sheet"
    (give it the sheet link);
 3. If the AI reads the sheet and gives you the summary, the

@@ -6,6 +6,8 @@ description: Move Amazon ad work from clicking the seller console in a browser t
 
 Once bound, the agent's Amazon ad work stops clicking through the seller console in a browser and goes **straight to the Ads API** — steadier for tuning and bulk operations. **Amazon stores only, for now. Each store authorizes separately.**
 
+Where each integration is configured and how they divide up: see the [Integrations overview](integrations.en.md).
+
 ## What binding buys you
 
 |  | Browser path (unbound) | Ads API (bound) |

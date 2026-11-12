@@ -1,0 +1,819 @@
+/*
+ * Vibe Seller docs — brand layer on top of Material for MkDocs.
+ *
+ * Look and layout only: palette, three-column geometry, sidebar and
+ * TOC hierarchy, typography, tables, code, admonitions, images, and the
+ * homepage landing treatment. Page content and wording live in docs/*.md;
+ * nothing here changes what a page says.
+ *
+ * Sizing note: Material sets the root font-size to 125% (1rem = 20px),
+ * so the rem values below are 0.8× the pixel sizes they look like —
+ * .8rem is 16px, .75rem is 15px, 2rem is 40px.
+ *
+ * The homepage rules are scoped to `body.mdx-home`, a class the site
+ * build adds to the index pages (see docs_hooks.py), so the GitHub
+ * READMEs — generated from the same sources — stay untouched.
+ */
+
+/* ------------------------------------------------------------------ *
+ * Tokens
+ * ------------------------------------------------------------------ */
+
+:root > * {
+  /* Brand: the app's indigo (Tailwind indigo-600). */
+  --vs-brand: #4f46e5;
+  --vs-brand-link: #4338ca;
+  --vs-hairline: var(--md-default-fg-color--lightest);
+
+  /* Three columns, centred: 280px nav / ~820px measure / 260px TOC. */
+  --vs-sidebar-width: 14rem;
+  --vs-toc-width: 13rem;
+
+  /* Nav text: dark grey, not Material's washed-out .54 alpha. */
+  --vs-nav-fg: var(--md-default-fg-color);
+
+  /* Code: light chip with a hairline, not a grey smudge. */
+  --vs-code-bg: #f5f6fa;
+  --vs-code-border: #e3e6ef;
+  --vs-table-head: #f7f8fc;
+
+  /* UI label chips: a fill one step darker than the page, not a slab. */
+  --vs-chip-bg: #f5f6f8;
+  --vs-chip-border: var(--md-default-fg-color--lightest);
+
+  /* Material hooks: accent drives active nav, hovers, underlines. */
+  --md-accent-fg-color: var(--vs-brand);
+  --md-accent-fg-color--transparent: #4f46e51a;
+  --md-typeset-a-color: var(--vs-brand-link);
+
+  /* Material's footer is dark by default; under a white header that
+   * reads as a black bar. Let it follow the page instead (slate picks
+   * its own dark background through the same variables). */
+  --md-footer-bg-color: var(--md-default-bg-color);
+  --md-footer-bg-color--dark: var(--md-default-bg-color);
+  --md-footer-fg-color: var(--md-default-fg-color);
+  --md-footer-fg-color--light: var(--md-default-fg-color--light);
+  --md-footer-fg-color--lighter: var(--md-default-fg-color--lighter);
+
+  /* Code surfaces follow the chip tokens. */
+  --md-code-bg-color: var(--vs-code-bg);
+
+  /* font: false in mkdocs.yml (readers behind the GFW get no Google
+   * Fonts), so name a good local stack — Inter where installed, then
+   * the platform UI font, then CJK faces before the generic fallback. */
+  --md-text-font-family: Inter, -apple-system, "system-ui", "Segoe UI",
+    Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    sans-serif;
+  --md-code-font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
+}
+
+@media screen {
+  body[data-md-color-scheme="slate"] {
+    --vs-brand: #a5b4fc;
+    --vs-brand-link: #93a1f7;
+    --vs-hairline: hsla(var(--md-hue), 15%, 90%, 0.12);
+    --vs-nav-fg: hsla(var(--md-hue), 15%, 90%, 0.86);
+    --vs-code-bg: hsla(var(--md-hue), 15%, 20%, 1);
+    --vs-code-border: hsla(var(--md-hue), 15%, 90%, 0.14);
+    --vs-table-head: hsla(var(--md-hue), 15%, 18%, 1);
+    --vs-chip-bg: hsla(var(--md-hue), 15%, 90%, 0.06);
+    --vs-chip-border: hsla(var(--md-hue), 15%, 90%, 0.16);
+    --md-accent-fg-color: #a5b4fc;
+    --md-accent-fg-color--transparent: #a5b4fc1a;
+    --md-typeset-a-color: var(--vs-brand-link);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Chrome: header, tabs, footer
+ * ------------------------------------------------------------------ */
+
+/* White (light) / near-black (dark) header with a hairline instead of
+ * Material's drop shadow. */
+.md-header {
+  box-shadow: none;
+  border-bottom: 1px solid var(--vs-hairline);
+}
+
+.md-header__button.md-logo {
+  color: var(--vs-brand);
+}
+
+.md-header__title {
+  font-size: .8rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+}
+
+.md-tabs {
+  border-bottom: 1px solid var(--vs-hairline);
+  box-shadow: none;
+}
+
+.md-tabs__link {
+  font-size: .7rem;
+  font-weight: 600;
+  opacity: .72;
+}
+
+.md-tabs__link--active {
+  opacity: 1;
+}
+
+.md-footer {
+  border-top: 1px solid var(--vs-hairline);
+}
+
+/* ------------------------------------------------------------------ *
+ * Layout: three columns and their dividers
+ * ------------------------------------------------------------------ */
+
+/* Material's 61rem grid leaves a 688px measure — too tight for mixed
+ * CJK/Latin prose. 70rem = 1400px, which is 280 + ~820 + 260 plus the
+ * gutters, and stays centred on wider screens. */
+.md-grid {
+  max-width: 70rem;
+}
+
+@media screen and (min-width: 76.25em) {
+  .md-sidebar--primary {
+    width: var(--vs-sidebar-width);
+  }
+
+  .md-sidebar--secondary {
+    width: var(--vs-toc-width);
+  }
+
+  /* The column rules: the content box is the tallest element in the
+   * flex line, so its own borders run the full page height — a divider
+   * on the sidebar's right edge and the TOC's left edge, the way the
+   * reference layout has them. */
+  .md-content {
+    border-right: 1px solid var(--vs-hairline);
+    border-left: 1px solid var(--vs-hairline);
+  }
+
+  .md-content > .md-content__inner {
+    margin: 0 2rem 2.4rem;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Typography
+ * ------------------------------------------------------------------ */
+
+.md-typeset {
+  font-size: .8rem;   /* 16px body */
+  line-height: 1.7;   /* CJK needs the extra leading */
+}
+
+/* Large, calm headings: the reference set uses a light-ish weight at a
+ * big size, not Material's thin grey or a heavy black slab. */
+.md-typeset h1 {
+  font-size: 2rem;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -.02em;
+  color: var(--md-default-fg-color);
+  margin: 0 0 1.1em;
+}
+
+.md-typeset h2 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -.01em;
+  color: var(--md-default-fg-color);
+  margin: 2.4em 0 .8em;
+}
+
+.md-typeset h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 2em 0 .6em;
+}
+
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  font-weight: 600;
+}
+
+.md-typeset p {
+  margin: 0 0 1.15em;
+}
+
+.md-typeset ul li,
+.md-typeset ol li {
+  margin: .35em 0;
+}
+
+/* Links: accent colour, underline on hover (the reference set always
+ * underlines on hover, which matters in CJK prose where a colour-only
+ * hint is easy to miss). */
+.md-typeset a {
+  color: var(--md-typeset-a-color);
+}
+
+.md-typeset a:hover {
+  color: var(--vs-brand);
+  text-decoration: underline;
+  text-underline-offset: .12em;
+}
+
+/* ------------------------------------------------------------------ *
+ * UI label chips  (「新建任务」, 「设置 → 集成」)
+ * ------------------------------------------------------------------ */
+
+/* Injected at build time by docs_ui_chips.mark_ui_labels — the sources
+ * keep their plain corner brackets. A chip is a hairline box on a light
+ * fill: enough to separate a button's name from the sentence around it
+ * without competing with links. color: inherit keeps a chip inside a
+ * link in the link's own colour. */
+.md-typeset .ui {
+  display: inline;
+  padding: .05em .4em;
+  font-size: .92em;
+  font-weight: 500;
+  color: inherit;
+  white-space: nowrap;
+  background-color: var(--vs-chip-bg);
+  border: 1px solid var(--vs-chip-border);
+  border-radius: 4px;
+  /* When a long label does break, each fragment keeps its own box. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* A long label (more than 16 characters — the class is added by the
+ * same hook) may break across lines instead of pushing the line out.
+ * keep-all keeps the break at a space or punctuation, not inside a word
+ * (「…webdriver 登 / 录」 was the first draft's failure mode); anywhere
+ * remains as the last resort for a label with no space at all. */
+.md-typeset .ui--long {
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* The muted › between the segments of a menu-path chip. */
+.md-typeset .ui-sep {
+  font-weight: 400;
+  color: var(--md-default-fg-color--lighter);
+  margin: 0 .28em;
+}
+
+/* ------------------------------------------------------------------ *
+ * Code
+ * ------------------------------------------------------------------ */
+
+/* Inline code inside CJK prose: a light chip with a hairline and a size
+ * close to the body text. Material's .85em mono on plain #f5f5f5 reads
+ * as grey smudges between Chinese characters, and its
+ * word-break: break-word splits a token in the middle of a word.
+ *
+ * word-break: normal keeps the chips whole (a break happens at the space
+ * or hyphen inside them, or before/after the chip, as CJK line-breaking
+ * already allows); overflow-wrap: anywhere still lets one break when it
+ * would otherwise push the line past the edge — nowrap was tried first
+ * and it widened /tasks/ to 694px on a 390px phone. */
+.md-typeset code:not(pre code) {
+  padding: .12em .38em;
+  font-size: .88em;
+  color: var(--md-code-fg-color);
+  word-break: normal;
+  overflow-wrap: anywhere;
+  background-color: var(--vs-code-bg);
+  border: 1px solid var(--vs-code-border);
+  border-radius: .3em;
+}
+
+.md-typeset pre > code {
+  font-size: .72rem;
+  border: 1px solid var(--vs-code-border);
+  border-radius: .4rem;
+  background-color: var(--vs-code-bg);
+}
+
+/* ------------------------------------------------------------------ *
+ * Tables
+ * ------------------------------------------------------------------ */
+
+/* Material sizes tables to their content (inline-block) and sets them in
+ * .64rem; this site's comparison tables are content, so they get the
+ * full measure, 15px text, comfortable cells and a tinted header. The
+ * scroll wrapper still handles overflow on narrow screens. */
+.md-typeset .md-typeset__scrollwrap {
+  margin: 1.4em 0;
+  overflow-x: auto;
+}
+
+.md-typeset .md-typeset__table {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+.md-typeset table:not([class]) {
+  display: table;
+  width: 100%;
+  font-size: .75rem;
+  line-height: 1.6;
+  background-color: var(--md-default-bg-color);
+  border: 1px solid var(--vs-hairline);
+  border-radius: .4rem;
+}
+
+.md-typeset table:not([class]) th {
+  padding: .8em 1.1em;
+  font-weight: 700;
+  vertical-align: top;
+  color: var(--md-default-fg-color);
+  background-color: var(--vs-table-head);
+  border-bottom: 1px solid var(--vs-hairline);
+}
+
+.md-typeset table:not([class]) td {
+  padding: .8em 1.1em;
+  vertical-align: top;
+  border-top: 1px solid var(--vs-hairline);
+}
+
+.md-typeset table:not([class]) tr:first-child td {
+  border-top: none;
+}
+
+/* The comparison tables (集成总览, 定时任务, 任务) run to five columns of
+ * prose; at the full 1.1em cell padding each column is ~150px and every
+ * cell wraps to a paragraph. Tighten the horizontal padding once a table
+ * has four columns or more — the measure stays the same, each column
+ * gains about 10% of width. */
+.md-typeset table:not([class]):has(th:nth-child(4)) th,
+.md-typeset table:not([class]):has(th:nth-child(4)) td {
+  padding: .75em .7em;
+}
+
+/* ------------------------------------------------------------------ *
+ * Admonitions (note / tip / warning …)
+ * ------------------------------------------------------------------ */
+
+/* Keep Material's per-type colours but put the weight on the left edge,
+ * lift the body off the page and let the title bar carry the tint. */
+.md-typeset .admonition,
+.md-typeset details {
+  padding: 0 .9rem;
+  margin: 1.6em 0;
+  font-size: .75rem;
+  border-width: 1px 1px 1px .2rem;
+  border-radius: .4rem;
+  box-shadow: 0 1px 2px hsla(229, 30%, 30%, 0.06),
+              0 6px 18px hsla(229, 30%, 30%, 0.05);
+}
+
+.md-typeset .admonition-title,
+.md-typeset summary {
+  margin: 0 -.9rem .9rem;
+  padding: .55rem .9rem .55rem 2.2rem;
+  font-weight: 700;
+}
+
+.md-typeset .admonition > :last-child,
+.md-typeset details > :last-child {
+  margin-bottom: .9rem;
+}
+
+/* ------------------------------------------------------------------ *
+ * Images in content
+ * ------------------------------------------------------------------ */
+
+/* Screenshots are centred, capped at the measure, and edged so they read
+ * as figures rather than as part of the text flow. The homepage keeps its
+ * own treatment (its demo reel is deliberately full width). */
+body:not(.mdx-home) .md-typeset img {
+  display: block;
+  max-width: min(85%, 100%);
+  margin: 1.6rem auto;
+  border: 1px solid var(--vs-hairline);
+  border-radius: .4rem;
+}
+
+/* …but not inside table cells, where they are thumbnails in a grid. */
+body:not(.mdx-home) .md-typeset td img,
+body:not(.mdx-home) .md-typeset th img {
+  display: inline-block;
+  max-width: 100%;
+  margin: .25rem 0;
+  border: none;
+  border-radius: .25rem;
+}
+
+/* A caption under a figure. No page uses one today (the guides put their
+ * captions in the image alt text), so this is here for when one does. */
+body:not(.mdx-home) .md-typeset figcaption {
+  margin: -.8rem auto 1.6rem;
+  font-size: .72rem;
+  text-align: center;
+  color: var(--md-default-fg-color--light);
+}
+
+/* ------------------------------------------------------------------ *
+ * Left sidebar
+ * ------------------------------------------------------------------ */
+
+/* Section titles are group toggles (<label> elements, pages are <a>), so
+ * the two tracks can be styled apart: bold dark headings, plain dark
+ * items, generous rows. */
+.md-sidebar--primary .md-nav__item--section > label.md-nav__link {
+  font-size: .75rem;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--vs-nav-fg);
+  margin-top: 1.8em;
+  padding-top: .3rem;
+  padding-bottom: .3rem;
+}
+
+.md-sidebar--primary
+  .md-nav__item--section:first-child
+  > label.md-nav__link {
+  margin-top: 0;
+}
+
+.md-sidebar--primary .md-nav__item--section > label.md-nav__link:hover {
+  color: var(--vs-brand);
+}
+
+.md-sidebar--primary .md-nav__link {
+  font-size: .75rem;
+  line-height: 1.5;
+}
+
+/* Rows: Material gives .md-nav--primary links .6rem/.8rem padding; only
+ * the vertical rhythm and the colour are changed here, so nested items
+ * keep Material's own left indent. */
+.md-sidebar--primary a.md-nav__link {
+  padding-top: .35rem;
+  padding-bottom: .35rem;
+  margin-top: 0;
+  color: var(--vs-nav-fg);
+}
+
+/* One indent per nav depth, the same for every row at that depth —
+ * whether it is a page (<a>) or an expandable group (<label>, e.g.
+ * 「MCP 接入」 / 「群机器人」). Material nests each level's <nav> with its
+ * own margin and only pads <a> rows, which left expandable groups flush
+ * with the section titles and their children on a third, unrelated
+ * indent. Here every level's <nav> sits flush and the row padding alone
+ * carries the depth, so the active bar below still lands on the column
+ * edge (it is placed against the row box, not the text). Desktop only:
+ * the mobile drawer keeps Material's own sliding-panel layout. */
+@media screen and (min-width: 76.25em) {
+  .md-sidebar--primary .md-nav[data-md-level] {
+    margin-left: 0;
+  }
+
+  .md-sidebar--primary .md-nav[data-md-level] > .md-nav__list {
+    padding-left: 0;
+  }
+
+  .md-sidebar--primary
+    .md-nav[data-md-level="1"]
+    > .md-nav__list
+    > .md-nav__item
+    > .md-nav__link {
+    padding-left: .6rem;
+  }
+
+  .md-sidebar--primary
+    .md-nav[data-md-level="2"]
+    > .md-nav__list
+    > .md-nav__item
+    > .md-nav__link {
+    padding-left: 1.6rem;
+  }
+
+  .md-sidebar--primary
+    .md-nav[data-md-level="3"]
+    > .md-nav__list
+    > .md-nav__item
+    > .md-nav__link {
+    padding-left: 2.6rem;
+  }
+
+  /* An expandable group inside a section reads like the pages beside
+   * it — regular weight, same colour — only its chevron tells it apart. */
+  .md-sidebar--primary
+    .md-nav[data-md-level="2"]
+    > .md-nav__list
+    > .md-nav__item--nested
+    > label.md-nav__link {
+    font-weight: 400;
+    color: var(--vs-nav-fg);
+    margin-top: 0;
+  }
+}
+
+.md-sidebar--primary a.md-nav__link:hover {
+  color: var(--vs-brand);
+}
+
+/* The current page: accent text plus a 3px accent bar pinned to the
+ * column's left edge (the link box starts there at every depth, because
+ * Material indents nested items with padding, not margin). */
+.md-sidebar--primary a.md-nav__link--active {
+  position: relative;
+  font-weight: 600;
+  color: var(--vs-brand);
+}
+
+.md-sidebar--primary a.md-nav__link--active::before {
+  content: "";
+  position: absolute;
+  top: .45rem;
+  bottom: .45rem;
+  left: 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background-color: var(--vs-brand);
+}
+
+/* With tabs, the active tab's own name is repeated as the sidebar's
+ * first group label (文档 / Docs). Above the tab breakpoint that is pure
+ * duplication, so the label goes away — the group stays expanded because
+ * navigation.expand ships the toggle checked, and the mobile drawer
+ * keeps its title (it is the only context there). */
+@media screen and (min-width: 76.25em) {
+  .md-sidebar--primary
+    .md-nav--primary
+    > .md-nav__list
+    > .md-nav__item--section
+    > label.md-nav__link {
+    display: none;
+  }
+
+  .md-sidebar--primary
+    .md-nav--primary
+    > .md-nav__list
+    > .md-nav__item--section
+    > .md-nav {
+    /* Material indents a section under its label; without the label the
+     * first level should sit flush with the sidebar edge. */
+    margin-left: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Right TOC ("On this page" + Edit on GitHub)
+ * ------------------------------------------------------------------ */
+
+/* Header, items and the edit link are rendered by
+ * overrides/partials/toc.html; this is their look. */
+.md-sidebar--secondary .md-nav--secondary > label.md-nav__title {
+  display: flex;
+  gap: .45rem;
+  align-items: center;
+  padding: 0 .9rem .7rem;
+  font-size: .75rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--vs-nav-fg);
+}
+
+/* Icons in the TOC header and the edit link (see the note in
+ * overrides/partials/toc.html for why they are not .md-nav__icon). */
+.mdx-toc-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 1.1em;
+  height: 1.1em;
+  color: var(--vs-brand);
+}
+
+.mdx-toc-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.md-sidebar--secondary .md-nav__link {
+  padding-top: .3rem;
+  padding-bottom: .3rem;
+  margin-top: 0;
+  font-size: .72rem;
+  line-height: 1.5;
+  color: var(--vs-nav-fg);
+}
+
+.md-sidebar--secondary .md-nav__link:hover,
+.md-sidebar--secondary .md-nav__link--active {
+  color: var(--vs-brand);
+}
+
+.md-sidebar--secondary .md-nav__link--active {
+  font-weight: 600;
+}
+
+.md-sidebar--secondary .md-nav--secondary > .md-nav__list {
+  margin-bottom: 0;
+}
+
+.md-toc-edit {
+  display: flex;
+  gap: .45rem;
+  align-items: center;
+  padding: .3rem .9rem;
+  margin: 1.4rem 0 0;
+  font-size: .72rem;
+  line-height: 1.5;
+  color: var(--md-typeset-a-color);
+}
+
+.md-toc-edit:hover {
+  color: var(--vs-brand);
+  text-decoration: underline;
+  text-underline-offset: .12em;
+}
+
+/* ------------------------------------------------------------------ *
+ * Homepage landing (body.mdx-home — added by docs_hooks.py)
+ * ------------------------------------------------------------------ */
+
+/* The README sources centre their title block; a docs page opens
+ * left-aligned. */
+.mdx-home .md-content h1 {
+  text-align: left;
+  font-size: 2.2rem;
+  font-weight: 600;
+  margin-bottom: .35em;
+}
+
+.mdx-home .md-content p[align="center"] {
+  text-align: left;
+  max-width: 46rem;
+  margin-left: 0;
+  font-size: .85rem;
+  color: var(--md-default-fg-color--light);
+}
+
+/* Value prop: bold line as the deck, the rest as a quiet subline. */
+.mdx-home .md-content p[align="center"] b {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--md-default-fg-color);
+  margin-bottom: .3em;
+}
+
+/* GitHub-only furniture: badge buttons and the in-body language switch
+ * (the header already has the real switcher). */
+.mdx-home .md-content p[align="center"]:has(img[src*="img.shields.io"]),
+.mdx-home .md-content p[align="center"]:has(a[href="/en/"]) {
+  display: none;
+}
+
+/* The demo reel and the overview collages stay full width on the landing
+ * page — they are the hero. */
+.mdx-home .md-content img[src*="demo_"],
+.mdx-home .md-content img[src*="combined"],
+.mdx-home .md-content img[src*="wecom_group_qr"] {
+  border: 1px solid var(--vs-hairline);
+  border-radius: .5rem;
+  box-shadow: 0 2px 14px hsla(229, 40%, 30%, 0.10);
+}
+
+/* Quick-start cards, injected above the fold by docs_hooks.py. Three
+ * across on a wide screen, two on a laptop, one on a phone. */
+.mdx-home .mdx-quick {
+  margin: 1.8rem 0 2.4rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.mdx-home .mdx-quick.grid.cards > ul > li {
+  position: relative;
+  padding: 1rem 1.1rem;
+  border-radius: .45rem;
+}
+
+.mdx-home .mdx-quick.grid.cards > ul > li:hover {
+  border-color: var(--vs-brand);
+  box-shadow: none;
+}
+
+.mdx-home .mdx-quick a {
+  display: block;
+  color: var(--md-default-fg-color);
+  font-weight: 600;
+}
+
+/* the whole card is the link */
+.mdx-home .mdx-quick a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.mdx-home .mdx-quick a:hover {
+  color: var(--vs-brand);
+  text-decoration: none;
+}
+
+/* One-line description under each card title (injected by
+ * docs_hooks.py — it names what the linked page covers). */
+.mdx-home .mdx-quick li > p + p {
+  margin: .35em 0 0;
+  font-size: .75rem;
+  line-height: 1.55;
+  color: var(--md-default-fg-color--light);
+}
+
+.mdx-home .mdx-quick svg {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -.2em;
+  margin-right: .35em;
+  color: var(--vs-brand);
+}
+
+@media screen and (max-width: 1200px) {
+  .mdx-home .mdx-quick {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Document directory (the "文档导航" / "Docs" table): the header row is
+ * empty filler in the README source — drop it, take the table chrome off
+ * and lay the rows out as cards. The .md-typeset prefix keeps these
+ * rules above Material's own table styling. */
+.mdx-home .md-typeset .mdx-directory table {
+  display: block;
+  overflow: visible;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+}
+
+.mdx-home .md-typeset .mdx-directory .md-typeset__scrollwrap,
+.mdx-home .md-typeset .mdx-directory .md-typeset__table {
+  display: block;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+}
+
+.mdx-home .md-typeset .mdx-directory thead {
+  display: none;
+}
+
+.mdx-home .md-typeset .mdx-directory tbody {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .8rem;
+}
+
+.mdx-home .md-typeset .mdx-directory tr {
+  display: block;
+  margin: 0;
+  padding: .9rem 1.1rem;
+  border: 1px solid var(--vs-hairline);
+  border-radius: .45rem;
+  box-shadow: none;
+}
+
+.mdx-home .md-typeset .mdx-directory td {
+  display: block;
+  padding: 0;
+  border: none;
+}
+
+.mdx-home .md-typeset .mdx-directory td:first-child {
+  font-size: .7rem;
+  font-weight: 700;
+  color: var(--vs-nav-fg);
+  margin-bottom: .5em;
+}
+
+.mdx-home .md-typeset .mdx-directory td + td {
+  line-height: 2;
+}
+
+@media screen and (max-width: 760px) {
+  .mdx-home .md-content h1 {
+    font-size: 1.8rem;
+  }
+
+  .mdx-home .md-content p[align="center"] b {
+    font-size: .95rem;
+  }
+
+  .mdx-home .mdx-quick {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mdx-home .md-typeset .mdx-directory tbody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

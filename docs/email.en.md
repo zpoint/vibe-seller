@@ -14,6 +14,9 @@ Everything runs over standard IMAP / SMTP. **You never type your email
 password** — 163 and QQ Mail use an *authorization code*, Gmail uses an
 *app password*. Each provider section below shows exactly how to get one.
 
+Where each integration is configured and how they divide up: see the
+[Integrations overview](integrations.en.md).
+
 > The screenshots were taken on macOS; the steps look the same on
 > Windows and Linux.
 
