@@ -228,6 +228,16 @@ class VerifyError(RuntimeError):
     """A staged/finished download failed its size or sha256 check."""
 
 
+def offer_sha256(offer: dict) -> str | None:
+    """The lowercase sha256 hex from an offer's ``"sha256:<hex>"``
+    digest, or None when the asset carries no (or an unparseable)
+    digest — the size-only fallback the mock releases rely on."""
+    digest = offer.get('digest')
+    if isinstance(digest, str) and digest.lower().startswith('sha256:'):
+        return digest.split(':', 1)[1].strip().lower() or None
+    return None
+
+
 # win32 process-creation flags, as literals (subprocess only exposes
 # some of them, and only on Windows; plain ints keep this module
 # importable and testable everywhere).
@@ -394,12 +404,7 @@ def stage_installer(offer: dict, progress=None) -> Path:
     version = offer['version']
     url = offer['url']
     size = offer.get('size')
-    digest = offer.get('digest')
-    expected_sha = (
-        digest.split(':', 1)[1].lower()
-        if isinstance(digest, str) and ':' in digest
-        else None
-    )
+    expected_sha = offer_sha256(offer)
     final, part, meta = staged_paths(version)
     part.parent.mkdir(parents=True, exist_ok=True)
     if final.exists():
@@ -579,14 +584,9 @@ def upgrade(*, silent: bool = False) -> dict:
         # under <VIBE_HOME>/updates/: reuse a verified stage instead of
         # downloading the installer again — but only the stage of the
         # bytes this release currently offers.
-        exp_sha = (
-            upd['digest'].split(':', 1)[1].lower()
-            if isinstance(upd.get('digest'), str) and ':' in upd['digest']
-            else None
-        )
         staged = staged_installer(
             upd['version'],
-            expected_sha=exp_sha,
+            expected_sha=offer_sha256(upd),
             expected_size=upd.get('size'),
         )
         if staged is not None:

@@ -411,3 +411,14 @@ class TestStageMustMatchTheOfferedBytes:
         # the stale stage.
         launched = run.call_args[0][0]
         assert launched != wu.staged_paths('0.2.0')[0]
+
+
+def test_offer_sha256_parsing():
+    assert (
+        wu.offer_sha256({'digest': 'sha256:AB' + '0' * 62}) == 'ab' + '0' * 62
+    )
+    assert wu.offer_sha256({'digest': 'SHA256:ff'}) == 'ff'
+    assert wu.offer_sha256({'digest': 'md5:ff'}) is None
+    assert wu.offer_sha256({'digest': 'sha256:'}) is None
+    assert wu.offer_sha256({'digest': None}) is None
+    assert wu.offer_sha256({}) is None
