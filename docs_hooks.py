@@ -12,6 +12,13 @@ time:
   ``docs_cjk.join_cjk_lines`` rejoins them at build time, so the sources
   keep their line breaks and the GitHub READMEs (generated from the
   sources) are unchanged. See that module for the rules.
+- ``on_page_markdown``: ``docs_prompts.mark_prompts`` turns the curly-
+  quoted things a reader says to Vibe Seller or to their AI tool
+  (“帮我看看店铺A上周的广告”) into ``<span class="say">`` chat bubbles,
+  before the chip pass below sees them — a label quoted inside a
+  prompt still gets its chip inside the bubble. Headings, code and HTML
+  are left alone; the sources keep their plain quotes, and the READMEs
+  generated from them stay plain text.
 - ``on_page_markdown``: ``docs_ui_chips.mark_ui_labels`` turns the
   corner-bracketed UI names the Chinese pages quote (「新建任务」,
   「设置 → 集成」) into ``<span class="ui">`` chips, and the English
@@ -56,6 +63,7 @@ from mkdocs.structure.files import Files
 from mkdocs.structure.pages import Page
 
 from docs_cjk import join_cjk_lines
+from docs_prompts import mark_prompts
 from docs_ui_chips import mark_ui_labels
 
 log = get_plugin_logger(__name__)
@@ -282,6 +290,7 @@ def on_page_markdown(
     # First, on the source text: rejoined wrapped Chinese lines cannot
     # confuse the anchors the homepage transform looks for below.
     markdown = join_cjk_lines(markdown)
+    markdown = mark_prompts(markdown)
     markdown = mark_ui_labels(markdown)
     locale = _current_language(config)
     if locale == 'zh' and not _has_chinese_version(page, config):

@@ -41,6 +41,10 @@
   --vs-chip-bg: #f5f6f8;
   --vs-chip-border: var(--md-default-fg-color--lightest);
 
+  /* User-prompt bubbles: the accent as a whisper of colour, the same
+   * fill the theme already uses for its transparent accent token. */
+  --vs-say-bg: rgba(79, 70, 229, 0.07);
+
   /* Material hooks: accent drives active nav, hovers, underlines. */
   --md-accent-fg-color: var(--vs-brand);
   --md-accent-fg-color--transparent: #4f46e51a;
@@ -79,6 +83,7 @@
     --vs-table-head: hsla(var(--md-hue), 15%, 18%, 1);
     --vs-chip-bg: hsla(var(--md-hue), 15%, 90%, 0.06);
     --vs-chip-border: hsla(var(--md-hue), 15%, 90%, 0.16);
+    --vs-say-bg: rgba(165, 180, 252, 0.14);
     --md-accent-fg-color: #a5b4fc;
     --md-accent-fg-color--transparent: #a5b4fc1a;
     --md-typeset-a-color: var(--vs-brand-link);
@@ -263,6 +268,53 @@
   font-weight: 400;
   color: var(--md-default-fg-color--lighter);
   margin: 0 .28em;
+}
+
+/* ------------------------------------------------------------------ *
+ * User-prompt bubbles  (“帮我看看店铺A上周的广告”)
+ * ------------------------------------------------------------------ */
+
+/* Injected at build time by docs_prompts.mark_prompts — the sources
+ * keep their plain curly quotes. This is what the reader says to the
+ * AI, so it must read as a chat message and not as code or a button:
+ * the body font at normal weight (no mono, no hairline box), a soft
+ * accent-tinted fill — never the grey slab a mis-guessed 「…」 chip
+ * made of a prompt. color: inherit keeps a bubble inside a link in the
+ * link's own colour. */
+.md-typeset .say {
+  display: inline;
+  padding: .15em .55em;
+  font-size: .95em;
+  font-weight: 400;
+  color: inherit;
+  background-color: var(--vs-say-bg);
+  border-radius: .6em;
+  /* A wrapped prompt keeps the bubble shape on every fragment. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* A small speech bubble leads the text, tinted through a mask so it
+ * follows the page: currentColor at a step of restraint, the way the
+ * muted chip text reads. Light and dark get it from the token alone. */
+.md-typeset .say::before {
+  content: "";
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: .38em;
+  vertical-align: -.15em;
+  background-color: var(--md-default-fg-color--light);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z'/%3E%3C/svg%3E") center / 1em no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z'/%3E%3C/svg%3E") center / 1em no-repeat;
+}
+
+/* A list item that is nothing but a prompt (the 「可以这样用」 bullets)
+ * should read as a column of chat bubbles: the bubble hugs its text
+ * instead of painting the full measure, and still wraps at the edge. */
+.md-typeset li > .say:only-child {
+  display: inline-block;
+  max-width: 100%;
 }
 
 /* ------------------------------------------------------------------ *

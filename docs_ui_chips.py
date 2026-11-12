@@ -79,8 +79,9 @@ _PROTECTED = (
     re.compile(r'<[^>\n]*>'),
 )
 
-# A heading line, whose text must keep its anchors.
-_HEADING = re.compile(r'^ *(?:#{1,6})\s')
+# A heading line, whose text must keep its anchors. Shared with
+# docs_prompts, which must not rewrite inside a heading either.
+HEADING_LINE = re.compile(r'^ *(?:#{1,6})\s')
 
 # The muted separator inside a menu-path chip.
 _SEP = '<span class="ui-sep">›</span>'
@@ -136,8 +137,12 @@ def _chain_chip(match: re.Match[str]) -> str:
     return _path_chip(' → '.join(segments)) or match.group(0)
 
 
-def _mask(line: str) -> tuple[str, list[str]]:
-    """Replace protected spans with ``\\x00n\\x00`` tokens."""
+def mask_line(line: str) -> tuple[str, list[str]]:
+    """Replace protected spans with ``\\x00n\\x00`` tokens.
+
+    Shared with docs_prompts: the code spans, link targets, image alt
+    text and HTML tags of a prose line must survive both rewrites.
+    """
     kept: list[str] = []
 
     def park(match: re.Match[str]) -> str:
@@ -150,7 +155,7 @@ def _mask(line: str) -> tuple[str, list[str]]:
     return masked, kept
 
 
-def _unmask(line: str, kept: list[str]) -> str:
+def unmask_line(line: str, kept: list[str]) -> str:
     """Put the protected spans back."""
     return _TOKEN.sub(lambda m: kept[int(m.group(1))], line)
 
@@ -159,7 +164,7 @@ def _mark_line(line: str) -> str:
     """One prose line: chips for its labels, nothing else changed."""
     if '「' not in line and '"' not in line:
         return line
-    masked, kept = _mask(line)
+    masked, kept = mask_line(line)
     # Chains first: 「A」→「B」 must be consumed as one path before the
     # single-label pass turns each half into its own chip.
     masked = _CHAIN.sub(_chain_chip, masked)
@@ -167,7 +172,7 @@ def _mark_line(line: str) -> str:
     masked = _QUOTED_BOLD.sub(
         lambda m: _chip_or_keep(m.group(0), m.group(1)), masked
     )
-    return _unmask(masked, kept)
+    return unmask_line(masked, kept)
 
 
 def _chip_or_keep(original: str, text: str) -> str:
@@ -187,7 +192,7 @@ def mark_ui_labels(markdown: str) -> str:
     """Rewrite every prose line of ``markdown`` with label chips."""
     out: list[str] = []
     for kind, line in classify_lines(markdown):
-        if kind != 'prose' or _HEADING.match(line):
+        if kind != 'prose' or HEADING_LINE.match(line):
             out.append(line)
             continue
         out.append(_mark_line(line))
