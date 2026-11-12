@@ -69,8 +69,16 @@ jobs:
           $tag = gh release view -R $env:GITHUB_REPOSITORY --json tagName --jq .tagName
           if ($LASTEXITCODE -ne 0 -or -not $tag) { throw "no previous release found" }
           $old = $tag.TrimStart('v')
-          $p = $old.Split('.')
-          $new = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+          # NEW is labelled with the release tag being built when there is
+          # one above OLD; otherwise (a manual run) OLD's next patch.
+          $new = ''
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -match '^v(\d+\.\d+\.\d+)$') {
+            if ([version]$Matches[1] -gt [version]$old) { $new = $Matches[1] }
+          }
+          if (-not $new) {
+            $p = $old.Split('.')
+            $new = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+          }
           gh release download $tag -R $env:GITHUB_REPOSITORY `
             --pattern VibeSeller-Setup.exe --dir "$env:GITHUB_WORKSPACE\installer\windows\outA"
           if ($LASTEXITCODE -ne 0) { throw "could not download $tag's VibeSeller-Setup.exe" }
@@ -78,8 +86,8 @@ jobs:
           echo "OLD_VER=$old" >> $env:GITHUB_ENV
           echo "NEW_VER=$new" >> $env:GITHUB_ENV
 
-      # The NEW version only has to sort above OLD for the updater; it is
-      # a label, the code is this commit.
+      # The NEW version has to sort above OLD for the updater; the code
+      # is this commit either way.
       - name: Build NEW installer (this commit)
         shell: pwsh
         run: |
@@ -176,8 +184,10 @@ jobs:
           $kept = @(Get-ChildItem $profiles -Directory -ErrorAction SilentlyContinue).Name
           if (-not $kept) { throw "precondition: the OLD task left no store browser profile under $profiles" }
           $base = $env:PW_BASELINE -split ',' | Where-Object { $_ }
+          # Browser revision dirs only (chromium-1243, ffmpeg-1011, ...);
+          # .links is Playwright's registry, kept on purpose.
           $added = @((Get-ChildItem "$env:LOCALAPPDATA\ms-playwright" -Directory).Name |
-            Where-Object { $_ -notin $base })
+            Where-Object { $_ -notin $base -and $_ -match '-\d+$' })
           Write-Host "OLD store profiles: $($kept -join ', ')"
           Write-Host "OLD browser dirs: $($added -join ', ')"
           echo "OLD_PROFILES=$($kept -join ',')" >> $env:GITHUB_ENV
