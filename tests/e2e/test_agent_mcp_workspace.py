@@ -12,17 +12,22 @@ tree the web UI's Workspace view edits. What they pin:
   version / reset work on the SAME commits a UI write produces);
   the tree lists only the editable roots; escapes are refused;
 * ``manage_skill`` — a user-space skill's whole life over MCP, through
-  the same routes the Skills view calls (reserved names refused);
+  the same routes the Skills view calls (reserved names refused),
+  including the presigned archive import (begin_upload → PUT →
+  import → get, installed as ``imported``);
 * ``workspace_assistant`` — the per-user assistant chat loop. Under
   MOCK_CLI the assistant spawns the mock too (``app/ai/
   workspace_assistant.py`` takes the same test branch the task agent
   does), so the send → reply turn runs without model credits.
 """
 
+import io
 import logging
 import os
+import tarfile
 import uuid
 
+import httpx
 import pytest
 
 from app.agent_mcp.support import MAX_WAIT_SECONDS
@@ -254,6 +259,70 @@ class TestManageSkill:
         gone = mcp.call_tool('manage_skill', action='get', slug=SKILL_SLUG)
         assert not gone['ok']
         assert 'not found' in gone['text'].lower()
+
+    def test_archive_upload_import_get(self, mcp):
+        """The journey the UI's 「让助手从URL安装」 story mirrors for
+        external agents: begin_upload → PUT an archive of a skill dir
+        (text + BINARY + exec script) → import → get. The byte-level
+        contract is pinned workflow-tier (test_wf_agent_mcp_upload);
+        here the whole door must work over the REAL server end to end
+        and the skill must land as ``imported``."""
+        slug = 'mcp-e2e-upload-skill'
+        # non-text payload: byte-identity is pinned workflow-tier, here
+        # presence + import classification is the point
+        blob = bytes(range(256))
+        md = (
+            b'---\nname: MCP E2E Upload Skill\ndescription: upload e2e\n'
+            b'---\n# MCP E2E Upload Skill\n'
+        )
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode='w:gz') as tar:
+            for name, data in (
+                (f'{slug}/SKILL.md', md),
+                (f'{slug}/assets/icon.bin', blob),
+                (f'{slug}/scripts/run.sh', b'#!/bin/sh\necho hi\n'),
+            ):
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                info.mode = 0o755 if name.endswith('.sh') else 0o644
+                tar.addfile(info, io.BytesIO(data))
+
+        mcp.call_tool('manage_skill', action='delete', slug=slug)
+        try:
+            minted = mcp.call_tool('manage_skill', action='begin_upload')
+            assert minted['ok'], minted['text']
+            put = httpx.put(
+                f'{BASE_URL}{minted["data"]["put_path"]}',
+                content=buf.getvalue(),
+                headers={'Content-Type': 'application/gzip'},
+                timeout=30,
+            )
+            assert put.status_code == 200, put.text
+            assert put.json()['format'] == 'tar.gz'
+
+            imported = mcp.call_tool(
+                'manage_skill',
+                action='import',
+                upload_id=minted['data']['upload_id'],
+                origin_url='e2e archive',
+            )
+            assert imported['ok'], imported['text']
+            assert imported['data']['slug'] == slug
+
+            listed = mcp.call_tool('manage_skill', action='list')
+            entry = next(
+                s for s in listed['data']['skills'] if s['slug'] == slug
+            )
+            assert entry['source'] == 'imported'
+
+            got = mcp.call_tool('manage_skill', action='get', slug=slug)
+            assert got['ok'], got['text']
+            assert 'upload e2e' in got['data']['skill_md']
+            files = ' '.join(got['data']['files'])
+            assert 'assets/icon.bin' in files
+            assert 'scripts/run.sh' in files
+        finally:
+            mcp.call_tool('manage_skill', action='delete', slug=slug)
 
     def test_reserved_name_is_refused(self, mcp):
         refused = mcp.call_tool(

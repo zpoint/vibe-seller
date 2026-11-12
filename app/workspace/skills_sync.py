@@ -241,6 +241,14 @@ class SkillsSyncManager(SkillMirrorMixin):
                     skipped += 1
                     continue
 
+                # A swap over an EXISTING dir/symlink supersedes
+                # whatever the user had there ("first source wins" is
+                # the mirror rule) — the lockfile must stop claiming
+                # user ownership the moment that lands, and the log
+                # must say so instead of swapping silently.
+                if dest_skill.exists():
+                    self._note_takeover(src_skill.name)
+
                 # Atomic replace: build beside the tree, rename in.
                 tmp = self._make_staging(f'{src_skill.name}_')
                 try:
@@ -289,6 +297,38 @@ class SkillsSyncManager(SkillMirrorMixin):
         # Track synced skills from source dirs (not dest contents)
         self._update_synced_skills(synced_names)
         return replaced, skipped
+
+    def _note_takeover(self, name: str) -> None:
+        """The lockfile must not go on lying after a mirror swap.
+
+        When this release ships a built-in under a slug the USER
+        already owns (an import with ``source=url``, or a hand-made
+        entry), the swap replaces their tree with maintainer content.
+        A stale entry would have ``manage_skill(list)``/the UI keep
+        reporting it as the user's import — and if the built-in is
+        later reaped, the entry would RESURRECT the gone tree as
+        "imported". Drop the entry and log the supersession.
+        """
+        lock_path = self._dest_dir / 'skills.lock.json'
+        if not lock_path.exists():
+            return
+        taken: list = []
+
+        def _drop(data: dict) -> None:
+            entry = (data.get('skills') or {}).pop(name, None)
+            if entry is not None:
+                taken.append(entry)
+
+        update_json_file(lock_path, _drop)
+        if taken:
+            entry = taken[0]
+            logger.warning(
+                'Built-in sync superseded the user-owned skill %r '
+                '(lockfile entry removed — was source=%s origin=%s)',
+                name,
+                entry.get('source'),
+                entry.get('origin_url'),
+            )
 
     @staticmethod
     def _skill_unchanged(src_dir: Path, dest_dir: Path) -> bool:

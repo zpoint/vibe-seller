@@ -25,11 +25,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 import threading
+import unicodedata
 
-import pytest
-import pytest_asyncio
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
+import pytest
+import pytest_asyncio
 
 from app import mcp_server, skill_uploads
 from app.auth import create_token
@@ -155,9 +156,7 @@ def _route_mcp_call_api(client, monkeypatch) -> None:
 async def _import_tool(arguments) -> dict:
     """What the task agent's tool call comes back as (JSON string)."""
     return json.loads(
-        await mcp_server.handle_tool_call(
-            'vibe_seller_import_skill', arguments
-        )
+        await mcp_server.handle_tool_call('vibe_seller_import_skill', arguments)
     )
 
 
@@ -332,6 +331,23 @@ class TestLocalDirectoryImport:
         assert 'already exists' in refused['detail'], refused
         assert 'overwrite=true' in refused['detail']
 
+    async def test_nonascii_file_names_round_trip(
+        self, client, real_workspace, monkeypatch, tmp_path
+    ):
+        """Legit (non-colliding) Unicode names survive pack → extract
+        → install byte-identical (the normalization rule only refuses
+        pairs that would collide on one host)."""
+        _route_mcp_call_api(client, monkeypatch)
+        d = _build_skill_dir(tmp_path)
+        cafe = unicodedata.normalize('NFC', 'café-notes.md')
+        (d / cafe).write_text('références\n', encoding='utf-8')
+        result = await _import_tool({'path': str(d)})
+        assert result['action'] == 'created', result
+        skill_dir = (
+            real_workspace.root / '.claude' / 'skills' / 'wf-import-skill'
+        )
+        assert (skill_dir / cafe).read_text(encoding='utf-8') == 'références\n'
+
     async def test_explicit_slug_override(
         self, client, real_workspace, monkeypatch, tmp_path
     ):
@@ -362,17 +378,15 @@ class TestUrlImportInTask:
         _route_mcp_call_api(client, monkeypatch)
         source_server['routes']['/tar/wf-skill.tar.gz'] = (
             'bytes',
-            _tar_gz(
-                {
-                    'wf-skill/SKILL.md': _skill_md('wf-import-skill').encode(),
-                    'wf-skill/assets/icon.png': PNG,
-                    'wf-skill/scripts/run.sh': RUN,
-                }
-            ),
+            _tar_gz({
+                'wf-skill/SKILL.md': _skill_md('wf-import-skill').encode(),
+                'wf-skill/assets/icon.png': PNG,
+                'wf-skill/scripts/run.sh': RUN,
+            }),
         )
-        result = await _import_tool(
-            {'url': f'{source_server["base"]}/tar/wf-skill.tar.gz'}
-        )
+        result = await _import_tool({
+            'url': f'{source_server["base"]}/tar/wf-skill.tar.gz'
+        })
         assert result['slug'] == 'wf-import-skill', result
         skill_dir = (
             real_workspace.root / '.claude' / 'skills' / 'wf-import-skill'
@@ -423,9 +437,9 @@ class TestUrlImportInTask:
                 'content': base64.b64encode(run).decode(),
             },
         )
-        result = await _import_tool(
-            {'url': f'{source_server["base"]}/acme/skills/tree/main/invoice-check'}
-        )
+        result = await _import_tool({
+            'url': f'{source_server["base"]}/acme/skills/tree/main/invoice-check'
+        })
         assert result['slug'] == 'wf-import-skill', result
         skill_dir = (
             real_workspace.root / '.claude' / 'skills' / 'wf-import-skill'
@@ -444,9 +458,7 @@ class TestUrlImportInTask:
             'redirect',
             '/tar/final.tar.gz',
         )
-        result = await _import_tool(
-            {'url': f'{source_server["base"]}/tar/r'}
-        )
+        result = await _import_tool({'url': f'{source_server["base"]}/tar/r'})
         assert result['slug'] == 'wf-import-skill', result
 
     async def test_loopback_without_the_flag_refused(
@@ -454,9 +466,9 @@ class TestUrlImportInTask:
     ):
         monkeypatch.delenv('VIBE_ALLOW_LOOPBACK_WEBHOOKS', raising=False)
         _route_mcp_call_api(client, monkeypatch)
-        result = await _import_tool(
-            {'url': f'{source_server["base"]}/tar/anything.tar.gz'}
-        )
+        result = await _import_tool({
+            'url': f'{source_server["base"]}/tar/anything.tar.gz'
+        })
         assert 'not a public address' in result['detail'], result
 
     async def test_private_address_refused_even_with_the_flag(
@@ -481,9 +493,9 @@ class TestUrlImportInTask:
             'bytes',
             _tar_gz({'x/readme.md': b'no skill here'}),
         )
-        result = await _import_tool(
-            {'url': f'{source_server["base"]}/tar/no-md.tar.gz'}
-        )
+        result = await _import_tool({
+            'url': f'{source_server["base"]}/tar/no-md.tar.gz'
+        })
         assert 'no SKILL.md at its root' in result['detail'], result
 
     async def test_oversize_archive_refused(
@@ -494,23 +506,22 @@ class TestUrlImportInTask:
         source_server,
         loopback_ok,
     ):
-        import app.skill_fetch as sf
         import os
+
+        import app.skill_fetch as sf
 
         _route_mcp_call_api(client, monkeypatch)
         monkeypatch.setattr(sf, 'MAX_ARCHIVE_UPLOAD_BYTES', 64)
         source_server['routes']['/tar/big.tar.gz'] = (
             'bytes',
-            _tar_gz(
-                {
-                    'x/SKILL.md': _skill_md('wf-import-skill').encode(),
-                    'x/rand.bin': os.urandom(2048),
-                }
-            ),
+            _tar_gz({
+                'x/SKILL.md': _skill_md('wf-import-skill').encode(),
+                'x/rand.bin': os.urandom(2048),
+            }),
         )
-        result = await _import_tool(
-            {'url': f'{source_server["base"]}/tar/big.tar.gz'}
-        )
+        result = await _import_tool({
+            'url': f'{source_server["base"]}/tar/big.tar.gz'
+        })
         assert 'archive limit' in result['detail'], result
 
     async def test_github_symlink_entry_refused(
@@ -539,9 +550,9 @@ class TestUrlImportInTask:
                 ],
             },
         )
-        result = await _import_tool(
-            {'url': f'{source_server["base"]}/acme/skills/tree/main/evil-skill'}
-        )
+        result = await _import_tool({
+            'url': f'{source_server["base"]}/acme/skills/tree/main/evil-skill'
+        })
         assert 'symlink' in result['detail'], result
 
 
@@ -574,12 +585,10 @@ class TestExternalManageSkillUrl:
     async def test_url_import_and_overwrite_gate(
         self, client, real_workspace, source_server, loopback_ok
     ):
-        payload = _tar_gz(
-            {
-                'x/SKILL.md': _skill_md('wf-import-skill').encode(),
-                'x/scripts/run.sh': RUN,
-            }
-        )
+        payload = _tar_gz({
+            'x/SKILL.md': _skill_md('wf-import-skill').encode(),
+            'x/scripts/run.sh': RUN,
+        })
         source_server['routes']['/tar/ext.tar.gz'] = ('bytes', payload)
         url = f'{source_server["base"]}/tar/ext.tar.gz'
         imported = await _mcp_call(
@@ -626,3 +635,37 @@ class TestRouteErrorMapping:
         http = workspace_route._import_http_exception(exc)
         assert isinstance(http, HTTPException)
         assert http.status_code == 413
+
+
+class TestUploadIdSingleUse:
+    """The consumption contract every installer depends on (coverage
+    gap #7 of the S review — two concurrent installers must not turn
+    one upload into two installs)."""
+
+    async def test_importing_twice_with_one_upload_id_is_refused(
+        self, client, real_workspace
+    ):
+        payload = _tar_gz({'x/SKILL.md': _skill_md('wf-import-skill').encode()})
+        minted = await _mcp_call(
+            client, 'manage_skill', {'action': 'begin_upload'}
+        )
+        assert 'upload_id' in minted, minted
+        parsed = minted['put_url'][minted['put_url'].index('/api/') :]
+        put = await client.put(
+            parsed,
+            content=payload,
+            headers={'Content-Type': 'application/gzip'},
+        )
+        assert put.status_code == 200, put.text
+        first = await _mcp_call(
+            client,
+            'manage_skill',
+            {'action': 'import', 'upload_id': minted['upload_id']},
+        )
+        assert first.get('slug') == 'wf-import-skill', first
+        second = await _mcp_call(
+            client,
+            'manage_skill',
+            {'action': 'import', 'upload_id': minted['upload_id']},
+        )
+        assert 'already consumed' in second['error'], second

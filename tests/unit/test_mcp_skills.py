@@ -147,6 +147,31 @@ class TestSaveSkillValidation:
                 mgr.save_skill_blocking(bad, SKILL_MD)
 
 
+class TestFrontmatterBom:
+    """A Windows-edited SKILL.md carries a leading UTF-8 BOM
+    (``chr(0xFEFF)``). The parse must see through it (otherwise
+    ``derive_skill_slug`` returns '' and every import dead-ends on
+    "pass slug explicitly" for no reason the agent can see); the
+    stored bytes stay verbatim."""
+
+    BOM = chr(0xFEFF)
+
+    def test_bom_does_not_hide_the_frontmatter(self):
+        from app.workspace.skills_manager import derive_skill_slug
+
+        assert derive_skill_slug(self.BOM + SKILL_MD) == 'revenue-report'
+
+    async def test_bommed_skill_installs_under_its_name(self, tmp_path):
+        """End-to-end at the manager level: a BOM'd SKILL.md saves and
+        lists under its real name, not ''."""
+        mgr, skills_dir = _mgr(tmp_path)
+        await mgr.save_skill('revenue-report', self.BOM + SKILL_MD)
+        stored = (skills_dir / 'revenue-report' / 'SKILL.md').read_text()
+        assert stored.startswith(self.BOM)  # bytes verbatim (parse skips)
+        names = {s['slug'] for s in await mgr.list_skills()}
+        assert names == {'revenue-report'}
+
+
 class TestListSkills:
     async def test_shape_and_updatable(self, tmp_path):
         mgr, skills_dir = _mgr(tmp_path, synced=['builtin-one'])

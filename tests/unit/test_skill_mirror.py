@@ -303,3 +303,28 @@ async def test_a_skill_known_only_by_a_failed_file_is_not_deleted(
 
     assert result['status'] == 'failed'
     assert (mgr._dest_dir / 'widget-006' / 'SKILL.md').read_text() == 'old'
+
+
+# ── boot sweep: residue of interrupted installs ────────────────────
+
+
+def test_sweep_clears_import_residue(mgr):
+    """A replace-install that died mid-swap leaves .<slug>-import-*
+    staging and its …-import-*-old renamed-aside tree INSIDE the
+    live skills dir (the swap runs under the skills-tree lock in one
+    server process — at boot nothing can still own them). They must
+    ride the same boot sweep as the sync strays, or they travel into
+    every task-workspace copy forever."""
+    skills = mgr._dest_dir
+    skills.mkdir(parents=True, exist_ok=True)
+    (skills / '.gate-import-abc123').mkdir()
+    (skills / '.gate-import-abc123-old').mkdir()
+    plant(mgr, 'gate/SKILL.md', 'live')
+    (skills / '.tmp_legacy').mkdir()
+
+    mgr.sweep_staging()
+
+    assert not (skills / '.gate-import-abc123').exists()
+    assert not (skills / '.gate-import-abc123-old').exists()
+    assert not (skills / '.tmp_legacy').exists()
+    assert (skills / 'gate' / 'SKILL.md').read_text() == 'live'
