@@ -329,16 +329,37 @@ async def _pypi_target(client: httpx.AsyncClient) -> str | None:
     return latest
 
 
+def _prefetch_python() -> str:
+    """The interpreter for the prefetch's ephemeral env.
+
+    MUST NOT be this venv's own ``sys.executable``: ``uv tool run
+    --python <a tool venv's python>`` installs INTO that venv
+    (observed live — the tool moved to the target version, and
+    ``upgrade_restart.watch`` then restarted the server with no admin
+    click, which is exactly what this feature must never do). The
+    venv's BASE interpreter produces the same wheel tags (same
+    version/platform) so the cache still warms the real upgrade, and
+    it is not an install target.
+    """
+    base = Path(sys.base_prefix)
+    exe = base / ('Scripts' / 'python.exe' if os.name == 'nt' else 'bin/python')
+    if exe.exists():
+        return str(exe)
+    return sys.executable
+
+
 def _prefetch_unix(version: str) -> None:
     """Warm uv's wheel cache for *version* without touching the install.
 
     ``uv tool run`` resolves + downloads the pinned version and its
     dependencies into the shared cache and runs the fresh CLI's
-    ``--version`` in an ephemeral env — the installed tool is not
-    modified. The pin mirrors ``app/cli.py``'s nightly rule (an exact
-    ``==`` of a pre-release is allowed without enabling pre-releases
-    globally). Proof that the cache is warm: after this,
-    ``UV_OFFLINE=1 uv tool upgrade vibe-seller`` succeeds."""
+    ``--version`` in an ephemeral env. The pin mirrors ``app/cli.py``'s
+    nightly rule (an exact ``==`` of a pre-release is allowed without
+    enabling pre-releases globally). Proof that the cache is warm:
+    after this, ``UV_OFFLINE=1`` resolution of the same pin succeeds.
+    The installed tool is asserted unchanged afterwards — a prefetch
+    that moved it would let the restart watcher apply an update no
+    admin asked for."""
     cmd = [
         'uv',
         'tool',
@@ -346,7 +367,7 @@ def _prefetch_unix(version: str) -> None:
         '--from',
         f'vibe-seller=={version}',
         '--python',
-        sys.executable,
+        _prefetch_python(),
         'vibe-seller',
         '--version',
     ]
@@ -356,6 +377,12 @@ def _prefetch_unix(version: str) -> None:
     if result.returncode != 0:
         tail = (result.stderr or result.stdout or '').strip()[-400:]
         raise RuntimeError(f'uv prefetch failed ({result.returncode}): {tail}')
+    on_disk = upgrade_restart.installed_version()
+    if on_disk != get_version():
+        raise RuntimeError(
+            f'the prefetch moved the installed tool to {on_disk} — '
+            'refusing to continue (an update must never apply itself)'
+        )
 
 
 async def _cycle_unix() -> None:

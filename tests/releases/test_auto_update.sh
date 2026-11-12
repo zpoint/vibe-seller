@@ -205,9 +205,11 @@ login() { # login <jar> <identifier> <password>
     || fail "login failed for $2"
 }
 login "$ADMIN_JAR" admin admin
+# Idempotent across demo reruns on a kept sandbox: if the user
+# exists, the login below is the real assertion.
 api "$ADMIN_JAR" POST /api/users \
   '{"username":"auto-member","email":"auto-member@example.com","password":"memberpass123","role":"member"}' \
-  >/dev/null || fail "could not create the member user"
+  >/dev/null 2>&1 || echo "   (member user already present — reusing)"
 login "$MEMBER_JAR" auto-member memberpass123
 echo "   admin + member cookies held"
 
@@ -227,17 +229,35 @@ VER=$(api "$ADMIN_JAR" GET /api/system/update-status | python3 -c 'import json,s
 [ "$VER" = "$NEW_V" ] || fail "ready for the wrong version: $VER != $NEW_V"
 echo "   ready on $NEW_V (saw downloading: $SEEN_DL)"
 
+echo "== 4b. ready must NOT apply itself (2+ restart-watcher intervals)"
+# Regression pin: the prefetch once installed INTO the tool venv, and
+# upgrade_restart.watch restarted the server with no admin click. The
+# prefetch may warm caches; only the restart call may move versions.
+sleep 25
+[ "$(version_on_port)" = "$OLD_V" ] \
+  || fail "the server moved to $(version_on_port) without a restart call"
+[ "$(vibe-seller --version | awk '{print $NF}')" = "$OLD_V" ] \
+  || fail "the installed tool moved to $(vibe-seller --version) without a restart call"
+echo "   after 25 s: server $OLD_V, tool $OLD_V — nothing applied itself"
+
 if [ "$KEEP" = 1 ]; then
   echo "== demo mode: leaving the READY server on http://localhost:$PORT"
   echo "   admin/admin · auto-member/memberpass123 · VIBE_HOME=$VIBE_HOME"
 fi
 
 echo "== 5. proof the prefetch is real (offline re-resolution from cache)"
+# The proof must not itself touch the install: --python gets the venv's
+# BASE interpreter, never the tool venv's own python (same wheel tags,
+# not an install target).
+BASE_PY=$("$UV_TOOL_DIR/vibe-seller/bin/python" -c 'import sys; print(sys.base_prefix)')
+[ -x "$BASE_PY/bin/python" ] || fail "no base interpreter under $BASE_PY"
 UV_OFFLINE=1 uv tool run --quiet --from "vibe-seller==$NEW_V" \
-  --python "$UV_TOOL_DIR/vibe-seller/bin/python" vibe-seller --version \
+  --python "$BASE_PY/bin/python" vibe-seller --version \
   | grep -q "$NEW_V" \
   || fail "the offline prefetch proof failed — the cache is not warm for $NEW_V"
-echo "   UV_OFFLINE=1 resolution of $NEW_V completes from cache"
+[ "$(vibe-seller --version | awk '{print $NF}')" = "$OLD_V" ] \
+  || fail "the offline proof moved the tool to $(vibe-seller --version)"
+echo "   UV_OFFLINE=1 resolution of $NEW_V completes from cache; tool still $OLD_V"
 
 echo "== 6. the restart gate: member 403"
 RC=$(curl -sS --noproxy '*' -o /dev/null -w '%{http_code}' -b "$MEMBER_JAR" \
@@ -252,7 +272,7 @@ if [ "$KEEP" = 1 ]; then
   exit 0
 fi
 
-echo "== 7. admin restarts onto the new version"
+echo "== 7. admin restarts onto the new version (the only mover)"
 RC=$(curl -sS --noproxy '*' -b "$ADMIN_JAR" -o "$WORK/restart.json" -w '%{http_code}' \
   -X POST "http://127.0.0.1:$PORT/api/system/update/restart")
 [ "$RC" = 200 ] || fail "admin restart expected 200, got $RC: $(cat "$WORK/restart.json")"

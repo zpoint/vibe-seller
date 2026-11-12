@@ -143,6 +143,9 @@ class TestUnixCycle:
             )()
 
         monkeypatch.setattr(au.subprocess, 'run', fake_run)
+        monkeypatch.setattr(
+            au.upgrade_restart, 'installed_version', lambda: '0.8.0'
+        )
         events = _record_events(monkeypatch)
         await au._cycle_unix()
         assert au.snapshot()['state'] == au.READY
@@ -154,7 +157,7 @@ class TestUnixCycle:
             '--from',
             'vibe-seller==0.9.0',
             '--python',
-            au.sys.executable,
+            au._prefetch_python(),
             'vibe-seller',
             '--version',
         ]
@@ -183,10 +186,16 @@ class TestUnixCycle:
             lambda cmd, **kw: ran.append(cmd)
             or type('R', (), {'returncode': 0, 'stdout': '', 'stderr': ''})(),
         )
+        monkeypatch.setattr(
+            au.upgrade_restart,
+            'installed_version',
+            lambda: '0.10.0.dev202610100000',
+        )
         _record_events(monkeypatch)
         await au._cycle_unix()
         assert au.snapshot()['version'] == '0.10.0.dev202611010000'
         assert ran[0][4] == 'vibe-seller==0.10.0.dev202611010000'
+        assert ran[0][6] == au._prefetch_python()
 
     async def test_prefetch_failure_sets_error_and_event(
         self, monkeypatch, tmp_path
@@ -220,6 +229,52 @@ class TestUnixCycle:
         monkeypatch.setattr(au, 'get_version', lambda: '0.8.0')
         await au._cycle_unix()
         assert au.snapshot()['state'] == au.IDLE
+
+
+class TestPrefetchSafety:
+    """The prefetch must be STRUCTURALLY unable to touch the install.
+
+    Regression for the bug found live: `uv tool run --python <the tool
+    venv's own python>` installs into that venv — the tool moved to the
+    target and upgrade_restart.watch restarted the server with no
+    admin click.
+    """
+
+    def test_python_arg_is_never_the_tool_venv_interpreter(self):
+        chosen = au._prefetch_python()
+        assert chosen != au.sys.executable
+        assert not Path(chosen).is_relative_to(Path(au.sys.prefix))
+
+    def test_built_command_pins_the_base_interpreter(self, monkeypatch):
+        ran: list = []
+        monkeypatch.setattr(
+            au.subprocess,
+            'run',
+            lambda cmd, **kw: ran.append(cmd)
+            or type('R', (), {'returncode': 0, 'stdout': '', 'stderr': ''})(),
+        )
+        monkeypatch.setattr(
+            au.upgrade_restart, 'installed_version', lambda: '0.8.0'
+        )
+        monkeypatch.setattr(au, 'get_version', lambda: '0.8.0')
+        au._prefetch_unix('0.9.0')
+        assert ran[0][ran[0].index('--python') + 1] == au._prefetch_python()
+        assert ran[0][ran[0].index('--python') + 1] != au.sys.executable
+
+    def test_refuses_when_the_prefetch_moved_the_tool(self, monkeypatch):
+        monkeypatch.setattr(
+            au.subprocess,
+            'run',
+            lambda cmd, **kw: type(
+                'R', (), {'returncode': 0, 'stdout': '', 'stderr': ''}
+            )(),
+        )
+        monkeypatch.setattr(au, 'get_version', lambda: '0.8.0')
+        monkeypatch.setattr(
+            au.upgrade_restart, 'installed_version', lambda: '0.9.0'
+        )
+        with pytest.raises(RuntimeError, match='never apply itself'):
+            au._prefetch_unix('0.9.0')
 
 
 class TestWindowsCycle:
