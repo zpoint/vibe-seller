@@ -496,6 +496,8 @@ jobs:
       - name: Stop auto-update test server + tray
         if: always()
         shell: pwsh
+        env:
+          VIBE_HOME: ${{ runner.temp }}\vs-autoupdate-home
         run: |
           # Best effort: the relaunched tray keeps a server + pythonw
           # alive on the runner; stop what the gate started (never 7777).
