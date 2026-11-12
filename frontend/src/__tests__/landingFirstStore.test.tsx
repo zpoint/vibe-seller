@@ -115,6 +115,12 @@ describe('landing on "/"', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /sign in/i })) })
     for (let i = 0; i < 5; i++) await act(async () => { await new Promise(r => setTimeout(r, 0)) })
     expect(router.state.location.pathname).toBe('/stores/store-a')
+    // Not just the URL: the screen must agree — the store is selected
+    // (the loadedScopeRef guard must not skip the re-selection after the
+    // session was dropped, or the header stays on All Stores).
+    expect(screen.getByRole('button', { name: /demo a/i }).className)
+      .toContain('bg-indigo-50')
+    expect(screen.getByRole('heading', { name: 'Demo A' })).toBeInTheDocument()
   })
 })
 

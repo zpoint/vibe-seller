@@ -215,8 +215,7 @@ export default function App() {
   useEffect(() => {
     const onExpired = () => {
       setCurrentUser(null)
-      // Land on '/' (not /tasks), so re-login resolves the landing
-      // the same way a fresh open does.
+      // Land on '/' (not /tasks): re-login resolves the landing like a fresh open.
       navigate({ to: '/', replace: true })
       setSelectedTask(null)
       setSelectedSchedule(null)
@@ -260,8 +259,7 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) return
     // Populate the sidebar. The bare '/' landing resolves off the store
-    // load: first store, else /tasks — the live-URL guard and why the
-    // old jump raced: lib/landing.ts.
+    // load: first store, else /tasks (guard + rationale: lib/landing.ts).
     loadZiniaoAccounts(); loadProfiles()
     resolveLanding(loadStores(), store => navigate(store
       ? { to: '/stores/$storeId', params: { storeId: store.id }, replace: true }
@@ -284,7 +282,9 @@ export default function App() {
       : ''
   const loadedScopeRef = useRef<string>('')
   useEffect(() => {
-    if (!currentUser || !listScopeKey) return
+    // Session dropped: forget the loaded scope so the next login re-selects.
+    if (!currentUser) { loadedScopeRef.current = ''; return }
+    if (!listScopeKey) return
     if (loadedScopeRef.current === listScopeKey) return
     if (routeStoreId) {
       const s = stores.find(x => x.id === routeStoreId)
