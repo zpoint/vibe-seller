@@ -257,6 +257,7 @@ describe('TasksView Run Now button reflects scheduleTasks', () => {
     selectSchedule: vi.fn(),
     replanSchedule: vi.fn(),
     setSelectedSchedule: vi.fn(),
+    closeSchedule: vi.fn(),
     onScheduleUpdated: vi.fn(),
   }
 

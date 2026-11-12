@@ -70,9 +70,33 @@ src/
 - **WorkspaceAssistantView**: AI chat for workspace organization (default when entering Workspace)
 - **SettingsView**: Tabbed settings — Stores, General (cross-cutting defaults: default execution mode [Auto/Review segmented control], task retention, max concurrency, default schedule timezone via `TimezoneSelect`, fanout/single schedule default, telemetry opt-out), AI (backend status + AI profiles), Email (email accounts), Account (auth toggle, profile, password, users), Integrations (API keys first — `ApiTokensPanel.tsx`, personal API keys for external agents: list, mint with a name and expiry [never by default], revoke behind a confirm; the plaintext is shown once, in `ApiTokenCreatedModal.tsx`, next to copy-paste configs for Claude Code / Codex / WorkBuddy / Qoder / Hermes Agent / Pi built by `lib/apiTokenSnippets.ts` — then Google Workspace toggle with prereq check, chat bots (WeCom/DingTalk/Feishu/Slack, `ChatBotSection.tsx` — live platform badge from `/api/chat-bots/platforms`, signing-secret field only for DingTalk/Feishu; the edit form holds the server's MASKS for the webhook URL + secret — untouched means keep, typing a new value replaces — and admins get Show/Copy buttons via `SecretReveal.tsx` → `POST /api/secrets/reveal`), Dida365/TickTick). Masked-secret handling is app-wide: the profile modal (`ProfileModal.tsx`) shows masked env keys, sends `profile_id` with the validate probe so untouched keys probe the stored secret, and offers admin reveal; the vision panel, email-account rows and the Ziniao account form (Sidebar) carry the same admin Show/Copy. Each tab's body is a separate `components/settings/*Panel.tsx` component. The `SettingsTab` union type is exported from `SettingsView.tsx` and reused by `App.tsx`; each tab has a URL slug in `lib/route.ts` (`ai` ↔ `aiAgent`); the retired `api-tokens` slug redirects to Integrations, where the API-key card lives.
 
+## Routing (URL is the source of truth)
+
+TanStack Router (`src/router.tsx`); `App` is the root component and every
+leaf route renders null — what is on screen is derived from the pathname
+by `src/lib/route.ts` `parseNav()`. Routes: `/` (landing), `/tasks`,
+`/tasks/$taskId`, `/stores/$storeId`, `/stores/$storeId/tasks/$taskId`,
+`/schedules`, `/schedules/$scheduleId`, `/stores/$storeId/schedules`,
+`/stores/$storeId/schedules/$scheduleId`, `/workspace`, `/settings/$tab`
+(`/settings` redirects to `/settings/stores`).
+
+- **Landing**: `/` does not redirect synchronously. When the store list
+  arrives, `App` replaces `/` with the **first store** — or with
+  `/tasks` when the user has none. The jump fires only if the LIVE URL
+  is still exactly `/` at that moment, so a click or deep link made
+  meanwhile always wins (`src/lib/landing.ts` explains the old race the
+  guard prevents). An expired session and an explicit sign-out both
+  bounce to `/`, so the next login follows the same rule — logout is not
+  a chosen destination.
+- **Scope × sub-tab**: the store part and the Tasks/Scheduled part of
+  the path are independent. Sub-tab flips stay inside the current
+  scope (`/stores/$id` ↔ `/stores/$id/schedules`), sidebar clicks keep
+  the sub-tab, and a flip inside one store does not reload its task
+  list (`lib/route.ts` `listTarget`/`scheduleTarget` build the URLs).
+
 ## Auth expiry handling
 
-`api.ts` exports `AUTH_EXPIRED_EVENT` (`'auth:expired'`). Every wrapper method (`get` / `post` / `put` / `patch` / `del`) inspects the response: a 401 dispatches the event on `window` and throws `Error('unauthorized')`. `App.tsx` listens for the event once on mount and clears `currentUser` + the selected task/schedule, which causes `LoginPage` to render.
+`api.ts` exports `AUTH_EXPIRED_EVENT` (`'auth:expired'`). Every wrapper method (`get` / `post` / `put` / `patch` / `del`) inspects the response: a 401 dispatches the event on `window` and throws `Error('unauthorized')`. `App.tsx` listens for the event once on mount, clears `currentUser` + the selected task/schedule and navigates to `/`, which causes `LoginPage` to render — and re-login then resolves the landing like a fresh open (first store, or `/tasks` with none).
 
 This makes "any button on any page redirects to login when the JWT cookie has expired" a property of the shared `api` client, not of each caller. New views/handlers automatically inherit the behavior — they only need to use `api.*` instead of raw `fetch`. Raw `fetch` calls (e.g., the `/api/auth/status` probe at startup, `handleLogin`) deliberately bypass the redirect path because they execute *before* the user is logged in.
 

@@ -18,10 +18,29 @@ import type {
   ConversationItemType,
   PlanVersion,
   Schedule,
+  Store,
   Task,
 } from '../types'
 
 let _idCounter = 0
+
+/** A store row as GET /api/stores returns it. */
+export function makeStore(overrides: Partial<Store> = {}): Store {
+  return {
+    id: `store-${++_idCounter}`,
+    name: 'Test Store',
+    browser_backend: 'chrome',
+    browser_config: {},
+    ziniao_account_id: null,
+    browser_oauth: null,
+    platforms: [],
+    countries: [],
+    platform_countries: {},
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...overrides,
+  }
+}
 
 export function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
   return {

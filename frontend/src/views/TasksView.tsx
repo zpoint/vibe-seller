@@ -100,6 +100,8 @@ export interface TasksViewProps {
   triggerSchedule: (id: string) => void
   replanSchedule: (id: string) => void
   setSelectedSchedule: React.Dispatch<React.SetStateAction<Schedule | null>>
+  /** Leave the open schedule detail to its own scope's schedule list. */
+  closeSchedule: () => void
   onScheduleUpdated: (schedule: Schedule) => void
   selectedStore: Store | null
   stores: Store[]
@@ -167,6 +169,7 @@ export function TasksView({
   triggerSchedule,
   replanSchedule,
   setSelectedSchedule,
+  closeSchedule,
   onScheduleUpdated,
   selectedStore,
   stores,
@@ -262,7 +265,8 @@ export function TasksView({
     // The opening / failed-to-open pane is route state: leave the route.
     if (openingTask) onLeaveTaskLoad?.()
     else if (selectedTask) setSelectedTask(null)
-    else setSelectedSchedule(null)
+    // A schedule detail is route state too: leave to ITS scope's list.
+    else closeSchedule()
   }
 
   return (

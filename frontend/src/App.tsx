@@ -20,7 +20,8 @@ import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
 import { SettingsView, type SettingsTab } from './views/SettingsView'
 import { useSSE } from './hooks/useSSE'
 import { createDraftStore } from './lib/draftStore'
-import { parseNav, settingsTabToSlug } from './lib/route'
+import { parseNav, settingsTabToSlug, listTarget, scheduleTarget } from './lib/route'
+import { resolveLanding } from './lib/landing'
 import { registerUserHash, unregisterUserHash } from './lib/telemetry'
 import { useTaskOpener } from './hooks/useTaskOpener'
 import { useTaskActions } from './hooks/useTaskActions'
@@ -66,6 +67,9 @@ export default function App() {
   const [stores, setStores] = useState<Store[]>([])
   const [selectedStore, setSelectedStore] = useState<Store | null>(null)
   const [showAllTasks, setShowAllTasks] = useState(true)
+  // On the '/' landing no scope is selected yet, so the All Stores
+  // highlight, its panel and its list stay off until the URL resolves.
+  const showAllScope = showAllTasks && !nav.landing
   const [tasks, setTasks] = useState<Task[]>([])
   const [tasksLoading, setTasksLoading] = useState(false)
   // Key ('<store_id>' or '__none__') of the task-list fetch currently
@@ -164,7 +168,7 @@ export default function App() {
   const [newStoreProxyBypass, setNewStoreProxyBypass] = useState('')
 
   // Schedule state
-  // taskSubTab is URL-derived (see above): /tasks vs /schedules.
+  // taskSubTab is URL-derived (see above): a scope's tasks vs schedules route.
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null)
   const [scheduleTasks, setScheduleTasks] = useState<Task[]>([])
@@ -199,9 +203,9 @@ export default function App() {
   const routeStoreId = nav.storeId
   const routeScheduleId = nav.scheduleId
   const taskSubTab = nav.taskSubTab
-  const setTaskSubTab = (tab: 'onetime' | 'scheduled') => {
-    navigate({ to: tab === 'scheduled' ? '/schedules' : '/tasks' })
-  }
+  // Sub-tabs flip INSIDE the current scope (listTarget) — a store is
+  // never dropped; the flat pair is only the all-stores one.
+  const setTaskSubTab = (tab: 'onetime' | 'scheduled') => navigate(listTarget(routeStoreId, tab === 'scheduled'))
   const [authRequired, setAuthRequired] = useState(false)
 
   // Any 401 from the shared API client fires this — we drop the
@@ -211,7 +215,8 @@ export default function App() {
   useEffect(() => {
     const onExpired = () => {
       setCurrentUser(null)
-      setAppView('tasks')
+      // Land on '/' (not /tasks): re-login resolves the landing like a fresh open.
+      navigate({ to: '/', replace: true })
       setSelectedTask(null)
       setSelectedSchedule(null)
     }
@@ -253,10 +258,12 @@ export default function App() {
   useEffect(() => { if (!debugInitialized.current) { debugInitialized.current = true; return } if (currentUser) api.patch('/api/auth/me/debug-mode', { debug_mode: debugMode }).catch(() => {}) }, [debugMode])
   useEffect(() => {
     if (!currentUser) return
-    // Populate the sidebar; the LANDING view is whatever the URL says
-    // (/ redirects to /tasks = all-stores). No auto-jump to a store — it
-    // would race with (and override) an explicit nav or a deep-link.
-    loadZiniaoAccounts(); loadProfiles(); loadStores()
+    // Populate the sidebar. The bare '/' landing resolves off the store
+    // load: first store, else /tasks (guard + rationale: lib/landing.ts).
+    loadZiniaoAccounts(); loadProfiles()
+    resolveLanding(loadStores(), store => navigate(store
+      ? { to: '/stores/$storeId', params: { storeId: store.id }, replace: true }
+      : { to: '/tasks', replace: true }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser])
 
@@ -264,18 +271,20 @@ export default function App() {
   // The URL is the source of truth for what's open. Each effect loads
   // the rich object when its route param appears and clears it when the
   // param is gone (Back / navigating away). Guards prevent reload loops.
-  // List scope from the route alone: a store (either /stores/$id or a task
-  // open under it, /stores/$id/tasks/$tid), or the all-stores list on the
-  // tasks view (/tasks and the flat /tasks/$id for no-store tasks).
-  // loadedScopeRef loads it once per scope change, incl. initial landing.
+  // List scope from the URL alone, no fallback to stale state: any
+  // /stores/$id… form (tasks or schedules) is that store; the no-store
+  // tasks view is 'all' on BOTH sub-tabs; '/' (landing) loads nothing.
+  // loadedScopeRef fires per key, so a sub-tab flip reloads no list.
   const listScopeKey = routeStoreId
     ? `store:${routeStoreId}`
-    : appView === 'tasks' && taskSubTab === 'onetime'
+    : appView === 'tasks' && !nav.landing
       ? 'all'
       : ''
   const loadedScopeRef = useRef<string>('')
   useEffect(() => {
-    if (!currentUser || !listScopeKey) return
+    // Session dropped: forget the loaded scope so the next login re-selects.
+    if (!currentUser) { loadedScopeRef.current = ''; return }
+    if (!listScopeKey) return
     if (loadedScopeRef.current === listScopeKey) return
     if (routeStoreId) {
       const s = stores.find(x => x.id === routeStoreId)
@@ -337,8 +346,13 @@ export default function App() {
       setSelectedTask,
       setScheduleTasks,
     })
+  // Open a schedule under the scope whose list it was clicked in — the
+  // URL records the browsed list, so the store is never dropped.
   const selectSchedule = (schedule: Schedule) =>
-    navigate({ to: '/schedules/$scheduleId', params: { scheduleId: schedule.id } })
+    navigate(scheduleTarget(routeStoreId, schedule.id))
+  // Leave an open schedule detail (delete / mobile Back): to the SAME
+  // scope's list, replacing history — Back must not return to it.
+  const closeSchedule = () => { setSelectedSchedule(null); setScheduleTasks([]); navigate({ ...scheduleTarget(routeStoreId, null), replace: true }) }
   // Reset the in-flight ref whenever the schedule selection is
   // cleared (deleteSchedule / selectStore / selectAllTasks all
   // call setSelectedSchedule(null)). Without this, a late /tasks
@@ -350,7 +364,7 @@ export default function App() {
   const deleteSchedule = async (id: string) => {
     await api.del(`/api/schedules/${id}`)
     setSchedules(prev => prev.filter(s => s.id !== id))
-    if (selectedSchedule?.id === id) { setSelectedSchedule(null); setScheduleTasks([]) }
+    if (selectedSchedule?.id === id) closeSchedule() // leave a deleted detail
   }
   const toggleSchedulePause = async (id: string, isActive: boolean) => {
     const endpoint = isActive ? 'pause' : 'resume'
@@ -447,8 +461,10 @@ export default function App() {
   }
   // Click handlers navigate; the route-param effects call the loaders
   // (selectScope / loadTaskById) so URL is the single source of truth.
-  const selectStore = (store: Store) => navigate({ to: '/stores/$storeId', params: { storeId: store.id } })
-  const selectAllTasks = () => navigate({ to: '/tasks' })
+  // Sidebar clicks keep the sub-tab (listTarget): on 定时 they open
+  // the store's / the all-stores SCHEDULE list.
+  const selectStore = (store: Store) => navigate(listTarget(store.id, taskSubTab === 'scheduled'))
+  const selectAllTasks = () => navigate(listTarget(null, taskSubTab === 'scheduled'))
   // A store task opens under its store (/stores/$storeId/tasks/$taskId) so
   // the URL keeps the store scope — otherwise the flat route drops it and
   // the sidebar snaps back to All Stores. No-store tasks use the flat form.
@@ -529,9 +545,10 @@ export default function App() {
 
   // ─── Auth helpers ──────────────────────────────────
   const handleLogin = async () => { setLoginError(''); try { const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: loginIdentifier, password: loginPassword }), credentials: 'include' }); if (!r.ok) { setLoginError(t('auth.invalidCredentials')); return }; const u = await r.json(); setCurrentUser(u); void registerUserHash(u.id); if (u.default_profile_id) setSelectedProfileId(u.default_profile_id); setDebugMode(u.debug_mode ?? false); setLoginIdentifier(''); setLoginPassword('') } catch { setLoginError(t('auth.invalidCredentials')) } }
-  // Reset session-scoped selection on logout so next login re-enters
-  // the default-selection branch (else a stale selectedStore skips it).
-  const handleLogout = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); unregisterUserHash(); setCurrentUser(null); setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSelectedSchedule(null); setAppView('tasks') }
+  // Reset session-scoped selection so the next login starts clean.
+  // Logout is not a chosen destination: return to '/' (like AUTH_EXPIRED)
+  // so the next login resolves the landing, not All Stores.
+  const handleLogout = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); unregisterUserHash(); setCurrentUser(null); setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSelectedSchedule(null); navigate({ to: '/', replace: true }) }
 
   // ─── Settings helpers ──────────────────────────────
   const createUser = async () => { if (!newUserForm.username.trim() || !newUserForm.password.trim()) return; try { await api.post('/api/users', { ...newUserForm, email: newUserForm.email.trim() || undefined }); setNewUserForm({ username: '', email: '', password: '', role: 'member' }); setShowAddUser(false); await loadUsers() } catch { /* ignore */ } }
@@ -546,7 +563,7 @@ export default function App() {
   useSSE({
     selectedTaskId: selectedTask?.id, appView,
     selectedStoreId: selectedStore?.id ?? null,
-    showAllTasks,
+    showAllTasks: showAllScope,
     setTasks, setSelectedTask, setSteps, setScreenshots, setAgentMessages, setTodoItems,
     setConversationItems,
     setPendingQuestions, setSelectedAnswers, setOtherInputs, setShowOtherInput, setLogs,
@@ -557,15 +574,15 @@ export default function App() {
     loadSchedules,
     loadTasks: () => {
       if (selectedStore) api.get(`/api/tasks?store_id=${selectedStore.id}`).then(setTasks).catch(() => {})
-      else if (showAllTasks) api.get('/api/tasks?store_id=__none__').then(setTasks).catch(() => {})
+      else if (showAllScope) api.get('/api/tasks?store_id=__none__').then(setTasks).catch(() => {})
     },
     setWsAssistantMessages,
     setWsAssistantRunning,
     loadWsStructured,
   })
 
-  const taskPanelActive = selectedStore || showAllTasks
-  const taskPanelTitle = showAllTasks ? t('tasks.allStores') : selectedStore?.name || ''
+  const taskPanelActive = selectedStore || showAllScope
+  const taskPanelTitle = showAllScope ? t('tasks.allStores') : selectedStore?.name || ''
 
   // ─── Login / loading ───────────────────────────────
   if (!authChecked) return <div className="flex items-center justify-center h-screen bg-gray-100 text-gray-500">{t('common.loading')}</div>
@@ -606,7 +623,7 @@ export default function App() {
       <Sidebar
         isMobile={isMobile} navOpen={navOpen} closeNav={() => setNavOpen(false)}
         currentUser={currentUser} appView={appView} setAppView={setAppView} handleLogout={handleLogout} authRequired={authRequired}
-        stores={stores} selectedStore={selectedStore} showAllTasks={showAllTasks}
+        stores={stores} selectedStore={selectedStore} showAllTasks={showAllScope}
         selectStore={selectStore} selectAllTasks={selectAllTasks}
         showCreateStore={showCreateStore} setShowCreateStore={setShowCreateStore} createStore={createStore}
         newStoreName={newStoreName} setNewStoreName={setNewStoreName}
@@ -650,7 +667,7 @@ export default function App() {
           chatDraft={chatDraft}
           chatAttachments={chatAttachments} setChatAttachments={setChatAttachments} debugMode={debugMode} setDebugMode={setDebugMode}
           profiles={profiles} selectedProfileId={selectedProfileId} setSelectedProfileId={setSelectedProfileId}
-          currentUser={currentUser} showAllTasks={showAllTasks}
+          currentUser={currentUser} showAllTasks={showAllScope}
           openCreateModal={() => setShowCreateTask(true)} selectTask={selectTask}
           stopAgent={stopAgent} retryTask={retryTask} continueTask={continueTask} deleteTask={deleteTask}
           selectAnswer={selectAnswer} toggleOtherInput={toggleOtherInput}
@@ -664,7 +681,7 @@ export default function App() {
           selectSchedule={selectSchedule} deleteSchedule={deleteSchedule}
           toggleSchedulePause={toggleSchedulePause} triggerSchedule={triggerSchedule}
           replanSchedule={replanSchedule}
-          setSelectedSchedule={setSelectedSchedule}
+          setSelectedSchedule={setSelectedSchedule} closeSchedule={closeSchedule}
           onScheduleUpdated={onScheduleUpdated}
           selectedStore={selectedStore}
           stores={stores}
