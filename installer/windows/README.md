@@ -51,6 +51,31 @@ processes running from exactly those dirs (`BrowserDirs`, passed by
 `build.ps1`) before overwriting or removing them; the uninstaller then
 deletes the dirs. CI covers both with a held-open Chromium.
 
+## In-place updates (tray "检查更新" and the in-app "重启并更新")
+
+Both entry points share `app/windows_update.py`. The server's
+background loop (`app/auto_update.py`) stages the offered
+`VibeSeller-Setup.exe` under `<VIBE_HOME>\updates\<version>\` —
+resumable (`.part` + HTTP `Range`), verified against the GitHub
+asset's `size` and `digest` (`sha256:<hex>`; a mock may omit the
+digest → size-only), with `install-meta.json` recording what the file
+was verified under. Only the newest version dir is kept.
+
+- **Tray 检查更新** reuses that verified stage for the offered version
+  instead of downloading again; with no stage it behaves exactly as
+  before (temp download, interactive wizard).
+- **In-app 重启并更新** (`POST /api/system/update/restart`, admin,
+  409 unless the stage is `ready`) launches the staged exe with
+  `/SILENT /SUPPRESSMSGBOXES /NORESTART` — the wizard shows **only
+  the progress window** (verified: no language dialog in silent mode;
+  `WizardSilent` is true for `/SILENT`, so `RelaunchTrayAfterSilentUpgrade`
+  still fires). The server does **not** stop itself first:
+  `PrepareToInstall` stops server/tray/browsers, and the relaunch
+  brings the tray — and with it the server — back. The launch is
+  detached (`DETACHED_PROCESS` + `CREATE_NEW_PROCESS_GROUP`, trying
+  `CREATE_BREAKAWAY_FROM_JOB` first so a job-object supervisor or CI
+  runner cannot take the installer down when its parent server dies).
+
 ## Architecture (why no Windows Service / no PyInstaller)
 
 - The server's `vibe-seller start` already daemonises via

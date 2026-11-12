@@ -45,6 +45,7 @@ src/
     SettingsView.tsx          # Stores, general, AI, email, account, integrations tabs (delegates to components/settings/*Panel.tsx)
   hooks/
     useSSE.ts                 # SSE event listener hook
+    useUpdateFlow.ts          # the in-app update UI state (poll + modal + restart)
 ```
 
 ### Layout (three panels)
@@ -69,6 +70,40 @@ src/
 - **WorkspaceView**: File editor for knowledge/skills files, file history viewer
 - **WorkspaceAssistantView**: AI chat for workspace organization (default when entering Workspace)
 - **SettingsView**: Tabbed settings — Stores, General (cross-cutting defaults: default execution mode [Auto/Review segmented control], task retention, max concurrency, default schedule timezone via `TimezoneSelect`, fanout/single schedule default, telemetry opt-out), AI (backend status + AI profiles), Email (email accounts), Account (auth toggle, profile, password, users), Integrations (API keys first — `ApiTokensPanel.tsx`, personal API keys for external agents: list, mint with a name and expiry [never by default], revoke behind a confirm; the plaintext is shown once, in `ApiTokenCreatedModal.tsx`, next to copy-paste configs for Claude Code / Codex / WorkBuddy / Qoder / Hermes Agent / Pi built by `lib/apiTokenSnippets.ts` — then Google Workspace toggle with prereq check, chat bots (WeCom/DingTalk/Feishu/Slack, `ChatBotSection.tsx` — live platform badge from `/api/chat-bots/platforms`, signing-secret field only for DingTalk/Feishu; the edit form holds the server's MASKS for the webhook URL + secret — untouched means keep, typing a new value replaces — and admins get Show/Copy buttons via `SecretReveal.tsx` → `POST /api/secrets/reveal`), Dida365/TickTick). Masked-secret handling is app-wide: the profile modal (`ProfileModal.tsx`) shows masked env keys, sends `profile_id` with the validate probe so untouched keys probe the stored secret, and offers admin reveal; the vision panel, email-account rows and the Ziniao account form (Sidebar) carry the same admin Show/Copy. Each tab's body is a separate `components/settings/*Panel.tsx` component. The `SettingsTab` union type is exported from `SettingsView.tsx` and reused by `App.tsx`; each tab has a URL slug in `lib/route.ts` (`ai` ↔ `aiAgent`); the retired `api-tokens` slug redirects to Integrations, where the API-key card lives.
+
+## In-app update UI
+
+`hooks/useUpdateFlow.ts` is the single owner of the update UI for one
+login session: it fetches `/api/system/update-check` once (target,
+merged notes, `in_app_update`), polls `/api/system/update-status`
+(2 s while `downloading`/`restarting`, 10 s otherwise), and *derives*
+modal visibility — no timers setting state in effects: a `ready`
+update auto-opens the modal once per browser session (`稍后` / `知道了`
+hide it via `sessionStorage`, keyed by version; a new browser session
+pops it again), and nothing auto-opens while downloading.
+
+`components/UpdateChip.tsx` is the sidebar footer entry, visible
+whenever `supported` and the state is downloading / ready /
+restarting: Windows shows `正在下载 v{x} · {pct}%` with a byte bar
+(from `downloaded_bytes`/`total_bytes`), macOS/Linux an indeterminate
+bar, ready flips to the accent style, restarting stays busy. Clicking
+it opens `UpdateAvailableModal` regardless of dismissal.
+
+`UpdateAvailableModal` renders per state — downloading (progress),
+ready (platform/role subtitle, the Windows "需要在运行 Vibe Seller 的
+电脑上操作。" note, the running-tasks warning and `仍然重启并更新`
+when `running_tasks > 0`, `知道了` for members), and restarting
+(spinner; the page polls `/api/version` every 2 s and `location.reload()`
+once the version changed, tolerating the server being down; after
+10 min on Windows / 3 min on macOS/Linux it shows the manual
+instructions). An install that cannot update itself keeps today's
+popup content — copy-able `vibe-seller upgrade` or the installer
+download link. Every mode shows `ReleaseNotesSections`: the server's
+`highlights` / `notes` (merged across versions, newest first), 亮点
+collapsed after 6 and 升级须知 after 4 with `展开其余 N 条`, each item
+a markdown bullet with a version tag, language picked from the UI
+locale with fallback to the other, plus the GitHub changelog link.
+All strings are i18n'd (`update.*` keys, en + zh).
 
 ## Routing (URL is the source of truth)
 

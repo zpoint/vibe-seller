@@ -77,12 +77,16 @@ jobs:
           # shallow checkout, so setuptools_scm can't derive one and every
           # build ends up 0.0.1.dev1 — which the UI shows identically for
           # all of them and which lets pip/uv treat different builds as the
-          # same package. Pin it explicitly, like release.yml does. The run
-          # number is monotonic per workflow; the short sha aids tracing.
+          # same package. Pin it explicitly, like release.yml does.
+          # The shape is 99.0.<run_number> — a PLAIN version, not a dev
+          # build: the channel rules make dev installs invisible to
+          # app/auto_update.py (by design), and the "In-app auto-update"
+          # step below must exercise the shipped updater on an install
+          # shaped like a release. 99.x sorts above every real release,
+          # so PyPI can never win a resolution against it.
           $ver = "${{ github.event.inputs.app_version }}"
           if ([string]::IsNullOrWhiteSpace($ver) -or $ver -eq "0.0.0") {
-            $sha = "${{ github.sha }}".Substring(0, 8)
-            $ver = "0.0.1.dev${{ github.run_number }}+g$sha"
+            $ver = "99.0.${{ github.run_number }}"
           }
           $env:SETUPTOOLS_SCM_PRETEND_VERSION = $ver
           .\installer\windows\build.ps1 -AppVersion $ver
@@ -241,7 +245,7 @@ jobs:
         run: |
           export PATH="$VS_INSTALL/.venv/Scripts:$PATH"
           # Empty version arg → skip the version-match check (this is a
-          # dev build, not a published release).
+          # PR build, not a published release).
           bash tests/releases/verify_install.sh ""
 
       - name: Verify the installed app can recover a forgotten password
@@ -397,6 +401,112 @@ jobs:
             throw "agent venv did NOT reuse the bundled Python (no '$bundled' in pyvenv.cfg)"
           }
           Write-Host "OK: agent venv reused the bundled Python ($bundled)"
+
+      # The user's real in-app update path on Windows: the server's
+      # background loop must stage the offered installer under
+      # <VIBE_HOME>\updates\<version>\ (verified by size + sha256),
+      # and the admin's restart request must launch THAT file — the
+      # installer then stops the server, upgrades in place, and
+      # relaunches the tray, which brings the server back. A mock
+      # release (plain local path in the GitHub shape) points at the
+      # JUST-BUILT installer; it runs against its own VIBE_HOME and
+      # port, never the shared ~/.vibe-seller or 7777. This does not
+      # dispatch windows-upgrade.yml (release-only); it gates every PR
+      # that touches the installer or the updater.
+      - name: In-app auto-update (stage → restart → server back)
+        shell: pwsh
+        env:
+          # Step-level env (not in-script $env:) so it reliably reaches
+          # the daemon and its detached children. Plain local path for
+          # the mock release — same shape windows-upgrade.yml uses.
+          VIBE_HOME: ${{ runner.temp }}\vs-autoupdate-home
+          VIBE_SELLER_AUTO_UPDATE: '1'
+          VIBE_SELLER_RELEASES_URL: ${{ runner.temp }}\vs-autoupdate-release.json
+          VIBE_SELLER_PORT: '7794'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $install = $env:VS_INSTALL
+          $exe = (Resolve-Path "installer\windows\out\VibeSeller-Setup.exe").Path
+          $hash = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower()
+          $size = (Get-Item $exe).Length
+          $ws = ($exe -replace '\\','/')
+          $rel = '{"tag_name":"v99.9.9","assets":[{"name":"VibeSeller-Setup.exe","browser_download_url":"' + $ws + '","size":' + $size + ',"digest":"sha256:' + $hash + '"}]}'
+          [System.IO.File]::WriteAllText($env:VIBE_SELLER_RELEASES_URL, $rel)
+          if (Test-Path $env:VIBE_HOME) { Remove-Item -Recurse -Force $env:VIBE_HOME }
+          New-Item -ItemType Directory -Force -Path $env:VIBE_HOME | Out-Null
+          $clean = ($env:PATH -split ';' | Where-Object { $_ -and $_ -notlike 'C:\Program Files\Git\*' -and $_ -ne 'C:\Program Files\Git' }) -join ';'
+          $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
+                      "$install\git\cmd;$install\git\bin;" +
+                      "$install\git\usr\bin;$install\git\mingw64\bin;$clean"
+          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7794
+          $ok = $false
+          for ($i = 0; $i -lt 90; $i++) {
+            try { Invoke-RestMethod http://127.0.0.1:7794/api/health -TimeoutSec 3 | Out-Null; $ok = $true; break } catch { }
+            Start-Sleep 2
+          }
+          if (-not $ok) { throw 'auto-update test server never became healthy' }
+          # First background cycle runs 60 s after boot; the local
+          # "download" is a verified copy of the just-built exe.
+          $st = $null
+          for ($i = 0; $i -lt 150; $i++) {
+            try { $st = Invoke-RestMethod http://127.0.0.1:7794/api/system/update-status -TimeoutSec 5 } catch { }
+            if ($st -and $st.state -eq 'ready') { break }
+            if ($st -and $st.state -eq 'error') { throw "stage failed: $($st.error)" }
+            if ($st -and -not $st.supported) { throw 'update-status says this install is not supported' }
+            Start-Sleep 2
+          }
+          if (-not $st -or $st.state -ne 'ready') { throw "never reached ready (last: $($st | ConvertTo-Json -Compress))" }
+          if ($st.version -ne '99.9.9') { throw "ready for the wrong version: $($st.version)" }
+          $staged = "$env:VIBE_HOME\updates\99.9.9\VibeSeller-Setup.exe"
+          if (-not (Test-Path $staged)) { throw "staged installer missing: $staged" }
+          $oldPid = (Get-NetTCPConnection -LocalPort 7794 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
+          if (-not $oldPid) { throw 'no server listening on 7794 before restart' }
+          $r = Invoke-RestMethod -Uri http://127.0.0.1:7794/api/system/update/restart -Method Post -TimeoutSec 10
+          if ($r.state -ne 'restarting') { throw "restart reply: $($r | ConvertTo-Json -Compress)" }
+          # The installer kills the server, upgrades, rebuilds the venv
+          # and relaunches the tray. Wait for a NEW pid serving 7794.
+          $back = $false
+          for ($i = 0; $i -lt 360; $i++) {
+            try {
+              $newPid = (Get-NetTCPConnection -LocalPort 7794 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
+              $v = (Invoke-RestMethod http://127.0.0.1:7794/api/version -TimeoutSec 3).version
+              if ($v -and $newPid -and $newPid -ne $oldPid) { $back = $true; break }
+            } catch { }
+            Start-Sleep 2
+          }
+          if (-not $back) {
+            Get-Content "$env:VIBE_HOME\updates\99.9.9\install.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
+            throw "the restart did not bring the server back on 7794 (old pid $oldPid)"
+          }
+          # Proof the STAGED file was the installer that ran, from the
+          # installer's own /LOG (run_installer adds it for silent modes).
+          $setupLog = "$env:VIBE_HOME\updates\99.9.9\install.log"
+          if (-not (Test-Path $setupLog)) { throw "no installer log at $setupLog" }
+          Select-String -Path $setupLog -Pattern 'updates' -SimpleMatch |
+            Where-Object { $_.Line -match 'Source:' } | Select-Object -First 1 |
+            ForEach-Object { Write-Host "setup: $($_.Line)" }
+          if (-not (Select-String -Path $setupLog -Pattern 'Source:.*updates' )) {
+            throw 'installer /LOG does not account for running from the updates stage'
+          }
+          if (-not (Select-String -Path $setupLog -Pattern 'Relaunched the tray' -SimpleMatch)) {
+            throw 'silent upgrade did not relaunch the tray'
+          }
+          Write-Host "OK: in-app auto-update on Windows (staged 99.9.9 -> /SILENT -> back on 7794, tray relaunched)"
+
+      - name: Stop auto-update test server + tray
+        if: always()
+        shell: pwsh
+        run: |
+          # Best effort: the relaunched tray keeps a server + pythonw
+          # alive on the runner; stop what the gate started (never 7777).
+          if (Test-Path "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe") {
+            & "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe" stop --port 7794 2>$null
+          }
+          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') -and
+              $_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:VS_INSTALL, [System.StringComparison]::OrdinalIgnoreCase) -and
+              $_.CommandLine -match 'tray\.py' } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
       - name: Stop server + stage logs
         if: always()

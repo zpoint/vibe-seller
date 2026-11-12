@@ -209,6 +209,8 @@ class TestWindowsTray:
         assert self._check(OLDER_NIGHTLY) == {
             'version': NIGHTLY,
             'url': 'http://n/exe',
+            'size': None,
+            'digest': None,
         }
 
     def test_pr_build_keeps_the_old_rule(self, releases):
@@ -216,6 +218,8 @@ class TestWindowsTray:
         assert self._check('0.0.1.dev42+gabc1234') == {
             'version': '0.2.0',
             'url': 'http://s/exe',
+            'size': None,
+            'digest': None,
         }
 
 
