@@ -524,6 +524,24 @@ class TestUrlImportInTask:
         })
         assert 'archive limit' in result['detail'], result
 
+    async def test_unreachable_url_is_a_clean_refusal(
+        self, client, real_workspace, monkeypatch, loopback_ok
+    ):
+        """A connect-level failure must answer as an actionable
+        refusal. Observed: a raw httpx.ConnectError escaped the route
+        as 500 Internal Server Error, leaving the agent nothing to
+        act on."""
+        import socket
+
+        with socket.socket() as s:
+            s.bind(('127.0.0.1', 0))
+            dead_port = s.getsockname()[1]
+        _route_mcp_call_api(client, monkeypatch)
+        result = await _import_tool({
+            'url': f'http://127.0.0.1:{dead_port}/skill.tar.gz'
+        })
+        assert 'could not reach' in result['detail'], result
+
     async def test_github_symlink_entry_refused(
         self, client, real_workspace, monkeypatch, source_server, loopback_ok
     ):

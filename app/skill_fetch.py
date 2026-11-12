@@ -185,10 +185,23 @@ def parse_github_source(url: str) -> dict | None:
         return None
     host_only = parts.hostname.lower()
     netloc = host_only + (f':{port}' if port else '')
-    if host_only in _GITHUB_HOSTS and parts.scheme.lower() == 'https':
+    # github.com → api.github.com ONLY for the canonical origin: real
+    # GitHub is never on a custom port. A github.com URL with an
+    # explicit non-default port IS a GitHub-COMPATIBLE origin (an
+    # enterprise server, a proxy, a fixture) — keep the given origin
+    # instead of silently jumping hosts/ports, which would fetch a
+    # different machine than the user named.
+    scheme = parts.scheme.lower()
+    std_port = 443 if scheme == 'https' else 80
+    nonstandard_port = port is not None and port != std_port
+    if (
+        host_only in _GITHUB_HOSTS
+        and scheme == 'https'
+        and not nonstandard_port
+    ):
         api_root = 'https://api.github.com'
     else:
-        api_root = f'{parts.scheme.lower()}://{netloc}'
+        api_root = f'{scheme}://{netloc}'
     return {
         'api_root': api_root,
         'owner': unquote(match.group('owner')),
@@ -219,7 +232,15 @@ def _api_headers(api_root: str) -> dict:
 
 async def _get_json(client: httpx.AsyncClient, url: str) -> dict:
     await guard_url(url)
-    resp = await client.get(url, headers=_api_headers(_api_root_of(url)))
+    try:
+        resp = await client.get(url, headers=_api_headers(_api_root_of(url)))
+    except httpx.HTTPError as exc:
+        # connect refused / DNS / timeout: a CLEAN refusal, never a
+        # 500 out of the route (observed: ConnectError escaping as
+        # Internal Server Error left the agent with nothing to act on)
+        raise FetchError(
+            f'could not reach {urlsplit(url).netloc}: {exc}', 502
+        ) from exc
     try:
         if resp.status_code != 200:
             raise FetchError(
@@ -351,7 +372,13 @@ async def _open_guarded(client: httpx.AsyncClient, url: str) -> httpx.Response:
     for _ in range(MAX_REDIRECTS + 1):
         await guard_url(current)
         request = client.build_request('GET', current)
-        resp = await client.send(request, stream=True)
+        try:
+            resp = await client.send(request, stream=True)
+        except httpx.HTTPError as exc:
+            raise FetchError(
+                f'could not reach {urlsplit(current).netloc}: {exc}',
+                502,
+            ) from exc
         if resp.status_code in (301, 302, 303, 307, 308):
             location = resp.headers.get('location')
             await resp.aclose()
@@ -380,15 +407,20 @@ async def _iter_archive(client: httpx.AsyncClient, url: str):
                 413,
             )
         total = 0
-        async for chunk in resp.aiter_raw():
-            total += len(chunk)
-            if total > MAX_ARCHIVE_UPLOAD_BYTES:
-                raise FetchError(
-                    'the archive exceeds the '
-                    f'{MAX_ARCHIVE_UPLOAD_BYTES} byte upload limit',
-                    413,
-                )
-            yield chunk
+        try:
+            async for chunk in resp.aiter_raw():
+                total += len(chunk)
+                if total > MAX_ARCHIVE_UPLOAD_BYTES:
+                    raise FetchError(
+                        'the archive exceeds the '
+                        f'{MAX_ARCHIVE_UPLOAD_BYTES} byte upload limit',
+                        413,
+                    )
+                yield chunk
+        except httpx.HTTPError as exc:
+            raise FetchError(
+                f'the download failed part-way: {exc}', 502
+            ) from exc
     finally:
         await resp.aclose()
 
