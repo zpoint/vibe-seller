@@ -1,11 +1,11 @@
 import asyncio
 import mimetypes
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import ads_routing, knowledge_contract
+from app import ads_routing, knowledge_contract, skill_fetch, skill_uploads
 from app.ai.stop_gates import forget_attempt, record_attempt
 from app.auth import get_current_user
 from app.browser.manager import store_slug
@@ -21,6 +21,7 @@ from app.schemas.workspace import (
     FileResetRequest,
     FileWriteRequest,
     SkillCreateRequest,
+    SkillImportUrlRequest,
     SkillSaveRequest,
     StoreProfileCreateRequest,
 )
@@ -359,6 +360,99 @@ async def delete_skill(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {'slug': slug, 'status': 'deleted'}
+
+
+def _import_http_exception(exc: Exception) -> HTTPException:
+    """Map the staged-install errors onto HTTP, one place.
+
+    UploadError carries its own status; so does skill_fetch's
+    FetchError (a refused remote body is a 413, not a generic 400 —
+    the caller's cap story must survive the hop). Everything else a
+    ValueError is the install/refusal message.
+    """
+    if isinstance(exc, skill_uploads.UploadError):
+        return HTTPException(exc.status_code, exc.message)
+    return HTTPException(getattr(exc, 'status_code', 400), str(exc))
+
+
+@router.post('/skills/import-local')
+async def import_local_skill(
+    request: Request,
+    slug: str | None = Query(None),
+    overwrite: bool = Query(False),
+    origin_url: str = Query(''),
+    _user: User = Depends(get_current_user),
+):
+    """Install a skill DIRECTORY the caller packed: the raw body is a
+    tar.gz of the directory (``app.skill_pack`` builds it in the
+    in-task MCP process — the only sender this route speaks to).
+
+    The bytes arrive exactly as a presigned upload would: staged with
+    the same caps, extracted with the same strict rules, installed
+    through the ONE install path. The server never reads a
+    caller-named filesystem path itself — the caller reads its own
+    disk and sends an archive, so a skill import can only ever touch
+    the workspace, never an arbitrary source path.
+    """
+    try:
+        minted = await asyncio.to_thread(
+            skill_uploads.create_upload, str(_user.id), ''
+        )
+        upload_id = minted['upload_id']
+
+        async def chunks():
+            async for chunk in request.stream():
+                yield chunk
+
+        await skill_uploads.stage_stream(
+            upload_id,
+            chunks(),
+            request.headers.get('content-type') or 'application/gzip',
+        )
+        return await skill_uploads.import_staged(
+            workspace_manager,
+            upload_id,
+            str(_user.id),
+            slug=slug,
+            origin_url=origin_url,
+            overwrite=overwrite,
+        )
+    except (skill_uploads.UploadError, ValueError) as exc:
+        raise _import_http_exception(exc)
+
+
+@router.post('/skills/import-url')
+async def import_skill_url(
+    body: SkillImportUrlRequest,
+    _user: User = Depends(get_current_user),
+):
+    """Install a skill FROM A URL — a GitHub tree/blob URL of a skill
+    folder or a direct archive URL (.tar.gz/.zip/.skill).
+
+    The SERVER fetches it (no LLM in the byte path; scheme, address,
+    redirect, size and time guards in ``app.skill_fetch``), stages the
+    bytes as an archive and installs through the same ONE path,
+    recording ``origin_url`` so the skill lists as imported."""
+    try:
+        minted = await asyncio.to_thread(
+            skill_uploads.create_upload, str(_user.id), ''
+        )
+        upload_id = minted['upload_id']
+        await skill_uploads.stage_stream(
+            upload_id,
+            skill_fetch.open_archive_stream(body.url),
+            'application/gzip',
+        )
+        return await skill_uploads.import_staged(
+            workspace_manager,
+            upload_id,
+            str(_user.id),
+            slug=body.slug,
+            origin_url=body.url,
+            overwrite=body.overwrite,
+        )
+    except (skill_uploads.UploadError, ValueError) as exc:
+        raise _import_http_exception(exc)
 
 
 @router.post('/store-profile')

@@ -136,15 +136,17 @@ PLATFORMS: dict[str, Platform] = {
 # ── URL detection ───────────────────────────────────
 
 
-def _loopback_allowed() -> bool:
-    """Whether loopback test webhooks are accepted at all.
+def loopback_test_enabled() -> bool:
+    """Whether the loopback test exception is on for this process.
 
     OFF in production: a webhook secret may only ever go to a real
-    platform host over https. The offline e2e suite runs a loopback
-    stub that impersonates a platform webhook, so the CI jobs (and a
+    platform host over https. The offline e2e suite runs loopback
+    stubs (a platform webhook; a fake GitHub), so the CI jobs (and a
     local e2e run) start the server with
     ``VIBE_ALLOW_LOOPBACK_WEBHOOKS=1``. Read from the environment at
-    CALL time (not import time) so tests can monkeypatch it.
+    CALL time (not import time) so tests can monkeypatch it. Other
+    server-initiated fetches (``app.skill_fetch``) honour the SAME
+    flag — one switch means "this is a test box" everywhere.
     """
     return os.environ.get('VIBE_ALLOW_LOOPBACK_WEBHOOKS', '') in (
         '1',
@@ -152,7 +154,7 @@ def _loopback_allowed() -> bool:
     )
 
 
-def _is_loopback(host: str) -> bool:
+def is_loopback_host(host: str) -> bool:
     """Strict loopback check.
 
     The host must BE a loopback address (``ipaddress``, which covers
@@ -184,7 +186,7 @@ def detect_platform(url: str) -> str | None:
     The single exception is a LOOPBACK host (``ipaddress`` loopback or
     ``localhost``), accepted only — plain ``http`` included — while
     the server process runs with ``VIBE_ALLOW_LOOPBACK_WEBHOOKS=1``
-    (see :func:`_loopback_allowed`); the platform is then read off the
+    (see :func:`loopback_test_enabled`); the platform is then read off the
     path. Loopback never leaves the machine, so the stub the offline
     e2e suite runs can receive a "secret" without any real one going
     anywhere.
@@ -213,8 +215,8 @@ def detect_platform(url: str) -> str | None:
 
     path = parts.path or ''
 
-    if _is_loopback(host):
-        if not _loopback_allowed():
+    if is_loopback_host(host):
+        if not loopback_test_enabled():
             return None
         # The stub carries the platform in its path.
         for name, plat in PLATFORMS.items():

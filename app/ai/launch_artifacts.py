@@ -14,6 +14,7 @@ one place that may import both.
 from app.ai.agent_proxy import launch_settings_file
 from app.ai.claude_backend_utils import (
     apply_agent_venv_path,
+    write_mcp_config_file,
     write_system_prompt_file,
 )
 
@@ -26,6 +27,7 @@ def build_launch_artifacts(
     *,
     env: dict | None = None,
     store_slug: str | None = None,
+    mcp_config: dict | None = None,
 ) -> dict:
     """Write EVERY launch artifact in ONE thread hop.
 
@@ -37,7 +39,9 @@ def build_launch_artifacts(
     paths — argv extension is pure, the disk work is here.
 
     *settings* of ``None`` skips the ``--settings`` payload; *env* of
-    ``None`` skips the venv/PATH wiring.
+    ``None`` skips the venv/PATH wiring; *mcp_config* of ``None``
+    skips the per-session ``--mcp-config`` payload (the workspace
+    assistant's restricted skill-tool registration).
     """
     prompt_path = write_system_prompt_file(system_prompt, task_id, task_dir)
     settings_path = (
@@ -50,4 +54,9 @@ def build_launch_artifacts(
     return {
         'system_prompt': prompt_path,
         'settings': settings_path,
+        'mcp_config': (
+            write_mcp_config_file(mcp_config, task_id, task_dir)
+            if mcp_config is not None
+            else None
+        ),
     }

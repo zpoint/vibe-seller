@@ -135,6 +135,17 @@ class TestSaveSkillValidation:
             with pytest.raises(ValueError, match='file path'):
                 await mgr.save_skill('ok-slug', SKILL_MD, files={bad: 'x'})
 
+    def test_blocking_core_validates_the_slug(self, tmp_path):
+        """The archive import calls ``save_skill_blocking`` directly —
+        it must NOT depend on the async wrapper's pre-check. A slug
+        with ``/`` or ``..`` would walk the install out of the skills
+        directory; the regex lives in the core so no caller can skip
+        it."""
+        mgr, _ = _mgr(tmp_path)
+        for bad in ['../escape', 'a/b', '', 'UP', None]:
+            with pytest.raises(ValueError, match='Invalid skill slug'):
+                mgr.save_skill_blocking(bad, SKILL_MD)
+
 
 class TestListSkills:
     async def test_shape_and_updatable(self, tmp_path):

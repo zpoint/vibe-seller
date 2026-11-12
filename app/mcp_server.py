@@ -17,12 +17,16 @@ Tools provided:
   - write_workspace_file: Write file via relative path (stores/, knowledge/)
   - list_chat_bots / send_chat_message: Post to a group chat via a
     chat bot webhook (WeCom / DingTalk / Feishu / Slack)
+  - list_skills / save_skill / import_skill: the workspace's agent
+    skills (import_skill installs a whole skill DIRECTORY from a local
+    path this process packs, or a URL the server fetches — bytes
+    never through the LLM)
 """
 
 import asyncio
 import json
 import sys
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -30,7 +34,15 @@ from app import vision
 from app.config import BACKEND_PORT, LOCALHOST
 from app.mcp_tool_schemas import TOOLS
 from app.notifiers.base import PLATFORMS
+from app.skill_pack import pack_skill_dir
 from app.text_utils import sanitize_json
+
+# ``--tools`` sets a hard allowlist for non-task sessions: the
+# workspace assistant gets the skill tools and NOTHING task-only
+# (see WorkspaceAgentSession.start and main()). Applied twice — to
+# ``tools/list`` (the agent never sees the rest) and to dispatch (a
+# call for a hidden tool is refused here, not merely undiscovered).
+_ALLOWED_TOOLS: set[str] | None = None
 
 
 # Tools that require a configured capability and are hidden from the
@@ -40,13 +52,19 @@ from app.text_utils import sanitize_json
 # advertise-then-error. When hidden, a one-line breadcrumb in the base
 # system prompt tells the agent to guide the user to configure it.
 def _visible_tools() -> list:
-    """The tool list for this task, minus capability-gated tools whose
-    prerequisite is not configured. Read at ``tools/list`` time from the
-    local config — the MCP process is per-task, so the set is stable
-    within a task (no ``list_changed`` needed)."""
-    if vision.get_kie_api_key() or vision.is_fake():
-        return TOOLS
-    return [t for t in TOOLS if t.get('name') != 'vibe_seller_generate_image']
+    """The tool list for this session, minus capability-gated tools
+    whose prerequisite is not configured, minus anything outside the
+    ``--tools`` allowlist when one is set. Read at ``tools/list`` time
+    from the local config — the MCP process is per-session, so the set
+    is stable within a session (no ``list_changed`` needed)."""
+    tools = TOOLS
+    if not (vision.get_kie_api_key() or vision.is_fake()):
+        tools = [
+            t for t in tools if t.get('name') != 'vibe_seller_generate_image'
+        ]
+    if _ALLOWED_TOOLS is not None:
+        tools = [t for t in tools if t.get('name') in _ALLOWED_TOOLS]
+    return tools
 
 
 # MCP server runs as a standalone process, communicating via stdin/stdout JSON-RPC.
@@ -76,12 +94,18 @@ async def call_api(
     path: str,
     body: dict | None = None,
     timeout: float | None = 60,
+    *,
+    content: bytes | None = None,
+    content_type: str = 'application/octet-stream',
 ) -> dict:
     """Call the vibe-seller API.
 
     ``timeout`` defaults to 60s; image generation passes ``None`` (no
     timeout) because that endpoint blocks awaiting a human confirmation
-    before it calls out to the image model.
+    before it calls out to the image model. ``content`` sends RAW
+    BYTES as the body instead of JSON (the packed skill archive) —
+    the whole point of that path is that file bytes reach the server
+    without ever being serialized into a tool argument.
     """
     url = f'{_config["api_base"]}{path}'
     # Sanitize BEFORE httpx serializes: it dumps with
@@ -90,6 +114,8 @@ async def call_api(
     # SafeStr fields never see the request. See app.text_utils.
     body = sanitize_json(body) if body else body
     headers: dict[str, str] = {}
+    if content is not None:
+        headers['Content-Type'] = content_type
     cookies: dict[str, str] = {}
     if _config['auth_token']:
         cookies['auth_token'] = _config['auth_token']
@@ -106,9 +132,14 @@ async def call_api(
         if method == 'GET':
             resp = await client.get(url, headers=headers, cookies=cookies)
         elif method == 'POST':
-            resp = await client.post(
-                url, json=body or {}, headers=headers, cookies=cookies
-            )
+            if content is not None:
+                resp = await client.post(
+                    url, content=content, headers=headers, cookies=cookies
+                )
+            else:
+                resp = await client.post(
+                    url, json=body or {}, headers=headers, cookies=cookies
+                )
         elif method == 'PUT':
             resp = await client.put(
                 url, json=body or {}, headers=headers, cookies=cookies
@@ -120,8 +151,61 @@ async def call_api(
         return resp.json()
 
 
+async def _import_skill(arguments: dict) -> dict:
+    """``vibe_seller_import_skill``: one install, two sources.
+
+    ``path`` — this process (it runs on the agent's machine) reads
+    and packs the directory, and POSTs the archive: the file bytes
+    never pass through the LLM, and the SERVER never reads a
+    caller-named path (the route receives an archive exactly like a
+    presigned upload, guarded the same way). ``url`` — the SERVER
+    fetches it (guards in app.skill_fetch). Both land on the same
+    staged extraction + install path as the external archive import.
+    """
+    path = arguments.get('path')
+    url = arguments.get('url')
+    if bool(path) == bool(url):
+        raise ValueError(
+            'exactly one of path / url is required — path names a '
+            "skill directory on this machine, url is the skill's URL"
+        )
+    params: dict[str, str] = {
+        'overwrite': 'true' if arguments.get('overwrite') else 'false',
+    }
+    if arguments.get('slug'):
+        params['slug'] = str(arguments['slug'])
+    if path:
+        data = await asyncio.to_thread(pack_skill_dir, str(path))
+        params['origin_url'] = str(arguments.get('origin_url') or path)
+        return await call_api(
+            'POST',
+            f'/api/workspace/skills/import-local?{urlencode(params)}',
+            content=data,
+            content_type='application/gzip',
+        )
+    body: dict = {
+        'url': str(url),
+        'overwrite': bool(arguments.get('overwrite')),
+    }
+    if arguments.get('slug'):
+        body['slug'] = str(arguments['slug'])
+    # A server-side fetch is bounded by its own timeouts; this only
+    # waits for it.
+    return await call_api(
+        'POST', '/api/workspace/skills/import-url', body, timeout=180
+    )
+
+
 async def handle_tool_call(name: str, arguments: dict) -> str:
     """Execute a tool and return the result as a string."""
+    if _ALLOWED_TOOLS is not None and name not in _ALLOWED_TOOLS:
+        # The session was started with a tool allowlist (the workspace
+        # assistant gets the skill tools only). Refuse on dispatch too,
+        # not just in tools/list — defense in depth, and the message
+        # says so instead of pretending the tool does not exist.
+        return json.dumps({
+            'error': f'tool {name!r} is not available in this session'
+        })
     try:
         if name == 'vibe_seller_list_stores':
             result = await call_api('GET', '/api/stores')
@@ -347,10 +431,15 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 timeout=None,
             )
         elif name == 'vibe_seller_list_skills':
-            task = quote(_config['task_id'], safe='')
-            result = await call_api(
-                'GET', f'/api/workspace/skills?task_id={task}'
+            # task_id scopes the list (ads routing); a session without
+            # one (the workspace assistant) gets the full list.
+            task = _config['task_id']
+            path = (
+                f'/api/workspace/skills?task_id={quote(task, safe="")}'
+                if task
+                else '/api/workspace/skills'
             )
+            result = await call_api('GET', path)
         elif name == 'vibe_seller_save_skill':
             # Upsert a user-space skill in the SHARED workspace. The
             # backend hard-rejects built-in (maintainer-synced) slugs.
@@ -363,6 +452,8 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 f'/api/workspace/skills/{slug}',
                 save_body,
             )
+        elif name == 'vibe_seller_import_skill':
+            result = await _import_skill(arguments)
         else:
             return json.dumps({'error': f'Unknown tool: {name}'})
 
@@ -375,10 +466,15 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
         return json.dumps({'error': str(e)})
 
 
-def main():
-    """Run MCP server using stdio transport."""
-    # Parse CLI args passed by the launching server
-    args = sys.argv[1:]
+def _configure(args: list[str]) -> None:
+    """Apply the launching server's CLI args (and enforce them).
+
+    Split from ``main()`` so the rules — an unknown ``--tools`` name
+    kills the session, ``--task-id`` is required unless the session is
+    a restricted one — are unit-testable without running the stdio
+    loop.
+    """
+    global _ALLOWED_TOOLS
     for i, arg in enumerate(args):
         if arg == '--token' and i + 1 < len(args):
             _config['auth_token'] = args[i + 1]
@@ -386,10 +482,30 @@ def main():
             _config['api_base'] = f'http://{LOCALHOST}:{args[i + 1]}'
         elif arg == '--task-id' and i + 1 < len(args):
             _config['task_id'] = args[i + 1]
+        elif arg == '--tools' and i + 1 < len(args):
+            names = {n.strip() for n in args[i + 1].split(',') if n.strip()}
+            unknown = names - {t['name'] for t in TOOLS}
+            if unknown:
+                # A typo'd allowlist would silently strip every tool;
+                # fail at launch, loudly, naming the bad entries.
+                sys.stderr.write(
+                    f'ERROR: --tools names unknown tools: '
+                    f'{sorted(unknown)}\n'
+                )
+                sys.exit(1)
+            _ALLOWED_TOOLS = names
 
-    if not _config['task_id']:
+    if not _config['task_id'] and _ALLOWED_TOOLS is None:
+        # Task-id keyed: the default full tool set. A restricted
+        # session (skill tools only) needs none — those tools work
+        # without task context, exactly like the external MCP's.
         sys.stderr.write('ERROR: --task-id is required\n')
         sys.exit(1)
+
+
+def main():
+    """Run MCP server using stdio transport."""
+    _configure(sys.argv[1:])
 
     async def run():
         while True:

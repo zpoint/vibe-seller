@@ -31,9 +31,16 @@ Contracts held here, in one place:
   ``MAX_SKILL_*`` constants (the same numbers the install path
   enforces — one source), format sniffed from magic bytes. Extraction
   is purely in-memory: a rejected archive never touches the workspace.
+* **Staged install** — :func:`import_staged` is the ONE composition
+  every archive source runs (external ``manage_skill``, the in-task
+  local-directory import, the URL import): lock the skills tree,
+  extract-then-install in one thread hop through
+  ``manager.save_skill_blocking``, auto-commit. A source that wanted
+  its own copy of that sequence would be a second install path.
 """
 
 import asyncio
+import base64
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import hashlib
@@ -51,10 +58,12 @@ import uuid
 import zipfile
 
 from app.config import DATA_DIR, JWT_SECRET
+from app.workspace import skills_tree
 from app.workspace.skills_manager import (
     MAX_SKILL_FILE_BYTES,
     MAX_SKILL_FILES,
     MAX_SKILL_TOTAL_BYTES,
+    derive_skill_slug,
 )
 
 logger = logging.getLogger(__name__)
@@ -445,7 +454,7 @@ class ExtractedSkill:
     ignored: list[str] = field(default_factory=list)
 
 
-def _is_junk(name: str) -> bool:
+def is_macos_junk(name: str) -> bool:
     """macOS packaging junk: skipped at extraction, listed in ``ignored``.
 
     ``tar``/``zip`` on macOS sprinkle AppleDouble ``._*`` files, a
@@ -459,7 +468,7 @@ def _is_junk(name: str) -> bool:
     return '__MACOSX' in parts or base.startswith('._') or base == '.DS_Store'
 
 
-def _entry_name(name: str) -> str:
+def entry_name(name: str) -> str:
     """Normalise an archive entry name to a clean relative path.
 
     Only the shape is checked here (plus the Windows-drive case the
@@ -548,8 +557,8 @@ def _read_tar(path: Path) -> tuple[dict, set, list]:
                     f'unsupported archive entry (links, devices and '
                     f'FIFOs are refused): {member.name!r}'
                 )
-            name = _entry_name(member.name)
-            if _is_junk(name):
+            name = entry_name(member.name)
+            if is_macos_junk(name):
                 ignored.append(name)
                 continue
             _claim_case(name, seen)
@@ -582,8 +591,8 @@ def _read_zip(path: Path) -> tuple[dict, set, list]:
                     f'unsupported archive entry (symlinks are '
                     f'refused): {info.filename!r}'
                 )
-            name = _entry_name(info.filename)
-            if _is_junk(name):
+            name = entry_name(info.filename)
+            if is_macos_junk(name):
                 ignored.append(name)
                 continue
             _claim_case(name, seen)
@@ -659,3 +668,88 @@ def extract_archive(path: Path, fmt: str) -> ExtractedSkill:
         executables={e for e in execs if e in files},
         ignored=sorted(ignored),
     )
+
+
+# ── Staged install (archive → skill, the ONE path) ─────────
+
+
+def install_staged_blocking(
+    manager,
+    upload_id: str,
+    user_id: str,
+    *,
+    slug: str | None = None,
+    origin_url: str = '',
+    overwrite: bool = False,
+) -> tuple[dict, bool]:
+    """Sync target shared by EVERY archive source.
+
+    Reads the staged record, extracts the archive strictly, derives
+    the slug (SKILL.md frontmatter name unless one was given) and
+    installs the tree through ``manager.save_skill_blocking`` — the
+    same install core the inline save path uses. The upload is
+    consumed only after the install succeeded, so a refused install
+    can be retried without re-uploading; skipped macOS junk is
+    REPORTED (``ignored``), never silent.
+
+    Raises :class:`UploadError` (unknown/unowned/stale upload) or
+    ``ValueError`` (refused archive or install) — callers map them to
+    their own error shape.
+    """
+    record = staged_record(upload_id, user_id)
+    extracted = extract_archive(archive_path(upload_id), record['format'])
+    slug = slug or derive_skill_slug(extracted.skill_md)
+    if not slug:
+        raise ValueError(
+            'SKILL.md carries no frontmatter name to derive the '
+            'skill slug from — pass slug explicitly'
+        )
+    result, existed = manager.save_skill_blocking(
+        slug,
+        extracted.skill_md,
+        files_bin={
+            rel: base64.b64encode(data).decode('ascii')
+            for rel, data in extracted.files.items()
+        },
+        executables=sorted(extracted.executables),
+        origin_url=origin_url,
+        replace=True,
+        overwrite=overwrite,
+    )
+    consume_upload(upload_id)
+    # macOS packaging junk is skipped at extraction — say so, never
+    # silently hand back a different tree than the one packed.
+    result['ignored'] = extracted.ignored
+    return result, existed
+
+
+async def import_staged(
+    manager,
+    upload_id: str,
+    user_id: str,
+    *,
+    slug: str | None = None,
+    origin_url: str = '',
+    overwrite: bool = False,
+) -> dict:
+    """The ONE archive→skill journey: lock, extract+install in ONE
+    thread hop, auto-commit outside the lock.
+
+    Every caller (external ``manage_skill``, the in-task local
+    directory route, the URL route) stages bytes first and ends here
+    — there is no second install composition.
+    """
+    async with skills_tree.hold():
+        result, existed = await asyncio.to_thread(
+            install_staged_blocking,
+            manager,
+            upload_id,
+            user_id,
+            slug=slug,
+            origin_url=origin_url,
+            overwrite=overwrite,
+        )
+    await manager._auto_commit(
+        f'{"Update" if existed else "Create"} skill: {result["slug"]}'
+    )
+    return result

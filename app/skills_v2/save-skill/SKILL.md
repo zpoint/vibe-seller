@@ -1,6 +1,6 @@
 ---
 name: save-skill
-description: "Saves the workflow just carried out as a reusable skill, or updates an existing user skill, through the vibe_seller_save_skill MCP tool. Use when the user asks to remember, reuse or amend a workflow (\"把这个任务的流程保存为技能\", \"save this workflow as a skill\", \"remember how to do this\", \"next time do it the same way\", \"update that skill\", \"add this step to the skill\", \"更新这个技能\", \"把这一步加到技能里\"), or when a task produced a procedure other tasks will repeat. Searches existing skills first and extends the one that covers the job instead of creating a near-duplicate."
+description: "Saves the workflow just carried out as a reusable skill, updates an existing user skill, or installs a whole existing skill directory (a local path or a URL) through the vibe_seller_save_skill / vibe_seller_import_skill MCP tools. Use when the user asks to remember, reuse or amend a workflow (\"把这个任务的流程保存为技能\", \"save this workflow as a skill\", \"remember how to do this\", \"next time do it the same way\", \"update that skill\", \"add this step to the skill\", \"更新这个技能\", \"把这一步加到技能里\"), when they point at a skill they already have and want it installed (\"把 <path> 这个 skill 装到 Vibe Seller 里\", \"install the skill at ~/.codex/skills/foo\", \"从这个链接安装这个技能 <url>\"), or when a task produced a procedure other tasks will repeat. Searches existing skills first and extends the one that covers the job instead of creating a near-duplicate."
 ---
 
 # Save a workflow as a skill
@@ -10,25 +10,37 @@ repeat it without being re-taught, and reuse the skills that already
 exist instead of adding near-duplicates. Do it when the user asks, or
 when the task produced a procedure other tasks will clearly repeat.
 
-Skill files persist only through `vibe_seller_save_skill`; a skill
-written with the built-in Write/Edit tools is discarded when the task
-ends.
+Skill files persist only through `vibe_seller_save_skill` /
+`vibe_seller_import_skill`; a skill written with the built-in Write/Edit
+tools is discarded when the task ends.
 
-## The two tools
+## The three tools
 
 - `vibe_seller_list_skills` → `{slug, name, description, source, updatable}`
   per skill. Call it first.
 - `vibe_seller_save_skill(slug, skill_md, files?)` → creates a new
   user-space skill, or overwrites an existing `updatable` one (that is
   how you extend). `files` is an optional `{path: content}` map for
-  bundled references or scripts.
+  bundled references or scripts. TEXT authoring only — it streams
+  every byte through you and carries no binary files or exec bits.
+- `vibe_seller_import_skill(path? | url?, slug?, overwrite?)` →
+  installs a WHOLE EXISTING skill directory: `path` on this machine
+  (must hold `SKILL.md` at its root) or `url` (a GitHub tree/blob URL
+  of the skill folder, or a direct `.tar.gz`/`.zip`/`.skill` archive)
+  — the files are copied byte-for-byte (binaries and executable bits
+  intact) without passing through you. When the user points at a
+  skill they already have, use this instead of retyping its files
+  into `save_skill`. An existing user skill is refused unless
+  `overwrite=true` — ASK THE USER FIRST (it deletes their current
+  copy), then re-call with `overwrite=true`.
 
 ## Only user-space skills are writable
 
 `source` tells you what a skill is:
 
-- **`builtin`** — shipped with the app and read-only;
-  `vibe_seller_save_skill` rejects its slug. If a built-in is the closest
+- **`builtin`** — shipped with the app and read-only; both
+  `vibe_seller_save_skill` and `vibe_seller_import_skill` reject its
+  slug. If a built-in is the closest
   match, create a new user-space skill with a distinct slug that
   captures the user's workflow and points at the built-in for the
   mechanics.

@@ -21,12 +21,29 @@ from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import resolve_claude_binary
 from app.ai.launch_artifacts import build_launch_artifacts
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
+from app.auth import create_token
+from app.config import AI_BOT_USER_ID, BACKEND_PORT, BASE_DIR
 from app.env_options import Options
 from app.events.bus import event_bus
 from app.platform import prepend_to_path, venv_bin_dir
 from app.workspace.manager import VIBE_SELLER_DIR, workspace_manager
 
 logger = logging.getLogger(__name__)
+
+# The workspace assistant may manage SKILLS, nothing task-only. It
+# launches the same stdio MCP the task agents run, restricted to this
+# allowlist (app.mcp_server --tools): skill writes then go through
+# the skills-manager guards instead of hand-written files — hand-
+# writing was the bug class (the UI's 「让助手从URL安装」 promise had
+# no code path: the assistant could only curl and Write, bypassing
+# slug rules, size caps, symlink refusal, the overwrite gate and the
+# lockfile provenance). save_skill stays text authoring; import_skill
+# installs whole directories/URLs byte-for-byte.
+ASSISTANT_SKILL_TOOLS = ','.join((
+    'vibe_seller_list_skills',
+    'vibe_seller_save_skill',
+    'vibe_seller_import_skill',
+))
 
 
 class WorkspaceAgentSession(AgentSession):
@@ -258,12 +275,40 @@ class WorkspaceAgentSession(AgentSession):
         # event loop must never touch the disk. By file: the store list
         # grows with the account, and the Windows command line is
         # capped (see build_launch_artifacts).
+        # Skill tools over the SAME stdio MCP the task agents run,
+        # restricted by --tools (module constant). NEVER the shared
+        # workspace-root .mcp.json: store-less tasks write that file
+        # with their full task toolset and their own task id — two
+        # writers, one file. Each session owns its per-launch config
+        # instead, and --strict-mcp-config keeps the assistant to
+        # exactly this one MCP server.
+        mcp_config = None
+        if not mock_cli:
+            mcp_config = {
+                'mcpServers': {
+                    'vibe-seller': {
+                        'command': sys.executable,
+                        'args': [
+                            '-m',
+                            'app.mcp_server',
+                            '--token',
+                            create_token(AI_BOT_USER_ID, 'ai_bot'),
+                            '--port',
+                            str(BACKEND_PORT),
+                            '--tools',
+                            ASSISTANT_SKILL_TOOLS,
+                        ],
+                        'cwd': str(BASE_DIR),
+                    }
+                }
+            }
         artifacts = await asyncio.to_thread(
             build_launch_artifacts,
             self.task_id,
             None,
             self.system_prompt_extra or '',
             settings,
+            mcp_config=mcp_config,
         )
         if artifacts['system_prompt'] is not None:
             cmd.extend([
@@ -271,6 +316,12 @@ class WorkspaceAgentSession(AgentSession):
                 str(artifacts['system_prompt']),
             ])
         cmd.extend(['--settings', str(artifacts['settings'])])
+        if artifacts['mcp_config'] is not None:
+            cmd.extend([
+                '--mcp-config',
+                str(artifacts['mcp_config']),
+                '--strict-mcp-config',
+            ])
         venv_bin = venv_bin_dir(VIBE_SELLER_DIR / '.venv')
         if venv_bin.is_dir():
             prepend_to_path(env, venv_bin)

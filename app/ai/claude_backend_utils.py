@@ -157,6 +157,22 @@ def write_system_prompt_file(
     return prompt_file
 
 
+def write_mcp_config_file(
+    mcp_config: dict, task_id: str, task_dir: Path | None
+) -> Path:
+    """Write the session's ``--mcp-config`` payload beside its prompt.
+
+    Used by the workspace assistant, which gets its OWN restricted
+    MCP registration — a per-session file, never the shared
+    ``.mcp.json`` at the workspace root (store-less tasks write that
+    with their full task toolset; two writers would race).
+    """
+    path = system_prompt_file(task_id, task_dir).with_suffix('.mcp.json')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(mcp_config), encoding='utf-8')
+    return path
+
+
 # A `browser-use` that always ERRORS — sits on the agent PATH just below
 # the per-store wrapper. If the wrapper dir is empty (a failed/stale launch,
 # or a boot wipe before the next task rewrites it), bare `browser-use` hits

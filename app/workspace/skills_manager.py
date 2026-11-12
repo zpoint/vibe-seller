@@ -501,13 +501,22 @@ description: {description}
     ) -> tuple[dict, bool]:
         """The synchronous install core of :meth:`save_skill`.
 
-        Every rule of the write contract lives here — built-in
-        refusal, the overwrite gate, payload validation, the staged
-        swap (``replace``) or the merge writes, and the lockfile
-        entry. Hosted in a thread (never on the event loop) by the
-        async ``save_skill`` and by the archive import, so both
-        sources share one install path. Returns ``(result, existed)``.
+        Every rule of the write contract lives here — the slug shape,
+        built-in refusal, the overwrite gate, payload validation, the
+        staged swap (``replace``) or the merge writes, and the
+        lockfile entry. Hosted in a thread (never on the event loop)
+        by the async ``save_skill`` and by the archive import, so both
+        sources share one install path — and the checks apply to BOTH:
+        direct callers of this core (the archive import) skip the
+        async wrapper's pre-validation, so the slug regex lives here
+        where a ``..`` or ``/`` could otherwise walk out of the skills
+        directory. Returns ``(result, existed)``.
         """
+        if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', slug or ''):
+            raise ValueError(
+                f'Invalid skill slug: {slug!r} '
+                '(use lowercase letters, digits, hyphens)'
+            )
         skills_dir = self.root / '.claude' / 'skills'
         synced = self._read_synced_skills(skills_dir)
         if slug in synced:
