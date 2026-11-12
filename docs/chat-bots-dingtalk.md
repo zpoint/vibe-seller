@@ -23,8 +23,7 @@ description: 钉钉群机器人的创建步骤：自定义机器人入口、关�
    https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxx
    ```
 
-「官方说明：[自定义机器人接入](https://open.dingtalk.com/document/group/custom-robot-access) ·
-[自定义机器人安全设置](https://open.dingtalk.com/document/robots/customize-robot-security-settings)」
+官方说明：[自定义机器人接入](https://open.dingtalk.com/document/group/custom-robot-access) · [自定义机器人安全设置](https://open.dingtalk.com/document/robots/customize-robot-security-settings)
 
 使用时注意：
 
@@ -32,4 +31,25 @@ description: 钉钉群机器人的创建步骤：自定义机器人入口、关�
 - Markdown 消息会自动用正文首行做标题（会话列表和通知里显示的就是它）；
 - 不支持发文件；消息过长可能被拒，建议控制在 20 KB 以内。
 
-复制好地址后，回到 Vibe Seller，按[在 Vibe Seller 里添加](chat-bots.md#在-vibe-seller-里添加)继续。
+## 在 Vibe Seller 里添加
+
+1. 打开 Vibe Seller，进入「设置 → 集成 → 群机器人」，点击「添加机器人」；
+2. 填写**名称**（例如「运营告警」），把刚才复制的 **Webhook 地址**整段粘贴进去，
+   平台会自动识别为钉钉（DingTalk），并多出两个输入栏，按你在群里的安全设置填：
+   - **签名密钥（加签）**：粘贴 `SEC` 开头的密钥；
+   - **关键词**：填写你设置的关键词之一（不含它的消息由服务端自动补上）；
+   - 用 IP 白名单的话，两项都留空。
+
+   ![添加钉钉机器人：签名密钥和关键词](images/chatbots_form_dingtalk_zh.png)
+
+3. 点击「保存」，列表里能看到平台标签、是否已加签和关键词；
+4. 点击这条机器人上的「测试」，行下方出现绿色提示、群里收到测试消息即为接通：
+
+   ![测试成功：机器人行下方的绿色提示](images/chatbots_test_ok_zh.png)
+
+失败时行下方显示钉钉返回的真实原因——截图里的 `token is not exist`（错误码
+300005）表示 access_token 不对或机器人已被删除，回群里重新复制地址即可：
+
+![测试失败：机器人行下方的红色提示](images/chatbots_test_fail_zh.png)
+
+其他报错的含义见[群机器人](chat-bots.md#常见问题)。

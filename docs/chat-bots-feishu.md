@@ -21,7 +21,7 @@ description: 飞书（Lark）群机器人的创建步骤：自定义机器人入
       Vibe Seller 自动计算。
     - **IP 白名单**：只允许指定 IP 或网段调用，最多 10 条。留空表示不使用。
 
-「官方说明：[自定义机器人使用指南](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)」
+官方说明：[自定义机器人使用指南](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)
 
 使用时注意：
 
@@ -31,4 +31,19 @@ description: 飞书（Lark）群机器人的创建步骤：自定义机器人入
 - Markdown 以**卡片**形式发送；
 - 不支持发文件。
 
-复制好地址后，回到 Vibe Seller，按[在 Vibe Seller 里添加](chat-bots.md#在-vibe-seller-里添加)继续。
+## 在 Vibe Seller 里添加
+
+1. 打开 Vibe Seller，进入「设置 → 集成 → 群机器人」，点击「添加机器人」；
+2. 填写**名称**（例如「运营告警」），把刚才复制的 **Webhook 地址**整段粘贴进去，
+   平台会自动识别为飞书（Feishu / Lark），并多出签名密钥与关键词两个输入栏，
+   按你在群机器人安全设置里开启的那一项来填（都没开就都留空）：
+
+   ![添加飞书机器人：粘贴 Webhook 地址，可再填签名密钥](images/chatbots_form_feishu_zh.png)
+
+3. 点击「保存」，机器人出现在列表里；
+4. 点击这条机器人上的「测试」，行下方出现绿色提示、群里收到测试消息即为接通：
+
+   ![测试成功：机器人行下方的绿色提示](images/chatbots_test_ok_zh.png)
+
+失败时行下方会显示飞书返回的真实原因，对照修正后重新测试；报错含义见
+[群机器人](chat-bots.md#常见问题)。

@@ -22,8 +22,7 @@ description: 'Steps to create a WeCom group bot: the internal-group rule, where 
 4. Optional: "publish to the company" so colleagues can add the same
    bot to their own groups.
 
-"Official guide: [How to set up Message Push](https://open.work.weixin.qq.com/help2/pc/14931) ·
-[Message Push configuration](https://developer.work.weixin.qq.com/document/path/91770)"
+Official docs: [How to set up Message Push](https://open.work.weixin.qq.com/help2/pc/14931) · [Message Push configuration](https://developer.work.weixin.qq.com/document/path/91770)
 
 Good to know:
 
@@ -35,4 +34,28 @@ Good to know:
 - If the group has "mute all" enabled, messages are accepted but **never
   shown**.
 
-Then add the bot in Vibe Seller — see [Add the bot in Vibe Seller](chat-bots.md#add-the-bot-in-vibe-seller).
+## Add it in Vibe Seller
+
+1. Open Vibe Seller, go to **Settings → Integrations → Chat bots**, and
+   click **Add Bot**;
+2. Enter a **name** (e.g. "Ops alerts") and paste the **Webhook URL** you
+   just copied — the platform is detected as WeCom automatically, and there
+   is no secret to add:
+
+   ![Adding a bot: pasting the WeCom webhook URL](images/chatbots_form_wecom_en.png)
+
+3. Click **Save** — the bot appears in the list, its URL masked:
+
+   ![The list of configured bots](images/chatbots_list_en.png)
+
+4. Click **Test** on the bot's row: the group receives
+   `Vibe Seller: chat bot connection test ✅` and a green line appears under
+   the row:
+
+   ![Test succeeded: green message under the bot row](images/chatbots_test_ok_en.png)
+
+When a test fails, the platform's real error shows under the row — fix it
+and test again; meanings of common errors are in
+[Chat bots](chat-bots.md#faq). All four platforms are added the same way
+from **Settings → Integrations**; see the
+[Chat bots overview](chat-bots.md).

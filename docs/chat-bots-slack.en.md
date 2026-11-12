@@ -17,7 +17,7 @@ description: 'Steps to create a Slack bot: new app, Incoming Webhooks toggle, au
     https://hooks.slack.com/services/T00000000/B00000000/xxxxxxxxxxxx
     ```
 
-"Official guide: [Sending messages using incoming webhooks](https://api.slack.com/messaging/webhooks)"
+Official docs: [Sending messages using incoming webhooks](https://api.slack.com/messaging/webhooks)
 
 Good to know:
 
@@ -29,4 +29,22 @@ Good to know:
   12,000 characters.
 - No file sending and no signing secret — leave the secret field empty.
 
-Then add the bot in Vibe Seller — see [Add the bot in Vibe Seller](chat-bots.md#add-the-bot-in-vibe-seller).
+## Add it in Vibe Seller
+
+1. Open Vibe Seller, go to **Settings → Integrations → Chat bots**, and
+   click **Add Bot**;
+2. Enter a **name** (e.g. "Ops alerts") and paste the **Webhook URL** you
+   just copied — the platform is detected as Slack. Slack has no signing
+   secret: leave the secret and keyword fields empty.
+
+   ![Adding a Slack bot: pasting the Incoming Webhook URL](images/chatbots_form_slack_en.png)
+
+3. Click **Save** — the bot appears in the list;
+4. Click **Test** on the bot's row: a green line appears and the channel
+   receives the test message:
+
+   ![Test succeeded: green message under the bot row](images/chatbots_test_ok_en.png)
+
+When a test fails, Slack's real error shows under the row — the usual one
+is a revoked URL; generate a fresh webhook and paste it back. More error
+meanings are in [Chat bots](chat-bots.md#faq).

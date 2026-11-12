@@ -18,8 +18,7 @@ description: 企业微信群机器人的创建步骤：内部群限制、消息�
 
 4. （可选）把机器人「发布到企业」后，同事可以在别的群里直接添加它。
 
-「官方说明：[如何设置「消息推送」](https://open.work.weixin.qq.com/help2/pc/14931) ·
-[消息推送配置说明](https://developer.work.weixin.qq.com/document/path/91770)」
+官方说明：[如何设置消息推送](https://open.work.weixin.qq.com/help2/pc/14931) · [消息推送配置说明](https://developer.work.weixin.qq.com/document/path/91770)
 
 使用时注意：
 
@@ -29,4 +28,23 @@ description: 企业微信群机器人的创建步骤：内部群限制、消息�
 - 文件 5 字节 ～ 20 MB，先上传再发送，素材 3 天内有效；
 - 群开启「全员禁言」时，机器人消息会显示发送成功但**不出现**在群里。
 
-复制好地址后，回到 Vibe Seller，按[在 Vibe Seller 里添加](chat-bots.md#在-vibe-seller-里添加)继续。
+## 在 Vibe Seller 里添加
+
+1. 打开 Vibe Seller，进入「设置 → 集成 → 群机器人」，点击「添加机器人」；
+2. 填写**名称**（例如「运营告警」），把刚才复制的 **Webhook 地址**整段粘贴进去，
+   平台会自动识别为企业微信（WeCom），下方没有密钥要填：
+
+   ![添加机器人：粘贴企业微信 Webhook URL](images/chatbots_form_wecom_zh.png)
+
+3. 点击「保存」，机器人出现在列表里，Webhook 地址默认打码显示：
+
+   ![已添加的机器人列表](images/chatbots_list_zh.png)
+
+4. 点击这条机器人上的「测试」，群里出现
+   `Vibe Seller: chat bot connection test ✅`，行下方显示绿色提示：
+
+   ![测试成功：机器人行下方的绿色提示](images/chatbots_test_ok_zh.png)
+
+失败时行下方会显示平台返回的真实原因，对照修正后重新测试；各平台的报错含义见
+[群机器人](chat-bots.md#常见问题)。四个入口都在「设置 → 集成」，全部机器人
+都支持同样的四类消息，见[群机器人总览](chat-bots.md)。

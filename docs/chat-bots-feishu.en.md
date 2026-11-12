@@ -27,7 +27,7 @@ description: 'Steps to create a Feishu / Lark group bot: the custom-bot entry, c
     - **IP allowlist**: only these IPs / ranges may call the webhook,
       up to 10 entries. Leave empty for none.
 
-"Official guide: [Custom bot guide](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)"
+Official docs: [Custom bot guide](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)
 
 Good to know:
 
@@ -38,4 +38,25 @@ Good to know:
 - Markdown is sent as a **card**.
 - No file sending.
 
-Then add the bot in Vibe Seller — see [Add the bot in Vibe Seller](chat-bots.md#add-the-bot-in-vibe-seller).
+## Add it in Vibe Seller
+
+1. Open Vibe Seller, go to **Settings → Integrations → Chat bots**, and
+   click **Add Bot**;
+2. Enter a **name** (e.g. "Ops alerts") and paste the **Webhook URL** you
+   just copied — the platform is detected as Feishu / Lark, and two extra
+   fields appear. Fill whichever one you turned on in the bot's security
+   settings (leave both empty if you turned on neither):
+   - **Signing secret (签名校验)**: paste the signing key;
+   - **Keyword (关键词)**: one of your keywords — the server appends it to
+     messages that lack it.
+
+   ![Adding a Feishu bot: paste the webhook URL, optionally the signing secret](images/chatbots_form_feishu_en.png)
+
+3. Click **Save** — the bot appears in the list;
+4. Click **Test** on the bot's row: a green line appears and the group
+   receives the test message:
+
+   ![Test succeeded: green message under the bot row](images/chatbots_test_ok_en.png)
+
+When a test fails, Feishu's real error shows under the row — fix it and
+test again; error meanings are in [Chat bots](chat-bots.md#faq).

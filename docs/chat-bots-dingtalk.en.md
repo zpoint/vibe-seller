@@ -26,8 +26,7 @@ description: 'Steps to create a DingTalk group bot: the custom-robot entry, keyw
     https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxx
     ```
 
-"Official guide: [Custom robot access](https://open.dingtalk.com/document/group/custom-robot-access) ·
-[Custom robot security settings](https://open.dingtalk.com/document/robots/customize-robot-security-settings)"
+Official docs: [Custom robot access](https://open.dingtalk.com/document/group/custom-robot-access) · [Custom robot security settings](https://open.dingtalk.com/document/robots/customize-robot-security-settings)
 
 Good to know:
 
@@ -37,4 +36,32 @@ Good to know:
   what notifications and the chat list show.
 - No file sending; keep messages under ~20 KB.
 
-Then add the bot in Vibe Seller — see [Add the bot in Vibe Seller](chat-bots.md#add-the-bot-in-vibe-seller).
+## Add it in Vibe Seller
+
+1. Open Vibe Seller, go to **Settings → Integrations → Chat bots**, and
+   click **Add Bot**;
+2. Enter a **name** (e.g. "Ops alerts") and paste the **Webhook URL** you
+   just copied — the platform is detected as DingTalk, and two extra fields
+   appear. Fill them per the security setting you chose in the group:
+   - **Signing secret (加签)**: paste the `SEC…` secret;
+   - **Keyword**: one of your keywords (messages without it are appended
+     automatically by the server);
+   - IP whitelist: leave both fields empty.
+
+   ![Adding a DingTalk bot: signing secret and keyword](images/chatbots_form_dingtalk_en.png)
+
+3. Click **Save** — the list row shows the platform badge, whether the bot
+   is signed, and its keyword;
+4. Click **Test** on the bot's row: a green line appears and the group
+   receives the test message:
+
+   ![Test succeeded: green message under the bot row](images/chatbots_test_ok_en.png)
+
+When a test fails, DingTalk's real error shows under the row — the
+`token is not exist` in the screenshot (error 300005) means the
+access_token is wrong or the bot was removed; re-copy the address in the
+group and save again:
+
+![Test failed: red message under the bot row](images/chatbots_test_fail_en.png)
+
+Other error codes are explained in [Chat bots](chat-bots.md#faq).

@@ -17,7 +17,7 @@ description: Slack 群机器人的创建步骤：新建 App、打开 Incoming We
    https://hooks.slack.com/services/T00000000/B00000000/xxxxxxxxxxxx
    ```
 
-「官方说明：[Sending messages using incoming webhooks](https://api.slack.com/messaging/webhooks)」
+官方说明：[Sending messages using incoming webhooks](https://api.slack.com/messaging/webhooks)
 
 使用时注意：
 
@@ -26,4 +26,18 @@ description: Slack 群机器人的创建步骤：新建 App、打开 Incoming We
 - 纯文本不超过 40 000 字符，Markdown（Block Kit）不超过 12 000 字符；
 - 不支持发文件；没有签名密钥，「签名密钥」栏不要填写。
 
-复制好地址后，回到 Vibe Seller，按[在 Vibe Seller 里添加](chat-bots.md#在-vibe-seller-里添加)继续。
+## 在 Vibe Seller 里添加
+
+1. 打开 Vibe Seller，进入「设置 → 集成 → 群机器人」，点击「添加机器人」；
+2. 填写**名称**（例如「运营告警」），把刚才复制的 **Webhook URL** 整段粘贴进去，
+   平台会自动识别为 Slack。Slack 没有签名密钥——密钥与关键词栏留空即可：
+
+   ![添加 Slack 机器人：粘贴 Incoming Webhook URL](images/chatbots_form_slack_zh.png)
+
+3. 点击「保存」，机器人出现在列表里；
+4. 点击这条机器人上的「测试」，行下方出现绿色提示、频道里收到测试消息即为接通：
+
+   ![测试成功：机器人行下方的绿色提示](images/chatbots_test_ok_zh.png)
+
+失败时行下方会显示 Slack 返回的真实原因（常见的是 URL 已被吊销，重新生成一条
+粘回来即可）；报错含义见[群机器人](chat-bots.md#常见问题)。
