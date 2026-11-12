@@ -115,11 +115,46 @@ hit **Sync built-in skills** in the panel manually).
 3. **Click Create skill in the panel and write it** — it's a markdown file:
    a name plus a one-sentence description at the top (that sentence is how
    the AI decides when to use it), then concrete steps: which page to open,
-   what to click, how to judge the result. Third-party skill packages can be
-   imported too.
+   what to click, how to judge the result.
 
 Imported skills are badged as such — local edits may diverge from the original
 source.
+
+### Bring in a skill you already have
+
+Already wrote a skill for Codex, Claude or another tool? Don't rewrite it —
+install the whole folder. It shows up under **My Skills**, and later tasks load
+it automatically. Two ways:
+
+**Option 1: create a task to install it.** If the skill folder is on the
+machine that runs Vibe Seller, create a task (under **All stores** or any
+store) with a description like:
+
+> Install the skill at ~/.codex/skills/invoice-check on my computer into Vibe
+> Seller.
+
+The task installs the whole folder as it is, including its scripts, templates,
+images and other files.
+
+**Option 2: say it in Codex / WorkBuddy.** If you've [connected MCP](mcp.md),
+say this in that tool's chat:
+
+“Install my local invoice-check skill into Vibe Seller.”
+
+It packs the skill folder and uploads it to Vibe Seller. This way the skill
+doesn't have to be on the same machine as Vibe Seller.
+
+For both:
+
+- The folder must contain a `SKILL.md`; the skill's name comes from the `name`
+  at its top;
+- If **My Skills** already has a skill with that name, it isn't overwritten
+  silently — you're asked whether to replace it first;
+- It can't share a name with a built-in skill — built-ins are read-only, so
+  just pick another name.
+
+Public skills on the web can be installed too: send the link to the assistant
+in the Knowledge page's **AI Chat** and ask it to install it from the URL.
 
 ## Limits and gotchas
 
