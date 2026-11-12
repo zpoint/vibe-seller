@@ -85,8 +85,9 @@ by `src/lib/route.ts` `parseNav()`. Routes: `/` (landing), `/tasks`,
   `/tasks` when the user has none. The jump fires only if the LIVE URL
   is still exactly `/` at that moment, so a click or deep link made
   meanwhile always wins (`src/lib/landing.ts` explains the old race the
-  guard prevents). An expired session bounces to `/`, so re-login
-  follows the same rule.
+  guard prevents). An expired session and an explicit sign-out both
+  bounce to `/`, so the next login follows the same rule — logout is not
+  a chosen destination.
 - **Scope × sub-tab**: the store part and the Tasks/Scheduled part of
   the path are independent. Sub-tab flips stay inside the current
   scope (`/stores/$id` ↔ `/stores/$id/schedules`), sidebar clicks keep

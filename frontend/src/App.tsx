@@ -545,9 +545,10 @@ export default function App() {
 
   // ─── Auth helpers ──────────────────────────────────
   const handleLogin = async () => { setLoginError(''); try { const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: loginIdentifier, password: loginPassword }), credentials: 'include' }); if (!r.ok) { setLoginError(t('auth.invalidCredentials')); return }; const u = await r.json(); setCurrentUser(u); void registerUserHash(u.id); if (u.default_profile_id) setSelectedProfileId(u.default_profile_id); setDebugMode(u.debug_mode ?? false); setLoginIdentifier(''); setLoginPassword('') } catch { setLoginError(t('auth.invalidCredentials')) } }
-  // Reset session-scoped selection on logout so next login re-enters
-  // the default-selection branch (else a stale selectedStore skips it).
-  const handleLogout = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); unregisterUserHash(); setCurrentUser(null); setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSelectedSchedule(null); setAppView('tasks') }
+  // Reset session-scoped selection so the next login starts clean.
+  // Logout is not a chosen destination: return to '/' (like AUTH_EXPIRED)
+  // so the next login resolves the landing, not All Stores.
+  const handleLogout = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); unregisterUserHash(); setCurrentUser(null); setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSelectedSchedule(null); navigate({ to: '/', replace: true }) }
 
   // ─── Settings helpers ──────────────────────────────
   const createUser = async () => { if (!newUserForm.username.trim() || !newUserForm.password.trim()) return; try { await api.post('/api/users', { ...newUserForm, email: newUserForm.email.trim() || undefined }); setNewUserForm({ username: '', email: '', password: '', role: 'member' }); setShowAddUser(false); await loadUsers() } catch { /* ignore */ } }

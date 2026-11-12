@@ -94,6 +94,28 @@ describe('landing on "/"', () => {
     const { router } = await bootApp({ route: withStores })
     expect(router.state.location.pathname).toBe('/settings/stores')
   })
+
+  it('logout then login lands on the first store, not All Stores', async () => {
+    // Logout is not a chosen destination: it returns to '/', so the next
+    // login resolves the landing like a fresh open (handleLogout used to
+    // navigate to /tasks, re-creating the misleading All Stores landing).
+    window.history.pushState({}, '', '/')
+    const USER = { id: 'user-1', username: 'admin', role: 'admin' }
+    const { router } = await bootApp({
+      route: url =>
+        url === '/api/stores' ? STORES
+          : url === '/api/auth/status' ? { auth_required: true }
+            : url === '/api/auth/login' ? USER
+              : undefined,
+    })
+    expect(router.state.location.pathname).toBe('/stores/store-a')
+    await act(async () => { fireEvent.click(screen.getByTitle('Sign Out')) })
+    fireEvent.change(screen.getByPlaceholderText('Username or email'), { target: { value: 'admin' } })
+    fireEvent.change(screen.getByPlaceholderText('Enter your password'), { target: { value: 'pw' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /sign in/i })) })
+    for (let i = 0; i < 5; i++) await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+    expect(router.state.location.pathname).toBe('/stores/store-a')
+  })
 })
 
 describe('resolveLanding (live-URL guard)', () => {
