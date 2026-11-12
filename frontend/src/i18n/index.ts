@@ -3,21 +3,63 @@ import { initReactI18next } from 'react-i18next';
 import enTranslation from './locales/en/translation.json';
 import zhTranslation from './locales/zh/translation.json';
 
-// Resolve the initial language: an explicit saved choice wins;
-// otherwise auto-detect from the browser/OS language (so a Chinese
-// system opens straight into Chinese). Falls back to English.
-const getSavedLanguage = (): string => {
-  if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem('vibe-seller-language');
-    if (saved === 'en' || saved === 'zh') {
-      return saved;
-    }
-    const nav = (navigator.language || '').toLowerCase();
-    if (nav.startsWith('zh')) {
-      return 'zh';
-    }
+// Mainland-China OS time zones. `PRC` is what some Windows builds
+// report instead of Asia/Shanghai.
+const CN_TIMEZONES = new Set([
+  'Asia/Shanghai',
+  'Asia/Chongqing',
+  'Asia/Chungking',
+  'Asia/Harbin',
+  'Asia/Urumqi',
+  'Asia/Kashgar',
+  'PRC',
+]);
+
+/**
+ * Pure initial-language decision (exported for unit tests):
+ *  1. an explicit saved choice (en/zh) wins;
+ *  2. ANY entry in the browser's language list starting with zh -> zh;
+ *  3. a mainland-China OS time zone -> zh;
+ *  4. otherwise en.
+ *
+ * Why the time zone: `navigator.languages` reports the browser's own
+ * language list, not the OS display language — a Chinese Windows with
+ * an English browser lists en-US first and would land in English. The
+ * time zone comes from the OS, so it catches that case. This product's
+ * users are mainly China-based sellers; anyone who prefers English
+ * switches once and the choice is saved (per origin).
+ */
+export function detectLanguage(opts: {
+  saved: string | null;
+  languages: readonly string[];
+  timeZone: string;
+}): 'en' | 'zh' {
+  if (opts.saved === 'en' || opts.saved === 'zh') {
+    return opts.saved;
+  }
+  if (opts.languages.some((l) => l.toLowerCase().startsWith('zh'))) {
+    return 'zh';
+  }
+  if (CN_TIMEZONES.has(opts.timeZone)) {
+    return 'zh';
   }
   return 'en';
+}
+
+const getInitialLanguage = (): 'en' | 'zh' => {
+  let saved: string | null = null;
+  let languages: readonly string[] = [];
+  let timeZone = '';
+  if (typeof window !== 'undefined') {
+    saved = localStorage.getItem('vibe-seller-language');
+    languages = navigator.languages ?? [navigator.language || ''];
+    try {
+      timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      timeZone = '';
+    }
+  }
+  return detectLanguage({ saved, languages, timeZone });
 };
 
 const resources = {
@@ -33,7 +75,7 @@ i18n
   .use(initReactI18next)
   .init({
     resources,
-    lng: getSavedLanguage(),
+    lng: getInitialLanguage(),
     fallbackLng: 'en',
     interpolation: {
       escapeValue: false,

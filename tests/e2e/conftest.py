@@ -141,6 +141,12 @@ def authenticated_page(page: Page):
     # First go to the page (needed for cookie context)
     page.goto(e2e_helpers.BASE_URL)
 
+    # Deterministic UI language: the app's initial-language detection
+    # falls through to the OS time zone, so a runner in a mainland-China
+    # time zone would render Chinese and break every English selector
+    # below. The saved choice is the app's own override path.
+    page.evaluate("() => localStorage.setItem('vibe-seller-language', 'en')")
+
     # Login via API to get auth cookie set. Credentials come from the
     # shared helper (env-overridable) so a developer's instance, whose
     # admin password is no longer the seeded one, can run UI e2e too.
@@ -158,6 +164,18 @@ def authenticated_page(page: Page):
         return await response.json();
     }""",
         admin_credentials(),
+    )
+
+    # The first-run guide auto-shows in any browser whose
+    # ``vibe-seller-guide-seen`` localStorage key is absent — and a
+    # fresh Playwright context never has it. Writing the key here
+    # establishes the steady-state precondition every UI test
+    # assumes: the app is uncovered. The guide's own behaviour is
+    # pinned by test_onboarding_guide.py, which starts from a fresh
+    # context WITHOUT this key.
+    page.evaluate(
+        """() => localStorage.setItem('vibe-seller-guide-seen',
+            new Date().toISOString())"""
     )
 
     # Reload page to get authenticated state
