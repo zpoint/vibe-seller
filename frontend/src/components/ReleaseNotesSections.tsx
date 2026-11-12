@@ -23,6 +23,10 @@ export function ReleaseNotesSections({ check }: { check: UpdateCheckResult }) {
   const zh = (i18n.language || 'en').startsWith('zh')
   const pick = (item: { zh: string; en: string }) =>
     (zh ? item.zh || item.en : item.en || item.zh)
+  // The server's items are markdown bullets ("- text"); the row layout
+  // already IS the list item, so the outer marker is stripped (nested
+  // sub-bullets keep theirs, like the mockup).
+  const body = (t: string) => t.replace(/^- /, '')
 
   const highlights = check.highlights ?? []
   const notes = check.notes ?? []
@@ -71,11 +75,11 @@ export function ReleaseNotesSections({ check }: { check: UpdateCheckResult }) {
           <ul className="space-y-2.5">
             {shownHl.map((item, i) => (
               <li key={`h${item.version}-${i}`} className="flex gap-2">
-                <span className="mt-0.5 shrink-0 rounded bg-indigo-50 px-1 py-0.5 font-mono text-[10px] text-indigo-600">
+                <span className="mt-0.5 shrink-0 self-start rounded bg-indigo-50 px-1 py-0.5 font-mono text-[10px] text-indigo-600">
                   v{item.version}
                 </span>
                 <div className={`min-w-0 flex-1 text-gray-600 ${PROSE}`}>
-                  <Markdown remarkPlugins={[remarkGfm]}>{pick(item)}</Markdown>
+                  <Markdown remarkPlugins={[remarkGfm]}>{body(pick(item))}</Markdown>
                 </div>
               </li>
             ))}
@@ -100,11 +104,11 @@ export function ReleaseNotesSections({ check }: { check: UpdateCheckResult }) {
           <ul className="space-y-2.5">
             {shownNotes.map((item, i) => (
               <li key={`n${item.version}-${i}`} className="flex gap-2">
-                <span className="mt-0.5 shrink-0 rounded bg-gray-100 px-1 py-0.5 font-mono text-[10px] text-gray-500">
+                <span className="mt-0.5 shrink-0 self-start rounded bg-gray-100 px-1 py-0.5 font-mono text-[10px] text-gray-500">
                   v{item.version}
                 </span>
                 <div className={`min-w-0 flex-1 text-gray-600 ${PROSE}`}>
-                  <Markdown remarkPlugins={[remarkGfm]}>{item.text}</Markdown>
+                  <Markdown remarkPlugins={[remarkGfm]}>{body(item.text)}</Markdown>
                 </div>
               </li>
             ))}
