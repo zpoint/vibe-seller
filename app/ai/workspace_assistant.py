@@ -18,7 +18,10 @@ from app.ai.agent_proxy import (
     launch_settings,
 )
 from app.ai.claude_backend import AgentSession
-from app.ai.claude_backend_utils import resolve_claude_binary
+from app.ai.claude_backend_utils import (
+    mcp_launch_flags,
+    resolve_claude_binary,
+)
 from app.ai.launch_artifacts import build_launch_artifacts
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
 from app.auth import create_token
@@ -280,8 +283,11 @@ class WorkspaceAgentSession(AgentSession):
         # workspace-root .mcp.json: store-less tasks write that file
         # with their full task toolset and their own task id — two
         # writers, one file. Each session owns its per-launch config
-        # instead, and --strict-mcp-config keeps the assistant to
-        # exactly this one MCP server.
+        # instead. Whether it runs STRICT follows the same profile
+        # rule the task launches use (one helper, one decision): a
+        # profile that loads global MCP servers gets the per-session
+        # file merged in WITHOUT --strict-mcp-config; the default
+        # (globals off) gets the strict pair.
         mcp_config = None
         if not mock_cli:
             mcp_config = {
@@ -316,12 +322,13 @@ class WorkspaceAgentSession(AgentSession):
                 str(artifacts['system_prompt']),
             ])
         cmd.extend(['--settings', str(artifacts['settings'])])
-        if artifacts['mcp_config'] is not None:
-            cmd.extend([
-                '--mcp-config',
-                str(artifacts['mcp_config']),
-                '--strict-mcp-config',
-            ])
+        cmd.extend(
+            mcp_launch_flags(
+                load_global=ProfileManager.get_load_global_mcp(self.profile_id),
+                session_config=artifacts['mcp_config'],
+                project_config=None,
+            )
+        )
         venv_bin = venv_bin_dir(VIBE_SELLER_DIR / '.venv')
         if venv_bin.is_dir():
             prepend_to_path(env, venv_bin)

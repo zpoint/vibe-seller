@@ -43,6 +43,7 @@ from app.ai.claude_backend_utils import (
     INTERRUPT_TIMEOUT,
     SIGNAL_TIMEOUT,
     apply_agent_venv_path as apply_agent_venv_path,  # re-export
+    mcp_launch_flags,
     permission_mode_for_agent,
     resolve_claude_binary,
     sdk_initialize_request,
@@ -306,18 +307,23 @@ class AgentSession(
             # mcp_json check so the file exists in the task dir).
             await self._register_vibe_seller_mcp(ws_dir)
 
-            # Optionally restrict MCP to workspace-only servers.
-            # Global MCP configs can add 200+ tool definitions that
-            # bloat the prompt and slow down third-party LLM APIs.
+            # MCP flags: ONE shared decision (claude_backend_utils.
+            # mcp_launch_flags) — the profile's load_global_mcp decides
+            # strictness; when globals load, the project .mcp.json is
+            # picked up by the CLI from the cwd with no flags. Global
+            # MCP configs can add 200+ tool definitions that bloat the
+            # prompt and slow down third-party LLM APIs — that is why
+            # the default profile opts out and gets the strict pair.
             mcp_json = ws_dir / '.mcp.json'
-            if mcp_json.exists() and not ProfileManager.get_load_global_mcp(
-                self.profile_id
-            ):
-                cmd.extend([
-                    '--mcp-config',
-                    str(mcp_json),
-                    '--strict-mcp-config',
-                ])
+            cmd.extend(
+                mcp_launch_flags(
+                    load_global=ProfileManager.get_load_global_mcp(
+                        self.profile_id
+                    ),
+                    session_config=None,
+                    project_config=mcp_json if mcp_json.exists() else None,
+                )
+            )
 
             # Build system prompt (assembled by build_system_extra)
             system_prompt = self.system_prompt_extra or ''
