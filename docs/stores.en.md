@@ -12,7 +12,7 @@ Using Ziniao? Read [Ziniao: Setup & Common Errors](ziniao.en.md) first.
 
 | What belongs to the store | Notes |
 |---|---|
-| Browser | A backend (Ziniao or Chrome) plus a browser profile of its own; logins survive across tasks |
+| Browser | A backend (Ziniao or Chrome) plus a browser profile of its own; logins survive across tasks. A Ziniao store also gets a Chrome auxiliary browser |
 | Store memory | Files that belong to this store alone — operation notes, logistics, product catalog and so on — visible and editable on the **Knowledge** page |
 | Linked emails | Mailboxes you've already added, bound to this store under `Settings → Stores → Linked Emails` |
 | Ads authorization | Amazon Ads is authorized store by store; one store's authorization is never reused by another |
@@ -54,13 +54,39 @@ Then hit "**Create**". From here on, the store's browser opens by itself when th
 
 **Windows has a third backend, `winchrome`.** A Vibe Seller running as a systemd service inside WSL2 can't put a Chrome window on screen, so it can drive **native Windows Chrome** instead — launched through Task Scheduler, window visible, so a human can finish a login. It isn't a choice in the store form; you set it up at deployment time. See the "Browser automation — native Windows Chrome (`winchrome` backend)" section of the [Windows setup guide](windows-setup.md).
 
+## Ziniao stores: two browsers working together
+
+A Ziniao store's tasks have two browsers, each with its own job:
+
+| | Ziniao browser (main) | Chrome auxiliary browser |
+|---|---|---|
+| Used for | The seller center: listings, inventory, reports, ads | Everything outside the seller center: carrier tracking, overseas sites, search engines, supplier sites, public product pages |
+| Strength | Fingerprint and IP isolation, holds the store's login — the safest way into the seller center | No restrictions; opens any site |
+| Limits | Only some sites open; many overseas and logistics sites are blocked | Not signed in to the seller account, and **never** used for seller-center work |
+
+Ziniao protects the store account but blocks a lot; Chrome covers exactly the
+sites Ziniao can't open, so the two complement each other. For example, a task
+that "checks the delivery status of recent orders" reads the orders from the
+seller center in Ziniao and looks up the tracking on the carrier's site in
+Chrome, then puts both into one report.
+
+All of this is automatic: the auxiliary browser starts the first time it's
+needed, there's one per store (never shared between stores), and cookies for
+public sites survive across tasks. The AI decides which URL goes to which
+browser; you don't choose. To pin certain URLs to one browser, write rules in
+`browser-routing.md` in the store's folder — they take precedence over the
+defaults.
+
+A Chrome store is plain Chrome with none of these limits, so it uses a single
+browser.
+
 ## Logins stick around
 
 A store's browser isn't a fresh incognito window every task:
 
 - **Chrome stores** each have a persistent profile: cookies, localStorage and sessions carry across tasks. The first time the AI reaches a seller center that throws a slider or SMS check at you, you log in once by hand in that browser window; after that the AI works with the session already in place.
 - **Ziniao stores** keep their logins in the Ziniao profile itself — Vibe Seller asks Ziniao to open that profile, so the one-time manual login happens in Ziniao.
-- A Ziniao store also gets a lightweight Chrome **auxiliary browser** for everything that isn't the seller center (tracking sites, Google, and so on). The AI decides which URL goes to which browser; you can override that with rules in the `browser-routing.md` file in the store's folder.
+- A Ziniao store's Chrome auxiliary browser keeps its own persistent profile too — see the previous section.
 
 ## Running several stores at once
 
