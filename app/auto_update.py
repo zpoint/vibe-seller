@@ -466,7 +466,10 @@ def _send_apply_failed(stage: str, exc: BaseException) -> None:
 
 
 def _apply_windows(version: str) -> None:
-    staged = windows_update.staged_installer(version, verify=False)
+    # Full re-verification before launching an installer that stops the
+    # server: a ready stage whose bytes went bad since (disk corruption,
+    # a tampered file) must fail CLOSED here, not mid-install.
+    staged = windows_update.staged_installer(version)
     if staged is None:
         raise RuntimeError('the staged installer is missing')
     windows_update.run_installer(staged, mode='silent')

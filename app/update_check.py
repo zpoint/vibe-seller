@@ -126,6 +126,26 @@ async def fetch_nightly_upgrade(
     return best_upgrade(versions, current)
 
 
+async def _fetch_releases_json(client: httpx.AsyncClient) -> list:
+    """The GitHub releases list, from the URL or local path in
+    ``VIBE_SELLER_GITHUB_RELEASES_URL`` (mock hook, like the PyPI
+    source above)."""
+    src = Options.GITHUB_RELEASES_URL.get().strip() or GITHUB_RELEASES_URL
+    if not src.startswith(('http://', 'https://', 'file://')):
+        text = await asyncio.to_thread(Path(src).read_text, encoding='utf-8')
+        data = json.loads(text)
+        return data if isinstance(data, list) else []
+    resp = await client.get(
+        src,
+        params={'per_page': 10},
+        headers={'User-Agent': 'vibe-seller'},
+        timeout=_FETCH_TIMEOUT_SECONDS,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data if isinstance(data, list) else []
+
+
 async def fetch_release_notes(
     client: httpx.AsyncClient, current: str
 ) -> list[dict]:
@@ -136,15 +156,8 @@ async def fetch_release_notes(
     update-available popup itself.
     """
     try:
-        resp = await client.get(
-            GITHUB_RELEASES_URL,
-            params={'per_page': 10},
-            headers={'User-Agent': 'vibe-seller'},
-            timeout=_FETCH_TIMEOUT_SECONDS,
-        )
-        resp.raise_for_status()
-        releases = resp.json()
-    except (httpx.HTTPError, TypeError, ValueError):
+        releases = await _fetch_releases_json(client)
+    except (httpx.HTTPError, TypeError, ValueError, OSError):
         return []
 
     notes = []

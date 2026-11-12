@@ -753,6 +753,11 @@ admin clicks "重启并更新" in the UI.
   no `--prerelease allow` — same rule as `app/cli.py`). Progress is
   indeterminate there; the proof of a warm cache is an offline rerun
   (`UV_OFFLINE=1`, `tests/releases/test_auto_update.sh` step 5).
+- **Mock hooks for tests/CI**: `VIBE_SELLER_PYPI_JSON_URL` and
+  `VIBE_SELLER_GITHUB_RELEASES_URL` (URL *or* local path) point the
+  version check and the release-notes fetch at local fixtures — the
+  same role `VIBE_SELLER_RELEASES_URL` already plays for the Windows
+  installer source.
 - **Apply** (`POST /api/system/update/restart`, admin, 409 unless
   `ready`): Windows launches the staged installer detached
   (`DETACHED_PROCESS` + `CREATE_NEW_PROCESS_GROUP`, trying

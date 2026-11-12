@@ -186,6 +186,12 @@ class Options(enum.Enum):
     # hook for tests/CI, like VIBE_SELLER_RELEASES_URL is for the
     # Windows installer release source.
     PYPI_JSON_URL = ('VIBE_SELLER_PYPI_JSON_URL', '')
+    # Where the "what's new" release notes are read from (URL or local
+    # path; empty = the GitHub releases API). The mock hook matching
+    # VIBE_SELLER_PYPI_JSON_URL — GitHub's unauthenticated rate limit
+    # (60/hr per IP) otherwise silently blanks the merged notes on a
+    # shared exit IP.
+    GITHUB_RELEASES_URL = ('VIBE_SELLER_GITHUB_RELEASES_URL', '')
 
     def __init__(self, env_var: str, default: str) -> None:
         super().__init__()

@@ -240,6 +240,18 @@ describe('update modal — merged notes', () => {
   })
 })
 
+describe('update modal — empty notes', () => {
+  it('unfetched notes show the noReleaseNotes line + changelog link, not an empty section', () => {
+    renderModal('zh', {
+      check: baseCheck({ highlights: [], notes: [] }),
+    })
+    expect(screen.getByText('本次发布未提供说明。')).toBeTruthy()
+    expect(screen.getByText('在 GitHub 查看完整更新日志')).toBeTruthy()
+    expect(screen.queryByText('亮点')).toBeNull()
+    expect(screen.queryByText('升级须知')).toBeNull()
+  })
+})
+
 describe('update modal — manual experience', () => {
   it('non-supported unix install: the copy command and merged notes', () => {
     renderModal('en', {

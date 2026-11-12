@@ -27,7 +27,25 @@ export function ReleaseNotesSections({ check }: { check: UpdateCheckResult }) {
   const highlights = check.highlights ?? []
   const notes = check.notes ?? []
   const versions = (check.releases ?? []).map(r => r.version)
-  if (!highlights.length && !notes.length) return null
+  if (!highlights.length && !notes.length) {
+    // Unfetched/absent notes must not leave an empty bordered band:
+    // say so, and still offer the changelog link.
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-gray-500">{t('updateCheck.noReleaseNotes')}</p>
+        {check.releases_page_url && (
+          <a
+            href={check.releases_page_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block text-sm text-indigo-600 hover:underline"
+          >
+            {t('update.viewFullChangelog')}
+          </a>
+        )}
+      </div>
+    )
+  }
 
   const shownHl = showAllHl ? highlights : highlights.slice(0, HIGHLIGHT_CAP)
   const shownNotes = showAllNotes ? notes : notes.slice(0, NOTE_CAP)
@@ -40,7 +58,7 @@ export function ReleaseNotesSections({ check }: { check: UpdateCheckResult }) {
             current: check.current_version,
             latest: check.latest_version,
             count: versions.length,
-            versions: versions.map(v => `v${v}`).join('、'),
+            versions: versions.map(v => `v${v}`).join(zh ? '、' : ', '),
           })}
         </p>
       )}
