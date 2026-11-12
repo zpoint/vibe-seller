@@ -232,6 +232,30 @@ describe('update modal — merged notes', () => {
     ).toBeTruthy()
   })
 
+  it('items are tag + prose, not a nested list (no stray bullet)', () => {
+    const { container } = render(
+      <I18nextProvider i18n={make('zh')}>
+        <UpdateAvailableModal
+          check={baseCheck()}
+          status={baseStatus()}
+          isAdmin
+          onClose={() => {}}
+          onRestart={() => {}}
+          restartError={null}
+          restartTimedOut={false}
+        />
+      </I18nextProvider>
+    )
+    const tag = container.querySelector('li > span.self-start')
+    expect(tag).toBeTruthy()
+    expect(tag?.textContent).toBe('v0.3.2')
+    // The item body renders as a paragraph — the version tag is the
+    // marker; a wrapping <ul><li> would add a stray bullet dot.
+    const body = container.querySelector('li > div.prose')
+    expect(body).toBeTruthy()
+    expect(body?.firstElementChild?.tagName).toBe('P')
+  })
+
   it('english UI picks en, falling back to zh when empty', () => {
     renderModal('en')
     expect(screen.getByText('Highlight A', { exact: false })).toBeTruthy()
