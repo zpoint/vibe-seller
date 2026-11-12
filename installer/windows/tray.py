@@ -351,8 +351,11 @@ def _on_check_updates(icon, item):  # noqa: ARG001
             # locks the very files it rebuilds, leaving an empty .venv and
             # the "pythonw.exe not found" failure. The installer was
             # launched detached, so stop the server and quit the tray now;
-            # nothing under the install dir is left locked. Login
-            # auto-start brings the new version's tray back up.
+            # nothing under the install dir is left locked. This update
+            # path is interactive (upgrade(silent=False)): the wizard's
+            # finish page "Open Vibe Seller now" — checked by default,
+            # runs the new tray with --open — brings the tray back up.
+            # That does not depend on the Start at login switch.
             logger.info('Upgrade launched; stopping server and quitting tray')
             _stop_server()
             icon.stop()
@@ -377,7 +380,7 @@ def _on_lan_address(icon, item):  # noqa: ARG001
 
 
 # One instance for the whole tray process; constructor does no I/O.
-_AUTOSTART = autostart.AutoStart()
+_AUTOSTART = autostart.AutoStart(install_dir=INSTALL_DIR)
 
 
 def _autostart_checked(item) -> bool:  # noqa: ARG001 — pystray passes the item

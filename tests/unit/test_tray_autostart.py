@@ -227,6 +227,12 @@ def scratch_key():
 
     with contextlib.suppress(FileNotFoundError):
         winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key)
+    # Also take the scratch parent, so no run leaves state behind on
+    # the machine. DeleteKey refuses a key that still has subkeys
+    # (OSError), which is exactly right: a concurrent run's leaf
+    # keeps the parent alive, and the last one removes it.
+    with contextlib.suppress(OSError):
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, 'Software\\VibeSellerTest')
 
 
 def _make(tmp_path: Path, approved_key: str):

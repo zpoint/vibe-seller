@@ -180,18 +180,14 @@ def startup_dir() -> Path:
     )
 
 
-def _default_install_dir() -> Path:
-    """The install root. The installer sets VIBE_SELLER_HOME; the
-    shipped layout puts this file directly in the install dir."""
-    return Path(os.environ.get('VIBE_SELLER_HOME') or Path(__file__).parent)
-
-
 class AutoStart:
     """The start-at-login switch for one Startup-folder shortcut.
 
     Everything environment-specific is a constructor parameter
     (defaults: the real ones), so tests can point a whole instance at
-    a scratch registry key and a temp dir.
+    a scratch registry key and a temp dir. ``install_dir`` has no
+    default on purpose: the tray already computes INSTALL_DIR, and one
+    definition of the install root keeps the two from drifting.
     """
 
     def __init__(
@@ -199,14 +195,13 @@ class AutoStart:
         startup_dir: Path | str | None = None,
         approved_key: str = APPROVED_KEY,
         lnk_name: str = LNK_NAME,
-        install_dir: Path | str | None = None,
+        *,
+        install_dir: Path | str,
     ) -> None:
         self._startup_dir = Path(startup_dir) if startup_dir else None
         self.approved_key = approved_key
         self.lnk_name = lnk_name
-        self.install_dir = (
-            Path(install_dir) if install_dir else _default_install_dir()
-        )
+        self.install_dir = Path(install_dir)
 
     @property
     def lnk_path(self) -> Path:
