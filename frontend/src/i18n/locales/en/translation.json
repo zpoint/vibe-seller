@@ -977,7 +977,7 @@
     "codexFormHeaderValue": "Header value",
     "codexHint": "In Codex: Settings › Configuration › Open config.toml, paste this at the very end of the file and save, then File › Quit to fully exit — wait a few seconds and reopen:",
     "workbuddy": "WorkBuddy",
-    "workbuddyHint": "In WorkBuddy: Connectors › Custom connectors › MCP Server Management › + Add MCP, select all (Ctrl+A) and paste, Save, then click Trust — the same JSON can also be written straight into ~/.workbuddy/mcp.json:",
+    "workbuddyHint": "In WorkBuddy: Connectors › Custom connectors › MCP Server Management › + Add MCP, paste, Save, then click Trust — the same JSON can also be written straight into ~/.workbuddy/mcp.json:",
     "workbuddyTrustWarning": "If the editor already lists other MCP servers, do not select-all and replace — add just the \"vibe-seller\" entry under mcpServers.",
     "qoder": "Qoder",
     "qoderHint": "In Qoder: Extensions › Connectors › Add Connector, switch to the JSON tab and paste, then Preview import › Import:",
