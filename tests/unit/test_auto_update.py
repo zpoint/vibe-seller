@@ -304,7 +304,12 @@ class TestApplyRestart:
         with patch.object(wu.subprocess, 'Popen') as popen:
             out = await au.apply_restart(interrupted_tasks=0)
         args = popen.call_args[0][0]
-        assert args[1:] == ['/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART']
+        assert args[1] == '/SILENT'
+        assert args[2] == '/SUPPRESSMSGBOXES'
+        assert args[3] == '/NORESTART'
+        # The account of the unattended run lands beside the stage.
+        assert args[4].startswith('/LOG=')
+        assert 'updates' in args[4]
         assert out == {'state': au.RESTARTING, 'version': '0.2.0'}
         assert au.snapshot()['state'] == au.RESTARTING
         evs = [

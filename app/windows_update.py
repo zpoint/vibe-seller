@@ -445,6 +445,11 @@ def run_installer(path: Path, *, mode: str = 'interactive') -> None:
     be momentarily locked by an AV scan or a racing download.
     """
     args = [str(path), *INSTALLER_FLAGS[mode]]
+    if mode != 'interactive':
+        # An unattended install must leave an account of itself: the
+        # debug log lands next to the staged exe (and CI asserts the
+        # staged path from it).
+        args.append(f'/LOG={path.parent / "install.log"}')
     if sys.platform == 'win32':
         base_flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         # Breakaway first, plain detached as the fallback.

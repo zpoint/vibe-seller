@@ -201,7 +201,12 @@ class TestRunInstallerModes:
         with patch.object(wu.subprocess, 'Popen') as popen:
             wu.run_installer(tmp_path / 's.exe', mode='silent')
         args = popen.call_args[0][0]
-        assert args[1:] == ['/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART']
+        assert args[1:] == [
+            '/SILENT',
+            '/SUPPRESSMSGBOXES',
+            '/NORESTART',
+            f'/LOG={tmp_path / "install.log"}',
+        ]
         flags = popen.call_args[1]['creationflags']
         assert flags & wu.CREATE_BREAKAWAY_FROM_JOB
         assert flags & wu.DETACHED_PROCESS
