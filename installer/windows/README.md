@@ -76,6 +76,21 @@ was verified under. Only the newest version dir is kept.
   `CREATE_BREAKAWAY_FROM_JOB` first so a job-object supervisor or CI
   runner cannot take the installer down when its parent server dies).
 
+## Building on a dev host (not CI)
+
+`build.ps1` stages wheels with the **running** Python (`pip wheel`), so
+the host interpreter must match the bundled `PyVersion` (3.11.x) — CI
+ensures this with `setup-python`. On a different host Python the bundle
+installs an empty venv (offline `uv pip install --no-index` refuses the
+mismatched tags); the build now fails loudly instead (wheel-tag guard).
+`uv python install 3.11` + putting its dir first on PATH is enough:
+
+    powershell -File installer\windows\build.ps1 -AppVersion 0.1.0
+
+Inno Setup 6 must be reachable at `C:\Program Files (x86)\Inno Setup 6`
+(the script's fixed lookup path); a per-user install can be exposed
+with a directory junction.
+
 ## Architecture (why no Windows Service / no PyInstaller)
 
 - The server's `vibe-seller start` already daemonises via
