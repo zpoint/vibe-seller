@@ -1,8 +1,9 @@
 """Vibe Seller system-tray launcher for native Windows.
 
 Ollama-style UX: this runs on login (registered in the Startup
-folder by the installer), starts the Vibe Seller server in the
-background, and shows a tray icon with Open UI / Restart / Quit.
+folder by the installer — the menu's "Start at login" item switches
+that off again), starts the Vibe Seller server in the background,
+and shows a tray icon with Open UI / Restart / Start at login / Quit.
 
 It is intentionally thin — all server lifecycle goes through the
 existing ``vibe-seller`` CLI (``start`` daemonises via subprocess,
@@ -39,6 +40,7 @@ try:
 except Exception:  # noqa: BLE001 — dialogs fall back to a message box
     tk = None
 
+import autostart  # local sibling module (bundled alongside tray.py)
 import dialogs  # local sibling module (bundled alongside tray.py)
 from PIL import Image, ImageDraw
 import pystray
@@ -89,6 +91,9 @@ _STRINGS = {
         'open': 'Open Vibe Seller',
         'restart': 'Restart server',
         'update': 'Check for updates',
+        'autostart': 'Start at login',
+        'autostart_fail_title': 'Vibe Seller — start at login',
+        'autostart_fail': 'Could not change "Start at login":\n{err}',
         'lan': 'Copy LAN address',
         'quit': 'Quit',
         'latest': "You're on the latest version ({v}).",
@@ -108,6 +113,9 @@ _STRINGS = {
         'open': '打开 Vibe Seller',
         'restart': '重启服务',
         'update': '检查更新',
+        'autostart': '开机自动启动',
+        'autostart_fail_title': 'Vibe Seller —— 开机自动启动',
+        'autostart_fail': '无法更改"开机自动启动"：\n{err}',
         'lan': '复制局域网地址',
         'quit': '退出',
         'latest': '已是最新版本（{v}）。',
@@ -368,6 +376,40 @@ def _on_lan_address(icon, item):  # noqa: ARG001
     )
 
 
+# One instance for the whole tray process; constructor does no I/O.
+_AUTOSTART = autostart.AutoStart()
+
+
+def _autostart_checked(item) -> bool:  # noqa: ARG001 — pystray passes the item
+    """The menu checkmark. pystray evaluates this when BUILDING the
+    menu, so a raise here would take the tray down on the next
+    rebuild: degrade to unchecked (the log says why)."""
+    try:
+        return _AUTOSTART.is_enabled()
+    except Exception:  # noqa: BLE001 — the menu must never crash the tray
+        logger.exception('Start-at-login state read failed')
+        return False
+
+
+def _on_toggle_autostart(icon, item):  # noqa: ARG001
+    def _do() -> None:
+        try:
+            _AUTOSTART.set_enabled(not _AUTOSTART.is_enabled())
+        except Exception as exc:  # noqa: BLE001 — report, keep the tray
+            logger.exception('Start-at-login toggle failed')
+            _dialog(
+                _t('autostart_fail_title'),
+                _t('autostart_fail', err=exc),
+            )
+        # pystray rebuilds the menu when the callback RETURNS — that
+        # rebuild already ran with the OLD state, because this work is
+        # on this thread. Rebuild again now that the flag (and
+        # possibly the shortcut) has changed.
+        icon.update_menu()
+
+    threading.Thread(target=_do, daemon=True).start()
+
+
 def _on_quit(icon, item):  # noqa: ARG001
     _stop_server()
     icon.stop()
@@ -403,6 +445,11 @@ def main() -> int:
             pystray.MenuItem(_t('lan'), _on_lan_address),
             pystray.MenuItem(_t('restart'), _on_restart),
             pystray.MenuItem(_t('update'), _on_check_updates),
+            pystray.MenuItem(
+                _t('autostart'),
+                _on_toggle_autostart,
+                checked=_autostart_checked,
+            ),
             pystray.MenuItem(_t('quit'), _on_quit),
         ),
     )

@@ -240,6 +240,21 @@ jobs:
           Write-Host "Blocked: $($names -join ', ')"
           exit 0
 
+      # "Start at login = off" is Windows' StartupApproved flag for
+      # "Vibe Seller.lnk" — the installer re-creates the shortcut on
+      # every install but never writes that flag (autostart.py owns
+      # it), so an upgrade must keep the user's choice. Turn it off
+      # exactly as the tray does — a raw 12-byte value starting 03 —
+      # then assert the next step (the upgrade) keeps it. The runner
+      # is ephemeral, so this is nobody's real choice.
+      - name: Turn start-at-login off before the upgrade (StartupApproved flag)
+        shell: pwsh
+        run: |
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder'
+          if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+          New-ItemProperty -Path $key -Name 'Vibe Seller.lnk' -PropertyType Binary `
+            -Value ([byte[]](3,0,0,0,0,0,0,0,0,0,0,0)) -Force | Out-Null
+
       - name: Upgrade in place (silent-install NEW)
         shell: pwsh
         run: |
@@ -253,6 +268,28 @@ jobs:
           $null = $p.Handle  # cache it, or ExitCode reads $null after exit
           $p.WaitForExit()
           if ($p.ExitCode -ne 0) { throw "new installer exited $($p.ExitCode)" }
+
+      # The pair to the step above: the shortcut is re-created on every
+      # install ([Icons] {userstartup}; /NOICONS skips only {group}\
+      # entries), and the startup flag must survive the upgrade
+      # untouched. The name 'Vibe Seller.lnk' is pinned to the .iss
+      # AppName by tests/unit/test_tray_autostart.py.
+      - name: Upgrade kept start-at-login off (flag survives the shortcut re-create)
+        shell: pwsh
+        run: |
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder'
+          $lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Vibe Seller.lnk'
+          if (-not (Test-Path -LiteralPath $lnk)) {
+            throw "the upgrade did not (re-)create the login shortcut: $lnk"
+          }
+          $value = (Get-Item $key).GetValue('Vibe Seller.lnk')
+          if (-not $value) {
+            throw 'the upgrade dropped the StartupApproved flag (the user choice was not kept)'
+          }
+          if ($value[0] % 2 -eq 0) {
+            throw ('the upgrade re-enabled autostart (flag first byte 0x{0:X2})' -f $value[0])
+          }
+          Write-Host 'OK: upgrade kept the user-disabled start-at-login flag'
 
       - name: Start UPGRADED server, assert the NEW version
         shell: pwsh
