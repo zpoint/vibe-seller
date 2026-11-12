@@ -375,15 +375,25 @@ def stage_installer(offer: dict, progress=None) -> Path:
             # for bytes=<size>- would only earn an HTTP 416.
             _download_stream(url, part, progress)
     else:
-        if not Path(url).exists():
+        src = Path(url)
+        if not src.exists():
             raise RuntimeError(f'installer source not found: {url}')
+        total = size or src.stat().st_size
         if not complete_part:
             # A part of exactly the expected size is a complete copy of
-            # this same source (mock reruns) — keep it.
+            # this same source (mock reruns) — keep it. Copy in chunks
+            # so a file:// or plain-path source still reports progress
+            # (the CI mock and the Windows demo stage this way).
             part.unlink(missing_ok=True)
-            shutil.copyfile(url, part)
+            done = 0
+            with open(src, 'rb') as fsrc, open(part, 'wb') as fdst:
+                while chunk := fsrc.read(_CHUNK):
+                    fdst.write(chunk)
+                    done += len(chunk)
+                    if progress:
+                        progress(done, total)
         if progress:
-            progress(part.stat().st_size, size or part.stat().st_size)
+            progress(part.stat().st_size, total)
     got = part.stat().st_size
     if size is not None and got != size:
         part.unlink(missing_ok=True)
