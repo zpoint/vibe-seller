@@ -6,7 +6,7 @@ import { LoginPage } from './components/LoginPage'
 import { Sidebar } from './components/Sidebar'
 import { MobileMenuButton } from './components/MobileMenuButton'
 import { useWsFiles } from './hooks/useWsFiles'
-import { useUpdateCheck } from './hooks/useUpdateCheck'
+import { useUpdateFlow } from './hooks/useUpdateFlow'
 import { useSessionKeepalive } from './hooks/useSessionKeepalive'
 import { useServerInfo } from './hooks/useServerInfo'
 import { useIsMobile } from './hooks/useIsMobile'
@@ -241,7 +241,12 @@ export default function App() {
       .catch(() => { setCurrentUser(null); setAuthChecked(true) })
   }, [])
 
-  const { updateCheck, dismissUpdateCheck } = useUpdateCheck(currentUser)
+  const {
+    updateCheck, status: updateStatus, open: updateModalOpen,
+    openModal: openUpdateModal, closeModal: closeUpdateModal,
+    restart: restartUpdate, restartError: updateRestartError,
+    restartTimedOut: updateRestartTimedOut,
+  } = useUpdateFlow(currentUser)
 
   // Roll the session forward on activity and bounce to login on idle
   // expiry — only meaningful when auth is on (otherwise never 401s).
@@ -636,6 +641,7 @@ export default function App() {
         fetchingBrowsers={fetchingBrowsers} browserFetchError={browserFetchError} setBrowserFetchError={setBrowserFetchError}
         fetchBrowserProfiles={fetchBrowserProfiles} restartZiniao={restartZiniao} ziniaoRetried={ziniaoRetried}
         serverPlatform={serverPlatform} serverVersion={serverVersion} installId={installId}
+        updateStatus={updateStatus} onOpenUpdate={openUpdateModal}
         showAddAccount={showAddAccount} setShowAddAccount={setShowAddAccount}
         showAccountPassword={showAccountPassword} setShowAccountPassword={setShowAccountPassword}
         editingAccountId={editingAccountId} setEditingAccountId={setEditingAccountId}
@@ -792,8 +798,16 @@ export default function App() {
           isAdmin={currentUser?.role === 'admin'}
         />
       )}
-      {updateCheck && (
-        <UpdateAvailableModal result={updateCheck} onClose={dismissUpdateCheck} />
+      {updateCheck && updateModalOpen && (
+        <UpdateAvailableModal
+          check={updateCheck}
+          status={updateStatus}
+          isAdmin={currentUser?.role === 'admin'}
+          onClose={closeUpdateModal}
+          onRestart={restartUpdate}
+          restartError={updateRestartError}
+          restartTimedOut={updateRestartTimedOut}
+        />
       )}
     </div>
   )

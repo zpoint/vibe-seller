@@ -39,7 +39,8 @@ const API_STATIC_SEGMENTS = new Set([
   'send-permission', 'set-default', 'settings', 'setup-mcp', 'skill',
   'skills', 'sse', 'staged', 'start', 'status', 'steps', 'stop', 'stores',
   'structured', 'sync', 'system', 'tasks', 'telemetry', 'test', 'tokens',
-  'trigger', 'unbind', 'update-check', 'upload-reference', 'users',
+  'trigger', 'unbind', 'update', 'update-check', 'update-status',
+  'upload-reference', 'users',
   'validate', 'version', 'vision', 'web', 'workspace', 'ziniao',
   'ziniao-accounts',
 ])

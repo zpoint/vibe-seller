@@ -19,6 +19,27 @@ export interface UpdateCheckResult {
   download_url?: string | null
   releases_page_url?: string
   releases?: ReleaseNote[]
+  /** True when this install updates in-app (background download +
+   *  "重启并更新"); false → the popup shows the manual upgrade path. */
+  in_app_update?: boolean
+  /** Release notes of all pending versions merged by section, newest
+   *  version first (app/release_notes.py). */
+  highlights?: ReleaseHighlight[]
+  notes?: ReleaseNoteItem[]
+}
+export interface ReleaseHighlight { version: string; zh: string; en: string }
+export interface ReleaseNoteItem { version: string; text: string }
+export type AutoUpdateState = 'idle' | 'downloading' | 'ready' | 'error' | 'restarting'
+export interface UpdateStatus {
+  supported: boolean
+  state: AutoUpdateState
+  version: string | null
+  current_version: string
+  downloaded_bytes: number | null
+  total_bytes: number | null
+  error: string | null
+  running_tasks: number
+  platform: ServerPlatform
 }
 export interface Store {
   id: string; name: string; browser_backend: string; browser_config: Record<string, unknown>;

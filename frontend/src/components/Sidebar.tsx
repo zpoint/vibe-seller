@@ -7,9 +7,10 @@ import { LanguageSwitcher, WsFileItem } from './ui'
 import { SkillItem } from './SkillItem'
 import { StoreFilesSection } from './WorkspaceStoreSections'
 import { api } from '../api'
-import type { Store, AuthUser, AppView, ServerPlatform, WsStructured, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
+import type { Store, AuthUser, AppView, ServerPlatform, UpdateStatus, WsStructured, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 import { InstallIdBadge } from './InstallIdBadge'
 import { SecretReveal } from './SecretReveal'
+import { UpdateChip } from './UpdateChip'
 
 interface SidebarProps {
   // Mobile drawer control (desktop leaves these at defaults)
@@ -55,6 +56,9 @@ interface SidebarProps {
   restartZiniao: (accountId: string) => void
   ziniaoRetried: boolean
   serverPlatform: ServerPlatform | null; serverVersion: string; installId: string
+  // In-app update (footer chip; clicking opens the update modal)
+  updateStatus: UpdateStatus | null
+  onOpenUpdate: () => void
   showAddAccount: boolean
   setShowAddAccount: (v: boolean) => void
   showAccountPassword: boolean
@@ -103,6 +107,7 @@ export function Sidebar(props: SidebarProps) {
     fetchingBrowsers, browserFetchError, setBrowserFetchError,
     fetchBrowserProfiles, restartZiniao, ziniaoRetried,
     serverPlatform, serverVersion, installId,
+    updateStatus, onOpenUpdate,
     showAddAccount, setShowAddAccount, showAccountPassword, setShowAccountPassword,
     editingAccountId, setEditingAccountId, newAccount, setNewAccount,
     createZiniaoAccount, updateZiniaoAccount, deleteZiniaoAccount,
@@ -290,6 +295,9 @@ export function Sidebar(props: SidebarProps) {
         <div className="flex-1 overflow-y-auto" />
       )}
       <OnboardingGuide guide={guide} />
+      {/* Footer entry: shown whenever an in-app update is in flight
+          (downloading / ready / restarting), in every view. */}
+      <UpdateChip status={updateStatus} onOpen={onOpenUpdate} />
     </div>
   )
 }
