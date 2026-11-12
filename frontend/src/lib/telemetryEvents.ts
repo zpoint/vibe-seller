@@ -10,6 +10,9 @@ export const FrontendEvent = {
   SCHEDULE_EDITED: 'schedule_edited',
   SETTINGS_TELEMETRY_TOGGLED: 'settings_telemetry_toggled',
   API_REQUEST_FAILED: 'api_request_failed',
+  GUIDE_SHOWN: 'guide_shown',
+  GUIDE_CLOSED: 'guide_closed',
+  GUIDE_LANGUAGE_SWITCHED: 'guide_language_switched',
 } as const
 
 export type FrontendEventName =

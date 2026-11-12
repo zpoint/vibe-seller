@@ -8,6 +8,15 @@ import { vi } from 'vitest'
 // is loaded by a test file.
 {
   const store = new Map<string, string>()
+  // Deterministic test language. The app's detectLanguage() consults a
+  // saved choice first; without this pin, a CI/dev host in a
+  // mainland-China time zone (the third detection branch) would flip
+  // every English-asserting test to Chinese.
+  store.set('vibe-seller-language', 'en')
+  // Steady-state precondition for the whole suite: the first-run
+  // guide is already dismissed in this browser. Guide tests clear
+  // this key themselves.
+  store.set('vibe-seller-guide-seen', '2026-01-01T00:00:00+00:00')
   Object.defineProperty(globalThis, 'localStorage', {
     value: {
       getItem: (k: string) => store.get(k) ?? null,

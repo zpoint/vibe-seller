@@ -14,7 +14,7 @@ export function LanguageSwitcher() {
   return (
     <button
       onClick={toggleLanguage}
-      className="px-2 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+      className="px-2 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded transition-colors whitespace-nowrap shrink-0"
       title={t('language.title')}
     >
       {currentLang === 'zh' ? 'EN' : '中文'}

@@ -121,6 +121,35 @@ Two rules keep the UI from feeling (or being) stuck:
   instead of hanging. The timeout's message carries no URL (routes hold
   store names), for exception telemetry.
 
+## First-run guide
+
+`components/OnboardingGuide.tsx` + `hooks/useOnboardingGuide.ts` — a
+three-step guide (全部店铺 / 店铺 / 常规·定时, step 3 as two labeled
+blocks) that explains which tasks can enter a store's backend. It is
+owned by `Sidebar` (which already has `currentUser` and stays mounted
+on mobile), not `App.tsx`, and portals to `document.body` so the
+drawer's CSS transform can't trap the fixed overlay. The card is
+centered in every viewport while the page dims around the step's
+anchor via four rects, so the highlight stays bright under the card
+(re-measured every frame while the store list settles; no anchor
+visible — mobile — means dim only). The card header carries a
+`中文 | English` switch using the same save path as the sidebar
+button; it never marks the guide seen and never advances the step.
+
+**Seen-state is one `localStorage` key per browser**
+(`vibe-seller-guide-seen`), written only when the user clicks Done /
+Skip / × — a refresh before any of those shows it again, and the
+auto-show needs a signed-in user (never on the login page). Replay
+via the "?" button never writes or clears the key. Accepted
+trade-offs: a private window, another browser or cleared site data
+shows the guide again; a shared browser shows it only to the first
+person. Every storage access is try/catch-guarded: if storage throws,
+the guide still shows once per page load (in-memory guard, no loop).
+E2E: `authenticated_page` pre-writes the key (the overlay would
+otherwise cover every UI test in a fresh browser context);
+`test_onboarding_guide.py` pins the whole key story across two
+contexts.
+
 ## Internationalization
 
 Translations stored in `src/i18n/locales/`:
@@ -128,6 +157,18 @@ Translations stored in `src/i18n/locales/`:
 - `zh/translation.json` — Chinese
 
 Usage: `const { t } = useTranslation(); t('key')` or `t('key', { count: 5 })`
+
+**Initial language** (`i18n/index.ts`, pure `detectLanguage()`): a saved
+choice (`localStorage['vibe-seller-language']`, per origin) wins; else
+ANY entry in `navigator.languages` starting with `zh` → Chinese; else a
+mainland-China OS time zone (`Asia/Shanghai` & friends, `PRC`) →
+Chinese; else English. The time-zone branch exists because
+`navigator.languages` reports the browser's own language list, not the
+OS display language — a Chinese Windows running an English browser
+still carries its OS time zone, and this product's users are mainly
+China-based sellers. Anyone who prefers English switches once (sidebar
+button, or the switch inside the first-run guide) and the choice is
+saved.
 
 **Provider-preset strings come from the server, already translated.**
 Everything about a preset comes from the catalog (`app/ai/provider_presets.py`,

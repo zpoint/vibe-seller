@@ -51,6 +51,30 @@
     "settings": "Settings",
     "stores": "Stores"
   },
+  "onboarding": {
+    "title": "Getting started",
+    "replay": "Show guide",
+    "skip": "Skip",
+    "back": "Back",
+    "next": "Next",
+    "done": "Done",
+    "stepPosition": "Step {{current}} of {{total}}",
+    "allStores": {
+      "title": "All Stores",
+      "body": "Tasks under All Stores don't belong to any store and can't enter a store's backend themselves. Use them for public web lookups and cross-store summaries."
+    },
+    "store": {
+      "title": "Store",
+      "body": "To work in a store's backend, add the store with \"+ New Store\" to bind its browser (a one-time step). After that, just open the store and create tasks there."
+    },
+    "taskType": {
+      "title": "Tasks / Scheduled",
+      "inStoreLabel": "In a store: ",
+      "inStore": "a one-time task runs once right after you create it; a scheduled task repeats at the time you set (e.g. every Monday). Both act on that store only.",
+      "inAllStoresLabel": "In All Stores: ",
+      "inAllStores": "one-time and scheduled tasks can create a sub-task for each store, so you can operate every store in one go."
+    }
+  },
   "tasks": {
     "title": "Tasks",
     "newTask": "New Task",

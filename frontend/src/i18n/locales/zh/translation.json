@@ -51,6 +51,30 @@
     "settings": "设置",
     "stores": "店铺"
   },
+  "onboarding": {
+    "title": "新手引导",
+    "replay": "查看新手引导",
+    "skip": "跳过",
+    "back": "上一步",
+    "next": "下一步",
+    "done": "完成",
+    "stepPosition": "第 {{current}}/{{total}} 步",
+    "allStores": {
+      "title": "全部店铺",
+      "body": "全部店铺下的任务不属于任何店铺，本身进不了店铺后台，适合公开网页查询、跨店铺汇总等工作。"
+    },
+    "store": {
+      "title": "店铺",
+      "body": "要在某个店铺后台操作，先「新建店铺」绑定它的浏览器（只需操作一次），之后直接点进这个店铺新建任务。"
+    },
+    "taskType": {
+      "title": "常规 / 定时",
+      "inStoreLabel": "在店铺里：",
+      "inStore": "常规任务创建后立即执行一次，定时任务按设定时间重复执行（如每周一），都只作用于这个店铺。",
+      "inAllStoresLabel": "在全部店铺里：",
+      "inAllStores": "常规和定时任务可以为每个店铺创建子任务，一次操作所有店铺。"
+    }
+  },
   "tasks": {
     "title": "任务",
     "newTask": "新建任务",

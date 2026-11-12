@@ -290,7 +290,7 @@ export function TasksView({
                   <span className="text-base leading-none">+</span> {taskSubTab === 'onetime' ? t('tasks.newTask') : t('schedules.newSchedule')}
                 </button>
               </div>
-              <div className="flex bg-gray-100 rounded-lg p-0.5 mb-2">
+              <div data-tour="task-type" className="flex bg-gray-100 rounded-lg p-0.5 mb-2">
                 <button
                   onClick={() => { setTaskSubTab('onetime'); setSelectedSchedule(null) }}
                   className={`flex-1 px-2 py-1 text-xs font-medium rounded-md transition-colors ${taskSubTab === 'onetime' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}

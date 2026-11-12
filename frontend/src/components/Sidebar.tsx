@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RestartNeededNotice } from './RestartNeededNotice'
+import { OnboardingGuide } from './OnboardingGuide'
+import { useOnboardingGuide } from '../hooks/useOnboardingGuide'
 import { LanguageSwitcher, WsFileItem } from './ui'
 import { SkillItem } from './SkillItem'
 import { StoreFilesSection } from './WorkspaceStoreSections'
@@ -111,6 +113,13 @@ export function Sidebar(props: SidebarProps) {
     syncBuiltinSkills, wsSkillsSyncing,
   } = props
 
+  // The first-run guide lives here, not in App: Sidebar already owns
+  // currentUser, stays mounted on mobile (the drawer is a transform,
+  // not a conditional render), and App.tsx must keep a zero diff for
+  // the routing branch. OnboardingGuide portals to document.body, so
+  // the drawer's CSS transform can't trap the fixed overlay.
+  const guide = useOnboardingGuide(currentUser)
+
   /* Resizable sidebar: drag the right edge; width persists locally. */
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem('vs.sidebarWidth'))
@@ -159,16 +168,28 @@ export function Sidebar(props: SidebarProps) {
       )}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-baseline gap-1"><h1 className="text-lg font-bold leading-tight">Vibe Seller</h1>{serverVersion && <span className="text-[10px] text-gray-400" title={`Server: ${serverVersion}`}>v{serverVersion.slice(0, 14)}</span>}</div>
-          <div className="flex items-center gap-1">
+          {/* The icon-button side never wraps or shrinks (a wrapped
+              "中文" language button was the round-3 bug). The brand is
+              NEVER truncated — it may wrap to two lines when tight, as
+              on main; the version label is what gives way (min-w-0 +
+              truncate: it ellipses, never pushing the buttons or
+              cutting the title). */}
+          <div className="flex items-baseline gap-1 min-w-0">
+            <h1 className="text-lg font-bold leading-tight">Vibe Seller</h1>
+            {serverVersion && <span className="text-[10px] text-gray-400 min-w-0 truncate" title={`Server: ${serverVersion}`}>v{serverVersion.slice(0, 14)}</span>}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button data-testid="nav-guide" onClick={guide.replay} className="p-1 text-gray-400 hover:text-indigo-600 whitespace-nowrap shrink-0" title={t('onboarding.replay')}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.992.54-.992 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </button>
             <LanguageSwitcher />
             {currentUser.role === 'admin' && (
-              <button data-testid="nav-settings" onClick={() => setAppView('settings')} className="p-1 text-gray-400 hover:text-gray-700" title={t('settings.title')}>
+              <button data-testid="nav-settings" onClick={() => setAppView('settings')} className="p-1 text-gray-400 hover:text-gray-700 whitespace-nowrap shrink-0" title={t('settings.title')}>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               </button>
             )}
             {authRequired && (
-              <button onClick={handleLogout} className="p-1 text-gray-400 hover:text-red-600" title={t('auth.signOut')}>
+              <button onClick={handleLogout} className="p-1 text-gray-400 hover:text-red-600 whitespace-nowrap shrink-0" title={t('auth.signOut')}>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
               </button>
             )}
@@ -193,6 +214,7 @@ export function Sidebar(props: SidebarProps) {
         <>
           <div className="p-3">
             <button
+              data-tour="new-store"
               onClick={() => setShowCreateStore(true)}
               className="w-full px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
             >
@@ -239,6 +261,7 @@ export function Sidebar(props: SidebarProps) {
               <div className="p-4 text-sm text-gray-400 text-center">{t('navigation.stores')}</div>
             )}
             <button
+              data-tour="all-stores"
               onClick={() => selectAllTasks()}
               className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${showAllTasks ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''}`}
             >
@@ -266,6 +289,7 @@ export function Sidebar(props: SidebarProps) {
         // link was a vestige of the pre-tab layout).
         <div className="flex-1 overflow-y-auto" />
       )}
+      <OnboardingGuide guide={guide} />
     </div>
   )
 }
