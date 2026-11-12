@@ -31,7 +31,7 @@ claude mcp add --scope user --transport http vibe-seller http://localhost:7777/a
 
 ## 确认接好了
 
-新开一个 Code 会话，问「现在 vibe-seller 里有几个店铺？」，它把你的店铺
+新开一个 Code 会话，问“现在 vibe-seller 里有几个店铺？”，它把你的店铺
 列出来就接好了。在终端里执行 `claude mcp list`，`vibe-seller` 后面显示
 `✓ Connected` 也算连上。
 

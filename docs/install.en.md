@@ -130,7 +130,7 @@ Teammates install nothing — they open `http://<your-machine's-ip>:7777`. On Wi
 
 ## Install failed?
 
-Paste the repo URL <https://github.com/zpoint/vibe-seller> into whatever coding agent you have at hand (Claude Code, Codex, opencode, Cursor) and say "read the README and install this." It will work through the docs and the commands itself; most environment problems take one or two commands to fix.
+Paste the repo URL <https://github.com/zpoint/vibe-seller> into whatever coding agent you have at hand (Claude Code, Codex, opencode, Cursor) and say “read the README and install this.” It will work through the docs and the commands itself; most environment problems take one or two commands to fix.
 
 ## Keep it running around the clock
 

@@ -71,7 +71,7 @@ description: 在 Codex 里接入 Vibe Seller：在设置里填一张表单，或
 
 ## 确认接好了
 
-新建一个对话，问「现在 vibe-seller 里有几个店铺？」。它调用工具把你的店铺
+新建一个对话，问“现在 vibe-seller 里有几个店铺？”。它调用工具把你的店铺
 列出来，就接好了。
 
 ![对话里调用工具报出店铺](images/mcp_codex_win_07_verify_zh.png)

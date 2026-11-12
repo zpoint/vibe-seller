@@ -98,8 +98,8 @@ digest, sorted into three buckets:
 ![The finished run: three buckets, draft paths, posted to the Ops group](images/example-email-result_en.png)
 
 At the same moment the digest lands in the WeCom group. To look at one message
-closely, ask in that same task — "show me the draft for the second one", or "make
-the suggestion for the buyer email more specific". A follow-up continues the same
+closely, ask in that same task — “show me the draft for the second one”, or “make
+the suggestion for the buyer email more specific”. A follow-up continues the same
 task, so the mail it already read is still there.
 
 ## Questions this example gets
@@ -112,14 +112,14 @@ AI can read and draft, and you press send. Only a person can change the switch �
 the AI cannot, see [Turn off the email sending permission](email.md#turn-off-the-email-sending-permission).
 
 **It says it didn't see a message that just arrived?**
-Mail syncs to this machine every 5 minutes. Add "sync the mailbox first, then
-check" to the description, or wait for the next run. Also confirm the mailbox is
+Mail syncs to this machine every 5 minutes. Add “sync the mailbox first, then
+check” to the description, or wait for the next run. Also confirm the mailbox is
 linked to the store the task runs under — an unlinked mailbox is invisible to that
 store's tasks.
 
 **Can it message the group only when something urgent comes in?**
-Yes — put the bar in the description, e.g. "post to the group only for buyer
-complaints and platform notices; keep everything else in the task result." The AI
+Yes — put the bar in the description, e.g. “post to the group only for buyer
+complaints and platform notices; keep everything else in the task result.” The AI
 applies the standard you wrote, and explains its reasoning when a message is a
 judgement call, so for the first week read the full daily digest before tightening
 the rule.

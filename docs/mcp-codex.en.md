@@ -75,7 +75,7 @@ Two things to get ready first:
 
 ## Check it works
 
-Start a new chat and ask "how many stores are in vibe-seller right now?". If
+Start a new chat and ask “how many stores are in vibe-seller right now?”. If
 it calls the tool and names your stores, you're connected.
 
 ![The answer, after a tool call](images/mcp_codex_win_07_verify_en.png)

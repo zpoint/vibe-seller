@@ -30,7 +30,7 @@ It writes `~/.pi/agent/mcp.json`. In a Pi session that is already open, run
 
 ## Check it works
 
-Start a new chat and ask "how many stores are in vibe-seller right now?". If it
+Start a new chat and ask “how many stores are in vibe-seller right now?”. If it
 names your stores, you're connected. From a terminal, `pi mcp list` should show
 `vibe-seller: connected, 32 tools`.
 

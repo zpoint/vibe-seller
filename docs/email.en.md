@@ -171,7 +171,7 @@ Three quick checks:
 1. **Test Connection** says "Connection successful" — this checks
    incoming (IMAP) access;
 2. After **Save**, the mailbox is in the list and **linked to a store**;
-3. Create a task asking "what's the latest mail in this mailbox?" —
+3. Create a task asking “what's the latest mail in this mailbox?” —
    if the AI reports recent subjects and senders, you are done.
 
 ## Turn off the email sending permission
@@ -220,7 +220,7 @@ matters to you.
   [Turn off the email sending permission](#turn-off-the-email-sending-permission)).
   While it is off, the AI
   shows you the drafted email so you can send it yourself or turn the
-  switch back on and ask again. Asking "show me before sending" in
+  switch back on and ask again. Asking “show me before sending” in
   the task keeps you in the loop.
 
 Mail stays inside your own deployment: the mailbox password is stored
@@ -264,7 +264,7 @@ IMAP is usually port 993 (SSL); SMTP is 465 (SSL) or 587.
 <details markdown="1"><summary><b>The AI says it found no new mail?</b></summary>
 
 Mail syncs automatically every 5 minutes — wait a moment or ask the
-task to "sync now" and check again. Also make sure the mailbox is
+task to “sync now” and check again. Also make sure the mailbox is
 **linked to the store**: unlinked mailboxes are invisible to that
 store's tasks.
 </details>

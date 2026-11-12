@@ -55,7 +55,7 @@ Day-to-day usage: [Tasks](using-tasks.en.md#two-scopes-where-you-create-a-task-d
 
 ## Schedule
 
-Turns a one-off sentence into "do this every Monday". A schedule creates ordinary tasks when it fires and keeps their history attached to itself.
+Turns a one-off sentence into “do this every Monday”. A schedule creates ordinary tasks when it fires and keeps their history attached to itself.
 
 A store-bound schedule fires exactly one task. An **All Stores** schedule picks its shape once, when you create it: **Fan out (one task per store)** or **Single (one task)**, with an optional **Run stores one at a time** so no two shops share the browser at the same moment.
 

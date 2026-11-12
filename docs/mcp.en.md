@@ -8,7 +8,7 @@ Already live in Claude, Codex, WorkBuddy, Qoder, Hermes Agent or Pi? You can now
 drive Vibe Seller from those tools: create tasks, follow their progress, and
 answer their questions.
 
-Just say something like "look at acme's ads from last week" in the chat. The
+Just say something like “look at Store A's ads from last week” in the chat. The
 tool creates the task in Vibe Seller, keeps an eye on it, and brings the summary
 back to you. Questions the task wants to ask you, and plans that need your nod,
 all happen in the same conversation — no more hopping between windows.
@@ -21,12 +21,12 @@ is configured and how they divide up: see the
 
 Once connected, just talk to it like a colleague:
 
-- "How many stores does vibe-seller have right now?"
-- "Look at acme's ad spend over the past week and suggest improvements — don't
-  change anything yet."
-- "What is that task doing at the moment? How far along is it?"
-- "Turn this week's inspection into a weekly Monday-morning run — show me the
-  plan first."
+- “How many stores does vibe-seller have right now?”
+- “Look at Store A's ad spend over the past week and suggest improvements —
+  don't change anything yet.”
+- “What is that task doing at the moment? How far along is it?”
+- “Turn this week's inspection into a weekly Monday-morning run — show me the
+  plan first.”
 
 You don't need to remember any commands — the tool figures out what to call.
 
@@ -123,8 +123,8 @@ itself. Also check for a stray trailing slash.
 
 It answered from its own knowledge instead of running anything. The Claude
 plugin helps a lot here — it requires the agent to report only what the task
-really produced. You can also say outright "use vibe-seller to create a task
-for this".
+really produced. You can also say outright “use vibe-seller to create a task
+for this”.
 
 **Will a screenshot leak the key?**
 

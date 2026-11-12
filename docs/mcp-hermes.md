@@ -62,7 +62,7 @@ description: 在 Hermes Agent 里接入 Vibe Seller：把弹窗给的 JSON 粘�
 
 ## 确认接好了
 
-新建一个对话，问「现在 vibe-seller 里有几个店铺？」。它把你的店铺列出来，
+新建一个对话，问“现在 vibe-seller 里有几个店铺？”。它把你的店铺列出来，
 就接好了。还没有配好模型时，先点开 Vibe Seller 卡片：详情里 URL 正确、
 32 个工具全部开启，说明已经连上了。
 

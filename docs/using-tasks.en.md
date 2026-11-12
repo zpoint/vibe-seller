@@ -19,8 +19,8 @@ The entry point is the **Tasks** page in the sidebar:
    (no store selected) to create a cross-store task;
 2. Click **New Task**, fill in a title and a description — the description is
    just you telling the AI what to do, the way you'd brief a colleague, e.g.
-   "review the ads and pause every keyword above 30% ACOS" or "export the sales
-   report for the past 7 days";
+   “review the ads and pause every keyword above 30% ACOS” or “export the sales
+   report for the past 7 days”;
 3. Attach images or files if needed — drag files into the input, paste a
    screenshot with Ctrl+V, or click to browse (PNG, JPEG, GIF, WebP and PDF, up
    to 100 MB each). Attachments land in the task's workspace where the agent can
@@ -152,8 +152,8 @@ estimated cost from public model prices (subscription-covered runs show
   continues the *same* task: same session, same workspace, so downloaded
   reports and half-finished work are still there;
 - **Continue** — the **Continue** button in the header says it for you:
-  "resume now, reuse the progress and data already on disk, and do not restart
-  from scratch." Perfect for "it stopped last night, pick it up today";
+  “resume now, reuse the progress and data already on disk, and do not restart
+  from scratch.” Perfect for "it stopped last night, pick it up today";
 - **Retry** — ⚠️ **Retry wipes the task.** It clears the conversation *and*
   the on-disk workspace and starts from scratch (the confirm dialog: "This
   clears the task's history and restarts it from scratch. Are you sure?").

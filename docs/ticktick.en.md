@@ -87,8 +87,8 @@ choice.
 ## Verify
 
 1. The card's status pill in Settings reads **Connected**;
-2. Try a task: "Add a TickTick task: reconcile last month's bills by
-   Friday";
+2. Try a task: “Add a TickTick task: reconcile last month's bills by
+   Friday”;
 3. Open the TickTick app or web site — if the task is there, you are
    done.
 

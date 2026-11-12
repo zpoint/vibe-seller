@@ -23,7 +23,7 @@ You never pick the path per task — the routing follows the **store's binding s
 
 ## Measured comparison
 
-One store (acme, AE marketplace), one report-only ad-optimization task, one model (MiniMax-M3.1-Flash) — run once over the Ads API and once through the browser:
+One store (Store A, AE marketplace), one report-only ad-optimization task, one model (MiniMax-M3.1-Flash) — run once over the Ads API and once through the browser:
 
 | Metric | Ads API path | Browser path | Ratio |
 |---|---|---|---|
@@ -88,13 +88,13 @@ Sign in as the store's seller, approve, and wait for the success page. The conse
 
 ![Done authorizing](images/ads_done_en.png)
 
-A green "✓ acme authorized" means it worked — the marketplaces it covers are listed after it. If you get "No authorization for this store yet", the Amazon consent isn't finished: complete it in the store's browser, wait for the success page, and click again.
+A green "✓ Store A authorized" means it worked — the marketplaces it covers are listed after it. If you get "No authorization for this store yet", the Amazon consent isn't finished: complete it in the store's browser, wait for the success page, and click again.
 
 ![Demo: bind the Ads API](images/ads_bind_en.gif)
 
 ### After binding: ad tasks run over the Ads API
 
-Once bound, **just create ad tasks on that store as usual** — e.g. "Take a look at acme's ads for the last week and give me some optimization suggestions". A task on a bound store automatically gets its data through the Ads API; an unbound store keeps going through the browser. Nothing to choose or specify — the store's binding state decides, automatically.
+Once bound, **just create ad tasks on that store as usual** — e.g. “Take a look at Store A's ads for the last week and give me some optimization suggestions”. A task on a bound store automatically gets its data through the Ads API; an unbound store keeps going through the browser. Nothing to choose or specify — the store's binding state decides, automatically.
 
 **A freshly bound store needs about 30 minutes to sync its history** — history questions answer "syncing" until then and are fine afterwards; live data is unaffected.
 

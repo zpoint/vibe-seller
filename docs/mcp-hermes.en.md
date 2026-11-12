@@ -66,7 +66,7 @@ Two things to get ready first:
 
 ## Check it works
 
-Start a new chat and ask "how many stores are in vibe-seller right now?". If it
+Start a new chat and ask “how many stores are in vibe-seller right now?”. If it
 names your stores, you're connected. Before you have a model configured, open
 the Vibe Seller card: the details show the right URL and all 32 tools on, which
 means the connection works.

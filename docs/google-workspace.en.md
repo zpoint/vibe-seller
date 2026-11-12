@@ -107,7 +107,7 @@ The three states side by side:
 1. Back on this card, the hint under the "Enable" row now reads
    "Agents can invoke the gws umbrella skill." and the button says
    "Disable";
-2. Try a task: "Summarise the last column of this Google Sheet"
+2. Try a task: “Summarise the last column of this Google Sheet”
    (give it the sheet link);
 3. If the AI reads the sheet and gives you the summary, the
    integration works.

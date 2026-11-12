@@ -73,7 +73,7 @@ Two things to get ready first:
 
 ## Check it works
 
-Start a new chat and ask "how many stores are in vibe-seller right now?". If it
+Start a new chat and ask “how many stores are in vibe-seller right now?”. If it
 names your stores, you're connected.
 
 ![Verified: the store count comes back](images/mcp_qoder_win_08_verify_answer_en.png)

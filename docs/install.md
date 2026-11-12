@@ -134,7 +134,7 @@ cd vibe-seller
 
 ## 安装失败了？
 
-把仓库链接 <https://github.com/zpoint/vibe-seller> 交给你手边任意一个编程 Agent（Claude Code、Codex、opencode、Cursor 都可以），说一句「读一下 README 帮我安装」。它会自己查阅文档、执行命令，绝大多数环境问题一两条命令就能修复。
+把仓库链接 <https://github.com/zpoint/vibe-seller> 交给你手边任意一个编程 Agent（Claude Code、Codex、opencode、Cursor 都可以），说一句“读一下 README 帮我安装”。它会自己查阅文档、执行命令，绝大多数环境问题一两条命令就能修复。
 
 ## 让它一直开着
 

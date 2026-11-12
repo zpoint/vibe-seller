@@ -93,9 +93,9 @@ The store name is just your own label. One store equals one logged-in browser pl
 
 Select the store on the left, click **+ New Task**, and say what you want done in one sentence:
 
-- "Check ads and pause any keyword with ACOS over 30%."
-- "Export the past 7 days of sales reports."
-- "Review inventory and estimate next month's restock SKUs."
+- “Check ads and pause any keyword with ACOS over 30%.”
+- “Export the past 7 days of sales reports.”
+- “Review inventory and estimate next month's restock SKUs.”
 
 Click **Create & Run**. The agent plans the steps, drives the browser itself, and hands you a report; every step and screenshot stays visible in the task detail.
 

@@ -68,7 +68,7 @@ description: 在 WorkBuddy 里接入 Vibe Seller：把弹窗给的 JSON 粘贴�
 
 ## 确认接好了
 
-新建一个对话，问「现在 vibe-seller 里有几个店铺？」。它把你的店铺列出来，
+新建一个对话，问“现在 vibe-seller 里有几个店铺？”。它把你的店铺列出来，
 就接好了。
 
 ![对话里答出店铺数](images/mcp_workbuddy_win_08_verify_answer_zh.png)

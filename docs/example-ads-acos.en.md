@@ -121,7 +121,7 @@ list is refused.
 **The summary didn't reach the group?**
 First check that **Test** on the bot works, then compare the group name in the
 description with the bot's name. Chat bots only send out: the AI can't read group
-replies, so "go ahead and apply it" has to be said in this task in Vibe Seller,
+replies, so “go ahead and apply it” has to be said in this task in Vibe Seller,
 not in the group.
 
 **What does one run cost?**

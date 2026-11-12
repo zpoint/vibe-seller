@@ -130,7 +130,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 - **滴答清单 / TickTick**——自动创建待办（追单、跟进、定期检查），[接入步骤](ticktick.md)
 - **Google Workspace**——Gmail、Drive、Docs、Sheets、Slides、Calendar，支持读取、写入和修改，[接入步骤](google-workspace.md)
 
-一个任务可以同时使用浏览器和这些服务。例如「找出所有店铺滞销的 SKU」可以这样安排：浏览器读取库存 → 生成 Google Sheet 报表 → 把摘要发到企业微信 → 在滴答清单里创建「下周降价」待办。全部集成见 [集成总览](integrations.md)。
+一个任务可以同时使用浏览器和这些服务。例如“找出所有店铺滞销的 SKU”可以这样安排：浏览器读取库存 → 生成 Google Sheet 报表 → 把摘要发到企业微信 → 在滴答清单里创建「下周降价」待办。全部集成见 [集成总览](integrations.md)。
 
 ## 支持的平台
 

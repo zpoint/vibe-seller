@@ -94,7 +94,7 @@ Data.
 **Does Re-run throw away the report it already downloaded?**
 Yes. **Re-run** clears this task's conversation and working directory, and the
 files it produced go with it. To build on the last result, use **Continue** or
-just send a follow-up, e.g. "re-summarise the US file by SKU".
+just send a follow-up, e.g. “re-summarise the US file by SKU”.
 [Continue, retry, stop, delete](using-tasks.md#continue-retry-stop-delete) covers
 the difference.
 

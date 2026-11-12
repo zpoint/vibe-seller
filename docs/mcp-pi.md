@@ -26,7 +26,7 @@ pi mcp add vibe-seller --url http://localhost:7777/api/mcp --header "Authorizati
 
 ## 确认接好了
 
-新建一个对话，问「现在 vibe-seller 里有几个店铺？」，它把你的店铺列出来
+新建一个对话，问“现在 vibe-seller 里有几个店铺？”，它把你的店铺列出来
 就接好了。也可以在终端执行 `pi mcp list`，看到
 `vibe-seller: connected, 32 tools` 说明已经连上。
 

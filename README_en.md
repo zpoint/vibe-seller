@@ -170,8 +170,8 @@ no code:
 - **TickTick / Dida365** — auto-create todos (follow-ups, order tracking, periodic checks). [Setup guide](docs/ticktick.en.md)
 - **Google Workspace** — Gmail, Drive, Docs, Sheets, Slides, Calendar — read, write, edit. [Setup guide](docs/google-workspace.en.md)
 
-A single task can mix browser + service calls. e.g. *"Find all
-slow-moving SKUs across stores"* → browser pulls inventory →
+A single task can mix browser + service calls. e.g. *“Find all
+slow-moving SKUs across stores”* → browser pulls inventory →
 generates a Google Sheet → posts a chat summary → drops a "price
 review next week" todo into TickTick. Start at the
 [Integrations overview](docs/integrations.en.md).

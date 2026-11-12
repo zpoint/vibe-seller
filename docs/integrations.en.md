@@ -48,7 +48,7 @@ Configuration lives in three places: `Settings → Integrations` (five cards, in
 
 ## AI image generation
 
-**What it is**: inside a task the AI can propose "make a lifestyle shot of this product" or "swap the background on this reference image". It runs on kie.ai's unified API (Nano Banana-class models), so one key reaches every model in the catalog.
+**What it is**: inside a task the AI can propose “make a lifestyle shot of this product” or “swap the background on this reference image”. It runs on kie.ai's unified API (Nano Banana-class models), so one key reaches every model in the catalog.
 
 **Where you set it up**: `Settings → AI → Vision (Image Generation)`. The card shows a status pill — "Not configured", or "Key set" with the last four characters. Its own wording: "kie.ai API key for AI product-image generation (Nano Banana). Required before the agent can generate main images or infographics." Paste the key into the masked field and hit **Save**. **Only an admin can set it**; everyone else sees "Only an admin can set the Vision API key."
 
@@ -64,7 +64,7 @@ With no key, the image tool isn't offered to the agent at all — asked for an i
 
 They don't compete; the usual pattern is stacking them in a single scheduled task, for example a Monday-morning one:
 
-> "Go through last week's buyer mail for the acme store, pull out negative reviews and refund requests; for the SKUs with ads running, check that search term's spend and conversions in the ads console; post the conclusion to the WeCom group and put anything that needs following up into TickTick."
+> “Go through last week's buyer mail for Store A, pull out negative reviews and refund requests; for the SKUs with ads running, check that search term's spend and conversions in the ads console; post the conclusion to the WeCom group and put anything that needs following up into TickTick.”
 
 That single task uses: the store's linked **mailbox** (read) → the **Ads API** (through this store's own authorization) → a **chat bot** (push the summary) → **TickTick** (write the to-dos).
 

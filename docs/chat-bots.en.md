@@ -8,7 +8,7 @@ Connect a group chat bot in Vibe Seller and task results, reports and
 alerts land in the group chat — no more copy-pasting. WeCom (企业微信),
 DingTalk (钉钉), Feishu / Lark (飞书) and Slack are all supported.
 
-Once it is connected, say "send this weekly report to the ops group" —
+Once it is connected, say “send this weekly report to the ops group” —
 to a task, or as a follow-up — and the message goes out. To check a
 setup any time, hit **Test**. The bot only posts outward; reading the
 group back isn't wired up.
@@ -115,8 +115,8 @@ too if you no longer want it.
 
 1. Press **Test** — the group shows
    `Vibe Seller: chat bot connection test ✅`.
-2. Then run a real task: when creating it, say "when done, send the
-   result to the ops group", or send the same as a follow-up message
+2. Then run a real task: when creating it, say “when done, send the
+   result to the ops group”, or send the same as a follow-up message
    once the task finishes. The task's agent posts through the bot (on
    WeCom it can attach report files too).
 

@@ -33,8 +33,8 @@ only results the task really produced
 
 ## Check it works
 
-Open a new Code session and ask "how many stores are in vibe-seller right
-now?". If it names your stores, you're connected. From a terminal,
+Open a new Code session and ask “how many stores are in vibe-seller right
+now?”. If it names your stores, you're connected. From a terminal,
 `claude mcp list` should show `vibe-seller` with `✓ Connected`.
 
 ![vibe-seller's tools in the Claude Code tab](images/mcp_claude_verify_en.png)

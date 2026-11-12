@@ -38,8 +38,8 @@ Working notes:
 ![The Knowledge page: built-in skills, project knowledge, local knowledge and per-store files, with the selected file previewed on the right](images/knowledge-app-page_en.png)
 
 **The easiest habit is the AI Chat mode**: tell the assistant things like
-"our US store ships with FedEx, DHL for international" or "Store Alpha's
-seller account email is ops@example.com" and it saves them into the right
+“our US store ships with FedEx, DHL for international” or “Store A's
+seller account email is ops@example.com” and it saves them into the right
 file, then uses them in every relevant task. Prefer typing it yourself?
 Switch to Files mode and edit the markdown directly.
 
@@ -107,10 +107,10 @@ hit **Sync built-in skills** in the panel manually).
 **Imported** (installed from a URL or an archive). Three ways to add your own:
 
 1. **Let the AI remember** — the recommended one: walk it through a procedure
-   once, then say "save this workflow as a skill so next time do it exactly
-   like this"; it writes the skill file and follows it in later tasks;
-2. **Ask in the Knowledge page's AI Chat** — e.g. "Create a skill for
-   checking inactive listings"; the assistant asks the few details it needs
+   once, then say “save this workflow as a skill so next time do it exactly
+   like this”; it writes the skill file and follows it in later tasks;
+2. **Ask in the Knowledge page's AI Chat** — e.g. “Create a skill for
+   checking inactive listings”; the assistant asks the few details it needs
    and writes it;
 3. **Click Create skill in the panel and write it** — it's a markdown file:
    a name plus a one-sentence description at the top (that sentence is how
