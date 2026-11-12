@@ -120,41 +120,45 @@ hit **Sync built-in skills** in the panel manually).
 Imported skills are badged as such — local edits may diverge from the original
 source.
 
-### Bring in a skill you already have
+### Import an existing skill
 
-Already wrote a skill for Codex, Claude or another tool? Don't rewrite it —
-install the whole folder. It shows up under **My Skills**, and later tasks load
-it automatically. Two ways:
+If you've already written a skill for Codex, Claude Code or another tool, you
+can import it into Vibe Seller as it is — no need to rewrite it. Imported skills
+appear under **My Skills**, and later tasks load them automatically.
 
-**Option 1: create a task to install it.** If the skill folder is on the
-machine that runs Vibe Seller, create a task (under **All stores** or any
-store) with a description like:
+There are two ways to import:
 
-> Install the skill at ~/.codex/skills/invoice-check on my computer into Vibe
-> Seller.
+**Import with a task**
 
-The task installs the whole folder as it is, including its scripts, templates,
-images and other files.
+For a skill folder on the machine that runs Vibe Seller. Create a task (under
+**All stores** or any store) and give the skill's path in the description, for
+example:
 
-**Option 2: say it in Codex / WorkBuddy.** If you've [connected MCP](mcp.md),
-say this in that tool's chat:
+> Import the skill at ~/.codex/skills/invoice-check into Vibe Seller.
 
-“Install my local invoice-check skill into Vibe Seller.”
+The task imports the whole folder, including its scripts, templates and images.
 
-It packs the skill folder and uploads it to Vibe Seller. This way the skill
-doesn't have to be on the same machine as Vibe Seller.
+**Import over MCP**
 
-For both:
+For AI tools [connected over MCP](mcp.md), such as Codex or WorkBuddy. In that
+tool's chat, send:
 
-- The folder must contain a `SKILL.md`; the skill's name comes from the `name`
-  at its top;
-- If **My Skills** already has a skill with that name, it isn't overwritten
-  silently — you're asked whether to replace it first;
-- It can't share a name with a built-in skill — built-ins are read-only, so
-  just pick another name.
+“Import my local invoice-check skill into Vibe Seller.”
 
-Public skills on the web can be installed too: send the link to the assistant
-in the Knowledge page's **AI Chat** and ask it to install it from the URL.
+The AI tool packs the skill folder and uploads it. The skill doesn't need to be
+on the same machine as Vibe Seller.
+
+**Import rules**
+
+- The folder must have a `SKILL.md` at its root; the skill's name comes from
+  its `name` field;
+- If **My Skills** already has a skill with the same name, you're asked to
+  confirm before it is replaced;
+- A skill can't share a name with a built-in skill (built-ins are read-only);
+  rename it and import again.
+
+You can also send the link to a public skill in the Knowledge page's **AI
+Chat**, and the assistant installs it from that link.
 
 ## Limits and gotchas
 

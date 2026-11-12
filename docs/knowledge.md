@@ -111,33 +111,37 @@ Skill 是一份写给 AI 的操作手册（markdown 步骤说明，可以附带�
 
 「导入」的技能在本地编辑后可能与原始来源不再同步，面板里会标注。
 
-### 把你已有的 Skill 装进来
+### 导入已有的 Skill
 
-已经在 Codex、Claude 等工具里写好了 Skill，不用重写，整个文件夹装进来就行。装好后
-出现在「我的技能」里，之后的任务会自动加载。有两种方式：
+如果你已经在 Codex、Claude Code 等工具中编写了 Skill，可以直接导入 Vibe Seller，
+无需重新编写。导入后的 Skill 显示在「我的技能」中，后续任务会自动加载。
 
-**方式一：建一个任务让它装。** Skill 文件夹在运行 Vibe Seller 的这台电脑上时，直接
-新建一个任务（选「全部店铺」或任意店铺都可以），描述写：
+支持两种导入方式：
 
-> 把我电脑上 ~/.codex/skills/invoice-check 这个 skill 装到 Vibe Seller 里。
+**通过任务导入**
 
-任务会把整个文件夹原样装进来，包括里面的脚本、模板、图片等文件。
+适用于 Skill 文件夹位于运行 Vibe Seller 的电脑上。新建一个任务（「全部店铺」或任一
+店铺均可），在描述中写明 Skill 的路径，例如：
 
-**方式二：在 Codex / WorkBuddy 里说一句。** 已经[接入 MCP](mcp.md) 的话，在那个
-工具的对话里说：
+> 把 ~/.codex/skills/invoice-check 导入 Vibe Seller。
 
-“把我本地的 invoice-check 这个 skill 装到 Vibe Seller 里。”
+任务会完整导入整个文件夹，包括其中的脚本、模板和图片等文件。
 
-它会把 Skill 文件夹打包上传给 Vibe Seller。这种方式不要求 Skill 和 Vibe Seller 在
-同一台电脑上。
+**通过 MCP 导入**
 
-两种方式都要注意：
+适用于已[接入 MCP](mcp.md) 的 AI 工具，如 Codex、WorkBuddy。在该工具的对话中发送：
 
-- 文件夹里必须有 `SKILL.md`，Skill 的名称取自它开头写的 `name`；
-- 「我的技能」里已经有同名的 Skill 时，不会直接覆盖，会先问你是否替换；
-- 不能和内置 Skill 同名——内置 Skill 是只读的，换个名字即可。
+“把本地的 invoice-check skill 导入 Vibe Seller。”
 
-网上公开的 Skill 也可以装：在知识库的「AI 对话」里把链接发给助手，让它从 URL 安装。
+AI 工具会将 Skill 文件夹打包上传。这种方式不要求 Skill 与 Vibe Seller 在同一台电脑上。
+
+**导入规则**
+
+- 文件夹根目录需包含 `SKILL.md`，Skill 名称以其中的 `name` 为准；
+- 「我的技能」中已有同名 Skill 时，会先征求你的确认，再进行替换；
+- 不能与内置 Skill 同名（内置 Skill 为只读），请更换名称后再导入。
+
+此外，也可以在知识库的「AI 对话」中发送公开 Skill 的链接，由助手从该链接安装。
 
 ## 限制与注意
 
