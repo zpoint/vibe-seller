@@ -13,7 +13,7 @@ import { useIsMobile } from './hooks/useIsMobile'
 import { useMobileBackStack } from './hooks/useMobileBackStack'
 import { CreateTaskModal } from './components/CreateTaskModal'
 import { CreateScheduleModal } from './components/CreateScheduleModal'
-import { UpdateAvailableModal } from './components/UpdateAvailableModal'
+import { UpdateFlow } from './components/UpdateFlow'
 import { TasksView } from './views/TasksView'
 import { WorkspaceView } from './views/WorkspaceView'
 import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
@@ -241,12 +241,7 @@ export default function App() {
       .catch(() => { setCurrentUser(null); setAuthChecked(true) })
   }, [])
 
-  const {
-    updateCheck, status: updateStatus, open: updateModalOpen,
-    openModal: openUpdateModal, closeModal: closeUpdateModal,
-    restart: restartUpdate, restartError: updateRestartError,
-    restartTimedOut: updateRestartTimedOut,
-  } = useUpdateFlow(currentUser)
+  const updateFlow = useUpdateFlow(currentUser)
 
   // Roll the session forward on activity and bounce to login on idle
   // expiry — only meaningful when auth is on (otherwise never 401s).
@@ -641,7 +636,7 @@ export default function App() {
         fetchingBrowsers={fetchingBrowsers} browserFetchError={browserFetchError} setBrowserFetchError={setBrowserFetchError}
         fetchBrowserProfiles={fetchBrowserProfiles} restartZiniao={restartZiniao} ziniaoRetried={ziniaoRetried}
         serverPlatform={serverPlatform} serverVersion={serverVersion} installId={installId}
-        updateStatus={updateStatus} onOpenUpdate={openUpdateModal}
+        updateStatus={updateFlow.status} onOpenUpdate={updateFlow.openModal}
         showAddAccount={showAddAccount} setShowAddAccount={setShowAddAccount}
         showAccountPassword={showAccountPassword} setShowAccountPassword={setShowAccountPassword}
         editingAccountId={editingAccountId} setEditingAccountId={setEditingAccountId}
@@ -798,17 +793,7 @@ export default function App() {
           isAdmin={currentUser?.role === 'admin'}
         />
       )}
-      {updateCheck && updateModalOpen && (
-        <UpdateAvailableModal
-          check={updateCheck}
-          status={updateStatus}
-          isAdmin={currentUser?.role === 'admin'}
-          onClose={closeUpdateModal}
-          onRestart={restartUpdate}
-          restartError={updateRestartError}
-          restartTimedOut={updateRestartTimedOut}
-        />
-      )}
+      <UpdateFlow flow={updateFlow} isAdmin={currentUser?.role === 'admin'} />
     </div>
   )
 }
