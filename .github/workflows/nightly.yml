@@ -280,13 +280,7 @@ jobs:
           else
             INDEX=https://pypi.org/simple/vibe-seller/
           fi
-          for i in $(seq 1 60); do
-            if curl -fsS "$INDEX" | grep -qF "$VERSION"; then
-              echo "visible after ${i} tries"; exit 0
-            fi
-            sleep 2
-          done
-          echo "::error::$VERSION not on $INDEX after 120s"; exit 1
+          bash scripts/wait_for_index.sh "$INDEX" "$VERSION"
 
       - name: Stable installs still see a stable release
         if: needs.plan.outputs.target == 'pypi'
