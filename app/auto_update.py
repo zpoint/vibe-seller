@@ -330,7 +330,8 @@ async def _pypi_target(client: httpx.AsyncClient) -> str | None:
 
 
 def _prefetch_python() -> str:
-    """The interpreter for the prefetch's ephemeral env.
+    """The interpreter for the prefetch's ephemeral env (the macOS/Linux
+    path — Windows stages via the installer and never gets here).
 
     MUST NOT be this venv's own ``sys.executable``: ``uv tool run
     --python <a tool venv's python>`` installs INTO that venv
@@ -340,12 +341,38 @@ def _prefetch_python() -> str:
     venv's BASE interpreter produces the same wheel tags (same
     version/platform) so the cache still warms the real upgrade, and
     it is not an install target.
+
+    Candidates, in order: ``sys._base_executable`` (what venvs record;
+    only when it lives outside this venv), then the usual names under
+    ``<base_prefix>/bin`` — Homebrew/Debian/python.org bases often ship
+    ``python3`` or ``python3.X`` and no bare ``python``. Finding none
+    fails CLOSED (no interpreter outside the venv → no prefetch →
+    ``error`` state); it never falls back to the dangerous one.
     """
-    base = Path(sys.base_prefix)
-    exe = base / ('Scripts' / 'python.exe' if os.name == 'nt' else 'bin/python')
-    if exe.exists():
-        return str(exe)
-    return sys.executable
+    prefix = Path(sys.prefix).resolve()
+    candidates: list[str] = []
+    base_exe = getattr(sys, '_base_executable', '') or ''
+    if base_exe:
+        candidates.append(base_exe)
+    bin_dir = Path(sys.base_prefix) / 'bin'
+    ver = f'python{sys.version_info[0]}.{sys.version_info[1]}'
+    candidates += [str(bin_dir / n) for n in (ver, 'python3', 'python')]
+    for cand in candidates:
+        try:
+            resolved = Path(cand).resolve()
+        except OSError:
+            continue
+        if not resolved.exists():
+            continue
+        if resolved.is_relative_to(prefix):
+            # Inside the tool venv — exactly the interpreter that must
+            # never be handed to `uv tool run`.
+            continue
+        return str(resolved)
+    raise RuntimeError(
+        'no base interpreter found for the prefetch (refusing to '
+        'use the installed tool venv python)'
+    )
 
 
 def _prefetch_unix(version: str) -> None:
@@ -555,13 +582,13 @@ async def _watch_unix_upgrade(target: str) -> None:
             logger.warning(
                 'auto-update applied %s — restarting the server now', on_disk
             )
-            upgrade_restart.request_restart()
+            upgrade_restart.request_restart(on_disk)
             return
         if proc is not None and proc.poll() is not None:
             rc = proc.returncode
             on_disk = await asyncio.to_thread(upgrade_restart.installed_version)
             if on_disk and on_disk != loaded:
-                upgrade_restart.request_restart()
+                upgrade_restart.request_restart(on_disk)
                 return
             exc = RuntimeError(
                 f'vibe-seller upgrade exited {rc}: {_upgrade_log_tail()}'

@@ -139,3 +139,36 @@ class TestFetchReleaseNotes:
 
         async with _client(handler) as client:
             assert await uc.fetch_release_notes(client, '0.6.0') == []
+
+
+class TestFileUrlSource:
+    """Review NIT 9: file:// is a local path, not something httpx can
+    fetch — both mock hooks must strip the scheme and read the file."""
+
+    @pytest.mark.asyncio
+    async def test_pypi_json_accepts_file_url(self, tmp_path, monkeypatch):
+        src = tmp_path / 'pypi.json'
+        src.write_text('{"info": {"version": "9.9.9"}}', encoding='utf-8')
+        monkeypatch.setenv('VIBE_SELLER_PYPI_JSON_URL', f'file://{src}')
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _r: (_ for _ in ()).throw(AssertionError('no network'))
+            )
+        ) as client:
+            assert await uc.fetch_latest_pypi_version(client) == '9.9.9'
+
+    @pytest.mark.asyncio
+    async def test_releases_accept_file_url(self, tmp_path, monkeypatch):
+        src = tmp_path / 'rel.json'
+        src.write_text(
+            '[{"tag_name": "v0.7.0", "body": "b", "html_url": "u"}]',
+            encoding='utf-8',
+        )
+        monkeypatch.setenv('VIBE_SELLER_GITHUB_RELEASES_URL', f'file://{src}')
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _r: (_ for _ in ()).throw(AssertionError('no network'))
+            )
+        ) as client:
+            notes = await uc.fetch_release_notes(client, '0.6.0')
+        assert [n['version'] for n in notes] == ['0.7.0']

@@ -76,14 +76,26 @@ def pypi_json_source() -> str:
     return Options.PYPI_JSON_URL.get().strip() or PYPI_JSON_URL
 
 
+def _local_path(src: str) -> str | None:
+    """The local filesystem path behind *src*, or None if it is an
+    http(s) URL. ``file://`` is accepted (scheme stripped) — httpx
+    cannot fetch it, and a mock hook that took ``file://`` silently
+    falling back to the real index would be the worst outcome."""
+    if src.startswith('file://'):
+        return src[len('file://') :]
+    if not src.startswith(('http://', 'https://')):
+        return src
+    return None
+
+
 async def fetch_pypi_json(client: httpx.AsyncClient) -> dict:
     """The PyPI JSON document, from the URL or local path in
     ``pypi_json_source()``. Raises on any failure (callers swallow)."""
-    src = pypi_json_source()
-    if not src.startswith(('http://', 'https://', 'file://')):
-        text = await asyncio.to_thread(Path(src).read_text, encoding='utf-8')
+    path = _local_path(pypi_json_source())
+    if path is not None:
+        text = await asyncio.to_thread(Path(path).read_text, encoding='utf-8')
         return json.loads(text)
-    resp = await client.get(src, timeout=_FETCH_TIMEOUT_SECONDS)
+    resp = await client.get(pypi_json_source(), timeout=_FETCH_TIMEOUT_SECONDS)
     resp.raise_for_status()
     return resp.json()
 
@@ -131,8 +143,9 @@ async def _fetch_releases_json(client: httpx.AsyncClient) -> list:
     ``VIBE_SELLER_GITHUB_RELEASES_URL`` (mock hook, like the PyPI
     source above)."""
     src = Options.GITHUB_RELEASES_URL.get().strip() or GITHUB_RELEASES_URL
-    if not src.startswith(('http://', 'https://', 'file://')):
-        text = await asyncio.to_thread(Path(src).read_text, encoding='utf-8')
+    path = _local_path(src)
+    if path is not None:
+        text = await asyncio.to_thread(Path(path).read_text, encoding='utf-8')
         data = json.loads(text)
         return data if isinstance(data, list) else []
     resp = await client.get(

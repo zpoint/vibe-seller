@@ -220,3 +220,78 @@ describe('useUpdateFlow', () => {
     expect(result.current.status?.state).toBe('ready')
   })
 })
+
+// ── Review round 1 ────────────────────────────────────────────────
+import { GUIDE_SEEN_KEY } from '../hooks/useOnboardingGuide'
+
+describe('useUpdateFlow — review round 1', () => {
+  it('does not auto-pop over the first-run guide; pops once it is seen', async () => {
+    localStorage.removeItem(GUIDE_SEEN_KEY)
+    mockRoutes({
+      '/api/system/update-check': CHECK(),
+      '/api/system/update-status': STATUS({ state: 'ready' }),
+    })
+    const { result } = renderHook(() => useUpdateFlow(user))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50)
+    })
+    // The guide owns the fresh-install screen; the update waits.
+    expect(result.current.open).toBe(false)
+    localStorage.setItem(GUIDE_SEEN_KEY, new Date().toISOString())
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200)
+    })
+    expect(result.current.open).toBe(true)
+    localStorage.removeItem(GUIDE_SEEN_KEY)
+  })
+
+  it('a failed apply drops the overlay and shows the error', async () => {
+    let statusState = 'ready'
+    mockRoutes({
+      '/api/system/update-check': CHECK(),
+      '/api/system/update-status': () => STATUS({ state: statusState }),
+      '/api/system/update/restart': {},
+    })
+    const { result } = renderHook(() => useUpdateFlow(user))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50)
+    })
+    await act(async () => {
+      await result.current.restart()
+    })
+    expect(result.current.status?.state).toBe('restarting')
+    // The upgrade child fails; the server stays up reporting error.
+    statusState = 'error'
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500)
+    })
+    expect(result.current.status?.state).toBe('error')
+    // The modal is still up (userOpen) and shows the error, not a
+    // spinner.
+    expect(result.current.open).toBe(true)
+  })
+
+  it('other tabs reload when the server comes back on a new version', async () => {
+    let current = '0.1.0'
+    mockRoutes({
+      '/api/system/update-check': CHECK(),
+      '/api/system/update-status': () =>
+        STATUS({ state: 'idle', current_version: current }),
+    })
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, reload },
+    })
+    renderHook(() => useUpdateFlow(user))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50)
+    })
+    expect(reload).not.toHaveBeenCalled()
+    current = '0.3.2'
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11_000)
+    })
+    expect(reload).toHaveBeenCalled()
+  })
+})

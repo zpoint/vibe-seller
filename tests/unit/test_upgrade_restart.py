@@ -161,3 +161,23 @@ def test_the_restart_is_reported(monkeypatch):
             },
         )
     ]
+
+
+def test_request_restart_is_idempotent_and_names_the_target(monkeypatch):
+    # Review SHOULD 5: the auto-update watcher and check_once can both
+    # see the same disk change. The first caller owns the restart; a
+    # second is a no-op (one event, one SIGTERM), and the target is
+    # recorded so the log line / event never says None.
+    events = []
+    monkeypatch.setattr(
+        upgrade_restart.telemetry,
+        'send',
+        lambda e, p=None: events.append((e, dict(p or {}))),
+    )
+    with patch.object(upgrade_restart.os, 'kill') as kill:
+        upgrade_restart.request_restart('3.1.0')
+        upgrade_restart.request_restart('3.1.0')
+    assert kill.call_count == 1
+    assert upgrade_restart.pending_version() == '3.1.0'
+    assert len(events) == 1
+    assert events[0][1]['to_version'] == '3.1.0'

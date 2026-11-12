@@ -407,7 +407,7 @@ class TestApplyRestart:
         monkeypatch.setattr(
             au.upgrade_restart,
             'request_restart',
-            lambda: restarts.append('restart'),
+            lambda version=None: restarts.append(version or 'restart'),
         )
         seen = {'n': 0}
 
@@ -426,7 +426,9 @@ class TestApplyRestart:
         # detached in its own session, logging under updates/.
         assert spawned['argv'][-1] == 'upgrade'
         assert spawned['kw']['start_new_session'] is True
-        assert restarts == ['restart']
+        # The watcher names the target it restarts onto (no "None" in
+        # the log or the restart event).
+        assert restarts == ['0.9.0']
         assert au.snapshot()['state'] == au.RESTARTING
 
     async def test_unix_upgrade_failure_keeps_serving_and_sends_event(
@@ -447,7 +449,9 @@ class TestApplyRestart:
         )
         restarts: list = []
         monkeypatch.setattr(
-            au.upgrade_restart, 'request_restart', lambda: restarts.append(1)
+            au.upgrade_restart,
+            'request_restart',
+            lambda version=None: restarts.append(1),
         )
         events = _record_events(monkeypatch)
         au._update(state=au.READY, version='0.9.0')
@@ -470,3 +474,50 @@ class TestApplyRestart:
             e for e in events if e[0] == TelemetryEvent.UPDATE_RESTART_REQUESTED
         ]
         assert evs[0][1]['interrupted_tasks'] == '2+'
+
+
+class TestPrefetchPythonReview1:
+    """Review MUST 3: never fall back to the tool venv's own python."""
+
+    def test_base_python3_only_is_picked(self, monkeypatch, tmp_path):
+        prefix = tmp_path / 'toolvenv'
+        base = tmp_path / 'basepy'
+        (base / 'bin').mkdir(parents=True)
+        (prefix).mkdir()
+        only3 = base / 'bin' / 'python3'
+        only3.write_text('')
+        monkeypatch.setattr(au.sys, 'prefix', str(prefix))
+        monkeypatch.setattr(au.sys, 'base_prefix', str(base))
+        monkeypatch.delattr(au.sys, '_base_executable', raising=True)
+        # versioned name absent, python3 present → python3 wins
+        assert au._prefetch_python() == str(only3.resolve())
+
+    def test_base_executable_preferred_when_outside_venv(
+        self, monkeypatch, tmp_path
+    ):
+        prefix = tmp_path / 'toolvenv'
+        prefix.mkdir()
+        real = tmp_path / 'uv-python'
+        real.write_text('')
+        monkeypatch.setattr(au.sys, 'prefix', str(prefix))
+        monkeypatch.setattr(au.sys, '_base_executable', str(real))
+        assert au._prefetch_python() == str(real.resolve())
+
+    def test_candidate_inside_the_venv_is_skipped(self, monkeypatch, tmp_path):
+        prefix = tmp_path / 'toolvenv'
+        bin_dir = prefix / 'bin'
+        bin_dir.mkdir(parents=True)
+        inside = bin_dir / 'python3'
+        inside.write_text('')
+        monkeypatch.setattr(au.sys, 'prefix', str(prefix))
+        monkeypatch.setattr(au.sys, 'base_prefix', str(prefix))  # no venv
+        monkeypatch.setattr(au.sys, '_base_executable', str(inside))
+        with pytest.raises(RuntimeError, match='no base interpreter'):
+            au._prefetch_python()
+
+    def test_nothing_usable_fails_closed(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(au.sys, 'prefix', str(tmp_path / 'venv'))
+        monkeypatch.setattr(au.sys, 'base_prefix', str(tmp_path / 'missing'))
+        monkeypatch.delattr(au.sys, '_base_executable', raising=True)
+        with pytest.raises(RuntimeError, match='refusing'):
+            au._prefetch_python()

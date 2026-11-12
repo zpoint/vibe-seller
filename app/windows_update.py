@@ -309,14 +309,42 @@ def _prune_old_stages(keep: str) -> None:
         shutil.rmtree(entry, ignore_errors=True)
 
 
-def _download_stream(url: str, part: Path, progress) -> None:
-    """Stream *url* into *part*, resuming what is already there."""
+def _download_stream(
+    url: str, part: Path, progress, expected_size: int | None = None
+) -> None:
+    """Stream *url* into *part*, resuming what is already there.
+
+    A 416 (Range start at/after the asset's end — a part left over
+    from a changed asset, or already complete) or a part LONGER than
+    the expected size means the resume is not trustworthy: discard it
+    and start from zero, so one bad .part cannot wedge every future
+    cycle."""
     have = part.stat().st_size if part.exists() else 0
+    if expected_size is not None and have > expected_size:
+        part.unlink(missing_ok=True)
+        have = 0
     headers = {'User-Agent': 'vibe-seller'}
     if have:
         headers['Range'] = f'bytes={have}-'
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=600) as resp:  # noqa: S310
+    try:
+        resp = urllib.request.urlopen(req, timeout=600)  # noqa: S310
+    except urllib.error.HTTPError as exc:
+        if exc.code == 416 and have:
+            logger.info(
+                'stale .part (%d bytes) refused with 416; restarting '
+                'the download',
+                have,
+            )
+            part.unlink(missing_ok=True)
+            have = 0
+            req = urllib.request.Request(
+                url, headers={'User-Agent': 'vibe-seller'}
+            )
+            resp = urllib.request.urlopen(req, timeout=600)  # noqa: S310
+        else:
+            raise
+    with resp:
         status = getattr(resp, 'status', 200)
         total: int | None = None
         content_range = resp.headers.get('Content-Range') or ''
@@ -373,7 +401,7 @@ def stage_installer(offer: dict, progress=None) -> Path:
         if not complete_part:
             # A part at exactly the expected size is complete — asking
             # for bytes=<size>- would only earn an HTTP 416.
-            _download_stream(url, part, progress)
+            _download_stream(url, part, progress, size)
     else:
         src = Path(url)
         if not src.exists():
@@ -474,9 +502,25 @@ def run_installer(path: Path, *, mode: str = 'interactive') -> None:
                     args, creationflags=creationflags, close_fds=True
                 )
                 return
-            except PermissionError as exc:  # WinError 32 — briefly locked
-                # Other flags won't unlock it: sleep and retry next
-                # round.
+            except PermissionError as exc:
+                # ERROR_ACCESS_DENIED (winerror 5) on the BREAKAWAY
+                # attempt is the job object refusing the flag — not a
+                # locked file. Fall back to the plain detached flags
+                # immediately (retrying the same flags would only burn
+                # the loop).
+                if (
+                    i == 0
+                    and len(choices) > 1
+                    and getattr(exc, 'winerror', None) == 5
+                ):
+                    logger.info(
+                        'installer breakaway refused by the job '
+                        'object; launching plain-detached'
+                    )
+                    continue
+                # WinError 32 (sharing violation) — briefly locked by
+                # an AV scan or a racing handle. Other flags won't
+                # unlock it: sleep and retry next round.
                 last_exc = exc
                 logger.warning(
                     'installer launch locked (attempt %d): %s',
@@ -485,8 +529,8 @@ def run_installer(path: Path, *, mode: str = 'interactive') -> None:
                 )
                 break
             except OSError as exc:
-                # Breakaway refused (no job object / job disallows it):
-                # try the plain detached flags next.
+                # Any other refusal on the breakaway attempt (e.g.
+                # ERROR_NOT_SUPPORTED): try the plain flags next.
                 if i == 0 and len(choices) > 1:
                     logger.debug(
                         'installer breakaway refused (%s); retrying plain',

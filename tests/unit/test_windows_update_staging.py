@@ -262,3 +262,100 @@ class TestTrayReusesStage:
         ):
             wu.upgrade()
         dl.assert_called_once()
+
+
+class TestBreakawayFallbackReview1:
+    """Review MUST 2: ERROR_ACCESS_DENIED (winerror 5) on the breakaway
+    attempt is the job object refusing the FLAG — it must fall back to
+    the plain detached flags immediately, not be treated as a locked
+    file and retried against the same flags."""
+
+    def test_winerror5_on_breakaway_falls_back_to_plain(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(wu.sys, 'platform', 'win32')
+        seen: list[int] = []
+
+        def popen(args, creationflags=0, **_kw):
+            seen.append(creationflags)
+            if creationflags & wu.CREATE_BREAKAWAY_FROM_JOB:
+                err = PermissionError(5, 'Access is denied')
+                err.winerror = 5
+                raise err
+
+        with (
+            patch.object(wu.subprocess, 'Popen', side_effect=popen),
+            patch.object(wu.time, 'sleep') as sleep,
+        ):
+            wu.run_installer(tmp_path / 's.exe', mode='silent')
+        assert len(seen) == 2
+        assert seen[0] & wu.CREATE_BREAKAWAY_FROM_JOB
+        assert not seen[1] & wu.CREATE_BREAKAWAY_FROM_JOB
+        sleep.assert_not_called()  # immediate fallback, no retry sleep
+
+    def test_winerror32_still_retries_with_sleep(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(wu.sys, 'platform', 'win32')
+        calls: list[int] = []
+
+        def popen(args, creationflags=0, **_kw):
+            calls.append(creationflags)
+            if len(calls) < 3:
+                err = PermissionError(32, 'in use')
+                err.winerror = 32
+                raise err
+
+        with (
+            patch.object(wu.subprocess, 'Popen', side_effect=popen),
+            patch.object(wu.time, 'sleep'),
+        ):
+            wu.run_installer(tmp_path / 's.exe')
+        # Locked: only the first flag-set is attempted per round.
+        assert all(c & wu.CREATE_BREAKAWAY_FROM_JOB for c in calls)
+        assert len(calls) == 3
+
+
+class TestBadPartCannotWedgeReview1:
+    """Review SHOULD 8: a 416 or an oversized part is discarded and the
+    download restarts from zero."""
+
+    def test_416_discards_part_and_refetches(self, staged_root, tmp_path):
+        # Serve the blob but refuse any Range with 416 (asset changed).
+        class Only416(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                if self.headers.get('Range'):
+                    self.send_error(416)
+                    return
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(_BLOB)))
+                self.end_headers()
+                self.wfile.write(_BLOB)
+
+            def log_message(self, *_a):
+                pass
+
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Only416)
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        try:
+            url = f'http://127.0.0.1:{server.server_address[1]}/x'
+            vdir = staged_root / '0.2.0'
+            vdir.mkdir(parents=True)
+            # A stale part LARGER than the asset — the resume could
+            # never succeed.
+            (vdir / wu.PART_NAME).write_bytes(_BLOB + b'garbage')
+            path = wu.stage_installer(_offer(url))
+            assert path.read_bytes() == _BLOB
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_oversized_part_never_requests_range(
+        self, staged_root, http_server
+    ):
+        vdir = staged_root / '0.2.0'
+        vdir.mkdir(parents=True)
+        (vdir / wu.PART_NAME).write_bytes(_BLOB + b'x' * 10)
+        _RangeHandler.seen_ranges = []
+        path = wu.stage_installer(_offer(http_server))
+        assert _RangeHandler.seen_ranges == []  # restarted from 0
+        assert path.read_bytes() == _BLOB
