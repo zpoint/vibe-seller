@@ -53,8 +53,9 @@ Each subscriber gets its own `asyncio.Queue`. Events are JSON-serialized with `t
 | `schedule_waiting_cancelled` | `schedule_id`, `task_id`, `store_id` | `fanout.py` |
 | `schedule_plan_ready` | `schedule_id`, `plan_version` | `claude_backend_hooks.py` |
 | `schedule_plan_timeout` | `schedule_id`, `task_id` | `plan_reaper.py` |
-| `ws_assistant_message` | `role`, `content` | `workspace_assistant.py` |
-| `ws_assistant_done` | (empty) | `workspace_assistant.py` |
+| `ws_assistant_message` | `session_key`, `role`, `content` | `workspace_assistant.py` |
+| `ws_assistant_turn_done` | `session_key` | `workspace_assistant.py` — per turn: the CLI's `result` arrived, the process stays alive |
+| `ws_assistant_done` | `session_key`, `return_code`, `interrupted?` | `workspace_assistant.py` — PROCESS exit only (stop, crash, stdin EOF) |
 | `ping` | (empty) | SSE keepalive |
 
 ### `task_created` — live task list

@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { REMARK_PLUGINS } from '../../lib/markdownPlugins'
 import type { Components } from 'react-markdown'
 
 // Primary agent voice: 16px prose with relaxed leading — the focal
@@ -87,7 +87,7 @@ function MessageBubbleView({ role, content, onOpenVisionSetup }: MessageBubblePr
   return (
     <div className="min-w-0">
       <div className={`ph-sensitive text-gray-800 ${PROSE}`}>
-        <Markdown remarkPlugins={[remarkGfm]} components={components}>{content}</Markdown>
+        <Markdown remarkPlugins={REMARK_PLUGINS} components={components}>{content}</Markdown>
       </div>
       {isStreaming && (
         <span className="inline-block w-1.5 h-[18px] bg-indigo-500 animate-pulse rounded-sm ml-0.5 align-text-bottom" />

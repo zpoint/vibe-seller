@@ -85,6 +85,11 @@ async def stop_assistant(
 async def get_status(
     _user: User = Depends(get_current_user),
 ):
-    """Check if the workspace assistant is running."""
-    running = ws_assistant_manager.is_running(_user.id)
-    return {'running': running}
+    """Assistant state — two facts, two fields: ``running`` is BUSY
+    with a turn (false once the reply is in) and ``alive`` is the
+    session process being up (it lives across turns, so the next
+    message reuses it — routinely alive while not running)."""
+    return {
+        'running': ws_assistant_manager.is_running(_user.id),
+        'alive': ws_assistant_manager.alive(_user.id),
+    }

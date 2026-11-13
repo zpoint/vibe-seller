@@ -533,7 +533,18 @@ export function useSSE({
             setWsAssistantMessages(p => [...p, { role: data.role, content: data.content }])
           }
         }
-        if (data.type === 'ws_assistant_done') {
+        // Turn end and process end are different events, and BOTH
+        // clear the running state: the live session's per-turn
+        // `ws_assistant_turn_done` normally ends a turn, and
+        // `ws_assistant_done` (process exit — stop, crash, or an
+        // older backend) is the backstop so the flag has one clear
+        // rule. `loadWsStructured` refreshes the file view after the
+        // assistant's edits — with a live session the process-exit
+        // event may never come, so the turn event must refresh too.
+        if (
+          data.type === 'ws_assistant_turn_done' ||
+          data.type === 'ws_assistant_done'
+        ) {
           if (setWsAssistantRunning) setWsAssistantRunning(false)
           if (loadWsStructured) loadWsStructured()
         }

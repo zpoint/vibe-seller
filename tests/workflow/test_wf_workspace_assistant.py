@@ -34,6 +34,11 @@ def mock_ws_assistant(monkeypatch):
         def is_running(self, user_id):
             return user_id in self._started
 
+        def alive(self, user_id):
+            # This fake has no turn events, so a started session is
+            # both busy and alive — the two facts the route reports.
+            return user_id in self._started
+
         def clear_history(self, user_id):
             self._messages.pop(user_id, None)
 

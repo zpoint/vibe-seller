@@ -601,7 +601,7 @@ by magic bytes) answers 415. `app/skill_uploads.py` owns every rule.
 |--------|------|-------------|
 | POST | `/api/workspace/assistant/message` | Send message to workspace AI assistant |
 | POST | `/api/workspace/assistant/stop` | Stop workspace assistant session |
-| GET | `/api/workspace/assistant/status` | Check if assistant is running |
+| GET | `/api/workspace/assistant/status` | Assistant state: `running` = busy with a turn, `alive` = session process up (alive while not running between turns) |
 
 ## `dida365_oauth.py` — TickTick/Dida365 Integration
 

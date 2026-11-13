@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { REMARK_PLUGINS } from '../lib/markdownPlugins'
 import type { UpdateCheckResult } from '../types'
 
 const PROSE =
@@ -106,7 +106,7 @@ export function ReleaseNotesSections({
                   v{item.version}
                 </span>
                 <div className={`min-w-0 flex-1 text-gray-600 ${PROSE}`}>
-                  <Markdown remarkPlugins={[remarkGfm]}>{body(pick(item))}</Markdown>
+                  <Markdown remarkPlugins={REMARK_PLUGINS}>{body(pick(item))}</Markdown>
                 </div>
               </li>
             ))}
@@ -135,7 +135,7 @@ export function ReleaseNotesSections({
                   v{item.version}
                 </span>
                 <div className={`min-w-0 flex-1 text-gray-600 ${PROSE}`}>
-                  <Markdown remarkPlugins={[remarkGfm]}>{body(item.text)}</Markdown>
+                  <Markdown remarkPlugins={REMARK_PLUGINS}>{body(item.text)}</Markdown>
                 </div>
               </li>
             ))}

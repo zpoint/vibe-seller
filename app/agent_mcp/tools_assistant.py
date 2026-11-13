@@ -8,9 +8,12 @@ persisted to the DB.
 
 This tool drives the SAME routes and reads the reply from the SAME
 stream: ``send`` subscribes before it sends, then waits (bounded, like
-``wait_task``) for the turn's messages and its ``ws_assistant_done``.
-``status`` reports whether the assistant is running plus the last
-reply it produced (held in memory by the manager — there is no DB to
+``wait_task``) for the turn's messages and its ``ws_assistant_turn_done``
+(the per-turn completion — the session's process stays alive across
+turns, so ``ws_assistant_done`` only fires when it exits). ``status``
+reports ``running`` (busy with a turn — false once the reply is in),
+``alive`` (the session process lives on, so the next send reuses it)
+and the last reply (held in memory by the manager — there is no DB to
 read it from); ``stop`` stops it.
 """
 
@@ -47,7 +50,10 @@ async def _collect_reply(session_key: str, timeout: float) -> dict:
 
     Subscribed BEFORE the message is sent (the caller's order), so a
     fast answer cannot slip between send and subscribe. Returns early
-    on ``ws_assistant_done``; on timeout returns whatever arrived.
+    on ``ws_assistant_turn_done`` (the turn's own completion — the
+    session process lives on) or on ``ws_assistant_done`` (the process
+    exited, with or without finishing the turn); on timeout returns
+    whatever arrived.
     """
     queue = event_bus.subscribe()
     messages: list[dict] = []
@@ -68,6 +74,12 @@ async def _collect_reply(session_key: str, timeout: float) -> dict:
             if data.get('session_key') != session_key:
                 continue
             etype = data.get('type')
+            if etype == 'ws_assistant_turn_done':
+                return {
+                    'done': True,
+                    'messages': messages,
+                    'return_code': None,
+                }
             if etype == 'ws_assistant_done':
                 return {
                     'done': True,
@@ -101,10 +113,11 @@ def _reply_text(messages: list[dict]) -> str | None:
     'reply, which it returns; a slow turn times out and the reply can '
     'be picked up with action=status. Only ONE send may be in flight '
     'per user at a time — a second send while one is still waiting '
-    'for its reply is refused. action=status reports whether '
-    'it is running and its last reply. action=stop halts it. The '
-    'assistant edits workspace files itself; it does not run store '
-    'tasks.',
+    'for its reply is refused. action=status reports running (busy '
+    'with a turn), alive (its session stays up between turns, so the '
+    'next send keeps context) and its last reply. action=stop halts '
+    'it. The assistant edits workspace files itself; it does not run '
+    'store tasks.',
     schema(
         {
             'action': {
@@ -211,7 +224,11 @@ async def workspace_assistant(ctx: McpContext, args: dict) -> dict:
         reply = _reply_text(outcome['messages'])
         result = {
             'ok': bool((sent or {}).get('ok')),
+            # Busy (a turn still awaits its result) — normally False
+            # here, the reply being in; the session process itself
+            # lives on (``alive``) so the next send reuses it.
             'running': manager.is_running(ctx.user.id),
+            'alive': manager.alive(ctx.user.id),
             'done': outcome['done'],
             'timed_out': not outcome['done'],
             'reply': reply,

@@ -32,14 +32,20 @@ class MockAssistantManager:
 
     ``reply_plan`` is a list of (delay, text) the fake session
     "streams": each is emitted as a ws_assistant_message, then a
-    ws_assistant_done closes the turn — the same events the real
-    WorkspaceAgentSession emits.
+    ws_assistant_turn_done closes the TURN — the same events the real
+    WorkspaceAgentSession emits. The PROCESS outlives the turn (the
+    real CLI keeps stdin open across turns): ``is_running`` reports
+    BUSY (a turn awaits its result) and ``alive`` reports process
+    liveness; ws_assistant_done fires only when stop() ends it. An
+    older fake exited after every turn, which hid the
+    per-turn-completion bug class from CI — keep the real lifecycle.
     """
 
     def __init__(self):
         self.reply_plan: list[tuple[float, str]] = [(0.0, 'Done')]
         self.never_finishes = False
         self._running: dict[str, bool] = {}
+        self._alive: dict[str, bool] = {}
         self._last_reply: dict[str, str] = {}
         self._send_locks: dict[str, asyncio.Lock] = {}
 
@@ -60,10 +66,14 @@ class MockAssistantManager:
     def is_running(self, user_id):
         return self._running.get(user_id, False)
 
+    def alive(self, user_id):
+        return self._alive.get(user_id, False)
+
     async def send_or_start(
         self, user_id, message, profile_id='default', system_prompt=''
     ):
         self._running[user_id] = True
+        self._alive[user_id] = True
         key = self.session_key(user_id)
 
         async def _turn():
@@ -79,10 +89,12 @@ class MockAssistantManager:
                 )
             if not self.never_finishes:
                 self._last_reply[user_id] = plan[-1][1]
+                # The turn is over — busy clears BEFORE the event, so
+                # a collector waking on it reads consistent state. The
+                # process lives on (the real CLI keeps stdin open).
                 self._running[user_id] = False
                 await event_bus.emit(
-                    'ws_assistant_done',
-                    {'session_key': key, 'return_code': 0},
+                    'ws_assistant_turn_done', {'session_key': key}
                 )
 
         asyncio.create_task(_turn())
@@ -90,7 +102,17 @@ class MockAssistantManager:
 
     async def stop(self, user_id):
         was = self._running.pop(user_id, False)
-        return was
+        alive = self._alive.pop(user_id, False)
+        if alive:
+            # Process end is its own event, separate from turn end.
+            await event_bus.emit(
+                'ws_assistant_done',
+                {
+                    'session_key': self.session_key(user_id),
+                    'return_code': 0,
+                },
+            )
+        return was or alive
 
 
 @pytest.fixture
@@ -200,6 +222,32 @@ class TestStatus:
         )
         assert after['running'] is False  # the turn finished
         assert after['last_reply'] == 'Done'
+
+    async def test_running_is_busy_and_alive_is_the_process(
+        self, admin_client, mock_ws_assistant
+    ):
+        """The two facts after a reply: NOT busy (the turn's result is
+        in) but ALIVE (the session's process lives on and the next
+        send reuses it). Pre-fix the single flag reported the process
+        and stayed True forever against the real CLI; an e2e-only mock
+        that exited after each turn hid that."""
+        await call_tool(
+            admin_client,
+            'workspace_assistant',
+            {'action': 'send', 'message': 'hello'},
+        )
+        after, _ = await call_tool(
+            admin_client, 'workspace_assistant', {'action': 'status'}
+        )
+        assert after['running'] is False  # not busy — reply is done
+        assert after['alive'] is True  # the live process awaits turns
+
+        await call_tool(admin_client, 'workspace_assistant', {'action': 'stop'})
+        stopped, _ = await call_tool(
+            admin_client, 'workspace_assistant', {'action': 'status'}
+        )
+        assert stopped['running'] is False
+        assert stopped['alive'] is False
 
 
 class TestStop:

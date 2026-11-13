@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { REMARK_PLUGINS } from '../lib/markdownPlugins'
 import { useTranslation } from 'react-i18next'
 import { read, utils } from 'xlsx'
 import { rawUrl } from '../lib/fileKind'
@@ -11,7 +11,7 @@ export function MarkdownView({ content }: { content: string }) {
   return (
     <div className="flex-1 overflow-y-auto bg-white">
       <div className={`${PROSE} p-6`}>
-        <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+        <Markdown remarkPlugins={REMARK_PLUGINS}>{content}</Markdown>
       </div>
     </div>
   )

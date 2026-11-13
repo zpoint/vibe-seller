@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { RefObject } from 'react'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { REMARK_PLUGINS } from '../lib/markdownPlugins'
 
 // Agents write question text with single "\n" line breaks (bullets,
 // bilingual sections, etc.). Markdown treats a single newline as a soft
@@ -67,7 +67,7 @@ export function QuestionBanner({
                     </span>
                   )}
                   <div className="text-sm font-medium text-gray-800 prose prose-sm max-w-none prose-p:my-1 prose-li:my-0.5 prose-ul:my-1 prose-headings:text-sm prose-headings:my-1">
-                    <Markdown remarkPlugins={[remarkGfm]}>
+                    <Markdown remarkPlugins={REMARK_PLUGINS}>
                       {preserveBreaks(q.question)}
                     </Markdown>
                   </div>
