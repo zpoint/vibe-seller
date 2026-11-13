@@ -416,14 +416,33 @@ def ensure_running(args: dict, want: str) -> str:
     port still DARK, this starts the server itself. There is no second
     copy to race at that moment, because nothing is answering: a dark
     port is the proof that the supervisor is not coming.
+
+    "Not `want` yet" is not that proof, and the two cases must not be
+    conflated: a supervised server that is answering — slowly booting,
+    crash-looping, or still serving the old version off a half-read
+    install — is a server the supervisor HAS. Starting beside it is the
+    bug, so this keeps waiting for it up to the health bound and lets
+    the caller's health check turn "never got there" into the recorded
+    failure. Dark is decided by `version_answered` returning nothing at
+    all, not by the version being wrong.
     """
     if args.get('supervisor') and not is_windows(args):
         if wait_for_version(args, want, SUPERVISOR_GRACE):
             return 'supervisor'
+        if version_answered(args):
+            _log(
+                f'supervisor {args["supervisor"]} has not reached {want} '
+                f'within the grace (answering {version_answered(args)}) — '
+                'the port is NOT dark, so the supervisor owns this '
+                'process; waiting for it up to the health bound'
+            )
+            wait_for_version(args, want)
+            return 'supervisor'
         _log(
             f'supervisor {args["supervisor"]} did not bring the server '
-            'back within the grace; starting it here (the port is dark, '
-            'so this is not a second copy)'
+            'back within the grace and nothing answers the port; '
+            'starting it here (a dark port is the proof there is no '
+            'second copy to race)'
         )
         start_server(args)
         return 'helper'

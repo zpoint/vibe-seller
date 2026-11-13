@@ -69,6 +69,13 @@ class Machine:
         #: the port after a stop is still dark. That ordering is what
         #: `supervisor` and `server` in the record are about.
         self._relaunch_armed = False
+        #: A supervised server the helper cannot move onto the new
+        #: version: it stays up and keeps answering THIS, whatever is on
+        #: disk (the slow boot, the crash loop, the unit that restarts on
+        #: its own schedule). `None` means no override — the machine
+        #: answers what it is really serving. The whole point of the
+        #: knob is that the port is NOT dark while `want` never arrives.
+        self.stuck_answer: str | None = None
         install = (
             [
                 str(self.app_dir / 'uv.exe'),
@@ -152,6 +159,8 @@ class Machine:
         return list(self.holders)
 
     def version_answered(self, args):  # noqa: ANN001
+        if self.stuck_answer is not None:
+            return self.stuck_answer
         if self._relaunch_armed:
             # The first look after a stop: the supervisor has not
             # relached yet, so the port really is dark.
@@ -653,3 +662,83 @@ class TestWhoRestartedIt:
         rec = helper.apply_update(win.args)
         assert rec['started_by'] == 'tray'
         assert 'tray.py' in ' '.join(win.starts[0])
+
+
+class TestDarkIsTheOnlyLicenceToStart:
+    """A grace expiring is NOT the proof the safety net asks for.
+
+    Review 3 bounds the mis-detection: after `SUPERVISOR_GRACE` with
+    the port still dark, the helper starts the server itself, because a
+    dark port proves no second copy exists to race. What the first
+    version of that branch actually tested was "the port is not
+    answering `want`" — and a supervised server that answers the OLD
+    version, or crash-loops, or boots slowly, is a server the
+    supervisor already owns. Starting beside it puts two servers on one
+    port, one of them outside the unit, its logs and its limits: the
+    exact bug review 2 MUST 2 exists to prevent. These pin the
+    difference — `version_answered` returning nothing, not the version
+    being wrong, is what lets this helper start anything.
+    """
+
+    def _world(self, posix, monkeypatch, answer):
+        """The decision on its own: probes recorded, the port's answer
+        fixed, no real wait and no real process."""
+        waits: list[float | None] = []
+        started: list[str] = []
+
+        def fake_wait(args, want, timeout=None):
+            waits.append(timeout)
+            return False
+
+        monkeypatch.setattr(helper, 'wait_for_version', fake_wait)
+        monkeypatch.setattr(helper, 'version_answered', lambda args: answer)
+        monkeypatch.setattr(
+            helper,
+            'start_server',
+            lambda args: started.append('started'),
+        )
+        return waits, started
+
+    def test_answering_the_wrong_version_leaves_it_to_the_supervisor(
+        self, posix, monkeypatch
+    ):
+        posix.args['supervisor'] = 'launchd'
+        waits, started = self._world(posix, monkeypatch, OLD)
+        who = helper.ensure_running(posix.args, NEW)
+        assert started == [], (
+            'started a second server beside one that was answering'
+        )
+        assert who == 'supervisor'
+        # The grace, then the health bound: the wait CONTINUES, which is
+        # what the caller's health check turns into a recorded failure
+        # if the supervisor never does move onto the new build.
+        assert waits == [helper.SUPERVISOR_GRACE, None], waits
+
+    def test_nothing_answering_at_all_is_started_here(self, posix, monkeypatch):
+        posix.args['supervisor'] = 'systemd'
+        waits, started = self._world(posix, monkeypatch, '')
+        who = helper.ensure_running(posix.args, NEW)
+        assert started == ['started'], 'left a dark machine dark'
+        assert who == 'helper'
+        assert waits == [helper.SUPERVISOR_GRACE], waits
+
+    def test_unsupervised_starts_without_reading_the_port(
+        self, posix, monkeypatch
+    ):
+        waits, started = self._world(posix, monkeypatch, '')
+        assert helper.ensure_running(posix.args, NEW) == 'helper'
+        assert started == ['started']
+        assert waits == []
+
+    def test_a_supervised_server_stuck_on_old_is_never_doubled(self, posix):
+        """The same decision inside a whole apply: the supervisor owns a
+        server that will not move onto the new build, so the health
+        check fails, the rollback runs, and nothing is ever started a
+        second time."""
+        posix.self_restart = False
+        posix.args['supervisor'] = 'launchd'
+        posix.stuck_answer = OLD
+        rec = helper.apply_update(posix.args)
+        assert rec['status'] == 'rolled_back', rec
+        assert posix.starts == [], 'two servers on one port'
+        assert posix.ran('tool install'), 'the rollback never ran'
