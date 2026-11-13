@@ -138,6 +138,12 @@ example:
 
 The task imports the whole folder, including its scripts, templates and images.
 
+![The finished task: the whole invoice-check folder imported, the script keeps its executable bit](images/skill_import_task_en.png)
+
+Once imported, it shows under **My Skills** with the **Imported** badge:
+
+![An imported skill under My Skills](images/skill_import_mine_en.png)
+
 **Import over MCP**
 
 For AI tools [connected over MCP](mcp.md), such as Codex or WorkBuddy. In that

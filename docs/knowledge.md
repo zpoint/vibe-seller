@@ -127,6 +127,12 @@ Skill 是一份写给 AI 的操作手册（markdown 步骤说明，可以附带�
 
 任务会完整导入整个文件夹，包括其中的脚本、模板和图片等文件。
 
+![任务完成：invoice-check 整个文件夹已导入，脚本保留可执行权限](images/skill_import_task_zh.png)
+
+导入后，「我的技能」里能看到它，带「导入」标记：
+
+![「我的技能」里的导入技能](images/skill_import_mine_zh.png)
+
 **通过 MCP 导入**
 
 适用于已[接入 MCP](mcp.md) 的 AI 工具，如 Codex、WorkBuddy。在该工具的对话中发送：
