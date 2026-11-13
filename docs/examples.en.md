@@ -1,5 +1,5 @@
 ---
-description: "Examples: five complete seller scenarios, step by step — where to click, what to paste, and what the finished run looks like. A daily inbox digest to WeCom, a weekly ACOS check, a listing sweep across every store, a daily sales report, and driving Vibe Seller from Claude or Codex."
+description: "Examples: five complete seller scenarios, step by step — where to click, what to paste, and what the finished run looks like. A daily inbox digest to WeCom, a weekly ACOS check, a listing sweep across every store, a daily sales report, and analysing 3 months of finances from Codex."
 ---
 
 # Examples
