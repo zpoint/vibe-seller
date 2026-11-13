@@ -7,9 +7,13 @@ what it does and, just as much, what it must not touch — code, block
 structure, and the CJK/Latin spaces that are wanted.
 """
 
+from pathlib import Path
+
 import pytest
 
 from docs_cjk import join_cjk_lines
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.unit
@@ -177,3 +181,29 @@ def test_joining_is_idempotent():
     src = '中文第一行，\n第二行继续。\n\n- 列表中文，\n  续行中文'
     once = join_cjk_lines(src)
     assert join_cjk_lines(once) == once
+
+
+@pytest.mark.unit
+def test_bold_question_joined_to_its_answer_keeps_its_markers_adjacent():
+    # A bold FAQ question over its answer is joined into
+    # 「**问题？**不会。」 — the closing ``**`` sits between punctuation
+    # and a CJK character. Python-Markdown renders that as bold; the
+    # site must not enable an emphasis extension that does not (see
+    # the next test).
+    out = join_cjk_lines('**它会不会改 Listing？**\n不会。')
+    assert out == '**它会不会改 Listing？**不会。'
+
+
+@pytest.mark.unit
+def test_site_does_not_enable_flanking_emphasis():
+    # pymdownx.betterem applies CommonMark-style flanking to ``**``: a
+    # closer preceded by punctuation and followed by a word character
+    # is not a closer, and CJK characters are word characters. With it
+    # on, every joined 「**问题？**答」 printed literal asterisks.
+    mkdocs_yml = (ROOT / 'mkdocs.yml').read_text(encoding='utf-8')
+    enabled = [
+        line.strip()
+        for line in mkdocs_yml.splitlines()
+        if line.strip().startswith('- pymdownx.')
+    ]
+    assert not any('betterem' in line for line in enabled)
