@@ -482,7 +482,7 @@ async def idle_tick(task_queue, agents) -> str:
     task_queue.pause_dispatch()
     started = False
     try:
-        if agents.live_agent_count():
+        if update_idle.live_agents(agents):
             return 'busy: an agent started during the check'
         logger.warning(
             'applying v%s automatically — the server is idle', st['version']

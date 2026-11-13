@@ -70,10 +70,6 @@ class Twist:
     new: tuple[str, ...]
 
 
-#: The idle check's first line, needed verbatim twice below.
-_LIVE_LINE = '    live = agents.live_agent_count()' + (
-    ' if agents is not None else 0'
-)
 
 TWISTS: tuple[Twist, ...] = (
     Twist(
@@ -107,14 +103,18 @@ TWISTS: tuple[Twist, ...] = (
         rel='app/update_idle.py',
         breaks='S2',
         why=(
-            'the idle check always answers idle, so an update restarts the '
-            "server in the middle of somebody's running task"
+            'the idle gate never sees a live task agent, so an update '
+            "restarts the server in the middle of somebody's running task"
         ),
-        old=(_LIVE_LINE,),
-        new=(
-            '    return Verdict(True)  # TWIST(ignore-idle): always idle',
-            _LIVE_LINE,
+        # The probe BOTH halves of the gate read (the decision and the
+        # re-check after dispatch is paused). Breaking only the first
+        # half is caught by the second, so S2 stayed green under the
+        # earlier form of this twist and proved nothing.
+        old=(
+            '    return agents.live_agent_count() if agents is not None '
+            'else 0',
         ),
+        new=('    return 0  # TWIST(ignore-idle): no agent is ever seen',),
     ),
     Twist(
         name='no-digest-check',

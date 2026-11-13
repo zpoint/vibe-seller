@@ -141,13 +141,24 @@ async def busy_task_count() -> int:
         return int(result.scalar() or 0)
 
 
+def live_agents(agents: Any = None) -> int:
+    """How many task agents are live right now.
+
+    The ONE probe both halves of the gate read: :func:`evaluate` before
+    the decision, and ``app.auto_update.idle_tick`` again after it has
+    paused dispatch. A gate whose two halves asked different questions
+    could have one of them wrong while the other kept every test green.
+    """
+    return agents.live_agent_count() if agents is not None else 0
+
+
 async def evaluate(agents: Any = None) -> Verdict:
     """Whether the server may restart itself right now.
 
     *agents* is the agent manager (anything with ``live_agent_count``);
     the caller passes the singleton so the policy stays testable.
     """
-    live = agents.live_agent_count() if agents is not None else 0
+    live = live_agents(agents)
     if live:
         return Verdict(False, f'{live} task agent(s) running')
     queued = await busy_task_count()
