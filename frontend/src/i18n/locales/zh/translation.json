@@ -592,7 +592,7 @@
       "hint_feishu": "群设置 → 群机器人 → 添加自定义机器人 → 复制 Webhook URL。Markdown 以卡片发送；20 KB 上限；每分钟 100 条；不支持发文件。",
       "hint_slack": "Slack 应用 → Incoming Webhooks → 复制 Webhook URL。Markdown 使用 Block Kit（12 000 字符）；不支持发文件。",
       "security": {
-        "titleRequired": "安全设置（必选其一）",
+        "titleRequired": "安全设置（至少选一项）",
         "titleOptional": "安全设置（可选）",
         "pickRequired": "平台要求机器人至少设置其中一种，请选择你在平台上实际设置的那一项。",
         "needsSecret": "需要填写{{option}}的密钥：粘贴平台给出的 SEC… 字符串。",

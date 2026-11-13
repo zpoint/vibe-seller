@@ -75,8 +75,8 @@ differ only in where the entry lives and which security settings exist.
     ![Adding a bot: pasting the WeCom webhook URL](images/chatbots_form_wecom_en.png)
 
 3. The form below shows ONLY that platform's own security settings.
-   DingTalk gets "Security settings (required — pick one)" — tick the
-   setting you actually configured (every one the robot uses, if it
+   DingTalk gets "Security settings (pick at least one)" — tick at least
+   the setting you actually configured (every one the robot uses, if it
    combines them) and only the ticked option's field appears. Feishu
    gets "Security settings (optional)" where ticking an option reveals
    its field; WeCom and Slack have no security section at all:

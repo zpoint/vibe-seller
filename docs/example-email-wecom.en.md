@@ -40,7 +40,7 @@ Click **Save**, then **Test** on that bot. The group receives
 `Vibe Seller: chat bot connection test ✅`, which means the address works.
 
 DingTalk and Feishu forms also show that platform's own security settings —
-DingTalk requires one of them, Feishu's are all optional; see
+DingTalk requires at least one of them, Feishu's are all optional; see
 [Add the bot in Vibe Seller](chat-bots.md#add-the-bot-in-vibe-seller).
 
 ## 2. Add the mailbox

@@ -43,9 +43,10 @@ Good to know:
    click **Add Bot**;
 2. Enter a **name** (e.g. "Ops alerts") and paste the **Webhook URL** you
    just copied — the platform is detected as DingTalk and a "Security
-   settings (required — pick one)" section appears. Tick the setting you
-   actually configured in the group; only the ticked option's field shows
-   (tick every one the robot uses — DingTalk checks each of them):
+   settings (pick at least one)" section appears. Tick at least the
+   setting you actually configured in the group; only the ticked option's
+   field shows (tick every one the robot uses — DingTalk checks each of
+   them):
    - **加签 (signed secret)**: paste the `SEC…` secret;
    - **自定义关键词 (keyword)**: one of your keywords (messages without it
      are appended automatically by the server);

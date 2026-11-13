@@ -223,7 +223,7 @@ describe('ChatBotSection security settings', () => {
   )
 
   it.each([
-    [DINGTALK_URL, /required — pick one/],
+    [DINGTALK_URL, /pick at least one/],
     [FEISHU_URL, /optional/],
   ])('%s → security section titled %s', async (url, title) => {
     renderSection()

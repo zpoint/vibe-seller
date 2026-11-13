@@ -590,9 +590,9 @@
       "hint_feishu": "Group settings → Bots → Add custom bot (自定义机器人) → copy the Webhook URL. Markdown is sent as a card; 20 KB; 100 msgs/min; no file sending.",
       "hint_slack": "Slack app → Incoming Webhooks → copy the Webhook URL. Markdown uses Block Kit (12 000 chars); no file sending.",
       "security": {
-        "titleRequired": "Security settings (required — pick one)",
+        "titleRequired": "Security settings (pick at least one)",
         "titleOptional": "Security settings (optional)",
-        "pickRequired": "The platform only creates its robot with one of these — pick the setting you configured there.",
+        "pickRequired": "The platform only creates its robot with at least one of these — pick the setting you configured there.",
         "needsSecret": "{{option}} needs its key — paste the SEC… string the platform shows.",
         "needsKeyword": "{{option}} needs a keyword — enter one of the keywords set on the bot.",
         "option": {
