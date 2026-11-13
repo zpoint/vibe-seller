@@ -24,9 +24,13 @@ Two rules keep this useful:
   stopped matching would turn every "prove it can fail" run green, which
   is worse than having no twists at all. ``--list`` runs the same anchor
   check without touching anything, so a PR can self-test cheaply.
-* **One file per twist.** Each injection is one hunk in one file, so
-  ``git diff --stat`` after a run shows exactly what the job was built
-  from — and a red leg points at one decision, not a refactor.
+* **One file per twist.** Each injection touches one file — usually one
+  hunk, and more only when the decision itself is made in more than one
+  place (``ignore-idle``: the idle gate is a policy check AND a re-check
+  after dispatch is paused, and a twist that broke only one of them was
+  caught by the other and proved nothing). ``git diff --stat`` after a
+  run shows exactly what the job was built from, and a red leg points at
+  one decision, not a refactor.
 
 The patched tree is a BUGGY TREE, not a linted one: nothing is checked
 beyond "it still compiles", and the ``TWIST(<name>)`` comment on the
@@ -68,6 +72,12 @@ class Twist:
     #: LF one.
     old: tuple[str, ...]
     new: tuple[str, ...]
+    #: Further ``(old, new)`` hunks in the SAME file, each held to the
+    #: same exactly-once rule.
+    more: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = ()
+
+    def hunks(self) -> tuple[tuple[tuple[str, ...], tuple[str, ...]], ...]:
+        return ((self.old, self.new), *self.more)
 
 
 TWISTS: tuple[Twist, ...] = (
@@ -99,20 +109,24 @@ TWISTS: tuple[Twist, ...] = (
     ),
     Twist(
         name='ignore-idle',
-        rel='app/update_idle.py',
+        rel='app/auto_update.py',
         breaks='S2',
         why=(
-            'the idle gate never sees a live task agent, so an update '
-            "restarts the server in the middle of somebody's running task"
+            'the idle gate always says go, so an update restarts the '
+            "server in the middle of somebody's running task"
         ),
-        # The probe BOTH halves of the gate read (the decision and the
-        # re-check after dispatch is paused). Breaking only the first
-        # half is caught by the second, so S2 stayed green under the
-        # earlier form of this twist and proved nothing.
-        old=(
-            '    return agents.live_agent_count() if agents is not None else 0',
+        # Both halves of the gate in `idle_tick`: the policy verdict and
+        # the re-check after dispatch is paused. Each one alone blocks a
+        # running task (the policy also counts the task's RUNNING row),
+        # so breaking any single probe left S2 green and proved nothing.
+        old=('    if not verdict.idle:',),
+        new=('    if False:  # TWIST(ignore-idle): the policy is ignored',),
+        more=(
+            (
+                ('        if update_idle.live_agents(agents):',),
+                ('        if False:  # TWIST(ignore-idle): and the re-check',),
+            ),
         ),
-        new=('    return 0  # TWIST(ignore-idle): no agent is ever seen',),
     ),
     Twist(
         name='no-digest-check',
@@ -197,22 +211,22 @@ def check(twist: Twist) -> str | None:
     if not path.is_file():
         return f'{twist.rel} is not under {ROOT} — wrong checkout?'
     text, nl = _read(twist.rel)
-    old = nl.join(twist.old)
-    new = nl.join(twist.new)
-    if new in text:
-        return f'{twist.rel}: twist {twist.name} is ALREADY applied'
-    hits = text.count(old)
-    if hits == 0:
-        return (
-            f'{twist.rel}: the anchor {twist.old[0]!r} is not there — the '
-            'code moved. Point this twist at the new decision line; an '
-            'unmatched twist proves nothing.'
-        )
-    if hits > 1:
-        return (
-            f'{twist.rel}: the anchor occurs {hits} times — use a longer '
-            'anchor so the twist patches exactly one decision'
-        )
+    for old_lines, new_lines in twist.hunks():
+        old = nl.join(old_lines)
+        if nl.join(new_lines) in text:
+            return f'{twist.rel}: twist {twist.name} is ALREADY applied'
+        hits = text.count(old)
+        if hits == 0:
+            return (
+                f'{twist.rel}: the anchor {old_lines[0]!r} is not there — '
+                'the code moved. Point this twist at the new decision line; '
+                'an unmatched twist proves nothing.'
+            )
+        if hits > 1:
+            return (
+                f'{twist.rel}: the anchor occurs {hits} times — use a longer '
+                'anchor so the twist patches exactly one decision'
+            )
     return None
 
 
@@ -224,7 +238,9 @@ def apply(twist: Twist) -> int:
         return 1
     _out(f'== twist {twist.name} (breaks {twist.breaks})')
     text, nl = _read(twist.rel)
-    patched = text.replace(nl.join(twist.old), nl.join(twist.new), 1)
+    patched = text
+    for old_lines, new_lines in twist.hunks():
+        patched = patched.replace(nl.join(old_lines), nl.join(new_lines), 1)
     try:
         compile(patched, twist.rel, 'exec')
     except SyntaxError as exc:
