@@ -30,7 +30,7 @@ description: "示例：每天 09:00 检查邮箱，把需要回复的邮件、�
 - **名称**：填一个以后一眼认得出的名字，比如「运营群」；
 - **Webhook URL**：把群里复制的地址整段粘进去，平台会自动识别成 WeCom。
 
-![添加机器人：粘贴企业微信的 Webhook 地址，平台自动识别](images/chatbots_form_wecom_zh.png)
+![企业微信表单：名称 + Webhook URL，没有安全设置一栏，底部是保存/取消](images/chatbots_form_wecom_zh.png)
 
 点「保存」，再点这条机器人上的「测试」，群里出现
 `Vibe Seller: chat bot connection test ✅` 就说明通了。

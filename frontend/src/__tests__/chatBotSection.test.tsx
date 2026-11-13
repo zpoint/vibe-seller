@@ -232,9 +232,10 @@ describe('ChatBotSection', () => {
     expect(
       await screen.findByTestId('chat-bot-platform-badge'),
     ).toHaveTextContent('DingTalk')
-    // Per-platform hint replaces the generic one.
-    expect(screen.getByTestId('chat-bot-url-hint').textContent).toMatch(
-      /自定义机器人|Add robot/,
+    // Per-platform hint replaces the generic one — and says ONLY where
+    // to get the URL (the owner's spec, no platform trivia).
+    expect(screen.getByTestId('chat-bot-url-hint').textContent).toBe(
+      'Group settings → Bots → Add custom robot → copy the Webhook URL.',
     )
   })
 

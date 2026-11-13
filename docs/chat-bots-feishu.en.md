@@ -55,7 +55,7 @@ Good to know:
    - **IP 白名单 (IP whitelist)**: nothing to fill in — the allowlist is
      set in Feishu; this only records that you use it.
 
-   ![Adding a Feishu bot: optional security settings, 自定义关键词 ticked](images/chatbots_form_feishu_en.png)
+   ![The Feishu form: 自定义关键词 ticked under "Security settings (optional)", Save/Cancel at the bottom](images/chatbots_form_feishu_en.png)
 
 3. Click **Save** — the bot appears in the list;
 4. Click **Test** on the bot's row: a green line appears and the group

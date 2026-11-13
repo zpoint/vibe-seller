@@ -33,7 +33,7 @@ description: Slack 群机器人的创建步骤：新建 App、打开 Incoming We
 2. 填写**名称**（例如「运营告警」），把刚才复制的 **Webhook URL** 整段粘贴进去，
    平台会自动识别为 Slack——URL 本身就是凭证，表单没有安全设置一栏：
 
-   ![添加 Slack 机器人：粘贴 Incoming Webhook URL](images/chatbots_form_slack_zh.png)
+   ![Slack 表单：名称 + Webhook URL，没有安全设置一栏，底部是保存/取消](images/chatbots_form_slack_zh.png)
 
 3. 点击「保存」，机器人出现在列表里；
 4. 点击这条机器人上的「测试」，行下方出现绿色提示、频道里收到测试消息即为接通：

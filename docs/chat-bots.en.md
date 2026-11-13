@@ -70,9 +70,11 @@ differ only in where the entry lives and which security settings exist.
 
 2. Give it a **name** (e.g. "Ops Alerts") and paste the whole
    **Webhook URL**. The platform is detected from the URL and shown as
-   a badge, with a link to the platform's docs:
+   a badge; under it a one-line hint says where to copy the Webhook URL
+   from (e.g. DingTalk: "Group settings → Bots → Add custom robot →
+   copy the Webhook URL."), with a link to the platform's docs:
 
-    ![Adding a bot: pasting the WeCom webhook URL](images/chatbots_form_wecom_en.png)
+    ![The add-bot form: name + Webhook URL, no security section, Save/Cancel at the bottom](images/chatbots_form_wecom_en.png)
 
 3. The form below shows ONLY that platform's own security settings.
    DingTalk gets "Security settings (pick at least one)" — tick at least
@@ -89,7 +91,7 @@ differ only in where the entry lives and which security settings exist.
       fill in — the allowlist is set on the platform's side; ticking it
       records that you use it.
 
-    ![Adding a DingTalk bot: pick 加签 and paste the secret](images/chatbots_form_dingtalk_en.png)
+    ![The DingTalk form: 加签 ticked under "Security settings (pick at least one)", secret pasted, Save/Cancel at the bottom](images/chatbots_form_dingtalk_en.png)
 
 4. Click **Save**. The bot appears in the list with its platform badge,
    a "signed" tag and its keyword; the webhook URL is masked:

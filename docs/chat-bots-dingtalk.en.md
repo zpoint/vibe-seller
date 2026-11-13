@@ -53,7 +53,7 @@ Good to know:
    - **IP 地址段 (IP range)**: nothing to fill in — the range is set in
      DingTalk; this only records that you use it.
 
-   ![Adding a DingTalk bot: pick 加签 and paste the secret](images/chatbots_form_dingtalk_en.png)
+   ![The DingTalk form: 加签 ticked under "Security settings (pick at least one)", secret pasted, Save/Cancel at the bottom](images/chatbots_form_dingtalk_en.png)
 
 3. Click **Save** — the list row shows the platform badge, whether the bot
    is signed, and its keyword;

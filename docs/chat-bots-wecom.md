@@ -35,7 +35,7 @@ description: 企业微信群机器人的创建步骤：内部群限制、消息�
    平台会自动识别为企业微信（WeCom）——Webhook 地址本身就是凭证，
    表单没有安全设置一栏：
 
-   ![添加机器人：粘贴企业微信 Webhook URL](images/chatbots_form_wecom_zh.png)
+   ![企业微信表单：名称 + Webhook URL，没有安全设置一栏，底部是保存/取消](images/chatbots_form_wecom_zh.png)
 
 3. 点击「保存」，机器人出现在列表里，Webhook 地址默认打码显示：
 

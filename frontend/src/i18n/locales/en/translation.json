@@ -585,10 +585,10 @@
       "webhookHint": "Paste a WeCom / DingTalk / Feishu / Slack bot webhook URL — the platform is detected automatically.",
       "platformDetecting": "Platform detected as you paste the URL",
       "docLink": "Setup docs",
-      "hint_wecom": "Group chat → Group assistant → Add a bot → copy the Webhook URL. The URL alone is the credential. Text 2 KB, markdown (reduced subset) 4 KB, files up to 20 MB.",
-      "hint_dingtalk": "Group settings → Bots → Add custom robot (自定义机器人) → copy the Webhook URL. Markdown gets a title; 20 KB; no file sending.",
-      "hint_feishu": "Group settings → Bots → Add custom bot (自定义机器人) → copy the Webhook URL. Markdown is sent as a card; 20 KB; 100 msgs/min; no file sending.",
-      "hint_slack": "Slack app → Incoming Webhooks → copy the Webhook URL. Markdown uses Block Kit (12 000 chars); no file sending.",
+      "hint_wecom": "Group chat → Add a group bot → copy the Webhook URL.",
+      "hint_dingtalk": "Group settings → Bots → Add custom robot → copy the Webhook URL.",
+      "hint_feishu": "Group settings → Bots → Add custom bot → copy the Webhook URL.",
+      "hint_slack": "Slack app → Incoming Webhooks → copy the Webhook URL.",
       "security": {
         "titleRequired": "Security settings (pick at least one)",
         "titleOptional": "Security settings (optional)",
@@ -610,13 +610,13 @@
         "hint": {
           "dingtalk": {
             "sign": "Paste the SEC… key from this robot's 安全设置 → 加签. Every message Vibe Seller sends is signed with it.",
-            "keyword": "Enter one of the robot's up to 10 keywords. A message that does not already contain one gets it appended, so the task's AI never has to know it.",
+            "keyword": "Enter one of the keywords set on the bot. A message that does not already contain one gets it appended by Vibe Seller.",
             "ip": "The range itself is set in DingTalk — 安全设置 → IP 地址（段） — so there is nothing to fill in here."
           },
           "feishu": {
-            "sign": "Paste the key from this bot's 安全设置 → 签名校验. Requests are signed with it plus a timestamp.",
-            "keyword": "Enter one of the bot's up to 10 keywords. Only messages containing one are delivered; Vibe Seller appends it when a message lacks it.",
-            "ip": "The whitelist itself is set in Feishu — 安全设置 → IP 白名单, an address or a segment — so there is nothing to fill in here."
+            "sign": "Paste the key from this bot's 安全设置 → 签名校验. Every message Vibe Seller sends is signed with it.",
+            "keyword": "Enter one of the keywords set on the bot. Vibe Seller appends it to messages that lack it.",
+            "ip": "The whitelist itself is set in Feishu — 安全设置 → IP 白名单 — so there is nothing to fill in here."
           }
         }
       },

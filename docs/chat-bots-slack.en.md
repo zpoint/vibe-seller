@@ -38,7 +38,7 @@ Good to know:
    just copied — the platform is detected as Slack; the URL alone is the
    credential, so the form has no security section.
 
-   ![Adding a Slack bot: pasting the Incoming Webhook URL](images/chatbots_form_slack_en.png)
+   ![The Slack form: name + Webhook URL, no security section, Save/Cancel at the bottom](images/chatbots_form_slack_en.png)
 
 3. Click **Save** — the bot appears in the list;
 4. Click **Test** on the bot's row: a green line appears and the channel

@@ -587,10 +587,10 @@
       "webhookHint": "粘贴企业微信 / 钉钉 / 飞书 / Slack 的机器人 Webhook URL，平台会自动识别。",
       "platformDetecting": "粘贴 URL 后自动识别平台",
       "docLink": "配置文档",
-      "hint_wecom": "群聊 → 添加群机器人 → 复制 Webhook URL。Webhook 本身就是凭证。支持文本（2 KB）、Markdown（精简子集，4 KB）和最大 20 MB 的文件。",
-      "hint_dingtalk": "群设置 → 机器人 → 添加自定义机器人 → 复制 Webhook URL。Markdown 会自动生成标题；20 KB 上限；不支持发文件。",
-      "hint_feishu": "群设置 → 群机器人 → 添加自定义机器人 → 复制 Webhook URL。Markdown 以卡片发送；20 KB 上限；每分钟 100 条；不支持发文件。",
-      "hint_slack": "Slack 应用 → Incoming Webhooks → 复制 Webhook URL。Markdown 使用 Block Kit（12 000 字符）；不支持发文件。",
+      "hint_wecom": "群聊 → 添加群机器人 → 复制 Webhook URL。",
+      "hint_dingtalk": "群设置 → 机器人 → 添加自定义机器人 → 复制 Webhook URL。",
+      "hint_feishu": "群设置 → 群机器人 → 添加自定义机器人 → 复制 Webhook URL。",
+      "hint_slack": "Slack 应用 → Incoming Webhooks → 复制 Webhook URL。",
       "security": {
         "titleRequired": "安全设置（至少选一项）",
         "titleOptional": "安全设置（可选）",
@@ -612,13 +612,13 @@
         "hint": {
           "dingtalk": {
             "sign": "粘贴这个机器人「安全设置 → 加签」里 SEC 开头的密钥，Vibe Seller 发出的每条消息都会用它签名。",
-            "keyword": "输入机器人最多 10 个关键词中的一个。消息本身不含关键词时，Vibe Seller 会自动补在末尾，任务里的 AI 不需要知道它是什么。",
+            "keyword": "输入你在机器人上设置的关键词之一。消息不含关键词时，Vibe Seller 会自动补在末尾。",
             "ip": "地址段在钉钉侧的「安全设置 → IP 地址（段）」里设置，这里不需要填写任何内容。"
           },
           "feishu": {
-            "sign": "粘贴这个机器人「安全设置 → 签名校验」里的密钥，请求会用它加时间戳一起签名。",
-            "keyword": "输入机器人最多 10 个关键词中的一个。只有包含关键词的消息才发得出去，不含时 Vibe Seller 会自动补上。",
-            "ip": "白名单在飞书侧的「安全设置 → IP 白名单」里设置（单个 IP 或网段），这里不需要填写任何内容。"
+            "sign": "粘贴这个机器人「安全设置 → 签名校验」里的密钥，Vibe Seller 发出的每条消息都会用它签名。",
+            "keyword": "输入你在机器人上设置的关键词之一。消息不含关键词时，Vibe Seller 会自动补上。",
+            "ip": "白名单在飞书侧的「安全设置 → IP 白名单」里设置，这里不需要填写任何内容。"
           }
         }
       },

@@ -34,7 +34,7 @@ Open **Settings → Integrations → Chat bots** and click **Add Bot**.
 - **Webhook URL**: paste the whole address you copied from the group — the
   platform is detected from it and shown as a WeCom badge.
 
-![Adding a bot: pasting the WeCom webhook URL](images/chatbots_form_wecom_en.png)
+![The WeCom form: name + Webhook URL, no security section, Save/Cancel at the bottom](images/chatbots_form_wecom_en.png)
 
 Click **Save**, then **Test** on that bot. The group receives
 `Vibe Seller: chat bot connection test ✅`, which means the address works.
