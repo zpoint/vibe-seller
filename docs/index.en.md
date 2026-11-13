@@ -161,31 +161,23 @@ a browser is involved or not.
 
 A few cross-border scenarios it's commonly used for:
 
-| Task | What happens |
-|---|---|
-| **Ad tuning** | Reads Campaign Manager, finds under- and over-spenders, proposes bid / budget changes, applies them with your approval. |
-| **Listing publication** | Creates new listings from a template — title, bullets, photos, A+ content, variations. |
-| **Listing audit** | Walks every store's catalog, flags suppressed / out-of-stock / inactive items. |
-| **Inventory check** | Pulls stock levels; low-stock SKUs get pushed to the group chat automatically. |
-| **Warehouse / inbound setup** | Creates inbound shipments, allocates SKUs to FBA / FBN, prints box labels. |
-| **Logistics lookup** | Tracks in-transit shipments, freight delivery, customs clearance; flagged shipments get filed as TickTick todos. |
-| **Invoices & reports** | Crawls tax docs, business reports, advertising reports; downloads are archived to Google Drive. |
-| **Email handling** | Sorts buyer messages, forwards important ones to the group chat, drafts replies. |
-| **Anything you add** | Write a Skill (a markdown file with steps) or teach the agent once — it'll remember next time. |
+| Task | What happens | Example |
+|---|---|---|
+| **Ad tuning** | Reads Campaign Manager, finds under- and over-spenders, proposes bid / budget changes, applies them with your approval. | [Analyse ad ACOS and apply fixes](example-ads-acos.en.md) |
+| **Listing publication** | Creates new listings from a template — title, bullets, photos, A+ content, variations. | |
+| **Listing audit** | Walks every store's catalog, flags suppressed / out-of-stock / inactive items. | [Weekly listing check](example-listing-check.en.md) |
+| **Inventory check** | Pulls stock levels; low-stock SKUs get pushed to the group chat automatically. | |
+| **Warehouse / inbound setup** | Creates inbound shipments, allocates SKUs to FBA / FBN, prints box labels. | |
+| **Logistics lookup** | Tracks in-transit shipments, freight delivery, customs clearance; flagged shipments get filed as TickTick todos. | |
+| **Invoices & reports** | Crawls tax docs, business reports, advertising reports; downloads are archived to Google Drive. | [Monthly sales report](example-daily-report.en.md) |
+| **Email handling** | Sorts buyer messages, forwards important ones to the group chat, drafts replies. | [Daily email digest to WeCom](example-email-wecom.en.md) |
+| **From other AI tools** | Say it in Codex, Claude and the like — Vibe Seller fetches the data from Seller Central, that tool's AI analyses it. | [Export a Ziniao store's finances with Codex](example-mcp.en.md) |
+| **Anything you add** | Write a Skill (a markdown file with steps) or teach the agent once — it'll remember next time. | |
 
 A single ad-tuning run is ≈ 3–5 minutes and costs about 0.15 USD in LLM tokens
-(DeepSeek, 10 or fewer campaigns; more campaigns cost more).
-
-**See it end to end** — each example has a description to copy, the
-settings screenshots and the finished result:
-
-- [Daily email digest to WeCom](example-email-wecom.en.md): reads the store's mailbox every day, posts what matters to the group and drafts replies;
-- [Analyse ad ACOS, get optimisation advice for anything above 30%, and apply it](example-ads-acos.en.md): lists the targets and search terms over the line, and applies the list once you confirm;
-- [Weekly listing check](example-listing-check.en.md): checks every store, then merges one cross-store issue list;
-- [Export last month's sales report every month and post it to the group](example-daily-report.en.md): one CSV per marketplace, posted with a summary;
-- [Export a Ziniao store's financial data with Codex and analyse it](example-mcp.en.md): one sentence in Codex — Vibe Seller downloads the reports, Codex analyses them.
-
-More in [All Examples](examples.en.md).
+(DeepSeek, 10 or fewer campaigns; more campaigns cost more). Every example has a
+description to copy, the settings screenshots and the finished result — see
+[All Examples](examples.en.md).
 
 ## Docs
 
