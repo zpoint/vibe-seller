@@ -37,6 +37,60 @@ $ProgressPreference    = "SilentlyContinue"  # faster Invoke-WebRequest
 
 function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 
+function Invoke-Native {
+  <#
+    Run an external and return {Text, Code} WITHOUT the error stream.
+
+    Two things fight here, and CI hides the first: `$ErrorActionPreference
+    = 'Stop'` does not make a nonzero native exit throw, but in Windows
+    PowerShell 5.1 a `2>&1` merge turns every stderr line into an
+    ErrorRecord in the ERROR stream, and under Stop the first one is
+    terminating — so `pnpm --version`, which exits 0 and merely warns,
+    killed a build at `NativeCommandError` before $LASTEXITCODE was read.
+    pwsh 7 renders the same warning without throwing, which is why the
+    workflow never showed this. So: relax Stop just for the call, then
+    judge the command by its exit code, which is the only honest signal.
+  #>
+  param([string]$Exe, [string[]]$CmdArgs = @())
+  $eap = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $raw = & $Exe @CmdArgs 2>&1
+  } finally {
+    $ErrorActionPreference = $eap
+  }
+  return @{ Text = @($raw | ForEach-Object { "$_" }); Code = $LASTEXITCODE }
+}
+
+function Invoke-Checked {
+  <#
+    The contract the pnpm steps were missing: a failed
+    `pnpm install --frozen-lockfile` printed
+    ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE and the build carried
+    on, zipping a wheel from whatever app/static the last successful run
+    had left behind. Exit code decides, with the command's own output
+    attached to the failure. (See Invoke-Native for why the merge is
+    done there and not inline.)
+  #>
+  param(
+    [string]$Exe,
+    [string[]]$CmdArgs = @(),
+    [string]$What
+  )
+  Write-Host "    \$ $Exe $($CmdArgs -join ' ')"
+  $r = Invoke-Native -Exe $Exe -CmdArgs $CmdArgs
+  $code = $r.Code
+  $text = $r.Text
+  if ($code -ne 0) {
+    $tail = ($text | Select-Object -Last 40) -join "`n"
+    throw "$What failed with exit code $code.`n--- last 40 lines of output ---`n$tail"
+  }
+  # Keep the log readable but never empty: the last lines are what a
+  # reviewer needs to tell "worked" from "worked differently".
+  ($text | Select-Object -Last 8) | ForEach-Object { Write-Host "    $_" }
+  return ($text -join "`n")
+}
+
 function Reset-Dir($path) {
   if (Test-Path $path) { Remove-Item -Recurse -Force $path }
   New-Item -ItemType Directory -Force -Path $path | Out-Null
@@ -82,11 +136,26 @@ Step ("Bundle pins: python $PyVersion ($PbsTag), git $GitVersion, " +
 function Build-Wheels {
   Step "Building frontend (pnpm) into app/static"
   Push-Location "$RepoRoot\frontend"
-  corepack enable
-  corepack prepare pnpm@latest --activate
-  pnpm install --frozen-lockfile
-  pnpm build
+  # pnpm@latest is the repo-wide convention (ci.yml, release.yml,
+  # nightly.yml all prepare it, because the lockfile is written by it and
+  # an older pnpm refuses that). It is a moving target, so it is echoed
+  # here and every step below is checked: `pnpm install --frozen-lockfile`
+  # has printed ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE on this
+  # host and the build went on to ship a stale app/static.
+  $null = Invoke-Checked 'corepack' @('enable') 'corepack enable'
+  $null = Invoke-Checked 'corepack' @('prepare', 'pnpm@latest', '--activate') `
+    'corepack prepare pnpm@latest --activate'
+  $pv = Invoke-Native 'pnpm' @('--version')
+  if ($pv.Code -ne 0) { throw "pnpm --version failed ($($pv.Code))" }
+  $pnpmVer = $pv.Text | Select-Object -First 1
+  Step "pnpm version: $pnpmVer"
+  $null = Invoke-Checked 'pnpm' @('install', '--frozen-lockfile') `
+    'pnpm install --frozen-lockfile'
+  $null = Invoke-Checked 'pnpm' @('build') 'pnpm build'
   Pop-Location
+  if (-not (Test-Path "$RepoRoot\frontend\dist\index.html")) {
+    throw "pnpm build left no frontend\dist\index.html — app/static would be empty"
+  }
   $static = "$RepoRoot\app\static"
   if (Test-Path $static) { Remove-Item -Recurse -Force $static }
   Copy-Item -Recurse "$RepoRoot\frontend\dist" $static
@@ -193,48 +262,67 @@ function Get-GitForWindows {
 }
 
 # -- 5. claude CLI (Anthropic native binary) --------------------------
-# LEAST-CERTAIN STEP: verify the install mechanism + resulting binary
-# path on the first CI run, then pin it here.
 function Get-ClaudeCli {
-  # Supply-chain note: this runs Anthropic's official installer — the
-  # documented native-install path — for the VERSION THE MANIFEST PINS.
-  # The installer fetches a checksummed binary from
-  # downloads.claude.ai/claude-code-releases/<version>/<platform>/
-  # claude.exe and verifies its sha256 against the release manifest,
-  # then runs `claude.exe install <version>`; the version is its
-  # positional $Target parameter, so it is invoked as a scriptblock
-  # (a pipeline into Invoke-Expression cannot carry arguments).
+  # Supply-chain note: we bundle the VERSION THE MANIFEST PINS, taken as
+  # a checksummed direct download from Anthropic's release store
+  # (downloads.claude.ai/claude-code-releases/<version>/win32-x64/), the
+  # same store the official installer script fetches from.
   #
   # Pinning is what makes this possible at all: with `latest`, every
   # release bundled a different claude.exe, so no two releases could
   # ever share a bundle fingerprint and the pip path would be dead on
   # arrival. Isolated in this function so it can be hardened on its own.
-  Step "Installing claude CLI $ClaudeVersion (native) and bundling it"
-  $claudeHome = "$env:TEMP\claude-home"
-  Reset-Dir $claudeHome
-  # The native installer drops claude.exe under the user profile, so
-  # redirect USERPROFILE to capture it — restore it afterwards so the
-  # override can't leak into later build steps in this session.
-  $origProfile = $env:USERPROFILE
+  #
+  # The hardening: fetch that exact binary ourselves and check it against
+  # the manifest checksum, instead of downloading `claude.ai/install.ps1`
+  # and executing it. Running a remote script we do not pin adds a
+  # third-party supply chain to a build that then re-verifies nothing, and
+  # the installer's own `claude.exe install <version>` step — unpacking
+  # under a redirected USERPROFILE — failed on the build host with
+  # "timeout of 10000ms exceeded", a failure the build could neither see
+  # nor act on. These are the same two URLs that installer uses, without
+  # the script and without the install step: what we need is the one
+  # self-contained binary. What lands in staging is unchanged.
+  Step "Fetching claude CLI $ClaudeVersion (checksummed download) and bundling it"
+  $claudeDir = "$env:TEMP\claude-fetch"
+  Reset-Dir $claudeDir
+  $base = 'https://downloads.claude.ai/claude-code-releases'
+  $plat = 'win32-x64'
+  $manifest = Invoke-RestMethod -Uri "$base/$ClaudeVersion/manifest.json"
+  $entry = $manifest.platforms.$plat
+  if (-not $entry -or -not $entry.binary -or -not $entry.checksum) {
+    throw "claude release $ClaudeVersion has no $plat binary+checksum in manifest.json"
+  }
+  # Invoke-WebRequest's progress bar costs minutes on a 350 MB binary.
+  $prog = $ProgressPreference
+  $ProgressPreference = 'SilentlyContinue'
   try {
-    $env:USERPROFILE = $claudeHome
-    $installer = Invoke-RestMethod -Uri 'https://claude.ai/install.ps1'
-    & ([scriptblock]::Create($installer)) $ClaudeVersion
-    if ($LASTEXITCODE -ne 0) {
-      throw "claude installer exited $LASTEXITCODE"
-    }
+    Invoke-WebRequest -Uri "$base/$ClaudeVersion/$plat/$($entry.binary)" `
+      -OutFile "$claudeDir\claude.exe"
   } finally {
-    $env:USERPROFILE = $origProfile
+    $ProgressPreference = $prog
   }
-  $bin = Get-ChildItem -Path $claudeHome -Recurse -Filter 'claude.exe' `
-    -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $bin) {
-    throw "claude.exe not found after install — inspect $claudeHome layout"
+  $bin = Get-Item "$claudeDir\claude.exe"
+  # Get-FileHash uppercases, the manifest is lowercase.
+  $actual = (Get-FileHash -Algorithm SHA256 $bin.FullName).Hash
+  if ($actual -inotmatch ('^' + [regex]::Escape($entry.checksum) + '$')) {
+    throw "claude.exe checksum mismatch for $ClaudeVersion ${plat}: " +
+      "manifest says $($entry.checksum), download is $actual"
   }
-  # The pin is only real if the bundled binary IS that version: an
-  # installer that ignored its argument would silently ship whatever
-  # was latest, and the fingerprint would name a claude nobody bundled.
-  $reported = & $bin.FullName --version 2>&1 | Select-Object -First 1
+  if ($entry.size -and $bin.Length -ne [long]$entry.size) {
+    throw "claude.exe is $($bin.Length) bytes, manifest says $($entry.size) " +
+      "for $ClaudeVersion $plat"
+  }
+  Write-Host "    sha256 $actual ($($bin.Length) bytes) matches the manifest"
+  # The pin is only real if the bundled binary IS that version: a build
+  # that grabbed `latest` would silently ship whatever was current, and
+  # the fingerprint would name a claude nobody bundled.
+  $cr = Invoke-Native $bin.FullName @('--version')
+  if ($cr.Code -ne 0) {
+    throw "claude.exe --version failed ($($cr.Code)) — " +
+      "cannot verify the pin reached the binary"
+  }
+  $reported = $cr.Text | Select-Object -First 1
   if ("$reported" -notmatch [regex]::Escape($ClaudeVersion)) {
     throw "bundled claude reports '$reported', not the pinned " +
       "$ClaudeVersion — the pin is not reaching the binary"
