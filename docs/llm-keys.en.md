@@ -35,7 +35,7 @@ this? Start with "Which provider?" below.
 
 | Your situation | Suggestion |
 |---|---|
-| First time, just want to try it | **DeepSeek**: sign up, top up a small amount, pay per use, no monthly fee |
+| First time, just want to try it | **DeepSeek**: sign up, top up a few dollars, pay per use, no monthly fee |
 | Claude Code on this machine is already signed in to a Claude subscription | **No key needed** — reuse it, see [Claude](#claude) |
 | Running every day, heavy usage, want it cheaper | Buy a **plan** (Token Plan / Coding Plan / M Plan) from one provider |
 | Your account is outside mainland China | Kimi, MiniMax, GLM, Qwen and MiMo all have international versions — just pick the "International" option (for MiMo: Singapore / Europe) |
