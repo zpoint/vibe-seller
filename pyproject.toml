@@ -282,6 +282,10 @@ classmethod-decorators = ["classmethod"]
 "app/skills_v2/**/scripts/*.py" = ["T20"]  # skill CLI tools print output
 "scripts/**/*.py" = ["T20"]
 "tests/**" = ["N", "B", "SIM"]
+# The release harness speaks to a log, not to a test: the leg transcript
+# is what a reviewer reads, and PowerShell pipes a child command's stdout
+# into it deliberately (see win_leg_harness.ps1:New-ChangedBundle).
+"tests/releases/*.py" = ["T20"]
 "tests/e2e/**" = ["T20", "E402", "PLC0415"]
 ".github/**" = ["N", "B", "SIM", "T20"]
 

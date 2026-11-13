@@ -64,6 +64,30 @@ on:
         required: false
         default: 'none'
         type: string
+      rehearse_gate:
+        description: >-
+          Also run the RELEASE GATE's Unix leg (the previous published
+          release on PyPI -> this commit's wheel, LEG=s9) in this
+          dispatch. It is the same leg pip-upgrade-gate.yml runs; that
+          workflow cannot be dispatched while it exists only on a
+          branch (GitHub answers HTTP 404 for a workflow file that is
+          not on the default branch), so this is the path on which the
+          gate's legs can be shown running before it ships.
+        required: false
+        default: false
+        type: boolean
+      gate_force:
+        description: >-
+          With rehearse_gate: fail on the gate's skip conditions instead
+          of skipping, so the leg is shown capable of going red.
+        required: false
+        default: false
+        type: boolean
+      prev_version:
+        description: 'Release to upgrade FROM (empty = newest stable on PyPI)'
+        required: false
+        default: ''
+        type: string
   pull_request:
     branches: [main]
     paths:
@@ -72,6 +96,7 @@ on:
       # rules, and everything that decides what is offered.
       - 'app/auto_update.py'
       - 'app/pip_update.py'
+      - 'app/apply_launch.py'
       - 'app/pip_apply_helper.py'
       - 'app/update_idle.py'
       - 'app/update_events.py'
@@ -296,3 +321,60 @@ jobs:
           fi
           echo "leg $LEG on port $PORT"
           LEG="$LEG" PORT="$PORT" bash tests/releases/test_auto_update.sh
+  # The release gate's Unix leg, on the one path that can run it today.
+  # `pip-upgrade-gate.yml` is what gates a release, and a workflow file
+  # that exists only on a branch cannot be dispatched — GitHub answers
+  # HTTP 404 until the file is on the default branch — so without this
+  # job the gate's legs would merge as code nobody has executed
+  # anywhere. Same script, same inputs, same legs; only the caller
+  # differs. `rehearse_gate` is false on every PR and every release, so
+  # this job does not exist for either.
+  gate-rehearsal:
+    name: gate rehearsal (published release -> candidate, pip path)
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.rehearse_gate == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      VIBE_SELLER_TELEMETRY: '0'
+      GATE_FORCE: ${{ github.event.inputs.gate_force }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install lsof
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y lsof
+
+      - name: The gate hop
+        env:
+          PREV_INPUT: ${{ github.event.inputs.prev_version }}
+        run: |
+          set -uo pipefail
+          prev="$PREV_INPUT"
+          if [ -z "$prev" ]; then
+            prev=$(python3 - <<'PY'
+          import json, urllib.request
+          print(json.load(urllib.request.urlopen(
+              'https://pypi.org/pypi/vibe-seller/json', timeout=30))['info']['version'])
+          PY
+          )
+          fi
+          echo "s9: the published $prev -> this checkout's build (GATE_FORCE=${GATE_FORCE:-false})"
+          LEG=s9 PORT=7931 PREV_V="$prev" bash tests/releases/test_auto_update.sh

@@ -26,14 +26,17 @@ name: Pip Upgrade Gate
 #     and a leg that clicked the #244 button instead would be testing
 #     #244, not this gate.
 #
-# WINDOWS: the same gate, for a Windows install, is what the
-# `auto-update` job of `windows-installer.yml` proves for every PR —
-# leg s3 installs the built bundle and requires a pip self-apply against
-# an identical `bundle.json`. Adding a "previous release's installer"
-# variant of it here would be scaffolding that cannot run until two
-# releases after this one ship the manifest, so it is deliberately not
-# written: an unrunnable leg is a leg nobody has seen fail, and this
-# repo's rule is that every guard is shown capable of failing.
+# WINDOWS: the job below, the same hop for an installer-built install.
+# `windows-installer.yml` leg s3 proves the pip path from a bundle THIS
+# RUN built, which is the right thing to prove about the mechanism and
+# the wrong thing to prove about a release: only the published
+# installer carries the `bundle.json` a customer's machine actually
+# compares against, so only a gate that installs the PREVIOUS release's
+# real `VibeSeller-Setup.exe` says anything about whether the next
+# release reaches Windows installs by itself. It cannot go green until
+# two releases after this one have shipped the manifest — which is
+# exactly when it starts mattering — and `force=true` is how it is
+# shown capable of failing before then.
 #
 # `force=true` (workflow_dispatch) runs the legs even when a skip
 # condition holds. They are then EXPECTED TO FAIL on exactly that
@@ -206,6 +209,12 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     env:
       VIBE_SELLER_TELEMETRY: '0'
+      # The leg's own skip is a fact about the previous release's WHEEL
+      # (no app/update_idle.py in it), which `decision` cannot see from
+      # the release assets alone — so the leg is told to fail instead of
+      # skip when the gate was forced, and `force=true` means the same
+      # thing on both platforms.
+      GATE_FORCE: ${{ inputs.force }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -235,3 +244,103 @@ jobs:
           echo "why this gate runs at all: $REASON"
           LEG=s9 PORT=7931 PREV_V="$PREV_V" \
             bash tests/releases/test_auto_update.sh
+
+  # Windows: the published installer, moved onto this commit's wheel by
+  # the update check running on that install. The Unix leg above proves
+  # the same hop for a `uv tool` install; on Windows the install the
+  # customer has is the one Inno laid down, with its own base python,
+  # its own uv and — the point of this job — the `bundle.json` that
+  # release put beside it. Nothing in this repo's own tree can answer
+  # "does the release an actual machine holds take the pip path", and
+  # `windows-installer.yml`'s s3, which upgrades from the installer this
+  # run just built, cannot answer it either: that installer is made from
+  # the same commit as the candidate, so its fingerprint matches by
+  # construction.
+  #
+  # Turns red under: `no-rollback`/`retry-bad` (the apply side and the
+  # refusal), `wrong-path` (a fabricated bundle would be pip-installed
+  # anyway), and `raw-fingerprint`, because the two sides of the
+  # comparison — the file the build wrote into the installer and the
+  # asset the release job published from a Linux runner — are then
+  # hashed with different line endings and the client reads
+  # "different runtime".
+  pip-path-windows:
+    name: previous release -> candidate, pip path (windows)
+    needs: decision
+    if: needs.decision.outputs.run == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      # VIBE_SELLER_AUTO_UPDATE and VIBE_SELLER_PORT reach both the
+      # daemon and the detached helper it spawns, because
+      # app/apply_launch.py copies them into the helper's argument
+      # document. VS_V2 is a candidate above every real release, so
+      # PyPI can never win a resolution and `is_newer` always sees an
+      # upgrade.
+      VIBE_SELLER_AUTO_UPDATE: '1'
+      VIBE_SELLER_PORT: '7794'
+      VIBE_SELLER_TELEMETRY: '0'
+      VS_V2: '99.9.9'
+      PREV_VERSION: ${{ needs.decision.outputs.prev }}
+      GATE_FORCE: ${{ inputs.force }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The candidate wheel is built from this tree with
+          # SETUPTOOLS_SCM_PRETEND_VERSION; the build backend still runs
+          # setuptools-scm, which needs the tags.
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: The gate hop
+        shell: pwsh
+        run: |
+          # One file, because the same leg has to be runnable from a
+          # workflow_dispatch that IS available during the PR: a
+          # workflow that exists only on a branch cannot be dispatched
+          # at all (GitHub answers HTTP 404 until the file lands on the
+          # default branch), so `windows-installer.yml`'s
+          # `gate-rehearsal` job runs this script too. That is what
+          # makes "the gate's Windows leg has never been executed" a
+          # claim this PR can disprove.
+          $t = $env:RUNNER_TEMP
+          $env:VIBE_HOME = "$t\vs-gate-home"
+          $env:VIBE_SELLER_RELEASES_URL = "$t\vs-gate-release.json"
+          $env:UV_FIND_LINKS = "$t\dist"
+          $env:VS_DIST = "$t\dist"
+          # An explicit policy: this shell would otherwise be
+          # governed by the machine's execution policy, which is
+          # not something a leg should have to know.
+          pwsh -NoProfile -ExecutionPolicy Bypass -File `
+            ./tests/releases/win_gate_leg.ps1
+
+      - name: Stop the leg's server + tray
+        if: always()
+        shell: pwsh
+        run: |
+          $install = "$env:LOCALAPPDATA\Programs\VibeSeller"
+          if (Test-Path "$install\.venv\Scripts\vibe-seller.exe") {
+            & "$install\.venv\Scripts\vibe-seller.exe" stop --port 7794 2>$null
+          }
+          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') -and
+              $_.ExecutablePath -and
+              $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+      - name: Upload the gate's forensics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-gate-windows
+          path: |
+            ${{ runner.temp }}\vs-gate-home
+            ${{ runner.temp }}\prev\bundle.json
+          if-no-files-found: ignore

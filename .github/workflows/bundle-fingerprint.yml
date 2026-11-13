@@ -67,6 +67,7 @@ on:
       # update's path, or move the fingerprint that chooses it.
       - 'app/auto_update.py'
       - 'app/pip_update.py'
+      - 'app/apply_launch.py'
       - 'app/pip_apply_helper.py'
       - 'app/update_idle.py'
       - 'app/update_events.py'
