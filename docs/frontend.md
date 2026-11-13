@@ -230,7 +230,8 @@ text goes in `groupLabel`. The frontend keeps no preset translation table, and
 | `agent_done` | Mark agent session complete |
 | `schedule_triggered` | Refresh schedule list |
 | `ws_assistant_message` | Append workspace assistant message |
-| `ws_assistant_done` | Mark assistant session complete |
+| `ws_assistant_turn_done` | TURN end — the assistant process lives across turns, so this is what clears `wsAssistantRunning` (composer back to Send, thinking indicator gone) and refreshes the workspace tree after the assistant's edits |
+| `ws_assistant_done` | PROCESS exit (stop/crash/EOF) — clears `wsAssistantRunning` too, as the backstop so the flag has one clear rule |
 | `event_created` / `event_updated` | Refresh event list |
 
 ## Development

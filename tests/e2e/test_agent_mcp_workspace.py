@@ -309,6 +309,57 @@ class TestWorkspaceAssistant:
         assert status['data']['running'] is False
         assert status['data']['last_reply'] == data['reply']
 
+    def test_two_turns_share_one_live_process(self, mcp):
+        """The real CLI lifecycle, end to end: the assistant's process
+        survives its turn (the mock now models it, the old one exited),
+        ``running`` means BUSY and ``alive`` the live process, and the
+        second send is answered by the SAME session — the turn counter
+        is process-local, so a '(turn 2)' reply is only possible
+        without a restart."""
+        try:
+            # Cold start as THIS test's own precondition — an earlier
+            # test's session may still be alive.
+            mcp.call_tool('workspace_assistant', action='stop')
+
+            first = mcp.call_tool(
+                'workspace_assistant',
+                action='send',
+                message='Tidy the knowledge notes.',
+                wait_seconds=MAX_WAIT_SECONDS,
+            )
+            assert first['ok'], first['text']
+            d1 = first['data']
+            assert d1['done'] is True, d1
+            assert 'turn 1' in (d1['reply'] or ''), d1
+            assert d1['running'] is False  # the reply is in — not busy
+            assert d1['alive'] is True  # the process lives on
+
+            second = mcp.call_tool(
+                'workspace_assistant',
+                action='send',
+                message='And the store notes too.',
+                wait_seconds=MAX_WAIT_SECONDS,
+            )
+            assert second['ok'], second['text']
+            d2 = second['data']
+            assert d2['done'] is True, d2
+            assert 'turn 2' in (d2['reply'] or ''), d2
+            assert d2['running'] is False
+            assert d2['alive'] is True
+
+            status = mcp.call_tool('workspace_assistant', action='status')
+            assert status['data']['running'] is False
+            assert status['data']['alive'] is True
+            assert status['data']['last_reply'] == d2['reply']
+        finally:
+            # Don't leave the user's assistant session holding a
+            # concurrency permit for the rest of the run.
+            mcp.call_tool('workspace_assistant', action='stop')
+
+        status = mcp.call_tool('workspace_assistant', action='status')
+        assert status['data']['running'] is False
+        assert status['data']['alive'] is False
+
     def test_empty_message_is_rejected(self, mcp):
         refused = mcp.call_tool(
             'workspace_assistant', action='send', message='   '

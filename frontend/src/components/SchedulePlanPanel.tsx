@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { REMARK_PLUGINS } from '../lib/markdownPlugins'
 
 import { api } from '../api'
 import type { Schedule, SchedulePlanStatus } from '../types'
@@ -184,7 +184,7 @@ export function SchedulePlanPanel({ schedule, onOpenTask, onReplan }: Props) {
               className={`px-4 pb-4 text-sm text-gray-700 ${PROSE}`}
               data-testid="plan-markdown"
             >
-              <Markdown remarkPlugins={[remarkGfm]}>{planText}</Markdown>
+              <Markdown remarkPlugins={REMARK_PLUGINS}>{planText}</Markdown>
             </div>
           )}
         </div>
@@ -218,7 +218,7 @@ export function SchedulePlanPanel({ schedule, onOpenTask, onReplan }: Props) {
             className={`mt-2 text-sm text-gray-700 ${PROSE}`}
             data-testid="schedule-finalize-text"
           >
-            <Markdown remarkPlugins={[remarkGfm]}>
+            <Markdown remarkPlugins={REMARK_PLUGINS}>
               {finalizeDescription}
             </Markdown>
           </div>

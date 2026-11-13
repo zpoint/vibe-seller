@@ -2,7 +2,9 @@
 
 Reuses AgentSession with overrides for:
 - SSE-only messaging (no DB persistence)
-- Multi-turn subprocess (stdin kept open across result events)
+- Multi-turn subprocess (stdin kept open across result events — each
+  turn ends with its own ``ws_assistant_turn_done`` event; the process
+  end is ``ws_assistant_done``)
 - Separate concurrency from task agents
 """
 
@@ -34,9 +36,19 @@ class WorkspaceAgentSession(AgentSession):
 
     Key differences from task sessions:
     - Messages emitted via ``ws_assistant_*`` SSE events, not persisted
-    - ``result`` events do NOT close stdin (multi-turn)
+    - ``result`` events do NOT close stdin (multi-turn) — each turn
+      ends with its own ``ws_assistant_turn_done`` event
     - No design plan / result / todo persistence
     """
+
+    # True from the delivery of a user message until its ``result``
+    # arrives (or the process ends): the turn is IN FLIGHT. This — not
+    # process liveness — is what ``status.running`` reports (the UI's
+    # composer and the MCP tool read it as "busy"); the inherited
+    # ``running`` property stays the liveness fact and surfaces as
+    # ``status.alive``. Class attribute so every construction path
+    # reads False, never AttributeError.
+    turn_in_flight: bool = False
 
     def __init__(
         self,
@@ -80,7 +92,8 @@ class WorkspaceAgentSession(AgentSession):
         )
 
     async def _handle_event(self, event: dict):
-        """Same as parent but keep stdin open on result."""
+        """Same as parent but keep stdin open on result, and end the
+        turn with ``ws_assistant_turn_done``."""
         etype = event.get('type', '')
 
         if etype == 'assistant':
@@ -107,6 +120,22 @@ class WorkspaceAgentSession(AgentSession):
                 self._result_text = text
                 self._report_result(text)
                 await self._emit_message('result', text)
+            # Turn end ≠ process end. One CLI process hosts every turn
+            # of the session (stdin stays open), so ``ws_assistant_done``
+            # fires only when the process exits — a consumer waiting on
+            # it for THIS turn's completion never wakes while the
+            # session is healthy. ``ws_assistant_turn_done`` is the
+            # per-turn signal: the UI clears its running state on it,
+            # and the hosted-MCP collector ends its send-and-wait on it.
+            # Emitted for EVERY result, empty ones included: the turn
+            # is over either way and the running state must clear.
+            # Busy closes BEFORE the event goes out, so a consumer
+            # waking on it reads a consistent ``status`` (not running).
+            self.turn_in_flight = False
+            await event_bus.emit(
+                'ws_assistant_turn_done',
+                {'session_key': self.task_id},
+            )
 
         elif etype == 'content_block_delta':
             delta = event.get('delta', {})
@@ -128,8 +157,37 @@ class WorkspaceAgentSession(AgentSession):
         request_id = msg.get('request_id', '')
         await self._send_control_response(request_id, 'allow')
 
+    async def send_user_message(self, message: str) -> bool:
+        """Deliver a follow-up message; a DELIVERED message opens the
+        turn — busy until its ``result`` ends it."""
+        delivered = await super().send_user_message(message)
+        if delivered:
+            self.turn_in_flight = True
+        return delivered
+
+    async def stop(self):
+        """A stopped session is never busy: clear the in-flight turn
+        up front. The base's interrupt/kill cascade ends the stream
+        loop, which clears it anyway — but ``manager.stop()`` callers
+        read ``status`` immediately after and must not see a stale
+        turn."""
+        self.turn_in_flight = False
+        await super().stop()
+
+    async def _emit_process_done(self, **extra):
+        """Declare PROCESS end (stop / crash / stdin EOF) — the ONE
+        place ``ws_assistant_done`` is emitted. An in-flight turn can
+        never outlive its process, so busy closes here too; per-turn
+        completion is ``ws_assistant_turn_done`` instead."""
+        self.turn_in_flight = False
+        await event_bus.emit(
+            'ws_assistant_done',
+            {'session_key': self.task_id, **extra},
+        )
+
     async def _stream_output(self):
-        """Same as parent but emit ws_assistant_done, skip saves."""
+        """Same as parent but emit ws_assistant_done (PROCESS end —
+        per-turn completion is ``ws_assistant_turn_done``), skip saves."""
         try:
             while self._proc and self._proc.stdout:
                 line = await self._proc.stdout.readline()
@@ -160,22 +218,12 @@ class WorkspaceAgentSession(AgentSession):
 
             await self._apply_exit_code(return_code)
 
-            await event_bus.emit(
-                'ws_assistant_done',
-                {
-                    'session_key': self.task_id,
-                    'return_code': return_code,
-                },
-            )
+            await self._emit_process_done(return_code=return_code)
 
         except asyncio.CancelledError:
-            await event_bus.emit(
-                'ws_assistant_done',
-                {
-                    'session_key': self.task_id,
-                    'return_code': -1,
-                    'interrupted': True,
-                },
+            await self._emit_process_done(
+                return_code=-1,
+                interrupted=True,
             )
         except Exception as e:
             logger.exception(
@@ -184,13 +232,7 @@ class WorkspaceAgentSession(AgentSession):
                 e,
             )
             await self._emit_message('system', f'Agent error: {e}')
-            await event_bus.emit(
-                'ws_assistant_done',
-                {
-                    'session_key': self.task_id,
-                    'return_code': -1,
-                },
-            )
+            await self._emit_process_done(return_code=-1)
 
     async def _persist_todos(self, todos: list[dict]):
         """No-op — no task record."""
@@ -204,9 +246,11 @@ class WorkspaceAgentSession(AgentSession):
             # Test mode: the same mock CLI the task agent runs under.
             # The assistant is an agent pipeline too, and MOCK_CLI is
             # what lets CI exercise this turn loop without model
-            # credits. '--mode=workspace' maps the mock to its execute
-            # flow (it has no plan gate — control requests are
-            # auto-allowed below).
+            # credits. '--mode=workspace' selects the mock's own
+            # multi-turn flow — one process across turns, exit only on
+            # stdin EOF — because a mock that exits after each result
+            # would hide the real CLI's live-session lifecycle (the
+            # per-turn-completion bug class).
             cmd = [
                 sys.executable,
                 os.path.abspath(mock_cli),
@@ -298,11 +342,17 @@ class WorkspaceAgentSession(AgentSession):
             'content': self.prompt,
         })
 
+        delivered = False
         for msg in messages:
-            await self._send_stdin({
+            delivered = await self._send_stdin({
                 'type': 'user',
                 'message': msg,
             })
+        # The prompt (the last message) reached a live pipe: the
+        # assistant is BUSY with its first turn from here until that
+        # turn's result. A dead pipe leaves busy False — the stream
+        # loop's process-end path is the backstop either way.
+        self.turn_in_flight = delivered
 
         self._stderr_task = asyncio.create_task(self._stream_stderr())
         self._task = asyncio.create_task(self._stream_output())
@@ -416,6 +466,22 @@ class WorkspaceAssistantManager:
         return True
 
     def is_running(self, user_id: str) -> bool:
+        """BUSY with a turn: a delivered message awaits its result.
+
+        False once the reply is in — even though the session's process
+        stays ALIVE across turns (that separate fact is ``alive``).
+        Reading liveness as busy is what left the UI's composer on
+        Stop for the whole live session; ``status.running`` (route +
+        MCP tool) reports THIS.
+        """
+        key = self._session_key(user_id)
+        session = self._sessions.get(key)
+        return bool(session and session.turn_in_flight)
+
+    def alive(self, user_id: str) -> bool:
+        """The session's process is up and input-capable — the next
+        send reuses it (context and all). Routinely True while
+        ``is_running`` is False (idle between turns)."""
         key = self._session_key(user_id)
         session = self._sessions.get(key)
         return session.running if session else False

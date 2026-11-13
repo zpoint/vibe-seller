@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { REMARK_PLUGINS } from '../../lib/markdownPlugins'
 import { CollapsibleSection } from '../ui'
 import { sendEvent, durationBucket } from '../../lib/telemetry'
 import { FrontendEvent } from '../../lib/telemetryEvents'
@@ -142,7 +142,7 @@ export function PlanCard({ plan, allVersions, todoItems, taskId, taskStatus, pla
               <div key={si} className="px-3 py-2 border-b border-gray-100 flex gap-2 text-sm">
                 <span className="font-semibold text-gray-500 flex-shrink-0">{sec.heading}:</span>
                 <span className={`text-gray-700 ${PROSE_BASE} prose-p:my-0 prose-p:inline`}>
-                  <Markdown remarkPlugins={[remarkGfm]}>{contentText}</Markdown>
+                  <Markdown remarkPlugins={REMARK_PLUGINS}>{contentText}</Markdown>
                 </span>
               </div>
             )
@@ -152,7 +152,7 @@ export function PlanCard({ plan, allVersions, todoItems, taskId, taskStatus, pla
           return (
             <CollapsibleSection key={si} heading={sec.heading} defaultExpanded={!collapsible}>
               <div className={`text-sm text-gray-700 ${PROSE_COMPACT}`}>
-                <Markdown remarkPlugins={[remarkGfm]}>{contentText}</Markdown>
+                <Markdown remarkPlugins={REMARK_PLUGINS}>{contentText}</Markdown>
               </div>
             </CollapsibleSection>
           )

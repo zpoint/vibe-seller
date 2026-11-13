@@ -568,26 +568,94 @@ def run_execute():
     emit_result(RESULT)
 
 
+def next_stdin_message() -> tuple[str, str] | None:
+    """Blocking read of the next meaningful stream-json message on
+    stdin: ``('user', text)`` for a user message, ``('interrupt', '')``
+    for the SDK interrupt control_request (stop() — the real CLI ends
+    itself on an interrupt), None on EOF (the backend closed stdin).
+    Other lines (SDK init, control replies) are skipped, like the real
+    CLI's reader."""
+    while True:
+        line = sys.stdin.readline()
+        if not line:  # EOF
+            return None
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        mtype = msg.get('type')
+        if mtype == 'user':
+            content = msg.get('message', {}).get('content', '')
+            if isinstance(content, list):
+                content = ' '.join(
+                    b.get('text', '') for b in content if isinstance(b, dict)
+                )
+            return 'user', content or ''
+        if mtype == 'control_request':
+            request = msg.get('request', {})
+            if request.get('subtype') == 'interrupt':
+                return 'interrupt', ''
+
+
+def run_workspace(first_prompt: str):
+    """Workspace-assistant lifecycle: ONE process serves every turn,
+    exactly like ``claude -p --input-format stream-json``.
+
+    The old mock exited after its single result, so CI could never see
+    the per-turn-completion bug class: the real CLI keeps its stdin
+    open across turns, emits one ``result`` per turn, and exits only
+    when the backend closes stdin (session stop). This loop models
+    that: answer, emit the turn's result, then wait for the next user
+    message on the live channel. Exit paths: stdin EOF, or the SDK
+    interrupt control_request stop() sends to an idle session."""
+    emit_system()
+    message = first_prompt
+    turn = 0
+    while True:
+        turn += 1
+        # Echo what this turn was asked about, so a transcript maps
+        # replies to requests (the real CLI's answers differ per turn
+        # too).
+        reply = f'{RESULT} — {message[:40]!r} (turn {turn})'
+        emit_text(reply)
+        emit_result(reply)
+        nxt = next_stdin_message()
+        if nxt is None or nxt[0] == 'interrupt':
+            return
+        message = nxt[1]
+
+
 if __name__ == '__main__':
     # Determine mode from args (matches real claude CLI interface).
-    # 'workspace' (the workspace-assistant session's mode) maps to the
-    # execute flow: the assistant has no plan gate, and its handler
-    # auto-allows any control request anyway.
-    mode = 'plan_then_execute'
-    for arg in sys.argv:
-        if 'auto' in arg or 'workspace' in arg:
-            mode = 'execute'  # auto behaves like execute in mock
-            break
-        if 'execute' in arg and 'plan' not in arg:
-            mode = 'execute'
-            break
+    # '--mode=workspace' (the workspace-assistant session's launch) is
+    # its OWN lifecycle: one process, many turns, exit on stdin EOF —
+    # the real CLI never exits after a result with stdin open, and the
+    # assistant's running state depends on that, so the mock must
+    # model it. An EXACT match: the assistant also passes --add-dir /
+    # --settings paths that may legitimately contain these words.
+    if '--mode=workspace' in sys.argv:
+        mode = 'workspace'
+    else:
+        mode = 'plan_then_execute'
+        for arg in sys.argv:
+            if 'auto' in arg:
+                mode = 'execute'  # auto behaves like execute in mock
+                break
+            if 'execute' in arg and 'plan' not in arg:
+                mode = 'execute'
+                break
 
     # Peek at the assembled prompt: if it carries the ask marker, run
     # the AskUserQuestion echo flow regardless of mode. Consuming the
     # initial user message here is harmless for the other flows — they
     # only read control_response messages later.
     prompt = read_initial_prompt()
-    if ASK_MARKER in prompt:
+    if mode == 'workspace':
+        run_workspace(prompt)
+    elif ASK_MARKER in prompt:
         run_ask_question()
     elif ASYNC_MARKER in prompt:
         run_async_subagent()

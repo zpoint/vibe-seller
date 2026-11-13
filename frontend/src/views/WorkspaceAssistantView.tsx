@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import ReactMarkdown from 'react-markdown'
+import Markdown from 'react-markdown'
+import { REMARK_PLUGINS } from '../lib/markdownPlugins'
 import type { AgentMessage } from '../types'
 
 interface WorkspaceAssistantViewProps {
@@ -135,12 +136,12 @@ export function WorkspaceAssistantView({
                   <div className={`px-4 py-2 rounded-2xl rounded-bl-md max-w-[80%] text-sm ${msg.role === 'system' ? 'bg-red-50 text-red-700' : 'bg-white border border-gray-200 text-gray-800'}`}>
                     {msg.role === '_streaming' ? (
                       <div className="prose prose-sm max-w-none">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        <Markdown remarkPlugins={REMARK_PLUGINS}>{msg.content}</Markdown>
                         <span className="inline-block w-1.5 h-4 bg-indigo-400 animate-pulse ml-0.5 align-text-bottom" />
                       </div>
                     ) : (
                       <div className="prose prose-sm max-w-none">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        <Markdown remarkPlugins={REMARK_PLUGINS}>{msg.content}</Markdown>
                       </div>
                     )}
                   </div>

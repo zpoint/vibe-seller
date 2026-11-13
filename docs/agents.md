@@ -412,8 +412,10 @@ both.
 `workspace_assistant` drives the per-user workspace assistant — a
 chat agent that organizes knowledge files. `send` waits (bounded) for
 the reply and returns it; a slow turn times out and
-`action=status` reports `running` plus the assistant's last reply
-(its answers are streamed live, not stored in the DB).
+`action=status` reports `running` (busy with a turn — false once the
+reply is in) plus `alive` (the session process lives across turns, so
+the next `send` reuses it) and the assistant's last reply (its answers
+are streamed live, not stored in the DB).
 
 ### Server administration (the Settings pages)
 

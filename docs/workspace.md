@@ -6,7 +6,8 @@ Conversational chat on the Workspace page for organizing knowledge via natural l
 
 - **Backend**: `WorkspaceAgentSession` (subclass of `AgentSession`) in `app/ai/workspace_assistant.py` — SSE-only (no DB persistence), auto-allows all control requests
 - **Manager**: `WorkspaceAssistantManager` — per-user sessions with own semaphore (MAX_CONCURRENT=2), separate from task agent concurrency
-- **SSE events**: `ws_assistant_message`, `ws_assistant_done` (independent of task events)
+- **SSE events**: `ws_assistant_message`, `ws_assistant_turn_done` (TURN end — one `result` per turn; the CLI process stays alive across turns), `ws_assistant_done` (PROCESS exit only — stop/crash/EOF) — independent of task events. Consumers clear the UI's running state on the turn event; the process event is the backstop. The hosted-MCP `workspace_assistant(send)` collector ends its wait on the same pair
+- **Busy vs alive are two facts**: the session tracks `turn_in_flight` (a delivered message awaits its `result`); `GET /status` reports `running` = busy with a turn and `alive` = the process is up and input-capable (routinely alive while not running — the next send then reuses it, context and all)
 - **API**: `POST /api/workspace/assistant/message`, `POST /stop`, `GET /status` in `app/routers/workspace_assistant.py`
 - **System prompt**: `app/prompts/workspace_assistant.md` with `{stores_list}` placeholder injected at runtime
 - **Frontend**: `WorkspaceAssistantView.tsx` — default view when entering Workspace; file editor shown when a file is selected; "+ Tell AI" button returns to chat

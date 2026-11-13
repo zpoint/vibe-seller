@@ -3,7 +3,7 @@ import { TaskFileTree } from './TaskFileTree'
 import type { TaskFileEntry } from './fileTree'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { REMARK_PLUGINS } from '../../lib/markdownPlugins'
 import { api } from '../../api'
 import { PlanCard } from './PlanCard'
 import { TaskStartCard } from './TaskStartCard'
@@ -186,7 +186,7 @@ const ResultCard = memo(function ResultCard({ result, label }: { result: string;
           <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-green-600">{label}</span>
         </div>
         <div className={`text-gray-800 ${PROSE_RESULT} overflow-x-auto`}>
-          <Markdown remarkPlugins={[remarkGfm]}>{result}</Markdown>
+          <Markdown remarkPlugins={REMARK_PLUGINS}>{result}</Markdown>
         </div>
       </div>
     </div>
