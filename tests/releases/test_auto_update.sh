@@ -505,25 +505,22 @@ EOF
         echo "   hop 1: $OLD_V -> $NEW_V (a good release)"
         wait_for_version "$NEW_V" 360 || fail "hop 1 never applied"
         # Hop 1 is not OVER when the version moves. The record is the
-        # last thing the helper writes — measured again in CI on
-        # 2026-11-13: the port answered 99.91942.2, and 139 s later
-        # `last.json` still held no hop-1 record at all. This leg then
-        # uses that record as the MARKER for hop 2's ("a NEW
-        # last.json"), and a marker taken from a file that does not
-        # exist yet is empty, which any record satisfies: the leg read
-        # hop 1's own `ok` as hop 2's verdict and failed with
-        # `the new record is about 99.91942.2, not 99.91942.3` while
-        # the second apply was still two minutes from starting. So hop 1
-        # has to be shown finished, on its own terms, before hop 2
-        # begins.
-        wait_for_record || fail "hop 1 never wrote a record"
+        # last thing the helper writes — measured 139 s later in CI and
+        # ~2 min here — and this leg marks hop 2 against it. A marker
+        # taken from a file that does not exist yet is EMPTY, and an
+        # empty marker is satisfied by the arrival of hop 1's own
+        # record, so the leg read `to=99.172303.2, status=ok` as hop 2's
+        # verdict and died with `the new record is about …2, not …3`
+        # two minutes before the second apply could even have written
+        # one (both CI on 9f3b57f1 and the local run of 17:31, same
+        # line). Wait for the record that says hop 1 happened.
+        wait_for_record_field to "$NEW_V" 200 \
+          || fail "hop 1 never wrote its record (last: $(record_field to)/$(record_field status))"
         [ "$(record_field status)" = ok ] \
-          || fail "hop 1 did not succeed: $(record_json)"
-        [ "$(record_field to)" = "$NEW_V" ] \
-          || fail "hop 1's record is about $(record_field to): $(record_json)"
+          || fail "hop 1's record is not a success: $(record_json)"
         [ "$(record_field trigger)" = auto_idle ] \
           || fail "hop 1 was not an auto_idle apply: $(record_json)"
-        echo "   hop 1 done: $(record_field from) -> $(record_field to) $(record_field status)"
+        echo "   hop 1 recorded: $(record_field from) -> $(record_field to) $(record_field status)"
         stop_server_only
         # Same install tree, new target: the BROKEN wheel. Re-point the
         # mock index and restart, so the update check offers 99.0.3.
@@ -797,6 +794,19 @@ wait_for_version() {
   echo "   port $PORT reports: ${got:-<nothing>}" >&2
   return 1
 }
+wait_for_record_field() { # <field> <want> <tries> — the record, by field
+  # A leg that marks against "the last record" needs the record that
+  # describes a specific apply, not merely some file on disk.
+  local field=$1 want=$2 tries=${3:-200} got
+  for _ in $(seq 1 "$tries"); do
+    got=$(record_field "$field")
+    [ "$got" = "$want" ] && return 0
+    sleep 2
+  done
+  echo "   last.json $field is '${got:-<none>}', not $want" >&2
+  return 1
+}
+
 wait_for_record() { # the apply is not over when the VERSION moves
   # `last.json` is the LAST thing the helper writes — after its own
   # health check, after the rollback when there is one — so a leg that
