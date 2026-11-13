@@ -70,7 +70,6 @@ class Twist:
     new: tuple[str, ...]
 
 
-
 TWISTS: tuple[Twist, ...] = (
     Twist(
         name='wrong-path',
@@ -111,8 +110,7 @@ TWISTS: tuple[Twist, ...] = (
         # half is caught by the second, so S2 stayed green under the
         # earlier form of this twist and proved nothing.
         old=(
-            '    return agents.live_agent_count() if agents is not None '
-            'else 0',
+            '    return agents.live_agent_count() if agents is not None else 0',
         ),
         new=('    return 0  # TWIST(ignore-idle): no agent is ever seen',),
     ),
