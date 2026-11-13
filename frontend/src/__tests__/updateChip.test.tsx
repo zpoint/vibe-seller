@@ -3,6 +3,11 @@
  * (downloading / ready / restarting), shows progress, and opens the
  * modal on click. Hidden for unsupported installs, when idle, and on
  * error.
+ *
+ * The chip is the pip path's ONLY ambient signal — that update applies
+ * itself with no popup — so its exact wording per path is the contract
+ * under test here, along with the one case where it must appear while
+ * the machine is otherwise idle: the apply that failed or rolled back.
  */
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -11,7 +16,7 @@ import i18n from 'i18next'
 import enTranslation from '../i18n/locales/en/translation.json'
 import zhTranslation from '../i18n/locales/zh/translation.json'
 import { UpdateChip } from '../components/UpdateChip'
-import type { UpdateStatus } from '../types'
+import type { LastUpdate, UpdateStatus } from '../types'
 
 const make = (lng: 'en' | 'zh' = 'zh') => {
   const instance = i18n.createInstance()
@@ -28,6 +33,20 @@ const make = (lng: 'en' | 'zh' = 'zh') => {
 
 const MB = 1024 * 1024
 
+const lastUpdate = (over: Partial<LastUpdate> = {}): LastUpdate => ({
+  status: 'ok',
+  from: '0.1.0',
+  to: '0.3.2',
+  at: '2026-11-13T00:00:00Z',
+  path: 'pip',
+  trigger: 'auto_idle',
+  stage: null,
+  error: null,
+  error_class: null,
+  seconds: 12,
+  ...over,
+})
+
 const status = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
   supported: true,
   state: 'ready',
@@ -38,8 +57,18 @@ const status = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
   error: null,
   running_tasks: 0,
   platform: 'windows',
+  // Installer path by default: that is the one that waits for a click,
+  // so the pip cases say so on purpose.
+  path: 'installer',
+  auto_apply: false,
+  popup_due: true,
+  ready_since: 1765670400,
+  last_update: null,
   ...over,
 })
+
+const pip = (over: Partial<UpdateStatus> = {}) =>
+  status({ path: 'pip', auto_apply: true, popup_due: false, ...over })
 
 const renderChip = (s: UpdateStatus | null, lng: 'en' | 'zh' = 'zh') => {
   const onOpen = vi.fn()
@@ -51,13 +80,27 @@ const renderChip = (s: UpdateStatus | null, lng: 'en' | 'zh' = 'zh') => {
   return onOpen
 }
 
+const chipText = () => screen.getByTestId('update-chip').textContent
+
 describe('sidebar update chip', () => {
-  it('ready (zh): accent text from the mockup; click opens the modal', () => {
+  it('ready on the installer path: the restart wording; click opens the modal', () => {
     const onOpen = renderChip(status())
     const chip = screen.getByTestId('update-chip')
     expect(chip.textContent).toBe('v0.3.2 已下载好 · 重启以更新')
     fireEvent.click(chip)
     expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it('ready on the pip path: it says the update applies itself, no click asked', () => {
+    renderChip(pip())
+    expect(chipText()).toBe('v0.3.2 已下载，空闲时自动更新')
+  })
+
+  it('ready on the pip path (en): the same promise in English', () => {
+    renderChip(pip(), 'en')
+    expect(chipText()).toBe(
+      'v0.3.2 is downloaded — updates automatically when idle'
+    )
   })
 
   it('downloading on Windows: percent in the label and a sized bar', () => {
@@ -75,7 +118,7 @@ describe('sidebar update chip', () => {
   })
 
   it('downloading on mac/linux: no percent, indeterminate bar', () => {
-    renderChip(status({ state: 'downloading', platform: 'mac' }), 'en')
+    renderChip(status({ state: 'downloading', platform: 'linux' }), 'en')
     const chip = screen.getByTestId('update-chip')
     expect(chip.textContent).toContain('Downloading v0.3.2…')
     expect(chip.textContent).not.toMatch(/\d+%/)
@@ -86,6 +129,55 @@ describe('sidebar update chip', () => {
     expect(screen.getByTestId('update-chip').textContent).toBe(
       '正在更新到 v0.3.2…'
     )
+  })
+
+  it('rolled-back apply while idle: names the version still running', () => {
+    const onOpen = renderChip(
+      status({
+        state: 'idle',
+        version: null,
+        last_update: lastUpdate({ status: 'rolled_back' }),
+      })
+    )
+    expect(chipText()).toBe('更新失败，已恢复到 v0.1.0')
+    // The chip is how the admin finds out, so it still opens the dialog.
+    fireEvent.click(screen.getByTestId('update-chip'))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it('rolled-back apply (en): "the update failed — vX was restored"', () => {
+    renderChip(
+      status({
+        state: 'idle',
+        version: null,
+        last_update: lastUpdate({ status: 'rolled_back' }),
+      }),
+      'en'
+    )
+    expect(chipText()).toBe('The update failed — v0.1.0 was restored')
+  })
+
+  it('failed apply with no rollback: a plain failure about the target', () => {
+    renderChip(
+      status({
+        state: 'idle',
+        version: null,
+        last_update: lastUpdate({ status: 'failed' }),
+      })
+    )
+    expect(chipText()).toBe('v0.3.2 更新失败')
+  })
+
+  it('a successful apply is not reported as news', () => {
+    renderChip(status({ state: 'idle', version: null, last_update: null }))
+    expect(screen.queryByTestId('update-chip')).toBeNull()
+  })
+
+  it('an apply in flight outranks the previous failure', () => {
+    renderChip(pip({ last_update: lastUpdate({ status: 'rolled_back' }) }))
+    // The machine already re-staged: what it says now is the ready line,
+    // not last cycle's failure.
+    expect(chipText()).toBe('v0.3.2 已下载，空闲时自动更新')
   })
 
   it('hidden when idle, on error, unsupported, or no status', () => {

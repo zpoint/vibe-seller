@@ -2,7 +2,23 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 import { REMARK_PLUGINS } from '../lib/markdownPlugins'
-import type { UpdateCheckResult } from '../types'
+import type { ReleaseHighlight, ReleaseNoteItem } from '../types'
+
+/**
+ * The merged-notes envelope, as both endpoints that carry it answer:
+ * `/api/system/update-check` (what is newer than this server) and
+ * `/api/system/release-notes` (a range this server already crossed).
+ * Only the fields this component reads are named, so neither caller has
+ * to pretend to be the other one.
+ */
+export interface ReleaseNotesSource {
+  current_version?: string | null
+  latest_version?: string | null
+  releases?: { version: string }[]
+  releases_page_url?: string
+  highlights?: ReleaseHighlight[]
+  notes?: ReleaseNoteItem[]
+}
 
 const PROSE =
   'prose prose-sm max-w-none prose-p:my-0 prose-ul:my-1 prose-li:my-0.5 prose-code:text-xs prose-code:font-mono prose-code:text-gray-800 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-a:text-indigo-600'
@@ -35,10 +51,10 @@ const cmpVer = (a: string, b: string) => {
  * version the button will really apply, not the other one.
  */
 export function ReleaseNotesSections({
-  check,
+  source,
   targetVersion,
 }: {
-  check: UpdateCheckResult
+  source: ReleaseNotesSource
   targetVersion?: string | null
 }) {
   const { t, i18n } = useTranslation()
@@ -53,9 +69,9 @@ export function ReleaseNotesSections({
   const body = (t: string) => t.replace(/^- /, '')
 
   const within = (v: string) => !targetVersion || cmpVer(v, targetVersion) <= 0
-  const highlights = (check.highlights ?? []).filter((h) => within(h.version))
-  const notes = (check.notes ?? []).filter((n) => within(n.version))
-  const versions = (check.releases ?? [])
+  const highlights = (source.highlights ?? []).filter((h) => within(h.version))
+  const notes = (source.notes ?? []).filter((n) => within(n.version))
+  const versions = (source.releases ?? [])
     .map((r) => r.version)
     .filter(within)
   if (!highlights.length && !notes.length) {
@@ -64,9 +80,9 @@ export function ReleaseNotesSections({
     return (
       <div className="space-y-2">
         <p className="text-sm text-gray-500">{t('updateCheck.noReleaseNotes')}</p>
-        {check.releases_page_url && (
+        {source.releases_page_url && (
           <a
-            href={check.releases_page_url}
+            href={source.releases_page_url}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block text-sm text-indigo-600 hover:underline"
@@ -83,16 +99,17 @@ export function ReleaseNotesSections({
 
   return (
     <div className="space-y-4">
-      {check.current_version && (targetVersion ?? check.latest_version) && versions.length > 0 && (
-        <p className="text-xs text-gray-500">
-          {t('update.notesHead', {
-            current: check.current_version,
-            latest: targetVersion ?? check.latest_version,
-            count: versions.length,
-            versions: versions.map(v => `v${v}`).join(zh ? '、' : ', '),
-          })}
-        </p>
-      )}
+      {versions.length > 0 && source.current_version &&
+        (targetVersion ?? source.latest_version) && (
+          <p className="text-xs text-gray-500">
+            {t('update.notesHead', {
+              current: source.current_version,
+              latest: targetVersion ?? source.latest_version,
+              count: versions.length,
+              versions: versions.map(v => `v${v}`).join(zh ? '、' : ', '),
+            })}
+          </p>
+        )}
 
       {highlights.length > 0 && (
         <section>
@@ -152,9 +169,9 @@ export function ReleaseNotesSections({
         </section>
       )}
 
-      {check.releases_page_url && (
+      {source.releases_page_url && (
         <a
-          href={check.releases_page_url}
+          href={source.releases_page_url}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-block text-sm text-indigo-600 hover:underline"

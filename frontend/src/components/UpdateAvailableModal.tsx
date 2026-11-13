@@ -1,6 +1,12 @@
 import { useTranslation } from 'react-i18next'
-import type { UpdateCheckResult, UpdateStatus } from '../types'
+import { applyFailure, applyFailureLabel } from '../lib/updateOutcome'
+import type {
+  LastUpdate,
+  UpdateCheckResult,
+  UpdateStatus,
+} from '../types'
 import { ReleaseNotesSections } from './ReleaseNotesSections'
+import { ModalShell } from './ui'
 
 type Props = {
   check: UpdateCheckResult
@@ -15,20 +21,25 @@ type Props = {
 const MB = 1024 * 1024
 
 /**
- * The update modal, in two experiences on one surface:
+ * The update modal, in three experiences on one surface:
  *
- * - **In-app (supported installs)**: mirrors the download state
- *   machine — progress while the release downloads, the
- *   "重启并更新" action once it is staged, and a waiting overlay
- *   after the restart is requested (the page reloads itself when the
- *   server answers on the new version).
+ * - **In-app, pip path**: the release is only the Python package and is
+ *   already staged, so the server restarts onto it by itself the moment
+ *   it is idle. This dialog is then NOT a question — it appears because
+ *   the admin opened it (or because a machine that is never idle finally
+ *   got its day of asking, `popup_due`) — and its button cuts the wait
+ *   short: "立即更新".
+ * - **In-app, installer path**: the bundled runtime changed, so nothing
+ *   happens until someone clicks "重启并更新" and the installer runs.
  * - **Manual (pip / docker / source / switched-off)**: today's popup —
  *   the copy-able upgrade command (macOS/Linux) or the installer
  *   download link (Windows).
  *
- * Both show the merged release notes (every skipped version's
- * Highlights/Notes by section). The app's real Tailwind styling wins
- * over the mockup's CSS; the Chinese texts are the approved ones.
+ * All three show the merged release notes (every skipped version's
+ * Highlights/Notes by section). A failed or rolled-back apply says so at
+ * the top of whichever view the state machine lands on — the machine
+ * serving the old version otherwise looks like one that never updated.
+ * The Chinese texts are the approved ones.
  */
 export function UpdateAvailableModal({
   check,
@@ -43,8 +54,10 @@ export function UpdateAvailableModal({
   const supported = status?.supported === true
   const state = status?.state ?? 'idle'
   const isWindows = status?.platform === 'windows'
+  const pip = status?.path === 'pip'
   const target = status?.version ?? check.latest_version ?? ''
   const current = check.current_version ?? status?.current_version ?? ''
+  const failed = applyFailure(status?.last_update)
 
   const nightly = check.channel === 'nightly' && (
     <span className="ml-2 align-middle rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
@@ -59,7 +72,7 @@ export function UpdateAvailableModal({
   const notes = (
     <div className="overflow-y-auto p-6 pt-4">
       <ReleaseNotesSections
-        check={check}
+        source={check}
         targetVersion={supported ? target : null}
       />
     </div>
@@ -67,7 +80,7 @@ export function UpdateAvailableModal({
 
   if (supported && state === 'restarting') {
     return (
-      <Shell>
+      <ModalShell>
         <div className="flex flex-col items-center gap-4 p-8 text-center">
           <div
             className="h-8 w-8 animate-spin rounded-full border-[3px] border-indigo-100 border-t-indigo-600"
@@ -90,7 +103,7 @@ export function UpdateAvailableModal({
             </div>
           )}
         </div>
-      </Shell>
+      </ModalShell>
     )
   }
 
@@ -100,7 +113,7 @@ export function UpdateAvailableModal({
         ? Math.min(100, Math.floor((status.downloaded_bytes / status.total_bytes) * 100))
         : null
     return (
-      <Shell>
+      <ModalShell>
         <div className="border-b border-gray-100 p-6 pb-4">
           <h2 className="text-lg font-semibold text-gray-900">
             {t('update.downloadingTitle', { version: target })}
@@ -144,26 +157,40 @@ export function UpdateAvailableModal({
             {t('update.close')}
           </button>
         </div>
-      </Shell>
+      </ModalShell>
     )
   }
 
   if (supported && state === 'ready') {
     const tasks = status?.running_tasks ?? 0
-    const subtitle = !isAdmin
-      ? t('update.readySubMember', { current, version: target })
-      : isWindows
-        ? t('update.readySubAdminWindows', { current })
-        : t('update.readySubAdminUnix', { current })
+    // The path is what the click means: a package-only update is a
+    // "now" the admin may want to hurry along, an installer update is
+    // a reinstall that takes minutes and has to be decided in the open.
+    let applyLabel: string
+    let subtitle: string
+    if (pip) {
+      applyLabel =
+        tasks > 0 ? t('update.updateNowAnyway') : t('update.updateNow')
+      subtitle = isAdmin
+        ? t('update.readySubPipAdmin', { current })
+        : t('update.readySubPipMember', { current })
+    } else {
+      applyLabel =
+        tasks > 0 ? t('update.restartAnyway') : t('update.restart')
+      subtitle = isAdmin
+        ? t('update.readySubInstallerAdmin', { current })
+        : t('update.readySubInstallerMember', { current })
+    }
     return (
-      <Shell>
+      <ModalShell>
         <div className="border-b border-gray-100 p-6 pb-4">
           <h2 className="text-lg font-semibold text-gray-900">
             {t('update.readyTitle', { version: target })}
             {nightly}
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-gray-600">{subtitle}</p>
-          {isAdmin && isWindows && (
+          {failed && <ApplyFailureNote last={failed} />}
+          {isAdmin && isWindows && !pip && (
             <div className="mt-3 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-600">
               {t('update.windowsMachineNote')}
             </div>
@@ -203,18 +230,49 @@ export function UpdateAvailableModal({
                 onClick={() => void onRestart()}
                 className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
               >
-                {tasks > 0 ? t('update.restartAnyway') : t('update.restart')}
+                {applyLabel}
               </button>
             </>
           )}
         </div>
-      </Shell>
+      </ModalShell>
+    )
+  }
+
+  // The previous apply did not land and nothing newer is in flight:
+  // this, and not "an update is available", is what the admin opened
+  // the dialog for. Members get the same sentence and no way to act on
+  // it — the manual route is the admin's to run.
+  if (failed && state === 'idle') {
+    return (
+      <ModalShell>
+        <div className="border-b border-gray-100 p-6 pb-4">
+          <h2 className="text-lg font-semibold text-gray-900">
+            {applyFailureLabel(t, failed)}
+          </h2>
+          {failed.error && (
+            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {failed.error}
+            </div>
+          )}
+          {isAdmin && <ManualInstructions check={check} />}
+        </div>
+        {notes}
+        <div className="flex justify-end border-t border-gray-100 p-4">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            {t('update.gotIt')}
+          </button>
+        </div>
+      </ModalShell>
     )
   }
 
   // ── manual experience (unsupported install, or a failed stage) ──
   return (
-    <Shell>
+    <ModalShell>
       <div className="border-b border-gray-100 p-6 pb-4">
         <h2 className="text-lg font-semibold text-gray-900">
           {t('updateCheck.title')}
@@ -226,6 +284,7 @@ export function UpdateAvailableModal({
             latest: check.latest_version,
           })}
         </p>
+        {failed && <ApplyFailureNote last={failed} />}
         {supported && state === 'error' && status?.error && (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             <span>{t('update.autoUpdateFailed')}</span>:{' '}
@@ -243,20 +302,18 @@ export function UpdateAvailableModal({
           {t('updateCheck.remindLater')}
         </button>
       </div>
-    </Shell>
+    </ModalShell>
   )
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+/** What the last apply did, above whatever the dialog is otherwise
+ *  about: an update that came back on the old version still reads as
+ *  "v0.3.2 is downloaded" otherwise. */
+function ApplyFailureNote({ last }: { last: LastUpdate }) {
+  const { t } = useTranslation()
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-    >
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-white shadow-xl">
-        {children}
-      </div>
+    <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm leading-relaxed text-red-700">
+      <span className="font-semibold">{applyFailureLabel(t, last)}</span>
     </div>
   )
 }

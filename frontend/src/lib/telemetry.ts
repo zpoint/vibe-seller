@@ -33,7 +33,7 @@ const API_STATIC_SEGMENTS = new Set([
   'history', 'image', 'info', 'knowledge', 'launcher', 'links', 'locale',
   'login', 'logout', 'mcp', 'me', 'message', 'messages', 'password',
   'pause', 'pending', 'plan', 'platforms', 'presets', 'profile', 'profiles',
-  'projects', 'questions', 'raw', 'ref-proxy', 'refresh', 'replan',
+  'projects', 'questions', 'raw', 'ref-proxy', 'refresh', 'release-notes', 'replan',
   'reports', 'reset', 'restart', 'resume', 'retry', 'reveal',
   'review-plan', 'run', 'schedules', 'screenshots', 'secrets',
   'send-permission', 'set-default', 'settings', 'setup-mcp', 'skill',
