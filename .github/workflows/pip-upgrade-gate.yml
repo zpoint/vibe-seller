@@ -1,0 +1,237 @@
+name: Pip Upgrade Gate
+
+# The release gate this feature exists for: the PREVIOUS published
+# release must be able to move onto the candidate over the PIP path —
+# the few-MB wheel install a server applies BY ITSELF the first moment
+# the machine is idle. `windows-upgrade.yml` gates the other path
+# (previous installer -> new installer); nothing else proves that an
+# ordinary release, the kind that changes Python code only, reaches a
+# real install without a human touching it.
+#
+# It SKIPS — green, with the reason in the log and the run summary —
+# whenever the comparison cannot mean anything, and each reason is a
+# fact about the two releases rather than a pass:
+#
+#   * the previous release publishes no `bundle.json` asset. 0.3.1 does
+#     not: the manifest ships with this PR. The very first release after
+#     this has no fingerprint to compare against, and a client installed
+#     from it cannot take the pip path by construction.
+#   * the two fingerprints DIFFER. That is not a failure either — it is
+#     the correct answer for a release that moved the bundled runtime,
+#     and the installer path (`windows-upgrade.yml`) is what a client
+#     must then take. Saying "the pip gate did not run because the pip
+#     path is not the right path here" is the honest result.
+#   * the previous release predates the in-app updater: its wheel has no
+#     `app/update_idle.py`. Nothing on that install can apply itself,
+#     and a leg that clicked the #244 button instead would be testing
+#     #244, not this gate.
+#
+# WINDOWS: the same gate, for a Windows install, is what the
+# `auto-update` job of `windows-installer.yml` proves for every PR —
+# leg s3 installs the built bundle and requires a pip self-apply against
+# an identical `bundle.json`. Adding a "previous release's installer"
+# variant of it here would be scaffolding that cannot run until two
+# releases after this one ship the manifest, so it is deliberately not
+# written: an unrunnable leg is a leg nobody has seen fail, and this
+# repo's rule is that every guard is shown capable of failing.
+#
+# `force=true` (workflow_dispatch) runs the legs even when a skip
+# condition holds. They are then EXPECTED TO FAIL on exactly that
+# condition — which is how this gate is rehearsed before the first
+# release that publishes a bundle document.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      prev_version:
+        description: >-
+          Previous stable version to upgrade FROM. Empty means the
+          newest stable release on PyPI, which is what a release gate
+          uses.
+        required: false
+        default: ''
+        type: string
+      force:
+        description: >-
+          Run the legs even when a skip condition holds, so the gate can
+          be rehearsed against a release that cannot actually take the
+          pip path. The legs then fail on that condition, on purpose.
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  # Everything the legs need to know, decided once, from the two
+  # releases themselves rather than from anything this repo remembers.
+  decision:
+    name: can the previous release take the pip path?
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      prev: ${{ steps.prev.outputs.version }}
+      reason: ${{ steps.decide.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: The previous stable release
+        id: prev
+        env:
+          PREV_INPUT: ${{ inputs.prev_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PREV_INPUT" ]; then
+            echo "version=$PREV_INPUT" >> "$GITHUB_OUTPUT"
+            echo "prev (dispatch input): $PREV_INPUT"
+            exit 0
+          fi
+          # PyPI's newest NON-prerelease — the same question
+          # app/update_check.py asks when a stable install answers it.
+          prev=$(python - <<'PY'
+          import json, urllib.request
+          with urllib.request.urlopen(
+              'https://pypi.org/pypi/vibe-seller/json', timeout=30
+          ) as resp:
+              print(json.load(resp)['info']['version'])
+          PY
+          )
+          [ -n "$prev" ] || { echo "::error::no stable version on PyPI"; exit 1; }
+          echo "version=$prev" >> "$GITHUB_OUTPUT"
+          echo "prev (PyPI latest stable): $prev"
+
+      - name: Decide
+        id: decide
+        env:
+          PREV: ${{ steps.prev.outputs.version }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -uo pipefail
+          say() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+          run=true
+          reason=''
+
+          # 1. Does the previous release publish the manifest at all?
+          gh release view "v$PREV" --repo "$GITHUB_REPOSITORY" \
+            --json assets -q '.assets[].name' > /tmp/assets.txt 2>/dev/null \
+            || true
+          if ! grep -qx 'bundle.json' /tmp/assets.txt; then
+            run=false
+            reason="release v$PREV publishes no bundle.json asset, so there "
+            reason+="is no fingerprint on either side of the comparison (the "
+            reason+="manifest ships with this PR)"
+          else
+            gh release download "v$PREV" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'bundle.json' --dir /tmp/prev-bundle
+            # 2. Do the two releases describe the same runtime bundle?
+            python scripts/bundle_fingerprint.py -o /tmp/candidate.json
+            mine=$(python -c "import json;print(json.load(open('/tmp/candidate.json'))['fingerprint'])")
+            theirs=$(python -c "import json;print(json.load(open('/tmp/prev-bundle/bundle.json'))['fingerprint'])")
+            say "fingerprint here : $mine"
+            say "fingerprint there: $theirs"
+            if [ "$mine" != "$theirs" ]; then
+              run=false
+              reason="the bundles differ, so v$PREV -> this candidate is an "
+              reason+="INSTALLER hop and windows-upgrade.yml gates it; the "
+              reason+="pip path is not the answer for this pair"
+            fi
+          fi
+
+          # 3. Can that installed release apply anything by itself? The
+          #    idle loop is code in the WHEEL, so the wheel is what gets
+          #    read — never this checkout's copy of it, which always has
+          #    one and would answer yes for every release.
+          if [ "$run" = true ]; then
+            if python - "$PREV" <<'PY'
+          import glob
+          import subprocess
+          import sys
+          import zipfile
+
+          version = sys.argv[1]
+          subprocess.run(
+              [sys.executable, '-m', 'pip', 'download', '--quiet',
+               '--no-deps', '-d', '/tmp/prev-wheel',
+               f'vibe-seller=={version}'],
+              check=True,
+          )
+          wheels = glob.glob('/tmp/prev-wheel/*.whl')
+          assert wheels, f'no wheel was downloaded for {version}'
+          names = zipfile.ZipFile(wheels[0]).namelist()
+          ok = 'app/update_idle.py' in names
+          print('previous wheel has app/update_idle.py:', ok)
+          raise SystemExit(0 if ok else 3)
+          PY
+            then :
+            else
+              run=false
+              reason="vibe-seller $PREV contains no app/update_idle.py, so "
+              reason+="that install has no idle-apply loop to run — there is "
+              reason+="no self-applying update on it to test"
+            fi
+          fi
+
+          if [ "$FORCE" = true ] && [ "$run" = false ]; then
+            say "::notice::force=true — running the legs anyway"
+            say "(they are expected to fail on: $reason)"
+            run=true
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "reason=${reason:-the previous release can take the pip path}" \
+            >> "$GITHUB_OUTPUT"
+          if [ "$run" = true ]; then
+            say "RUN: v$PREV -> candidate over the pip path"
+          else
+            say "SKIP: $reason"
+          fi
+
+  # macOS and Linux: the same script as the PR legs, from a real
+  # published release.
+  pip-path-unix:
+    name: previous release -> candidate, pip path (${{ matrix.os }})
+    needs: decision
+    if: needs.decision.outputs.run == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      VIBE_SELLER_TELEMETRY: '0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install lsof
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y lsof
+
+      - name: Run the gate leg
+        env:
+          PREV_V: ${{ needs.decision.outputs.prev }}
+          REASON: ${{ needs.decision.outputs.reason }}
+        run: |
+          echo "s9: upgrading the published $PREV_V to this checkout's build"
+          echo "why this gate runs at all: $REASON"
+          LEG=s9 PORT=7931 PREV_V="$PREV_V" \
+            bash tests/releases/test_auto_update.sh

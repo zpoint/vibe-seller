@@ -17,6 +17,16 @@ name: Release
 #                         `vibe-seller upgrade` restarts the running
 #                         server onto the new version (macOS + Linux).
 #                         Also gates publish-testpypi.
+#   1d. pip-upgrade-gate-test  Calls pip-upgrade-gate.yml (reusable).
+#                         Proves the PREVIOUS published release can move
+#                         onto this candidate by itself — the few-MB pip
+#                         path, no click, Windows and macOS/Linux. It
+#                         SKIPS, green, when that release publishes no
+#                         `bundle.json`, when the two bundles differ
+#                         (then the installer path is the right answer,
+#                         and gate 1 already covers it), or when the
+#                         previous release predates the idle apply.
+#                         Also gates publish-testpypi.
 #   2. build              Produces TWO wheels in the same checkout:
 #                         - dist-pypi/      canonical (version from tag)
 #                         - dist-testpypi/  dev-versioned (`<tag>.devYYYYMMDDHHMMSS`)
@@ -24,9 +34,9 @@ name: Release
 #                         across runs without colliding with previous
 #                         uploads (PyPI/TestPyPI versions are immutable).
 #   3. publish-testpypi   Publish the dev-versioned wheel. Needs
-#                         `build` and all three upgrade gates
+#                         `build` and all four upgrade gates
 #                         (`windows-upgrade-test`, `sync-upgrade-test`,
-#                         `cli-upgrade-test`).
+#                         `cli-upgrade-test`, `pip-upgrade-gate-test`).
 #   4. verify-testpypi    Fresh runner: install via `install.sh --test-pypi
 #                         --version <dev>`, start server, run
 #                         `tests/releases/verify_install.sh <dev>` — asserts
@@ -87,6 +97,16 @@ jobs:
   cli-upgrade-test:
     name: CLI upgrade restart test (gate)
     uses: ./.github/workflows/cli-upgrade.yml
+
+  pip-upgrade-gate-test:
+    name: Pip upgrade gate (previous release -> candidate)
+    # Reusable workflow (pip-upgrade-gate.yml): the previous PUBLISHED
+    # release must be able to move onto this one by itself over the few-MB
+    # pip path. It skips, green, when that release ships no bundle.json or
+    # the two bundles differ — then the installer hop is the right answer
+    # and job 1 already gates it — so the first release after this PR
+    # passes on a printed reason rather than on a lie.
+    uses: ./.github/workflows/pip-upgrade-gate.yml
 
   build:
     name: Build wheels (canonical + testpypi-dev)
@@ -195,7 +215,8 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI (dev-versioned)
-    needs: [build, windows-upgrade-test, sync-upgrade-test, cli-upgrade-test]
+    needs: [build, windows-upgrade-test, sync-upgrade-test,
+           cli-upgrade-test, pip-upgrade-gate-test]
     runs-on: ubuntu-latest
     environment:
       name: test-pypi

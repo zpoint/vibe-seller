@@ -11,12 +11,31 @@ name: CLI Upgrade Restart Test
 # checks a store created there survives (a release older than the
 # self-restart is stopped and started once, as its users do).
 #
-# The `auto-update` job proves the in-app path the same way end to
-# end: a running OLD server prefetches the offered NEW version into
-# uv's cache on its own, reaches ready, refuses a member's restart
-# (403) and one before ready (409), then applies the admin's restart
-# — detached `vibe-seller upgrade`, re-exec onto the new version,
-# `update-status` idle afterwards (tests/releases/test_auto_update.sh).
+# The `auto-update` job is the in-app path, ONE SCENARIO PER LEG, so a
+# red leg names the behaviour that broke instead of just naming a job:
+#
+#   s1   OLD -> NEW on an idle machine with NOBODY clicking: the pip
+#        path applies itself. Also holds #244's gate — a member's
+#        restart gets 403, and one before `ready` gets 409.
+#   s2   a task is running: the update must NOT apply while it runs,
+#        and must apply on the first tick after it ends.
+#   s5   NEW is a fabricated release that dies on boot: the apply must
+#        fail, put OLD back, and leave OLD SERVING. Never a machine
+#        with no server.
+#   s5b  OLD -> v2 -> a broken v3: back on v2, not on OLD — what gets
+#        rolled back to is the version that was actually serving.
+#   s5c  S5, then the SAME broken release offered again after a fresh
+#        boot: it must NOT be applied a second time. Without that rule
+#        every six-hour cycle re-pays for one bad build — an outage on
+#        a timer, forever (review 4). The idle tick refuses, the admin
+#        is asked, and the record of the first outage is not rewritten.
+#   s7   a dev build: never offered a version, never applies one.
+#
+# `twist` (workflow_dispatch) injects ONE named bug into the checkout
+# first (tests/releases/twist.py --list) and every wheel a leg then
+# upgrades between is built from that buggy tree. A leg that stays
+# green under the twist that names it is a leg that checks nothing, so
+# the dispatch is part of proving the legs, not an extra of them.
 #
 # A release gate (release.yml calls it via workflow_call), and also run
 # on PRs touching the upgrade/restart surface. macOS and Linux because
@@ -27,22 +46,61 @@ name: CLI Upgrade Restart Test
 on:
   workflow_call:
   workflow_dispatch:
+    inputs:
+      twist:
+        description: >-
+          Build from a checkout with ONE named bug injected first
+          (tests/releases/twist.py --list prints these): wrong-path
+          (the pip-vs-installer choice always answers pip, S4),
+          no-rollback (the apply helper puts nothing back, S5/S5b),
+          ignore-idle (the idle check always answers idle, S2),
+          no-digest-check (the staged installer is never hashed, S6),
+          raw-fingerprint (digests keep the checkout's line endings,
+          S8), retry-bad (the idle tick re-applies a release this
+          machine already rolled back, S5c), dev-updates (the dev
+          channel is treated as stable, S7).
+          'none' — the default — builds the code as it is. Any other
+          name fails the job rather than quietly running untwisted.
+        required: false
+        default: 'none'
+        type: string
   pull_request:
     branches: [main]
     paths:
-      - 'app/cli.py'
-      - 'app/upgrade_restart.py'
+      # The update surface: the two paths, the fingerprint that chooses
+      # between them, the idle gate, the installer staging, the channel
+      # rules, and everything that decides what is offered.
       - 'app/auto_update.py'
-      - 'app/update_check.py'
+      - 'app/pip_update.py'
+      - 'app/pip_apply_helper.py'
+      - 'app/update_idle.py'
+      - 'app/update_events.py'
       - 'app/windows_update.py'
+      - 'app/upgrade_restart.py'
+      - 'app/update_check.py'
+      - 'app/bundle.py'
+      - 'app/bundle_pins.json'
+      - 'app/release_channel.py'
+      - 'app/cli.py'
       - 'app/main.py'
+      - 'app/routers/system.py'
       - 'app/scheduler/task_queue.py'
+      # The triggers this job had before the pip path existed. Dropping
+      # them would silently un-gate a change to the version string or
+      # the platform probe that the restart test is written against.
       - 'app/version.py'
       - 'app/platform.py'
       - 'app/env_options.py'
-      - 'tests/releases/test_cli_upgrade_restart.sh'
-      - 'tests/releases/test_auto_update.sh'
+      # What an install is made of, and what the bundle fingerprint
+      # hashes: a change to either can move the pip/installer choice.
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'installer/windows/**'
+      - 'scripts/bundle_fingerprint.py'
+      - 'tests/releases/**'
       - '.github/workflows/cli-upgrade.yml'
+      - '.github/workflows/windows-installer.yml'
+      - '.github/workflows/bundle-fingerprint.yml'
 
 concurrency:
   # A literal, not github.workflow: inside workflow_call that is the
@@ -73,6 +131,23 @@ jobs:
           # versions it builds, but the build backend still runs scm.
           fetch-depth: 0
 
+      # Every twist's anchor text, checked without injecting anything:
+      # a twist whose target line has moved would otherwise run the
+      # pristine tree while the dispatch log claimed a bug was in it.
+      # Cheap (one read per file) and it fails an unrelated PR only when
+      # the proof-of-failure is genuinely broken.
+      - name: Self-test the twists (anchor check, injects nothing)
+        run: python3 tests/releases/twist.py --list
+
+      # Before anything is built: the wheels this test upgrades between
+      # have to carry the injected bug, not the pristine code. `none`
+      # (and an absent input, on a PR or a release call) injects
+      # nothing and says so.
+      - name: Inject the named bug
+        env:
+          TWIST: ${{ inputs.twist }}
+        run: python3 tests/releases/twist.py "$TWIST"
+
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
 
@@ -95,26 +170,57 @@ jobs:
           OLD_FROM: ${{ matrix.old }}
         run: bash tests/releases/test_cli_upgrade_restart.sh
 
-  # The in-app auto-update path (app/auto_update.py): the server must
-  # prefetch the target version into uv's cache on its own, offer
-  # restart, let ONLY an admin apply it, and come back on the new
-  # version via the detached `vibe-seller upgrade`. macOS and Linux
-  # share this code path (native Windows is gated by
-  # windows-installer.yml's auto-update step).
+  # The in-app auto-update path, one scenario per leg (see the map at
+  # the top). macOS and Linux share this code path — there is no
+  # installer here, so the pip path is the only path, and what these
+  # legs prove is the PREFETCH, the IDLE GATE and the ROLLBACK. The
+  # fingerprint that CHOOSES the path is Windows-side: S4 and S6 run in
+  # windows-installer.yml, S8 in bundle-fingerprint.yml.
   auto-update:
-    name: in-app auto-update (${{ matrix.os }})
+    name: in-app auto-update ${{ matrix.leg }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     strategy:
+      # Every leg runs even if a sibling fails: one red leg must not
+      # hide whether the other four still work, and under a twist the
+      # point of the run is exactly which leg caught it.
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        leg: [s1, s2, s5, s5b, s5c, s7]
+        # One fixed port per leg. test_auto_update.sh numbers its legs
+        # PORT, PORT+1, … and refuses to start on a port that is
+        # already serving, so legs that share a machine (a self-hosted
+        # runner, or any future change here that keeps them on one)
+        # would otherwise abort on each other's server. 7921-7925: a
+        # band no other workflow in this repo uses.
+        include:
+          - leg: s1
+            port: 7921
+          - leg: s2
+            port: 7922
+          - leg: s5
+            port: 7923
+          - leg: s5b
+            port: 7924
+          - leg: s5c
+            port: 7926
+          - leg: s7
+            port: 7925
     env:
       VIBE_SELLER_TELEMETRY: '0'
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Self-test the twists (anchor check, injects nothing)
+        run: python3 tests/releases/twist.py --list
+
+      - name: Inject the named bug
+        env:
+          TWIST: ${{ inputs.twist }}
+        run: python3 tests/releases/twist.py "$TWIST"
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
@@ -131,5 +237,62 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get install -y lsof
 
-      - name: Run the auto-update test
-        run: bash tests/releases/test_auto_update.sh
+      # Which legs THIS twist is supposed to turn red. A green leg under
+      # a twist that names a Windows scenario is not a pass — it is this
+      # workflow being the wrong place to look — so say that in the log
+      # instead of letting the check list imply it was proved.
+      - name: Say what this run is testing
+        env:
+          TWIST: ${{ inputs.twist }}
+        run: |
+          case "${TWIST:-none}" in
+            ''|none)
+              echo 'twist=none: every leg runs the code as it is.'
+              ;;
+            no-rollback)
+              echo 'twist=no-rollback: legs s5 and s5b are EXPECTED' \
+                   'TO GO RED (nothing is put back, and the machine' \
+                   'is left with no server).'
+              ;;
+            ignore-idle)
+              echo 'twist=ignore-idle: leg s2 is EXPECTED TO GO RED' \
+                   '(an update restarts a server that is in' \
+                   "somebody's task)."
+              ;;
+            retry-bad)
+              echo 'twist=retry-bad: leg s5c is EXPECTED TO GO RED' \
+                   '(a release this machine already rolled back is' \
+                   'applied again: one outage per check cycle, for a' \
+                   'build that cannot boot).'
+              ;;
+            dev-updates)
+              echo 'twist=dev-updates: leg s7 is EXPECTED TO GO RED' \
+                   '(a dev build starts fetching published releases).'
+              ;;
+            *)
+              echo "::warning::twist=${TWIST:-none} names no leg here." \
+                   "These legs cannot see it: wrong-path and" \
+                   "no-digest-check are Windows scenarios (S4/S6," \
+                   "windows-installer.yml), raw-fingerprint is S8" \
+                   "(bundle-fingerprint.yml). Nothing here should" \
+                   "change colour."
+              ;;
+          esac
+
+      # The leg builds, installs and upgrades between its own wheels,
+      # so the bug it was dispatched with is inside the build it tests.
+      - name: Run the auto-update leg
+        env:
+          LEG: ${{ matrix.leg }}
+          PORT: ${{ matrix.port }}
+        run: |
+          # An empty PORT would fall back to the script's default — the
+          # one port another leg on this machine already holds, and the
+          # collision would then be blamed on the app.
+          if [ -z "$PORT" ]; then
+            echo "::error::leg $LEG has no PORT — the matrix include" \
+                 "list and the leg list disagree"
+            exit 1
+          fi
+          echo "leg $LEG on port $PORT"
+          LEG="$LEG" PORT="$PORT" bash tests/releases/test_auto_update.sh
