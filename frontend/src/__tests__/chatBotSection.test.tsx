@@ -1,12 +1,15 @@
 /**
- * Render tests for ChatBotSection (multi-platform chat bots).
+ * Render tests for ChatBotSection (multi-platform chat bots) — the
+ * core list / create / edit / delete / test flows.
  *
- * Mocks the `api` helper so the component's list/create/update/
- * delete/test flows can be exercised end-to-end in jsdom. Beyond the
- * original WeCom CRUD coverage this pins the multi-platform contract:
- * the live platform badge from /platforms metadata, the
- * signing-secret field appearing ONLY for DingTalk/Feishu, and the
- * "signed" indicator on list rows.
+ * Mocks the `api` helper so the component's flows can be exercised
+ * end-to-end in jsdom: the live platform badge from /platforms
+ * metadata, masked URLs on rows and in the edit form, and the
+ * "signed" / keyword indicators on list rows.
+ *
+ * The per-platform SECURITY section (what each platform offers, what
+ * is required, inline errors, security_mode payloads) is pinned in
+ * chatBotSectionSecurity.test.tsx.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
@@ -49,6 +52,8 @@ const PLATFORMS = [
     path_prefix: '/cgi-bin/webhook/',
     uses_secret: false,
     uses_keyword: false,
+    security_options: [],
+    security_required: false,
     supports_file: true,
     max_message: 4096,
     limits: {},
@@ -62,6 +67,8 @@ const PLATFORMS = [
     path_prefix: '/robot/send',
     uses_secret: true,
     uses_keyword: true,
+    security_options: ['sign', 'keyword', 'ip'],
+    security_required: true,
     supports_file: false,
     max_message: 20000,
     limits: {},
@@ -75,6 +82,8 @@ const PLATFORMS = [
     path_prefix: '/open-apis/bot/v2/hook/',
     uses_secret: true,
     uses_keyword: true,
+    security_options: ['sign', 'keyword', 'ip'],
+    security_required: false,
     supports_file: false,
     max_message: 20000,
     limits: {},
@@ -88,6 +97,8 @@ const PLATFORMS = [
     path_prefix: '/services/',
     uses_secret: false,
     uses_keyword: false,
+    security_options: [],
+    security_required: false,
     supports_file: false,
     max_message: 40000,
     limits: { markdown: 12000 },
@@ -131,6 +142,7 @@ const BOT_A_FULL = {
   webhook_url: WECOM_URL,
   secret: null,
   keyword: null,
+  security_mode: null,
   created_at: '2026-04-17T10:00:00Z',
   updated_at: '2026-04-17T10:00:00Z',
 }
@@ -193,62 +205,6 @@ describe('ChatBotSection', () => {
     ).toHaveTextContent('signed')
   })
 
-  // ── live platform badge + secret field ───────────────
-
-  it('detects the platform from the URL while typing and shows the badge', async () => {
-    renderSection()
-    fireEvent.click(await screen.findByTestId('chat-bot-add'))
-
-    const url = screen.getByTestId('chat-bot-url') as HTMLInputElement
-    fireEvent.change(url, { target: { value: DINGTALK_URL } })
-
-    expect(
-      await screen.findByTestId('chat-bot-platform-badge'),
-    ).toHaveTextContent('DingTalk')
-    // DingTalk uses a signing secret → the field appears.
-    expect(screen.getByTestId('chat-bot-secret')).toBeInTheDocument()
-    // Per-platform hint replaces the generic one.
-    expect(screen.getByTestId('chat-bot-url-hint').textContent).toMatch(
-      /自定义机器人|Add robot/,
-    )
-  })
-
-  it.each([
-    [WECOM_URL, 'WeCom', false],
-    [DINGTALK_URL, 'DingTalk', true],
-    ['https://open.feishu.cn/open-apis/bot/v2/hook/tok-1234', 'Feishu / Lark', true],
-    [SLACK_URL, 'Slack', false],
-  ])('%s → badge %s, secret field %s', async (url, label, hasSecret) => {
-    renderSection()
-    fireEvent.click(await screen.findByTestId('chat-bot-add'))
-
-    fireEvent.change(screen.getByTestId('chat-bot-url'), {
-      target: { value: url },
-    })
-
-    expect(
-      await screen.findByTestId('chat-bot-platform-badge'),
-    ).toHaveTextContent(label)
-    expect(!!screen.queryByTestId('chat-bot-secret')).toBe(hasSecret)
-  })
-
-  it.each([
-    [WECOM_URL, false],
-    [DINGTALK_URL, true],
-    ['https://open.feishu.cn/open-apis/bot/v2/hook/tok-1234', true],
-    [SLACK_URL, false],
-  ])('keyword field visibility for %s → %s', async (url, hasKeyword) => {
-    renderSection()
-    fireEvent.click(await screen.findByTestId('chat-bot-add'))
-
-    fireEvent.change(screen.getByTestId('chat-bot-url'), {
-      target: { value: url },
-    })
-    await screen.findByTestId('chat-bot-platform-badge')
-
-    expect(!!screen.queryByTestId('chat-bot-keyword')).toBe(hasKeyword)
-  })
-
   it('shows a keyword pill on the row when the bot has one', async () => {
     mockApi.get.mockImplementation((url: string) => {
       if (url === '/api/chat-bots/platforms') return Promise.resolve(PLATFORMS)
@@ -264,107 +220,43 @@ describe('ChatBotSection', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('saves a DingTalk bot with its keyword', async () => {
-    mockApi.post.mockResolvedValueOnce({ ...BOT_DING_SUMMARY })
-    mockApi.get.mockImplementation((url: string) => {
-      if (url === '/api/chat-bots/platforms') return Promise.resolve(PLATFORMS)
-      return Promise.resolve([])
-    })
+  // ── live platform badge ───────────────────────────
+
+  it('detects the platform from the URL while typing and shows the badge', async () => {
     renderSection()
     fireEvent.click(await screen.findByTestId('chat-bot-add'))
 
-    fireEvent.change(screen.getByTestId('chat-bot-name'), {
-      target: { value: 'Ops DingTalk' },
-    })
-    fireEvent.change(screen.getByTestId('chat-bot-url'), {
-      target: { value: DINGTALK_URL },
-    })
-    fireEvent.change(await screen.findByTestId('chat-bot-keyword'), {
-      target: { value: 'SALES' },
-    })
-    fireEvent.click(screen.getByTestId('chat-bot-save'))
+    const url = screen.getByTestId('chat-bot-url') as HTMLInputElement
+    fireEvent.change(url, { target: { value: DINGTALK_URL } })
 
-    await waitFor(() => {
-      expect(mockApi.post).toHaveBeenCalledWith('/api/chat-bots', {
-        name: 'Ops DingTalk',
-        webhook_url: DINGTALK_URL,
-        secret: '',
-        keyword: 'SALES',
-      })
-    })
-  })
-
-  it('shows the generic hint while the URL is unrecognized', async () => {
-    renderSection()
-    fireEvent.click(await screen.findByTestId('chat-bot-add'))
-
-    fireEvent.change(screen.getByTestId('chat-bot-url'), {
-      target: { value: 'https://evil.com/webhook' },
-    })
-
-    // No badge text (still the detecting placeholder), no secret.
     expect(
-      screen.getByTestId('chat-bot-platform-badge'),
-    ).toHaveTextContent(/detected/i)
-    expect(screen.queryByTestId('chat-bot-secret')).not.toBeInTheDocument()
+      await screen.findByTestId('chat-bot-platform-badge'),
+    ).toHaveTextContent('DingTalk')
+    // Per-platform hint replaces the generic one.
+    expect(screen.getByTestId('chat-bot-url-hint').textContent).toMatch(
+      /自定义机器人|Add robot/,
+    )
   })
 
-  it('saves a signed DingTalk bot with its secret', async () => {
-    mockApi.post.mockResolvedValueOnce({ ...BOT_DING_SUMMARY })
-    mockApi.get.mockImplementation((url: string) => {
-      if (url === '/api/chat-bots/platforms') return Promise.resolve(PLATFORMS)
-      return Promise.resolve([])
-    })
+  it.each([
+    [WECOM_URL, 'WeCom'],
+    [DINGTALK_URL, 'DingTalk'],
+    ['https://open.feishu.cn/open-apis/bot/v2/hook/tok-1234', 'Feishu / Lark'],
+    [SLACK_URL, 'Slack'],
+  ])('%s → badge %s', async (url, label) => {
     renderSection()
     fireEvent.click(await screen.findByTestId('chat-bot-add'))
 
-    fireEvent.change(screen.getByTestId('chat-bot-name'), {
-      target: { value: 'Ops DingTalk' },
-    })
     fireEvent.change(screen.getByTestId('chat-bot-url'), {
-      target: { value: DINGTALK_URL },
+      target: { value: url },
     })
-    fireEvent.change(await screen.findByTestId('chat-bot-secret'), {
-      target: { value: 'SECtest' },
-    })
-    fireEvent.click(screen.getByTestId('chat-bot-save'))
 
-    await waitFor(() => {
-      expect(mockApi.post).toHaveBeenCalledWith('/api/chat-bots', {
-        name: 'Ops DingTalk',
-        webhook_url: DINGTALK_URL,
-        secret: 'SECtest',
-        keyword: '',
-      })
-    })
+    expect(
+      await screen.findByTestId('chat-bot-platform-badge'),
+    ).toHaveTextContent(label)
   })
 
-  it('saves a WeCom bot without any secret field being sent as non-empty', async () => {
-    mockApi.post.mockResolvedValueOnce(BOT_A_FULL)
-    renderSection()
-    fireEvent.click(await screen.findByTestId('chat-bot-add'))
-
-    fireEvent.change(screen.getByTestId('chat-bot-name'), {
-      target: { value: 'Ops Alerts' },
-    })
-    fireEvent.change(screen.getByTestId('chat-bot-url'), {
-      target: { value: WECOM_URL },
-    })
-    fireEvent.click(screen.getByTestId('chat-bot-save'))
-
-    await waitFor(() => {
-      expect(mockApi.post).toHaveBeenCalledWith('/api/chat-bots', {
-        name: 'Ops Alerts',
-        webhook_url: WECOM_URL,
-        secret: '',
-        keyword: '',
-      })
-    })
-    expect(await screen.findByTestId('chat-bot-empty')).toBeInTheDocument()
-    expect(screen.queryByTestId('chat-bot-form')).not.toBeInTheDocument()
-  })
-
-  it('save is blocked when name or url blank (no API call)', async () => {
+  it('saving with no name or url is blocked before anything else', async () => {
     renderSection()
     await screen.findByTestId('chat-bot-empty')
 
@@ -376,18 +268,15 @@ describe('ChatBotSection', () => {
     expect(mockApi.post).not.toHaveBeenCalled()
   })
 
+  // ── edit flow ─────────────────────────────────────
+
   it('Edit fetches full URL + secret via single GET and pre-fills the form', async () => {
-    mockApi.get.mockImplementation((url: string) => {
-      if (url === '/api/chat-bots/platforms') return Promise.resolve(PLATFORMS)
-      if (url === '/api/chat-bots/bot-a') return Promise.resolve(BOT_A_FULL)
-      return Promise.resolve([BOT_A_SUMMARY])
-    })
-    mockApi.put.mockResolvedValueOnce({ ...BOT_A_FULL, name: 'Renamed' })
     mockApi.get.mockImplementation((url: string) => {
       if (url === '/api/chat-bots/platforms') return Promise.resolve(PLATFORMS)
       if (url === '/api/chat-bots/bot-a') return Promise.resolve(BOT_A_FULL)
       return Promise.resolve([{ ...BOT_A_SUMMARY, name: 'Renamed' }])
     })
+    mockApi.put.mockResolvedValueOnce({ ...BOT_A_FULL, name: 'Renamed' })
 
     renderSection()
     fireEvent.click(await screen.findByTestId('chat-bot-edit-bot-a'))
@@ -399,8 +288,10 @@ describe('ChatBotSection', () => {
       expect(urlInput.value).toBe(WECOM_URL)
     })
     expect(mockApi.get).toHaveBeenCalledWith('/api/chat-bots/bot-a')
-    // WeCom bot → no secret field even in edit mode.
-    expect(screen.queryByTestId('chat-bot-secret')).not.toBeInTheDocument()
+    // WeCom bot → no security section even in edit mode.
+    expect(
+      screen.queryByTestId('chat-bot-security'),
+    ).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByTestId('chat-bot-name'), {
       target: { value: 'Renamed' },
@@ -413,6 +304,7 @@ describe('ChatBotSection', () => {
         webhook_url: WECOM_URL,
         secret: '',
         keyword: '',
+        security_mode: '',
       })
     })
     const row = await screen.findByTestId('chat-bot-row-bot-a')
@@ -452,6 +344,8 @@ describe('ChatBotSection', () => {
 
     expect(mockApi.del).not.toHaveBeenCalled()
   })
+
+  // ── test button ───────────────────────────────────
 
   it('Test button posts to /test and shows success toast on ok=true', async () => {
     mockApi.post.mockResolvedValueOnce({ ok: true, message: 'Message sent' })
@@ -500,98 +394,5 @@ describe('ChatBotSection', () => {
 
     const err = await screen.findByTestId('chat-bot-error')
     expect(err.textContent).toContain('boom')
-  })
-
-  // ── masked edit form (stored secrets are masks for every caller) ──
-
-  const BOT_DING_FULL_MASKED = {
-    id: 'bot-ding',
-    name: 'Ops DingTalk',
-    platform: 'dingtalk',
-    // the server returns masks, never the stored values
-    webhook_url: '****',
-    secret: '****abcd',
-    keyword: 'SALES',
-    created_at: '2026-04-17T10:00:00Z',
-    updated_at: '2026-04-17T10:00:00Z',
-  }
-
-  function mockMaskedEdit() {
-    mockApi.get.mockImplementation((url: string) => {
-      if (url === '/api/chat-bots/platforms') return Promise.resolve(PLATFORMS)
-      if (url === '/api/chat-bots/bot-ding')
-        return Promise.resolve(BOT_DING_FULL_MASKED)
-      return Promise.resolve([BOT_DING_SUMMARY])
-    })
-    mockApi.put.mockResolvedValueOnce(BOT_DING_FULL_MASKED)
-  }
-
-  it('edit with the masked URL still shows the stored platform fields', async () => {
-    mockMaskedEdit()
-    renderSection()
-
-    fireEvent.click(await screen.findByTestId('chat-bot-edit-bot-ding'))
-    await waitFor(() => {
-      expect(
-        (screen.getByTestId('chat-bot-url') as HTMLInputElement).value,
-      ).toBe('****')
-    })
-    // the mask parses as no platform — the form falls back to the
-    // bot's STORED platform (dingtalk) for badge + secret/keyword
-    expect(screen.getByTestId('chat-bot-platform-badge')).toHaveTextContent(
-      'DingTalk',
-    )
-    expect(screen.getByTestId('chat-bot-secret')).toBeInTheDocument()
-    expect(screen.getByTestId('chat-bot-keyword')).toBeInTheDocument()
-
-    // saving the untouched form posts the masks back — the server
-    // restores them to the stored values ("unchanged")
-    fireEvent.click(screen.getByTestId('chat-bot-save'))
-    await waitFor(() => {
-      expect(mockApi.put).toHaveBeenCalledWith('/api/chat-bots/bot-ding', {
-        name: 'Ops DingTalk',
-        webhook_url: '****',
-        secret: '****abcd',
-        keyword: 'SALES',
-      })
-    })
-  })
-
-  it('admins see Show/Copy reveal buttons on the edit form', async () => {
-    mockMaskedEdit()
-    render(
-      <I18nextProvider i18n={i18nTestInstance}>
-        <ChatBotSection isAdmin />
-      </I18nextProvider>,
-    )
-    fireEvent.click(await screen.findByTestId('chat-bot-edit-bot-ding'))
-    await waitFor(() => {
-      expect(
-        (screen.getByTestId('chat-bot-url') as HTMLInputElement).value,
-      ).toBe('****')
-    })
-    expect(
-      screen.getByTestId('secret-reveal-chat_bot-webhook_url'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByTestId('secret-reveal-chat_bot-secret'),
-    ).toBeInTheDocument()
-  })
-
-  it('members get no reveal buttons on the edit form', async () => {
-    mockMaskedEdit()
-    renderSection()
-    fireEvent.click(await screen.findByTestId('chat-bot-edit-bot-ding'))
-    await waitFor(() => {
-      expect(
-        (screen.getByTestId('chat-bot-url') as HTMLInputElement).value,
-      ).toBe('****')
-    })
-    expect(
-      screen.queryByTestId('secret-reveal-chat_bot-webhook_url'),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByTestId('secret-reveal-chat_bot-secret'),
-    ).not.toBeInTheDocument()
   })
 })

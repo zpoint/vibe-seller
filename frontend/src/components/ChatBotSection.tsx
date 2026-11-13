@@ -3,7 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../api'
 import { SecretReveal } from './SecretReveal'
 
-/** Registry metadata from GET /api/chat-bots/platforms. */
+/** Registry metadata from GET /api/chat-bots/platforms.
+ *
+ * `security_options` / `security_required` carry what the platform's
+ * OWN console offers for a custom bot, and whether it insists on one:
+ * the form below renders its whole security section from them and
+ * never names a platform, so the labels, fields and rules a user sees
+ * are the same data the server validates against.
+ */
 export interface ChatPlatform {
   name: string
   label: string
@@ -11,6 +18,8 @@ export interface ChatPlatform {
   path_prefix: string
   uses_secret: boolean
   uses_keyword: boolean
+  security_options: string[]
+  security_required: boolean
   supports_file: boolean
   max_message: number
   limits: Record<string, number>
@@ -35,6 +44,18 @@ export interface ChatBot extends Omit<ChatBotSummary, 'webhook_url_masked' | 'ha
   webhook_url: string
   secret: string | null
   keyword: string | null
+  /** Which of the platform's security settings the row relies on —
+   *  a comma-joined list of 'sign' / 'keyword' / 'ip', or null when
+   *  the row never recorded one. */
+  security_mode: string | null
+}
+
+/** The list form the server's `security_mode` string arrives in. */
+function parseMode(mode: string | null | undefined): string[] {
+  return (mode ?? '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
 }
 
 /**
@@ -91,6 +112,18 @@ export function ChatBotSection({ isAdmin = false }: { isAdmin?: boolean }) {
     secret: string
     keyword: string
   }>({ name: '', webhook_url: '', secret: '', keyword: '' })
+  /**
+   * The security settings the form declares, tagged with the platform
+   * they were chosen FOR. A stale selection must never survive a move
+   * to another platform's URL — including the edit form's, where the
+   * stored platform shows until a new URL parses.
+   */
+  const [security, setSecurity] = useState<{ platform: string; options: string[] }>({
+    platform: '',
+    options: [],
+  })
+  /** Inline refusal of the security section, named per platform. */
+  const [securityError, setSecurityError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
@@ -130,11 +163,65 @@ export function ChatBotSection({ isAdmin = false }: { isAdmin?: boolean }) {
       ? platforms.find(p => p.name === editingPlatform)
       : undefined)
 
+  /** The settings this form declares for the platform it shows. */
+  const options = effectivePlatform?.security_options ?? []
+  const securityRequired = !!effectivePlatform?.security_required
+  const selected =
+    effectivePlatform && security.platform === effectivePlatform.name
+      ? security.options
+      : []
+
+  const resetSecurity = (platform: string, mode: string | null) => {
+    setSecurity({ platform, options: parseMode(mode) })
+    setSecurityError(null)
+  }
+
+  const toggleOption = (option: string, on: boolean) => {
+    setSecurityError(null)
+    setSecurity((current) => {
+      const mine =
+        effectivePlatform && current.platform === effectivePlatform.name
+          ? current.options
+          : []
+      // Tick as many as the bot really uses: the platform enforces
+      // EVERY setting configured on it (a robot with 加签 AND 自定义
+      // 关键词 rejects a message that only satisfies one), so the
+      // form must record all of them. "Required" is at least one —
+      // enforced on save, not by restricting the ticks.
+      const next = on
+        ? [...mine.filter((o) => o !== option), option]
+        : mine.filter((o) => o !== option)
+      return { platform: effectivePlatform?.name ?? '', options: next }
+    })
+  }
+
+  /** What the platform's own rules say is missing, or ''. */
+  const securityIssue = (): string => {
+    if (!effectivePlatform || options.length === 0) return ''
+    if (securityRequired && selected.length === 0) {
+      return t('integrations.chat_bot.security.pickRequired')
+    }
+    const optionLabel = (option: string) =>
+      t(`integrations.chat_bot.security.option.${effectivePlatform.name}.${option}`)
+    if (selected.includes('sign') && !form.secret.trim()) {
+      return t('integrations.chat_bot.security.needsSecret', {
+        option: optionLabel('sign'),
+      })
+    }
+    if (selected.includes('keyword') && !form.keyword.trim()) {
+      return t('integrations.chat_bot.security.needsKeyword', {
+        option: optionLabel('keyword'),
+      })
+    }
+    return ''
+  }
+
   const startCreate = () => {
     setEditingId(null)
     setEditingPlatform(null)
     setCreating(true)
     setForm({ name: '', webhook_url: '', secret: '', keyword: '' })
+    resetSecurity('', null)
   }
 
   const startEdit = async (bot: ChatBotSummary) => {
@@ -145,6 +232,7 @@ export function ChatBotSection({ isAdmin = false }: { isAdmin?: boolean }) {
     // arrive MASKED (the server returns masks to every caller), and
     // leaving them untouched in the form keeps the stored secret.
     setForm({ name: bot.name, webhook_url: '', secret: '', keyword: '' })
+    resetSecurity(bot.platform, null)
     try {
       const full = (await api.get(`/api/chat-bots/${bot.id}`)) as ChatBot
       setForm({
@@ -153,6 +241,8 @@ export function ChatBotSection({ isAdmin = false }: { isAdmin?: boolean }) {
         secret: full.secret ?? '',
         keyword: full.keyword ?? '',
       })
+      // The edit form opens on the setting the row actually uses.
+      resetSecurity(full.platform, full.security_mode)
     } catch (e) {
       setToast({ kind: 'err', text: e instanceof Error ? e.message : String(e) })
     }
@@ -163,19 +253,31 @@ export function ChatBotSection({ isAdmin = false }: { isAdmin?: boolean }) {
     setEditingId(null)
     setEditingPlatform(null)
     setForm({ name: '', webhook_url: '', secret: '', keyword: '' })
+    resetSecurity('', null)
   }
 
   const save = async () => {
     if (!form.name.trim()) { setToast({ kind: 'err', text: t('integrations.chat_bot.nameRequired') }); return }
     if (!form.webhook_url.trim()) { setToast({ kind: 'err', text: t('integrations.chat_bot.urlRequired') }); return }
+    const issue = securityIssue()
+    if (issue) {
+      // Inline, next to the choice it is about — not a toast over the
+      // whole card.
+      setSecurityError(issue)
+      return
+    }
     setSaving(true)
     setToast(null)
     try {
       const body = {
         name: form.name,
         webhook_url: form.webhook_url,
-        secret: form.secret,
-        keyword: form.keyword,
+        // A setting that is not selected posts '', and the server —
+        // told which settings ARE selected — clears whatever it
+        // carried. Unticking 加签 is how the form turns a secret off.
+        secret: selected.includes('sign') ? form.secret : '',
+        keyword: selected.includes('keyword') ? form.keyword : '',
+        security_mode: selected.join(','),
       }
       if (editingId) {
         await api.put(`/api/chat-bots/${editingId}`, body)
@@ -302,41 +404,90 @@ export function ChatBotSection({ isAdmin = false }: { isAdmin?: boolean }) {
               {hintKey ? t(hintKey) : t('integrations.chat_bot.webhookHint')}
             </p>
           </div>
-          {effectivePlatform?.uses_secret && (
-            <div>
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <label className="block text-xs text-gray-600">
-                  {t('integrations.chat_bot.secretLabel')}
-                </label>
-                {isAdmin && editingId && (
-                  <SecretReveal resource="chat_bot" id={editingId} field="secret" compact />
+          {options.length > 0 && (
+            <div data-testid="chat-bot-security" className="space-y-2">
+              <label className="block text-xs text-gray-600">
+                {t(
+                  securityRequired
+                    ? 'integrations.chat_bot.security.titleRequired'
+                    : 'integrations.chat_bot.security.titleOptional',
                 )}
-              </div>
-              <input
-                type="password"
-                data-testid="chat-bot-secret"
-                value={form.secret}
-                onChange={(e) => setForm({ ...form, secret: e.target.value })}
-                placeholder={t('integrations.chat_bot.secretPlaceholder')}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded font-mono"
-              />
-              <p className="text-xs text-gray-500 mt-1">{t('integrations.chat_bot.secretHint')}</p>
-            </div>
-          )}
-          {effectivePlatform?.uses_keyword && (
-            <div>
-              <label className="block text-xs text-gray-600 mb-1">
-                {t('integrations.chat_bot.keywordLabel')}
               </label>
-              <input
-                type="text"
-                data-testid="chat-bot-keyword"
-                value={form.keyword}
-                onChange={(e) => setForm({ ...form, keyword: e.target.value })}
-                placeholder={t('integrations.chat_bot.keywordPlaceholder')}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded font-mono"
-              />
-              <p className="text-xs text-gray-500 mt-1">{t('integrations.chat_bot.keywordHint')}</p>
+              <div
+                className="flex flex-wrap gap-x-4 gap-y-1"
+                role="group"
+              >
+                {options.map((option) => (
+                  <label
+                    key={option}
+                    className="flex items-center gap-1.5 text-xs text-gray-700"
+                  >
+                    <input
+                      type="checkbox"
+                      data-testid={`chat-bot-mode-${option}`}
+                      checked={selected.includes(option)}
+                      onChange={(e) => toggleOption(option, e.target.checked)}
+                    />
+                    {t(`integrations.chat_bot.security.option.${effectivePlatform?.name}.${option}`)}
+                  </label>
+                ))}
+              </div>
+              {securityRequired && selected.length === 0 && !securityError && (
+                <p className="text-xs text-gray-500" data-testid="chat-bot-security-note">
+                  {t('integrations.chat_bot.security.pickRequired')}
+                </p>
+              )}
+              {selected.includes('sign') && (
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="block text-xs text-gray-600">
+                      {t(`integrations.chat_bot.security.option.${effectivePlatform?.name}.sign`)}
+                    </label>
+                    {isAdmin && editingId && (
+                      <SecretReveal resource="chat_bot" id={editingId} field="secret" compact />
+                    )}
+                  </div>
+                  <input
+                    type="password"
+                    data-testid="chat-bot-secret"
+                    value={form.secret}
+                    onChange={(e) => setForm({ ...form, secret: e.target.value })}
+                    placeholder={t('integrations.chat_bot.secretPlaceholder')}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded font-mono"
+                  />
+                  <p className="text-xs text-gray-500 mt-1" data-testid="chat-bot-secret-hint">
+                    {t(`integrations.chat_bot.security.hint.${effectivePlatform?.name}.sign`)}
+                  </p>
+                </div>
+              )}
+              {selected.includes('keyword') && (
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">
+                    {t(`integrations.chat_bot.security.option.${effectivePlatform?.name}.keyword`)}
+                  </label>
+                  <input
+                    type="text"
+                    data-testid="chat-bot-keyword"
+                    value={form.keyword}
+                    onChange={(e) => setForm({ ...form, keyword: e.target.value })}
+                    placeholder={t('integrations.chat_bot.keywordPlaceholder')}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded font-mono"
+                  />
+                  <p className="text-xs text-gray-500 mt-1" data-testid="chat-bot-keyword-hint">
+                    {t(`integrations.chat_bot.security.hint.${effectivePlatform?.name}.keyword`)}
+                  </p>
+                </div>
+              )}
+              {selected.includes('ip') && (
+                <p className="text-xs text-gray-500" data-testid="chat-bot-ip-note">
+                  {t(`integrations.chat_bot.security.hint.${effectivePlatform?.name}.ip`)}
+                </p>
+              )}
+              {securityError && (
+                <p className="text-xs text-red-600" data-testid="chat-bot-security-error">
+                  {securityError}
+                </p>
+              )}
             </div>
           )}
           <div className="flex gap-2">
