@@ -582,6 +582,16 @@ EOF
       # the old version back, then reinstalls and boots — so the second
       # wait is bounded by the helper's budget plus one boot, not by
       # hope.
+      # The two bounds, from the constants they wait on rather than from
+      # hope: the tick fires every IDLE_CHECK_INTERVAL_SECONDS (60), so
+      # 150 x 2 s = 300 s is five intervals of patience; and a dying
+      # apply spends SELF_RESTART_GRACE (120) + HEALTH_TIMEOUT (300)
+      # before it starts putting the old version back, then one offline
+      # install and one boot — so 400 x 2 s = 800 s. Both are generous in
+      # the SAFE direction: an expired wait is a red leg, never a green
+      # one. If a helper constant is ever raised past these, the leg goes
+      # red and says which wait expired — that is the intended failure,
+      # not a reason to raise the bound here.
       wait_for_apply_start "$applies_before" 150 \
         || fail "the idle tick never started an apply for $target"
       wait_for_new_record "$record_before" \

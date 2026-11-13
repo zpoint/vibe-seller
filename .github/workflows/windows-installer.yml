@@ -1038,10 +1038,28 @@ jobs:
           if (-not $st -or $st.state -ne 'ready' -or $st.path -ne 'pip') {
             Fail "expected a ready pip update, got $(Json $st)"
           }
-          # The apply happens by itself; what we are waiting for is the
-          # ANSWER, not the version. Darkness during the attempt is
+          # Marked BEFORE waiting for anything: this machine already
+          # answers $script:Old, so "wait for the port to answer the OLD
+          # version" is true the instant it is asked, and the record read
+          # one line later is one that does not exist yet. On the host
+          # (§9 of win-e2e2.REPORT.md) that is exactly what happened — the
+          # leg asserted a record ~2 s after `ready`, before the
+          # once-a-minute idle tick could have spawned the helper — and
+          # the same shape was measured twice in the Linux legs the same
+          # day. What an apply produces is a line in the helper's own log
+          # and then a NEW last.json, in that order.
+          $applies0 = Applies-Started
+          $recBefore = Record-Identity (Read-Record)
+          if (-not (Wait-ApplyStart $applies0)) {
+            Fail "the idle tick never started an apply for v$new (pip-apply.log holds $(Applies-Started) apply line(s), was $applies0)"
+          }
+          if (-not (Wait-NewRecord $recBefore)) {
+            Fail "the apply for v$new never wrote a record (last.json: $(Json (Read-Record)))"
+          }
+          # The apply is over; only now is "did the machine come back" a
+          # question with an answer. Darkness during the attempt was
           # allowed; staying dark is the bug.
-          if (-not (Wait-OnVersion -want $script:Old -tries 500)) {
+          if (-not (Wait-OnVersion -want $script:Old -tries 120)) {
             Fail "the machine is dark: v$new never booted and v$script:Old was never put back"
           }
           if ((Server-Version) -eq $new) { Fail "v$new answered — it is supposed to die at boot" }
@@ -1103,18 +1121,28 @@ jobs:
           if (-not $st -or $st.state -ne 'ready' -or $st.path -ne 'pip') {
             Fail "expected a ready pip update, got $(Json $st)"
           }
-          # Outage one: it applies itself, dies, and must come back.
-          if (-not (Wait-OnVersion -want $script:Old -tries 500)) {
+          # Outage one: it applies itself, dies, and must come back —
+          # and the two events that prove it are the helper being
+          # spawned and then writing a record, not the port answering a
+          # version it answered before the apply started (see leg s5).
+          $applies0 = Applies-Started
+          $recBefore = Record-Identity (Read-Record)
+          if (-not (Wait-ApplyStart $applies0)) {
+            Fail "the idle tick never started an apply for v$new (pip-apply.log holds $(Applies-Started) apply line(s), was $applies0)"
+          }
+          if (-not (Wait-NewRecord $recBefore)) {
+            Fail "the first outage never wrote a record (last.json: $(Json (Read-Record)))"
+          }
+          if (-not (Wait-OnVersion -want $script:Old -tries 120)) {
             Fail "the machine is dark: v$new never booted and v$($script:Old) was never put back"
           }
           $rec1 = Read-Record
           if (-not $rec1 -or $rec1.status -ne 'rolled_back') {
             Fail "the first outage left no rollback record: $(Json $rec1)"
           }
-          $applies1 = @(Select-String -Path "$script:Updates\pip-apply.log" `
-            -Pattern 'applying ' -AllMatches).Count
+          $applies1 = Applies-Started
           if ($applies1 -lt 1) { Fail 'no apply was ever attempted' }
-          Write-Host "  outage one recorded: $applies1 apply, rolled_back"
+          Write-Host "  outage one recorded: $applies1 apply, $($rec1.status)"
           # Outage two must not happen: reboot into the same offer.
           Restart-LegServer
           $st2 = Wait-OnState @('ready', 'error')
@@ -1135,8 +1163,7 @@ jobs:
           if ((Server-Version) -ne $script:Old) {
             Fail "it applied the rolled-back release a second time (now $(Server-Version))"
           }
-          $applies2 = @(Select-String -Path "$script:Updates\pip-apply.log" `
-            -Pattern 'applying ' -AllMatches).Count
+          $applies2 = Applies-Started
           if ($applies2 -ne $applies1) {
             Fail "a second apply started ($applies1 -> $applies2)"
           }
@@ -1182,30 +1209,63 @@ jobs:
           if (-not (Wait-OnVersion -want $v2 -tries 420)) {
             Fail "hop 1 did not apply itself (still $(Server-Version))"
           }
-          Write-Host "  hop 1 done: serving $v2"
+          # Hop 1 is not over when the VERSION moves: the record is the
+          # last thing its helper writes, ~2 min later. Hop 2 marks
+          # against that record, and a marker taken from a file that is
+          # not there yet is EMPTY — an empty marker is satisfied by any
+          # record, which is how the Linux leg read hop 1's own `ok` as
+          # hop 2's verdict (`FAIL: the new record is about …2, not …3`)
+          # two minutes before the second apply could have written one.
+          $hop1 = $null
+          for ($i = 0; $i -lt 200; $i++) {
+            $hop1 = Read-Record
+            if ($hop1 -and $hop1.to -eq $v2) { break }
+            Start-Sleep 2
+          }
+          if (-not $hop1 -or $hop1.to -ne $v2) {
+            Fail "hop 1 never wrote its record (last.json: $(Json (Read-Record)))"
+          }
+          if ($hop1.status -ne 'ok' -or $hop1.trigger -ne 'auto_idle') {
+            Fail "hop 1 was not an ok auto_idle apply: $(Json $hop1)"
+          }
+          Write-Host "  hop 1 done: $($hop1.from) -> $($hop1.to) $($hop1.status)"
           # Hop 2: the release now dies at boot. v2 is only in the cache,
           # never in {app}\wheels — which is the point of this leg.
           if (Test-Path "$script:Install\wheels\vibe_seller-$v2-py3-none-any.whl") {
             Fail "v2's wheel is in the bundle wheel set; this leg no longer proves the cache is what carries the rollback"
+          }
+          $applies0 = Applies-Started
+          $recBefore = Record-Identity (Read-Record)
+          if (-not $recBefore) {
+            Fail 'hop 2 began with no hop-1 record to mark against'
           }
           Build-BrokenWheel $v3
           Write-Release -Version $v3 -BundleAsset (BundlePath)
           if (-not (Loop { $s = Status; ($s.state -eq 'ready' -and $s.path -eq 'pip' -and $s.version -eq $v3) } 200)) {
             Fail "hop 2 never reached ready(pip) for ${v3}: $(Json (Status))"
           }
-          if (-not (Wait-OnVersion -want $v2 -tries 500)) {
+          if (-not (Wait-ApplyStart $applies0)) {
+            Fail "hop 2's idle tick never started an apply (pip-apply.log holds $(Applies-Started) apply line(s), was $applies0)"
+          }
+          if (-not (Wait-NewRecord $recBefore)) {
+            Fail "hop 2's apply never wrote a new record (last.json: $(Json (Read-Record)))"
+          }
+          $rec = Read-Record
+          if ($rec.status -ne 'rolled_back') { Fail "expected rolled_back, got $(Json $rec)" }
+          if ($rec.to -ne $v3) {
+            Fail "hop 2's record is about $($rec.to), not ${v3}: $(Json $rec)"
+          }
+          if (-not (Wait-OnVersion -want $v2 -tries 120)) {
             $got = Server-Version
             if (-not $got) { Fail "dark: $v3 died and nothing came back" }
             if ($got -eq $script:Old) {
               Fail "rolled back PAST $v2 to the shipped release $script:Old — the rollback target must be what was serving"
             }
-            Fail "never came back on $v2 (answering $got, record $(Json (Read-Record)))"
+            Fail "never came back on $v2 (answering $got, record $(Json $rec))"
           }
-          $rec = Read-Record
           if ($rec.from -ne $v2) {
             Fail "the record started from $($rec.from), not ${v2}: $(Json $rec)"
           }
-          if ($rec.status -ne 'rolled_back') { Fail "expected rolled_back, got $(Json $rec)" }
           if ($rec.stage -ne 'health') {
             Fail ("hop 2's failure was recorded in stage " +
                   "'$($rec.stage)', not the boot/health one")

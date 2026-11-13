@@ -294,6 +294,58 @@ function Record-Identity($rec) {
     }) -join '|'
 }
 
+# ── the two events only an APPLY produces ───────────────────────────
+#
+# A leg that waits for the PORT to answer the version it was already
+# answering, then reads `last.json`, proves nothing: the machine answers
+# OLD before the apply starts, and the record it finds is the previous
+# one. Measured twice on 2026-11-13 — in the Linux legs, then in this
+# harness on the host (§9 of win-e2e2.REPORT.md: the leg asserted a
+# record ~2 s after `ready`, before the once-a-minute idle tick had any
+# chance to spawn the helper). What a rollback leg has to wait for is
+# the helper being spawned and then finishing, in that order.
+function Applies-Started {
+  # How many applies the helper has been told to run, counted in its own
+  # log — the one signal that separates "the idle tick never fired" from
+  # "the apply ran and failed inside it".
+  $f = "$script:Updates\pip-apply.log"
+  if (-not (Test-Path $f)) { return 0 }
+  @((Select-String -Path $f -Pattern 'applying ' -AllMatches).Count)
+}
+
+# The bounds below are arithmetic, not habits:
+#
+#   Wait-ApplyStart  150 x 2 s = 300 s — five idle intervals
+#                    (update_idle.IDLE_CHECK_INTERVAL_SECONDS = 60),
+#                    because the thing being waited for is one tick.
+#   Wait-NewRecord   400 x 2 s = 800 s — a dying apply spends
+#                    SELF_RESTART_GRACE (120) + HEALTH_TIMEOUT (300)
+#                    before it starts putting the old version back, then
+#                    one offline install (pip_apply_helper.INSTALL_TIMEOUT
+#                    is 1800) and one boot.
+#
+# 800 s is therefore SHORTER than the helper's worst case, which is the
+# safe direction: an expired wait is a red leg that says which wait
+# expired, never a green leg about a machine that never recovered. If a
+# helper constant is ever raised, the leg goes red first — that is the
+# intended failure, not a reason to widen the bound here.
+function Wait-ApplyStart([int]$before, [int]$tries = 150) {
+  for ($i = 0; $i -lt $tries; $i++) {
+    if ((Applies-Started) -gt $before) { return $true }
+    Start-Sleep 2
+  }
+  return $false
+}
+
+function Wait-NewRecord([string]$before, [int]$tries = 400) {
+  for ($i = 0; $i -lt $tries; $i++) {
+    $now = Record-Identity (Read-Record)
+    if ($now -and ($now -ne $before)) { return $true }
+    Start-Sleep 2
+  }
+  return $false
+}
+
 function Read-Record {
   $f = "$script:Updates\last.json"
   if (-not (Test-Path $f)) { return $null }
