@@ -1,6 +1,8 @@
 # Subsystem Details
 
 > Deep-dive architecture for cross-cutting subsystems. See also [DESIGN.md](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md#subsystem-details).
+>
+> User guide: [Schedules](schedules.md), [Email](email.md), [Stores & Browsers](stores.md)
 
 ## All-Stores Scheduling
 

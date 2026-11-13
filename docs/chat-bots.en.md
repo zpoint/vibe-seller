@@ -8,12 +8,13 @@ Connect a group chat bot in Vibe Seller and task results, reports and
 alerts land in the group chat — no more copy-pasting. WeCom (企业微信),
 DingTalk (钉钉), Feishu / Lark (飞书) and Slack are all supported.
 
-Once it is connected, say "send this weekly report to the ops group" —
+Once it is connected, say “send this weekly report to the ops group” —
 to a task, or as a follow-up — and the message goes out. To check a
-setup any time, hit **Test**.
+setup any time, hit **Test**. The bot only posts outward; reading the
+group back isn't wired up.
 
-> The screenshots here were taken on macOS; the steps are the same on
-> Windows and Linux.
+Where each integration is configured and how they divide up: see the
+[Integrations overview](integrations.en.md).
 
 ## What you get
 
@@ -38,189 +39,65 @@ The four platforms differ slightly:
 
 ## What to prepare
 
-1. A group you are allowed to add bots to (per-platform rules below).
-2. The bot's **Webhook URL** — steps below. The URL *is* the credential;
-   never post it anywhere public.
+1. A group you are allowed to add bots to (each platform's page covers
+   its own rules).
+2. The bot's **Webhook URL** — steps on
+   [your platform's page](#choose-your-platform). The URL *is* the
+   credential; never post it anywhere public.
 3. For DingTalk and Feishu: the **signing secret** and/or **keyword**
    if you turn those security settings on.
 
-## WeCom (企业微信)
+## Choose your platform
 
-### Create the bot in WeCom
+Create the bot in your group first, copy its webhook URL, then add it
+in Vibe Seller:
 
-1. Open the WeCom **desktop** client (mobile works too) and enter the
-   group that should receive the messages. Only **internal groups**
-   support bots — external groups (ones with WeChat contacts) have no
-   add entry at all, and a group set to "managed solely by the group
-   owner" hides the entry from regular members.
-2. Click **··· (More) → Message Push → Add** at the top right and
-   choose "create a new bot" (older clients call it "Add group bot").
-3. Name it, click add, then **copy the address**. It looks like:
+- [WeCom (企业微信)](chat-bots-wecom.md)
+- [DingTalk (钉钉)](chat-bots-dingtalk.md)
+- [Feishu / Lark (飞书)](chat-bots-feishu.md)
+- [Slack](chat-bots-slack.md)
 
-   ```
-   https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxx
-   ```
-
-4. Optional: "publish to the company" so colleagues can add the same
-   bot to their own groups.
-
-"Official guide: [How to set up Message Push](https://open.work.weixin.qq.com/help2/pc/14931) ·
-[Message Push configuration](https://developer.work.weixin.qq.com/document/path/91770)"
-
-Good to know:
-
-- Each bot sends at most **20 messages per minute**.
-- Text up to 2 KB, markdown up to 4 KB (a reduced syntax: headings,
-  bold, links, inline code, quotes, three font colours — no tables).
-- Files from 5 bytes up to 20 MB (uploaded first, the material is valid
-  for 3 days).
-- If the group has "mute all" enabled, messages are accepted but **never
-  shown**.
-
-Then add the bot in Vibe Seller — see [Add the bot in Vibe Seller](#add-the-bot-in-vibe-seller).
-
-## DingTalk (钉钉)
-
-### Create the bot in DingTalk
-
-1. Open DingTalk, enter the group and click the **group settings** gear
-   at the top right → **Robots → Add robot**, choose the **custom
-   robot** (some clients call the entry "Smart group assistant").
-   Normal and external groups both work; the bot posts to the group
-   only, never to one-to-one chats.
-2. Name it (an avatar is optional), then set up **security** — DingTalk
-   requires at least one of:
-   - **Custom keyword**: up to 10; every message must contain at least
-     one of them. Note one down for the Vibe Seller "Keyword" field —
-     Vibe Seller appends it to any message that lacks it.
-   - **Signing (加签)**: copy the `SEC…` secret into Vibe Seller's
-     "Signing secret" field; every message is signed automatically.
-   - **IP range**: only these public egress IPs may call the webhook.
-     Leave both fields empty if you don't use this one.
-3. Accept the terms, click **Done** and copy the **Webhook URL**:
-
-   ```
-   https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxx
-   ```
-
-"Official guide: [Custom robot access](https://open.dingtalk.com/document/group/custom-robot-access) ·
-[Custom robot security settings](https://open.dingtalk.com/document/robots/customize-robot-security-settings)"
-
-Good to know:
-
-- At most **20 messages per minute** per bot; going over throttles the
-  bot for 10 minutes.
-- Markdown messages get a title derived from the first line — that is
-  what notifications and the chat list show.
-- No file sending; keep messages under ~20 KB.
-
-Then add the bot in Vibe Seller — see [Add the bot in Vibe Seller](#add-the-bot-in-vibe-seller).
-
-## Feishu / Lark (飞书)
-
-### Create the bot in Feishu
-
-1. In the group, click **More → Settings → Group bots → Add bot** at
-   the top right and pick the **custom bot**.
-2. Set avatar, name and description, click **Add**, copy the
-   **Webhook URL** and click **Done**:
-
-   ```
-   https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx
-   ```
-
-   A custom bot works in that one group only and needs no admin
-   approval.
-3. In the bot's detail page, set up **security** (you can combine
-   them):
-   - **Custom keyword**: up to 10; the message must contain at least
-     one. Put one of them into Vibe Seller's "Keyword" field.
-   - **Signature check**: copy the secret into Vibe Seller's "Signing
-     secret" field — Vibe Seller computes the signature for you.
-   - **IP allowlist**: only these IPs / ranges may call the webhook,
-     up to 10 entries. Leave empty for none.
-
-"Official guide: [Custom bot guide](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)"
-
-Good to know:
-
-- Rate limit: **100 messages per minute, 5 per second**. Around exact
-  hours and half hours the platform is busy and may answer 11232
-  (throttled) — avoid those moments for important messages.
-- The request body must stay under 20 KB.
-- Markdown is sent as a **card**.
-- No file sending.
-
-Then add the bot in Vibe Seller — see [Add the bot in Vibe Seller](#add-the-bot-in-vibe-seller).
-
-## Slack
-
-### Create the bot in Slack
-
-1. Open [api.slack.com/apps](https://api.slack.com/apps) and **Create
-   New App** for your workspace.
-2. In the app settings open **Incoming Webhooks** and toggle it on.
-3. Click **Add New Webhook to Workspace**, pick the channel, and
-   **Authorize**.
-4. Copy the **Webhook URL** from the settings page:
-
-   ```
-   https://hooks.slack.com/services/T00000000/B00000000/xxxxxxxxxxxx
-   ```
-
-"Official guide: [Sending messages using incoming webhooks](https://api.slack.com/messaging/webhooks)"
-
-Good to know:
-
-- Messages always go to the channel chosen when the webhook was
-  created; it cannot be changed later.
-- Posted messages cannot be deleted. The URL is the credential — Slack
-  revokes leaked ones.
-- Plain text up to 40,000 characters, markdown (Block Kit) up to
-  12,000 characters.
-- No file sending and no signing secret — leave the secret field empty.
-
-Then add the bot in Vibe Seller as below.
+All four follow the same three moves: create the bot in the group,
+copy its webhook URL, paste it into Vibe Seller and press Test. They
+differ only in where the entry lives and which security settings exist.
 
 ## Add the bot in Vibe Seller
 
 1. Open the Vibe Seller web UI at **Settings → Integrations → Chat
    bots** and click **Add Bot**:
 
-   ![The chat-bots card with no bots configured](images/chatbots_empty_en.png)
+    ![The chat-bots card with no bots configured](images/chatbots_empty_en.png)
 
 2. Give it a **name** (e.g. "Ops Alerts") and paste the whole
    **Webhook URL**. The platform is detected from the URL and shown as
    a badge, with a link to the platform's docs:
 
-   ![Adding a bot: pasting the WeCom webhook URL](images/chatbots_form_wecom_en.png)
+    ![Adding a bot: pasting the WeCom webhook URL](images/chatbots_form_wecom_en.png)
 
 3. **DingTalk** and **Feishu** show two extra fields matching their
    security settings:
-   - **Signing secret (加签 / 签名校验)**: the `SEC…` secret (DingTalk)
-     or the signature secret (Feishu). Leave empty if unused.
-   - **Keyword (自定义关键词)**: one of the keywords you configured on
-     the platform. Leave empty if unused.
+    - **Signing secret (加签 / 签名校验)**: the `SEC…` secret (DingTalk)
+      or the signature secret (Feishu). Leave empty if unused.
+    - **Keyword (自定义关键词)**: one of the keywords you configured on
+      the platform. Leave empty if unused.
 
-   ![Adding a DingTalk bot: signing secret and keyword](images/chatbots_form_dingtalk_en.png)
+    ![Adding a DingTalk bot: signing secret and keyword](images/chatbots_form_dingtalk_en.png)
 
 4. Click **Save**. The bot appears in the list with its platform badge,
    a "signed" tag and its keyword; the webhook URL is masked:
 
-   ![The list of configured bots](images/chatbots_list_en.png)
+    ![The list of configured bots](images/chatbots_list_en.png)
 
-5. Click **Test** on the bot. A green confirmation means it works (the
-   sample bot here uses a local test address; real setups show the
-   platform's webhook):
+5. Click **Test** on the bot. A green confirmation means it works:
 
-   ![Test succeeded: green message under the bot row](images/chatbots_test_ok_en.png)
+    ![Test succeeded: green message under the bot row](images/chatbots_test_ok_en.png)
 
-   On failure, the platform's real reason appears under the bot row.
-   `token is not exist` (DingTalk error 300005) here means the
-   access_token is wrong or the bot was deleted — copy the address
-   from the group again. See the [FAQ](#faq) for the other errors:
+    On failure, the platform's real reason appears under the bot row.
+    `token is not exist` (DingTalk error 300005) here means the
+    access_token is wrong or the bot was deleted — copy the address
+    from the group again. See the [FAQ](#faq) for the other errors:
 
-   ![Test failed: red message under the bot row](images/chatbots_test_fail_en.png)
+    ![Test failed: red message under the bot row](images/chatbots_test_fail_en.png)
 
 To change a bot later, click **Edit**. The full webhook URL is only
 revealable by an admin — everyone else always sees the masked form.
@@ -233,8 +110,8 @@ too if you no longer want it.
 
 1. Press **Test** — the group shows
    `Vibe Seller: chat bot connection test ✅`.
-2. Then run a real task: when creating it, say "when done, send the
-   result to the ops group", or send the same as a follow-up message
+2. Then run a real task: when creating it, say “when done, send the
+   result to the ops group”, or send the same as a follow-up message
    once the task finishes. The task's agent posts through the bot (on
    WeCom it can attach report files too).
 
@@ -350,7 +227,7 @@ has it can. Delete and recreate the bot in the group chat (DingTalk
 and Feishu can also just reset the secret), then replace the URL under
 **Edit** in Vibe Seller, or delete the row and add it again. The list
 only ever shows a masked URL and only an admin can reveal the full
-one; check screenshots before sharing them.
+one.
 
 </details>
 

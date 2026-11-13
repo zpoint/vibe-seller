@@ -1,5 +1,7 @@
 # Vision — AI image generation
 
+> User guide: [Integrations overview](integrations.md) — the image key is set under Settings → AI
+
 General-purpose image generation for tasks: product photos, marketplace
 listing images, infographics, banners, or an image the user just wants,
 via kie.ai's unified API. The agent proposes; the **user confirms and can

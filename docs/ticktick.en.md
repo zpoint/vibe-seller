@@ -14,8 +14,8 @@ is to register an **app** on its developer portal and copy back a
 Client ID and Client Secret — think of it as issuing Vibe Seller a key
 card. Five minutes, no code.
 
-> The screenshots were taken on macOS; the steps look the same on
-> Windows and Linux.
+Where each integration is configured and how they divide up: see the
+[Integrations overview](integrations.en.md).
 
 ## What you need
 
@@ -29,8 +29,8 @@ developer portal of the version you actually use.
 ## Step 1: Register an app on the developer portal
 
 1. Open the portal and sign in:
-   - Dida365 (China): [developer.dida365.com](https://developer.dida365.com/manage);
-   - TickTick (international): [developer.ticktick.com](https://developer.ticktick.com/manage).
+    - Dida365 (China): [developer.dida365.com](https://developer.dida365.com/manage);
+    - TickTick (international): [developer.ticktick.com](https://developer.ticktick.com/manage).
 2. Click **New App**. Any Name works (e.g. `vibe-seller`); leave App
    Service URL and Description empty, then click **Add**.
 
@@ -54,18 +54,15 @@ developer portal of the version you actually use.
 
 1. On the same Edit page, copy the **Client ID** and
    **Client Secret**;
-2. Open **Settings → Integrations → TickTick / Dida365** in Vibe
-   Seller, pick your service (China / International) and paste both
-   values into the step-4 fields;
+2. Open **Settings → Integrations → Dida365 / TickTick** in Vibe
+   Seller (that's the card's label; the page itself is titled
+   "TickTick / Dida365"), pick your service (China / International)
+   and paste both values into the step-4 fields;
 3. Click **Authorize** — a TickTick authorization popup opens; sign in
    and approve. The popup closes by itself and the card's status
    changes to "Connected".
 
 ![TickTick setup wizard in Vibe Seller](images/ticktick_wizard_en.png)
-
-The redirect address in the screenshot is **your own Vibe Seller
-address** (generated from the address you open the app at) — copy it
-straight from the page.
 
 !!! note "Pop-up blocked?"
     The authorization page opens as a pop-up. If your browser blocks
@@ -83,8 +80,8 @@ choice.
 ## Verify
 
 1. The card's status pill in Settings reads **Connected**;
-2. Try a task: "Add a TickTick task: reconcile last month's bills by
-   Friday";
+2. Try a task: “Add a TickTick task: reconcile last month's bills by
+   Friday”;
 3. Open the TickTick app or web site — if the task is there, you are
    done.
 

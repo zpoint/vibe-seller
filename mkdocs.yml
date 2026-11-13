@@ -30,30 +30,56 @@ hooks:
 theme:
   name: material
   language: zh
+  # overrides/partials/{toc,content}.html move the "Edit on GitHub" link
+  # from beside the title into the right-hand column (SkyPilot's layout)
+  # and give that column a labelled header. Everything else is Material's.
+  custom_dir: overrides
   font: false  # system fonts: the audience includes users behind the GFW
+  # Same mark as the app (frontend/public/vibe-seller.svg): header logo
+  # and browser-tab icon.
+  logo: vibe-seller.svg
+  favicon: vibe-seller.svg
   icon:
-    logo: material/robot-outline
     repo: fontawesome/brands/github
   features:
     - content.code.copy
     - content.action.edit
+    - content.tooltips
     - navigation.tracking
     - navigation.top
+    # Two top-level tabs (Docs / Developer), sidebar sections under them,
+    # always expanded, with a prev/next pager. No navigation.path: the
+    # breadcrumb row repeated the sidebar on every page.
+    - navigation.tabs
     - navigation.sections
+    - navigation.expand
+    # navigation.indexes is deliberately NOT enabled: it only folds a page
+    # literally named index.md into its section title, so it cannot make
+    # 群机器人 / MCP 接入 clickable (those overviews are chat-bots.md / mcp.md
+    # and stay the first row of the submenu) — it would only drop the 首页 row
+    # out of the sidebar into the 文档 tab title.
+    - navigation.footer
     - search.highlight
     - search.share
     - toc.follow
   palette:
+    # White header in light mode, near-black in dark; the brand indigo
+    # comes from docs/stylesheets/extra.css (--md-accent-fg-color).
     - media: '(prefers-color-scheme: light)'
       scheme: default
+      primary: white
       toggle:
         icon: material/weather-sunny
         name: Switch to dark mode
     - media: '(prefers-color-scheme: dark)'
       scheme: slate
+      primary: black
       toggle:
         icon: material/weather-night
         name: Switch to light mode
+
+extra_css:
+  - stylesheets/extra.css
 
 plugins:
   - search
@@ -67,35 +93,53 @@ plugins:
           default: true
           build: true
           # Chinese nav labels for the (English) section and page titles.
+          # Only user-facing pages get translated: everything under the
+          # "Developer (English)" section keeps its English title even in
+          # the Chinese build, so the nav itself says which pages have no
+          # Chinese version (docs_hooks.py adds the same note in-page).
           nav_translations:
+            Docs: 文档
             Home: 首页
             Getting Started: 入门
-            Get an API Key: 获取 API Key
-            Core: 核心
-            Integrations: 接入
-            Email: 邮件
-            TickTick / Dida365: 滴答清单 / TickTick
-            Browser Automation: 浏览器自动化
-            Reference: 参考
-            Developer Guide: 开发者指南
-            Windows + WSL2 Deployment: Windows + WSL2 部署
-            macOS Deployment: macOS 部署
-            Amazon Ads API: 广告 API 绑定
-            Chat Bots: 群机器人
-            MCP Setup: MCP 接入
+            Installation: 安装
+            Quickstart: 快速开始
+            Configure AI Models: 配置 AI 模型
+            Core Concepts: 核心概念
+            Examples: 使用示例
+            All Examples: 全部示例
+            Daily Email Digest to WeCom: 每天把重要邮件发到企业微信
+            Analyse Ad ACOS and Apply Fixes: 分析广告 ACOS 并执行优化
+            Weekly Listing Check: 每周巡检 Listing
+            Monthly Sales Report: 每月导出销售报表
+            Ziniao Finances with Codex: 用 Codex 导出紫鸟店铺财务数据进行分析
+            User Guide: 使用指南
+            Stores & Browsers: 店铺与浏览器
             Tasks: 任务
-            Workspace: 工作区
-            Subsystems: 子系统
-            Events: 事件
-            Browser Management: 浏览器管理
-            Ziniao Concurrency: 紫鸟并发
-            browser-use 0.13 Migration: browser-use 0.13 迁移
-            Backend: 后端
-            Frontend: 前端
-            API Routes: API 路由
-            Testing: 测试
-            Telemetry: 遥测
-            Vision — AI Images: AI 图像生成
+            Schedules: 定时任务
+            Knowledge & Skills: 知识库与 Skill
+            FAQ: 常见问题
+            "Ziniao: Setup & Common Errors": 紫鸟：开通与常见报错
+            Cost & Model Choice: 费用与模型选择
+            Login & Accounts: 登录与账号
+            Deployment & Data: 部署与数据
+            All Questions: 全部问题
+            Community & Feedback: 加入社区与问题反馈
+            Integrations: 集成
+            Overview: 集成总览
+            MCP Setup: MCP 接入
+            Amazon Ads API: 广告 API 绑定
+            Email: 邮件
+            Chat Bots: 群机器人
+            MCP Overview: MCP 接入总览
+            Chat Bot Overview: 群机器人总览
+            # Per-platform pages under 群机器人; the tool names under MCP
+            # 接入 (Claude / Codex / …) stay as names in both languages.
+            WeCom: 企业微信
+            DingTalk: 钉钉
+            "Feishu / Lark": 飞书
+            Slack: Slack
+            TickTick / Dida365: 滴答清单 / TickTick
+            Developer (English): 开发者文档（英文）
         - locale: en
           name: English
           build: true
@@ -105,6 +149,10 @@ markdown_extensions:
   - admonition
   - attr_list
   - def_list
+  # No pymdownx.betterem: it refuses a closing `**` that follows
+  # punctuation and precedes a letter, and Chinese characters are
+  # letters — 「**问题？**不会」 (what the CJK line join makes of a
+  # bold FAQ question over its answer) would print the asterisks.
   - footnotes
   - md_in_html
   - tables
@@ -115,7 +163,7 @@ markdown_extensions:
       slugify: !!python/object/apply:pymdownx.slugs.slugify
         kwds:
           case: lower
-  - pymdownx.betterem
+  - pymdownx.details
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
@@ -124,38 +172,86 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
+  # Content tabs ("界面操作" / "命令行 / 配置文件" per MCP tool page), mirroring
+  # the two tabs in the API key dialog. alternate_style renders them with
+  # Material's .md-tabs markup; the mobile display fix lives in extra.css.
+  - pymdownx.tabbed:
+      alternate_style: true
 
+# Two top-level tabs (navigation.tabs): the product docs in the reader's
+# own language, and the English-only operator / contributor reference.
+# Everything nested inside a tab becomes a sidebar section under it.
 nav:
-  - Home: index.md
-  - Getting Started:
-      - Get an API Key: llm-keys.md
+  - Docs:
+      - Home: index.md
+      - Getting Started:
+          - Installation: install.md
+          - Quickstart: quickstart.md
+          - Configure AI Models: llm-keys.md
+          - Core Concepts: concepts.md
+      - Integrations:
+          - Overview: integrations.md
+          # Each section's overview page is its first child, so the submenu
+          # shows 总览 / Overview plus the per-platform or per-tool pages.
+          # (navigation.indexes only folds a page into the section title when
+          # the file is named index.md; these overviews keep their own URLs.)
+          - MCP Setup:
+              - MCP Overview: mcp.md
+              - Codex: mcp-codex.md
+              - WorkBuddy: mcp-workbuddy.md
+              - Qoder: mcp-qoder.md
+              - Hermes Agent: mcp-hermes.md
+              - Pi: mcp-pi.md
+              - Claude: mcp-claude.md
+          - Amazon Ads API: ads-api.md
+          - Email: email.md
+          - Chat Bots:
+              - Chat Bot Overview: chat-bots.md
+              - WeCom: chat-bots-wecom.md
+              - DingTalk: chat-bots-dingtalk.md
+              - Feishu / Lark: chat-bots-feishu.md
+              - Slack: chat-bots-slack.md
+          - TickTick / Dida365: ticktick.md
+          - Google Workspace: google-workspace.md
+      - Examples:
+          - All Examples: examples.md
+          - Daily Email Digest to WeCom: example-email-wecom.md
+          - Analyse Ad ACOS and Apply Fixes: example-ads-acos.md
+          - Weekly Listing Check: example-listing-check.md
+          - Monthly Sales Report: example-daily-report.md
+          - Ziniao Finances with Codex: example-mcp.md
+      - User Guide:
+          - Stores & Browsers: stores.md
+          - Tasks: using-tasks.md
+          - Schedules: schedules.md
+          - Knowledge & Skills: knowledge.md
+      - FAQ:
+          - "Ziniao: Setup & Common Errors": ziniao.md
+          - Cost & Model Choice: faq-cost.md
+          - Login & Accounts: faq-login.md
+          - Deployment & Data: faq-data.md
+          - All Questions: faq.md
+      - Community & Feedback: community.md
+  # English-only reference. The titles stay English in the Chinese build
+  # too — see nav_translations.
+  - Developer (English):
       - Developer Guide: dev-guide.md
-      - Windows + WSL2 Deployment: windows-setup.md
-      - macOS Deployment: macos-setup.md
-      - Amazon Ads API: ads-api.md
-      - Chat Bots: chat-bots.md
-      - MCP Setup: mcp.md
-  - Core:
-      - Tasks: tasks.md
-      - Workspace: workspace.md
+      - Task Internals: tasks.md
+      - Workspace Internals: workspace.md
       - Subsystems: subsystems.md
       - Events: events.md
-  - Integrations:
-      - Email: email.md
-      - TickTick / Dida365: ticktick.md
-      - Google Workspace: google-workspace.md
-  - Browser Automation:
-      - Browser Management: browser.md
+      - Browser Internals: browser.md
       - Ziniao Concurrency: ziniao-concurrency.md
       - browser-use 0.13 Migration: browser-use-0.13-migration.md
-  - Reference:
       - Backend: backend.md
       - Frontend: frontend.md
       - API Routes: api.md
-      - Connect an External Agent: agents.md
+      - External Agents (MCP API): agents.md
       - Testing: testing.md
       - Telemetry: telemetry.md
-      - Vision — AI Images: vision.md
+      - Vision Internals: vision.md
+      - Windows + WSL2 Service: windows-setup.md
+      - macOS Service: macos-setup.md
 
 extra:
   social:
