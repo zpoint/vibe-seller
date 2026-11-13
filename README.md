@@ -26,7 +26,7 @@
 
 🔥 *最新动态* 🔥
 
-- [2026 年 11 月] **MCP 接入（Windows、macOS 都能在界面里配好）**：在 Claude、Codex、WorkBuddy、Qoder 等 AI 工具里，一句话就能让 Vibe Seller 执行任务：[**详情**](docs/mcp.md)
+- [2026 年 11 月] **MCP 接入**：在 Claude、Codex、WorkBuddy、Qoder 这些 AI 工具里，一句话让 Vibe Seller 干活：[**详情**](docs/mcp.md)
 - [2026 年 11 月] **亚马逊广告直连 Ads API**：同一个广告优化任务从 147 分钟缩短到 11 分钟，人工介入更少：[**详情**](docs/ads-api.md)
 
 ---
@@ -119,7 +119,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 
 除了浏览器，AI 还能直接调用这些外部服务，全部在「设置 → 集成」里配置，不需要写代码：
 
-- **MCP 接入（Windows、macOS 都能在界面里配好）**——在 Claude、Codex、WorkBuddy、Qoder、Hermes Agent、Pi 等 AI 工具里直接指挥 Vibe Seller，[接入步骤](docs/mcp.md)
+- **MCP 接入**——在 Claude、Codex、WorkBuddy、Qoder、Hermes Agent、Pi 等 AI 工具里直接指挥 Vibe Seller，[接入步骤](docs/mcp.md)
 - **Amazon Ads API**——广告任务直连接口，不再逐页操作卖家后台；实测同一个任务从 147 分钟缩短到 11 分钟，[绑定步骤和实测对比](docs/ads-api.md)
 - **邮件**（IMAP/SMTP）——读取绑定的店铺邮箱，分类、整理、起草并发送回复，支持 163、QQ、Gmail 等，[接入步骤](docs/email.md)
 - **群机器人**（企业微信、钉钉、飞书、Slack）——让 AI 把结果、报表、提醒直接发到群里，企业微信还支持发送文件，[接入步骤](docs/chat-bots.md)

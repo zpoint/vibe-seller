@@ -26,7 +26,7 @@
 
 🔥 *News* 🔥
 
-- [Nov 2026] **MCP setup (in-app on Windows and macOS)**: drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder: [**details**](docs/mcp.en.md)
+- [Nov 2026] **MCP setup**: drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder: [**details**](docs/mcp.en.md)
 - [Nov 2026] **Amazon ads over the Ads API**: the same ad-optimization task went from 147 minutes to 11, with less need to step in: [**details**](docs/ads-api.en.md)
 
 ---
@@ -163,7 +163,7 @@ Beyond the browser, the agent can call these external services
 directly — everything is hooked up under **Settings → Integrations**,
 no code:
 
-- **MCP (in-app setup on Windows and macOS)** — drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder, Hermes Agent, Pi: create tasks, follow them, answer questions, review plans. [Setup guide](docs/mcp.en.md)
+- **MCP** — drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder, Hermes Agent, Pi: create tasks, follow them, answer questions, review plans. [Setup guide](docs/mcp.en.md)
 - **Amazon Ads API** — Amazon ad tasks call the API instead of clicking through the seller console; in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](docs/ads-api.en.md)
 - **Email** (IMAP/SMTP) — read your linked store mailboxes, sort and summarize, draft and send replies (sending can be turned off per mailbox). Works with 163 / QQ / Gmail and more. [Setup guide](docs/email.en.md)
 - **Group chat bots** (WeCom / DingTalk / Feishu / Slack) — have the AI post results, reports and reminders straight into a group; WeCom bots can send files too. [Setup guide](docs/chat-bots.en.md)
