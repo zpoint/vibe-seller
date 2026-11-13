@@ -497,6 +497,38 @@ class TestRefusedUpdate:
             == 'applied'
         )
 
+    async def test_a_booting_server_remembers_the_outage_it_came_from(
+        self, monkeypatch, install_fake_agent, admin_client
+    ):
+        """The process that rolled the update back is usually the one that
+        was stopped: on Unix the helper restarts the old version, and the
+        server that comes up reads `last.json` — that read is where the
+        refusal has to be born, or the memory dies with the process that
+        learned it."""
+        doc = {
+            'status': au.pip_update.ROLLED_BACK,
+            'from': '9.9.8',
+            'to': VERSION,
+            'path': 'pip',
+            'trigger': 'auto_idle',
+            'stage': 'health',
+            'error': 'the server never reported ' + VERSION,
+            'at': '2026-11-13T05:00:00Z',
+            'reported': True,
+        }
+        monkeypatch.setattr(au.pip_update, 'read_record', lambda: doc)
+        monkeypatch.setattr(au.pip_update, 'mark_record_reported', lambda: None)
+        au.reset_for_tests()
+        au.load_last_update()
+        applied = []
+        monkeypatch.setattr(au, 'apply_restart', _recorder(applied))
+        au._mark_ready(VERSION, PIP)
+        assert au.snapshot()['auto_apply'] is False
+        assert (
+            await au.idle_tick(task_queue_scheduler, install_fake_agent)
+        ).startswith('refused:')
+        assert applied == []
+
     async def test_the_status_says_what_happened_and_why_nothing_moves(
         self, admin_client
     ):
