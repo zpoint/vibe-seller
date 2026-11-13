@@ -66,6 +66,42 @@ $script:LegHome = $env:VIBE_HOME
 $script:Updates = "$($script:LegHome)\updates"
 $script:Old = ''
 
+# The rest of what a helper needs is read from the ENVIRONMENT, never
+# from the caller's scope. When the leg bodies were lifted out of the
+# workflow steps into this file, the setup lines they had SHARED with
+# the step body came across as references only — and every CI step
+# dot-sources this file in a fresh PowerShell, where no such variable
+# exists. `$script:Port`, `Base`, `Install`, `Cli` and `Exe` were
+# therefore null in all six legs, and the first call any leg makes,
+# `Start-LegServer`, died at `& $script:Cli start` with
+# "The expression after '&' in a pipeline element produced an object
+# that was not valid" (run 43415553813, legs s3 s4 s5 s5b s5c s6, all
+# six identical, at `win_leg_harness.ps1:254`). A file that loads is not
+# a file that runs: the $HOME probe proved the first and CI paid for not
+# checking the second.
+#
+# Defining them here is what makes "dot-source, then call a helper"
+# sufficient on a runner and on a host alike. Guarding them here is the
+# design half: a wrong environment then names itself at load time
+# instead of surfacing later as a leg that "never came back".
+$script:Port = $env:VIBE_SELLER_PORT
+$script:Base = "http://127.0.0.1:$($script:Port)"
+$script:Install = $env:VS_INSTALL
+$script:Cli = Join-Path $script:Install '.venv\Scripts\vibe-seller.exe'
+$script:Exe = $env:VS_SETUP
+foreach ($need in @(
+    @{ name = 'VIBE_SELLER_PORT'; value = $script:Port },
+    @{ name = 'VS_INSTALL'; value = $script:Install })) {
+  if (-not $need.value) {
+    throw "$($need['name']) must be set before this harness is dot-sourced"
+  }
+}
+if (-not (Test-Path $script:Cli)) {
+  # Not a leg defect: this install cannot take the pip path at all, so
+  # every assertion after it would be about the wrong machine.
+  throw "the installed CLI is not there: $($script:Cli)"
+}
+
 function Json($o) { ($o | ConvertTo-Json -Compress -Depth 8) }
 
 function Fail([string]$msg) {
@@ -136,6 +172,9 @@ function Write-Release {
   param([string]$Version, [string]$BundleAsset, [string]$InstallerAsset,
         [string]$DigestOverride)
   $exe = if ($InstallerAsset) { $InstallerAsset } else { $script:Exe }
+  if (-not (Test-Path $exe)) {
+    throw "no installer to put in the release document: '$exe'"
+  }
   $hash = if ($DigestOverride) { $DigestOverride } else {
             (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower() }
   $assets = @(@{

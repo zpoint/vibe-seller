@@ -177,6 +177,19 @@ worth keeping:
   host-only finding, and the next reader assumed CI was unaffected. The
   check that keeps it true is a LOAD probe plus a real CI run, not a
   parse: a file can parse perfectly and still refuse to load.
+* **The harness reads its environment, never the caller's scope.** It
+  derives `$script:Port`, `Base`, `Install`, `Cli` and `Exe` from
+  `VIBE_SELLER_PORT`, `VS_INSTALL` and `VS_SETUP` at dot-source time (and
+  throws up front if a required one is empty or the installed CLI is not
+  there). It did not always: when the leg bodies were lifted out of the
+  workflow steps into this file, the setup lines they shared with the
+  step body came across as references only, and each CI step dot-sources
+  the harness in a FRESH PowerShell — so all six Windows legs died at the
+  first helper call, `& $script:Cli start`, with "The expression after
+  '&' in a pipeline element produced an object that was not valid" (run
+  43415553813). `tests/unit/test_win_leg_harness_env.py` is the cheap
+  guard for that class: every `$script:` name the harness reads has to be
+  assigned in the harness.
 * Every PowerShell block here is verified with the real parser
   (`[System.Management.Automation.Language.Parser]::ParseFile` under
   Windows PowerShell 5.1) rather than by eye — a block that does not
