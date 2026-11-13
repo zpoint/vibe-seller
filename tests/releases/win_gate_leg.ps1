@@ -1,4 +1,4 @@
-# The Windows release gate's leg, in one file.
+﻿# The Windows release gate's leg, in one file.
 #
 # It is the gate: take the installer a CUSTOMER actually has — the
 # previous published release's own `VibeSeller-Setup.exe` — install it,

@@ -128,53 +128,110 @@ string inside a string hid `"$v3: "` — PowerShell read it as a
 scope-qualified variable, so leg s5b never parsed).
 
 To run one by hand on a Windows machine, give the harness the
-environment a CI step would:
+environment a CI step would, and then execute the leg's own steps:
 
 ```powershell
+Set-Location C:\path\to\the\checkout        # see the WSL note below
 $env:VIBE_HOME = "$env:RUNNER_TEMP\vs-s3-home"
 $env:VIBE_SELLER_PORT = '7792'
 $env:VIBE_SELLER_AUTO_UPDATE = '1'
 $env:VIBE_SELLER_RELEASES_URL = "$env:RUNNER_TEMP\vs-s3-release.json"
 $env:VS_INSTALL = "$env:LOCALAPPDATA\Programs\VibeSeller"   # the installed bundle
 $env:VS_SETUP = "$env:RUNNER_TEMP\setup\VibeSeller-Setup.exe"
-$env:VS_DIST = $env:RUNNER_TEMP\dist
-$env:UV_FIND_LINKS = $env:VS_DIST                            # where the prefetch finds the wheel
+$env:VS_DIST = "$env:RUNNER_TEMP\dist"
+$env:UV_FIND_LINKS = "$env:VS_DIST"          # where the prefetch finds the wheel
 $env:VS_V2 = '99.9.9'
-$env:GITHUB_WORKSPACE = (Get-Location).Path   # the harness copies THIS tree to build wheels
+$env:GITHUB_WORKSPACE = (Get-Location).Path  # the harness copies THIS tree to build wheels
 . tests\releases\win_leg_harness.ps1
 ```
 
-`GITHUB_WORKSPACE` is not CI-only decoration: the harness builds the
-candidate wheel from a copy of that tree and runs
-`fabricate_bundle.py` out of it, so it throws up front when it is
-missing rather than halfway through a leg on a path that starts
-`\tests\releases\`.
-…and then execute the leg's own steps. Three things about this platform
-that are easy to get wrong:
+`GITHUB_WORKSPACE` and `RUNNER_TEMP` are not CI-only decoration: the
+harness builds the candidate wheel from a COPY of that tree, runs
+`fabricate_bundle.py` out of it, and hangs every scratch path off
+`RUNNER_TEMP`, so it throws up front when either is missing rather than
+halfway through a leg on a path that begins `\tests\releases\`.
+
+Two rules about this platform are easy to get wrong and one is a habit
+worth keeping:
 
 * The candidate wheel must be findable by the OFFLINE dry run, so
   `UV_FIND_LINKS` has to name the directory the leg builds into — see
   `app/pip_update.py:find_links` for why a `--find-links` FLAG alone is
-  not enough (it REPLACES the environment variable).
-* `VIBE_SELLER_PORT` must not be 7777, and `VIBE_HOME` must be a
-  sandbox: the installer's silent finish relaunches the tray, and the
-  tray's default is port 7777 against the user's real data root. The
-  env above is what makes that land in the sandbox instead.
-* Every inline PowerShell block in these workflows is verified with the
-  real parser (`[System.Management.Automation.Language.Parser]
-::ParseFile` under Windows PowerShell 5.1), not by eye: a block that
-  does not parse fails at run time with zero diagnostics.
+  not enough (it REPLACES the environment variable rather than adding to
+  it, and a dry run that cannot see the wheel sends every client to the
+  ~700 MB installer forever).
+* `VIBE_SELLER_PORT` must not be 7777 and `VIBE_HOME` must be a sandbox:
+  the installer's silent finish relaunches the tray, and the tray's
+  default is port 7777 against the user's real data root. The env above
+  is what makes that land in the sandbox instead.
+* Every PowerShell block here is verified with the real parser
+  (`[System.Management.Automation.Language.Parser]::ParseFile` under
+  Windows PowerShell 5.1) rather than by eye — a block that does not
+  parse fails at run time with zero diagnostics, and two shipped bugs
+  were exactly that. Both `.ps1` files in this directory are committed
+  **with a UTF-8 BOM** on purpose: PS 5.1 decodes a BOM-less file as the
+  system codepage, and the `Fail` messages carry em-dashes, so without
+  the BOM the assertion an operator needs to read arrives as mojibake.
 
-`win_gate_leg.ps1` is the release gate's leg. It downloads the previous
+And three things that were only learned by running these legs on a real
+Windows machine rather than on a runner:
+
+* **A driver started from WSL inherits a `\\wsl.localhost\…` cwd**, and
+  `corepack`/`pnpm` resolve project files through it — a `corepack
+  --version` run that way can read the directory it was invoked in as a
+  project and rewrite its `package.json`. `Set-Location` into a Windows
+  path is the driver's first statement, and the launcher should start
+  from `/mnt/c/…`.
+* **The legs do not compose on one machine.** Each matrix leg on CI gets a
+  fresh runner; on a host, leg s3 rewrites `{app}\.venv` to the candidate
+  and s5b leaves it there, so the next leg is offered a version it already
+  has, `is_newer` says no, and a correct product shows a red leg.
+  Uninstall and reinstall between legs (the official installer with
+  `/VERYSILENT`, or `unins000.exe` and then the same file).
+* **`corepack prepare pnpm@latest --activate` is a moving part nothing in
+  the bundle pins**: with corepack 0.31.0 and pnpm 12.18.0 the shim it
+  writes points at `bin/pnpm.cjs`, which pnpm 12 does not ship (it ships
+  `bin/pnpm.mjs`), so `pnpm --version` exits 1 and `build.ps1` dies at its
+  own gate. Today's runner images carry a corepack whose template happens
+  to match; a node or corepack bump will not. Pinning the pnpm that
+  `build.ps1` prepares — the way the bundle pins everything else — is the
+  honest fix, and it is recorded as a follow-up rather than slipped into
+  this PR, because changing `build.ps1` invalidates the installer the
+  Windows legs are being run against.
+
+`win_gate_leg.ps1` is the release gate's leg: it downloads the previous
 published release's own `VibeSeller-Setup.exe` and `bundle.json`,
 installs them, and asserts that install moves onto this commit's wheel
-by itself. Run A (`GATE_FORCE` unset) skips green when the comparison
-cannot mean anything; run B (`GATE_FORCE=true`) fails on exactly that
-condition. Both are dispatched through `windows-installer.yml`'s
-`gate-rehearsal` job (`rehearse_gate=true`, `gate_force=true|false`)
-because `pip-upgrade-gate.yml` itself cannot be dispatched while it
-lives only on a branch — GitHub answers HTTP 404 for a workflow file
-that is not on the default branch.
+by itself. Three things can make that comparison meaningless, and the
+leg asks each of them of the machine rather than believing a flag from
+upstream:
+
+1. the previous release publishes no `bundle.json` asset, so there is no
+   fingerprint on the release side (0.3.1 is that release today);
+2. the CANDIDATE's own document — `scripts/bundle_fingerprint.py` run on
+   this checkout, the same thing `release.yml` publishes — fingerprints
+   differently, which makes the hop an installer hop and
+   `windows-upgrade.yml`'s business, not this one's;
+3. the installed wheel has no `app/update_idle.py`, so nothing on that
+   machine can apply anything by itself.
+
+Run A (`GATE_FORCE` unset) skips green on the first condition that
+holds, with the reason in the summary; run B (`GATE_FORCE=true`) FAILS on
+exactly that condition, which is how a skip path is shown to be a fact
+rather than an absence of testing. Both are dispatched through
+`windows-installer.yml`'s `gate-rehearsal` job (`rehearse_gate=true`,
+`gate_force=true|false`) and the Unix half through `cli-upgrade.yml`'s
+(`LEG=s9`, `GATE_FORCE=…`) — because `pip-upgrade-gate.yml` itself cannot
+be dispatched while it lives only on a branch: GitHub answers HTTP 404
+for a workflow file that is not on the default branch. Without those two
+jobs the gate's legs would merge as code nobody had ever executed.
+
+One trap this leg nearly shipped with: offering the client the *previous*
+release's `bundle.json` as the candidate's asset. The client compares its
+installed document against the release's, so that pairing agrees by
+construction, `path -eq 'pip'` becomes unfailable, and the gate says
+"yes" to a release that moved the bundled runtime — the same defect leg
+s3 is criticised for above, inside the job written to catch it.
 
 ## Twists: proving the guards can fail
 
