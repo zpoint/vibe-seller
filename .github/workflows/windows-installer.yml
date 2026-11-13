@@ -1057,7 +1057,13 @@ jobs:
           # install that returned nonzero is a different bug from a
           # package that installed and never booted, and only the second
           # one is what a health-checked rollback is for.
-          if ($rec.stage -notmatch 'health|rollback') {
+          # `health`, the stage the fabricated release died in — and
+          # never `rollback`, which is the stage of a recovery that
+          # itself failed. The record's stage is quoted verbatim by the
+          # refusal, the dialog and the event, so a rolled-back apply
+          # that blamed `rollback` told the admin the recovery broke on
+          # a machine that had just been put back correctly.
+          if ($rec.stage -ne 'health') {
             Fail "the failure was recorded in stage '$($rec.stage)', not the boot/health one"
           }
           # The reverted machine has to SAY so — this is what the admin
@@ -1191,8 +1197,9 @@ jobs:
             Fail "the record started from $($rec.from), not ${v2}: $(Json $rec)"
           }
           if ($rec.status -ne 'rolled_back') { Fail "expected rolled_back, got $(Json $rec)" }
-          if ($rec.stage -notmatch 'health|rollback') {
-            Fail "hop 2's failure was recorded in stage '$($rec.stage)'"
+          if ($rec.stage -ne 'health') {
+            Fail ("hop 2's failure was recorded in stage " +
+                  "'$($rec.stage)', not the boot/health one")
           }
           Write-Host "OK: s5b $script:Old -> $v2 -> broken $v3 -> back on $v2 from the cache"
           Stop-LegServer

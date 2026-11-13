@@ -575,6 +575,13 @@ $(port_version || echo DOWN), not $expect_from"
         || fail "no new boot in $LOG after the rollback ($(boots) boots, expected > $BOOTS_BEFORE)"
       [ "$(record_field status)" = rolled_back ] \
         || fail "the record should say rolled_back: $(record_json)"
+      # The stage names where the UPDATE failed. `rollback` there would
+      # mean the recovery itself broke — and it is quoted verbatim by
+      # the refusal, the dialog and the event, so a record that moves it
+      # on a successful rollback tells the admin "the rollback failed"
+      # about a machine that was put back correctly.
+      [ "$(record_field stage)" != rollback ] \
+        || fail "a rolled_back record blamed stage rollback: $(record_json)"
       [ "$(record_field trigger)" = auto_idle ] \
         || fail "the outage was not an auto_idle apply: $(record_json)"
       echo "   OK: the broken release failed, $expect_from is serving again"

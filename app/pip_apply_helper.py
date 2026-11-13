@@ -617,11 +617,20 @@ def apply_update(args: dict) -> dict:
         status, rolled_back = STATUS_FAILED, False
         if attempted and current is not None:
             try:
-                stage = STAGE_ROLLBACK
                 rollback(args, current)
                 rolled_back = True
                 status = STATUS_ROLLED_BACK
             except BaseException as back:  # noqa: BLE001 — both are recorded
+                # Only NOW does the failure belong to the rollback. Until
+                # this line `stage` names where the UPDATE failed, and a
+                # record that moves it before the attempt would report a
+                # successful recovery as the thing that broke: measured
+                # in leg s5, the machine rolled a boot-dead release back
+                # cleanly and `last.json` said
+                # `ended in rolled_back at stage rollback`, which the
+                # refusal log, the dialog and the event all repeated —
+                # "the rollback failed", about a rollback that worked.
+                stage = STAGE_ROLLBACK
                 error = f'{error}; then the rollback failed too: {back}'
                 kind = f'{kind}+{type(back).__name__}'
         if stopped or rolled_back:

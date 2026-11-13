@@ -353,7 +353,11 @@ class TestNeverStopsServing:
         win.fails.append(f'vibe-seller=={NEW}')
         rec = helper.apply_update(win.args)
         assert rec['status'] == 'rolled_back'
-        assert rec['stage'] == helper.STAGE_ROLLBACK
+        # The stage is where the UPDATE failed — the rollback is the
+        # thing that worked. `rollback` here would read as "the rollback
+        # failed", to the record, the refusal, the dialog and the event,
+        # all of which quote it.
+        assert rec['stage'] == helper.STAGE_INSTALL
         assert 'the install failed' in rec['error']
         assert win.freeze_file.exists()
         argv = win.command('-r')
@@ -373,6 +377,10 @@ class TestNeverStopsServing:
         win.boots = False
         rec = helper.apply_update(win.args)
         assert rec['status'] == 'rolled_back'
+        # `health`, the stage the release died in — not `rollback`, the
+        # recovery that succeeded. This is the record the refusal, the
+        # dialog and the event quote to the admin.
+        assert rec['stage'] == helper.STAGE_HEALTH
         assert f'never reported {NEW}' in rec['error']
         assert win.serving == OLD
 
@@ -415,6 +423,10 @@ class TestNeverStopsServing:
         win.fails.append('-r')
         rec = helper.apply_update(win.args)
         assert rec['status'] == 'failed'
+        # The one case `rollback` is the right word: the recovery itself
+        # is what failed, and the machine is left with a half-replaced
+        # venv rather than the old one.
+        assert rec['stage'] == helper.STAGE_ROLLBACK
         assert 'rollback failed' in rec['error']
         assert rec['error_class'].endswith('+ApplyError')
 
