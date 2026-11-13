@@ -57,7 +57,13 @@ PORT=${PORT:-7825}
 # the fix under test, and the apply ran the old code. Real releases are
 # immutable, so this collision cannot happen in production; here it can,
 # silently, and it makes a PASS mean nothing.
-RUN_STAMP=${RUN_STAMP:-$(date +%H%M%S)}
+# `10#` because the clock can start with a zero, and PEP 440 drops it:
+# 99.065644.3 is a legal version whose WHEEL is named 99.65644.3, so
+# every `$BROKEN_V`-shaped glob and every `--version` comparison in this
+# script would miss it (the first CI run of these legs failed on exactly
+# that: "no 99.065644.3 wheel built"). Normalizing here, before anything
+# is built, is the one place the rule can live.
+RUN_STAMP=${RUN_STAMP-$((10#$(date +%H%M%S)))}
 OLD_V=${OLD_V:-99.$RUN_STAMP.1}
 NEW_V=${NEW_V:-99.$RUN_STAMP.2}
 BROKEN_V=${BROKEN_V:-99.$RUN_STAMP.3}
