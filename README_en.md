@@ -212,40 +212,26 @@ review next week" todo into TickTick. Start at the
 
 ## Platforms
 
-### Built-in Skills
+Any marketplace you can work in a browser — Amazon, Noon, Mercado Libre, Qianniu (Taobao /
+Tmall), AliExpress, Shopee, TikTok Shop… **If it runs in a browser, Vibe Seller can work it.**
+At its core it is **an AI agent + the Ziniao browser (or plain Chrome) + built-in tools**: the
+agent opens the store's back office and storefront the way you would — clicking, reading,
+filling in forms, downloading.
 
-- **Amazon Seller Central** (every marketplace — US / EU / MENA, etc.)
-- **Noon Seller Lab**
+Amazon and Noon get the most built-in tools:
 
-These are the platforms the project was dogfooded against. The
-Skills capture page mechanics, navigation paths, UI gotchas. With
-the Skill in hand, the agent typically completes common operations
-(view ads, export reports, adjust bids, launch listings, ...) **on
-the first try**.
+- **Amazon** (every marketplace): built-in Skills for ads, reports, listings, FBA inbound,
+  invoices and product images, plus the [Amazon Ads API](https://docs.vibe-sellers.com/en/ads-api/) connection so ad work
+  goes through the API — faster and steadier;
+- **Noon**: built-in Skills for ads, report exports, listings and FBN;
+- **Qianniu**: built-in Skills for ads and listings.
 
-### Anything else browser-based
-
-- Mercado Libre (美客多), AliExpress (速卖通), Shopify
-- Lazada, Shopee, TikTok Shop
-- … and any other browser-accessible seller portal.
-
-No pre-written Skill for these — the maintainers don't have test
-accounts, so the mechanics aren't documented upfront. The agent
-will fumble its first runs and need a few attempts to find the full
-flow.
-
-**The framework's built-in self-learning handles most of this on
-its own.** As it runs, the agent takes notes — which button didn't
-work, which path succeeded, which dead ends to avoid — and saves
-them to that store's local knowledge. This happens **without you
-needing to supervise**; the agent records its own mistakes as it
-goes. Optional human hints get recorded too if you happen to drop
-any. Next run, prior experience is pulled in automatically, so it
-doesn't hit the same wall. After a few rounds, common operations
-on a new platform stabilize.
-
-Once you've ironed something out, please consider upstreaming it as
-a proper Skill — see *Contributing* below.
+Other platforms have no dedicated Skill, and the agent still does back-office and storefront
+work through Ziniao or a plain browser. The first runs may take a few extra tries; the paths
+that work go into that store's knowledge, so the next run follows them and it settles down
+after a few rounds. You can also write your own steps as a Skill and import it (see
+[Import an existing Skill](https://docs.vibe-sellers.com/en/knowledge/#import-an-existing-skill)), or polish it and
+contribute it to the project (see *Contributing* below).
 
 ## Contributing
 
