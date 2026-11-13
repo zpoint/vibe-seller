@@ -122,22 +122,41 @@ mkdir -p "$BUILT"
 # reads main.py, so the CLI still reports its version and the update
 # check still prefetches it — the release is installable and only the
 # boot fails, which is the failure an operator actually sees.
+#
+# EVERY wheel — the good ones included — is built from a COPY of the
+# checkout, never in it. Not for tidiness: `uv build` writes its own
+# metadata into the tree it builds from, and `vibe_seller.egg-info/
+# PKG-INFO` then says `Version: 99.152807.2`. That file sits in the
+# repo root, which is on `sys.path` for anything run from the checkout,
+# so `importlib.metadata.version('vibe-seller')` — which is exactly
+# what app/version.py calls — starts answering the fabricated version
+# to the TEST SUITE. Measured 2026-11-13: one leg's build made
+# `tests/workflow/test_contracts.py::test_release_notes_shape` pass
+# locally and fail in CI, because the endpoint under test filters
+# releases newer than the version running here, and "the version
+# running here" had been rewritten from 0.3.x to 99.x by an unrelated
+# test run 40 minutes earlier. A leg that edits the tree it is also
+# asserting about is not a leg; a build that dirties the checkout can
+# also race a leg that is reading it.
 build_wheel() {
-  local version=$1 out=$2 mode=${3:-ok} src=$REPO
+  local version=$1 out=$2 mode=${3:-ok}
   if [ -d "$out" ] && compgen -G "$out/*.whl" >/dev/null; then
     echo "   reusing $out for $version"
     return 0
   fi
   mkdir -p "$out"
+  local src="$BUILT/src-$version-$mode"
+  rm -rf "$src"
+  mkdir -p "$src"
+  # The checkout may be a worktree, whose .git is a file pointing at
+  # the main repo — useless once copied, and setuptools-scm is told
+  # the version anyway. The build's own leftovers are excluded so a
+  # copy never inherits another run's metadata.
+  tar -C "$REPO" --exclude=.git --exclude=node_modules --exclude=.venv \
+    --exclude=frontend --exclude=build --exclude='*.egg-info' \
+    --exclude=.ruff_cache --exclude=.pytest_cache \
+    -cf - . | tar -C "$src" -xf -
   if [ "$mode" = break ]; then
-    src="$BUILT/src-$version"
-    rm -rf "$src"
-    mkdir -p "$src"
-    # The checkout may be a worktree, whose .git is a file pointing at
-    # the main repo — useless once copied, and setuptools-scm is told
-    # the version anyway.
-    tar -C "$REPO" --exclude=.git --exclude=node_modules --exclude=.venv \
-      --exclude=frontend -cf - . | tar -C "$src" -xf -
     printf '\nraise SystemExit("fabricated broken release")\n' \
       >> "$src/app/main.py"
   fi
@@ -198,7 +217,11 @@ run_leg() { # run_leg <leg> <target-version> <dist-dir> [extra env…]
   # "no agent became live"). Only s2 creates a task, so this is inert
   # for every other leg; s5b unsets it before hop 2 on purpose.
   export MOCK_CLI="$REPO/tests/e2e/mock_cli.py"
-  export MOCK_CLI_SCENARIO='{"result":"still working","delay":25}'
+  # `min_run_seconds` is the leg's hold on TIME, not on steps: leg s2
+  # needs a task that keeps the server busy for longer than two idle
+  # intervals, and pacing that with `delay` would pace the planning
+  # phase too (a 4-minute wait for a plan nobody is reviewing yet).
+  export MOCK_CLI_SCENARIO='{"result":"still working","delay":10,"min_run_seconds":260}'
   mkdir -p "$VIBE_HOME"
 
   # The mock PyPI document: the target is the newest stable release.
@@ -242,11 +265,27 @@ EOF
     # A published release older than the idle-apply loop has nothing
     # that can apply an update by itself, so this leg would be testing a
     # click — #244's, not this feature's. Skip, and say what was checked.
+    #
+    # `GATE_FORCE=true` is the release gate asking to be shown the
+    # failure rather than the skip: the gate then reports the CONDITION
+    # it would have skipped for, from the leg that hit it, and a nobody
+    # has ever run this job claim stops being true. Measured on
+    # 2026-11-13: workflow_dispatch of pip-upgrade-gate.yml itself is
+    # impossible until the file is on the default branch (GitHub answers
+    # HTTP 404), so `cli-upgrade.yml`'s `gate-rehearsal` job is what
+    # runs these legs on CI during the PR.
     if ! compgen -G \
       "$UV_TOOL_DIR/vibe-seller/lib/python*/site-packages/app/update_idle.py" \
       >/dev/null; then
-      echo "SKIP: vibe-seller $OLD_V has no app/update_idle.py — that" \
-        "install cannot self-apply, so there is no pip path to gate on."
+      skip="vibe-seller $OLD_V has no app/update_idle.py — that install"
+      skip+=" cannot self-apply, so there is no pip path to gate on"
+      if [ "${GATE_FORCE:-false}" = true ]; then
+        # `fail` and not `return 1`: the driver runs legs in a loop
+        # under `set -u`, so a returned 1 would be swallowed and the
+        # whole script would still print PASS at the end.
+        fail "forced through the skip condition: $skip"
+      fi
+      echo "SKIP: $skip"
       stop_leg
       return 0
     fi
@@ -395,33 +434,65 @@ EOF
       # MOCK_CLI / MOCK_CLI_SCENARIO are already in the environment this
       # leg's server was started with (see run_leg): the daemon spawns
       # the agent, not this script.
-      local task
+      #
+      # This task is a NON-STORE one, and a non-store task is always a
+      # plan-mode task (app/routers/tasks.py, "Non-store tasks always
+      # plan mode"). So `plan_mode:false` in the body is not a request
+      # the server honours, and waiting for the task to finish by
+      # itself — what this leg used to do — waits for a turn that can
+      # never start: the agent plans, reaches PLANNED, and holds there
+      # for a human. Measured twice on 2026-11-13, in CI and here:
+      # `FAIL: the mock task never finished` after 240 s, with the
+      # server correctly refusing to apply over a DESIGNING task the
+      # whole time. The leg now sends what the UI sends, including the
+      # approval: create → PLANNED → POST /execute-plan → RUNNING.
+      local task tid st
       task=$(api "$ADMIN_JAR" POST /api/tasks \
         '{"title":"hold the server","description":"keep running","plan_mode":false}') \
         || fail "could not create the task"
-      local tid; tid=$(echo "$task" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
-      local waited=0 live=0
+      tid=$(echo "$task" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+      local live waited=0
       while [ $waited -lt 60 ]; do
-        live=$(api "$ADMIN_JAR" GET /api/system/update-status \
-          | python3 -c 'import json,sys;print(json.load(sys.stdin)["running_tasks"])')
+        live=$(update_field running_tasks)
         [ "$live" != 0 ] && break
         sleep 1; waited=$((waited + 1))
       done
-      [ "$live" != 0 ] || fail "no agent became live; MOCK_CLI=$MOCK_CLI"
-      echo "   a task is live (running_tasks=$live)"
+      [ "$live" != 0 ] \
+        || fail "creating a task did not make the server busy (status $(task_status "$ADMIN_JAR" "$tid")); MOCK_CLI=$MOCK_CLI"
+      echo "   the task is live (running_tasks=$live)"
+      # The plan must actually arrive: that is what gates the approval,
+      # and a leg that approved a task still planning would be testing
+      # an endpoint the UI only shows once there is a plan to approve.
+      st=$(wait_for_task_status "$ADMIN_JAR" "$tid" planned 240) \
+        || fail "the mock never reached planned (last status: $st)"
+      echo "   planned — approving the way the UI does"
+      api "$ADMIN_JAR" POST "/api/tasks/$tid/execute-plan" >/dev/null \
+        || fail "POST /execute-plan was refused at status $st"
+      st=$(wait_for_task_status "$ADMIN_JAR" "$tid" running 120) \
+        || fail "the approved plan never started executing (last: $st)"
+      echo "   executing (status=$st); busy for two idle intervals now"
       # Busy for a good two idle-check intervals: nothing may move.
       local before=$(port_version) held=0
       while [ $held -lt 150 ]; do
         [ "$(port_version)" = "$before" ] \
-          || fail "the update applied over a running task"
+          || fail "the update applied over a running task (status $(task_status "$ADMIN_JAR" "$tid"))"
         [ "$(installed_version)" = "$OLD_V" ] \
           || fail "the install moved while a task was running"
         sleep 2; held=$((held + 2))
-        # Let the task finish part-way through, then keep watching.
         [ $held -eq 60 ] && echo "   still $before at +60s (correct)"
       done
-      echo "   held for 150s with the task running — nothing applied"
-      wait_for_task_done "$ADMIN_JAR" "$tid" || fail "the mock task never finished"
+      # And the window has to have been REAL: a task that ended inside
+      # the hold would let the apply land during it and the leg would
+      # then be measuring nothing.
+      st=$(task_status "$ADMIN_JAR" "$tid")
+      case "$st" in
+        completed|failed)
+          fail "S2 proved nothing: the task ended ($st) inside the 150s hold"
+          ;;
+      esac
+      echo "   held for ${held}s with the task $st — nothing applied"
+      st=$(wait_for_task_done "$ADMIN_JAR" "$tid") \
+        || fail "the mock task never finished (last status: $st)"
       wait_for_version "$target" 360 \
         || fail "after the task ended the update still did not apply"
       echo "   OK: waited for the task, then applied onto $target by itself"
@@ -461,27 +532,51 @@ EOF
       done
       [ "$state" = ready ] || fail "never reached ready for the broken build ($state)"
       echo "-- it is ready; now it must apply, fail, and put $expect_from back"
-      # An apply that dies has to run out the helper's own health
-      # bound (HEALTH_TIMEOUT, 300 s) before it starts putting OLD back,
-      # then reinstall offline and boot again — so the wait here is
-      # bounded by the helper's budget plus one boot, not by hope.
-      local gone=0
-      for _ in $(seq 1 400); do
-        v=$(port_version)
-        if [ "$v" = "$expect_from" ]; then gone=1; break; fi
-        sleep 2
-      done
-      if [ "$gone" != 1 ]; then
+      # WHAT THIS LEG MUST WAIT ON, and what it used to wait on.
+      #
+      # Waiting for the port to answer $expect_from proves nothing,
+      # because the port answers $expect_from BEFORE the apply starts:
+      # that is the version the machine is on. In s5b it is true twice
+      # over (hop 1 ended on it), and the 15:24 run of 2026-11-13
+      # showed what the leg then asserts: hop 1's `ok` record, read as
+      # if it were hop 2's verdict — `FAIL: the record should say
+      # rolled_back: {… "status": "ok", "to": "99.152433.2"}` — one
+      # second after the broken release went ready and before any apply
+      # had been spawned at all.
+      #
+      # So the leg waits on the two events that only an APPLY produces,
+      # in order: the helper logged a new `applying` line, and a NEW
+      # last.json landed. An apply that dies runs out the helper's own
+      # health bound (HEALTH_TIMEOUT, 300 s) before it starts putting
+      # the old version back, then reinstalls and boots — so the second
+      # wait is bounded by the helper's budget plus one boot, not by
+      # hope.
+      local applies_before record_before
+      applies_before=$(applies_started)
+      record_before=$(record_mtime_ns)
+      wait_for_apply_start "$applies_before" 150 \
+        || fail "the idle tick never started an apply for $target"
+      wait_for_new_record "$record_before" \
+        || fail "the apply for $target never wrote a record"
+      [ "$(record_field to)" = "$target" ] \
+        || fail "the new record is about $(record_field to), not $target: $(record_json)"
+      # Now, and only now, is "the machine came back" a question with an
+      # answer: the apply is over, so whatever serves the port is the
+      # result of the rollback.
+      if ! wait_for_version "$expect_from" 60; then
         dump_apply_state
-        fail "the machine never came back on $expect_from after \
-$(port_version || echo DOWN) — see the sub-conditions above"
+        fail "after the rolled-back apply the port answers \
+$(port_version || echo DOWN), not $expect_from"
       fi
       health_ok || fail "the server answers /api/version but not /api/health"
       [ "$(installed_version)" = "$expect_from" ] \
         || fail "the INSTALL is still $(installed_version) — no real rollback"
-      wait_for_record || fail "the failed apply never wrote a record"
+      [ "$(boots)" -gt "$BOOTS_BEFORE" ] \
+        || fail "no new boot in $LOG after the rollback ($(boots) boots, expected > $BOOTS_BEFORE)"
       [ "$(record_field status)" = rolled_back ] \
         || fail "the record should say rolled_back: $(record_json)"
+      [ "$(record_field trigger)" = auto_idle ] \
+        || fail "the outage was not an auto_idle apply: $(record_json)"
       echo "   OK: the broken release failed, $expect_from is serving again"
       echo "   record: $(record_json)"
       if [ "$leg" = s5c ]; then
@@ -494,8 +589,7 @@ $(port_version || echo DOWN) — see the sub-conditions above"
         # cycle, and the assertion is that the idle tick REFUSES.
         echo "-- S5c: the same release must never be applied a second time"
         local applies_before record_before
-        applies_before=$(grep -c 'applying ' \
-          "$VIBE_HOME/updates/pip-apply.log" 2>/dev/null || echo 0)
+        applies_before=$(applies_started)
         record_before=$(record_json)
         stop_server_only
         vibe-seller start --port "$PORT" || fail "s5c restart failed"
@@ -636,7 +730,16 @@ health_ok() {
   curl -fsS --noproxy '*' --max-time 5 "http://127.0.0.1:$PORT/api/health" 2>/dev/null \
     | grep -q '"ok"'
 }
-boots() { grep -c 'Application startup complete' "${LOG:-/dev/null}" 2>/dev/null || echo 0; }
+boots() {
+  # `grep -c` prints its own 0 when the file exists and matches
+  # nothing, so `|| echo 0` would answer "0\n0" — and every
+  # `[ "$(boots)" -gt N ]` comparison would then fail with
+  # "integer expression expected", which is a leg that cannot see a
+  # boot even when one happened.
+  local n
+  n=$(grep -c 'Application startup complete' "$LOG" 2>/dev/null) || n=0
+  echo "${n:-0}"
+}
 wait_for_version() {
   local want=$1 tries=${2:-90} got i
   for i in $(seq 1 "$tries"); do
@@ -665,11 +768,67 @@ wait_for_record() { # the apply is not over when the VERSION moves
 
 wait_for_task_done() { # wait_for_task_done <jar> <task id>
   local jar=$1 tid=$2 st
-  for _ in $(seq 1 120); do
+  for _ in $(seq 1 200); do
     st=$(api "$jar" GET "/api/tasks/$tid" | json_field status)
-    case $st in completed|failed) return 0 ;; esac
+    case $st in completed|failed) echo "$st"; return 0 ;; esac
     sleep 2
   done
+  echo "${st:-unreadable}"
+  return 1
+}
+task_status() { # task_status <jar> <task id>
+  api "$1" GET "/api/tasks/$2" 2>/dev/null | json_field status
+}
+wait_for_task_status() { # <jar> <id> <want> <tries> — prints the last status seen
+  local jar=$1 tid=$2 want=$3 tries=${4:-90} st i
+  for i in $(seq 1 "$tries"); do
+    st=$(task_status "$jar" "$tid")
+    [ "$st" = "$want" ] && { echo "$st"; return 0; }
+    case $st in completed|failed) break ;; esac
+    sleep 2
+  done
+  echo "${st:-unreadable}"
+  return 1
+}
+applies_started() {
+  # How many applies the helper has been SPAWNED for, counted in its own
+  # log. The one signal that separates "the idle tick never fired" from
+  # "the apply ran and failed inside": the version the port answers
+  # cannot tell those apart, because a rolled-back apply leaves the SAME
+  # version serving that it started with.
+  local n
+  n=$(grep -c 'applying ' "$VIBE_HOME/updates/pip-apply.log" 2>/dev/null) || n=0
+  echo "${n:-0}"
+}
+wait_for_apply_start() { # <count-before> <tries>
+  local before=$1 tries=${2:-150} now i
+  for i in $(seq 1 "$tries"); do
+    now=$(applies_started)
+    [ "$now" -gt "$before" ] && return 0
+    sleep 2
+  done
+  echo "   pip-apply.log still holds $(applies_started) apply line(s), was $before" >&2
+  return 1
+}
+record_mtime_ns() {
+  # Nanoseconds, so two records in the same second cannot tie; 0 when
+  # there is no record at all.
+  python3 -c '
+import os, sys
+try:
+    print(os.stat(sys.argv[1]).st_mtime_ns)
+except OSError:
+    print(0)
+' "$VIBE_HOME/updates/last.json" 2>/dev/null || echo 0
+}
+wait_for_new_record() { # <mtime-ns-before> <tries>
+  local before=$1 tries=${2:-400} now
+  for _ in $(seq 1 "$tries"); do
+    now=$(record_mtime_ns)
+    [ "${now:-0}" -gt "${before:-0}" ] && return 0
+    sleep 2
+  done
+  echo "   last.json mtime still ${now:-0} ns (was $before) — no apply finished" >&2
   return 1
 }
 assert_idle_no_update() { # a dev build must be left alone entirely

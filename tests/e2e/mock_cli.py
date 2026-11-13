@@ -169,7 +169,28 @@ def emit_exit_plan_mode(plan_text: str):
     })
 
 
+#: Keep this turn ALIVE for at least this many seconds before its
+#: result. 0 (the default) changes nothing.
+#:
+#: The auto-update leg S2 needs a task that HOLDS the server for a few
+#: minutes — that is the whole scenario — and `delay` cannot give it
+#: that: `delay` paces every step, so a long-running turn means a plan
+#: that takes five minutes to arrive, and the leg that waits for the
+#: plan then waits for the approval too. This asks for the one thing
+#: the leg actually cares about: time held busy.
+MIN_RUN_SECONDS = float(SCENARIO.get('min_run_seconds', 0))
+_TURN_STARTED = time.monotonic()
+
+
+def hold_turn_open() -> None:
+    """Sleep until this process has been alive MIN_RUN_SECONDS."""
+    left = MIN_RUN_SECONDS - (time.monotonic() - _TURN_STARTED)
+    if left > 0:
+        time.sleep(left)
+
+
 def emit_result(text: str):
+    hold_turn_open()
     emit({'type': 'result', 'result': text})
 
 
