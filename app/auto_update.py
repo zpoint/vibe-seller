@@ -161,6 +161,13 @@ def reset_for_tests() -> None:
     _apply_task = None
 
 
+#: The record file's mtime as of the last load. `record_mtime()` is the
+#: cheap half of "has anything been written since we looked", and it is
+#: what lets a status request pick up a record this process booted
+#: without — see :func:`refresh_last_update`.
+_record_mtime = 0.0
+
+
 def load_last_update() -> dict | None:
     """The outcome of the last applied update, from ``<VIBE_HOME>``.
 
@@ -168,6 +175,8 @@ def load_last_update() -> dict | None:
     stays I/O-free and a server that restarted onto a rolled-back update
     reports it to whoever asks.
     """
+    global _record_mtime
+    _record_mtime = pip_update.record_mtime()
     doc = pip_update.read_record()
     if doc is None:
         return None
@@ -477,6 +486,39 @@ async def idle_tick(task_queue, agents) -> str:
 
 
 # ── apply ────────────────────────────────────────────────────────────
+
+
+def refresh_last_update() -> None:
+    """Read the record again if it has been written since we last saw it.
+
+    Why this exists: the apply helper brings the old version back up
+    FIRST and writes ``last.json`` as its last act, so on a rolled-back
+    update the server that recovers the machine starts about six seconds
+    before there is anything for it to read. Boot was the only moment the
+    record was consulted, so `update-status` answered
+    `last_update: null` for a machine that had just failed an update and
+    reverted it — and the admin who opens the page the next morning sees
+    an idle server instead of the outage. Measured on the Windows host
+    (§9 of win-e2e2.REPORT.md): `status: rolled_back`, `stage: health` on
+    disk, nothing in the answer.
+
+    So the account of an update is read when the UI asks for it, off the
+    event loop, and only when the file's mtime moved — one `stat` per
+    request, no re-read of an unchanged file, and ``snapshot()`` stays
+    I/O-free. Reporting stays once-only: the event goes out the first
+    time, and `mark_record_reported` is what rewrites the file, so a
+    later refresh sees `reported` and says nothing again.
+
+    Called from the status route through `asyncio.to_thread`, and never
+    from `snapshot()` itself.
+    """
+    try:
+        mtime = pip_update.record_mtime()
+    except OSError:
+        return
+    if mtime == _record_mtime:
+        return
+    load_last_update()
 
 
 def report_unreported_failure(doc: dict) -> None:

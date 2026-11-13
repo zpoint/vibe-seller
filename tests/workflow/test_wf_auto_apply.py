@@ -497,6 +497,51 @@ class TestRefusedUpdate:
             == 'applied'
         )
 
+    async def test_a_record_written_after_boot_is_still_reported(
+        self, monkeypatch, tmp_path, admin_client
+    ):
+        """The Windows host measured it (§9 of win-e2e2.REPORT.md): the
+        helper stops the server, installs, brings the OLD version back
+        up, and writes `last.json` as its LAST act — so the server that
+        recovered the machine booted about six seconds before there was
+        anything to read. `update-status` answered `last_update: null`
+        beside a record that said `rolled_back`, and the only moment the
+        file was consulted was boot. The admin who opens the page the
+        next morning is the person that account is for, and they should
+        not have to restart the server to be told their update failed.
+        """
+        monkeypatch.setattr(au.pip_update, 'updates_dir', lambda: tmp_path)
+        au.reset_for_tests()
+        au.load_last_update()  # a server that booted before the record
+        au._mark_ready(VERSION, PIP)
+
+        early = (await admin_client.get('/api/system/update-status')).json()
+        assert early['last_update'] is None, 'nothing has been written yet'
+        assert early['auto_apply'] is True, early
+
+        # The helper finishes, six seconds later, on a running server.
+        au.pip_update.write_record({
+            'status': au.pip_update.ROLLED_BACK,
+            'from': '9.9.8',
+            'to': VERSION,
+            'path': 'pip',
+            'trigger': 'auto_idle',
+            'stage': 'health',
+            'error': 'the server never reported ' + VERSION,
+            'at': '2026-11-13T06:00:00Z',
+            'seconds': 24.0,
+            'started_by': 'tray',
+            'reported': False,
+        })
+        late = (await admin_client.get('/api/system/update-status')).json()
+        assert late['last_update'], 'the outage is invisible without a restart'
+        assert late['last_update']['status'] == 'rolled_back'
+        # …and the stage the UPDATE failed in, not the recovery that
+        # worked (21b2bf84), because this is the sentence the UI repeats.
+        assert late['refusal']['stage'] == 'health', late['refusal']
+        assert late['auto_apply'] is False, late
+        assert late['popup_due'] is True, 'the admin must be asked'
+
     async def test_a_booting_server_remembers_the_outage_it_came_from(
         self, monkeypatch, install_fake_agent, admin_client
     ):

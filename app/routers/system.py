@@ -5,6 +5,7 @@ things like host OS and build version instead of having to infer
 them from error payloads or stale env vars.
 """
 
+import asyncio
 import subprocess
 import time
 
@@ -219,6 +220,11 @@ async def update_status(user=Depends(get_current_user)) -> dict:
     idle. An admin may still apply it — a click is a decision, a tick
     is not, and only the second one repeats every six hours.
     """
+    # The record can be newer than this process — an apply that failed
+    # after boot writes it as its last act (app/auto_update.py:
+    # refresh_last_update) — so ask before answering. Off the loop: this
+    # is a stat and, only when the mtime moved, one small file.
+    await asyncio.to_thread(auto_update.refresh_last_update)
     snap = auto_update.snapshot()
     return {
         'supported': auto_update.in_app_update(),
