@@ -29,6 +29,14 @@ on:
       - 'app/apply_launch.py'
       - 'app/pip_apply_helper.py'
       - 'app/update_idle.py'
+      # The rule that a release this machine already rolled back is
+      # never applied by itself again — it decides WHETHER an apply
+      # happens, exactly like the idle gate beside it.
+      - 'app/update_refusal.py'
+      # What an apply actually runs on macOS/Linux: the exact-version
+      # install and the receipt repair. A change here moves the apply
+      # path without touching a single file above it.
+      - 'app/uv_tool.py'
       - 'app/update_events.py'
       - 'app/windows_update.py'
       - 'app/upgrade_restart.py'
