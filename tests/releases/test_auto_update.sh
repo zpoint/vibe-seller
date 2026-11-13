@@ -75,6 +75,12 @@ KEEP=${KEEP:-0}
 REPO=${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}
 fail() {
   echo "FAIL: $*" >&2
+  # A leg that fails says everything about the machine at that moment:
+  # which version answers, which one is installed, how many boots the
+  # log has, what update-status and last.json say, whether the helper
+  # was ever spawned, and what it logged. Diagnosing the last two CI
+  # failures needed all of these and they were not in the output.
+  if [ -d "${VIBE_HOME:-}" ]; then dump_apply_state; fi
   if [ -f "${LOG:-}" ]; then echo "--- tail $LOG" >&2; tail -60 "$LOG" >&2; fi
   if [ -d "${WORK:-}" ]; then
     # DEBUG_DIR keeps a failed leg's evidence somewhere the driver can
@@ -404,9 +410,9 @@ EOF
       [ "$live" != 0 ] || fail "no agent became live; MOCK_CLI=$MOCK_CLI"
       echo "   a task is live (running_tasks=$live)"
       # Busy for a good two idle-check intervals: nothing may move.
-      local before=$(version_on_port) held=0
+      local before=$(port_version) held=0
       while [ $held -lt 150 ]; do
-        [ "$(version_on_port)" = "$before" ] \
+        [ "$(port_version)" = "$before" ] \
           || fail "the update applied over a running task"
         [ "$(installed_version)" = "$OLD_V" ] \
           || fail "the install moved while a task was running"
@@ -461,11 +467,15 @@ EOF
       # bounded by the helper's budget plus one boot, not by hope.
       local gone=0
       for _ in $(seq 1 400); do
-        v=$(version_on_port)
+        v=$(port_version)
         if [ "$v" = "$expect_from" ]; then gone=1; break; fi
         sleep 2
       done
-      [ "$gone" = 1 ] || fail "the machine never came back on $expect_from (now: $(version_on_port || echo DOWN))"
+      if [ "$gone" != 1 ]; then
+        dump_apply_state
+        fail "the machine never came back on $expect_from after \
+$(port_version || echo DOWN) — see the sub-conditions above"
+      fi
       health_ok || fail "the server answers /api/version but not /api/health"
       [ "$(installed_version)" = "$expect_from" ] \
         || fail "the INSTALL is still $(installed_version) — no real rollback"
@@ -502,7 +512,7 @@ EOF
         echo "   offered again and ready (as the bug would)"
         # Two idle intervals past that: the tick must refuse it.
         sleep 150
-        [ "$(version_on_port)" = "$expect_from" ] \
+        [ "$(port_version)" = "$expect_from" ] \
           || fail "s5c: it applied the rolled-back release a second time"
         local applies_after
         applies_after=$(grep -c 'applying ' \
@@ -588,7 +598,34 @@ print(json.dumps(v) if isinstance(v, (bool, type(None))) else v)
 " 2>/dev/null
 }
 version_on_port() {
+  # The RAW body, for liveness only: `curl -f` is non-empty exactly when
+  # something answers. Anything that wants the VERSION uses
+  # port_version — comparing this body to a version string is how leg s5
+  # once reported "never came back on 99.70300.1 (now:
+  # {version: 99.70300.1})", a message that contradicted itself because
+  # the machine had come back correctly.
   curl -fsS --noproxy '*' --max-time 3 "http://127.0.0.1:$PORT/api/version" 2>/dev/null
+}
+port_version() { version_on_port | json_field version; }
+
+dump_apply_state() { # every sub-condition a leg can fail on, at once
+  echo "   --- apply state" >&2
+  echo "   port answers: $(version_on_port | head -c 200)" >&2
+  echo "   parsed version: $(port_version) / installed: $(installed_version)" >&2
+  echo "   boots in this log: $(boots) (expected > ${BOOTS_BEFORE:-?})" >&2
+  echo "   update-status: $(status_json | head -c 400)" >&2
+  echo "   last.json: $(record_json | head -c 600)" >&2
+  if [ -f "$VIBE_HOME/updates/pip-apply.log" ]; then
+    echo "   applies started: $(grep -c 'applying ' "$VIBE_HOME/updates/pip-apply.log")" >&2
+    echo "   --- pip-apply.log (last 12)" >&2
+    tail -12 "$VIBE_HOME/updates/pip-apply.log" >&2
+  else
+    echo "   pip-apply.log: ABSENT — the helper was never spawned" >&2
+  fi
+  if [ -f "${LOG:-}" ]; then
+    echo "   --- backend log: apply/idle/restart lines (last 12)" >&2
+    grep -E "auto-apply tick|applying v|Re-executing|Upgrade restart|update-status|rolled_back"       "$LOG" 2>/dev/null | tail -12 >&2
+  fi
 }
 update_field() { api "$ADMIN_JAR" GET /api/system/update-status 2>/dev/null | json_field "$1"; }
 status_json() { api "$ADMIN_JAR" GET /api/system/update-status 2>/dev/null; }
@@ -599,11 +636,11 @@ health_ok() {
   curl -fsS --noproxy '*' --max-time 5 "http://127.0.0.1:$PORT/api/health" 2>/dev/null \
     | grep -q '"ok"'
 }
-boots() { grep -c 'Application startup complete' "$LOG" 2>/dev/null || echo 0; }
+boots() { grep -c 'Application startup complete' "${LOG:-/dev/null}" 2>/dev/null || echo 0; }
 wait_for_version() {
   local want=$1 tries=${2:-90} got i
   for i in $(seq 1 "$tries"); do
-    got=$(version_on_port | json_field version)
+    got=$(port_version)
     [ "$got" = "$want" ] && return 0
     sleep 1
   done
