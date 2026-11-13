@@ -50,8 +50,21 @@ REASON_TICK = 'tick'
 REASON_MANUAL = 'manual'
 REASON_EVENT = 'event'
 REASON_BOOT = 'boot'
+#: The other side of an integration told us, on a call it was answering
+#: anyway, that what it ships has changed since we installed it — for
+#: the ads skill, whose version rides every response header
+#: (``app.ads_skill.note_service_version``). Not ``event``: that is a
+#: person authorizing a store, a thing that happened. This is a thing
+#: the client found out, and the log line has to tell them apart.
+REASON_STALE = 'stale'
 
-REASONS = (REASON_TICK, REASON_MANUAL, REASON_EVENT, REASON_BOOT)
+REASONS = (
+    REASON_TICK,
+    REASON_MANUAL,
+    REASON_EVENT,
+    REASON_BOOT,
+    REASON_STALE,
+)
 
 
 class Cadence(Enum):

@@ -270,9 +270,19 @@ def create_task(
     profile_id: str | None = None,
     plan_mode: bool | None = None,
     schedule_id: str | None = None,
+    defer_start: bool = False,
 ) -> dict:
-    """Create a task via API. Auto-triggers the agent pipeline."""
+    """Create a task via API. Auto-triggers the agent pipeline.
+
+    ``defer_start=True`` creates the task PENDING and starts nothing —
+    the product's own door for it (the attachment upload puts files in
+    the workspace before the agent reads its prompt). A test that needs
+    a real task id without a model run uses it, and never invents a
+    task by writing to the database.
+    """
     payload: dict = {'title': title}
+    if defer_start:
+        payload['defer_start'] = True
     if store_id is not None:
         payload['store_id'] = store_id
     if description is not None:
