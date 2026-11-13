@@ -156,7 +156,11 @@ def _installed(monkeypatch, app: Path, fingerprint):
         path.write_text(
             json.dumps({'fingerprint': fingerprint}), encoding='utf-8'
         )
-    monkeypatch.setattr(au.bundle, 'bundle_file', lambda root=None: path)
+    # app.bundle, reached through the module that asks it: the
+    # Windows path decision lives in app/update_windows.py now.
+    monkeypatch.setattr(
+        au.update_windows.bundle, 'bundle_file', lambda root=None: path
+    )
 
 
 def _offer(app: Path, release_fp=_FP):

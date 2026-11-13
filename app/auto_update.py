@@ -56,11 +56,11 @@ import time
 import httpx
 
 from app import (
-    bundle,
     pip_update,
     update_events,
     update_idle,
     update_refusal,
+    update_windows,
     windows_update as wu,
 )
 from app.env_options import Options
@@ -302,171 +302,6 @@ def _mark_error(message: str) -> None:
     _settle(state=ERROR, error=message, downloaded_bytes=None)
 
 
-def _stage_installer_windows(offer: dict, started: float) -> None:
-    """Download (resumed) → verify → ``ready``. Runs in a worker thread."""
-    version = offer['version']
-    had_part = wu.staged_paths(version)[1].exists()
-
-    def progress(done: int, total: int | None) -> None:
-        _update(
-            state=DOWNLOADING,
-            version=version,
-            path=pip_update.PATH_INSTALLER,
-            downloaded_bytes=done,
-            total_bytes=total if total is not None else offer.get('size'),
-        )
-
-    try:
-        wu.stage_installer(offer, progress=progress)
-    except Exception as exc:
-        stage = (
-            UpdateStage.VERIFY
-            if isinstance(exc, wu.VerifyError)
-            else UpdateStage.DOWNLOAD
-        )
-        update_events.downloaded(
-            'failed',
-            stage=stage,
-            path=pip_update.PATH_INSTALLER,
-            to_version=version,
-            seconds=time.monotonic() - started,
-            resumed=had_part,
-        )
-        _mark_error(str(exc))
-        return
-    update_events.downloaded(
-        'ok',
-        path=pip_update.PATH_INSTALLER,
-        to_version=version,
-        seconds=time.monotonic() - started,
-        resumed=had_part,
-    )
-    _mark_ready(version, pip_update.PATH_INSTALLER)
-
-
-#: What a pip attempt ended as: ready to apply, go and stage the
-#: installer instead, or stop for this cycle (PyPI does not have the
-#: version yet — the next cycle retries).
-PIP_READY = 'ready'
-PIP_TO_INSTALLER = 'installer'
-PIP_FAILED = 'failed'
-
-
-def _pip_ready_windows(version: str, started: float) -> str:
-    """Warm the cache and prove the offline apply.
-
-    Returns one of :data:`PIP_READY`, :data:`PIP_TO_INSTALLER` (fetchable
-    but not installable offline: the release moved dependency bytes the
-    bundle does not hold, which is the installer's job, not an error) or
-    :data:`PIP_FAILED` (the state already says ``error``; retry next
-    cycle)."""
-    _update(
-        state=DOWNLOADING,
-        version=version,
-        path=pip_update.PATH_PIP,
-        downloaded_bytes=None,
-        total_bytes=None,
-        error=None,
-    )
-    try:
-        pip_update.warm(version)
-    except Exception as exc:
-        update_events.downloaded(
-            'failed',
-            stage=UpdateStage.PREFETCH,
-            path=pip_update.PATH_PIP,
-            to_version=version,
-            seconds=time.monotonic() - started,
-        )
-        _mark_error(str(exc))
-        return PIP_FAILED
-    reason = pip_update.offline_apply_proven(version)
-    if reason:
-        logger.info('pip path unavailable for %s: %s', version, reason)
-        update_events.downloaded(
-            'installer',
-            path=pip_update.PATH_PIP,
-            to_version=version,
-            seconds=time.monotonic() - started,
-        )
-        return PIP_TO_INSTALLER
-    pip_update.pre_install_browser(version)
-    update_events.downloaded(
-        'ok',
-        path=pip_update.PATH_PIP,
-        to_version=version,
-        seconds=time.monotonic() - started,
-    )
-    _mark_ready(version, pip_update.PATH_PIP)
-    return PIP_READY
-
-
-def _installer_path_windows(offer: dict, started: float) -> None:
-    version = offer['version']
-    if wu.staged_installer(
-        version,
-        expected_sha=wu.offer_sha256(offer),
-        expected_size=offer.get('size'),
-    ):
-        _mark_ready(version, pip_update.PATH_INSTALLER)
-        return
-    _update(state=DOWNLOADING, version=offer['version'])
-    _stage_installer_windows(offer, started)
-
-
-def _update_path_windows(offer: dict) -> str:
-    """pip or installer, from the two bundle documents.
-
-    Anything unknown — no asset on the release, no ``bundle.json`` in
-    this install (0.3.1 and earlier), a release source that would not
-    answer — is the installer path. It is the one that is always
-    correct; the pip path is only allowed when both sides positively
-    agree."""
-    release = None
-    if offer.get('bundle'):
-        try:
-            release = wu.fetch_bundle(offer)
-        except Exception:  # noqa: BLE001 — unknown means installer
-            logger.debug('could not read the release bundle', exc_info=True)
-    installed = bundle.read_bundle(bundle.bundle_file())
-    return (
-        pip_update.PATH_PIP
-        if bundle.pip_path_applies(release, installed)
-        else pip_update.PATH_INSTALLER
-    )
-
-
-def _cycle_windows() -> None:
-    """One Windows background cycle; runs inside a worker thread."""
-    started = time.monotonic()
-    current = get_version()
-    try:
-        offer = wu.check_for_update()
-    except Exception as exc:
-        # Network/JSON failure must not lose a stage we already have.
-        logger.warning('update check failed: %s', exc)
-        offer = None
-    if offer:
-        path = _update_path_windows(offer)
-        if path == pip_update.PATH_PIP:
-            outcome = _pip_ready_windows(offer['version'], started)
-            if outcome != PIP_TO_INSTALLER:
-                # Ready, or an error to retry next cycle. Only a release
-                # the cache cannot install offline continues below.
-                return
-            _installer_path_windows(offer, started)
-            return
-        _installer_path_windows(offer, started)
-        return
-    # Nothing offered: a boot scan of a newer verified stage still wins
-    # (offline boot, or the release source is down).
-    boot = wu.newest_staged_version(current)
-    if boot:
-        _mark_ready(boot, pip_update.PATH_INSTALLER)
-        return
-    _mark_idle()
-
-
 async def _pypi_target(client: httpx.AsyncClient) -> str | None:
     """The version this uv-tool install should move to, per channel."""
     current = get_version()
@@ -531,7 +366,7 @@ async def run_cycle() -> None:
     if snapshot()['state'] == RESTARTING:
         return
     if sys.platform == 'win32':
-        await asyncio.to_thread(_cycle_windows)
+        await asyncio.to_thread(update_windows.cycle)
     else:
         await _cycle_unix()
 

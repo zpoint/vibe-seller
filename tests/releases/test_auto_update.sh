@@ -185,6 +185,14 @@ run_leg() { # run_leg <leg> <target-version> <dist-dir> [extra env…]
   export VIBE_GITHUB_MAIN_SYNC=off VIBE_EXTERNAL_SYNC=off
   export VIBE_SELLER_TELEMETRY=0 VIBE_AUTH_REQUIRED=true
   export VIBE_SELLER_AUTO_UPDATE=1
+  # The mock CLI belongs to the SERVER's environment, because the daemon
+  # is what spawns the agent for a task — exporting it inside leg s2,
+  # after `vibe-seller start`, meant the daemon had no mock and the
+  # agent never came up at all (measured in CI on ubuntu AND macOS:
+  # "no agent became live"). Only s2 creates a task, so this is inert
+  # for every other leg; s5b unsets it before hop 2 on purpose.
+  export MOCK_CLI="$REPO/tests/e2e/mock_cli.py"
+  export MOCK_CLI_SCENARIO='{"result":"still working","delay":25}'
   mkdir -p "$VIBE_HOME"
 
   # The mock PyPI document: the target is the newest stable release.
@@ -378,10 +386,9 @@ EOF
       ;;
     s2)
       echo "-- S2: occupy the server with a task, and check it waits"
-      # The mock CLI answers stream-json with no provider call; MOCK_CLI
-      # is the repo's existing hook for that.
-      export MOCK_CLI="$REPO/tests/e2e/mock_cli.py"
-      export MOCK_CLI_SCENARIO='{"result":"still working","delay":25}'
+      # MOCK_CLI / MOCK_CLI_SCENARIO are already in the environment this
+      # leg's server was started with (see run_leg): the daemon spawns
+      # the agent, not this script.
       local task
       task=$(api "$ADMIN_JAR" POST /api/tasks \
         '{"title":"hold the server","description":"keep running","plan_mode":false}') \
