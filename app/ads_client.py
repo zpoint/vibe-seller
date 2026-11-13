@@ -19,6 +19,12 @@ thin, stable integration rather than a second implementation:
    require a vibe-seller release — a released client cannot be upgraded
    on the service's schedule, so the surface it pins has to be the
    narrowest possible one.
+
+A fourth thing happens here on the way: **every answer's
+``X-Skill-Version`` is passed to** :func:`app.ads_skill.note_service_version`
+(:func:`call` is the one path every request to the service takes, the
+agent's tool included, so one read there sees every answer the service
+gives — see ``_note_skill_version``).
 """
 
 from __future__ import annotations
@@ -73,6 +79,19 @@ _REGISTERING = asyncio.Lock()
 #: What FastAPI answers for a path it has no route for. A route that
 #: 404s on purpose carries its own words instead.
 _ROUTE_ABSENT = {'detail': 'Not Found'}
+
+#: The version of the skill the service is serving, on **every** answer
+#: it gives (see vibe-ads-server's ``docs/api.md``). Reading it here is
+#: what lets a machine notice a skill change on the call it was already
+#: making, instead of at tomorrow's scheduled check.
+SKILL_VERSION_HEADER = 'X-Skill-Version'
+
+#: The two calls the refresh makes about itself. Their answer carries
+#: the very version we are moving to, so treating their header as a
+#: mismatch would have every refresh notice itself and schedule the
+#: next one — a download that starts a download. Skipped by name, and
+#: only for these two paths: every other answer is news.
+_OWN_SKILL_PATHS = frozenset({'/skill/version', '/skill/bundle'})
 
 
 @dataclass(frozen=True)
@@ -189,6 +208,42 @@ def _is_unknown_route(response: httpx.Response) -> bool:
     return body == _ROUTE_ABSENT
 
 
+def _note_skill_version(path: str, headers: Any) -> None:
+    """Hand the service's skill version to the module that owns it.
+
+    Read from **every** answer that came back from the service, 2xx and
+    4xx/5xx alike: the refusal is often the news. An agent holding a
+    skill that documents paths the service no longer has is exactly the
+    agent that gets a 404 or a 405, and without the header it would go
+    on working from that skill until the next scheduled check.
+
+    A request that never reached the service is not one of those
+    answers and is not read — the caller has already raised.
+
+    Nothing here may break the call the agent is waiting on. The
+    refresh this starts runs in a background task of
+    :mod:`app.ads_skill`'s own and never inside the request, and an
+    error in noticing is logged rather than allowed to replace the
+    answer.
+    """
+    if path in _OWN_SKILL_PATHS:
+        return
+    version = headers.get(SKILL_VERSION_HEADER, '')
+    if not version:
+        # An older service, or a proxy that ate the header: no
+        # information, which is not the same as "up to date".
+        return
+    try:
+        # Imported here, not at the top: ads_skill imports this module
+        # for its own transport, so a module-level import would close
+        # the loop between them.
+        from app import ads_skill  # noqa: PLC0415
+
+        ads_skill.note_service_version(str(version))
+    except Exception:  # noqa: BLE001 — noticing is not the call's owner
+        logger.warning('ads skill version note failed', exc_info=True)
+
+
 async def call(
     session,
     path: str,
@@ -216,6 +271,10 @@ async def call(
             raise AdsServiceError(
                 f'Could not reach the ads service at {host}: {exc}'
             )
+
+    # Before the status is acted on: an answer this module is about to
+    # turn into an exception is still an answer from the service.
+    _note_skill_version(path, response.headers)
 
     if response.status_code >= 400:
         raise AdsServiceError(

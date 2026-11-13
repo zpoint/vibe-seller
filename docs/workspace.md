@@ -201,6 +201,30 @@ data: anything but documentation is dropped (`app/ads_skill.py`) — no
 `gates/*.py` or scripts from a remote source ever run here. Revoking the
 last authorized store removes the skill.
 
+**A change reaches a machine the day it ships, not the day after.** The
+service names its skill version in the `X-Skill-Version` header of
+*every* answer it gives, and `app/ads_client.call` reads it there — the
+one path every request to the service takes, the agent's
+`vibe_seller_ads_call` tool included. A version that differs from what
+this machine installed triggers the `ads_skill` job
+(`reason=stale`) in a background task: never awaited by the call that
+noticed, never able to fail it, and at most once per remote version per
+ten minutes, so a bundle download that keeps failing cannot turn every
+agent call into a sync. The two paths the refresh itself calls,
+`/skill/version` and `/skill/bundle`, are not read: their header is the
+version being installed, and noticing it would make every refresh start
+the next one. A missing header is no information, not "up to date" — the
+daily job stays the backstop, and is what a service older than the
+header relies on.
+
+**What a refresh changes is the next task, never a running one.** The
+skill is copied into a task workspace once, at launch, under the
+skills-tree lock (`app/workspace/skills_tree`), and the swap the refresh
+does is taken under that same lock — so an agent mid-run keeps reading
+the skill it started with. The version held in memory (`AppSettings` on
+first read, `sync_bundle` and `remove` after that) is what makes one
+header cost no database read.
+
 Each task sees one ads skill: `amazon-ads-api` for a store authorized on
 the service, `amazon-ads` (browser) for any other store or no store, both
 for a task spanning both. Claude Code discovers skills up to the git

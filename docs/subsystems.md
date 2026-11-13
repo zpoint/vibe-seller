@@ -294,8 +294,13 @@ and two of those forgot to record a probe that found nothing, so after
   manual/forced call waits it out and gets one fresh run, which
   concurrent callers share.
 - **One greppable line per run**:
-  `sync:<name> reason=<tick|manual|event|boot> status=<updated|unchanged|skipped|failed> ...`
-  — the e2e tests assert on these.
+  `sync:<name> reason=<tick|manual|event|boot|stale> status=<updated|unchanged|skipped|failed> ...`
+  — the e2e tests assert on these. `stale` is a run the *other side*
+  caused without being asked: an integration noticed, from an answer it
+  was already getting, that what it ships has changed since we
+  installed it (the ads skill's `X-Skill-Version` header,
+  `app/ads_skill.py`). `event` remains a thing that happened — a person
+  authorizing a store.
 - Remote writes are download-then-apply in ONE synchronous block, each
   skill dir built in `.claude/.sync-staging` and renamed into place, so a
   task workspace copy can never catch a half-written skill.
