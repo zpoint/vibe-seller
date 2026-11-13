@@ -43,18 +43,27 @@
 #   PORT      default 7825; each leg uses PORT + leg index
 #   LEG       default `all`
 #   PREV_V    LEG=s9 only: the published version to start from
-#   OLD_V / NEW_V / BROKEN_V    default 99.0.1 / 99.0.2 / 99.0.3
+#   RUN_STAMP   the version prefix for this run (default: the clock)
+#   OLD_V / NEW_V / BROKEN_V / PLAIN_V   99.<stamp>.1 … .4
 #   KEEP      1 = leave the leg's server running in READY state (demo)
 #   DIST_OLD / DIST_NEW / DIST_BROKEN   reuse prebuilt wheel dirs
 set -u
 
 PORT=${PORT:-7825}
-OLD_V=${OLD_V:-99.0.1}
-NEW_V=${NEW_V:-99.0.2}
-BROKEN_V=${BROKEN_V:-99.0.3}
+# Every run gets its OWN version numbers, stamped from the clock. A leg
+# that reused 99.0.1/99.0.2 across runs measured whatever the uv cache
+# still held under those names from an earlier build of a DIFFERENT
+# tree — measured 2026-11-13: leg s1 installed a 99.0.1 that predated
+# the fix under test, and the apply ran the old code. Real releases are
+# immutable, so this collision cannot happen in production; here it can,
+# silently, and it makes a PASS mean nothing.
+RUN_STAMP=${RUN_STAMP:-$(date +%H%M%S)}
+OLD_V=${OLD_V:-99.$RUN_STAMP.1}
+NEW_V=${NEW_V:-99.$RUN_STAMP.2}
+BROKEN_V=${BROKEN_V:-99.$RUN_STAMP.3}
 # A good release NEWER than the one leg s1 auto-applies to, used by the
 # receipt check at the end of that leg.
-PLAIN_V=${PLAIN_V:-99.0.4}
+PLAIN_V=${PLAIN_V:-99.$RUN_STAMP.4}
 LEG=${LEG:-all}
 KEEP=${KEEP:-0}
 REPO=${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}
@@ -62,7 +71,10 @@ fail() {
   echo "FAIL: $*" >&2
   if [ -f "${LOG:-}" ]; then echo "--- tail $LOG" >&2; tail -60 "$LOG" >&2; fi
   if [ -d "${WORK:-}" ]; then
-    d="$HOME/agent-briefs/e2e-debug-$(basename "${WORK}")"
+    # DEBUG_DIR keeps a failed leg's evidence somewhere the driver can
+    # read it; the default is the same temp root the leg itself uses, so
+    # a shipped test never names a person's home directory.
+    d="${DEBUG_DIR:-${TMPDIR:-/tmp}}/vibe-au-debug-$(basename "${WORK}")"
     mkdir -p "$d"
     cp -r "$VIBE_HOME/updates" "$d/" 2>/dev/null
     [ -f "$LOG" ] && cp "$LOG" "$d/" 2>/dev/null
