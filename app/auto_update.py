@@ -144,7 +144,11 @@ def snapshot() -> dict:
 
 def reset_for_tests() -> None:
     """Back to a cold machine. Tests only."""
-    global _apply_proc, _apply_task
+    global _apply_proc, _apply_task, _record_mtime
+    # The record stamp is part of the cold machine: a test that resets
+    # the state but keeps another test's mtime would have
+    # `refresh_last_update` conclude nothing had been written since.
+    _record_mtime = 0.0
     with _lock:
         _state.update({
             'state': IDLE,
@@ -512,10 +516,8 @@ def refresh_last_update() -> None:
     Called from the status route through `asyncio.to_thread`, and never
     from `snapshot()` itself.
     """
-    try:
-        mtime = pip_update.record_mtime()
-    except OSError:
-        return
+    # `record_mtime()` is documented to answer 0.0 rather than raise.
+    mtime = pip_update.record_mtime()
     if mtime == _record_mtime:
         return
     load_last_update()
