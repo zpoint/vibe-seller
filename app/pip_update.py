@@ -636,7 +636,76 @@ def supervisor() -> str | None:
     return 'launchd'
 
 
+def listening_ports() -> list[int]:
+    """The ports THIS process is listening on, de-duplicated.
+
+    Empty when the answer cannot be had (no psutil, a container that
+    hides it, a reload worker). The caller treats that as "no opinion".
+    """
+    try:
+        import psutil  # noqa: PLC0415 — an optional view of the OS
+    except ImportError:
+        return []
+    try:
+        proc = psutil.Process()
+        try:
+            conns = proc.net_connections(kind='inet')
+        except AttributeError:  # psutil < 6
+            conns = proc.connections(kind='inet')  # noqa: PLW2901
+    except Exception:  # noqa: BLE001 — no answer is better than a wrong one
+        return []
+    ports = {
+        int(c.laddr[1])
+        for c in conns
+        if str(c.status).upper().endswith('LISTEN') and c.laddr
+    }
+    return sorted(ports)
+
+
 def _server_port() -> int:
+    """The port the update helper must stop, start and health-probe.
+
+    Not ``app.config.BACKEND_PORT`` — that is the *default*, and a
+    server started as ``vibe-seller start --port 7792`` (every test
+    instance, ``start.sh`` on a busy port, a demo on the side) is not
+    on it. This number is handed to a detached process that will run
+    ``stop``, ``start`` and poll ``/api/version``, so a default here
+    makes it act on somebody else's server: measured 2026-11-13 in the
+    Linux end-to-end, the argument document said 7777 while the leg ran
+    on 7791, so the helper watched a port nothing served, concluded the
+    update had failed, rolled back — and started the old version on
+    7777, beside the instance that machine really runs.
+
+    Three sources, in order of how directly they answer the question:
+    the socket this process has actually bound; the command line
+    ``app/upgrade_restart.py`` would re-exec from (same truth, second
+    hand); and the configured default, which is right exactly when
+    nothing said otherwise.
+    """
+    ports = listening_ports()
+    if len(ports) == 1:
+        return ports[0]
+    argv = list(getattr(sys, 'orig_argv', []) or [])
+    for i, arg in enumerate(argv):
+        if arg in ('--port', '-p') and i + 1 < len(argv):
+            try:
+                return int(argv[i + 1])
+            except ValueError:
+                break
+        if arg.startswith('--port='):
+            try:
+                return int(arg.split('=', 1)[1])
+            except ValueError:
+                break
+    if len(ports) > 1:
+        # A machine serving several ports from one process: the command
+        # line had no answer, so the configured default is the only
+        # remaining opinion, and it is wrong in a way a human can see.
+        logger.warning(
+            'this process listens on %s; using the configured port for '
+            'the update helper instead of guessing',
+            ports,
+        )
     from app.config import BACKEND_PORT  # noqa: PLC0415
 
     return int(BACKEND_PORT)

@@ -529,3 +529,88 @@ class TestSupervisorDetection:
         )
         assert args['supervisor'] == 'launchd'
         assert args['lock'].endswith('apply.lock')
+
+
+class TestServerPort:
+    """The port the helper is told about is the port this server serves.
+
+    The argument document is the helper's whole world: it runs `stop`,
+    `start` and `/api/version` against the number written here. Reading
+    the configured default instead of the live socket means an update
+    that stops and starts a server belonging to something else, and a
+    health check that can never pass on any install started with
+    `--port` — which is every test instance, `start.sh` on a busy port,
+    and the Windows CI legs.
+    """
+
+    def test_the_live_listener_wins_over_the_default(self, monkeypatch):
+        monkeypatch.setattr(pu, 'listening_ports', lambda: [7791])
+        monkeypatch.setattr(pu.sys, 'orig_argv', ['python', '-m', 'uvicorn'])
+        assert pu._server_port() == 7791
+
+    def test_the_command_line_is_the_next_answer(self, monkeypatch):
+        monkeypatch.setattr(pu, 'listening_ports', lambda: [])
+        monkeypatch.setattr(
+            pu.sys,
+            'orig_argv',
+            [
+                '/x/python',
+                '-m',
+                'uvicorn',
+                'app.main:app',
+                '--host',
+                '0.0.0.0',
+                '--port',
+                '7792',
+            ],
+        )
+        assert pu._server_port() == 7792
+
+    def test_the_equals_form_is_read_too(self, monkeypatch):
+        monkeypatch.setattr(pu, 'listening_ports', lambda: [])
+        monkeypatch.setattr(
+            pu.sys, 'orig_argv', ['python', '-m', 'uvicorn', '--port=7793']
+        )
+        assert pu._server_port() == 7793
+
+    def test_one_port_on_two_families_is_still_one_port(self, monkeypatch):
+        """IPv4 and IPv6 listeners share the number; that is not an
+        ambiguity, and treating it as one would put a working install
+        back on the configured default."""
+        monkeypatch.setattr(pu, 'listening_ports', lambda: [7791])
+        monkeypatch.setattr(
+            pu.sys, 'orig_argv', ['python', '-m', 'uvicorn', '--port', '1']
+        )
+        assert pu._server_port() == 7791
+
+    def test_two_different_listeners_fall_back_to_the_config(self, monkeypatch):
+        monkeypatch.setattr(pu, 'listening_ports', lambda: [7791, 8123])
+        monkeypatch.setattr(pu.sys, 'orig_argv', ['python', '-m', 'uvicorn'])
+        import app.config as config  # noqa: PLC0415
+
+        assert pu._server_port() == int(config.BACKEND_PORT)
+
+    def test_garbage_on_the_command_line_is_not_a_port(self, monkeypatch):
+        monkeypatch.setattr(pu, 'listening_ports', lambda: [])
+        monkeypatch.setattr(
+            pu.sys, 'orig_argv', ['python', '-m', 'uvicorn', '--port', 'soon']
+        )
+        import app.config as config  # noqa: PLC0415
+
+        assert pu._server_port() == int(config.BACKEND_PORT)
+
+    def test_the_apply_document_carries_the_real_port(
+        self, monkeypatch, tmp_path
+    ):
+        """The regression the Linux end-to-end found: a leg on 7791, an
+        apply document saying 7777, and a helper that stopped nothing,
+        probed nothing, declared the update failed, rolled back, and
+        started the old version on the port it had just invented."""
+        monkeypatch.setattr(pu, 'listening_ports', lambda: [7791])
+        monkeypatch.setattr(pu.sys, 'platform', 'linux')
+        monkeypatch.setattr(pu, 'updates_dir', lambda: tmp_path)
+        args = pu.apply_args('99.0.2', pu.TRIGGER_AUTO_IDLE, pu.PATH_PIP)
+        assert args['port'] == 7791
+        assert args['env']['VIBE_SELLER_PORT'] == '7791'
+        assert args['stop_command'][-2:] == ['--port', '7791']
+        assert args['start_command'][-2:] == ['--port', '7791']
