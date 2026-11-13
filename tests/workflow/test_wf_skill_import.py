@@ -415,38 +415,120 @@ class TestUrlImportInTask:
                     'size': len(md),
                 },
                 {
+                    'path': 'invoice-check/scripts',
+                    'mode': '040000',
+                    'type': 'tree',
+                },
+                {
                     'path': 'invoice-check/scripts/run.sh',
                     'mode': '100755',
                     'type': 'blob',
                     'sha': 'bbb2',
                     'size': len(run),
                 },
+                {
+                    'path': 'invoice-check/examples',
+                    'mode': '040000',
+                    'type': 'tree',
+                },
+                {
+                    'path': 'invoice-check/examples/demo.md',
+                    'mode': '100644',
+                    'type': 'blob',
+                    'sha': 'ccc3',
+                    'size': 6,
+                },
+                {
+                    'path': 'invoice-check/examples/icon.png',
+                    'mode': '100644',
+                    'type': 'blob',
+                    'sha': 'ddd4',
+                    'size': len(PNG),
+                },
             ],
         }
         source_server['routes'][
             '/repos/acme/skills/git/trees/main:invoice-check'
         ] = ('json', tree)
-        source_server['routes']['/repos/acme/skills/git/blobs/aaa1'] = (
-            'json',
-            {'encoding': 'base64', 'content': base64.b64encode(md).decode()},
-        )
-        source_server['routes']['/repos/acme/skills/git/blobs/bbb2'] = (
-            'json',
-            {
-                'encoding': 'base64',
-                'content': base64.b64encode(run).decode(),
-            },
-        )
+        for sha, data in (
+            ('aaa1', md),
+            ('bbb2', run),
+            ('ccc3', b'demo\n'),
+            ('ddd4', PNG),
+        ):
+            source_server['routes'][f'/repos/acme/skills/git/blobs/{sha}'] = (
+                'json',
+                {
+                    'encoding': 'base64',
+                    'content': base64.b64encode(data).decode(),
+                },
+            )
         result = await _import_tool({
-            'url': f'{source_server["base"]}/acme/skills/tree/main/invoice-check'
+            'url': (
+                f'{source_server["base"]}/acme/skills/tree/main/invoice-check'
+            )
         })
         assert result['slug'] == 'wf-import-skill', result
         skill_dir = (
             real_workspace.root / '.claude' / 'skills' / 'wf-import-skill'
         )
-        assert (skill_dir / 'SKILL.md').read_bytes() == md
+        # nested directories install (round-6 bug: only top-level files
+        # arrived, silently). The installed set is EXACTLY the source.
+        names = sorted(
+            str(p.relative_to(skill_dir))
+            for p in skill_dir.rglob('*')
+            if p.is_file()
+        )
+        assert names == [
+            'SKILL.md',
+            'examples/demo.md',
+            'examples/icon.png',
+            'scripts/run.sh',
+        ], names
+        assert (skill_dir / 'examples' / 'demo.md').read_bytes() == b'demo\n'
+        assert (skill_dir / 'examples' / 'icon.png').read_bytes() == PNG
         assert (skill_dir / 'scripts' / 'run.sh').read_bytes() == run
         assert (skill_dir / 'scripts' / 'run.sh').stat().st_mode & 0o111
+
+    async def test_github_api_without_recursive_fails_loudly(
+        self, client, real_workspace, monkeypatch, source_server, loopback_ok
+    ):
+        """A GitHub-compatible server that ignored recursive=1 must
+        never import a top-level-only subset — an unexpanded directory
+        is a refusal, not silence (the round-6 bug class)."""
+        _route_mcp_call_api(client, monkeypatch)
+        md = _skill_md('wf-import-skill').encode()
+        source_server['routes'][
+            '/repos/acme/skills/git/trees/main:nested-skill'
+        ] = (
+            'json',
+            {
+                'truncated': False,
+                'tree': [
+                    {
+                        'path': 'nested-skill/SKILL.md',
+                        'mode': '100644',
+                        'type': 'blob',
+                        'sha': 'aaa1',
+                    },
+                    {
+                        'path': 'nested-skill/examples',
+                        'mode': '040000',
+                        'type': 'tree',
+                    },
+                ],
+            },
+        )
+        source_server['routes']['/repos/acme/skills/git/blobs/aaa1'] = (
+            'json',
+            {'encoding': 'base64', 'content': base64.b64encode(md).decode()},
+        )
+        result = await _import_tool({
+            'url': (
+                f'{source_server["base"]}/acme/skills/tree/main/nested-skill'
+            )
+        })
+        assert 'did not expand' in result['detail'], result
 
     async def test_redirect_revalidated_to_loopback(
         self, client, real_workspace, monkeypatch, source_server, loopback_ok

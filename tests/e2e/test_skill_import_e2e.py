@@ -124,6 +124,16 @@ def _assert_tree(d: Path) -> None:
     run = d / 'scripts' / 'run.sh'
     assert run.read_bytes() == RUN
     assert run.stat().st_mode & 0o111, 'the executable bit was lost'
+    # the installed set is EXACTLY the source tree (nested dirs and
+    # all) — nothing dropped silently (the round-6 GitHub-walk bug
+    # class, one install path so it applies to every source)
+    names = sorted(str(p.relative_to(d)) for p in d.rglob('*') if p.is_file())
+    assert names == [
+        'SKILL.md',
+        'assets/icon.png',
+        'notes.txt',
+        'scripts/run.sh',
+    ], names
 
 
 def _uninstall(md_text: str, api) -> None:

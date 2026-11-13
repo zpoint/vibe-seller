@@ -7,10 +7,13 @@ shapes resolve:
 
 * a GitHub-style **tree/blob URL** — ``<host>/<owner>/<repo>/tree/<ref>[/<path>]``
   (or ``/blob/<ref>/<path>/<file>``, whose containing directory is the
-  skill). Fetched through the GitHub git-trees/git-blobs API against
-  ``api.github.com`` (github hosts) or the same path shape on the
-  given origin (a GitHub-compatible API, e.g. a test fixture), so the
-  fixture can serve the identical layout.
+  skill). Fetched through the GitHub git-trees + git-blobs API
+  (``recursive=1`` — the walk verifies every directory expanded, so a
+  server that ignored the flag fails loudly instead of importing a
+  top-level-only subset) against ``api.github.com`` (github hosts on
+  their standard port) or the same path shape on the given origin
+  (a GitHub-compatible API — an enterprise server, a proxy, a test
+  fixture — reachable at the URL's own host AND port).
 * anything else — fetched as a direct archive (``.tar.gz``/``.tar``/
   ``.zip``; a ``.skill`` file is a zip — the format is decided by
   MAGIC BYTES at staging, never by the extension).
@@ -274,7 +277,15 @@ async def _fetch_tree(
     tail = f'git/trees/{ref}'
     if sub:
         tail = f'git/trees/{ref}:{quote(sub, safe="/")}'
-    url = target['api_root'] + _repo_path(target['owner'], target['repo'], tail)
+    # recursive=1 is load-bearing: without it the API lists only the
+    # DIRECT children and every 'tree' entry skipped below is a
+    # silently LOST subdirectory (observed: a real skill's examples/
+    # folder vanished with ignored_count 0 and no error).
+    url = (
+        target['api_root']
+        + _repo_path(target['owner'], target['repo'], tail)
+        + '?recursive=1'
+    )
     body = await _get_json(client, url)
     if body.get('truncated'):
         raise FetchError(
@@ -288,7 +299,9 @@ async def _fetch_tree(
     sub_prefix = target['subpath'] + '/' if target['subpath'] else ''
     files: dict[str, bytes] = {}
     execs: set[str] = set()
-    blobs: list[tuple[str, str, int]] = []
+    blobs: list[tuple[str, str]] = []
+    dir_paths: list[str] = []
+    blob_paths: list[str] = []
     for entry in entries:
         raw = str(entry.get('path') or '')
         rel = (
@@ -298,7 +311,10 @@ async def _fetch_tree(
         )
         kind = entry.get('type')
         if kind == 'tree':
-            continue  # recursive=1 lists the children as blobs
+            # structure only — its children arrive as blob entries in
+            # a recursive listing; collect to verify that below
+            dir_paths.append(raw)
+            continue
         if kind == 'commit':
             raise FetchError(
                 f'{raw!r} is a git submodule — submodules cannot be '
@@ -331,6 +347,22 @@ async def _fetch_tree(
         if str(entry.get('mode')) == '100755':
             execs.add(name)
         blobs.append((name, str(entry.get('sha'))))
+        blob_paths.append(raw)
+
+    # A dropped entry must never go unreported: in a recursive
+    # listing every 'tree' has at least one blob under it. A server
+    # that ignored recursive=1 would otherwise silently import a
+    # top-level-only tree (the round-6 bug).
+    unexpanded = [
+        d
+        for d in dir_paths
+        if not any(bp == d or bp.startswith(d + '/') for bp in blob_paths)
+    ]
+    if unexpanded:
+        raise FetchError(
+            'the repository API did not expand these directories '
+            f'(recursive tree support missing): {unexpanded[:5]}'
+        )
 
     total = 0
     for name, sha in blobs:
