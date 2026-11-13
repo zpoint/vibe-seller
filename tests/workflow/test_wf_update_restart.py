@@ -78,7 +78,7 @@ class TestRestartGate:
             calls.append(args)
             return _Proc()
 
-        monkeypatch.setattr(au.pip_update, 'apply', fake_spawn)
+        monkeypatch.setattr(au.apply_launch, 'apply', fake_spawn)
         monkeypatch.setattr(au.pip_update, 'read_record', lambda: None)
         monkeypatch.setattr(au.pip_update, 'record_mtime', lambda: 0.0)
         monkeypatch.setattr(au.pip_update, 'APPLY_TIMEOUT_SECONDS', 0.05)

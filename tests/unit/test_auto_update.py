@@ -800,7 +800,7 @@ class TestApplyRestart:
         monkeypatch.setattr(au.sys, 'platform', 'linux')
         spawned = []
         monkeypatch.setattr(
-            au.pip_update,
+            au.apply_launch,
             'apply',
             lambda v, trigger, path: (
                 spawned.append((v, trigger, path)) or FakeProc()
@@ -823,7 +823,7 @@ class TestApplyRestart:
         "restarting" until the browser gave up."""
         monkeypatch.setattr(au, 'get_version', lambda: '0.8.0')
         monkeypatch.setattr(au.sys, 'platform', 'linux')
-        monkeypatch.setattr(au.pip_update, 'apply', lambda *a: FakeProc())
+        monkeypatch.setattr(au.apply_launch, 'apply', lambda *a: FakeProc())
         failed = {
             'status': pip_update.ROLLED_BACK,
             'stage': 'health',
@@ -1046,7 +1046,7 @@ class TestSingleFlight:
     ):
         monkeypatch.setattr(au.sys, 'platform', 'linux')
         monkeypatch.setattr(
-            au.pip_update,
+            au.apply_launch,
             'apply',
             lambda *a: (_ for _ in ()).throw(
                 pip_update.ApplyInProgress('another update is applying')

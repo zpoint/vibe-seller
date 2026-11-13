@@ -1,8 +1,8 @@
 """Apply an update from OUTSIDE the install it replaces, and prove it
 came back — on every platform.
 
-Run as a detached child of the server (``app/pip_update.py`` builds the
-argument document) with an interpreter that is not the venv being
+Run as a detached child of the server (``app/apply_launch.py`` builds
+the argument document) with an interpreter that is not the venv being
 updated, on a copy of this file under ``<VIBE_HOME>/updates/``. Both
 details matter: this process has to survive the server that spawned it
 and keep working while the install is replaced underneath it, so it may
@@ -327,7 +327,7 @@ def rollback(args: dict, current: dict) -> None:
 def find_links(args: dict) -> list[str]:
     """Every local wheel source this install may resolve from.
 
-    Mirrors ``pip_update.find_links_sources`` (this script may not
+    Mirrors ``pip_update.find_links`` (this script may not
     import the package it is replacing, so the rule is spelled twice
     and pinned by tests on both sides): the environment's
     ``UV_FIND_LINKS`` first, then ``{app}\\wheels``.

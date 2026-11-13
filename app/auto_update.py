@@ -56,6 +56,7 @@ import time
 import httpx
 
 from app import (
+    apply_launch,
     pip_update,
     update_events,
     update_idle,
@@ -605,7 +606,7 @@ async def apply_restart(
             # report that matters.
             since = await asyncio.to_thread(pip_update.record_mtime)
             _apply_proc = await asyncio.to_thread(
-                pip_update.apply, version, trigger, path
+                apply_launch.apply, version, trigger, path
             )
             _apply_task = asyncio.create_task(_watch_apply(since))
     except pip_update.ApplyInProgress as exc:

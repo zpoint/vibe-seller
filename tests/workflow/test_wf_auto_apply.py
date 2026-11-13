@@ -323,7 +323,7 @@ class TestRestartEndpoint:
                 return None
 
         monkeypatch.setattr(au.sys, 'platform', 'linux')
-        monkeypatch.setattr(au.pip_update, 'apply', lambda *a: _Proc())
+        monkeypatch.setattr(au.apply_launch, 'apply', lambda *a: _Proc())
         monkeypatch.setattr(au.pip_update, 'read_record', lambda: None)
         monkeypatch.setattr(au.pip_update, 'record_mtime', lambda: 0.0)
         monkeypatch.setattr(au.pip_update, 'APPLY_TIMEOUT_SECONDS', 0.05)
@@ -349,7 +349,7 @@ class TestRestartEndpoint:
         hears "one is already running", not "the updater is broken"."""
         monkeypatch.setattr(au.sys, 'platform', 'linux')
         monkeypatch.setattr(
-            au.pip_update,
+            au.apply_launch,
             'apply',
             lambda *a: (_ for _ in ()).throw(
                 pip_update.ApplyInProgress('another update is applying (pid 1)')
@@ -558,7 +558,7 @@ class TestRefusedUpdate:
             return _Proc()
 
         monkeypatch.setattr(au.sys, 'platform', 'linux')
-        monkeypatch.setattr(au.pip_update, 'apply', fake_apply)
+        monkeypatch.setattr(au.apply_launch, 'apply', fake_apply)
         monkeypatch.setattr(au.pip_update, 'read_record', lambda: None)
         monkeypatch.setattr(au.pip_update, 'record_mtime', lambda: 0.0)
         self._ready_refused()
