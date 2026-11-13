@@ -810,7 +810,12 @@ wait_for_version() {
 }
 wait_for_record_field() { # <field> <want> <tries> — the record, by field
   # A leg that marks against "the last record" needs the record that
-  # describes a specific apply, not merely some file on disk.
+  # describes a specific apply, not merely some file on disk. Nothing in
+  # these legs asks "does last.json exist" any more: `last.json` is the
+  # LAST thing the helper writes — measured in leg s1, the server was
+  # already serving the new version (it restarts itself onto the new
+  # install) while the upgrade command was still moving Chromium and the
+  # Claude Code CLI, and the record landed 40 s later.
   local field=$1 want=$2 tries=${3:-200} got
   for _ in $(seq 1 "$tries"); do
     got=$(record_field "$field")
@@ -818,22 +823,6 @@ wait_for_record_field() { # <field> <want> <tries> — the record, by field
     sleep 2
   done
   echo "   last.json $field is '${got:-<none>}', not $want" >&2
-  return 1
-}
-
-wait_for_record() { # the apply is not over when the VERSION moves
-  # `last.json` is the LAST thing the helper writes — after its own
-  # health check, after the rollback when there is one — so a leg that
-  # reads it the second the port answers the new version reads a half
-  # finished apply. Measured on 2026-11-13 in leg s1: the server was
-  # already serving 99.0.2 (it restarts itself onto the new install)
-  # while the upgrade command was still moving Chromium and the Claude
-  # Code CLI, and the record landed 40 s later.
-  local tries=${1:-200}
-  for _ in $(seq 1 "$tries"); do
-    [ -s "$VIBE_HOME/updates/last.json" ] && return 0
-    sleep 2
-  done
   return 1
 }
 
@@ -902,17 +891,6 @@ if isinstance(doc, dict):
 else:
     print("")
 ' "$VIBE_HOME/updates/last.json" 2>/dev/null
-}
-record_mtime_ns() {
-  # Nanoseconds, so two records in the same second cannot tie; 0 when
-  # there is no record at all.
-  python3 -c '
-import os, sys
-try:
-    print(os.stat(sys.argv[1]).st_mtime_ns)
-except OSError:
-    print(0)
-' "$VIBE_HOME/updates/last.json" 2>/dev/null || echo 0
 }
 wait_for_new_record() { # <identity-before> <tries>
   local before=$1 tries=${2:-400} now i
