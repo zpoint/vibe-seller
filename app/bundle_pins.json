@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "python": {
+    "pbs_tag": "20250115",
+    "version": "3.11.11"
+  },
+  "git_for_windows": {
+    "version": "2.47.1"
+  },
+  "uv": {
+    "version": "0.5.18"
+  },
+  "claude_code": {
+    "version": "2.1.323"
+  },
+  "playwright": {
+    "version": "1.65.1"
+  }
+}

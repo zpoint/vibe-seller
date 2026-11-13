@@ -219,6 +219,15 @@ jobs:
           name: nightly-installer
           path: installer/windows/out/VibeSeller-Setup.exe
           if-no-files-found: error
+      # Published beside the installer as the `bundle.json` asset: an
+      # installed nightly compares its own copy with this one to choose
+      # pip-vs-installer for the next build (app/bundle.py). The staged
+      # file, so it is exactly what went INTO the .exe.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-bundle
+          path: installer/windows/staging/bundle.json
+          if-no-files-found: error
 
   publish-testpypi:
     name: Publish to TestPyPI (dry run)
@@ -339,6 +348,11 @@ jobs:
           name: nightly-installer
           path: dist-win/
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: nightly-bundle
+          path: dist-bundle/
+
       - name: Move the tag, replace the release
         # The release `name` is the exact version: the Windows tray reads
         # it to compare (app/windows_update.py). Pushing `nightly` does
@@ -365,4 +379,5 @@ jobs:
             --verify-tag \
             --title "$VERSION" \
             --notes-file notes.md \
-            dist/*.whl dist-win/VibeSeller-Setup.exe
+            dist/*.whl dist-win/VibeSeller-Setup.exe \
+            dist-bundle/bundle.json

@@ -95,7 +95,17 @@ dependencies = [
     "cryptography",
     "gitpython",
     "packaging",
-    "playwright",
+    # Pinned exactly, and the pin is a bundle contract rather than a
+    # compatibility range: the Windows installer bundles the Chromium
+    # revision THIS Playwright asks for, so the installed Playwright and
+    # the bundled browser are a matched pair. A floating pin would move
+    # that pair on every release, and app/bundle.py could not tell a
+    # code-only update (a few MB with uv) from one that needs a new
+    # ~700 MB installer. `app/bundle_pins.json` records the same version
+    # for the fingerprint, and app.bundle.assert_pins_agree fails the
+    # build if the two ever disagree. Bumping this is a bundle change:
+    # bump both, and the installer path takes it from there.
+    "playwright==1.65.1",
     "psutil>=5.9.0",
     "posthog>=7.7.0,<8",
     # GFM-strict markdown parser. Used by the set_task_result gate to
@@ -180,6 +190,11 @@ app = [
     "skills/**/*",
     "skills_v2/**/*",
     "static/**/*",
+    # The runtime-bundle manifest. Read at update-check time by a
+    # running install (app/bundle.py), so a wheel without it cannot
+    # name the CLI or Chromium version it is supposed to be paired
+    # with.
+    "bundle_pins.json",
 ]
 
 [tool.setuptools_scm]
@@ -252,6 +267,10 @@ classmethod-decorators = ["classmethod"]
 [tool.ruff.lint.per-file-ignores]
 "app/events_system/backends/google_calendar.py" = ["E402"]
 "app/cli.py" = ["T20"]  # CLI uses print for user-facing output
+# The update helper is a detached script, not a library: its stdout IS
+# the apply log (app/pip_update.py redirects it there), so print is the
+# logging mechanism rather than a stray debug call.
+"app/pip_apply_helper.py" = ["T20"]
 "app/auth_reset.py" = ["T20"]  # same: a command-line tool
 "app/skills/**/generate_invoice.py" = ["T20"]
 "app/skills/**/scripts/*.py" = ["T20"]  # skill CLI tools print output

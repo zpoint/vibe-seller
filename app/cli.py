@@ -29,6 +29,7 @@ import urllib.request
 
 from packaging.version import Version
 
+from app import bundle
 from app.platform import (
     collect_agent_descendants,
     find_pid_listening_on_port,
@@ -481,7 +482,13 @@ CLAUDE_CODE_PACKAGE = '@anthropic-ai/claude-code'
 
 
 def _claude_cli_upgrade_cmd() -> list[str] | None:
-    """npm command that moves the project-local CLI to the latest release.
+    """npm command that moves the project-local CLI to the pinned release.
+
+    The version comes from ``app/bundle_pins.json`` — the same manifest
+    the Windows installer bundles ``claude.exe`` from — so every
+    platform runs the CLI this release was tested with, instead of
+    whatever npm called latest on the day the user upgraded. That
+    agreement is what lets a bundle fingerprint be a thing at all.
 
     None without npm — the packaged Windows installer bundles its own
     ``claude.exe`` and upgrades it by shipping a new installer.
@@ -495,12 +502,24 @@ def _claude_cli_upgrade_cmd() -> list[str] | None:
         '--prefix',
         str(_vibe_home()),
         '--no-save',
-        f'{CLAUDE_CODE_PACKAGE}@latest',
+        f'{CLAUDE_CODE_PACKAGE}@{bundle.pinned_claude_version()}',
     ]
 
 
 def _upgrade_claude_cli() -> int:
-    cmd = _claude_cli_upgrade_cmd()
+    try:
+        cmd = _claude_cli_upgrade_cmd()
+    except (OSError, ValueError, KeyError) as exc:
+        # The manifest is package data; a wheel without it (or with a
+        # half-written one) must not strand the upgrade halfway with no
+        # explanation, and must not quietly move the CLI to latest.
+        print(
+            f'Cannot read the pinned Claude Code version ({exc}) — '
+            'skipped the CLI upgrade. Fix app/bundle_pins.json and run '
+            '`vibe-seller upgrade` again.',
+            file=sys.stderr,
+        )
+        return 1
     if cmd is None:
         print(
             'npm not found — skipped the Claude Code CLI upgrade.',

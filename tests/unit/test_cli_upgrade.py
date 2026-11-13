@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app import bundle
 import app.cli as cli
 
 pytestmark = pytest.mark.unit
@@ -142,14 +143,39 @@ class TestUpgradeClaudeCli:
         )
         assert rc == 0
         assert cmds[0] == ['uv', 'tool', 'upgrade', 'vibe-seller']
+        # The version the bundle manifest pins, not npm's latest: the
+        # Windows bundle installs the same number, so every platform
+        # runs the CLI the release was tested with.
         assert cmds[1] == [
             '/usr/bin/npm',
             'install',
             '--prefix',
             str(tmp_path),
             '--no-save',
-            '@anthropic-ai/claude-code@latest',
+            f'@anthropic-ai/claude-code@{bundle.pinned_claude_version()}',
         ]
+
+    def test_the_cli_version_follows_the_manifest(self, tmp_path, monkeypatch):
+        """The pin has ONE source. A bump of app/bundle_pins.json must
+        move `vibe-seller upgrade` with it — if this test needed an edit
+        somewhere else too, that would be a second source."""
+        pins = tmp_path / 'repo'
+        (pins / 'app').mkdir(parents=True)
+        (pins / 'app' / 'bundle_pins.json').write_text(
+            json.dumps({
+                'format': 1,
+                'claude_code': {'version': '9.9.9'},
+                'playwright': {'version': '1.65.1'},
+            }),
+            encoding='utf-8',
+        )
+        monkeypatch.setattr(bundle, 'repo_root', lambda: pins)
+        monkeypatch.setattr(cli, '_upgrade_cmd', lambda **_: None)
+        rc, cmds = self._run(
+            tmp_path, monkeypatch, which=lambda n: f'/usr/bin/{n}', rcs=[0]
+        )
+        assert rc == 0
+        assert cmds[0][-1] == '@anthropic-ai/claude-code@9.9.9'
 
     def test_cli_is_upgraded_even_when_the_package_is_current(
         self, tmp_path, monkeypatch
@@ -160,7 +186,9 @@ class TestUpgradeClaudeCli:
         )
         assert rc == 0
         assert len(cmds) == 1
-        assert cmds[0][-1] == '@anthropic-ai/claude-code@latest'
+        assert cmds[0][-1] == (
+            f'@anthropic-ai/claude-code@{bundle.pinned_claude_version()}'
+        )
 
     def test_a_failed_package_upgrade_leaves_the_cli_alone(
         self, tmp_path, monkeypatch

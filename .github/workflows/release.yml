@@ -492,6 +492,19 @@ jobs:
           name: VibeSeller-Setup
           path: installer/windows/out/VibeSeller-Setup.exe
           if-no-files-found: error
+      # The document the installer embedded as {app}\bundle.json, from
+      # the same build. It goes on the release page as the asset
+      # `bundle.json` (below), and an installed app compares its own copy
+      # with that one to decide whether the new release is a few-MB pip
+      # update or this ~700 MB installer (app/bundle.py). Publishing the
+      # staged file — not a freshly generated one — is what makes the two
+      # sides of the comparison the same bytes.
+      - name: Upload the bundle manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-json
+          path: installer/windows/staging/bundle.json
+          if-no-files-found: error
 
   github-release:
     name: Create GitHub Release
@@ -516,6 +529,12 @@ jobs:
           name: VibeSeller-Setup
           path: dist-win/
 
+      - name: Download the bundle manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: bundle-json
+          path: dist-bundle/
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -528,4 +547,4 @@ jobs:
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
             ${PREV:+--notes-start-tag "$PREV"} \
-            dist/* dist-win/VibeSeller-Setup.exe
+            dist/* dist-win/VibeSeller-Setup.exe dist-bundle/bundle.json
