@@ -395,7 +395,11 @@ EOF
       # The server that restarted is the NEW one; it must say so.
       [ "$(update_field state)" = idle ] \
         || fail "the NEW server is not idle: $(status_json)"
-      wait_for_record || fail "the apply never wrote a record"
+      # The record names the apply: waiting for "a record exists" would
+      # also be satisfied by a previous one (the Windows host measured a
+      # six-second gap between the version flipping and `last.json`
+      # landing, so the read has to be a wait).
+      wait_for_record_field to "$target" || fail "the apply never wrote a record for $target"
       local rec
       rec=$(record_field status)
       [ "$rec" = ok ] || fail "the apply record says '$rec': $(record_json)"

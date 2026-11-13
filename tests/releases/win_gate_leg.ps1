@@ -215,8 +215,14 @@ if ((BundleHash) -ne (Get-FileHash -Algorithm SHA256 $prevBundle).Hash) {
 if ($candFp -ne (Get-Content (BundlePath) -Raw | ConvertFrom-Json).fingerprint) {
   Fail 'the installed bundle no longer fingerprints to the candidate'
 }
+# The record lands AFTER the port answers the new version (six seconds on
+# the host, §7c of win-e2e2.REPORT.md), so asking for it right after
+# Wait-OnVersion is a coin flip.
+if (-not (Wait-RecordField to $new)) {
+  Fail "the gate hop left no record for $new (got $(Json (Read-Record)))"
+}
 $rec = Read-Record
-if (-not $rec -or $rec.status -ne 'ok') { Fail "the apply left no ok record (got $(Json $rec))" }
+if ($rec.status -ne 'ok') { Fail "the apply left no ok record (got $(Json $rec))" }
 if ($rec.path -ne 'pip') { Fail "record path is '$($rec.path)'" }
 if ($rec.trigger -ne 'auto_idle') {
   Fail "the gate's hop applied with trigger '$($rec.trigger)', not auto_idle"

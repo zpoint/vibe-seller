@@ -938,8 +938,17 @@ jobs:
           if ((BundleHash) -ne $bundle) {
             Fail '{app}\bundle.json was rewritten — a pip update must not touch the runtime beside the venv'
           }
+          # The version flipped first and the record lands after it —
+          # measured at a six-second gap on the host, where this leg
+          # failed with `the apply left no ok record (got )` on
+          # byte-identical text that had passed an hour earlier. A leg
+          # that reads the record the moment the port answers the new
+          # version is a leg that passes by luck.
+          if (-not (Wait-RecordField to $new)) {
+            Fail "the apply left no record for $new (got $(Json (Read-Record)))"
+          }
           $rec = Read-Record
-          if (-not $rec -or $rec.status -ne 'ok') {
+          if ($rec.status -ne 'ok') {
             Fail "the apply left no ok record (got $(Json $rec))"
           }
           # `trigger` is the leg's own claim: an update that reached NEW

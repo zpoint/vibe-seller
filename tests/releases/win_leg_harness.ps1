@@ -337,6 +337,20 @@ function Wait-ApplyStart([int]$before, [int]$tries = 150) {
   return $false
 }
 
+# Waiting for the record that describes a SPECIFIC apply. `last.json` is
+# the last thing the helper writes, and it lands AFTER the port already
+# answers the new version — measured on the host at six seconds
+# (win-e2e2 §7c), and 139 s for the hop-1 record in the Linux legs. So a
+# leg that reads the record as soon as the version flips reads nothing.
+function Wait-RecordField([string]$field, $want, [int]$tries = 200) {
+  for ($i = 0; $i -lt $tries; $i++) {
+    $r = Read-Record
+    if ($r -and ($r.$field -eq $want)) { return $true }
+    Start-Sleep 2
+  }
+  return $false
+}
+
 function Wait-NewRecord([string]$before, [int]$tries = 400) {
   for ($i = 0; $i -lt $tries; $i++) {
     $now = Record-Identity (Read-Record)
