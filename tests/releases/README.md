@@ -36,7 +36,7 @@ naming a job.
 | S4 | windows (`s4`) | a fabricated release whose bundle differs | installer path chosen, NOT pip-installed, waits for the click, the click runs the staged bytes |
 | S5 | all (`s5`) | NEW installs and dies at boot | the machine comes back on OLD, state `error`, never a dark server |
 | S5b | all (`s5b`) | OLD → v2 (ok) → broken v3 | back on **v2** — the version that was actually serving, not the one the installer laid down |
-| S5c | all (`s5c`) | S5, then the SAME offer after a reboot | nothing applies a second time; the refusal is reported (`auto_apply=false`, `popup_due=true`, `refusal`), and the first outage's record is not rewritten |
+| S5c | all (`s5c`) | S5, then the SAME offer after a reboot | nothing applies a second time: no new `applying` line, and `last.json` still describes the FIRST apply. The refusal is reported (`auto_apply=false`, `popup_due=true`, `refusal`), and the reboot must have marked that outage `reported` — one outage, counted once |
 | S6 | windows (`s6`) | staged installer tampered | refused, nothing launched |
 | S7 | all (`s7`) | a dev build | never offered a version, never downloads, `supported=false` |
 | S8 | cross-OS (`bundle-fingerprint.yml`) | same commit checked out on Windows and on Ubuntu | the two fingerprints are IDENTICAL (catches line-ending drift, which would send every client to the ~700 MB installer forever) |
