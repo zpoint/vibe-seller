@@ -166,6 +166,8 @@ on the same machine as Vibe Seller.
 You can also send the link to a public skill in the Knowledge page's **AI
 Chat**, and the assistant installs it from that link.
 
+![Sending a GitHub link in AI Chat; the assistant installs the skill](images/skill_import_url_chat_en.png)
+
 ## Limits and gotchas
 
 - The knowledge folders live on your deployment machine (under

@@ -149,6 +149,8 @@ AI 工具会将 Skill 文件夹打包上传。这种方式不要求 Skill 与 Vi
 
 此外，也可以在知识库的「AI 对话」中发送公开 Skill 的链接，由助手从该链接安装。
 
+![在「AI 对话」里发送 GitHub 链接，助手安装完成](images/skill_import_url_chat_zh.png)
+
 ## 限制与注意
 
 - 知识目录在你的部署机器上（默认 `~/.vibe-seller/`）：备份和迁移就是拷贝这几个
