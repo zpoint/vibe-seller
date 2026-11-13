@@ -533,6 +533,27 @@ class TestRefusedUpdate:
             'started_by': 'tray',
             'reported': False,
         })
+        events = []
+        monkeypatch.setattr(
+            au.update_events,
+            'apply_failed',
+            lambda stage, exc, path: events.append((stage, path)),
+        )
+        # The refusal is derived from the record by a function that both
+        # WRITES a file and LOGS, so counting its calls is how "once per
+        # apply" is checked: a per-poll version would rewrite
+        # `apply-blocked.json` and warn the operator again on every
+        # poll, and the frontend polls this route continuously.
+        refusals = []
+        real_note = au.update_refusal.note_apply_result
+
+        def counting_note(doc):
+            refusals.append(doc.get('to'))
+            return real_note(doc)
+
+        monkeypatch.setattr(
+            au.update_refusal, 'note_apply_result', counting_note
+        )
         late = (await admin_client.get('/api/system/update-status')).json()
         assert late['last_update'], 'the outage is invisible without a restart'
         assert late['last_update']['status'] == 'rolled_back'
@@ -541,6 +562,40 @@ class TestRefusedUpdate:
         assert late['refusal']['stage'] == 'health', late['refusal']
         assert late['auto_apply'] is False, late
         assert late['popup_due'] is True, 'the admin must be asked'
+        assert events == [('health', 'pip')], events
+        blocked = (tmp_path / 'apply-blocked.json').read_text(encoding='utf-8')
+
+        # …and saying it again is not saying it twice. The report rewrites
+        # `last.json` to mark the outage counted, which moves the mtime
+        # that `refresh_last_update` watches, so a second poll re-reads
+        # the file. What must NOT happen a second time is the side
+        # effects: another event, another refusal write, another line
+        # telling the operator what they already know. The frontend polls
+        # this route continuously; a per-poll version of either would be
+        # an event storm out of one bad release.
+        again = (await admin_client.get('/api/system/update-status')).json()
+
+        def without_reported(doc):
+            # The one field a successful report is allowed to change —
+            # the same distinction the legs had to learn (§3.5 of the
+            # report): comparing whole documents called that rewrite "a
+            # second outage".
+            doc = dict(doc or {})
+            doc.pop('reported', None)
+            return doc
+
+        assert without_reported(again['last_update']) == without_reported(
+            late['last_update']
+        )
+        assert len(refusals) == 1, (
+            f'a repeat poll derived the refusal again: {refusals}'
+        )
+        assert events == [('health', 'pip')], (
+            f'a repeat poll reported twice: {events}'
+        )
+        assert (tmp_path / 'apply-blocked.json').read_text(
+            encoding='utf-8'
+        ) == blocked
 
     async def test_a_booting_server_remembers_the_outage_it_came_from(
         self, monkeypatch, install_fake_agent, admin_client

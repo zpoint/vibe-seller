@@ -142,6 +142,11 @@ def snapshot() -> dict:
     return st
 
 
+#: What identifies the apply whose refusal and report this process has
+#: already produced — see :func:`load_last_update`.
+_record_key = None
+
+
 def reset_for_tests() -> None:
     """Back to a cold machine. Tests only."""
     global _apply_proc, _apply_task, _record_mtime
@@ -149,6 +154,7 @@ def reset_for_tests() -> None:
     # the state but keeps another test's mtime would have
     # `refresh_last_update` conclude nothing had been written since.
     _record_mtime = 0.0
+    _record_key = None
     with _lock:
         _state.update({
             'state': IDLE,
@@ -179,18 +185,30 @@ def load_last_update() -> dict | None:
     stays I/O-free and a server that restarted onto a rolled-back update
     reports it to whoever asks.
     """
-    global _record_mtime
+    global _record_mtime, _record_key
     _record_mtime = pip_update.record_mtime()
     doc = pip_update.read_record()
     if doc is None:
         return None
     _update(last_update=doc)
+    # Once per APPLY, not once per read. `refresh_last_update` can hand
+    # this the same record again after `mark_record_reported` rewrites
+    # the file, and the two things below are not idempotent-looking
+    # operations: the refusal writes its own file and logs a warning,
+    # and the report sends an event. Keyed on what identifies the apply
+    # — when, to, and the outcome — rather than on the file's bytes,
+    # which the report itself changes.
+    key = (doc.get('at'), doc.get('to'), doc.get('status'))
+    if key == _record_key:
+        return doc
+    _record_key = key
     # The refusal is remembered from the record rather than re-lived:
     # the process that rolled the update back is usually gone by now,
     # and the one booting on the old version is the one that must not
     # try the same release again an hour later.
     _update(refusal=update_refusal.note_apply_result(doc))
     report_unreported_failure(doc)
+    return doc
     return doc
 
 
