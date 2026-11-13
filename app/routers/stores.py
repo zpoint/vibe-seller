@@ -43,6 +43,45 @@ router = APIRouter(prefix='/api/stores', tags=['stores'])
 # Statuses that block rename/delete
 _BLOCKING_STATUSES = {s.value for s in ACTIVE} | {'queued'}
 
+#: One store per slug. Everything a store owns on disk and in the
+#: browser layer is keyed by its slug, not its id — the browser-use
+#: wrapper (`bin/<slug>/`), the browser profile and its CDP proxy, the
+#: downloads dir and `stores/<slug>/` — so two stores whose names reduce
+#: to one slug ("Acme" and "acme!") silently share all of it: deleting
+#: one removes the other's wrapper and stops its browser. The slug is
+#: derived, not stored, so uniqueness is checked here, and the check and
+#: the write it guards run under this lock: two creates arriving in the
+#: same instant must not both see the slug free.
+_STORE_NAMES = asyncio.Lock()
+
+
+async def _refuse_taken_slug(
+    db: AsyncSession, name: str, store_id: str | None = None
+) -> None:
+    """409 when another store's name already reduces to *name*'s slug."""
+    try:
+        slug = _store_slug(name)
+    except ValueError:
+        # A name with no ASCII falls back to `store-<id prefix>`, which
+        # is unique by construction.
+        return
+    rows = (await db.execute(select(Store.id, Store.name))).all()
+    for other_id, other_name in rows:
+        if other_id == store_id:
+            continue
+        try:
+            other = _store_slug(other_name, other_id)
+        except ValueError:
+            continue
+        if other == slug:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    'A store with this name already exists: '
+                    f'{other_name!r} already uses the folder name {slug!r}'
+                ),
+            )
+
 
 @router.get('', response_model=list[StoreResponse])
 async def list_stores(
@@ -78,19 +117,21 @@ async def create_store(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    store = Store(
-        name=data.name,
-        browser_backend=data.browser_backend,
-        browser_config=json.dumps(data.browser_config),
-        ziniao_account_id=data.ziniao_account_id,
-        browser_oauth=data.browser_oauth,
-        platforms=json.dumps(data.platforms),
-        countries=json.dumps(data.countries),
-        platform_countries=json.dumps(data.platform_countries),
-    )
-    db.add(store)
-    await db.commit()
-    await db.refresh(store)
+    async with _STORE_NAMES:
+        await _refuse_taken_slug(db, data.name)
+        store = Store(
+            name=data.name,
+            browser_backend=data.browser_backend,
+            browser_config=json.dumps(data.browser_config),
+            ziniao_account_id=data.ziniao_account_id,
+            browser_oauth=data.browser_oauth,
+            platforms=json.dumps(data.platforms),
+            countries=json.dumps(data.countries),
+            platform_countries=json.dumps(data.platform_countries),
+        )
+        db.add(store)
+        await db.commit()
+        await db.refresh(store)
 
     existing_count = (
         await db.execute(select(func.count()).select_from(Store))
@@ -141,6 +182,14 @@ async def update_store(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
+    # Under the same lock as create: a rename is a claim on a slug too.
+    async with _STORE_NAMES:
+        return await _update_store(store_id, data, db)
+
+
+async def _update_store(
+    store_id: str, data: StoreUpdate, db: AsyncSession
+) -> StoreResponse:
     store = await db.get(Store, store_id)
     if not store:
         raise HTTPException(status_code=404, detail='Store not found')
@@ -180,19 +229,8 @@ async def update_store(
                 ' session. Stop the browser first.',
             )
 
-        # Check name uniqueness
-        existing = (
-            await db.execute(
-                select(Store).where(
-                    Store.name == data.name, Store.id != store_id
-                )
-            )
-        ).scalar_one_or_none()
-        if existing:
-            raise HTTPException(
-                status_code=409,
-                detail='A store with this name already exists',
-            )
+        # Unique by slug, which an identical name is a special case of.
+        await _refuse_taken_slug(db, data.name, store_id)
 
         old_slug = _store_slug(store.name, store.id)
         new_slug = _store_slug(data.name, store.id)
