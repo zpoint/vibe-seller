@@ -106,11 +106,11 @@ foreach ($need in @("$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe",
                     "$env:VS_INSTALL\uv.exe",
                     "$env:VS_INSTALL\python\python.exe")) {
   if (-not (Test-Path $need)) {
-    throw "the installed $env:VS bundle is missing $need — the pip path cannot exist here"
+    throw "the installed $prev bundle is missing $need — the pip path cannot exist here"
   }
 }
 if (-not (Test-Path "$env:VS_INSTALL\bundle.json")) {
-  Skip ("the installed $env:VS has no bundle.json — that release predates " +
+  Skip ("the installed $prev has no bundle.json — that release predates " +
         'the manifest, so nothing on it can compare fingerprints')
 }
 
@@ -177,9 +177,9 @@ $st = Wait-OnState @('ready', 'error')
 if (-not $st -or $st.state -ne 'ready') { Fail "never reached ready (last: $(Json $st))" }
 if ($st.version -ne $new) { Fail "ready for $($st.version), not $new" }
 if ($st.path -ne 'pip') {
-  Fail ("chose the '$($st.path)' path for a release whose bundle matches " +
-        'the installed one — the published release cannot take the pip ' +
-        'path this gate exists to require')
+  Fail ("chose the '$($st.path)' path although the candidate's bundle " +
+        'fingerprints exactly the one this install carries — the published ' +
+        'release cannot take the pip path this gate exists to require')
 }
 if (-not $st.auto_apply) { Fail 'a pip update must be able to apply itself' }
 if ($st.popup_due) { Fail 'a ready pip update must not ask for a click' }
