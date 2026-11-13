@@ -155,7 +155,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 |---|---|
 | **入门** | [安装](docs/install.md) · [快速开始](docs/quickstart.md) · [配置 AI 模型](docs/llm-keys.md) · [核心概念](docs/concepts.md) |
 | **集成** | [集成总览](docs/integrations.md) · [MCP 接入](docs/mcp.md) · [广告 API 绑定](docs/ads-api.md) · [邮件](docs/email.md) · [群机器人](docs/chat-bots.md) · [滴答清单 / TickTick](docs/ticktick.md) · [Google Workspace](docs/google-workspace.md) |
-| **使用示例** | [全部示例](docs/examples.md) · [每天把重要邮件发到企业微信](docs/example-email-wecom.md) · [每周检查广告 ACOS](docs/example-ads-acos.md) · [每周巡检 Listing](docs/example-listing-check.md) · [每天导出销售报表](docs/example-daily-report.md) · [在 Claude / Codex 里使用](docs/example-mcp.md) |
+| **使用示例** | [全部示例](docs/examples.md) · [每天把重要邮件发到企业微信](docs/example-email-wecom.md) · [每周检查广告 ACOS](docs/example-ads-acos.md) · [每周巡检 Listing](docs/example-listing-check.md) · [每天导出销售报表](docs/example-daily-report.md) · [用 Codex 分析财务数据](docs/example-mcp.md) |
 | **使用指南** | [店铺与浏览器](docs/stores.md) · [任务](docs/using-tasks.md) · [定时任务](docs/schedules.md) · [知识库与 Skill](docs/knowledge.md) |
 | **常见问题** | [紫鸟：开通与常见报错](docs/ziniao.md) · [费用与模型选择](docs/faq-cost.md) · [登录与账号](docs/faq-login.md) · [部署与数据](docs/faq-data.md) · [全部问题](docs/faq.md) |
 | **开发者文档（英文）** | [开发者指南](docs/dev-guide.md) · [任务内核](docs/tasks.md) · [浏览器内核](docs/browser.md) · [子系统](docs/subsystems.md) · [外部 Agent（MCP API）](docs/agents.md) · [Windows + WSL2 部署](docs/windows-setup.md) · [macOS 常驻服务](docs/macos-setup.md) |

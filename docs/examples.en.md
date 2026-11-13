@@ -35,10 +35,10 @@ first.
   the task files, and sends the summary plus the files to the group. About 5
   minutes to set up.
 
-- [Have Vibe Seller download a report from Codex, then analyse it](example-mcp.md)
-  One sentence in Codex: it calls Vibe Seller to create a task that downloads last
-  month's sales report, then fetches the files and analyses them. About 5 minutes
-  to set up.
+- [Analyse a store's last 3 months of finances from Codex](example-mcp.md)
+  One sentence in Codex: Vibe Seller opens Store A in Ziniao and downloads the last
+  3 monthly transaction reports; Codex fetches them and works out sales, each fee,
+  refunds and net payout per month. About 5 minutes to set up.
 
 ## What these examples use
 

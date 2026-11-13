@@ -111,7 +111,7 @@ plugins:
             Weekly Ad ACOS Review: 每周检查广告 ACOS
             Weekly Listing Check: 每周巡检 Listing
             Daily Sales Report: 每天导出销售报表
-            Drive It from Claude / Codex: 在 Claude / Codex 里使用
+            Finances from Codex: 用 Codex 分析财务数据
             User Guide: 使用指南
             Stores & Browsers: 店铺与浏览器
             Tasks: 任务
@@ -216,7 +216,7 @@ nav:
           - Weekly Ad ACOS Review: example-ads-acos.md
           - Weekly Listing Check: example-listing-check.md
           - Daily Sales Report: example-daily-report.md
-          - Drive It from Claude / Codex: example-mcp.md
+          - Finances from Codex: example-mcp.md
       - User Guide:
           - Stores & Browsers: stores.md
           - Tasks: using-tasks.md
