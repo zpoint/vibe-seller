@@ -1,17 +1,22 @@
 ---
-description: "Example: one sentence in Codex — Vibe Seller opens Store A in Ziniao and downloads the last 3 monthly transaction reports; Codex fetches them, works out sales, each fee, refunds and net payout per month, and finds the fee that grew the most."
+description: "Example: export a Ziniao store's financial data with Codex and analyse it — one sentence in Codex — Vibe Seller opens Store A in Ziniao and downloads the last 3 monthly transaction reports; Codex fetches them, works out sales, each fee, refunds and net payout per month, and finds the fee that grew the most."
 ---
 
-# Analyse a store's last 3 months of finances from Codex
+# Export a Ziniao store's financial data with Codex and analyse it
 
 At month-end you want to know how much Store A actually made over the last few
-months and where the money went. Say one sentence in Codex: Vibe Seller signs in
-to Seller Central with Store A's Ziniao browser and downloads the last 3 monthly
-transaction reports; Codex then fetches them, works out sales, each Amazon fee,
-refunds and net payout per month, and tells you which fee grew the most.
+months and where the money went. **One sentence in Codex is all it takes:**
 
-Vibe Seller does the part in the seller center — signing in and downloading the
-reports; what to do with the files is up to Codex.
+!!! tip "What this example shows"
+    - **Vibe Seller goes into the seller center**: it signs in with Store A's
+      **Ziniao browser** and downloads the last **3 monthly transaction
+      reports**. An outside AI tool can't touch your browser — only Vibe Seller
+      can do this part;
+    - **Codex does the analysis**: it fetches the reports and works out
+      **sales, each fee, refunds and net payout per month**, then points out
+      **which fee grew the most, and when**;
+    - **It all happens in the Codex chat**: no need to open the Vibe Seller web
+      app — questions and plan approvals from the task show up in the chat too.
 
 About 5 minutes to set up. Claude, WorkBuddy, Qoder and the other tools work the
 same way.

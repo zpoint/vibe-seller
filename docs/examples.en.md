@@ -1,5 +1,5 @@
 ---
-description: "Examples: five complete seller scenarios, step by step — where to click, what to paste, and what the finished run looks like. A daily inbox digest to WeCom, a weekly ACOS check, a listing sweep across every store, a daily sales report, and analysing 3 months of finances from Codex."
+description: "Examples: five complete seller scenarios, step by step — where to click, what to paste, and what the finished run looks like. A daily inbox digest to WeCom, a weekly ACOS check, a listing sweep across every store, a daily sales report, and exporting a Ziniao store's financial data with Codex for analysis."
 ---
 
 # Examples
@@ -35,7 +35,7 @@ first.
   the task files, and sends the summary plus the files to the group. About 5
   minutes to set up.
 
-- [Analyse a store's last 3 months of finances from Codex](example-mcp.md)
+- [Export a Ziniao store's financial data with Codex and analyse it](example-mcp.md)
   One sentence in Codex: Vibe Seller opens Store A in Ziniao and downloads the last
   3 monthly transaction reports; Codex fetches them and works out sales, each fee,
   refunds and net payout per month. About 5 minutes to set up.
