@@ -303,16 +303,11 @@ def rollback(args: dict, current: dict) -> None:
         # (review 2 MUST 1). The cache half is guaranteed by
         # ``pip_update.keep_rollback_warm``, which runs on every update
         # cycle — and an apply can only be reached through a cycle.
-        argv = uv_pip(args) + [
-            'install',
-            '--python',
-            args['venv_python'],
-            '--offline',
-            '--find-links',
-            str(Path(args['app_dir']) / 'wheels'),
-            '-r',
-            current['path'],
-        ]
+        argv = uv_pip(args) + ['install', '--python', args['venv_python']]
+        argv += ['--offline']
+        for source in find_links(args):
+            argv += ['--find-links', source]
+        argv += ['-r', current['path']]
     else:
         spec = f'vibe-seller=={current["version"]}'
         base = [args['uv'], 'tool', 'install', '--force']
@@ -327,6 +322,28 @@ def rollback(args: dict, current: dict) -> None:
             STAGE_ROLLBACK,
             f'rollback failed ({done.returncode}): {_tail(done)}',
         )
+
+
+def find_links(args: dict) -> list[str]:
+    """Every local wheel source this install may resolve from.
+
+    Mirrors ``pip_update.find_links_sources`` (this script may not
+    import the package it is replacing, so the rule is spelled twice
+    and pinned by tests on both sides): the environment's
+    ``UV_FIND_LINKS`` first, then ``{app}\\wheels``.
+
+    Order and repetition matter because ``--find-links`` REPLACES the
+    environment variable instead of extending it — a command that named
+    only the bundle's wheels could not see the source the update check
+    had warmed, and would report a rollback failure that was really a
+    visibility one.
+    """
+    sources: list[str] = []
+    env = (os.environ.get('UV_FIND_LINKS') or '').strip()
+    if env:
+        sources += [part.strip() for part in env.split(',') if part.strip()]
+    sources.append(str(Path(args['app_dir']) / 'wheels'))
+    return sources
 
 
 def uv_pip(args: dict) -> list[str]:

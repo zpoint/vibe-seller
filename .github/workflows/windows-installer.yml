@@ -956,8 +956,21 @@ jobs:
           # signal that must send an install to the installer path — the
           # version number says nothing either way.
           function New-ChangedBundle([string]$Out) {
-            python "$($env:RUNNER_TEMP)\fabricate-bundle.py" (BundlePath) $Out
-            if ($LASTEXITCODE -ne 0) { throw "fabricate-bundle.py failed ($LASTEXITCODE)" }
+            # The fabricator prints what it changed, and in PowerShell
+            # anything a command sends to the success stream becomes
+            # part of the CALLING FUNCTION's return value: `return $Out`
+            # alone handed the caller an array — two log lines, then the
+            # path — and the caller's `[string]$BundleAsset` binding
+            # space-joined it into a filename that cannot exist. Legs
+            # s4 and s6 died exactly there, before the product was asked
+            # anything at all. `Out-Host` writes to the transcript
+            # instead of the pipeline, so the log stays readable and the
+            # return value stays one path.
+            python "$($env:RUNNER_TEMP)\fabricate-bundle.py" (BundlePath) $Out |
+              Out-Host
+            if ($LASTEXITCODE -ne 0) {
+              throw "fabricate-bundle.py failed ($LASTEXITCODE)"
+            }
             return $Out
           }
 

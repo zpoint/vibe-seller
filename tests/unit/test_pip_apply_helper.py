@@ -742,3 +742,46 @@ class TestDarkIsTheOnlyLicenceToStart:
         assert rec['status'] == 'rolled_back', rec
         assert posix.starts == [], 'two servers on one port'
         assert posix.ran('tool install'), 'the rollback never ran'
+
+
+class TestRollbackSources:
+    """A rollback looks in the places the update check looked in.
+
+    The same uv rule as the apply — a `--find-links` flag replaces
+    `UV_FIND_LINKS` rather than extending it — and the same failure:
+    a freeze whose pinned version lives in a mirrored source the
+    environment named would be declared unresolvable, the rollback
+    would "fail", and the machine would be left on a broken build with
+    the log blaming the package. The helper cannot import
+    `app.pip_update`, so it re-spells the rule; these two tests and the
+    pair in `test_pip_update.py` are what keep the two spellings
+    together.
+    """
+
+    def test_the_env_sources_come_before_the_bundle(self, win, monkeypatch):
+        monkeypatch.setenv('UV_FIND_LINKS', '/srv/mirror,/srv/extra')
+        assert helper.find_links(win.args) == [
+            '/srv/mirror',
+            '/srv/extra',
+            str(Path(win.args['app_dir']) / 'wheels'),
+        ]
+
+    def test_the_rollback_argv_names_every_source(self, win, monkeypatch):
+        monkeypatch.setenv('UV_FIND_LINKS', '/srv/mirror')
+        win.freeze_file.write_text(FREEZE, encoding='utf-8')
+        helper.rollback(
+            win.args, {'kind': 'freeze', 'path': str(win.freeze_file)}
+        )
+        argv = win.command('-r')
+        assert argv.count('--find-links') == 2, argv
+        assert '--find-links /srv/mirror' in argv, argv
+        assert f'--find-links {win.app_dir / "wheels"}' in argv, argv
+        assert '--offline' in argv, argv
+
+    def test_no_env_means_the_bundle_alone(self, win, monkeypatch):
+        monkeypatch.delenv('UV_FIND_LINKS', raising=False)
+        win.freeze_file.write_text(FREEZE, encoding='utf-8')
+        helper.rollback(
+            win.args, {'kind': 'freeze', 'path': str(win.freeze_file)}
+        )
+        assert win.command('-r').count('--find-links') == 1

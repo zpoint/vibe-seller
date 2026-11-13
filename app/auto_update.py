@@ -571,9 +571,19 @@ async def idle_watch(task_queue, agents) -> None:
     while True:
         await asyncio.sleep(update_idle.IDLE_CHECK_INTERVAL_SECONDS)
         try:
-            await idle_tick(task_queue, agents)
+            verdict = await idle_tick(task_queue, agents)
         except Exception as exc:  # noqa: BLE001 — retry at the next tick
             logger.error('auto-apply tick failed, will retry: %s', exc)
+            continue
+        if verdict != 'applied':
+            # The verdict is the whole answer to "why is this machine
+            # still on the old version" — a question an operator, and
+            # every end-to-end leg, asks of a log. `idle_tick` already
+            # names the condition that blocked it (a live agent, a
+            # queued task, a schedule about to fire, a refusal); saying
+            # nothing here makes the log silent exactly where the
+            # explanation lives.
+            logger.info('auto-apply tick: %s', verdict)
 
 
 async def idle_tick(task_queue, agents) -> str:

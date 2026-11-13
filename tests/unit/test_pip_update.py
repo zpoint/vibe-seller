@@ -614,3 +614,57 @@ class TestServerPort:
         assert args['env']['VIBE_SELLER_PORT'] == '7791'
         assert args['stop_command'][-2:] == ['--port', '7791']
         assert args['start_command'][-2:] == ['--port', '7791']
+
+
+class TestFindLinks:
+    """The apply may see exactly what the prefetch was allowed to see.
+
+    uv treats a `--find-links` FLAG as the whole answer, not as an
+    addition to `UV_FIND_LINKS` — measured on the bundled uv 0.5.18 on
+    the Windows host: the env alone resolves the wheel, env plus one
+    flag does not. So a command that names only the bundle's own wheel
+    set loses whatever the environment configured, the offline dry run
+    refuses, and the pip path silently becomes the ~700 MB installer
+    for every release on every machine that mirrors PyPI that way.
+    """
+
+    def test_the_environment_sources_come_first(
+        self, bundle_home, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv(
+            'UV_FIND_LINKS', f'{tmp_path}/mirror,{tmp_path}/dist'
+        )
+        argv = pu.apply_command('0.3.2', dry_run=True)
+        links = [argv[i + 1] for i, a in enumerate(argv) if a == '--find-links']
+        assert links == [
+            f'{tmp_path}/mirror',
+            f'{tmp_path}/dist',
+            f'{bundle_home}/wheels',
+        ], links
+        # One flag per source: a single flag with a joined value would
+        # be read as one nonexistent directory.
+        assert argv.count('--find-links') == 3
+
+    def test_no_environment_means_only_the_bundle(
+        self, bundle_home, monkeypatch
+    ):
+        monkeypatch.delenv('UV_FIND_LINKS', raising=False)
+        argv = pu.apply_command('0.3.2')
+        assert argv.count('--find-links') == 1
+        assert argv[argv.index('--find-links') + 1] == f'{bundle_home}/wheels'
+
+    def test_blank_and_padded_entries_are_not_sources(
+        self, bundle_home, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv('UV_FIND_LINKS', f' {tmp_path}/a ,, ')
+        assert pu.find_links() == [f'{tmp_path}/a', f'{bundle_home}/wheels']
+
+    def test_the_gate_and_the_apply_agree(self, bundle_home, monkeypatch):
+        """`offline_apply_proven` proves the command `apply` runs; a
+        difference of sources would make the promise about a command
+        nobody executes."""
+        monkeypatch.setenv('UV_FIND_LINKS', '/srv/mirror')
+        gate = pu.apply_command('0.3.2', dry_run=True)
+        real = pu.apply_command('0.3.2')
+        assert [a for a in gate if a != '--dry-run'] == real
+        assert gate.count('--find-links') == real.count('--find-links') == 2

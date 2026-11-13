@@ -252,6 +252,34 @@ def bundle_covers(version: str) -> bool:
         return False
 
 
+def find_links() -> list[str]:
+    """Every local wheel source the apply may resolve from, in order.
+
+    The environment first, because the prefetch reads it and the apply
+    must not see a narrower world than the check that approved it; then
+    ``{app}\\wheels``, the set the installer laid down, which a second
+    local source the apply may also fall back to.
+
+    They cannot be passed as one flag each way round: ``--find-links``
+    on the command line REPLACES ``UV_FIND_LINKS`` in the environment
+    (uv 0.5.18, measured on the Windows host — the env alone resolves
+    the wheel, env-plus-flag does not). Naming only the bundle's wheels
+    therefore drops whatever the environment configured: a corporate or
+    CN mirror, and the fixture directories the end-to-end legs use. The
+    consequence is silent and total — the offline dry run refuses, the
+    pip path is abandoned, and every install quietly takes the ~700 MB
+    installer path for every release.
+    """
+    sources: list[str] = []
+    env = (os.environ.get('UV_FIND_LINKS') or '').strip()
+    if env:
+        sources += [part.strip() for part in env.split(',') if part.strip()]
+    wheels = bundle_wheels_dir()
+    if wheels is not None:
+        sources.append(str(wheels))
+    return sources
+
+
 def apply_command(version: str, *, dry_run: bool = False) -> list[str]:
     """The Windows pip apply, as one argv.
 
@@ -273,12 +301,8 @@ def apply_command(version: str, *, dry_run: bool = False) -> list[str]:
     if dry_run:
         argv.append('--dry-run')
     argv += ['--offline']
-    wheels = bundle_wheels_dir()
-    if wheels is not None:
-        # A second LOCAL source: the apply rarely needs it, but naming
-        # it here keeps the gated command and the recovering one built
-        # from the same ingredients.
-        argv += ['--find-links', str(wheels)]
+    for source in find_links():
+        argv += ['--find-links', source]
     argv += [
         # Replace the app's own files even when the version looks
         # unchanged, as BuildRuntimeEnv does.
