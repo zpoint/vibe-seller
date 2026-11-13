@@ -127,9 +127,8 @@ class Machine:
 
     def run(self, argv, timeout=0.0, env=None):  # noqa: ANN001, ARG002
         argv = [str(a) for a in argv]
-        joined = ' '.join(argv)
         self.runs.append(argv)
-        if any(needle in joined for needle in self.fails):
+        if any(self.has(argv, needle) for needle in self.fails):
             return self._done(argv, 1)
         if 'freeze' in argv:
             return self._done(argv, 0, out=self.freeze_text())
@@ -139,11 +138,11 @@ class Machine:
                 self.installed == OLD or self.boots
             ):
                 self.serving = self.installed
-        elif self._is_install(joined):
+        elif self._is_install(argv):
             self.installed = NEW
             if self.self_restart and self.serving is not None and self.boots:
                 self.serving = NEW
-        elif self._is_rollback(joined):
+        elif self._is_rollback(argv):
             self.installed = self.rolled_back_to
         return self._done(argv, 0)
 
@@ -170,29 +169,44 @@ class Machine:
             self.serving = self.installed if self.boots else None
         return self.serving or ''
 
-    def _is_install(self, joined: str) -> bool:
-        return f'vibe-seller=={NEW}' in joined or joined.rstrip().endswith(
-            'upgrade'
-        )
+    @staticmethod
+    def has(argv: list[str], needle: str) -> bool:
+        """Did some command really carry these ARGUMENTS, in this order?
 
-    def _is_rollback(self, joined: str) -> bool:
+        Matching the joined command line as a substring is a bug in the
+        fake, not a style choice: an argument can be confused with a
+        PATH, and every one of these commands carries a tmp_path.
+        Measured on 2026-11-13 — three tests here passed locally and
+        failed on CI, because the runner's home is
+        `/tmp/pytest-of-runner/…`: the needle `-r` (the rollback's
+        `uv pip install -r freeze.txt`) matched the `-r` INSIDE
+        "of-runner", so `index_of('-r')` answered the freeze command
+        that ran first, and `fails.append('-r')` failed the freeze
+        instead of the rollback. The machine then died at stage
+        `freeze` and the test asserted about a command that never
+        ran. Words, not bytes.
+        """
+        want = needle.split()
+        n = len(want)
+        return any(argv[i : i + n] == want for i in range(len(argv) - n + 1))
+
+    def _is_install(self, argv: list[str]) -> bool:
+        return self.has(argv, f'vibe-seller=={NEW}') or argv[-1:] == ['upgrade']
+
+    def _is_rollback(self, argv: list[str]) -> bool:
         """A rollback reinstalls a NAMED older version — and the version
         it names is what the machine must then serve. Hard-coding the
         first hop's OLD here is what hid the second-hop bug (review 2
         MUST 1), so this reads the answer out of the command."""
-        if ' -r ' in f'{joined} ':
-            path = joined.split(' -r ', 1)[1].split()[0]
+        if self.has(argv, '-r'):
+            path = argv[argv.index('-r') + 1]
             for line in Path(path).read_text(encoding='utf-8').splitlines():
                 if line.startswith('vibe-seller=='):
                     self.rolled_back_to = line.split('==')[1]
                     return True
             return False
-        if 'tool install' in joined:
-            found = [
-                part
-                for part in joined.split()
-                if part.startswith('vibe-seller==')
-            ]
+        if self.has(argv, 'tool install'):
+            found = [p for p in argv if p.startswith('vibe-seller==')]
             if found:
                 self.rolled_back_to = found[0].split('==')[1]
                 return True
@@ -206,9 +220,9 @@ class Machine:
 
     def index_of(self, needle: str) -> int:
         for i, argv in enumerate(self.runs):
-            if needle in ' '.join(argv):
+            if self.has(argv, needle):
                 return i
-        raise AssertionError(f'no command contained {needle!r}: {self.runs}')
+        raise AssertionError(f'no command carried {needle!r}: {self.runs}')
 
     def ran(self, needle: str) -> bool:
         try:
@@ -327,7 +341,7 @@ class TestNeverStopsServing:
         """The stop step gives up rather than installing onto locked
         files, which is how a half-replaced venv happens."""
         win.holders = [4242]
-        win.fails.append('taskkill')
+        win.fails.append('taskkill.exe')
         rec = helper.apply_update(win.args)
         assert rec['status'] == 'failed'
         assert rec['stage'] == helper.STAGE_STOP
@@ -408,7 +422,7 @@ class TestNeverStopsServing:
         """A half-run install leaves a venv that may not import at all, so
         the rollback follows the ATTEMPT. Gating it on success would boot
         a machine with a torn venv."""
-        win.fails.append('vibe-seller')
+        win.fails.append(f'vibe-seller=={NEW}')
         helper.apply_update(win.args)
         assert win.ran('-r'), 'no rollback after a failed install attempt'
 

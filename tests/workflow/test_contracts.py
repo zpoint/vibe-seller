@@ -547,6 +547,15 @@ class TestVersionContracts:
 
         import app.routers.system as sr  # noqa: PLC0415
 
+        # Say which version is running HERE, because `until` defaults to
+        # it and the endpoint then drops every release newer than
+        # `until`. Without this the answer depends on the checkout the
+        # test runs from: in CI (0.3.x) the fabricated 0.7.0 is newer
+        # than the running version and is correctly filtered out, so the
+        # contract test failed; in a dev tree whose `vibe_seller.egg-info`
+        # a release leg had just rewritten to 99.x it passed. Same code,
+        # two verdicts, neither about the contract.
+        monkeypatch.setattr(sr, 'APP_VERSION', '0.7.0')
         monkeypatch.setattr(
             sr,
             'fetch_release_notes',
@@ -569,7 +578,7 @@ class TestVersionContracts:
         body = r.json()
         assert set(body.keys()) == RELEASE_NOTES_KEYS
         assert body['since'] == '0.6.0'
-        assert body['until'] == body['until']  # defaults to the running version
+        assert body['until'] == '0.7.0'  # defaults to the running version
         assert body['releases'] == ['0.7.0']
         assert body['highlights'][0]['version'] == '0.7.0'
 
