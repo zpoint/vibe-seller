@@ -523,6 +523,14 @@ EOF
         echo "   serving $NEW_V; now offering the broken $BROKEN_V"
         target=$BROKEN_V; dist=$DIST_BROKEN
       fi
+      # Marked BEFORE the ready wait, not after it: the idle tick fires
+      # within a minute of `ready`, and a count taken after the wait
+      # breaks can already include the very apply it was meant to
+      # notice — the leg would then wait for a second one that never
+      # comes. Same for the record's mtime.
+      local applies_before record_before
+      applies_before=$(applies_started)
+      record_before=$(record_identity)
       state=''
       for _ in $(seq 1 200); do
         state=$(update_field state)
@@ -551,9 +559,6 @@ EOF
       # the old version back, then reinstalls and boots — so the second
       # wait is bounded by the helper's budget plus one boot, not by
       # hope.
-      local applies_before record_before
-      applies_before=$(applies_started)
-      record_before=$(record_mtime_ns)
       wait_for_apply_start "$applies_before" 150 \
         || fail "the idle tick never started an apply for $target"
       wait_for_new_record "$record_before" \
@@ -597,7 +602,7 @@ $(port_version || echo DOWN), not $expect_from"
         echo "-- S5c: the same release must never be applied a second time"
         local applies_before record_before
         applies_before=$(applies_started)
-        record_before=$(record_json)
+        record_before=$(record_identity)
         stop_server_only
         vibe-seller start --port "$PORT" || fail "s5c restart failed"
         wait_for_version "$expect_from" \
@@ -616,12 +621,21 @@ $(port_version || echo DOWN), not $expect_from"
         [ "$(port_version)" = "$expect_from" ] \
           || fail "s5c: it applied the rolled-back release a second time"
         local applies_after
-        applies_after=$(grep -c 'applying ' \
-          "$VIBE_HOME/updates/pip-apply.log" 2>/dev/null || echo 0)
+        applies_after=$(applies_started)
         [ "$applies_after" = "$applies_before" ] \
           || fail "s5c: a second apply started ($applies_before -> $applies_after)"
-        [ "$(record_json)" = "$record_before" ] \
-          || fail "s5c: the record was rewritten — a second outage happened"
+        # The identity, not the bytes: the boot that reports the FIRST
+        # outage rewrites last.json with `reported: true`, and a leg that
+        # compared whole documents called that a second outage. Measured
+        # in CI on 2026-11-13: the tick logged
+        # `refused: v99.90136.3 ended in rolled_back … will not be applied
+        # by itself again` twice, no second apply line appeared, and the
+        # only field that differed was `reported` — the leg went red on a
+        # machine that had done the right thing.
+        [ "$(record_identity)" = "$record_before" ] \
+          || fail "s5c: the record describes another apply — a second outage happened"
+        [ "$(record_field reported)" = true ] \
+          || fail "s5c: the outage was never reported to the new server: $(record_json)"
         [ "$(installed_version)" = "$expect_from" ] \
           || fail "s5c: the install moved to $(installed_version)"
         [ "$(update_field auto_apply)" = false ] \
@@ -817,6 +831,28 @@ wait_for_apply_start() { # <count-before> <tries>
   echo "   pip-apply.log still holds $(applies_started) apply line(s), was $before" >&2
   return 1
 }
+record_identity() {
+  # The record minus the one field a SUCCESSFUL report is allowed to
+  # change. `app/auto_update.py::mark_record_reported` rewrites
+  # `last.json` with `reported: true` on the next boot, so that one
+  # outage is counted once however many restarts it takes to recover —
+  # which means the file's bytes and its mtime both move without any
+  # second apply having happened. Anything that wants to know "was
+  # there another outage" must ask the fields that describe an outage.
+  python3 -c '
+import json, sys
+try:
+    doc = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    print("")
+    raise SystemExit
+if isinstance(doc, dict):
+    doc.pop("reported", None)
+    print(json.dumps(doc, sort_keys=True))
+else:
+    print("")
+' "$VIBE_HOME/updates/last.json" 2>/dev/null
+}
 record_mtime_ns() {
   # Nanoseconds, so two records in the same second cannot tie; 0 when
   # there is no record at all.
@@ -828,14 +864,14 @@ except OSError:
     print(0)
 ' "$VIBE_HOME/updates/last.json" 2>/dev/null || echo 0
 }
-wait_for_new_record() { # <mtime-ns-before> <tries>
-  local before=$1 tries=${2:-400} now
-  for _ in $(seq 1 "$tries"); do
-    now=$(record_mtime_ns)
-    [ "${now:-0}" -gt "${before:-0}" ] && return 0
+wait_for_new_record() { # <identity-before> <tries>
+  local before=$1 tries=${2:-400} now i
+  for i in $(seq 1 "$tries"); do
+    now=$(record_identity)
+    [ -n "$now" ] && [ "$now" != "$before" ] && return 0
     sleep 2
   done
-  echo "   last.json mtime still ${now:-0} ns (was $before) — no apply finished" >&2
+  echo "   last.json still describes the same apply after $((i * 2))s" >&2
   return 1
 }
 assert_idle_no_update() { # a dev build must be left alone entirely
