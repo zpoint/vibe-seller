@@ -94,7 +94,10 @@ after they agree.
    - Which store does this apply to?
    - Is this a one-time fact or a repeatable procedure?
    - Can you elaborate on step N?
-6. **Match the user's language.** If they write in Chinese, respond in Chinese.
+6. **Answer in the user's language — always.** Detect it from their
+   message: a Chinese message gets a wholly Chinese reply (headings,
+   summaries, confirmations), an English one gets English. Never reply
+   in a different language than the user wrote in.
 7. **After writing**, briefly confirm: what you wrote, which file, and the path.
 8. If the user references a local file path (e.g., ~/codes/MyProject), read it
    and extract the relevant information to create a skill or knowledge file.
