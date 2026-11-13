@@ -758,26 +758,18 @@ jobs:
       matrix:
         leg: [s3, s4, s5, s5b, s5c, s6]
     env:
-      # Step-level env (not in-script $env:) so it reliably reaches the
-      # daemon AND the detached apply helper it spawns — app/pip_update.py
-      # copies this environment into the helper's argument document. Each
-      # leg gets its own VIBE_HOME: a leg that inherited another leg's
-      # staged installer or ready-clock would not be testing anything.
-      VIBE_HOME: ${{ runner.temp }}\vs-${{ matrix.leg }}-home
+      # Only literals and allowed contexts here: the `runner` context is
+      # NOT available at job level (GitHub rejects the whole file — see
+      # the scratch-path step below), and a job-level value would also be
+      # identical for every matrix leg.
+      #
+      # These three still reach the daemon AND the detached apply helper
+      # it spawns, because app/pip_update.py copies the environment into
+      # the helper's argument document.
       VIBE_SELLER_AUTO_UPDATE: '1'
-      VIBE_SELLER_RELEASES_URL: ${{ runner.temp }}\vs-${{ matrix.leg }}-release.json
       VIBE_SELLER_PORT: '7794'
       VIBE_SELLER_TELEMETRY: '0'
       TWIST: ${{ github.event.inputs.twist }}
-      # Where the prefetch finds the target wheel. The apply itself runs
-      # `uv pip install --offline`, so this only has to be true for the
-      # prefetch — and if the cache did NOT get the wheel, the offline
-      # dry run refuses (app/pip_update.offline_apply_proven) and the
-      # update goes to the installer instead, which is exactly what legs
-      # s3/s5/s5b assert against by demanding path == 'pip'.
-      UV_FIND_LINKS: ${{ runner.temp }}\dist
-      VS_SETUP: ${{ runner.temp }}\setup\VibeSeller-Setup.exe
-      VS_DIST: ${{ runner.temp }}\dist
       # Higher than every real release and than the installer's own
       # 99.0.<run>, so PyPI can never win a resolution and `is_newer`
       # always sees an upgrade. Two hops for s5b.
@@ -790,6 +782,33 @@ jobs:
           # SETUPTOOLS_SCM_PRETEND_VERSION, like every other upgrade
           # job; the build backend still runs setuptools-scm.
           fetch-depth: 0
+
+      - name: Name this leg's scratch paths
+        env:
+          LEG: ${{ matrix.leg }}
+        shell: pwsh
+        run: |
+          # Each leg gets its own VIBE_HOME and its own mock release
+          # document: a leg that inherited another leg's staged installer
+          # or ready-clock would not be testing anything. And these are
+          # here rather than in job env because the `runner` context only
+          # exists inside a step — GitHub refuses to load a workflow that
+          # uses it at job level, and `matrix.leg` would be the same
+          # answer everywhere else anyway.
+          $t = $env:RUNNER_TEMP
+          "VIBE_HOME=$t\vs-$env:LEG-home"            | Out-File -Append -FilePath $env:GITHUB_ENV
+          "VIBE_SELLER_RELEASES_URL=$t\vs-$env:LEG-release.json" | Out-File -Append -FilePath $env:GITHUB_ENV
+          # Where the prefetch finds the target wheel. The apply itself
+          # runs `uv pip install --offline`, so this only has to be true
+          # for the prefetch — and if the cache did NOT get the wheel,
+          # the offline dry run refuses (app/pip_update
+          # .offline_apply_proven) and the update goes to the installer
+          # instead, which is exactly what legs s3/s5/s5b/s5c assert
+          # against by demanding path == 'pip'.
+          "UV_FIND_LINKS=$t\dist"                   | Out-File -Append -FilePath $env:GITHUB_ENV
+          "VS_DIST=$t\dist"                         | Out-File -Append -FilePath $env:GITHUB_ENV
+          "VS_SETUP=$t\setup\VibeSeller-Setup.exe" | Out-File -Append -FilePath $env:GITHUB_ENV
+          "leg $env:LEG home: $t\vs-$env:LEG-home"
 
       - name: Inject the named bug (no-op when twist=none)
         if: env.TWIST != 'none' && env.TWIST != ''
