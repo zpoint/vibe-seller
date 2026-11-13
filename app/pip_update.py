@@ -117,7 +117,15 @@ def record_path() -> Path:
 
 
 def is_windows_bundle() -> bool:
-    """The installer-bundle layout the pip path exists for."""
+    """The installer-bundle layout the pip path exists for.
+
+    THE question for every branch in this module, asked once: ``app/bundle.py``
+    answers it from the install layout (a Windows install made by the
+    installer has a bundle dir above the venv; nothing else does). Scattered
+    ``sys.platform`` checks instead would let one branch disagree with
+    another — a venv on Linux that happens to be laid out like a bundle
+    would get Windows commands, and vice versa.
+    """
     return bundle.app_root() is not None
 
 
@@ -331,7 +339,7 @@ def pre_install_browser(version: str) -> None:
     install — the server installs the browser at startup anyway
     (``app/browser/chromium_engine.py``), so the update still applies.
     """
-    if sys.platform == 'win32':
+    if is_windows_bundle():
         # The browser is part of the bundle: a pip update cannot change
         # which revision is installed, and the fingerprint already said
         # it did not.
@@ -361,7 +369,7 @@ def keep_rollback_warm() -> None:
     Best effort — a machine that cannot re-fetch what it already has
     installed is not a reason to skip the update."""
     current = get_version()
-    if sys.platform == 'win32' and bundle_covers(current):
+    if is_windows_bundle() and bundle_covers(current):
         # The installer's own wheel set still holds this version, so a
         # rollback can already be offline without the cache. From the
         # first pip update on it does NOT, and the cache is what has to
@@ -410,7 +418,7 @@ def available() -> bool:
     Checked per cycle, because a bundle missing its uv.exe or base
     python is a bundle that can only be replaced by an installer.
     """
-    if sys.platform == 'win32':
+    if is_windows_bundle():
         app = bundle.app_root()
         if app is None:
             return False
@@ -447,7 +455,7 @@ def install_command(version: str, path: str) -> list[str]:
     other combinations are the installer (#244's path, which never comes
     through a helper) or the real upgrade command.
     """
-    if sys.platform == 'win32':
+    if is_windows_bundle():
         return apply_command(version)
     return unix_upgrade_argv()
 
@@ -478,7 +486,7 @@ def apply_args(version: str, trigger: str, path: str) -> dict:
             env[name] = os.environ[name]
     scripts = Path(sys.executable).parent
     args = {
-        'platform': sys.platform,
+        'platform': 'win32' if is_windows_bundle() else sys.platform,
         'path': path,
         'app_dir': str(app) if app is not None else str(scripts.parent),
         'uv': uv_binary(),
@@ -544,7 +552,7 @@ def _popen_detached(argv: list[str], log) -> subprocess.Popen:
     needs: a job object that kills its whole tree on close (GitHub
     Actions, some supervisors) would take the helper down with the
     server it is replacing."""
-    if sys.platform != 'win32':
+    if not is_windows_bundle():
         return subprocess.Popen(  # noqa: S603
             argv,
             stdout=log,
@@ -584,16 +592,26 @@ def supervisor() -> str | None:
     (Review 2 MUST 2.)
 
     systemd marks every process it starts with ``INVOCATION_ID``, and a
-    ``NOTIFY_SOCKET`` when ``Type=notify``. launchd sets
-    ``XPC_SERVICE_NAME`` to the job's label; a process spawned from a
-    terminal carries it empty or as ``0``, so both mean unsupervised.
+    ``NOTIFY_SOCKET`` when ``Type=notify``.
+
+    launchd is the trap. ``XPC_SERVICE_NAME`` carries a LaunchAgent's OWN
+    LABEL (``com.vibe-seller.server``, the one docs/macos-setup.md
+    installs) — but it is ALSO set for anything spawned out of a GUI app,
+    whose value is the app's session: ``application.com.googlecode.iTerm2
+    .<id>`` for iTerm, Terminal.app, VS Code's integrated terminal. That
+    value is inherited by every shell, by tmux, and so by a plain
+    ``vibe-seller start`` run in one. Read it as "supervised" and the
+    helper stops the server expecting a relaunch that will never come:
+    a dark machine, the outcome this whole module exists to prevent. So
+    an ``application.`` session is explicitly UNSUPERVISED, and only a
+    label-shaped value counts.
     """
     if os.environ.get('INVOCATION_ID') or os.environ.get('NOTIFY_SOCKET'):
         return 'systemd'
     name = (os.environ.get('XPC_SERVICE_NAME') or '').strip()
-    if name and name != '0':
-        return 'launchd'
-    return None
+    if not name or name == '0' or name.startswith('application.'):
+        return None
+    return 'launchd'
 
 
 def _server_port() -> int:
@@ -636,7 +654,7 @@ def apply_in_progress() -> str | None:
 
 def _lock(fd: int, non_blocking: bool) -> None:
     """Take byte 0 of *fd* exclusively, for the lifetime of the process."""
-    if sys.platform == 'win32':
+    if is_windows_bundle():
         import msvcrt  # noqa: PLC0415 — Windows-only module
 
         os.lseek(fd, 0, os.SEEK_SET)

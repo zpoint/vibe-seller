@@ -701,12 +701,15 @@ async def apply_restart(
         if path == pip_update.PATH_INSTALLER:
             await asyncio.to_thread(_apply_windows_installer, version)
         else:
+            # Read the record's mtime BEFORE handing the machine over: a
+            # helper that fails immediately writes one, and a "is it
+            # fresh?" test made after the spawn would miss the only
+            # report that matters.
+            since = await asyncio.to_thread(pip_update.record_mtime)
             _apply_proc = await asyncio.to_thread(
                 pip_update.apply, version, trigger, path
             )
-            _apply_task = asyncio.create_task(
-                _watch_apply(await asyncio.to_thread(pip_update.record_mtime))
-            )
+            _apply_task = asyncio.create_task(_watch_apply(since))
     except pip_update.ApplyInProgress as exc:
         # Somebody else already owns this machine's update. Nothing was
         # touched, so the state goes back to waiting rather than to

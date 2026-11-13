@@ -79,6 +79,11 @@ SELF_RESTART_GRACE = 120.0
 #: says the machine is dark. Named so a test can shrink every wait in the
 #: module by patching one thing.
 RECOVERY_PROBE = 20.0
+#: In supervised mode, how long to let the supervisor do its own restart
+#: before this helper stops waiting on it. Short enough that a
+#: mis-detected supervisor costs under a minute of darkness; long enough
+#: that a real launchd/systemd relaunch is not raced against us.
+SUPERVISOR_GRACE = 60.0
 
 
 class AnotherApplyInProgress(RuntimeError):
@@ -361,19 +366,20 @@ def stop_server(args: dict) -> None:
 
 
 def start_server(args: dict) -> None:
-    """Bring the app back — unless something else already owns that job.
+    """Start the app, by the mechanism this platform uses.
 
     Windows starts the TRAY, not the server: the tray owns the server
     (that is its contract, and what the installer's silent upgrade does
     too), so restarting through it leaves one owner of the process.
+    Elsewhere the daemon is started directly.
 
-    macOS/Linux under launchd ``KeepAlive`` or systemd ``Restart=`` are
-    the same problem in reverse: the supervisor relaunches what we
-    stopped, so starting a copy here would put a SECOND server on the
-    port, outside the supervisor that is meant to own it (and outside
-    every log and limit that unit sets). So in supervised mode this does
-    nothing but stop what is running — which is what makes the
-    supervisor start the NEW code — and the caller waits for the answer.
+    WHO is allowed to start it is not this function's question. Under
+    launchd ``KeepAlive`` or systemd ``Restart=`` the supervisor is meant
+    to relaunch what we stopped, and starting a copy alongside it would
+    put two servers on one port — one of them outside every log, limit
+    and restart policy that unit defines. :func:`ensure_running` decides
+    between waiting for that and doing it here; this function only knows
+    how.
     """
     if is_windows(args):
         popen(
@@ -384,22 +390,45 @@ def start_server(args: dict) -> None:
             env=env_for(args),
         )
         return
-    if args.get('supervisor'):
-        _log(
-            f'supervised by {args["supervisor"]}: not starting a copy — '
-            'the supervisor relaunches what we stopped'
-        )
-        return
     popen(args['start_command'], env=env_for(args))
 
 
-def restart(args: dict) -> None:
-    """Ensure a fresh process exists, whichever way this machine makes
-    one: stop (so the supervisor's relaunch picks up the new install),
-    then start it ourselves only if nobody else will."""
+def ensure_running(args: dict, want: str) -> str:
+    """Bring the app up on *want*, and say WHO brought it up.
+
+    Called only after the old process is stopped — the caller records
+    `server` when the running process moved onto the new install by
+    itself (app/upgrade_restart.py) before ever getting here.
+
+    The answer is recorded, because "which mechanism restarted it" is
+    exactly what an operator wants when the machine was dark for a
+    minute: `supervisor` (launchd/systemd relaunched what we stopped),
+    `helper` (we started it), `tray` (Windows, where the tray owns the
+    server).
+
+    The order says both what is trusted and what is doubted. A
+    supervised machine is left to its supervisor FIRST, because starting
+    a second copy under launchd means two servers on one port, one of
+    them outside the unit that owns it, its logs and its limits. But the
+    detection can be wrong — `XPC_SERVICE_NAME` is set for anything
+    launched out of a GUI terminal — and the cost of trusting it forever
+    is a machine serving nothing. So after `SUPERVISOR_GRACE` with the
+    port still DARK, this starts the server itself. There is no second
+    copy to race at that moment, because nothing is answering: a dark
+    port is the proof that the supervisor is not coming.
+    """
     if args.get('supervisor') and not is_windows(args):
-        stop_server(args)
+        if wait_for_version(args, want, SUPERVISOR_GRACE):
+            return 'supervisor'
+        _log(
+            f'supervisor {args["supervisor"]} did not bring the server '
+            'back within the grace; starting it here (the port is dark, '
+            'so this is not a second copy)'
+        )
+        start_server(args)
+        return 'helper'
     start_server(args)
+    return 'tray' if is_windows(args) else 'helper'
 
 
 def env_for(args: dict) -> dict:
@@ -461,6 +490,7 @@ def write_record(
     error: str | None,
     started: float,
     error_class: str | None = None,
+    who: str | None = None,
 ) -> dict:
     """``<VIBE_HOME>/updates/last.json`` — what happened, for whichever
     server boots next to show the admin and to report.
@@ -479,6 +509,10 @@ def write_record(
         'error': error,
         'seconds': round(time.time() - started, 1),
         'at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        # Who brought the server back. On a machine the operator
+        # believes is supervised, `helper` here means the detection was
+        # wrong and the safety net is what saved the update.
+        'started_by': who,
         'reported': False,
     }
     path = Path(args['record'])
@@ -516,20 +550,21 @@ def apply_update(args: dict) -> dict:
         stage = STAGE_INSTALL
         # Marked before the call, not after: a half-run `uv pip install`
         # can leave the venv in a state that will not boot at all, which
-        # is exactly when a rollback is needed. Rolling a install that
+        # is exactly when a rollback is needed. Rolling back an install that
         # failed before touching anything is merely a no-op.
         attempted = True
         install_target(args)
-        stage = STAGE_HEALTH
-        # On Windows nothing is running to bring itself back.
+        # On Windows nothing is left running to bring itself back: the
+        # helper stopped it to unlock the files.
         grace = 0.0 if windows else SELF_RESTART_GRACE
+        who = 'server'
         if not wait_for_version(args, args['target_version'], grace):
             if not stopped:
                 stage = STAGE_STOP
                 stop_server(args)
                 stopped = True
             stage = STAGE_START
-            restart(args)
+            who = ensure_running(args, args['target_version'])
             stage = STAGE_HEALTH
             if not wait_for_version(args, args['target_version']):
                 raise ApplyError(
@@ -538,7 +573,7 @@ def apply_update(args: dict) -> dict:
                     f'{args["target_version"]} (last answer: '
                     f'{version_answered(args) or "nothing"})',
                 )
-        return write_record(args, STATUS_OK, None, None, started)
+        return write_record(args, STATUS_OK, None, None, started, who=who)
     except BaseException as exc:  # noqa: BLE001 — every failure is recorded
         stage, error = stage, (str(exc) or type(exc).__name__)
         kind = type(exc).__name__
@@ -561,7 +596,7 @@ def apply_update(args: dict) -> dict:
                 if not wait_for_version(
                     args, args['from_version'], RECOVERY_PROBE
                 ):
-                    restart(args)
+                    ensure_running(args, args['from_version'])
                 if not wait_for_version(args, args['from_version']):
                     _log(f'v{args["from_version"]} did not come back')
             except BaseException:  # noqa: BLE001 — the real failure is recorded

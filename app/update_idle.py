@@ -36,8 +36,6 @@ from typing import Any
 
 from sqlalchemy import func, select
 
-from app.database import async_session
-from app.models.task import Task
 from app.task_states import TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -119,7 +117,21 @@ def schedule_due_within(
 
 
 async def busy_task_count() -> int:
-    """Tasks queued, running, or waiting to start."""
+    """Tasks queued, running, or waiting to start.
+
+    ``app.database`` is imported HERE, not at module top. The chain
+    ``app.database`` → ``app.knowledge_contract`` → ``app.ai`` → … →
+    ``app.sync.state`` → ``app.database`` is already a cycle that only
+    works because ``app.database`` has finished by the time the last
+    link runs; a module that imports it at the top of a file the server
+    loads early (``app.main`` → ``app.auto_update`` → here) enters it
+    first and dies with "cannot import name 'async_session' from
+    partially initialized module" — the server then does not start at
+    all, which is what the installed-build e2e caught on a real machine.
+    """
+    from app.database import async_session  # noqa: PLC0415 — the cycle above
+    from app.models.task import Task  # noqa: PLC0415 — same
+
     async with async_session() as db:
         result = await db.execute(
             select(func.count())

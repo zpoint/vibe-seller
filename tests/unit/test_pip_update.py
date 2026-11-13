@@ -445,3 +445,64 @@ class TestRecord:
             h.STATUS_OK,
             h.STATUS_FAILED,
         )
+
+
+class TestSupervisorDetection:
+    """A wrong answer here is a dark machine after a failed update, so
+    the false case is the one that matters most."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        for name in ('INVOCATION_ID', 'NOTIFY_SOCKET', 'XPC_SERVICE_NAME'):
+            monkeypatch.delenv(name, raising=False)
+
+    def test_a_plain_shell_is_unsupervised(self):
+        assert pu.supervisor() is None
+
+    def test_systemd_unit(self, monkeypatch):
+        monkeypatch.setenv('INVOCATION_ID', 'a1b2c3')
+        assert pu.supervisor() == 'systemd'
+
+    def test_systemd_notify_socket(self, monkeypatch):
+        monkeypatch.setenv('NOTIFY_SOCKET', '/run/systemd/notify')
+        assert pu.supervisor() == 'systemd'
+
+    def test_a_launchd_job_label_is_supervised(self, monkeypatch):
+        # The label docs/macos-setup.md installs.
+        monkeypatch.setenv('XPC_SERVICE_NAME', 'com.vibe-seller.server')
+        assert pu.supervisor() == 'launchd'
+
+    def test_a_gui_terminal_session_is_NOT_supervised(self, monkeypatch):
+        """`XPC_SERVICE_NAME` is set for anything launched out of a GUI
+        app — Terminal, iTerm, VS Code — and inherited by every shell and
+        tmux pane under it. Reading it as "supervised" makes the update
+        helper stop the server and wait for a relaunch that will never
+        come."""
+        for value in (
+            'application.com.apple.Terminal.1152921500311871234.1152921500311871239',
+            'application.com.googlecode.iTerm2.99.99',
+            'application.com.microsoft.VSCode.1.2',
+        ):
+            monkeypatch.setenv('XPC_SERVICE_NAME', value)
+            assert pu.supervisor() is None, value
+
+    def test_empty_and_zero_mean_unsupervised(self, monkeypatch):
+        for value in ('', '0', '  '):
+            monkeypatch.setenv('XPC_SERVICE_NAME', value)
+            assert pu.supervisor() is None, repr(value)
+
+    def test_the_handoff_carries_the_answer(
+        self, bundle_home, monkeypatch, tmp_path
+    ):
+        """The helper runs in a new process and cannot re-derive this:
+        the decision has to travel in the argument document."""
+        monkeypatch.setenv('XPC_SERVICE_NAME', 'com.vibe-seller.server')
+        monkeypatch.setattr(pu, 'updates_dir', lambda: tmp_path / 'u')
+        monkeypatch.setattr(pu, 'apply_in_progress', lambda: None)
+        monkeypatch.setattr(pu, '_popen_detached', lambda argv, log: object())
+        pu.apply('0.3.2', pu.TRIGGER_MANUAL, pu.PATH_PIP)
+        args = json.loads(
+            (tmp_path / 'u' / pu.HELPER_ARGS_NAME).read_text('utf-8')
+        )
+        assert args['supervisor'] == 'launchd'
+        assert args['lock'].endswith('apply.lock')

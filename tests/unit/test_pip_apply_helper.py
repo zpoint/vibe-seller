@@ -60,9 +60,15 @@ class Machine:
         #: The version a rollback command named, set by ``_is_rollback``.
         self.rolled_back_to = OLD
         #: A launchd/systemd supervisor relaunches what we stopped. The
-        #: helper must not ALSO start one (review 2 MUST 2), so tests
-        #: model the supervisor as: stopping the server brings it back.
-        self.start_when_stopped = False
+        #: helper must not start a SECOND copy alongside it (review 2
+        #: MUST 2) — but it must not wait forever either (review 3). Set
+        #: False to model the dangerous case: the app is believed to be
+        #: supervised, and nothing is coming.
+        self.supervisor_relaunches = False
+        #: The relaunch is not instantaneous: the helper's first look at
+        #: the port after a stop is still dark. That ordering is what
+        #: `supervisor` and `server` in the record are about.
+        self._relaunch_armed = False
         install = (
             [
                 str(self.app_dir / 'uv.exe'),
@@ -122,7 +128,7 @@ class Machine:
             return self._done(argv, 0, out=self.freeze_text())
         if 'stop' in argv:
             self.serving = None
-            if self.start_when_stopped and (
+            if self.supervisor_relaunches and (
                 self.installed == OLD or self.boots
             ):
                 self.serving = self.installed
@@ -146,6 +152,13 @@ class Machine:
         return list(self.holders)
 
     def version_answered(self, args):  # noqa: ANN001
+        if self._relaunch_armed:
+            # The first look after a stop: the supervisor has not
+            # relached yet, so the port really is dark.
+            self._relaunch_armed = False
+            return self.serving or ''
+        if self.supervisor_relaunches and self.serving is None:
+            self.serving = self.installed if self.boots else None
         return self.serving or ''
 
     def _is_install(self, joined: str) -> bool:
@@ -212,6 +225,7 @@ def _machine(tmp_path, monkeypatch, platform):  # noqa: ANN001 — fixture body
         'SELF_RESTART_GRACE',
         'RECOVERY_PROBE',
         'RELEASE_TIMEOUT',
+        'SUPERVISOR_GRACE',
     ):
         monkeypatch.setattr(helper, name, 0.05)
     monkeypatch.setattr(helper, 'run', m.run)
@@ -532,48 +546,6 @@ class TestSecondHop:
         assert posix.serving == NEW
 
 
-class TestSupervised:
-    """A server under launchd/systemd is restarted by its supervisor.
-    Starting our own copy there puts two servers on one port, outside the
-    unit that owns it — so in supervised mode the helper only stops."""
-
-    def test_an_unsupervised_server_is_started_by_the_helper(self, posix):
-        posix.self_restart = False
-        assert helper.apply_update(posix.args)['status'] == 'ok'
-        assert posix.starts == [['vibe-seller', 'start', '--port', '7792']]
-
-    def test_a_supervised_server_is_never_started_twice(self, posix):
-        posix.self_restart = False
-        posix.args['supervisor'] = 'launchd'
-        # Nothing answers until the supervisor relaunches it, which the
-        # simulation models as: the start we DO NOT do is what the
-        # supervisor does instead.
-        posix.start_when_stopped = True
-        rec = helper.apply_update(posix.args)
-        assert rec['status'] == 'ok', rec
-        assert posix.starts == [], 'started a second server under launchd'
-        assert posix.ran('stop --port'), 'never asked the supervisor to restart'
-
-    def test_a_supervised_rollback_also_leaves_it_to_the_supervisor(
-        self, posix
-    ):
-        posix.self_restart = False
-        posix.boots = False
-        posix.args['supervisor'] = 'systemd'
-        posix.start_when_stopped = True
-        rec = helper.apply_update(posix.args)
-        assert rec['status'] == 'rolled_back'
-        assert posix.starts == []
-        assert posix.serving == OLD
-
-    def test_windows_ignores_the_supervisor_flag(self, win):
-        """There is no service manager here — the tray owns the server,
-        and starting the tray IS the restart."""
-        win.args['supervisor'] = 'systemd'
-        assert helper.apply_update(win.args)['status'] == 'ok'
-        assert 'tray.py' in ' '.join(win.starts[0])
-
-
 class TestSingleFlight:
     """One apply at a time, machine-wide: two servers can share one
     VIBE_HOME, and an auto-apply can race an admin's click."""
@@ -616,3 +588,68 @@ class TestSingleFlight:
         helper._release_lock()
         helper.acquire_lock(win.args['lock'])
         helper._release_lock()
+
+
+class TestWhoRestartedIt:
+    """The record answers "which mechanism brought the app back", which
+    is the question an operator asks about the minute the machine was
+    dark. It is also the only visible trace of a wrong supervisor
+    detection."""
+
+    def test_the_running_server_restarting_onto_the_new_install(self, posix):
+        rec = helper.apply_update(posix.args)
+        assert rec['status'] == 'ok'
+        assert rec['started_by'] == 'server', 'it never moved on its own'
+        assert posix.starts == []
+
+    def test_the_supervisor_relanches_what_it_stopped(self, posix):
+        posix.self_restart = False
+        posix.supervisor_relaunches = True
+        posix.args['supervisor'] = 'launchd'
+        rec = helper.apply_update(posix.args)
+        assert rec['status'] == 'ok'
+        assert rec['started_by'] == 'supervisor', rec
+        assert posix.starts == [], (
+            'started a second server next to the one launchd relaunched'
+        )
+
+    def test_a_supervisor_that_never_comes_is_not_waited_on_forever(
+        self, posix
+    ):
+        """Review 3. launchd is detected from an environment variable
+        that GUI terminals also set, so the belief can be wrong. Waiting
+        on a supervisor that is not coming leaves the machine DARK —
+        the one outcome this module must not produce. So the grace
+        expires, the helper starts the server itself, and the record
+        says `helper`, which is how a wrong detection becomes visible."""
+        posix.self_restart = False
+        posix.supervisor_relaunches = False
+        posix.args['supervisor'] = 'launchd'
+        rec = helper.apply_update(posix.args)
+        assert rec['status'] == 'ok', rec
+        assert rec['started_by'] == 'helper'
+        assert posix.starts == [['vibe-seller', 'start', '--port', '7792']]
+        assert posix.serving == NEW
+
+    def test_the_safety_net_cannot_double_start_a_healthy_server(self, posix):
+        """Starting ourselves is only allowed while the port is dark —
+        which is exactly what the wait before it proves."""
+        posix.self_restart = False
+        posix.supervisor_relaunches = True
+        posix.args['supervisor'] = 'systemd'
+        helper.apply_update(posix.args)
+        assert posix.starts == []
+
+    def test_the_rollback_path_uses_the_same_safety_net(self, posix):
+        posix.self_restart = False
+        posix.boots = False
+        posix.args['supervisor'] = 'launchd'
+        posix.supervisor_relaunches = False
+        rec = helper.apply_update(posix.args)
+        assert rec['status'] == 'rolled_back'
+        assert posix.serving == OLD, 'the old version was left down'
+
+    def test_windows_is_always_the_tray(self, win):
+        rec = helper.apply_update(win.args)
+        assert rec['started_by'] == 'tray'
+        assert 'tray.py' in ' '.join(win.starts[0])
