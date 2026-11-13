@@ -8,7 +8,8 @@
  * update is worth interrupting someone for (that is `popup_due`, which
  * the server times against idleness, not the page), and whether the
  * range an update just crossed has already been shown (a reload is the
- * end of that update, so the "once" has to live in sessionStorage).
+ * end of that update, and every tab opened later sees the same record,
+ * so the "once" has to live in localStorage).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
@@ -99,6 +100,7 @@ function mockRoutes(routes: Record<string, unknown>) {
 
 beforeEach(() => {
   sessionStorage.clear()
+  localStorage.removeItem('vibe-seller:update-applied-shown')
   // Steady state the suite assumes: the first-run guide is already
   // closed, so an update is allowed to show. Guide-blocking is tested
   // where it is tested — by clearing this — and that test cannot be
@@ -451,14 +453,14 @@ describe('useUpdateFlow — the range an update crossed', () => {
     expect(result.current.updatedOpen).toBe(false)
 
     // The reload the update itself caused: a NEW mount, the same
-    // sessionStorage, the same last_update. Nothing to show twice.
+    // storage, the same last_update. Nothing to show twice.
     unmount()
     const second = renderHook(() => useUpdateFlow(user))
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000)
     })
     expect(second.result.current.updatedOpen).toBe(false)
-    expect(sessionStorage.getItem('vibe-seller:update-applied-shown')).toBe(
+    expect(localStorage.getItem('vibe-seller:update-applied-shown')).toBe(
       '0.1.0->0.3.2'
     )
     // And it did not even ask again: the pair is spent, not just hidden.
@@ -467,6 +469,33 @@ describe('useUpdateFlow — the range an update crossed', () => {
         String(c[0]).startsWith('/api/system/release-notes')
       )
     ).toHaveLength(1)
+  })
+
+  it('a tab opened later does not show the same pair again', async () => {
+    // The record stays on the server until the next update, so every
+    // new tab (a fresh sessionStorage) reads the same last_update.
+    mockRoutes({
+      '/api/system/update-check': CHECK(),
+      '/api/system/update-status': STATUS({
+        state: 'idle',
+        version: null,
+        last_update: LAST_OK,
+      }),
+      '/api/system/release-notes': RANGE,
+    })
+    const first = renderHook(() => useUpdateFlow(user))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10)
+    })
+    expect(first.result.current.updatedOpen).toBe(true)
+    first.unmount()
+
+    sessionStorage.clear()
+    const later = renderHook(() => useUpdateFlow(user))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+    expect(later.result.current.updatedOpen).toBe(false)
   })
 
   it('waits for the first-run guide, like the popup does', async () => {
@@ -513,19 +542,23 @@ describe('useUpdateFlow — the range an update crossed', () => {
     ).toBe(false)
   })
 
-  it('still works when sessionStorage throws', async () => {
+  it('still works when the storage the pair lives in throws', async () => {
     // Private browsing / blocked site data: the panel is shown by the
-    // page load's own state, and never loops on a storage error.
-    const real = window.sessionStorage
-    Object.defineProperty(window, 'sessionStorage', {
+    // page load's own state, and never loops on a storage error. The
+    // guide flag is the one read that still answers, so the panel is
+    // allowed to show at all.
+    const real = window.localStorage
+    Object.defineProperty(window, 'localStorage', {
       configurable: true,
       value: {
-        getItem: () => {
+        getItem: (key: string) => {
+          if (key === GUIDE_SEEN_KEY) return '2026-01-01T00:00:00+00:00'
           throw new Error('blocked')
         },
         setItem: () => {
           throw new Error('blocked')
         },
+        removeItem: () => {},
       },
     })
     try {
@@ -551,7 +584,7 @@ describe('useUpdateFlow — the range an update crossed', () => {
         )
       ).toHaveLength(1)
     } finally {
-      Object.defineProperty(window, 'sessionStorage', {
+      Object.defineProperty(window, 'localStorage', {
         configurable: true,
         value: real,
       })

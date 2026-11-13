@@ -9,13 +9,21 @@ import type {
 
 const DISMISSED_KEY = 'vibe-seller:update-dismissed-version'
 /** Which (from → to) pair the "已更新到" panel has already shown. It
- *  has to outlive the reload the update itself causes, so this is
- *  sessionStorage, not a ref. */
+ *  has to outlive the reload the update itself causes AND every tab
+ *  opened after it — the record it is keyed on stays until the next
+ *  update, so a per-tab store would show it again in each new tab.
+ *  So this is localStorage, unlike the per-session dismissal. */
 const APPLIED_KEY = 'vibe-seller:update-applied-shown'
 
-function readStored(key: string): string | null {
+type Store = 'session' | 'local'
+
+function storage(store: Store): Storage {
+  return store === 'local' ? localStorage : sessionStorage
+}
+
+function readStored(key: string, store: Store = 'session'): string | null {
   try {
-    return sessionStorage.getItem(key)
+    return storage(store).getItem(key)
   } catch {
     // Storage blocked (private mode, cleared site data): fall back to
     // the in-memory state, which still keeps one page load quiet.
@@ -23,9 +31,13 @@ function readStored(key: string): string | null {
   }
 }
 
-function writeStored(key: string, value: string): void {
+function writeStored(
+  key: string,
+  value: string,
+  store: Store = 'session'
+): void {
   try {
-    sessionStorage.setItem(key, value)
+    storage(store).setItem(key, value)
   } catch {
     /* same: once per page load is the best storage can do */
   }
@@ -243,7 +255,7 @@ export function useUpdateFlow(currentUser: AuthUser | null) {
     // have first, and burning the pair before it was ever seen would
     // lose it.
     if (!guideSeen || !appliedKey || !last) return
-    if (readStored(APPLIED_KEY) === appliedKey) return
+    if (readStored(APPLIED_KEY, 'local') === appliedKey) return
     if (appliedFetchRef.current === appliedKey) return
     appliedFetchRef.current = appliedKey
     const query =
@@ -267,7 +279,7 @@ export function useUpdateFlow(currentUser: AuthUser | null) {
           unspent()
           return
         }
-        writeStored(APPLIED_KEY, appliedKey)
+        writeStored(APPLIED_KEY, appliedKey, 'local')
         setAppliedNotes(range)
       })
       .catch(unspent)
