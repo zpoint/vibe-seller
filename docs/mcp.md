@@ -4,27 +4,53 @@ description: 直接在你常用的 AI 工具里指挥 Vibe Seller——MCP 接�
 
 # MCP 接入
 
-平时习惯用 Claude、Codex、WorkBuddy、Qoder、Hermes Agent 或 Pi 处理工作？
-接好之后，可以直接在这些 AI 工具里指挥 Vibe Seller：创建任务、跟进进度、
-回答任务的提问。
+MCP 接入是让**外部的 AI 工具**——Codex、Claude、WorkBuddy、Qoder、Hermes Agent、
+Pi——来调用 Vibe Seller。你在 Codex 的对话框里说话，Codex 通过 MCP 调用 Vibe Seller
+提供的工具：创建任务、查看进度、回答任务的提问、取回结果和文件。真正进店铺后台干活
+的，仍然是 Vibe Seller 里的任务；Codex 负责替你下达、跟进和整理。
 
-在对话框里说一句“帮我看看店铺A上周的广告”，它就会去 Vibe Seller
-里创建任务、跟进进度，完成后把结论带回给你。任务中途需要你回答问题、
-确认计划，也都在这段对话里完成，不需要来回切换网页。
+```mermaid
+sequenceDiagram
+    participant U as 你
+    participant C as Codex（外部 AI 工具）
+    participant V as Vibe Seller
+    participant S as 店铺后台
+    U->>C: 用 Vibe Seller 看看店铺A上周的广告
+    C->>V: MCP 调用：创建任务
+    V->>S: 任务用店铺A的浏览器读取广告数据
+    V-->>C: 任务的提问（例如要不要包含 AE 站）
+    C-->>U: 转达提问
+    U->>C: 在对话里回答
+    C->>V: MCP 调用：回答提问
+    V-->>C: 任务完成：结论和文件
+    C-->>U: 整理好的结论
+```
+
+下面以 Codex 为例，其他工具用法相同。
+
+!!! note "这一页里的话，都是对 Codex 说的"
+    下面的示例句都打在 **Codex 的对话框**里，由 Codex 决定调用哪个 Vibe Seller
+    工具；它们不是写进 Vibe Seller 任务描述的内容。Codex 建任务时，会自己把要求
+    写成任务描述。
 
 任何支持 MCP 的 AI 工具都能接入，只需要准备一个 API Key。
 各集成分别配在哪里、彼此怎么分工，见[集成总览](integrations.md)。
 
 ## 可以这样用
 
-接入之后，像给同事交代工作一样直接说：
+接好之后，在 Codex 里像给同事交代工作一样直接说。句子里提到 Vibe Seller，
+Codex 更容易想到去调用它：
 
-- “现在 vibe-seller 里有几个店铺？”
-- “帮我看看店铺A过去一周的广告花费，给点优化建议，先别改任何东西。”
-- “这个任务现在在干什么，到哪一步了？”
-- “把这周的巡检安排成每周一早上执行，写完计划先给我看。”
+| 你在 Codex 里说 | Codex 在 Vibe Seller 里做的事 |
+|---|---|
+| “Vibe Seller 里现在有几个店铺？” | 查店铺列表，直接回答，不建任务 |
+| “用 Vibe Seller 看看店铺A过去一周的广告花费，给点优化建议，先别改任何东西。” | 在店铺A下创建任务，等它跑完，把结论带回对话 |
+| “刚才那个任务到哪一步了？” | 读取任务进度，转述给你 |
+| “把这个巡检在 Vibe Seller 里设成每周一早上执行，写完计划先给我看。” | 创建定时任务，把计划拿回对话给你审 |
 
-不用记任何命令，AI 工具会自己判断该做什么。
+不用记任何命令，Codex 会自己判断调用哪个工具。任务中途要问你问题、要你确认计划，
+问题会出现在 Codex 的对话里，在那里回答就行，不需要切回 Vibe Seller 网页。
+一个完整的例子见[用 Codex 导出紫鸟店铺财务数据进行分析](example-mcp.md)。
 
 ## 能做什么、不能做什么
 
