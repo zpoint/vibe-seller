@@ -38,8 +38,30 @@ Step-by-step procedure...
 ```
 Skills can also contain scripts (`.py`, `.sh`) and `requirements.txt`.
 
-**IMPORTANT**: Built-in skills (synced from the platform) are READ-ONLY. Never modify them.
-To customize a built-in skill, create a new skill with a different name.
+**Skills go through the MCP tools — NEVER hand-write files under
+`.claude/skills/`.** A directory you write with file tools bypasses the
+slug rules, size caps and symlink guards, and lands without lockfile
+provenance (it lists as 「自定义」 instead of 「导入」). You have the
+workspace skills tools — use them:
+
+- `vibe_seller_list_skills` → what exists (`slug`, `source`,
+  `updatable`). Call it before acting on a skill.
+- `vibe_seller_save_skill(slug, skill_md, files?)` → author or amend
+  a user-space skill (TEXT only: SKILL.md plus text bundles).
+- `vibe_seller_import_skill(path? | url?)` → install an EXISTING
+  skill directory or URL, byte-for-byte with binary files and
+  executable bits intact. "Install <a local path>", "从这个链接安装这个
+  技能 <url>", GitHub tree/blob URLs of a skill folder, `.tar.gz` /
+  `.zip` / `.skill` links — this tool, always. The server fetches
+  URLs (public http(s) only) and records provenance so the skill
+  lists as imported.
+
+**IMPORTANT**: Built-in skills (synced from the platform) are READ-ONLY —
+the tools reject their slugs. To customize a built-in skill, create a
+new skill with a different name.
+Replacing an EXISTING user skill (`overwrite=true`) deletes their
+current copy: ask the user first, and only re-call with `overwrite`
+after they agree.
 
 ### knowledge/ — Cross-store knowledge
 - `knowledge/project/` — READ-ONLY. Synced from cloud. Never modify.
@@ -50,7 +72,9 @@ To customize a built-in skill, create a new skill with a different name.
 
 ## Rules
 
-1. **Write directly.** Use your file tools to create/edit files. Do not ask
+1. **Write directly.** Use your file tools to create/edit files
+   (knowledge and store files — skills go through the MCP skill tools,
+   see `.claude/skills/` above). Do not ask
    for confirmation — just write and tell the user what you did.
 2. **NEVER modify read-only paths**: `knowledge/project/*` and
    built-in skills in `.claude/skills/` are overwritten by cloud sync.
@@ -60,7 +84,9 @@ To customize a built-in skill, create a new skill with a different name.
      better (see naming convention above — knowledge files are
      lowercase topic names, not dated reports)
    - Shipping/logistics → `stores/{slug}/logistics.md`
-   - Reusable multi-step procedures → new skill in `.claude/skills/{name}/`
+   - Reusable multi-step procedures → a skill via `vibe_seller_save_skill`
+     (authored) or `vibe_seller_import_skill` (a directory/URL the user
+     points at) — never by hand-writing files under `.claude/skills/`
    - Cross-store knowledge → `knowledge/{topic}.md`
 4. **Check before writing.** Read the target file first to see existing content.
    Append to existing files rather than overwriting, unless replacing outdated info.
@@ -68,7 +94,18 @@ To customize a built-in skill, create a new skill with a different name.
    - Which store does this apply to?
    - Is this a one-time fact or a repeatable procedure?
    - Can you elaborate on step N?
-6. **Match the user's language.** If they write in Chinese, respond in Chinese.
+6. **Answer in the user's language — always.** Detect it from their
+   message: a Chinese message gets a wholly Chinese reply (headings,
+   summaries, confirmations), an English one gets English. Never reply
+   in a different language than the user wrote in.
 7. **After writing**, briefly confirm: what you wrote, which file, and the path.
 8. If the user references a local file path (e.g., ~/codes/MyProject), read it
    and extract the relevant information to create a skill or knowledge file.
+   When the path is a SKILL directory (it holds a `SKILL.md`), do not read
+   and retype it — install it whole: `vibe_seller_import_skill(path=...)`.
+9. A URL that names a skill (GitHub tree/blob of a skill folder, a
+   `.tar.gz`/`.zip`/`.skill` link): `vibe_seller_import_skill(url=...)`
+   — the server fetches it; you do not curl-and-write. Pass the URL
+   EXACTLY as the user wrote it — scheme, host, port and path
+   verbatim. Do not rewrite it into a raw or API URL: the server
+   resolves every supported form itself, and a rewritten origin fails.

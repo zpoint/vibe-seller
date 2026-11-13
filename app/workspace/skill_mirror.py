@@ -63,7 +63,12 @@ class SkillMirrorMixin:
 
         Called at boot, before anything copies the skills tree. Also
         clears the in-tree ``.tmp_*`` / ``.bak_*`` strays that releases
-        before this staging home used to leave in the skills dir.
+        before this staging home used to leave in the skills dir, and
+        the ``.<slug>-import-*`` / ``…-old`` residue of a replace
+        install (``skills_manager._install_skill_tree``) that died
+        mid-swap: the swap runs under the skills-tree lock inside ONE
+        server process, so at boot nothing can still own them, and a
+        leftover would otherwise ride into every task-workspace copy.
         """
         shutil.rmtree(self._staging_root, ignore_errors=True)
         if not self._dest_dir.is_dir():
@@ -71,6 +76,8 @@ class SkillMirrorMixin:
         for stale in self._dest_dir.glob('.tmp_*'):
             _remove(stale)
         for stale in self._dest_dir.glob('.bak_*'):
+            _remove(stale)
+        for stale in self._dest_dir.glob('.*-import-*'):
             _remove(stale)
 
     def _install_file(self, target: Path, content: bytes) -> bool:

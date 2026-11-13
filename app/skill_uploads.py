@@ -31,6 +31,15 @@ Contracts held here, in one place:
   ``MAX_SKILL_*`` constants (the same numbers the install path
   enforces — one source), format sniffed from magic bytes. Extraction
   is purely in-memory: a rejected archive never touches the workspace.
+* **Staged install** — the install composition lives in
+  ``app.skill_install`` (``import_staged`` / ``install_stream`` /
+  ``describe_refusal``): the ONE sequence every archive source runs
+  (external ``manage_skill``, the in-task local-directory import, the
+  URL import) — lock the skills tree, extract-then-install in one
+  thread hop through ``manager.save_skill_blocking``, auto-commit.
+  This module keeps the upload half: signing, staging, strict
+  extraction. A source that wanted its own copy of the sequence
+  would be a second install path.
 """
 
 import asyncio
@@ -47,6 +56,7 @@ import shutil
 import stat
 import tarfile
 import time
+import unicodedata
 import uuid
 import zipfile
 
@@ -429,6 +439,14 @@ def sniff_format(path: Path) -> str | None:
 # ── Extraction (the safety core) ───────────────────────────
 
 
+# How many skipped-junk names get REPORTED to the caller. The count is
+# always the truth; the list is a sample — a 32 MB archive packed by
+# Finder can carry hundreds of thousands of `._*` entries, and
+# shipping them all would re-serialize the flood into the agent's
+# tool result for zero information past the first page.
+MAX_IGNORED_REPORT = 1000
+
+
 @dataclass
 class ExtractedSkill:
     """What an archive holds: SKILL.md text + files + exec-bit names.
@@ -436,16 +454,19 @@ class ExtractedSkill:
     ``skill_md`` is validated UTF-8 text (the install path re-encodes
     it exactly); every other file stays raw ``bytes`` and is handed to
     the install path as base64 so it lands byte-identical. ``ignored``
-    names the macOS junk that was skipped — reported, never silent.
+    names the macOS junk that was skipped — reported, never silent,
+    sampled at :data:`MAX_IGNORED_REPORT` with ``ignored_count``
+    carrying the true total.
     """
 
     skill_md: str
     files: dict[str, bytes] = field(default_factory=dict)
     executables: set[str] = field(default_factory=set)
     ignored: list[str] = field(default_factory=list)
+    ignored_count: int = 0
 
 
-def _is_junk(name: str) -> bool:
+def is_macos_junk(name: str) -> bool:
     """macOS packaging junk: skipped at extraction, listed in ``ignored``.
 
     ``tar``/``zip`` on macOS sprinkle AppleDouble ``._*`` files, a
@@ -459,7 +480,7 @@ def _is_junk(name: str) -> bool:
     return '__MACOSX' in parts or base.startswith('._') or base == '.DS_Store'
 
 
-def _entry_name(name: str) -> str:
+def entry_name(name: str) -> str:
     """Normalise an archive entry name to a clean relative path.
 
     Only the shape is checked here (plus the Windows-drive case the
@@ -479,18 +500,22 @@ def _entry_name(name: str) -> str:
 
 
 def _claim_case(name: str, seen: dict) -> None:
-    """Refuse two entries whose paths differ only by case.
+    """Refuse two entries whose paths collide on a normalizing host.
 
-    They would collide on case-insensitive filesystems (macOS,
-    Windows) — one of the two would silently overwrite the other at
-    install time. The SKILL.md variant rule is the same idea, applied
-    to the one name that must be exact.
+    Case is the obvious collision (macOS/Windows fold it), but APFS
+    also normalizes Unicode: ``café.md`` in NFC and in NFD are
+    different strings yet ONE file on macOS — the second install
+    write would silently win there and make TWO files on ext4, so one
+    archive would install a different tree per host OS. The collision
+    key is therefore NFC + casefold. The SKILL.md variant rule is the
+    same idea, applied to the one name that must be exact.
     """
-    key = name.lower()
+    key = unicodedata.normalize('NFC', name).casefold()
     prior = seen.get(key)
     if prior is not None and prior != name:
         raise ValueError(
-            f'archive entries collide by case: {prior!r} vs {name!r}'
+            f'archive entries collide by case/normalization: '
+            f'{prior!r} vs {name!r}'
         )
     seen[key] = name
 
@@ -548,8 +573,8 @@ def _read_tar(path: Path) -> tuple[dict, set, list]:
                     f'unsupported archive entry (links, devices and '
                     f'FIFOs are refused): {member.name!r}'
                 )
-            name = _entry_name(member.name)
-            if _is_junk(name):
+            name = entry_name(member.name)
+            if is_macos_junk(name):
                 ignored.append(name)
                 continue
             _claim_case(name, seen)
@@ -582,8 +607,8 @@ def _read_zip(path: Path) -> tuple[dict, set, list]:
                     f'unsupported archive entry (symlinks are '
                     f'refused): {info.filename!r}'
                 )
-            name = _entry_name(info.filename)
-            if _is_junk(name):
+            name = entry_name(info.filename)
+            if is_macos_junk(name):
                 ignored.append(name)
                 continue
             _claim_case(name, seen)
@@ -643,9 +668,20 @@ def extract_archive(path: Path, fmt: str) -> ExtractedSkill:
                 f'archive holds a case-variant of SKILL.md: {name!r}'
             )
     if 'SKILL.md' not in files:
+        # Honest refusal: a Finder-packed archive may hold its ONLY
+        # SKILL.md inside the __MACOSX junk — name that case instead
+        # of pointing at a root the packer did fill.
+        junk_md = any(name.rsplit('/', 1)[-1] == 'SKILL.md' for name in ignored)
+        hint = (
+            ' (the archive only carries SKILL.md inside macOS '
+            'packaging junk — repack with COPYFILE_DISABLE=1 '
+            'tar czf - -C <dir> .)'
+            if junk_md
+            else ''
+        )
         raise ValueError(
             'archive has no SKILL.md at its root — pack the skill '
-            'directory itself'
+            f'directory itself{hint}'
         )
     try:
         skill_md = files.pop('SKILL.md').decode('utf-8')
@@ -657,5 +693,6 @@ def extract_archive(path: Path, fmt: str) -> ExtractedSkill:
         skill_md=skill_md,
         files=files,
         executables={e for e in execs if e in files},
-        ignored=sorted(ignored),
+        ignored=sorted(ignored)[:MAX_IGNORED_REPORT],
+        ignored_count=len(ignored),
     )

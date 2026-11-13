@@ -47,6 +47,18 @@ class SkillSaveRequest(BaseModel):
     overwrite: bool = False
 
 
+class SkillImportUrlRequest(BaseModel):
+    """Install a skill FROM A URL: the SERVER fetches it (guards in
+    ``app.skill_fetch``) and installs through the same staged path as
+    an uploaded archive. ``slug`` overrides the SKILL.md frontmatter
+    derivation; ``overwrite`` is the gate for replacing an existing
+    user skill."""
+
+    url: SafeStr
+    slug: str | None = None
+    overwrite: bool = False
+
+
 class StoreProfileCreateRequest(BaseModel):
     slug: str
     name: str

@@ -66,14 +66,19 @@ async def put_skill_archive(upload_id: str, request: Request):
     accepted too (the standard browser/HTML upload shape) — both land
     in the same staging handler and both are size-bounded.
     """
+    exp_raw = request.query_params.get('exp') or ''
     try:
         # The signature check reads the upload's state file — one
-        # thread hop, before any body byte is read.
+        # thread hop, before any body byte is read. A non-digit `exp`
+        # parses to 0, never raises: this endpoint is open to the
+        # world by design (the signature IS the auth), and garbage
+        # must answer like the signature gate does — refuse, not 500.
+        exp = int(exp_raw) if exp_raw.isdigit() else 0
         await asyncio.to_thread(
             check_upload_request,
             upload_id,
             request.query_params.get('uid'),
-            int(request.query_params.get('exp') or 0),
+            exp,
             request.query_params.get('sig'),
         )
     except UploadError as exc:
@@ -118,6 +123,8 @@ async def put_skill_archive(upload_id: str, request: Request):
             if key == 'file' and hasattr(value, 'read')
         ]
         if len(uploads) != 1:
+            for upload in uploads:
+                await upload.close()
             raise HTTPException(
                 status_code=415,
                 detail='multipart upload must carry exactly one `file` field',
@@ -128,6 +135,7 @@ async def put_skill_archive(upload_id: str, request: Request):
             'application/octet-stream'
         )
     else:
+        uploads = []
         chunks = _raw_chunks(request)
         part_type = content_type or 'application/octet-stream'
 
@@ -135,3 +143,9 @@ async def put_skill_archive(upload_id: str, request: Request):
         return await stage_stream(upload_id, chunks, part_type)
     except UploadError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    finally:
+        # A multipart part above the spool threshold is a DISK FILE
+        # until closed — closing rides on GC otherwise. Explicitly
+        # release every part whether staging succeeded or failed.
+        for upload in uploads:
+            await upload.close()

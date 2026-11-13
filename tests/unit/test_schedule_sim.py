@@ -79,6 +79,8 @@ RECORDED_MARKERS = {
     'test_two_browser_tasks_both_complete',
     'test_question_answer_completes',
     'test_audit_then_apply_exactly_what_was_approved',
+    'test_task_installs_directory',
+    'test_url_install_lists_as_imported',
 }
 
 DEFAULT = 30

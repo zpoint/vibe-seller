@@ -3,19 +3,22 @@
 One tool over the user-space skills the web UI's Workspace → Skills
 view manages (``app/routers/workspace.py`` ``/skills*``): list, read,
 create, update (upsert), **import** (install a whole skill from
-somewhere else — via a presigned archive upload, or inline for tiny
-text-only skills), delete, and the built-in sync. Every action calls
-the route the UI calls; the manager's own guards (built-in slugs are
-read-only, slug shape, reserved names, safe relative file paths, size
-caps) are the route's behaviour, not re-implemented here, and the
-archive side adds ``app.skill_uploads`` (signing, staging, strict
-extraction) on top of the ONE install path.
+somewhere else — via a presigned archive upload, from a URL the
+SERVER fetches, or inline for tiny text-only skills), delete, and the
+built-in sync. Every action calls the route the UI calls; the
+manager's own guards (built-in slugs are read-only, slug shape,
+reserved names, safe relative file paths, size caps) are the route's
+behaviour, not re-implemented here, and the archive side adds
+``app.skill_uploads`` (signing, staging, strict extraction) and
+``app.skill_fetch`` (URL guards) on top of the ONE install path —
+``skill_install.import_staged``, the same composition the in-task and
+URL routes end in.
 """
 
 import asyncio
-import base64
 import re
 
+from app import skill_fetch
 from app.agent_mcp.registry import schema, tool
 from app.agent_mcp.support import (
     MAX_FILE_CHARS,
@@ -27,17 +30,10 @@ from app.agent_mcp.support import (
 )
 from app.routers import sync as sync_route, workspace as workspace_route
 from app.schemas.workspace import SkillCreateRequest, SkillSaveRequest
-from app.skill_uploads import (
-    UploadError,
-    archive_path,
-    consume_upload,
-    create_upload,
-    extract_archive,
-    staged_record,
-)
+from app.skill_install import describe_refusal, import_staged
+from app.skill_uploads import UploadError, create_upload
 from app.sync import state as sync_state
 from app.sync.jobs import SKILLS_JOB
-from app.workspace import skills_tree
 from app.workspace.skills_manager import derive_skill_slug
 
 _ACTIONS = (
@@ -140,72 +136,69 @@ def _import_slug(args: dict, skill_md: str) -> str:
     return slug
 
 
-async def _import_upload(ctx: McpContext, args: dict, upload_id: str) -> dict:
-    """Import the staged archive: extract and install as ONE hop.
-
-    The archive is read from staging and the tree is swapped into
-    ``.claude/skills`` — one logical operation — so both run in ONE
-    thread hop inside the skills-tree lock (the shape
-    ``app/ads_skill.py`` uses for its bundle install). The install
-    rules live in one place (``manager.save_skill_blocking``), shared
-    with the inline save path; nothing here blocks the event loop.
-    The upload is consumed only after the install succeeded, so a
-    refused install can be retried without re-uploading.
-    """
+def _no_inline_files(args: dict, source: str) -> None:
+    """One validation for both streamed sources: an archive (staged
+    or fetched) IS the file list — inline payloads must not mix."""
     if args.get('files') or args.get('files_bin'):
         raise ToolError(
-            'upload_id imports the staged archive — do not also '
-            'send files / files_bin'
+            f'{source} imports the whole archive — do not also send '
+            'files / files_bin'
         )
-    manager = workspace_route.workspace_manager
-    async with skills_tree.hold():
-        try:
-            result, existed = await asyncio.to_thread(
-                _extract_and_install_blocking,
-                manager,
-                upload_id,
-                str(ctx.user.id),
-                args,
-            )
-        except UploadError as exc:
-            raise ToolError(exc.message) from exc
-        except ValueError as exc:
-            raise ToolError(f'Archive refused: {exc}') from exc
-    await manager._auto_commit(
-        f'{"Update" if existed else "Create"} skill: {result["slug"]}'
-    )
-    return result
 
 
-def _extract_and_install_blocking(
-    manager, upload_id: str, user_id: str, args: dict
-) -> tuple[dict, bool]:
-    """Sync target: staging reads, strict extraction, shared install.
+def _tool_refusal(exc: Exception, kind: str) -> ToolError:
+    """The ToolError conversion of the ONE shared refusal mapping
+    (``skill_install.describe_refusal``) — the door only converts the
+    TYPE; ``kind`` keeps the door's context in the agent-facing text
+    (messages otherwise are decided once in the pipeline)."""
+    if isinstance(exc, UploadError):
+        return ToolError(exc.message)
+    _status, message = describe_refusal(exc)
+    return ToolError(f'{kind} refused: {message}')
 
-    Everything the archive import touches on disk happens here, in
-    the caller's single thread hop — the record read, the strict
-    extraction, the install core and the upload consumption.
+
+async def _import_upload(ctx: McpContext, args: dict, upload_id: str) -> dict:
+    """Import the staged archive through the ONE install path.
+
+    The archive was already staged through the presigned PUT (that
+    is the upload flow's front half); this door is args →
+    ``import_staged`` → error conversion — the shared sequence for
+    bytes that still need staging is ``install_stream``/
+    ``install_url``, used by the in-task and URL doors.
     """
-    record = staged_record(upload_id, user_id)
-    extracted = extract_archive(archive_path(upload_id), record['format'])
-    slug = _import_slug(args, extracted.skill_md)
-    result, existed = manager.save_skill_blocking(
-        slug,
-        extracted.skill_md,
-        files_bin={
-            rel: base64.b64encode(data).decode('ascii')
-            for rel, data in extracted.files.items()
-        },
-        executables=sorted(extracted.executables),
-        origin_url=args.get('origin_url') or '',
-        replace=True,
-        overwrite=bool(args.get('overwrite')),
-    )
-    consume_upload(upload_id)
-    # macOS packaging junk is skipped at extraction — say so, never
-    # silently hand back a different tree than the one packed.
-    result['ignored'] = extracted.ignored
-    return result, existed
+    _no_inline_files(args, 'upload_id')
+    try:
+        return await import_staged(
+            workspace_route.workspace_manager,
+            upload_id,
+            str(ctx.user.id),
+            slug=args.get('slug'),
+            origin_url=args.get('origin_url') or '',
+            overwrite=bool(args.get('overwrite')),
+        )
+    except (UploadError, ValueError) as exc:
+        raise _tool_refusal(exc, 'Archive') from exc
+
+
+async def _import_url(ctx: McpContext, args: dict, url: str) -> dict:
+    """Import a skill FROM A URL: one call —
+    ``skill_fetch.install_url`` fetches (guards and caps in
+    ``app.skill_fetch``; bytes never through the agent's LLM) and
+    runs the shared ``install_stream`` sequence; ``origin_url``
+    defaults to the fetched URL (inside the helper), so the skill
+    lists as imported."""
+    _no_inline_files(args, 'url')
+    try:
+        return await skill_fetch.install_url(
+            workspace_route.workspace_manager,
+            str(ctx.user.id),
+            url,
+            slug=args.get('slug'),
+            origin_url=args.get('origin_url'),
+            overwrite=bool(args.get('overwrite')),
+        )
+    except (UploadError, ValueError) as exc:
+        raise _tool_refusal(exc, 'URL') from exc
 
 
 @tool(
@@ -214,7 +207,7 @@ def _extract_and_install_blocking(
     'agents load): list them, read one (get), create a new user-space '
     'skill, update an existing one (full SKILL.md, optionally extra '
     'files; merges — files it does not carry stay), import a whole '
-    'skill from this machine, delete one, or run the built-in skills '
+    'skill from elsewhere, delete one, or run the built-in skills '
     'sync (sync / sync_meta). TO IMPORT A LOCAL SKILL (a codex or '
     'Claude skill directory): action=begin_upload gives a presigned '
     'put_url and a ready-to-run curl; run it in YOUR shell to upload '
@@ -222,7 +215,13 @@ def _extract_and_install_blocking(
     'bytes go straight to the server, never through you), then '
     "action=import with the upload_id. If put_url's origin differs "
     'from the MCP URL you are configured with (a reverse proxy), PUT '
-    'to <your MCP origin> + put_path instead. The inline files/files_bin '
+    'to <your MCP origin> + put_path instead. TO IMPORT FROM A URL '
+    '(a GitHub tree/blob URL of a skill folder, or a direct '
+    '.tar.gz/.zip/.skill archive URL): action=import with url '
+    'instead of upload_id — the SERVER fetches it (http(s) to '
+    'public hosts only) and installs it through the same path, '
+    'recording origin_url (default: the fetched url) so the skill '
+    'lists as imported. The inline files/files_bin '
     'arguments remain only for tiny text-only skills — do NOT send '
     'large or binary content through tool arguments. import installs '
     'the skill wholesale, so it REFUSES an existing user skill unless '
@@ -269,6 +268,23 @@ def _extract_and_install_blocking(
                     'staged archive is extracted and installed. This '
                     'is how a real (binary-carrying) skill is '
                     'imported; mutually exclusive with files / '
+                    'files_bin and with url.'
+                ),
+            },
+            'url': {
+                'type': ['string', 'null'],
+                'description': (
+                    'import only: a GitHub tree/blob URL of a skill '
+                    'folder, or a direct archive URL (.tar.gz/.zip/'
+                    '.skill). Pass EXACTLY the URL the user gave — '
+                    'scheme, host, port and path verbatim; do NOT '
+                    'rewrite it into a raw or API URL, the server '
+                    'resolves all supported forms itself and a '
+                    'rewritten origin fails. The SERVER fetches it '
+                    '(http(s) to public addresses only; loopback '
+                    'only under the e2e test flag) and installs the '
+                    'archive through the same staged path. Mutually '
+                    'exclusive with upload_id and with files / '
                     'files_bin.'
                 ),
             },
@@ -365,8 +381,13 @@ async def manage_skill(ctx: McpContext, args: dict) -> dict:
 
     if action == 'import':
         upload_id = args.get('upload_id')
+        url = args.get('url')
+        if upload_id and url:
+            raise ToolError('import takes upload_id OR url, not both')
         if upload_id:
             return await _import_upload(ctx, args, upload_id)
+        if url:
+            return await _import_url(ctx, args, str(url))
         skill_md = _skill_md_arg(args, 'import')
         slug = _import_slug(args, skill_md)
         return await call_route(

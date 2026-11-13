@@ -157,6 +157,50 @@ def write_system_prompt_file(
     return prompt_file
 
 
+def mcp_launch_flags(
+    *,
+    load_global: bool,
+    session_config: Path | None,
+    project_config: Path | None = None,
+) -> list[str]:
+    """The MCP flags for one launch — ONE decision, both launches.
+
+    A profile that opts OUT of global MCP servers runs strict on its
+    own config file (a task's project ``.mcp.json``, or the assistant's
+    per-session restricted-skill-tools file). A profile that opts IN
+    keeps its global servers: the session file still rides along for
+    the assistant (it is not auto-discovered from cwd), but WITHOUT
+    ``--strict-mcp-config``; a task needs no flags at all, because its
+    project ``.mcp.json`` IS auto-discovered from its cwd. Callers pass
+    ``ProfileManager.get_load_global_mcp(profile_id)`` — the flag
+    composition lives here, once.
+    """
+    if not load_global:
+        cfg = session_config or project_config
+        if cfg is None:
+            return []
+        return ['--mcp-config', str(cfg), '--strict-mcp-config']
+    if session_config is not None and session_config != project_config:
+        return ['--mcp-config', str(session_config)]
+    return []
+
+
+def write_mcp_config_file(
+    mcp_config: dict, task_id: str, task_dir: Path | None
+) -> Path:
+    """Write the session's ``--mcp-config`` payload beside its prompt.
+
+    Used by the workspace assistant, which gets its OWN restricted
+    MCP registration — a per-session file, never the shared
+    ``.mcp.json`` at the workspace root (store-less tasks write that
+    with their full task toolset; two writers would race).
+    """
+    path = system_prompt_file(task_id, task_dir).with_suffix('.mcp.json')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(mcp_config), encoding='utf-8')
+    return path
+
+
 # A `browser-use` that always ERRORS — sits on the agent PATH just below
 # the per-store wrapper. If the wrapper dir is empty (a failed/stale launch,
 # or a boot wipe before the next task rewrites it), bare `browser-use` hits

@@ -525,6 +525,10 @@ TOOLS = [
             'and a trigger-packed third-person `description`, then a '
             'concise heuristic body), and optional `files` (a map of '
             'relative-path → content for bundled references/scripts). '
+            'This tool authors TEXT — to install an EXISTING skill '
+            'directory (a local path or a URL, with binary files and '
+            'executable bits intact) use `vibe_seller_import_skill`; '
+            'never retype its files here. '
             'If `slug` already names a custom/imported skill this '
             'OVERWRITES it (extend by passing the merged full content — '
             'read the current SKILL.md first). '
@@ -561,6 +565,95 @@ TOOLS = [
                 },
             },
             'required': ['slug', 'skill_md'],
+        },
+    },
+    {
+        'name': 'vibe_seller_import_skill',
+        'description': (
+            'Install an EXISTING skill — a whole directory or a URL — '
+            'into the shared workspace as a user-space skill, so later '
+            'tasks auto-load it. Use this whenever the user points at '
+            'a skill they already have: "把我电脑上 <path> 这个 skill 装到 '
+            'Vibe Seller", "install the skill at ~/.codex/skills/foo", '
+            '"从这个链接安装这个技能 <url>". NEVER retype skill files '
+            'with save_skill or Write for this — this tool copies the '
+            'tree BYTE-FOR-BYTE (binary files, scripts, executable '
+            'bits included) and the bytes never pass through you.\n'
+            '\n'
+            'Pass exactly one source: `path` — a skill directory on '
+            'this machine (it must contain SKILL.md at its root); or '
+            '`url` — a GitHub tree/blob URL of a skill folder or a '
+            'direct archive URL (.tar.gz / .zip / .skill), which the '
+            'SERVER fetches. Pass the url EXACTLY as given (scheme, '
+            'host, port, path verbatim — never rewrite it into a raw '
+            'or API URL; the server resolves all supported forms). '
+            'Optional `slug` overrides the slug '
+            "derived from SKILL.md's frontmatter name. `origin_url` "
+            '(path imports: defaults to the path; URL imports: '
+            'defaults to the URL) records provenance so the skill '
+            'lists as imported.\n'
+            '\n'
+            "Guards are the server's: built-in (maintainer) slugs are "
+            'read-only and refused; an EXISTING user skill is refused '
+            'unless overwrite=true — ASK THE USER FIRST, it deletes '
+            'their current copy, then re-call with overwrite=true; '
+            'symlinks out of the directory, non-file entries, oversize '
+            'trees and too many files are refused naming what was '
+            'found; URL fetches go to public http(s) addresses only.'
+        ),
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'path': {
+                    'type': 'string',
+                    'description': (
+                        'Skill DIRECTORY on this machine — absolute '
+                        '(~/x works) or relative to the task '
+                        'workspace. Must hold SKILL.md at its root. '
+                        'Mutually exclusive with url.'
+                    ),
+                },
+                'url': {
+                    'type': 'string',
+                    'description': (
+                        'Skill URL: GitHub tree/blob of the skill '
+                        'folder (recommended) or a direct archive '
+                        'URL (.tar.gz/.zip/.skill). Pass EXACTLY the '
+                        'URL the user gave — scheme, host, port and '
+                        'path verbatim; do NOT rewrite it into a raw '
+                        'or API URL (the server resolves all '
+                        'supported forms itself, a rewritten '
+                        'origin fails). The server fetches it — '
+                        'public http(s) only. Mutually exclusive '
+                        'with path.'
+                    ),
+                },
+                'slug': {
+                    'type': 'string',
+                    'description': (
+                        'Optional: install under this slug instead '
+                        'of the one derived from SKILL.md frontmatter '
+                        'name. Lowercase letters, digits, hyphens.'
+                    ),
+                },
+                'overwrite': {
+                    'type': 'boolean',
+                    'description': (
+                        'Replace an existing USER skill at this slug. '
+                        'Refused without it — confirm with your user '
+                        'FIRST (it deletes their current copy), then '
+                        're-call with overwrite=true.'
+                    ),
+                },
+                'origin_url': {
+                    'type': 'string',
+                    'description': (
+                        'Provenance recorded in the skills lockfile '
+                        '(defaults: the path, or the url).'
+                    ),
+                },
+            },
+            'required': [],
         },
     },
     {

@@ -73,7 +73,14 @@ def parse_yaml_frontmatter(text: str) -> dict:
     richer frontmatter other clients write (codex's ``metadata:``
     block, say) — an imported SKILL.md is stored as written whatever
     its frontmatter holds.
+
+    A leading UTF-8 BOM (common in files saved from Windows editors)
+    is skipped FOR THE PARSE only — the stored bytes stay verbatim;
+    without this, a BOM'd SKILL.md silently loses its frontmatter and
+    the import dead-ends on "pass slug explicitly".
     """
+    if text[:1] == chr(0xFEFF):  # skip a UTF-8 BOM for the parse
+        text = text[1:]
     if not text.startswith('---'):
         return {}
     end = text.find('---', 3)
@@ -155,6 +162,19 @@ class SkillsMixin:
     def _lockfile_path(self):
         return self.root / '.claude' / 'skills' / 'skills.lock.json'
 
+    async def _ensure_lockfile_scaffold(self) -> None:
+        """Materialize an empty lockfile once, at workspace init.
+
+        The writers merge into it and the sync-takeover logic reads it
+        — it exists as scaffold, not whenever whoever-writes-first
+        happens to create it. (Every other ``ensure_init`` step is
+        likewise "exists by init, not by first writer".)
+        """
+        if not self._lockfile_path.exists():
+            await asyncio.to_thread(
+                self._write_lockfile, {'version': 1, 'skills': {}}
+            )
+
     @staticmethod
     def _read_synced_skills(skills_dir: Path) -> set[str]:
         """Read the set of synced (builtin) skill names."""
@@ -214,14 +234,45 @@ class SkillsMixin:
 
         If content is provided, it replaces the default SKILL.md
         template.
+
+        Create is for NEW slugs only — the door must not become an
+        overwrite that skipped the confirmation gate: a name whose
+        slug already exists (any casing/spacing that folds to it) is
+        refused pointing at ``save``/``import overwrite=true``, a
+        built-in (maintainer-synced) slug is refused like every other
+        writer, and a name that slugifies to the empty string is
+        refused (``dir / ''`` IS ``dir`` — it would plant a stray
+        SKILL.md in the skills root, keyed ``''`` in the lockfile).
+        All checks run inside the tree lock, before the first write.
         """
+        await self.ensure_init()
         if name.startswith('_'):
             raise ValueError(
                 f'Skill names starting with _ are reserved: {name}'
             )
         slug = skill_slug(name)
+        if not slug:
+            raise ValueError(
+                f'skill name {name!r} produces an empty slug — use '
+                'lowercase letters, digits or hyphens in the name'
+            )
         skill_dir = self.root / '.claude' / 'skills' / slug
         async with skills_tree.hold():
+            skills_root = self.root / '.claude' / 'skills'
+            synced = self._read_synced_skills(skills_root)
+            if slug in synced:
+                raise ValueError(
+                    f'{slug!r} is a built-in skill (maintainer-owned, '
+                    'read-only). Create a new user-space skill with a '
+                    'different name instead — it may reference the '
+                    'built-in.'
+                )
+            if skill_dir.exists() or skill_dir.is_symlink():
+                raise ValueError(
+                    f'a skill named {slug} already exists (create does '
+                    'not overwrite it) — extend it with save, or '
+                    'install over it with import and overwrite=true'
+                )
             skill_dir.mkdir(parents=True, exist_ok=True)
             skill_md = skill_dir / 'SKILL.md'
             if content is not None:
@@ -262,13 +313,24 @@ description: {description}
         return str(skill_dir.relative_to(self.root))
 
     async def delete_skill(self, slug: str) -> None:
-        """Delete a user skill directory and lockfile entry."""
+        """Delete a user skill directory and lockfile entry.
+
+        The read-only rule for built-ins lives HERE, not on the
+        ``_``-prefix shape (the slug regex already rejects ``_…``; no
+        synced built-in starts with an underscore — checking the
+        sync meta is what actually protects them, the same rule
+        ``save_skill`` enforces).
+        """
         # Validate slug: only lowercase alphanumeric and hyphens
         if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', slug):
             raise ValueError(f'Invalid skill slug: {slug}')
-        if slug.startswith('_'):
-            raise ValueError('Cannot delete built-in skills')
-        skill_dir = self.root / '.claude' / 'skills' / slug
+        skills_root = self.root / '.claude' / 'skills'
+        if slug in self._read_synced_skills(skills_root):
+            raise ValueError(
+                f'{slug!r} is a built-in skill (maintainer-owned, '
+                'read-only) — it cannot be deleted'
+            )
+        skill_dir = skills_root / slug
         if not skill_dir.is_dir():
             raise FileNotFoundError(f'Skill not found: {slug}')
         async with skills_tree.hold():
@@ -298,8 +360,16 @@ description: {description}
         Returns ``{slug, name, description, source, updatable}`` per
         skill. ``updatable`` is true only for user-editable skills
         (custom + imported); built-ins are read-only.
+
+        The directory walk and frontmatter reads run in ONE thread
+        hop (the same shape ``get_structured`` uses) — the tree grows
+        with every import and a synchronous sweep on the loop is the
+        pattern the blocking gate exists to prevent.
         """
         await self.ensure_init()
+        return await asyncio.to_thread(self._list_skills_blocking)
+
+    def _list_skills_blocking(self) -> list[dict]:
         skills_dir = self.root / '.claude' / 'skills'
         if not skills_dir.is_dir():
             return []
@@ -501,13 +571,22 @@ description: {description}
     ) -> tuple[dict, bool]:
         """The synchronous install core of :meth:`save_skill`.
 
-        Every rule of the write contract lives here — built-in
-        refusal, the overwrite gate, payload validation, the staged
-        swap (``replace``) or the merge writes, and the lockfile
-        entry. Hosted in a thread (never on the event loop) by the
-        async ``save_skill`` and by the archive import, so both
-        sources share one install path. Returns ``(result, existed)``.
+        Every rule of the write contract lives here — the slug shape,
+        built-in refusal, the overwrite gate, payload validation, the
+        staged swap (``replace``) or the merge writes, and the
+        lockfile entry. Hosted in a thread (never on the event loop)
+        by the async ``save_skill`` and by the archive import, so both
+        sources share one install path — and the checks apply to BOTH:
+        direct callers of this core (the archive import) skip the
+        async wrapper's pre-validation, so the slug regex lives here
+        where a ``..`` or ``/`` could otherwise walk out of the skills
+        directory. Returns ``(result, existed)``.
         """
+        if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', slug or ''):
+            raise ValueError(
+                f'Invalid skill slug: {slug!r} '
+                '(use lowercase letters, digits, hyphens)'
+            )
         skills_dir = self.root / '.claude' / 'skills'
         synced = self._read_synced_skills(skills_dir)
         if slug in synced:

@@ -604,7 +604,8 @@ transit.
 | Name | Type | Notes |
 | --- | --- | --- |
 | `action` | string | Required. `list`, `get`, `create`, `update`, `begin_upload`, `import`, `delete`, `sync`, `sync_meta`. |
-| `upload_id` | string | `import` only: the id from `begin_upload` — the staged archive (`.tar.gz` / `.tar` / `.zip` of the skill directory) is extracted and installed. THE way to import a real skill; mutually exclusive with `files` / `files_bin`. |
+| `upload_id` | string | `import` only: the id from `begin_upload` — the staged archive (`.tar.gz` / `.tar` / `.zip` of the skill directory) is extracted and installed. THE way to import a real skill; mutually exclusive with `files` / `files_bin` and with `url`. |
+| `url` | string | `import` only, instead of `upload_id`: a GitHub `tree`/`blob` URL of a skill folder, or a direct archive URL (`.tar.gz` / `.zip` / `.skill`). The SERVER fetches it (http(s) to public addresses only; loopback only under the e2e test flag) and installs it through the same staged path, recording `origin_url` (default: the URL) so the skill lists as imported. |
 | `slug` | string | Required for `get` / `update` / `delete`. Optional for `import` — derived from the SKILL.md frontmatter `name` when omitted. |
 | `name` | string | Required for `create`. Letters, digits, hyphens; must not start with `_`. |
 | `description` | string | Optional for `create`. One line. |
@@ -641,6 +642,14 @@ transit.
    packaging junk (`._*`, `__MACOSX/`, `.DS_Store`) is skipped and
    listed under `ignored` in the result — the server never silently
    installs a different tree than the one you packed.
+
+**From a URL.** `action=import` with `url` replaces steps 1–2 for a
+skill the SERVER can reach: GitHub `tree`/`blob` URLs of a skill
+folder are walked through the repository API (the git tree modes
+carry the executable bits; submodule and symlink entries are
+refused), anything else is fetched as the archive it already is
+(magic bytes decide the format, never the extension) — the bytes
+still never pass through your model.
 
 **Writes.** Every path and size is checked before the first byte
 lands, so a refused call leaves nothing behind and there is no

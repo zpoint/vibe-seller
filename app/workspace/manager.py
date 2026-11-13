@@ -76,6 +76,8 @@ class WorkspaceManager(SkillsMixin):
         (self.root / '.claude' / 'skills').mkdir(parents=True, exist_ok=True)
         (self.root / 'knowledge').mkdir(parents=True, exist_ok=True)
         (self.root / 'stores').mkdir(parents=True, exist_ok=True)
+        # The skills lockfile is scaffold too — built once at init.
+        await self._ensure_lockfile_scaffold()
         # Per-store RUN DATA lives outside stores/ (never surfaces as
         # knowledge, still git-tracked). First boot after a layout bump
         # relocates old artifacts → store-data/<YYYY-MM>/; then O(1).

@@ -13,6 +13,7 @@ import pytest
 
 from app.mcp_server import handle_tool_call
 from app.workspace.manager import WorkspaceManager
+from app.workspace.skills_manager import derive_skill_slug
 
 pytestmark = pytest.mark.unit
 
@@ -134,6 +135,40 @@ class TestSaveSkillValidation:
         for bad in ['../escape.md', '/abs.md', 'SKILL.md', 'a/../../x']:
             with pytest.raises(ValueError, match='file path'):
                 await mgr.save_skill('ok-slug', SKILL_MD, files={bad: 'x'})
+
+    def test_blocking_core_validates_the_slug(self, tmp_path):
+        """The archive import calls ``save_skill_blocking`` directly —
+        it must NOT depend on the async wrapper's pre-check. A slug
+        with ``/`` or ``..`` would walk the install out of the skills
+        directory; the regex lives in the core so no caller can skip
+        it."""
+        mgr, _ = _mgr(tmp_path)
+        for bad in ['../escape', 'a/b', '', 'UP', None]:
+            with pytest.raises(ValueError, match='Invalid skill slug'):
+                mgr.save_skill_blocking(bad, SKILL_MD)
+
+
+class TestFrontmatterBom:
+    """A Windows-edited SKILL.md carries a leading UTF-8 BOM
+    (``chr(0xFEFF)``). The parse must see through it (otherwise
+    ``derive_skill_slug`` returns '' and every import dead-ends on
+    "pass slug explicitly" for no reason the agent can see); the
+    stored bytes stay verbatim."""
+
+    BOM = chr(0xFEFF)
+
+    def test_bom_does_not_hide_the_frontmatter(self):
+        assert derive_skill_slug(self.BOM + SKILL_MD) == 'revenue-report'
+
+    async def test_bommed_skill_installs_under_its_name(self, tmp_path):
+        """End-to-end at the manager level: a BOM'd SKILL.md saves and
+        lists under its real name, not ''."""
+        mgr, skills_dir = _mgr(tmp_path)
+        await mgr.save_skill('revenue-report', self.BOM + SKILL_MD)
+        stored = (skills_dir / 'revenue-report' / 'SKILL.md').read_text()
+        assert stored.startswith(self.BOM)  # bytes verbatim (parse skips)
+        names = {s['slug'] for s in await mgr.list_skills()}
+        assert names == {'revenue-report'}
 
 
 class TestListSkills:

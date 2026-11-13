@@ -112,6 +112,9 @@ waits on this:
 Most tasks teach nothing new: then write nothing and end the turn.
 
 A new reusable procedure becomes a skill through `vibe_seller_save_skill`.
+An EXISTING skill — a directory on this machine, or a URL (GitHub
+folder link, .tar.gz/.zip) — is installed whole by
+`vibe_seller_import_skill`, never retyped file by file.
 
 ## Phase 2 — Critical Thinking (internal, do not output)
 
