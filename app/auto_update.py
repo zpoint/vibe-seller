@@ -149,7 +149,7 @@ _record_key = None
 
 def reset_for_tests() -> None:
     """Back to a cold machine. Tests only."""
-    global _apply_proc, _apply_task, _record_mtime
+    global _apply_proc, _apply_task, _record_mtime, _record_key
     # The record stamp is part of the cold machine: a test that resets
     # the state but keeps another test's mtime would have
     # `refresh_last_update` conclude nothing had been written since.
@@ -208,7 +208,6 @@ def load_last_update() -> dict | None:
     # try the same release again an hour later.
     _update(refusal=update_refusal.note_apply_result(doc))
     report_unreported_failure(doc)
-    return doc
     return doc
 
 

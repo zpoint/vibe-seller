@@ -971,6 +971,29 @@ class TestBootRecord:
         au.load_last_update()
         assert au.snapshot()['last_update']['to'] == '0.9.0'
 
+    def test_a_cold_machine_reports_the_same_record_again(self, monkeypatch):
+        """`reset_for_tests` is a cold machine: a process that has never
+        seen this apply. Keeping the once-per-apply key across it would
+        make every later test that loads an identically keyed record
+        skip its refusal and its report — silently, by test order."""
+        doc = {
+            'status': pip_update.ROLLED_BACK,
+            'stage': 'health',
+            'path': PIP,
+            'from': '0.8.0',
+            'to': '0.9.0',
+            'at': '2026-01-01T00:00:00Z',
+            'reported': False,
+        }
+        events = _record_events(monkeypatch)
+        monkeypatch.setattr(au.pip_update, 'read_record', lambda: doc)
+        monkeypatch.setattr(au.pip_update, 'mark_record_reported', lambda: None)
+        au.load_last_update()
+        au.reset_for_tests()
+        au.load_last_update()
+        bad = [e for e in events if e[0] == TelemetryEvent.UPDATE_APPLY_FAILED]
+        assert len(bad) == 2
+
     def test_no_record_is_not_an_error(self, monkeypatch):
         monkeypatch.setattr(au.pip_update, 'read_record', lambda: None)
         assert au.load_last_update() is None
