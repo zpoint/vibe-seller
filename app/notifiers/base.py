@@ -38,6 +38,53 @@ WEBHOOK_TIMEOUT = 30
 #: ``send(url, secret, content, msgtype) -> (ok, message)``.
 SendFn = Callable[[str, 'str | None', str, str], Awaitable['tuple[bool, str]']]
 
+# ── Security settings a platform offers ─────────────
+#
+# One bot can use several of them at once, which is why a bot's
+# ``security_mode`` is a LIST of these names, not a single value.
+# Every value below is verified against the platform's own doc
+# (``doc_url`` / the URL cited per platform in PLATFORMS).
+SECURITY_SIGN = 'sign'
+#: The platform signs each request with a shared secret (钉钉 加签,
+#: 飞书 签名校验) — the ``secret`` column carries it.
+SECURITY_KEYWORD = 'keyword'
+#: Messages must contain one of the bot's keywords (钉钉 自定义关键词,
+#: 飞书 自定义关键词) — the ``keyword`` column carries one of them.
+SECURITY_IP = 'ip'
+#: The caller's source IP must be whitelisted (钉钉 IP 地址（段）,
+#: 飞书 IP 白名单). Configured on the platform side only: Vibe Seller
+#: sends from wherever it runs, so there is nothing to store here —
+#: but storing WHICH setting is in use is what tells an IP-secured bot
+#: apart from one whose fields were simply left blank.
+SECURITY_OPTIONS = (SECURITY_SIGN, SECURITY_KEYWORD, SECURITY_IP)
+
+#: How to name one option in a server-side error.
+SECURITY_LABELS = {
+    SECURITY_SIGN: 'signing secret (加签 / 签名校验)',
+    SECURITY_KEYWORD: 'keyword (自定义关键词)',
+    SECURITY_IP: 'IP address (IP 地址段 / IP 白名单)',
+}
+
+
+@dataclass(frozen=True)
+class SecurityState:
+    """What one bot's security settings resolve to.
+
+    ``error`` is non-empty when the combination is not usable on the
+    platform; it names what is missing so the caller can show it
+    inline. ``mode`` is the canonical (registry-ordered) comma-joined
+    list of the settings in play, or ``None`` when nothing is.
+    ``secret`` / ``keyword`` are the values that survive the
+    resolution — a setting that is not in play keeps no value, so a
+    switch off it cannot leave a stale secret behind.
+    """
+
+    mode: str | None = None
+    options: tuple[str, ...] = ()
+    secret: str | None = None
+    keyword: str | None = None
+    error: str = ''
+
 
 @dataclass
 class Platform:
@@ -47,20 +94,29 @@ class Platform:
     let ``oapi.dingtalk.com.evil.com`` pass. ``path_prefix`` is the
     URL path the platform's webhook lives under, so a same-host URL
     pointing somewhere else is rejected too.
+
+    ``security_options`` / ``security_required`` describe the
+    platform's OWN security settings for a custom bot. They are the
+    single source of truth for what the form offers, what the server
+    accepts, and what a row must satisfy — the frontend renders from
+    them and never names a platform.
     """
 
     name: str
     label: str
     hosts: tuple[str, ...]
     path_prefix: str
-    uses_secret: bool
     supports_file: bool
     max_message: int
     limit_unit: str
     doc_url: str
-    #: Whether the platform offers keyword security (DingTalk
-    #: 自定义关键词, Feishu 关键词) that the server must satisfy.
-    uses_keyword: bool = False
+    #: The security settings this platform offers, in the order its own
+    #: UI lists them. Empty means the webhook URL alone is the
+    #: credential.
+    security_options: tuple[str, ...] = ()
+    #: Whether the platform refuses the bot until at least one of them
+    #: is configured.
+    security_required: bool = False
     #: Per-msgtype overrides of ``max_message`` (Slack caps markdown
     #: lower than plain text).
     limits: dict[str, int] = field(default_factory=dict)
@@ -71,14 +127,39 @@ class Platform:
         """The size limit that applies to ``msgtype``."""
         return self.limits.get(msgtype, self.max_message)
 
+    # Derived shorthand — kept so no reader has to know the option
+    # names, and so the two can never disagree with the registry.
+
+    @property
+    def uses_secret(self) -> bool:
+        """Whether a signing secret can be stored for this platform."""
+        return SECURITY_SIGN in self.security_options
+
+    @property
+    def uses_keyword(self) -> bool:
+        """Whether keyword security is offered by this platform."""
+        return SECURITY_KEYWORD in self.security_options
+
+    def security_error(self) -> str:
+        """The 'choose at least one of …' message for this platform."""
+        choices = ', '.join(
+            SECURITY_LABELS[option] for option in self.security_options
+        )
+        return (
+            f'{self.label} requires at least one security setting '
+            f'— choose: {choices}'
+        )
+
 
 PLATFORMS: dict[str, Platform] = {
+    # WeCom 群机器人 (doc_url): the webhook ``?key=`` IS the credential.
+    # The doc lists no keyword / signature / IP settings for a group
+    # bot, so the form shows no security section at all.
     'wecom': Platform(
         name='wecom',
         label='WeCom',
         hosts=('qyapi.weixin.qq.com',),
         path_prefix='/cgi-bin/webhook/',
-        uses_secret=False,
         supports_file=True,
         max_message=4096,
         limit_unit='bytes',
@@ -89,13 +170,20 @@ PLATFORMS: dict[str, Platform] = {
         limits={'text': 2048},
         doc_url=('https://developer.work.weixin.qq.com/document/path/91770'),
     ),
+    # DingTalk 自定义机器人. 安全设置 offers 自定义关键词 / 加签 /
+    # IP 地址（段） — open.dingtalk.com/document/robots/
+    # customize-robot-security-settings ("我们提供三种保护措施…
+    # 设置自定义关键词、加签（使用签名加密）和 IP 地址（段）"), and the
+    # robot is only created once 安全设置 has at least one of them
+    # (创建自定义机器人: "安全设置（至少选择一种）"); a message that
+    # satisfies none comes back as errcode 310000. So REQUIRED.
     'dingtalk': Platform(
         name='dingtalk',
         label='DingTalk',
         hosts=('oapi.dingtalk.com',),
         path_prefix='/robot/send',
-        uses_secret=True,
-        uses_keyword=True,
+        security_options=(SECURITY_SIGN, SECURITY_KEYWORD, SECURITY_IP),
+        security_required=True,
         supports_file=False,
         max_message=20000,
         limit_unit='bytes',
@@ -103,13 +191,19 @@ PLATFORMS: dict[str, Platform] = {
             'https://open.dingtalk.com/document/orgapp/custom-robot-access'
         ),
     ),
+    # Feishu 自定义机器人. The same guide
+    # (open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)
+    # offers 自定义关键词 / IP 白名单 / 签名校验 and says "In the same
+    # custom bot, you can set one or more methods" plus "We strongly
+    # recommend adding security settings" — recommended, never
+    # required: a bot with none of them still sends.
     'feishu': Platform(
         name='feishu',
         label='Feishu / Lark',
         hosts=('open.feishu.cn', 'open.larksuite.com'),
         path_prefix='/open-apis/bot/v2/hook/',
-        uses_secret=True,
-        uses_keyword=True,
+        security_options=(SECURITY_SIGN, SECURITY_KEYWORD, SECURITY_IP),
+        security_required=False,
         supports_file=False,
         max_message=20000,
         limit_unit='bytes',
@@ -117,12 +211,14 @@ PLATFORMS: dict[str, Platform] = {
             'https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot'
         ),
     ),
+    # Slack incoming webhooks (doc_url): the URL's token is the
+    # credential; no keyword / signature / IP settings exist for a
+    # webhook, so no security section.
     'slack': Platform(
         name='slack',
         label='Slack',
         hosts=('hooks.slack.com', 'hooks.slack-gov.com'),
         path_prefix='/services/',
-        uses_secret=False,
         supports_file=False,
         max_message=40000,
         limit_unit='chars',
@@ -383,6 +479,138 @@ def ensure_keyword(content: str, keyword: str | None) -> str:
     if keyword in content:
         return content
     return content.rstrip() + '\n\n' + keyword
+
+
+# ── Security settings ───────────────────────────────
+
+
+def split_security_mode(mode: str | None) -> tuple[str, ...]:
+    """The option names a stored/sent ``security_mode`` lists.
+
+    Tolerant of whitespace and repeats; an unknown name is kept so the
+    caller can name it back in its error rather than silently dropping
+    a setting the user meant to turn on.
+    """
+    if not mode:
+        return ()
+    seen: list[str] = []
+    for part in mode.split(','):
+        name = part.strip()
+        if name and name not in seen:
+            seen.append(name)
+    return tuple(seen)
+
+
+def join_security_mode(
+    platform: Platform, options: tuple[str, ...] | list[str] | set[str]
+) -> str | None:
+    """The canonical ``security_mode`` string for ``options``.
+
+    Ordered by the platform's own ``security_options``, so the same set
+    always stores as the same string (and a re-save does not look like
+    a change).
+    """
+    chosen = set(options)
+    ordered = [o for o in platform.security_options if o in chosen]
+    # An option the platform does not offer cannot be ordered; keep it
+    # visible rather than dropping it, so a bad value never vanishes.
+    ordered += [o for o in sorted(chosen) if o not in ordered]
+    return ','.join(ordered) if ordered else None
+
+
+def resolve_security(
+    platform: Platform,
+    mode: str | None,
+    secret: str | None,
+    keyword: str | None,
+    *,
+    authoritative: bool = False,
+) -> SecurityState:
+    """The one place a bot's security settings are decided.
+
+    The platform registry decides WHAT exists (``security_options``)
+    and whether the platform insists on one (``security_required``);
+    this turns a caller's (mode, secret, keyword) into the state that
+    gets stored, or an error naming what is missing.
+
+    * ``authoritative`` — the caller NAMED its settings (the form
+      always does, ``app/routers/chat_bots.py``). The named set is what
+      gets stored, so switching a bot off 加签 clears the stored
+      secret instead of leaving a value no request signs with.
+    * ``authoritative=False`` — the caller only touched the fields
+      (an API client, a legacy row). Nothing is dropped: the settings
+      in play are the named ones PLUS the ones a filled field implies.
+
+    A value filled for a setting the PLATFORM does not offer is refused
+    either way — WeCom and Slack have nothing to switch to.
+    """
+    clean_secret = (secret or '').strip() or None
+    clean_keyword = (keyword or '').strip() or None
+    declared = split_security_mode(mode)
+
+    if declared and not platform.security_options:
+        return SecurityState(
+            error=(
+                f'{platform.label} webhooks have no security settings — '
+                'the webhook URL alone is the credential'
+            )
+        )
+    unknown = [o for o in declared if o not in platform.security_options]
+    if unknown:
+        offered = ', '.join(platform.security_options) or 'none'
+        return SecurityState(
+            error=(
+                f'Unknown security setting {", ".join(unknown)} for '
+                f'{platform.label} — this platform offers: {offered}'
+            )
+        )
+    if clean_secret and not platform.uses_secret:
+        return SecurityState(
+            error=f'{platform.label} webhooks do not use a signing secret'
+        )
+    if clean_keyword and not platform.uses_keyword:
+        return SecurityState(
+            error=f'{platform.label} webhooks do not use keyword security'
+        )
+
+    options = list(declared)
+    if not authoritative:
+        if clean_secret and SECURITY_SIGN not in options:
+            options.append(SECURITY_SIGN)
+        if clean_keyword and SECURITY_KEYWORD not in options:
+            options.append(SECURITY_KEYWORD)
+
+    if SECURITY_SIGN in options and not clean_secret:
+        return SecurityState(
+            error=(
+                f'{platform.label} needs the signing secret for '
+                f'{SECURITY_LABELS[SECURITY_SIGN]} — paste it, or choose '
+                'another security setting'
+            )
+        )
+    if SECURITY_KEYWORD in options and not clean_keyword:
+        return SecurityState(
+            error=(
+                f'{platform.label} needs the keyword for '
+                f'{SECURITY_LABELS[SECURITY_KEYWORD]} — enter one of the '
+                'keywords set on the bot, or choose another security '
+                'setting'
+            )
+        )
+    if not options and platform.security_required:
+        return SecurityState(error=platform.security_error())
+
+    # A setting that is not in play carries no value: keeping the field
+    # would store a secret the bot never signs with (and hand it back to
+    # the edit form as if it were live).
+    keep_secret = clean_secret if SECURITY_SIGN in options else None
+    keep_keyword = clean_keyword if SECURITY_KEYWORD in options else None
+    return SecurityState(
+        mode=join_security_mode(platform, options),
+        options=tuple(options),
+        secret=keep_secret,
+        keyword=keep_keyword,
+    )
 
 
 # ── Dispatch ────────────────────────────────────────

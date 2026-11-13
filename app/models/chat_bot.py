@@ -32,6 +32,18 @@ class ChatBot(Base):
     # Optional signing secret (DingTalk 加签 / Feishu 签名校验).
     # Meaningless for WeCom and Slack, which the API rejects.
     secret: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: WHICH of the platform's own security settings this bot relies
+    #: on — a comma-joined list of names from
+    #: ``app.notifiers.base.PLATFORMS[...].security_options``
+    #: ('sign', 'keyword', 'ip'), in registry order; None means "not
+    #: recorded" (a row written before the column existed, or a
+    #: platform with no security settings at all).
+    #:
+    #: The fields alone cannot say this: an IP-whitelisted DingTalk bot
+    #: has no secret and no keyword on purpose, and a row that simply
+    #: forgot them looks identical. See
+    #: ``app.notifiers.base.resolve_security``.
+    security_mode: Mapped[str | None] = mapped_column(String, nullable=True)
     # Optional security keyword (DingTalk 自定义关键词 / Feishu 关键词).
     # NOT a secret: the UI shows it and the server appends it to any
     # outgoing message that doesn't already contain it. The agent never

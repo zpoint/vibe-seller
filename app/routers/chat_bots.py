@@ -102,7 +102,13 @@ def _platform_or_400(url: str) -> Platform:
 
 
 def _platform_info(platform: Platform) -> dict:
-    """Registry metadata for the frontend (and the platform picker)."""
+    """Registry metadata for the frontend (and the platform picker).
+
+    ``security_options`` / ``security_required`` are the whole story of
+    what a platform's own security settings are: the form renders its
+    section from them and never names a platform, so adding one means
+    adding a registry entry, not editing a component.
+    """
     return {
         'name': platform.name,
         'label': platform.label,
@@ -110,6 +116,8 @@ def _platform_info(platform: Platform) -> dict:
         'path_prefix': platform.path_prefix,
         'uses_secret': platform.uses_secret,
         'uses_keyword': platform.uses_keyword,
+        'security_options': list(platform.security_options),
+        'security_required': platform.security_required,
         'supports_file': platform.supports_file,
         'max_message': platform.max_message,
         'limits': dict(platform.limits),
@@ -137,6 +145,28 @@ def _check_platform_matches(bot: ChatBot) -> None:
         )
 
 
+def _effective_mode(bot: ChatBot) -> str | None:
+    """The settings this row relies on, recorded or implied.
+
+    A row written before ``security_mode`` existed says nothing in that
+    column, but its fields still say a lot: a stored secret means 加签,
+    a stored keyword means 关键词. Deriving it on read (rather than
+    backfilling at boot) keeps one rule — what the fields imply is the
+    mode — and lets the next save write it down. Neither field means
+    no recorded mode, which is honest: an IP-whitelisted DingTalk bot
+    and one whose settings were simply never stated look identical in
+    the old schema, and only the user can tell them apart.
+    """
+    if bot.security_mode:
+        return bot.security_mode
+    platform = PLATFORMS.get(bot.platform)
+    if platform is None:
+        return None
+    return base.resolve_security(
+        platform, None, bot.secret, bot.keyword, authoritative=False
+    ).mode
+
+
 def _summary(bot: ChatBot) -> ChatBotSummary:
     platform = PLATFORMS.get(bot.platform)
     return ChatBotSummary(
@@ -162,6 +192,7 @@ def _response(bot: ChatBot) -> ChatBotResponse:
         platform=bot.platform,
         secret=bot.secret,
         keyword=bot.keyword,
+        security_mode=_effective_mode(bot),
         has_secret=bool(bot.secret),
         can_send_file=bool(platform and platform.supports_file),
         created_at=bot.created_at,
@@ -215,7 +246,10 @@ async def create_chat_bot(
 ):
     """Create a new chat bot config.
 
-    The platform comes from the webhook URL, not from the request.
+    The platform comes from the webhook URL, not from the request, and
+    the platform's registry entry decides which security settings the
+    row may carry (``base.resolve_security``) — including DingTalk's
+    own rule that a robot has at least one.
     """
     name = (data.name or '').strip()
     url = (data.webhook_url or '').strip()
@@ -225,25 +259,23 @@ async def create_chat_bot(
         raise HTTPException(status_code=400, detail='Webhook URL is required')
 
     platform = _platform_or_400(url)
-    secret = (data.secret or '').strip()
-    if secret and not platform.uses_secret:
-        raise HTTPException(
-            status_code=400,
-            detail=(f'{platform.label} webhooks do not use a signing secret'),
-        )
-    keyword = (data.keyword or '').strip()
-    if keyword and not platform.uses_keyword:
-        raise HTTPException(
-            status_code=400,
-            detail=(f'{platform.label} webhooks do not use keyword security'),
-        )
+    security = base.resolve_security(
+        platform,
+        data.security_mode,
+        data.secret,
+        data.keyword,
+        authoritative=data.security_mode is not None,
+    )
+    if security.error:
+        raise HTTPException(status_code=400, detail=security.error)
 
     bot = ChatBot(
         name=name,
         webhook_url=url,
         platform=platform.name,
-        secret=secret or None,
-        keyword=keyword or None,
+        secret=security.secret,
+        keyword=security.keyword,
+        security_mode=security.mode,
         created_by=user.id,
     )
     db.add(bot)
@@ -269,6 +301,19 @@ async def update_chat_bot(
     Changing the webhook URL re-derives the platform. A signing
     secret or keyword that no longer applies (the platform moved to
     WeCom or Slack) is cleared rather than kept around.
+
+    The security settings are validated as one state — the same
+    ``resolve_security`` the create path runs — whenever the request
+    speaks about security (names a mode, or touches either field, or
+    moves the bot to another platform). A request that only renames
+    the bot leaves the recorded mode alone, so a row that predates the
+    column stays editable.
+
+    When the request NAMES a mode (the form always does), that mode is
+    authoritative and the fields it does not name are cleared: a bot
+    switched off 加签 must not keep a secret no request signs with —
+    and because a blank box posts back the stored MASK (which means
+    "keep"), the mode is the only way the form can say "turn it off".
     """
     bot = await db.get(ChatBot, bot_id)
     if not bot:
@@ -277,6 +322,7 @@ async def update_chat_bot(
     update = data.model_dump(exclude_unset=True)
 
     platform_name = bot.platform
+    url_changed = False
     if 'webhook_url' in update:
         url = update['webhook_url']
         if url is None:
@@ -289,6 +335,7 @@ async def update_chat_bot(
                 status_code=400, detail='webhook_url cannot be blank'
             )
         platform_name = _platform_or_400(url).name
+        url_changed = True
         bot.webhook_url = url
         bot.platform = platform_name
 
@@ -301,39 +348,68 @@ async def update_chat_bot(
             raise HTTPException(status_code=400, detail='name cannot be blank')
         bot.name = name
 
-    if 'secret' in update:
-        secret = (update['secret'] or '').strip()
-        platform = PLATFORMS.get(platform_name)
-        if secret and not (platform and platform.uses_secret):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f'{platform.label if platform else platform_name} '
-                    'webhooks do not use a signing secret'
-                ),
-            )
-        bot.secret = secret or None
-
-    if 'keyword' in update:
-        keyword = (update['keyword'] or '').strip()
-        platform = PLATFORMS.get(platform_name)
-        if keyword and not (platform and platform.uses_keyword):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f'{platform.label if platform else platform_name} '
-                    'webhooks do not use keyword security'
-                ),
-            )
-        bot.keyword = keyword or None
-
-    # A secret or keyword the (possibly new) platform cannot use is
-    # dropped: keeping either would leave it on a row that never uses it.
     platform = PLATFORMS.get(platform_name)
-    if bot.secret and not (platform and platform.uses_secret):
-        bot.secret = None
-    if bot.keyword and not (platform and platform.uses_keyword):
-        bot.keyword = None
+    speaks_about_security = (
+        url_changed
+        or 'security_mode' in update
+        or 'secret' in update
+        or 'keyword' in update
+    )
+    if platform is not None and speaks_about_security:
+        declared = 'security_mode' in update
+        stored_secret, stored_keyword = bot.secret, bot.keyword
+        secret = update.get('secret', stored_secret)
+        keyword = update.get('keyword', stored_keyword)
+        # An untouched box posts back the stored MASK (or empty, which
+        # the secret guard restores the same way): a value identical to
+        # what the row already holds is the row CARRYING its setting,
+        # not the caller asking for it. A carried value the platform
+        # cannot use is dropped — moving a signed DingTalk bot onto a
+        # WeCom URL is exactly how the UI clears that secret — while a
+        # value actually supplied for such a platform is refused.
+        if secret == stored_secret and not platform.uses_secret:
+            secret = None
+        if keyword == stored_keyword and not platform.uses_keyword:
+            keyword = None
+        mode = update['security_mode'] if declared else bot.security_mode
+        if url_changed and not declared:
+            # The platform may have moved to one that offers different
+            # settings; fall back to the fields, never to the old row's
+            # mode, which might not exist here any more.
+            mode = None
+        security = base.resolve_security(
+            platform,
+            mode,
+            secret,
+            keyword,
+            authoritative=declared,
+        )
+        if security.error:
+            raise HTTPException(status_code=400, detail=security.error)
+        bot.security_mode = security.mode
+        bot.secret = security.secret
+        bot.keyword = security.keyword
+    else:
+        # Nothing here speaks about security (a rename), or the row's
+        # platform is not in the registry any more. The settings stay —
+        # except anything the platform cannot use, which for a gone
+        # platform is everything: keeping it would leave a secret on a
+        # row that never signs with it.
+        if bot.secret and not (platform and platform.uses_secret):
+            bot.secret = None
+        if bot.keyword and not (platform and platform.uses_keyword):
+            bot.keyword = None
+        if bot.security_mode and platform is not None:
+            bot.security_mode = base.join_security_mode(
+                platform,
+                [
+                    option
+                    for option in base.split_security_mode(bot.security_mode)
+                    if option in platform.security_options
+                ],
+            )
+        elif bot.security_mode:
+            bot.security_mode = None
 
     bot.updated_at = datetime.now(UTC).isoformat()
     await db.commit()

@@ -894,6 +894,7 @@ Slack) — Settings → Integrations → Chat bots.
 | `webhook_url` | string | The webhook URL; required for `create`. The host decides the platform. **Write-only** (masked on read). |
 | `secret` | string | Signing secret. **Write-only**; empty string on update clears it. |
 | `keyword` | string | Security keyword (not a secret; shown like in the UI). |
+| `security_mode` | string | Which of the platform's OWN security settings the bot uses: a comma-joined list of `sign`, `keyword`, `ip` (see the `platforms` action for what a platform offers). Omit it and the settings are read off `secret`/`keyword`; send it to record `ip` and to switch a setting off. DingTalk needs at least one. |
 | `content` | string | `test` (optional — defaults to the standard test message) and `send`: the message. |
 | `msgtype` | string | `send`: `text` (default) or `markdown`. |
 | `content_base64` | string | `send_file`: the file, base64 (max 10 MB; WeCom only). |

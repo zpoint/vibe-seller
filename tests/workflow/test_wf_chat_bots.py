@@ -14,6 +14,9 @@ Covers:
 - /test and /send delegate to the notifier dispatch
 - /send-file refuses non-WeCom platforms BEFORE path resolution
 - legacy rows (pre-platform schema) read back as wecom
+- the security settings each platform offers: served from the
+  registry, stored as `security_mode`, required for DingTalk, optional
+  for Feishu, refused for WeCom/Slack (TestSecuritySettings)
 - auth required (anonymous request gets 401)
 """
 
@@ -32,7 +35,7 @@ from app.mcp_tool_schemas import TOOLS
 from app.models.base import Base
 from app.models.chat_bot import ChatBot
 from app.notifiers import wecom
-from app.notifiers.base import PLATFORMS, ensure_keyword
+from app.notifiers.base import PLATFORMS, detect_platform, ensure_keyword
 
 pytestmark = pytest.mark.workflow
 
@@ -49,6 +52,25 @@ PLATFORM_URLS = {
 }
 
 
+def create_body(name: str, url: str, **extra) -> dict:
+    """A create body that the platform's own rules accept.
+
+    DingTalk refuses a custom robot with no security setting at all
+    (``app/notifiers/base.resolve_security``), so a test that is not
+    ABOUT security still has to say which setting the bot uses — here
+    the IP range, the one that needs no value from us. Tests that pin
+    a setting pass ``secret`` / ``keyword`` / ``security_mode``
+    themselves, which keeps this helper out of their way.
+    """
+    body = {'name': name, 'webhook_url': url}
+    platform = PLATFORMS[detect_platform(url)]
+    supplied = {'secret', 'keyword', 'security_mode'} & extra.keys()
+    if platform.security_required and not supplied:
+        body['security_mode'] = 'ip'
+    body.update(extra)
+    return body
+
+
 class TestChatBotCRUD:
     async def test_list_empty_initially(self, admin_client):
         r = await admin_client.get('/api/chat-bots')
@@ -60,8 +82,7 @@ class TestChatBotCRUD:
         self, admin_client, override_async_session, platform, url
     ):
         r = await admin_client.post(
-            '/api/chat-bots',
-            json={'name': f'Bot {platform}', 'webhook_url': url},
+            '/api/chat-bots', json=create_body(f'Bot {platform}', url)
         )
         assert r.status_code == 200, r.text
         body = r.json()
@@ -472,11 +493,16 @@ class TestKeywordSecurity:
         )
         assert r.status_code == 200
         assert r.json()['keyword'] == 'OPS'
+        # Clearing the keyword needs a bot that is secured some other
+        # way: DingTalk refuses a robot with NO security setting, so
+        # the request moves it to the IP range instead. Refusing to
+        # blank the last one is pinned by
+        # test_clearing_the_last_setting_is_refused.
         r = await admin_client.put(
             f'/api/chat-bots/{created["id"]}',
-            json={'keyword': ''},
+            json={'keyword': '', 'security_mode': 'ip'},
         )
-        assert r.status_code == 200
+        assert r.status_code == 200, r.text
         assert r.json()['keyword'] is None
 
     async def test_keyword_rejected_for_wecom_and_slack(self, admin_client):
@@ -640,12 +666,320 @@ class TestKeywordSecurity:
         await admin_client.delete(f'/api/chat-bots/{created["id"]}')
 
 
+class TestSecuritySettings:
+    """Which security settings a bot may carry, per platform.
+
+    The platform registry (``app/notifiers/base.py``) is the only place
+    that answer lives; these pin that what it says is served, stored,
+    and refused — and that the stored mode says the thing the fields
+    cannot: an IP-whitelisted DingTalk robot has no secret and no
+    keyword ON PURPOSE.
+    """
+
+    # ── served ────────────────────────────────────────
+
+    async def test_platforms_endpoint_serves_the_descriptor(self, admin_client):
+        platforms = {
+            p['name']: p
+            for p in (await admin_client.get('/api/chat-bots/platforms')).json()
+        }
+        assert platforms['dingtalk']['security_options'] == [
+            'sign',
+            'keyword',
+            'ip',
+        ]
+        assert platforms['dingtalk']['security_required'] is True
+        assert platforms['feishu']['security_options'] == [
+            'sign',
+            'keyword',
+            'ip',
+        ]
+        assert platforms['feishu']['security_required'] is False
+        for name in ('wecom', 'slack'):
+            assert platforms[name]['security_options'] == []
+            assert platforms[name]['security_required'] is False
+
+    # ── required: DingTalk ────────────────────────────
+
+    async def test_dingtalk_refuses_a_bot_with_no_setting(self, admin_client):
+        r = await admin_client.post(
+            '/api/chat-bots',
+            json={'name': 'Nothing', 'webhook_url': DINGTALK_URL},
+        )
+        assert r.status_code == 400
+        detail = r.json()['detail']
+        # Names what is missing, in a form the UI can show inline.
+        assert 'at least one security setting' in detail
+        for choice in ('加签', '自定义关键词', 'IP 地址段'):
+            assert choice in detail
+
+    async def test_ip_mode_is_stored_with_both_fields_empty(
+        self, admin_client, override_async_session
+    ):
+        created = (
+            await admin_client.post(
+                '/api/chat-bots',
+                json={
+                    'name': 'IP only',
+                    'webhook_url': DINGTALK_URL,
+                    'security_mode': 'ip',
+                },
+            )
+        ).json()
+        assert created['security_mode'] == 'ip'
+        assert created['secret'] is None
+        assert created['keyword'] is None
+        async with override_async_session() as db:
+            row = await db.get(ChatBot, created['id'])
+            assert row.security_mode == 'ip'
+            assert row.secret is None
+
+    @pytest.mark.parametrize(
+        'mode,missing',
+        [('sign', 'signing secret'), ('keyword', 'keyword')],
+    )
+    async def test_a_named_setting_without_its_field_is_refused(
+        self, admin_client, mode, missing
+    ):
+        r = await admin_client.post(
+            '/api/chat-bots',
+            json={
+                'name': 'Half set',
+                'webhook_url': DINGTALK_URL,
+                'security_mode': mode,
+            },
+        )
+        assert r.status_code == 400
+        assert missing in r.json()['detail']
+
+    async def test_clearing_the_last_setting_is_refused(self, admin_client):
+        """'Blank clears it' cannot mean 'leave the robot unprotected'.
+
+        The row's own mode still names 自定义关键词, so the refusal says
+        what the mode now owes — a keyword — and points at choosing
+        another setting instead.
+        """
+        created = (
+            await admin_client.post(
+                '/api/chat-bots',
+                json={
+                    'name': 'KW',
+                    'webhook_url': DINGTALK_URL,
+                    'keyword': 'SALES',
+                },
+            )
+        ).json()
+        r = await admin_client.put(
+            f'/api/chat-bots/{created["id"]}', json={'keyword': ''}
+        )
+        assert r.status_code == 400
+        detail = r.json()['detail']
+        assert 'needs the keyword' in detail
+        assert 'choose another security setting' in detail
+        # And a row that never recorded a setting at all gets the
+        # "pick one" message instead — both say what is missing.
+        legacy = (
+            await admin_client.post(
+                '/api/chat-bots',
+                json=create_body('Legacy blank', DINGTALK_URL),
+            )
+        ).json()
+        r = await admin_client.put(
+            f'/api/chat-bots/{legacy["id"]}',
+            json={'security_mode': '', 'keyword': ''},
+        )
+        assert r.status_code == 400
+        assert 'at least one security setting' in r.json()['detail']
+
+    async def test_mode_switch_clears_the_setting_it_leaves(
+        self, admin_client, override_async_session
+    ):
+        """The form unticks 加签: the box posts back the stored MASK —
+        which means "keep" — so only the mode can turn the secret off.
+        """
+        created = (
+            await admin_client.post(
+                '/api/chat-bots',
+                json={
+                    'name': 'Switcher',
+                    'webhook_url': DINGTALK_URL,
+                    'security_mode': 'sign',
+                    'secret': 'SECstale',
+                    'keyword': 'SALES',
+                },
+            )
+        ).json()
+        assert created['security_mode'] == 'sign'
+        r = await admin_client.put(
+            f'/api/chat-bots/{created["id"]}',
+            json={'security_mode': 'keyword', 'keyword': 'SALES'},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body['security_mode'] == 'keyword'
+        assert body['secret'] is None
+        assert body['has_secret'] is False
+        async with override_async_session() as db:
+            row = await db.get(ChatBot, created['id'])
+            assert row.secret is None
+
+    # ── optional: Feishu ──────────────────────────────
+
+    async def test_feishu_accepts_a_bot_with_no_setting(self, admin_client):
+        r = await admin_client.post(
+            '/api/chat-bots',
+            json={'name': 'Bare Feishu', 'webhook_url': FEISHU_URL},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()['security_mode'] is None
+
+    async def test_feishu_keeps_several_settings_at_once(self, admin_client):
+        r = await admin_client.post(
+            '/api/chat-bots',
+            json={
+                'name': 'Both',
+                'webhook_url': FEISHU_URL,
+                'security_mode': 'keyword,sign',
+                'secret': 'SECboth',
+                'keyword': 'SALES',
+            },
+        )
+        assert r.status_code == 200, r.text
+        # Canonical order (the registry's), not whatever was sent.
+        assert r.json()['security_mode'] == 'sign,keyword'
+
+    # ── nothing offered: WeCom / Slack ───────────────
+
+    @pytest.mark.parametrize('url', [WECOM_URL, SLACK_URL])
+    async def test_url_only_platforms_refuse_a_mode(self, admin_client, url):
+        r = await admin_client.post(
+            '/api/chat-bots',
+            json={'name': 'Nope', 'webhook_url': url, 'security_mode': 'ip'},
+        )
+        assert r.status_code == 400
+        assert 'no security settings' in r.json()['detail']
+
+    @pytest.mark.parametrize('mode', ['pigeon', 'sign,carrier-pigeon'])
+    async def test_an_option_the_platform_does_not_offer_is_refused(
+        self, admin_client, mode
+    ):
+        r = await admin_client.post(
+            '/api/chat-bots',
+            json={
+                'name': 'Bad mode',
+                'webhook_url': DINGTALK_URL,
+                'security_mode': mode,
+                'secret': 'SECok',
+            },
+        )
+        assert r.status_code == 400
+        assert 'Unknown security setting' in r.json()['detail']
+
+    # ── existing rows ────────────────────────────────
+
+    async def test_legacy_rows_read_back_a_derived_mode(
+        self, admin_client, override_async_session, admin_user
+    ):
+        """A row that predates the column says nothing there; its
+        fields still say a lot, and the read path derives."""
+        async with override_async_session() as db:
+            for suffix, secret, keyword in (
+                ('sign', 'SEClegacy', None),
+                ('keyword', None, 'SALES'),
+                ('blank', None, None),
+            ):
+                db.add(
+                    ChatBot(
+                        name=f'Legacy {suffix}',
+                        webhook_url=DINGTALK_URL,
+                        platform='dingtalk',
+                        secret=secret,
+                        keyword=keyword,
+                        created_by=admin_user.id,
+                    )
+                )
+            await db.commit()
+
+        rows = (await admin_client.get('/api/chat-bots')).json()
+        by_name = {b['name']: b['id'] for b in rows}
+        got = {}
+        for suffix, expected in (
+            ('sign', 'sign'),
+            ('keyword', 'keyword'),
+            ('blank', None),
+        ):
+            full = (
+                await admin_client.get(
+                    f'/api/chat-bots/{by_name[f"Legacy {suffix}"]}'
+                )
+            ).json()
+            got[suffix] = full['security_mode']
+            assert got[suffix] == expected, suffix
+        # Nothing was invented at boot: the column stays NULL until a
+        # save writes what the user actually chose.
+        async with override_async_session() as db:
+            bots = (await db.execute(select(ChatBot))).scalars().all()
+            assert {b.security_mode for b in bots} == {None}
+
+    async def test_renaming_a_legacy_row_does_not_demand_a_setting(
+        self, admin_client, override_async_session, admin_user
+    ):
+        """Backwards compatibility: a request that says nothing about
+        security must not be held to the new rule, or every old bot
+        would become un-editable."""
+        async with override_async_session() as db:
+            bot = ChatBot(
+                name='Ancient',
+                webhook_url=DINGTALK_URL,
+                platform='dingtalk',
+                created_by=admin_user.id,
+            )
+            db.add(bot)
+            await db.commit()
+            await db.refresh(bot)
+            bot_id = bot.id
+
+        r = await admin_client.put(
+            f'/api/chat-bots/{bot_id}', json={'name': 'Renamed'}
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()['security_mode'] is None
+        async with override_async_session() as db:
+            row = await db.get(ChatBot, bot_id)
+            assert row.name == 'Renamed'
+            assert row.security_mode is None
+
+    async def test_moving_a_signed_bot_to_a_settingless_platform_clears_all(
+        self, admin_client
+    ):
+        """The URL move, not the user, is what makes the secret stale —
+        so it is dropped, not refused."""
+        created = (
+            await admin_client.post(
+                '/api/chat-bots',
+                json={
+                    'name': 'Mover',
+                    'webhook_url': DINGTALK_URL,
+                    'security_mode': 'sign',
+                    'secret': 'SECmove',
+                },
+            )
+        ).json()
+        r = await admin_client.put(
+            f'/api/chat-bots/{created["id"]}', json={'webhook_url': WECOM_URL}
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body['platform'] == 'wecom'
+        assert body['secret'] is None
+        assert body['security_mode'] is None
+
+
 class TestChatBotTest:
     async def _make_bot(self, admin_client, url=WECOM_URL):
         return (
             await admin_client.post(
-                '/api/chat-bots',
-                json={'name': 'Bot', 'webhook_url': url},
+                '/api/chat-bots', json=create_body('Bot', url)
             )
         ).json()
 
@@ -763,8 +1097,7 @@ class TestChatBotSend:
     async def _make_bot(self, admin_client, url=WECOM_URL):
         return (
             await admin_client.post(
-                '/api/chat-bots',
-                json={'name': 'Bot', 'webhook_url': url},
+                '/api/chat-bots', json=create_body('Bot', url)
             )
         ).json()
 
@@ -860,8 +1193,7 @@ class TestChatBotSendFile:
     async def _make_bot(self, admin_client, url=WECOM_URL):
         return (
             await admin_client.post(
-                '/api/chat-bots',
-                json={'name': 'Bot', 'webhook_url': url},
+                '/api/chat-bots', json=create_body('Bot', url)
             )
         ).json()
 
@@ -1122,13 +1454,21 @@ class TestLegacyRows:
         }
         assert 'platform' in cols
         assert 'secret' in cols
+        assert 'keyword' in cols
+        assert 'security_mode' in cols
         row = check.execute(
-            'SELECT platform, secret FROM wecom_bots WHERE id=?',
+            'SELECT platform, secret, keyword, security_mode '
+            'FROM wecom_bots WHERE id=?',
             ('legacy-1',),
         ).fetchone()
         check.close()
         assert row[0] == 'wecom'
         assert row[1] is None
+        # The new columns arrive NULL, never a made-up 'none': a row
+        # that predates them genuinely has no recorded setting, and the
+        # read path derives it from the fields instead.
+        assert row[2] is None
+        assert row[3] is None
 
     async def test_model_reads_legacy_rows(
         self, override_async_session, admin_user

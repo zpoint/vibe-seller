@@ -13,9 +13,10 @@ unless its env var carries a REAL webhook URL:
 Two tests per platform, so the UI leg can run WITHOUT an LLM provider:
 
   - ``test_chat_bot_ui_flow`` — UI config (Settings → Integrations →
-    Add bot: paste the URL (+secret), the live platform badge shows
-    the right platform, Save succeeds, the row shows the masked URL,
-    and the RAW URL/secret never appears in the page text), the UI
+    Add bot: paste the URL, pick the security setting the robot uses
+    and fill its value, the live platform badge shows the right
+    platform, Save succeeds, the row shows the masked URL, and the
+    RAW URL/secret never appears in the page text), the UI
     Test button (a REAL delivery; screenshot), then delete via the UI.
     No agent task.
 
@@ -208,6 +209,17 @@ def _keyword_cases():
     return cases
 
 
+def _registry(api_client):
+    """The served platform registry, keyed by platform name.
+
+    The form renders its whole security section from it, so the UI
+    legs decide which setting to pick from the same data.
+    """
+    r = api_client.get(f'{BASE_URL}/api/chat-bots/platforms')
+    assert r.status_code == 200
+    return {p['name']: p for p in r.json()}
+
+
 def _open_integrations(page):
     page.reload()
     page.wait_for_selector('h1', timeout=10000)
@@ -373,9 +385,18 @@ def test_chat_bot_ui_flow(
     expect(badge).to_contain_text(PLATFORM_LABELS[platform], timeout=5000)
 
     if secret:
+        # The security section shows only the CHOSEN setting's field:
+        # pick 加签 first, then the secret box appears to fill.
+        page.locator('[data-testid="chat-bot-mode-sign"]').click()
         secret_box = page.locator('[data-testid="chat-bot-secret"]')
         expect(secret_box).to_be_visible()
         secret_box.fill(secret)
+    elif _registry(api_client)[platform]['security_required']:
+        # A required-setting robot with no secret relies on its IP
+        # whitelist — record that mode so both fields stay blank on
+        # purpose (the server refuses a nameless blank otherwise).
+        page.locator('[data-testid="chat-bot-mode-ip"]').click()
+        expect(page.locator('[data-testid="chat-bot-ip-note"]')).to_be_visible()
 
     page.locator('[data-testid="chat-bot-save"]').click()
 
@@ -440,7 +461,8 @@ def test_chat_bot_keyword_ui_flow(
     badge = page.locator('[data-testid="chat-bot-platform-badge"]')
     expect(badge).to_contain_text(PLATFORM_LABELS[platform], timeout=5000)
 
-    # The keyword field appears only for keyword platforms; fill it.
+    # The keyword field appears only once 自定义关键词 is chosen.
+    page.locator('[data-testid="chat-bot-mode-keyword"]').click()
     keyword_box = page.locator('[data-testid="chat-bot-keyword"]')
     expect(keyword_box).to_be_visible()
     keyword_box.fill(keyword)
@@ -496,9 +518,16 @@ def test_chat_bot_agent_send(api_client, platform, webhook_url, secret):
     bot_name = f'e2e-{platform}-agent-{nonce}'
     bot_id = None
     try:
+        # Mirror what the form would post — including the security
+        # setting the robot relies on.
         payload = {'name': bot_name, 'webhook_url': webhook_url}
         if secret:
             payload['secret'] = secret
+            payload['security_mode'] = 'sign'
+        elif _registry(api_client)[platform]['security_required']:
+            # IP-whitelisted robot: both fields blank ON PURPOSE, so
+            # the mode names the setting.
+            payload['security_mode'] = 'ip'
         created = api_client.post(f'{BASE_URL}/api/chat-bots', json=payload)
         assert created.status_code == 200, (
             f'bot create failed: {created.status_code}'

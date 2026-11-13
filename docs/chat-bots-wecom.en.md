@@ -39,10 +39,10 @@ Good to know:
 1. Open Vibe Seller, go to **Settings → Integrations → Chat bots**, and
    click **Add Bot**;
 2. Enter a **name** (e.g. "Ops alerts") and paste the **Webhook URL** you
-   just copied — the platform is detected as WeCom automatically, and there
-   is no secret to add:
+   just copied — the platform is detected as WeCom automatically; the URL
+   alone is the credential, so the form has no security section:
 
-   ![Adding a bot: pasting the WeCom webhook URL](images/chatbots_form_wecom_en.png)
+   ![The WeCom form: name + Webhook URL, no security section, Save/Cancel at the bottom](images/chatbots_form_wecom_en.png)
 
 3. Click **Save** — the bot appears in the list, its URL masked:
 

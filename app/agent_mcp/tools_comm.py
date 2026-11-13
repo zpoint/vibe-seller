@@ -420,7 +420,13 @@ _CHAT_ACTIONS = (
     'send_file',
 )
 
-_CHAT_EDIT_FIELDS = ('name', 'webhook_url', 'secret', 'keyword')
+_CHAT_EDIT_FIELDS = (
+    'name',
+    'webhook_url',
+    'secret',
+    'keyword',
+    'security_mode',
+)
 
 
 def _send_file_staging_dir() -> Path:
@@ -504,6 +510,19 @@ def _decode_send_file(args: dict) -> tuple[bytes, str]:
                     'secret; shown on the row like in the UI.'
                 ),
             },
+            'security_mode': {
+                'type': ['string', 'null'],
+                'description': (
+                    "Which of the platform's OWN security settings "
+                    'the bot uses: a comma-joined list of sign (加签 / '
+                    '签名校验), keyword (自定义关键词) and ip (IP 地址段 / '
+                    'IP 白名单) — see the platforms action for what a '
+                    'platform offers. Omit it and the settings are '
+                    'read off secret/keyword; send it to record ip, '
+                    'and to switch a setting off (one left named '
+                    'clears the rest). DingTalk requires at least one.'
+                ),
+            },
             'content': {
                 'type': ['string', 'null'],
                 'description': (
@@ -569,6 +588,7 @@ async def manage_chat_bot(ctx: McpContext, args: dict) -> dict:
             webhook_url=restored['webhook_url'],
             secret=restored['secret'],
             keyword=opt_str(args, 'keyword'),
+            security_mode=opt_str(args, 'security_mode'),
         )
         bot = await call_route(
             chat_bots_route.create_chat_bot,

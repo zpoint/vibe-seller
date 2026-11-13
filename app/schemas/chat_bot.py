@@ -19,6 +19,14 @@ class ChatBotCreate(BaseModel):
     #: secret — the UI shows it and the server appends it to any
     #: outgoing message that doesn't already contain it.
     keyword: str | None = None
+    #: Which of the platform's security settings the bot uses — a
+    #: comma-joined list of names served by /platforms
+    #: ('sign', 'keyword', 'ip'). Omit it and the server reads the
+    #: settings off the fields; send it and it decides, so switching
+    #: off 加签 actually clears the stored secret. Required for a
+    #: platform whose registry entry says ``security_required``
+    #: (DingTalk) when no field carries one.
+    security_mode: str | None = None
 
 
 class ChatBotUpdate(BaseModel):
@@ -27,6 +35,8 @@ class ChatBotUpdate(BaseModel):
     #: ``""`` clears the stored secret / keyword.
     secret: str | None = None
     keyword: str | None = None
+    #: See ``ChatBotCreate.security_mode``.
+    security_mode: str | None = None
 
 
 class ChatBotResponse(BaseModel):
@@ -45,6 +55,11 @@ class ChatBotResponse(BaseModel):
     platform: str
     secret: str | None = None
     keyword: str | None = None
+    #: The settings this bot relies on — the stored column, or the one
+    #: the stored fields imply for a row that predates it. Empty for a
+    #: platform with no security settings (and for a DingTalk row whose
+    #: setting was never recorded).
+    security_mode: str | None = None
     has_secret: bool = False
     can_send_file: bool = False
     created_at: str

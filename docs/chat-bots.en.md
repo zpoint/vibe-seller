@@ -70,18 +70,28 @@ differ only in where the entry lives and which security settings exist.
 
 2. Give it a **name** (e.g. "Ops Alerts") and paste the whole
    **Webhook URL**. The platform is detected from the URL and shown as
-   a badge, with a link to the platform's docs:
+   a badge; under it a one-line hint says where to copy the Webhook URL
+   from (e.g. DingTalk: "Group settings → Bots → Add custom robot →
+   copy the Webhook URL."), with a link to the platform's docs:
 
-    ![Adding a bot: pasting the WeCom webhook URL](images/chatbots_form_wecom_en.png)
+    ![The add-bot form: name + Webhook URL, no security section, Save/Cancel at the bottom](images/chatbots_form_wecom_en.png)
 
-3. **DingTalk** and **Feishu** show two extra fields matching their
-   security settings:
-    - **Signing secret (加签 / 签名校验)**: the `SEC…` secret (DingTalk)
-      or the signature secret (Feishu). Leave empty if unused.
-    - **Keyword (自定义关键词)**: one of the keywords you configured on
-      the platform. Leave empty if unused.
+3. The form below shows ONLY that platform's own security settings.
+   DingTalk gets "Security settings (pick at least one)" — tick at least
+   the setting you actually configured (every one the robot uses, if it
+   combines them) and only the ticked option's field appears. Feishu
+   gets "Security settings (optional)" where ticking an option reveals
+   its field; WeCom and Slack have no security section at all:
+    - **加签 / 签名校验** (signed secret / signature): the `SEC…`
+      secret (DingTalk) or the signature secret (Feishu), into the
+      ticked option's field.
+    - **自定义关键词** (keyword): one of the keywords you configured
+      on the platform.
+    - **IP 地址段 / IP 白名单** (IP range / whitelist): nothing to
+      fill in — the allowlist is set on the platform's side; ticking it
+      records that you use it.
 
-    ![Adding a DingTalk bot: signing secret and keyword](images/chatbots_form_dingtalk_en.png)
+    ![The DingTalk form: 加签 ticked under "Security settings (pick at least one)", secret pasted, Save/Cancel at the bottom](images/chatbots_form_dingtalk_en.png)
 
 4. Click **Save**. The bot appears in the list with its platform badge,
    a "signed" tag and its keyword; the webhook URL is masked:
@@ -146,11 +156,11 @@ code is in parentheses. The common ones:
 | `token is not exist` (DingTalk 300005) | bad access_token, or the bot was deleted | copy the address from the group again |
 | `param invalid: incoming webhook access token invalid` (Feishu 19001) | bad URL, or the bot was deleted | copy the address from the group again |
 | `no_team` (Slack) | bad webhook URL, or it was revoked | copy it again from the app settings |
-| `Key Words Not Found` (Feishu 19024) | keyword check on, message lacks the keyword | fill the Keyword field, or switch to signature check |
-| `keywords not in content` (DingTalk 310000) | keyword check on, message lacks the keyword | fill the Keyword field with one of the platform's keywords |
-| `sign not match` / `invalid timestamp` (DingTalk 310000) | signing on, wrong secret | check the Signing secret is this bot's SEC… key |
-| `sign match fail or timestamp is not within one hour` (Feishu 19021) | signature check failed | check the secret; then the system clock of the Vibe Seller host |
-| `ip … not in whitelist` (DingTalk 310000) / `Ip Not Allowed` (Feishu 19022) | IP allowlist on, your egress IP is not listed | switch to keyword / signing, or add the egress IP |
+| `Key Words Not Found` (Feishu 19024) | keyword check on, message lacks the keyword | fill the 自定义关键词 field, or switch to signature check |
+| `keywords not in content` (DingTalk 310000) | keyword check on, message lacks the keyword | fill the 自定义关键词 field with one of the platform's keywords |
+| `sign not match` / `invalid timestamp` (DingTalk 310000) | signing on, wrong secret | check the 加签 field holds this bot's SEC… key |
+| `sign match fail or timestamp is not within one hour` (Feishu 19021) | signature check failed | check the 签名校验 field's secret; then the system clock of the Vibe Seller host |
+| `ip … not in whitelist` (DingTalk 310000) / `Ip Not Allowed` (Feishu 19022) | IP allowlist on, your egress IP is not listed | switch to 自定义关键词 / 加签, or add the egress IP |
 
 WeCom's error text also carries your egress IP (`from ip: …`) so you
 can check allowlists against it.
@@ -175,9 +185,9 @@ Three usual causes:
 
 DingTalk and Feishu keyword security requires every message to contain
 a keyword. You only fill in **one** of the platform's keywords in the
-Keyword field: when a message lacks it, Vibe Seller appends it on its
-own last line, so the task's agent never needs to know the keyword. If
-the message already contains it, nothing is added.
+自定义关键词 field: when a message lacks it, Vibe Seller appends it on
+its own last line, so the task's agent never needs to know the keyword.
+If the message already contains it, nothing is added.
 
 </details>
 
