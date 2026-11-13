@@ -359,6 +359,6 @@ pytest --e2e tests/e2e        # E2E only (requires running server)
 
 | Topic | Location |
 |-------|----------|
-| Full setup & quick start | [README.md](README.md#quick-start) |
-| Project structure | [README.md](README.md#project-structure) |
+| Full setup & quick start | [docs/install.md](docs/install.md) · [docs/quickstart.md](docs/quickstart.md) |
+| Project structure | [docs/dev-guide.md](docs/dev-guide.md#project-structure) |
 | Architecture design | [DESIGN.md](DESIGN.md) |

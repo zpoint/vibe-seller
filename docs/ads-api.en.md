@@ -6,6 +6,8 @@ description: Move Amazon ad work from clicking the seller console in a browser t
 
 Once bound, the agent's Amazon ad work stops clicking through the seller console in a browser and goes **straight to the Ads API** — steadier for tuning and bulk operations. **Amazon stores only, for now. Each store authorizes separately.**
 
+Where each integration is configured and how they divide up: see the [Integrations overview](integrations.en.md).
+
 ## What binding buys you
 
 |  | Browser path (unbound) | Ads API (bound) |
@@ -21,7 +23,7 @@ You never pick the path per task — the routing follows the **store's binding s
 
 ## Measured comparison
 
-One store (acme, AE marketplace), one report-only ad-optimization task, one model (MiniMax-M3.1-Flash) — run once over the Ads API and once through the browser:
+One store (Store A, AE marketplace), one report-only ad-optimization task, one model (MiniMax-M3.1-Flash) — run once over the Ads API and once through the browser:
 
 | Metric | Ads API path | Browser path | Ratio |
 |---|---|---|---|
@@ -35,15 +37,15 @@ One store (acme, AE marketplace), one report-only ad-optimization task, one mode
 | Report output | one 24 KB report | 103 KB report + PDF (full per-target / per-term tables) | richer |
 | Interruptions | none | 1 operator question (breakeven-ACOS) + 1 model-quota pause (36 min) | |
 
-Cost is estimated at MiniMax-M3.1-Flash's official pay-as-you-go prices (per
-1M tokens: 0.15 USD input, 0.60 USD output, 0.015 USD cache read). On a MiniMax
-subscription plan, the run uses plan quota instead of being billed per token.
+Cost is estimated at MiniMax-M3.1-Flash's official pay-as-you-go prices at
+the time of the run. On a MiniMax subscription plan, the run uses plan quota
+instead of being billed per token.
 
 This was a heavy run: the store has 20-plus campaigns and about 450 search
 terms, and the task drilled into every campaign and every term over the past
 14 days. Cost grows roughly with the number of campaigns and terms; for a
 typical store with 10 campaigns or fewer, one API-path run comes to roughly
-0.20 USD at the same prices (less on a token plan, just a few cents).
+0.20 USD estimated the same way (less on a token plan, just a few cents).
 
 ![One ad-optimization task: where the time goes](images/ads_time_en.png)
 
@@ -86,13 +88,13 @@ Sign in as the store's seller, approve, and wait for the success page. The conse
 
 ![Done authorizing](images/ads_done_en.png)
 
-A green "✓ acme authorized" means it worked — the marketplaces it covers are listed after it. If you get "No authorization for this store yet", the Amazon consent isn't finished: complete it in the store's browser, wait for the success page, and click again.
+A green "✓ Store A authorized" means it worked — the marketplaces it covers are listed after it. If you get "No authorization for this store yet", the Amazon consent isn't finished: complete it in the store's browser, wait for the success page, and click again.
 
 ![Demo: bind the Ads API](images/ads_bind_en.gif)
 
 ### After binding: ad tasks run over the Ads API
 
-Once bound, **just create ad tasks on that store as usual** — e.g. "Take a look at acme's ads for the last week and give me some optimization suggestions". A task on a bound store automatically gets its data through the Ads API; an unbound store keeps going through the browser. Nothing to choose or specify — the store's binding state decides, automatically.
+Once bound, **just create ad tasks on that store as usual** — e.g. “Take a look at Store A's ads for the last week and give me some optimization suggestions”. A task on a bound store automatically gets its data through the Ads API; an unbound store keeps going through the browser. Nothing to choose or specify — the store's binding state decides, automatically.
 
 **A freshly bound store needs about 30 minutes to sync its history** — history questions answer "syncing" until then and are fine afterwards; live data is unaffected.
 

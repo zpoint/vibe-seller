@@ -1,0 +1,18 @@
+{#-
+  The page body. Identical to Material's partials/content.html except that
+  partials/actions.html is not included: the edit link belongs in the
+  right-hand column under "On this page" (overrides/partials/toc.html),
+  not floating as a pencil next to the title, where it read as part of the
+  heading and collided with long CJK titles.
+
+  content.action.edit stays switched on in mkdocs.yml — only its position
+  moved, so page.edit_url and edit_uri still decide the target.
+-#}
+{% include "partials/tags.html" %}
+{% if "<h1" not in page.content %}
+  <h1>{{ page.title | d(config.site_name, true)}}</h1>
+{% endif %}
+{{ page.content }}
+{% include "partials/source-file.html" %}
+{% include "partials/feedback.html" %}
+{% include "partials/comments.html" %}

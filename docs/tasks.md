@@ -1,5 +1,7 @@
 # Tasks
 
+> User guide: [Tasks](using-tasks.md) and [Schedules](schedules.md)
+
 ## Task Data Persistence
 
 - **Plan** (`task.plan`): Saved by design agent, rendered as markdown in frontend

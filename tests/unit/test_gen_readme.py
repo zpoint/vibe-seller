@@ -45,3 +45,36 @@ def test_user_attachment_urls_are_refused():
 
 def test_committed_readmes_are_current():
     assert gen_readme.check() == 0
+
+
+@pytest.mark.parametrize(
+    ('source', 'locale', 'expected'),
+    [
+        (
+            '](quickstart.md)',
+            'zh',
+            '](https://docs.vibe-sellers.com/quickstart/)',
+        ),
+        (
+            '](ziniao.md#报错)',
+            'zh',
+            '](https://docs.vibe-sellers.com/ziniao/#报错)',
+        ),
+        ('](mcp.en.md)', 'en', '](https://docs.vibe-sellers.com/en/mcp/)'),
+        ('](mcp.md)', 'en', '](https://docs.vibe-sellers.com/en/mcp/)'),
+        ('](not-a-page.md)', 'zh', '](not-a-page.md)'),
+    ],
+)
+def test_docs_page_links_open_on_the_site(source, locale, expected):
+    out = gen_readme.generate(f'see [x]{source}\n', 'index.md', locale)
+    assert expected in out
+
+
+def test_language_switch_links_open_the_docs_site():
+    src = '<a href="/en/">English</a> · <a href="/">中文</a> [en](/en/) [zh](/)'
+    out = gen_readme.generate(src, 'index.md', 'zh')
+    assert 'href="https://docs.vibe-sellers.com/en/"' in out
+    assert 'href="https://docs.vibe-sellers.com/"' in out
+    assert '](https://docs.vibe-sellers.com/en/)' in out
+    assert '](https://docs.vibe-sellers.com/)' in out
+    assert 'README' not in out.split('-->', 1)[1]

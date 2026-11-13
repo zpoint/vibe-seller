@@ -1,5 +1,7 @@
 # Browser Management
 
+> User guide: [Stores & Browsers](stores.md)
+
 Pluggable browser backend system for launching and managing browser instances per store.
 
 ## Architecture

@@ -1,0 +1,58 @@
+{#-
+  Right-hand "On this page" column.
+
+  Two deliberate differences from Material's partials/toc.html, both to
+  match the docs layout the site is modelled on:
+
+  - the header carries a list icon and reads 本页目录 / "On this page"
+    instead of Material's bare 目录 / "Table of contents";
+  - the "Edit on GitHub" link sits under the list instead of the pencil
+    that floats beside the page title (see overrides/partials/content.html
+    for the other half of that move).
+
+  The link keeps Material's own URL logic — page.edit_url gated on the
+  content.action.edit feature — so mkdocs.yml's edit_uri stays the single
+  source of where "edit" points. The labels follow the build locale the
+  same way nav_translations does, because Material's zh strings have no
+  "action.edit" entry and say "目录" for a column this site wants to call
+  本页目录.
+
+  The icons use a private .mdx-toc-icon class rather than Material's
+  .md-nav__icon: in the title slot Material hides that class (it is the
+  drawer's back-arrow slot) and elsewhere it carries an ::after chevron,
+  which is what made the first version of this partial show no icon in
+  the header and a stray ">" under the edit link.
+-#}
+{% set locale = config.plugins.i18n.current_language
+   if config.plugins.i18n else config.theme.language %}
+{% set title = "本页目录" if locale == "zh" else "On this page" %}
+{% set edit_label = "在 GitHub 上编辑" if locale == "zh" else "Edit on GitHub" %}
+<nav class="md-nav md-nav--secondary" aria-label="{{ title | e }}">
+  {% set toc = page.toc %}
+  {% set first = toc | first %}
+  {% if first and first.level == 1 %}
+    {% set toc = first.children %}
+  {% endif %}
+  {% if toc %}
+    <label class="md-nav__title" for="__toc">
+      <span class="mdx-toc-icon">
+        {% include ".icons/material/format-list-bulleted.svg" %}
+      </span>
+      {{ title }}
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      {% for toc_item in toc %}
+        {% include "partials/toc-item.html" %}
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% if page.edit_url and "content.action.edit" in features %}
+    <a class="md-toc-edit" href="{{ page.edit_url }}"
+       title="{{ edit_label | e }}" rel="edit">
+      <span class="mdx-toc-icon">
+        {% include ".icons/material/pencil-outline.svg" %}
+      </span>
+      <span class="md-ellipsis">{{ edit_label }}</span>
+    </a>
+  {% endif %}
+</nav>

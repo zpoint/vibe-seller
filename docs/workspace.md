@@ -1,5 +1,7 @@
 # Workspace
 
+> User guide: [Knowledge & Skills](knowledge.md)
+
 ## Workspace AI Assistant
 
 Conversational chat on the Workspace page for organizing knowledge via natural language.

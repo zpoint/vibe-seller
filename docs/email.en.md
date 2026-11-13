@@ -14,8 +14,8 @@ Everything runs over standard IMAP / SMTP. **You never type your email
 password** — 163 and QQ Mail use an *authorization code*, Gmail uses an
 *app password*. Each provider section below shows exactly how to get one.
 
-> The screenshots were taken on macOS; the steps look the same on
-> Windows and Linux.
+Where each integration is configured and how they divide up: see the
+[Integrations overview](integrations.en.md).
 
 ## What you need
 
@@ -44,8 +44,7 @@ filled in automatically, so you only deal with the authorization code.
    "Add authorization password" whenever you need a fresh one.
 
 Full illustrated steps: NetEase help
-[How to enable client protocols](https://help.mail.163.com/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac2a5feb28b66796d3b)
-([official guide](https://help.mail.163.com/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac2a5feb28b66796d3b)).
+[How to enable client protocols](https://help.mail.163.com/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac2a5feb28b66796d3b).
 
 ### Step 2: Add it in Vibe Seller
 
@@ -135,8 +134,7 @@ requires 2-Step Verification first.
 ([official guide](https://support.google.com/mail/answer/185833))
 
 !!! note "Google Workspace (work / school) accounts"
-    Personal @gmail.com accounts have had IMAP always-on since January
-    2025 — nothing to enable. But on a managed Google Workspace
+    On a managed Google Workspace
     account the administrator may have **disabled IMAP or app
     passwords**. If you cannot find the "App passwords" page or the
     "Forwarding and POP/IMAP" tab, ask your administrator.
@@ -151,13 +149,12 @@ link to a store. Servers auto-detect to `imap.gmail.com` /
 ## Outlook / Hotmail: not supported
 
 **Outlook.com, Hotmail and Live mailboxes cannot be connected.**
-Microsoft retired password sign-in (Basic Authentication) in September
-2024 — those accounts require OAuth2, while Vibe Seller connects with
+Microsoft has retired password sign-in (Basic Authentication) — those
+accounts require OAuth2, while Vibe Seller connects with
 an authorization code / password. Clicking "Test Connection" with an
 Outlook mailbox shows the provider's own error
 (`Basic authentication is disabled.`); it is not a configuration
-problem. Microsoft's
-[announcement](https://techcommunity.microsoft.com/blog/outlook/keeping-our-outlook-personal-email-users-safe-reinforcing-our-commitment-to-secu/4164184).
+problem.
 If you need those messages, forward Outlook mail to a supported
 mailbox first.
 
@@ -168,7 +165,7 @@ Three quick checks:
 1. **Test Connection** says "Connection successful" — this checks
    incoming (IMAP) access;
 2. After **Save**, the mailbox is in the list and **linked to a store**;
-3. Create a task asking "what's the latest mail in this mailbox?" —
+3. Create a task asking “what's the latest mail in this mailbox?” —
    if the AI reports recent subjects and senders, you are done.
 
 ## Turn off the email sending permission
@@ -217,7 +214,7 @@ matters to you.
   [Turn off the email sending permission](#turn-off-the-email-sending-permission)).
   While it is off, the AI
   shows you the drafted email so you can send it yourself or turn the
-  switch back on and ask again. Asking "show me before sending" in
+  switch back on and ask again. Asking “show me before sending” in
   the task keeps you in the loop.
 
 Mail stays inside your own deployment: the mailbox password is stored
@@ -261,7 +258,7 @@ IMAP is usually port 993 (SSL); SMTP is 465 (SSL) or 587.
 <details markdown="1"><summary><b>The AI says it found no new mail?</b></summary>
 
 Mail syncs automatically every 5 minutes — wait a moment or ask the
-task to "sync now" and check again. Also make sure the mailbox is
+task to “sync now” and check again. Also make sure the mailbox is
 **linked to the store**: unlinked mailboxes are invisible to that
 store's tasks.
 </details>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Vibe Seller">
+  <rect width="256" height="256" rx="56" fill="#6366F1"/>
+  <path d="M84 84 L128 172 L172 84" fill="none" stroke="#ffffff"
+        stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
