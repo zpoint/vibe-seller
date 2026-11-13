@@ -24,7 +24,11 @@ import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
+import os
+import socket
+import tarfile
 import threading
+import time
 import unicodedata
 
 from fastapi import HTTPException
@@ -36,6 +40,9 @@ from app import mcp_server, skill_uploads
 from app.auth import create_token
 from app.main import app
 from app.routers import workspace as workspace_route
+import app.skill_fetch as sf
+from app.skill_fetch import FetchError
+import app.skill_pack as sp
 from app.workspace.manager import WorkspaceManager
 
 pytestmark = pytest.mark.workflow
@@ -219,9 +226,6 @@ def loopback_ok(monkeypatch):
 
 
 def _tar_gz(entries: dict[str, bytes]) -> bytes:
-    import tarfile
-    import time
-
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode='w:gz') as tar:
         for name, payload in entries.items():
@@ -299,8 +303,6 @@ class TestLocalDirectoryImport:
     async def test_oversize_refused(
         self, client, real_workspace, monkeypatch, tmp_path
     ):
-        import app.skill_pack as sp
-
         _route_mcp_call_api(client, monkeypatch)
         monkeypatch.setattr(sp, 'MAX_SKILL_TOTAL_BYTES', 10)
         d = _build_skill_dir(tmp_path)
@@ -588,10 +590,6 @@ class TestUrlImportInTask:
         source_server,
         loopback_ok,
     ):
-        import os
-
-        import app.skill_fetch as sf
-
         _route_mcp_call_api(client, monkeypatch)
         monkeypatch.setattr(sf, 'MAX_ARCHIVE_UPLOAD_BYTES', 64)
         source_server['routes']['/tar/big.tar.gz'] = (
@@ -613,8 +611,6 @@ class TestUrlImportInTask:
         refusal. Observed: a raw httpx.ConnectError escaped the route
         as 500 Internal Server Error, leaving the agent nothing to
         act on."""
-        import socket
-
         with socket.socket() as s:
             s.bind(('127.0.0.1', 0))
             dead_port = s.getsockname()[1]
@@ -729,8 +725,6 @@ class TestExternalManageSkillUrl:
 
 class TestRouteErrorMapping:
     def test_fetch_error_status_survives_the_hop(self):
-        from app.skill_fetch import FetchError
-
         exc = FetchError('over the limit', 413)
         http = workspace_route._import_http_exception(exc)
         assert isinstance(http, HTTPException)

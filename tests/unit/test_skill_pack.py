@@ -14,6 +14,7 @@ import tarfile
 import pytest
 
 from app import skill_uploads
+import app.skill_pack as sp
 from app.skill_pack import PackError, pack_skill_dir, pack_tar_gz
 
 pytestmark = pytest.mark.unit
@@ -107,16 +108,12 @@ class TestWalkRefusals:
             pack_skill_dir(d)
 
     def test_oversize_file_refused_by_name(self, tmp_path, monkeypatch):
-        import app.skill_pack as sp
-
         monkeypatch.setattr(sp, 'MAX_SKILL_FILE_BYTES', 30)
         d = _make_dir(tmp_path)
         with pytest.raises(PackError, match='per-file'):
             pack_skill_dir(d)
 
     def test_file_count_cap_refused(self, tmp_path, monkeypatch):
-        import app.skill_pack as sp
-
         monkeypatch.setattr(sp, 'MAX_SKILL_FILES', 2)
         d = _make_dir(tmp_path)
         with pytest.raises(PackError, match='at most 2 files'):

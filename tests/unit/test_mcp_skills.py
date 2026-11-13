@@ -13,6 +13,7 @@ import pytest
 
 from app.mcp_server import handle_tool_call
 from app.workspace.manager import WorkspaceManager
+from app.workspace.skills_manager import derive_skill_slug
 
 pytestmark = pytest.mark.unit
 
@@ -157,8 +158,6 @@ class TestFrontmatterBom:
     BOM = chr(0xFEFF)
 
     def test_bom_does_not_hide_the_frontmatter(self):
-        from app.workspace.skills_manager import derive_skill_slug
-
         assert derive_skill_slug(self.BOM + SKILL_MD) == 'revenue-report'
 
     async def test_bommed_skill_installs_under_its_name(self, tmp_path):

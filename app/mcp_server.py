@@ -489,8 +489,7 @@ def _configure(args: list[str]) -> None:
                 # A typo'd allowlist would silently strip every tool;
                 # fail at launch, loudly, naming the bad entries.
                 sys.stderr.write(
-                    f'ERROR: --tools names unknown tools: '
-                    f'{sorted(unknown)}\n'
+                    f'ERROR: --tools names unknown tools: {sorted(unknown)}\n'
                 )
                 sys.exit(1)
             _ALLOWED_TOOLS = names
