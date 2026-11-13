@@ -123,9 +123,14 @@ PLAINTEXT_FIELDS = frozenset({
     'email_account_id',
     'watermark_date',
     'last_polled_at',
-    # ChatBotResponse / ChatBotSummary
+    # ChatBotResponse / ChatBotSummary. ``security_mode`` names WHICH
+    # of the platform's security settings a bot uses ('sign',
+    # 'keyword', 'ip') — a config choice the form renders, not a
+    # credential; the value it refers to is the separately classified
+    # ``secret``.
     'platform',
     'keyword',
+    'security_mode',
     'can_send_file',
     # The route's own masks — public by design.
     'webhook_url_masked',

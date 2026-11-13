@@ -43,6 +43,11 @@ WECOM_WEBHOOK = (
     'https://qyapi.weixin.qq.com/cgi-bin/webhook/send'
     '?key=00000000-0000-0000-0000-000000000000'
 )
+DINGTALK_WEBHOOK = (
+    'https://oapi.dingtalk.com/robot/send'
+    '?access_token=000000000000000000000000000000000000000000000000'
+    '0000000000000000'
+)
 
 
 # ── manage_store ──────────────────────────────────────
@@ -1117,6 +1122,39 @@ class TestManageChatBot:
         )
         assert envelope['isError'] is True
         assert 'webhook' in envelope['content'][0]['text'].lower()
+
+    async def test_create_honours_the_platform_security_rule(
+        self, admin_client
+    ):
+        """The tool is the same route the form runs, so DingTalk's rule
+        (at least one 安全设置) applies here too — and the agent can
+        state the one setting that has no value to send: the IP range.
+        """
+        _, envelope = await call_tool(
+            admin_client,
+            'manage_chat_bot',
+            {
+                'action': 'create',
+                'name': 'ding-bare',
+                'webhook_url': DINGTALK_WEBHOOK,
+            },
+        )
+        assert envelope['isError'] is True
+        assert 'security setting' in envelope['content'][0]['text']
+
+        created, _ = await call_tool(
+            admin_client,
+            'manage_chat_bot',
+            {
+                'action': 'create',
+                'name': 'ding-ip',
+                'webhook_url': DINGTALK_WEBHOOK,
+                'security_mode': 'ip',
+            },
+        )
+        assert created['created']['security_mode'] == 'ip'
+        # The mode is not a credential — the agent may read it back.
+        assert '****' not in json.dumps(created['created']['security_mode'])
 
     async def test_update_changes_the_name_and_masks(self, admin_client):
         bot_id = await self._create(admin_client)

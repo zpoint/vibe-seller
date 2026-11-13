@@ -14,6 +14,10 @@ Covers, per platform:
 - The size pre-check failing BEFORE any network call.
 - The secret-leak guard: a transport error must not echo the URL, the
   token, or the signing secret.
+- Each platform's own security settings (options + whether one is
+  required) and the single rule that resolves them
+  (``resolve_security``) — DingTalk owes at least one, Feishu owes
+  none, WeCom/Slack offer nothing.
 """
 
 import base64
@@ -29,11 +33,15 @@ from app.notifiers import dingtalk, feishu, slack, wecom
 import app.notifiers.base as base_mod
 from app.notifiers.base import (
     PLATFORMS,
+    SECURITY_LABELS,
     Platform,
     detect_platform,
     ensure_keyword,
+    join_security_mode,
     mask_webhook_url,
     platform_for_url,
+    resolve_security,
+    split_security_mode,
 )
 
 pytestmark = pytest.mark.unit
@@ -870,7 +878,7 @@ class TestSizeUnitIsHonoured:
             label='X',
             hosts=('x.test',),
             path_prefix='/x',
-            uses_secret=False,
+            security_options=(),
             supports_file=False,
             max_message=10,
             limit_unit='furlongs',
@@ -1115,3 +1123,213 @@ class TestKeywordSupportMatrix:
         assert PLATFORMS['feishu'].uses_keyword is True
         assert PLATFORMS['wecom'].uses_keyword is False
         assert PLATFORMS['slack'].uses_keyword is False
+
+
+# ── Security settings ───────────────────────────────
+
+
+class TestSecurityDescriptor:
+    """What each platform's OWN docs say about its bot security
+    settings — the registry is the only place that answer is written
+    down, and the form renders from it (see
+    tests/workflow/test_wf_chat_bots.py for the served shape).
+
+    Sources, checked 2026-11-13:
+      * DingTalk 自定义机器人安全设置 — offers 自定义关键词 / 加签 /
+        IP 地址（段）; the robot is created only after 安全设置 has at
+        least one of them ("安全设置（至少选择一种）" in the create
+        flow), so ``security_required`` is True.
+        https://open.dingtalk.com/document/robots/customize-robot-security-settings
+      * Feishu Custom bot usage guide — offers custom keywords, IP
+        whitelist and signature; "you can set one or more methods" and
+        "We strongly recommend adding security settings", so a bot with
+        none still sends: False.
+        https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot
+      * WeCom 群机器人 and Slack incoming webhooks authenticate with
+        the webhook URL alone: no options.
+    """
+
+    def test_dingtalk_offers_three_and_requires_one(self):
+        plat = PLATFORMS['dingtalk']
+        assert plat.security_options == ('sign', 'keyword', 'ip')
+        assert plat.security_required is True
+
+    def test_feishu_offers_the_same_three_but_requires_none(self):
+        plat = PLATFORMS['feishu']
+        assert plat.security_options == ('sign', 'keyword', 'ip')
+        assert plat.security_required is False
+
+    @pytest.mark.parametrize('name', ['wecom', 'slack'])
+    def test_url_only_platforms_offer_nothing(self, name):
+        plat = PLATFORMS[name]
+        assert plat.security_options == ()
+        assert plat.security_required is False
+
+    def test_the_shorthand_flags_are_the_options(self):
+        """uses_secret / uses_keyword cannot drift from the registry —
+        they ARE the options, so nothing can offer a field with no
+        setting behind it."""
+        for plat in PLATFORMS.values():
+            assert plat.uses_secret is ('sign' in plat.security_options)
+            assert plat.uses_keyword is ('keyword' in plat.security_options)
+
+    def test_every_offered_option_is_named(self):
+        for plat in PLATFORMS.values():
+            for option in plat.security_options:
+                assert option in SECURITY_LABELS, (plat.name, option)
+
+
+class TestSecurityModeCodec:
+    def test_split_tolerates_space_and_repeats(self):
+        assert split_security_mode(' sign , keyword,sign ') == (
+            'sign',
+            'keyword',
+        )
+
+    @pytest.mark.parametrize('raw', [None, '', '  ', ',,'])
+    def test_split_of_empty_is_nothing(self, raw):
+        assert split_security_mode(raw) == ()
+
+    def test_join_is_registry_ordered(self):
+        plat = PLATFORMS['dingtalk']
+        assert join_security_mode(plat, ['keyword', 'sign']) == 'sign,keyword'
+        assert join_security_mode(plat, []) is None
+        assert join_security_mode(plat, set()) is None
+
+    def test_join_keeps_an_option_the_platform_does_not_offer(self):
+        """A value the registry cannot order is kept visible, never
+        silently dropped on its way to storage."""
+        plat = PLATFORMS['dingtalk']
+        assert join_security_mode(plat, ['sign', 'carrier-pigeon']) == (
+            'sign,carrier-pigeon'
+        )
+
+
+class TestResolveSecurity:
+    """The one rule that decides what a bot's settings mean.
+
+    ``authoritative=True`` is the form (it names its settings); False
+    is a caller that only touches the fields.
+    """
+
+    DING = PLATFORMS['dingtalk']
+    FEISHU = PLATFORMS['feishu']
+    WECOM = PLATFORMS['wecom']
+
+    # ── what DingTalk requires ──────────────────────
+
+    def test_dingtalk_refuses_a_bot_with_nothing(self):
+        state = resolve_security(self.DING, None, None, None)
+        assert state.error
+        assert 'at least one security setting' in state.error
+        # …and the message names the choices, in the platform's order.
+        assert '加签' in state.error
+        assert '自定义关键词' in state.error
+        assert 'IP 地址段' in state.error
+
+    def test_ip_mode_needs_no_field_and_is_the_whole_point(self):
+        """The reason the mode is stored: an IP-whitelisted bot has no
+        secret and no keyword ON PURPOSE, and must not look like a bot
+        whose settings were forgotten."""
+        state = resolve_security(
+            self.DING, 'ip', None, None, authoritative=True
+        )
+        assert state.error == ''
+        assert state.mode == 'ip'
+        assert state.secret is None
+        assert state.keyword is None
+
+    @pytest.mark.parametrize(
+        'option,missing', [('sign', 'secret'), ('keyword', 'keyword')]
+    )
+    def test_a_named_setting_without_its_field_is_refused(
+        self, option, missing
+    ):
+        state = resolve_security(
+            self.DING, option, None, None, authoritative=True
+        )
+        assert state.error
+        assert missing in state.error
+
+    def test_sign_mode_with_a_secret_is_stored_as_sign(self):
+        state = resolve_security(self.DING, 'sign', 'SECabc', None)
+        assert state.mode == 'sign'
+        assert state.secret == 'SECabc'
+
+    def test_fields_decide_when_the_caller_names_nothing(self):
+        """An API client that knows nothing about modes still gets a
+        coherent row — the mode is read off what it sent."""
+        assert resolve_security(self.DING, None, 'SECabc', None).mode == 'sign'
+        assert resolve_security(self.DING, None, None, 'SALES').mode == (
+            'keyword'
+        )
+        assert (
+            resolve_security(self.DING, None, 'SECabc', 'SALES').mode
+            == 'sign,keyword'
+        )
+
+    # ── what Feishu allows ──────────────────────────
+
+    def test_feishu_accepts_a_bot_with_no_security_at_all(self):
+        state = resolve_security(self.FEISHU, None, None, None)
+        assert state.error == ''
+        assert state.mode is None
+
+    def test_feishu_allows_several_settings_at_once(self):
+        """Its guide says "you can set one or more methods"."""
+        state = resolve_security(self.FEISHU, 'sign,keyword', 'SEC', 'K')
+        assert state.mode == 'sign,keyword'
+        assert (state.secret, state.keyword) == ('SEC', 'K')
+
+    # ── switching a setting off ─────────────────────
+
+    def test_a_named_mode_clears_the_fields_it_does_not_name(self):
+        state = resolve_security(
+            self.DING, 'keyword', 'SECstale', 'SALES', authoritative=True
+        )
+        assert state.mode == 'keyword'
+        assert state.secret is None
+        assert state.keyword == 'SALES'
+
+    def test_an_unnamed_mode_keeps_every_filled_field(self):
+        state = resolve_security(
+            self.DING, 'sign', 'SECkeep', 'SALES', authoritative=False
+        )
+        assert state.mode == 'sign,keyword'
+        assert (state.secret, state.keyword) == ('SECkeep', 'SALES')
+
+    # ── platforms with no settings ──────────────────
+
+    @pytest.mark.parametrize('field', ['secret', 'keyword'])
+    def test_url_only_platform_refuses_a_field(self, field):
+        args = {'secret': None, 'keyword': None, field: 'x'}
+        state = resolve_security(self.WECOM, None, **args)
+        assert state.error
+        assert 'do not use' in state.error
+
+    def test_url_only_platform_refuses_a_named_mode(self):
+        state = resolve_security(self.WECOM, 'sign', None, None)
+        assert state.error
+        assert 'no security settings' in state.error
+
+    def test_an_option_the_platform_does_not_offer_is_refused(self):
+        plat = Platform(
+            name='odd',
+            label='Odd',
+            hosts=('odd.test',),
+            path_prefix='/x',
+            security_options=('keyword',),
+            supports_file=False,
+            max_message=10,
+            limit_unit='bytes',
+            doc_url='https://odd.test',
+        )
+        state = resolve_security(plat, 'keyword,sign', None, 'K')
+        assert state.error
+        assert 'Unknown security setting' in state.error
+        assert 'offers: keyword' in state.error
+
+    def test_whitespace_and_blanks_are_stripped(self):
+        state = resolve_security(self.DING, 'sign', '  SECabc  ', '   ')
+        assert state.mode == 'sign'
+        assert (state.secret, state.keyword) == ('SECabc', None)

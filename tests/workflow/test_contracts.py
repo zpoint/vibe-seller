@@ -563,6 +563,141 @@ class TestUpdateCheckContract:
         ]
 
 
+# ── Chat-bot contracts ───────────────────────────────
+
+#: What GET /api/chat-bots/platforms serves per platform. The form's
+#: whole security section is built from ``security_options`` /
+#: ``security_required``, so a renamed or dropped key silently turns
+#: DingTalk's "at least one setting" rule back into "show every field"
+#: — the bug this registry exists to prevent.
+CHAT_PLATFORM_KEYS = {
+    'name',
+    'label',
+    'hosts',
+    'path_prefix',
+    'uses_secret',
+    'uses_keyword',
+    'security_options',
+    'security_required',
+    'supports_file',
+    'max_message',
+    'limits',
+    'limit_unit',
+    'doc_url',
+}
+
+#: The edit form's payload (GET /api/chat-bots/{id}, create, update).
+CHAT_BOT_KEYS = {
+    'id',
+    'name',
+    'webhook_url',
+    'platform',
+    'secret',
+    'keyword',
+    'security_mode',
+    'has_secret',
+    'can_send_file',
+    'created_at',
+    'updated_at',
+}
+
+#: The list row — masked, so it is NOT the same shape on purpose.
+CHAT_BOT_SUMMARY_KEYS = {
+    'id',
+    'name',
+    'platform',
+    'webhook_url_masked',
+    'has_secret',
+    'keyword',
+    'can_send_file',
+    'created_at',
+    'updated_at',
+}
+
+DINGTALK_URL = (
+    'https://oapi.dingtalk.com/robot/send?access_token=abcdef0123456789'
+)
+
+
+class TestChatBotContracts:
+    async def test_platform_registry_shape(self, admin_client):
+        r = await admin_client.get('/api/chat-bots/platforms')
+        assert r.status_code == 200
+        platforms = r.json()
+        for p in platforms:
+            assert set(p.keys()) == CHAT_PLATFORM_KEYS, (
+                f'{p.get("name")}: '
+                f'extra={set(p) - CHAT_PLATFORM_KEYS} '
+                f'missing={CHAT_PLATFORM_KEYS - set(p)}'
+            )
+        by_name = {p['name']: p for p in platforms}
+        assert set(by_name) == {'wecom', 'dingtalk', 'feishu', 'slack'}
+        # The values the security section branches on.
+        assert by_name['dingtalk']['security_required'] is True
+        assert by_name['dingtalk']['security_options'] == [
+            'sign',
+            'keyword',
+            'ip',
+        ]
+        assert by_name['feishu']['security_required'] is False
+        assert by_name['feishu']['security_options'] == [
+            'sign',
+            'keyword',
+            'ip',
+        ]
+        assert by_name['wecom']['security_options'] == []
+        assert by_name['slack']['security_options'] == []
+
+    async def test_platform_keys_match_the_ts_interface(self):
+        """The component's ``ChatPlatform`` interface and the server's
+        payload are one contract, kept honest in both directions."""
+        src = (
+            Path(__file__).resolve().parents[2]
+            / 'frontend/src/components/ChatBotSection.tsx'
+        ).read_text()
+        block = re.search(
+            r'export interface ChatPlatform \{(.*?)\n\}', src, re.S
+        )
+        assert block, 'ChatPlatform interface not found in ChatBotSection'
+        keys = set(re.findall(r'^\s{2}(\w+)\??:', block.group(1), re.M))
+        assert keys == CHAT_PLATFORM_KEYS, (
+            f'extra={keys - CHAT_PLATFORM_KEYS} '
+            f'missing={CHAT_PLATFORM_KEYS - keys}'
+        )
+
+    async def test_bot_shapes_create_read_list(self, admin_client):
+        r = await admin_client.post(
+            '/api/chat-bots',
+            json={
+                'name': 'Contract Bot',
+                'webhook_url': DINGTALK_URL,
+                'secret': 'SEC0123456789',
+                'security_mode': 'sign',
+            },
+        )
+        assert r.status_code == 200, r.text
+        bot = r.json()
+        assert set(bot.keys()) == CHAT_BOT_KEYS, (
+            f'extra={set(bot) - CHAT_BOT_KEYS} '
+            f'missing={CHAT_BOT_KEYS - set(bot)}'
+        )
+        assert bot['security_mode'] == 'sign'
+
+        r2 = await admin_client.get(f'/api/chat-bots/{bot["id"]}')
+        assert r2.status_code == 200
+        assert set(r2.json().keys()) == CHAT_BOT_KEYS
+
+        r3 = await admin_client.get('/api/chat-bots')
+        assert r3.status_code == 200
+        rows = r3.json()
+        assert rows, 'the bot just created should be listed'
+        for row in rows:
+            assert set(row.keys()) == CHAT_BOT_SUMMARY_KEYS, (
+                f'extra={set(row) - CHAT_BOT_SUMMARY_KEYS} '
+                f'missing={CHAT_BOT_SUMMARY_KEYS - set(row)}'
+            )
+
+
 async def test_settings_serves_the_upload_cap_the_frontend_reads(
     admin_client,
 ):

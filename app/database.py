@@ -84,6 +84,14 @@ def _ensure_added_columns(conn) -> None:
         # Keyword security (DingTalk 自定义关键词 / Feishu 关键词):
         # the server appends it to outgoing messages that lack it.
         ('wecom_bots', 'keyword', 'TEXT'),
+        # WHICH security setting a bot relies on ('sign'/'keyword'/'ip'
+        # list, see app/notifiers/base.resolve_security). Nullable and
+        # deliberately NOT backfilled to 'none': a row that predates it
+        # genuinely has no recorded setting, and inventing one would
+        # claim the user chose IP-whitelisting where they may just have
+        # left the fields blank. The read path derives the mode from
+        # the stored fields instead (app/routers/chat_bots.py).
+        ('wecom_bots', 'security_mode', 'TEXT'),
         ('tasks', 'source', 'TEXT'),
         ('tasks', 'cost_usd', 'REAL'),
         ('tasks', 'input_tokens', 'INTEGER'),
