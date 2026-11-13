@@ -775,9 +775,19 @@ dump_apply_state() { # every sub-condition a leg can fail on, at once
     echo "   pip-apply.log: ABSENT — the helper was never spawned" >&2
   fi
   if [ -f "${LOG:-}" ]; then
-    echo "   --- backend log: apply/idle/restart lines (last 12)" >&2
-    grep -E "auto-apply tick|applying v|Re-executing|Upgrade restart|update-status|rolled_back"       "$LOG" 2>/dev/null | tail -12 >&2
+    echo "   --- backend log: prefetch/apply/idle/restart lines (last 16)" >&2
+    # Not the update-status ACCESS lines: the leg polls that route every
+    # two seconds, and they pushed every line that explains anything
+    # out of the tail.
+    grep -E "update prefetch|auto-apply tick|applying v|Re-executing|Upgrade restart|rolled_back|could not pre-install" \
+      "$LOG" 2>/dev/null | grep -v '"GET /api/' | tail -16 >&2
   fi
+  # A prefetch that never finishes is a child process that never exits:
+  # name it, with how long it has been running.
+  echo "   --- update processes still running" >&2
+  ps -axo pid,ppid,etime,command 2>/dev/null \
+    | grep -E "uv (tool|pip)|install-browser|playwright|pip_apply_helper" \
+    | grep -v grep | cut -c1-220 >&2 || true
 }
 update_field() { api "$ADMIN_JAR" GET /api/system/update-status 2>/dev/null | json_field "$1"; }
 status_json() { api "$ADMIN_JAR" GET /api/system/update-status 2>/dev/null; }

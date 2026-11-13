@@ -370,9 +370,26 @@ async def _cycle_unix() -> None:
         error=None,
     )
     try:
-        await asyncio.to_thread(pip_update.warm, target)
-        await asyncio.to_thread(pip_update.pre_install_browser, target)
-        await asyncio.to_thread(pip_update.keep_rollback_warm)
+        # One line per step with its duration: `downloading` covers three
+        # fetches of very different size, and "why is this machine still
+        # downloading" has to be answerable from the log alone.
+        for step, call in (
+            ('fetch the release', lambda: pip_update.warm(target)),
+            (
+                'pre-install its browser',
+                lambda: pip_update.pre_install_browser(target),
+            ),
+            ('keep the rollback warm', pip_update.keep_rollback_warm),
+        ):
+            began = time.monotonic()
+            logger.info('update prefetch v%s: %s', target, step)
+            await asyncio.to_thread(call)
+            logger.info(
+                'update prefetch v%s: %s done in %.0fs',
+                target,
+                step,
+                time.monotonic() - began,
+            )
     except Exception as exc:
         update_events.downloaded(
             'failed',
