@@ -208,7 +208,7 @@ Dispatch them one workflow at a time — the workflows share a
 ```bash
 gh workflow run cli-upgrade.yml        --ref <branch> -f twist=ignore-idle
 gh workflow run windows-installer.yml  --ref <branch> -f twist=wrong-path
-gh workflow run bundle-fingerprint.yml --ref <branch> -f raw-fingerprint   # S8
+gh workflow run bundle-fingerprint.yml --ref <branch> -f twist=raw-fingerprint
 ```
 
 Each twist run must go RED **at the assertion that names its scenario**,

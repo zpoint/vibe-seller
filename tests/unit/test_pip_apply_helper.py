@@ -456,9 +456,16 @@ class TestRecord:
         }
         win.fails.append('freeze')
         assert helper.apply_update(win.args)['stage'] in stages
-        win.fails = ['taskkill']
+        # `taskkill.exe`, not `taskkill`: the fake matches ARGUMENTS now,
+        # and the argument the helper runs is the .exe (the old substring
+        # needle matched it by accident, then stopped matching anything
+        # at all — a needle that hits nothing is an assertion that cannot
+        # fail). `holders` is what really keeps the venv busy.
+        win.fails = ['taskkill.exe']
         win.holders = [1]
-        assert helper.apply_update(win.args)['stage'] in stages
+        rec = helper.apply_update(win.args)
+        assert rec['stage'] in stages, rec
+        assert rec['stage'] == helper.STAGE_STOP, rec
 
     def test_the_record_is_replaced_not_appended(self, win):
         helper.apply_update(win.args)

@@ -43,6 +43,7 @@ MODULES = [
     'app.release_channel',
     'app.update_check',
     'app.routers.system',
+    'app.apply_launch',
 ]
 
 

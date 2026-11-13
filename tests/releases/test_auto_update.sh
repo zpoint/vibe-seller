@@ -504,6 +504,26 @@ EOF
       if [ "$leg" = s5b ]; then
         echo "   hop 1: $OLD_V -> $NEW_V (a good release)"
         wait_for_version "$NEW_V" 360 || fail "hop 1 never applied"
+        # Hop 1 is not OVER when the version moves. The record is the
+        # last thing the helper writes — measured again in CI on
+        # 2026-11-13: the port answered 99.91942.2, and 139 s later
+        # `last.json` still held no hop-1 record at all. This leg then
+        # uses that record as the MARKER for hop 2's ("a NEW
+        # last.json"), and a marker taken from a file that does not
+        # exist yet is empty, which any record satisfies: the leg read
+        # hop 1's own `ok` as hop 2's verdict and failed with
+        # `the new record is about 99.91942.2, not 99.91942.3` while
+        # the second apply was still two minutes from starting. So hop 1
+        # has to be shown finished, on its own terms, before hop 2
+        # begins.
+        wait_for_record || fail "hop 1 never wrote a record"
+        [ "$(record_field status)" = ok ] \
+          || fail "hop 1 did not succeed: $(record_json)"
+        [ "$(record_field to)" = "$NEW_V" ] \
+          || fail "hop 1's record is about $(record_field to): $(record_json)"
+        [ "$(record_field trigger)" = auto_idle ] \
+          || fail "hop 1 was not an auto_idle apply: $(record_json)"
+        echo "   hop 1 done: $(record_field from) -> $(record_field to) $(record_field status)"
         stop_server_only
         # Same install tree, new target: the BROKEN wheel. Re-point the
         # mock index and restart, so the update check offers 99.0.3.
@@ -531,6 +551,12 @@ EOF
       local applies_before record_before
       applies_before=$(applies_started)
       record_before=$(record_identity)
+      if [ "$leg" = s5b ] && [ -z "$record_before" ]; then
+        # The guard the CI failure was missing: with no marker, "a new
+        # record" means "any record", and the leg cannot tell hop 1's
+        # `ok` from hop 2's `rolled_back`.
+        fail "s5b reached hop 2 with no hop-1 record to mark against"
+      fi
       state=''
       for _ in $(seq 1 200); do
         state=$(update_field state)

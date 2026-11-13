@@ -43,10 +43,22 @@ class TestApplyHandoff:
         del proc
         helper = tmp_path / 'home' / 'updates' / al.HELPER_MODULE
         assert helper.is_file()
+        # The package's OWN module object, not `Path(al.__file__).
+        # with_name(...)`: comparing the copy against the same path
+        # expression apply() copies from is an equality that cannot fail.
+        # Read through the module it has to spell a different file — and
+        # that is the risk this pins: `HELPER_MODULE` drifting from the
+        # real script's name would copy (and run) the wrong file.
+        import app.pip_apply_helper as real_helper  # noqa: PLC0415
+
         assert helper.read_text(encoding='utf-8') == Path(
-            al.__file__
-        ).with_name(al.HELPER_MODULE).read_text(encoding='utf-8')
+            real_helper.__file__
+        ).read_text(encoding='utf-8')
         assert str(helper) in started[0]
+        # and what runs is the COPY, never a file inside the install
+        assert (
+            str(Path(al.__file__).with_name(al.HELPER_MODULE)) not in started[0]
+        )
         # Run by the base interpreter, never by the venv being replaced.
         assert started[0][0] == pu.prefetch_python()
         assert started[0][0] != pu.sys.executable

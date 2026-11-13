@@ -64,6 +64,9 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+
 jobs:
   # Everything the legs need to know, decided once, from the two
   # releases themselves rather than from anything this repo remembers.
@@ -115,6 +118,7 @@ jobs:
         env:
           PREV: ${{ steps.prev.outputs.version }}
           FORCE: ${{ inputs.force }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           say() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
@@ -122,9 +126,22 @@ jobs:
           reason=''
 
           # 1. Does the previous release publish the manifest at all?
-          gh release view "v$PREV" --repo "$GITHUB_REPOSITORY" \
-            --json assets -q '.assets[].name' > /tmp/assets.txt 2>/dev/null \
-            || true
+          #
+          # A FAILED `gh` must not become "no bundle.json": the whole
+          # point of this job is a SKIP that is a fact about the two
+          # releases, and swallowing an auth or network error here would
+          # print that same confident sentence while the gate quietly
+          # stopped gating anything. `gh` reads GH_TOKEN, which the
+          # runner does not put in the environment on its own — every
+          # `gh` step in this repo passes it explicitly, and this file
+          # did not.
+          if ! gh release view "v$PREV" --repo "$GITHUB_REPOSITORY" \
+              --json assets -q '.assets[].name' > /tmp/assets.txt; then
+            echo "::error::gh could not read release v$PREV — the gate " \
+              "cannot tell a missing asset from a failed API call, and " \
+              "refuses to skip on that"
+            exit 1
+          fi
           if ! grep -qx 'bundle.json' /tmp/assets.txt; then
             run=false
             reason="release v$PREV publishes no bundle.json asset, so there "
@@ -283,6 +300,9 @@ jobs:
       VS_V2: '99.9.9'
       PREV_VERSION: ${{ needs.decision.outputs.prev }}
       GATE_FORCE: ${{ inputs.force }}
+      # The leg downloads the previous release's own installer and
+      # bundle document with the CLI; without this it cannot.
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -320,6 +340,14 @@ jobs:
           # not something a leg should have to know.
           pwsh -NoProfile -ExecutionPolicy Bypass -File `
             ./tests/releases/win_gate_leg.ps1
+
+          # A child pwsh's exit code is NOT a PowerShell error: with
+          # `$ErrorActionPreference='Stop'` and no
+          # `PSNativeCommandUseErrorActionPreference`, a script that
+          # throws in the child leaves THIS step to finish normally and
+          # report success — and this leg's whole purpose is to be able
+          # to go red. Look at the code.
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Stop the leg's server + tray
         if: always()

@@ -23,7 +23,10 @@
 # .ps1 parses as itself, and `py_compile`/the parser can be pointed at
 # it directly.
 #
-# Environment the caller must set:
+# Environment the caller must set (CI provides all of it; a host driver
+# must set the four it would otherwise get from the runner —
+# GITHUB_WORKSPACE, RUNNER_TEMP, GITHUB_REPOSITORY when `gh` is in play,
+# and VIBE_SELLER_PORT):
 #   VIBE_SELLER_PORT          the port the legs own (never 7777)
 #   VIBE_HOME                 this leg's isolated data root
 #   VS_INSTALL                the installed app dir ({app})
@@ -37,6 +40,11 @@ $ErrorActionPreference = 'Stop'
 # instead of failing later on a path that begins `\tests\releases\`.
 if (-not $env:GITHUB_WORKSPACE) {
   throw 'GITHUB_WORKSPACE must point at the checkout this leg builds from'
+}
+if (-not $env:RUNNER_TEMP) {
+  # The broken-wheel build and every leg's scratch tree hang off it;
+  # without the guard a host run dies inside Copy-Tree on an empty path.
+  throw "RUNNER_TEMP must point at this leg's scratch directory"
 }
 $script:Port = $env:VIBE_SELLER_PORT
 $script:Base = "http://127.0.0.1:$($script:Port)"
@@ -272,6 +280,20 @@ function Stop-LegServer {
 # apply that succeeded, rolled back or failed. A leg that
 # expects a rollback with no record is a leg that would pass on
 # a machine that never ran the helper at all.
+# The record minus `reported` — the one field the NEXT boot is allowed
+# to change. `app/auto_update.py::report_unreported_failure` marks the
+# outage as counted once, by rewriting last.json with
+# `reported: true`; a leg that compares whole documents therefore sees
+# "the record was rewritten" on a machine that did the right thing.
+# Anything asking "was there another outage" asks this instead.
+function Record-Identity($rec) {
+  if (-not $rec) { return '' }
+  @(foreach ($p in ($rec.PSObject.Properties | Sort-Object Name)) {
+      if ($p.Name -eq 'reported') { continue }
+      "$($p.Name)=$($p.Value)"
+    }) -join '|'
+}
+
 function Read-Record {
   $f = "$script:Updates\last.json"
   if (-not (Test-Path $f)) { return $null }

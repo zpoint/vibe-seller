@@ -567,7 +567,19 @@ class TestVersionContracts:
                         'body': '## Highlights\n\n- new thing\n',
                         'url': 'https://x',
                         'published_at': None,
-                    }
+                    },
+                    # One NEWER than the version running here. Without it
+                    # the endpoint's drop rule (`not is_newer(version,
+                    # target)`) has nothing to exclude and the test passes
+                    # even if that line is deleted: a range with one
+                    # answer cannot show which end of it is the range.
+                    {
+                        'version': '0.8.0',
+                        'name': 'v0.8.0',
+                        'body': '## Highlights\n\n- a later release\n',
+                        'url': 'https://y',
+                        'published_at': None,
+                    },
                 ]
             ),
         )
@@ -580,6 +592,9 @@ class TestVersionContracts:
         assert body['since'] == '0.6.0'
         assert body['until'] == '0.7.0'  # defaults to the running version
         assert body['releases'] == ['0.7.0']
+        assert '0.8.0' not in body['releases'], (
+            'a release newer than the one running here must not be in the range'
+        )
         assert body['highlights'][0]['version'] == '0.7.0'
 
     async def test_release_notes_needs_a_start(self, admin_client):

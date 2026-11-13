@@ -1140,8 +1140,17 @@ jobs:
           if ($applies2 -ne $applies1) {
             Fail "a second apply started ($applies1 -> $applies2)"
           }
-          if ((Json (Read-Record)) -ne (Json $rec1)) {
-            Fail "the record was rewritten — a second outage happened"
+          # The identity, not the bytes: the reboot this leg just forced
+          # reports the FIRST outage (`reported: false` -> `true`) and
+          # rewrites last.json without any second apply having happened.
+          # CI measured exactly that on the Linux leg the same day — the
+          # tick logged `refused: …` twice, no second `applying` line
+          # existed, and the leg still went red.
+          if ((Record-Identity (Read-Record)) -ne (Record-Identity $rec1)) {
+            Fail 'the record describes another apply — a second outage happened'
+          }
+          if (-not (Read-Record).reported) {
+            Fail 'the reboot never reported the outage it found on disk'
           }
           if ((Get-Content "$script:Updates\apply-blocked.json" -Raw `
               -ErrorAction SilentlyContinue) -notmatch $new) {
@@ -1345,6 +1354,12 @@ jobs:
           # not something a leg should have to know.
           pwsh -NoProfile -ExecutionPolicy Bypass -File `
             ./tests/releases/win_gate_leg.ps1
+
+          # A child pwsh's exit code is NOT a PowerShell error: a script
+          # that throws in the child leaves THIS step to finish normally
+          # and report success, and this job exists to show the gate's
+          # Windows leg can go red.
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Stop the leg's server + tray
         if: always()

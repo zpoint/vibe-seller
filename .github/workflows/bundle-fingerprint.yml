@@ -69,6 +69,10 @@ on:
       - 'app/pip_update.py'
       - 'app/apply_launch.py'
       - 'app/pip_apply_helper.py'
+      # The Windows half of the path choice lives here since the
+      # cycle was split out of auto_update.py: which release gets
+      # the pip path on Windows is decided in update_windows.py.
+      - 'app/update_windows.py'
       - 'app/update_idle.py'
       - 'app/update_events.py'
       - 'app/windows_update.py'

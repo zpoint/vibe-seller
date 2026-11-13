@@ -15,9 +15,12 @@
 #
 #   * `.github/workflows/pip-upgrade-gate.yml` — the release gate. Its
 #     `decision` job has already worked out whether the comparison can
-#     mean anything; this script re-derives the same two facts from the
-#     release itself rather than trusting a job upstream, because a leg
-#     that believes its own skip flag tests nothing.
+#     mean anything; this script re-derives all THREE of those facts
+#     from the release and the install themselves rather than trusting
+#     a job upstream, because a leg that believes its own skip flag
+#     tests nothing. The three are: no `bundle.json` asset, the two
+#     fingerprints differ, and the previous wheel has no
+#     `app/update_idle.py`.
 #   * `.github/workflows/windows-installer.yml`, the `gate-rehearsal`
 #     job — a `workflow_dispatch` path. A workflow file that exists only
 #     on a branch cannot be dispatched at all (GitHub answers HTTP 404
@@ -71,7 +74,7 @@ Say "gate hop: the published $prev -> candidate $env:VS_V2 over the pip path"
 $prev_dir = Join-Path $env:RUNNER_TEMP 'prev'
 New-Item -ItemType Directory -Force -Path $prev_dir | Out-Null
 
-# 1. The installer the customer has. A release without one is not a
+# Condition 0 / skip 1 preamble — the installer the customer has. A release without one is not a
 # skip condition — it is a broken release, and the gate should be red.
 gh release download "v$prev" --repo $env:GITHUB_REPOSITORY `
   --pattern 'VibeSeller-Setup.exe' --dir $prev_dir
@@ -80,7 +83,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 $setup = Join-Path $prev_dir 'VibeSeller-Setup.exe'
 
-# 2. The document that makes the choice knowable.
+# SKIP CONDITION 1: the document that makes the choice knowable.
 $prevBundle = Join-Path $prev_dir 'bundle.json'
 gh release download "v$prev" --repo $env:GITHUB_REPOSITORY `
   --pattern 'bundle.json' --dir $prev_dir
@@ -111,6 +114,21 @@ if (-not (Test-Path "$env:VS_INSTALL\bundle.json")) {
         'the manifest, so nothing on it can compare fingerprints')
 }
 
+# SKIP CONDITION 3: the previous release predates the in-app updater? The idle loop is
+# code INSIDE the installed wheel, so the install is what gets asked —
+# the same third condition `pip-upgrade-gate.yml`'s decision job checks
+# from the previous wheel on PyPI.
+# One call per line: a PowerShell command ends at a line break unless
+# the break follows an operator or a comma, so a two-line `Join-Path`
+# inside `Test-Path` is a parse error, not a wrapped expression.
+$idleLoop = Join-Path $env:VS_INSTALL '.venv\Lib\site-packages\app\update_idle.py'
+if (-not (Test-Path $idleLoop)) {
+  Skip ("the installed $prev has no app/update_idle.py, so nothing on it " +
+        'can apply an update by itself — there is no self-applying hop to ' +
+        'gate, and a leg that clicks the #244 button instead would be ' +
+        'testing #244')
+}
+
 . (Join-Path $env:GITHUB_WORKSPACE 'tests\releases\win_leg_harness.ps1')
 
 Start-LegServer
@@ -121,13 +139,39 @@ if ((Server-Version) -ne $prev) {
 $new = $env:VS_V2
 Build-GoodWheel $new
 
-# The release document, with the PREVIOUS release's own bundle.json as
-# the asset the client compares against. The installer asset is that
-# same previous installer: this leg asserts the pip path is chosen, so
-# those bytes are never run — they are there because a real release
-# document has them, and a leg that invented one could hide a check
-# that reads it.
-Write-Release -Version $new -BundleAsset $prevBundle
+# The CANDIDATE's own bundle document — computed from this checkout by
+# the same script `release.yml` publishes, so the asset the leg offers
+# is the asset a real release would offer.
+#
+# It must not be `$prevBundle`. Handing the client a copy of the very
+# file it is about to compare is the defect this leg's header accuses
+# `windows-installer.yml`'s s3 of: the fingerprints match by
+# construction, `path -eq 'pip'` can never be false, and the gate would
+# say "yes" to a release that moved the bundled runtime. Computing it
+# here and comparing it against the installed document FIRST is what
+# makes the second half mean something — and it is also the gate's
+# second skip condition, re-derived from the two documents instead of
+# trusted from upstream.
+$candBundle = Join-Path $env:RUNNER_TEMP 'candidate-bundle.json'
+Push-Location $env:GITHUB_WORKSPACE
+try {
+  python scripts/bundle_fingerprint.py -o $candBundle | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw "bundle_fingerprint.py failed ($LASTEXITCODE)" }
+} finally { Pop-Location }
+$prevFp = (Get-Content $prevBundle -Raw | ConvertFrom-Json).fingerprint
+$candFp = (Get-Content $candBundle -Raw | ConvertFrom-Json).fingerprint
+Say "candidate bundle fingerprint: $candFp"
+if ($prevFp -ne $candFp) {
+  Skip ("the two releases describe different runtimes ($prevFp vs " +
+        '$candFp), so v' + $prev + ' -> this candidate is an INSTALLER ' +
+        'hop and windows-upgrade.yml gates that path; the pip path is ' +
+        'not the answer for this pair')
+}
+# The installer asset is that same previous installer: this leg asserts
+# the pip path is chosen, so those bytes are never run — they are there
+# because a real release document has them, and a leg that invented one
+# could hide a check that reads it.
+Write-Release -Version $new -BundleAsset $candBundle
 
 $st = Wait-OnState @('ready', 'error')
 if (-not $st -or $st.state -ne 'ready') { Fail "never reached ready (last: $(Json $st))" }
@@ -156,7 +200,13 @@ if ((BundleHash) -ne $bundleBefore) {
   Fail '{app}\bundle.json was rewritten — a pip update must not touch the runtime beside the venv'
 }
 if ((BundleHash) -ne (Get-FileHash -Algorithm SHA256 $prevBundle).Hash) {
-  Fail '{app}\bundle.json no longer matches the document the release published'
+  Fail ('{app}\bundle.json no longer matches the document the release ' +
+        'v' + $prev + ' shipped with — the file the machine came from')
+}
+# And the two documents a real pair of releases would have published
+# are still the same runtime, because the hop did not touch it.
+if ($candFp -ne (Get-Content (BundlePath) -Raw | ConvertFrom-Json).fingerprint) {
+  Fail 'the installed bundle no longer fingerprints to the candidate'
 }
 $rec = Read-Record
 if (-not $rec -or $rec.status -ne 'ok') { Fail "the apply left no ok record (got $(Json $rec))" }
