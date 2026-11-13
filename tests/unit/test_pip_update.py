@@ -401,9 +401,32 @@ class TestApplyHandoff:
         args = json.loads(
             (tmp_path / 'u' / pu.HELPER_ARGS_NAME).read_text(encoding='utf-8')
         )
-        assert args['install_command'][-1] == 'upgrade'
+        # The REAL upgrade command (one source of truth for what an
+        # upgrade does: package, Chromium, Claude Code CLI) — and the
+        # version the update check approved is IN it. Without it,
+        # `uv tool upgrade` answers a different question, "what is
+        # newest in the sources right now", and can install a release
+        # nothing offered: the Linux end-to-end measured exactly that
+        # on 2026-11-13 (a newer, broken wheel in the same find-links
+        # directory was installed, and `last.json` described the update
+        # to 99.0.2 that never happened). See app/cli.py
+        # `_upgrade_to_exact`.
+        assert args['install_command'][-3:] == [
+            'upgrade',
+            '--version',
+            '0.9.0',
+        ]
         assert args['start_command'][-3:] == ['start', '--port', '7792']
         assert args['stop_command'][-3:] == ['stop', '--port', '7792']
+
+    def test_the_unix_apply_names_the_version_it_approved(self, monkeypatch):
+        """Windows passes the gated argv verbatim; the Unix path is
+        allowed to be a COMMAND the CLI owns, but not an unpinned
+        "give me whatever is newest"."""
+        monkeypatch.setattr(pu.sys, 'platform', 'linux')
+        argv = pu.install_command('99.0.2', pu.PATH_PIP)
+        assert argv[-2:] == ['--version', '99.0.2']
+        assert 'upgrade' in argv
 
 
 class TestRecord:

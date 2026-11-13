@@ -70,6 +70,7 @@ const baseStatus = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
   popup_due: true,
   ready_since: 1765670400,
   last_update: null,
+  refusal: null,
   ...over,
 })
 
@@ -470,5 +471,55 @@ describe('update modal — manual experience', () => {
     expect(screen.getByText('后台自动更新没有成功')).toBeTruthy()
     expect(screen.getByText('installer size mismatch')).toBeTruthy()
     expect(screen.getByText('vibe-seller upgrade')).toBeTruthy()
+  })
+})
+
+describe('update modal — the release that was put back', () => {
+  /** `auto_apply` false on a pip release: the machine applied it once,
+   *  rolled it back, and will not do that to itself again. */
+  const refused = () =>
+    pipStatus({
+      auto_apply: false,
+      popup_due: true,
+      refusal: { version: '0.3.2', status: 'rolled_back', stage: 'health' },
+      last_update: lastApply({
+        status: 'rolled_back',
+        stage: 'health',
+        error: 'the server never reported 0.3.2',
+      }),
+    })
+
+  it('zh admin: says nothing will happen by itself, and that a click is a retry', () => {
+    renderModal('zh', { status: refused(), check: baseCheck({ platform: 'linux' }) })
+    const sub = screen.getByText((content) => content.includes('不会再自动重试'))
+    expect(sub.textContent).toContain('点「立即更新」是主动再试一次')
+    expect(sub.textContent).toContain('下一个新版本仍会照常自动更新')
+    expect(screen.getByText('立即更新')).toBeTruthy()
+    // The idle promise must be gone: this is the sentence an admin
+    // reads to work out why nothing happened overnight.
+    expect(screen.queryByText(/空闲时会自动完成更新/)).toBeNull()
+  })
+
+  it('en admin: the same, in English', () => {
+    renderModal('en', { status: refused() })
+    expect(
+      screen.getByText((content) => content.includes('will not be retried automatically'))
+    ).toBeTruthy()
+  })
+
+  it('member: no button, and the next release will still come', () => {
+    renderModal('zh', { status: refused(), isAdmin: false })
+    expect(screen.queryByText('立即更新')).toBeNull()
+    expect(
+      screen.getByText((content) => content.includes('请联系管理员'))
+    ).toBeTruthy()
+  })
+
+  it('the rollback itself is still reported beside the explanation', () => {
+    renderModal('zh', {
+      status: refused(),
+      check: baseCheck({ platform: 'linux' }),
+    })
+    expect(screen.getByText(/已恢复到 v0.1.0|更新失败/)).toBeTruthy()
   })
 })

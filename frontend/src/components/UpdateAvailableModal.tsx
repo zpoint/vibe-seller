@@ -171,9 +171,24 @@ export function UpdateAvailableModal({
     if (pip) {
       applyLabel =
         tasks > 0 ? t('update.updateNowAnyway') : t('update.updateNow')
-      subtitle = isAdmin
-        ? t('update.readySubPipAdmin', { current })
-        : t('update.readySubPipMember', { current })
+      // The same release the machine already put back. The button is
+      // still there — retrying a known-bad build is a decision only an
+      // admin can make — but the sentence has to say that nothing will
+      // happen on its own, or the page looks like a stuck one.
+      const refused = !!status?.refusal && !status.auto_apply
+      subtitle = refused
+        ? isAdmin
+          ? t('update.readySubRefusedAdmin', {
+              current,
+              version: target,
+            })
+          : t('update.readySubRefusedMember', {
+              current,
+              version: target,
+            })
+        : isAdmin
+          ? t('update.readySubPipAdmin', { current })
+          : t('update.readySubPipMember', { current })
     } else {
       applyLabel =
         tasks > 0 ? t('update.restartAnyway') : t('update.restart')

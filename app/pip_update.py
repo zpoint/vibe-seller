@@ -431,14 +431,36 @@ def available() -> bool:
 # ── apply ────────────────────────────────────────────────────────────
 
 
-def unix_upgrade_argv() -> list[str]:
+def unix_upgrade_argv(version: str) -> list[str]:
     """How to run the REAL ``vibe-seller upgrade`` from this install —
     one source of truth for what an upgrade does (package + Chromium +
-    Claude Code CLI, app/cli.py)."""
+    Claude Code CLI, app/cli.py) — pinned to *version*.
+
+    The version travels because the update check already answered the
+    question "which release, by which path": it fingerprinted this
+    release, warmed its wheels and pre-installed the browser THIS
+    release's Playwright asks for. ``upgrade`` with no version asks the
+    index what is newest *now*, which is a different question and can
+    answer differently — a release published in the minutes between the
+    check and the apply, or (the case the e2e caught on 2026-11-13) any
+    newer wheel sitting in a find-links directory. The apply would then
+    install a build nobody checked and record an update to the version
+    it was told about. ``app/cli.py`` keeps the tool receipt unpinned
+    afterwards, so naming the version costs nothing the next upgrade
+    needs.
+    """
     script = Path(sys.executable).parent / 'vibe-seller'
     if script.exists():
-        return [str(script), 'upgrade']
-    return [sys.executable, '-I', '-m', 'app.cli', 'upgrade']
+        return [str(script), 'upgrade', '--version', version]
+    return [
+        sys.executable,
+        '-I',
+        '-m',
+        'app.cli',
+        'upgrade',
+        '--version',
+        version,
+    ]
 
 
 def _cli_argv(*args: str) -> list[str]:
@@ -457,7 +479,7 @@ def install_command(version: str, path: str) -> list[str]:
     """
     if is_windows_bundle():
         return apply_command(version)
-    return unix_upgrade_argv()
+    return unix_upgrade_argv(version)
 
 
 def apply_args(version: str, trigger: str, path: str) -> dict:

@@ -211,6 +211,13 @@ async def update_status(user=Depends(get_current_user)) -> dict:
     (the bundled runtime changed; nothing happens until an admin
     clicks). ``last_update`` is what the previous apply did — including
     one that failed and rolled back, which the machine is now serving.
+
+    ``refusal`` is that failure becoming a rule: when the release on
+    offer is the one an apply already put back, ``auto_apply`` is false
+    and this carries what happened, so the UI can say "this will not be
+    retried by itself; the next release will be" instead of looking
+    idle. An admin may still apply it — a click is a decision, a tick
+    is not, and only the second one repeats every six hours.
     """
     snap = auto_update.snapshot()
     return {
@@ -228,6 +235,7 @@ async def update_status(user=Depends(get_current_user)) -> dict:
         'popup_due': snap['popup_due'],
         'ready_since': snap['ready_since'],
         'last_update': snap['last_update'],
+        'refusal': snap['refusal'],
     }
 
 

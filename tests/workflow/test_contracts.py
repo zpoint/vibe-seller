@@ -483,13 +483,15 @@ UPDATE_STATUS_KEYS = {
     'running_tasks',
     'platform',
     # Which mechanism `ready` refers to, whether it applies itself, and
-    # whether it may ask; plus what the last apply did. The modal reads
-    # all four — see app/auto_update.snapshot().
+    # whether it may ask; plus what the last apply did, and whether
+    # THIS release is the one it had to put back. The modal reads all
+    # five — see app/auto_update.snapshot().
     'path',
     'auto_apply',
     'popup_due',
     'ready_since',
     'last_update',
+    'refusal',
 }
 
 RELEASE_NOTES_KEYS = {

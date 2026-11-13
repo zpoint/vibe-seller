@@ -29,7 +29,7 @@ import urllib.request
 
 from packaging.version import Version
 
-from app import bundle
+from app import bundle, uv_tool
 from app.platform import (
     collect_agent_descendants,
     find_pid_listening_on_port,
@@ -193,7 +193,11 @@ def _build_parser() -> argparse.ArgumentParser:
         '--version',
         dest='target_version',
         default=None,
-        help='Exact version to install (required with --test-pypi).',
+        help=(
+            'Install EXACTLY this version (required with --test-pypi, '
+            'and what the in-app update passes so the release the check '
+            'approved is the release installed — see app/uv_tool.py.',
+        ),
     )
     channel = up.add_mutually_exclusive_group()
     channel.add_argument(
@@ -408,15 +412,6 @@ def _pypi_versions() -> list[str]:
     ]
 
 
-def _uv_reinstall(spec: str) -> list[str]:
-    return ['uv', 'tool', 'install', '--force', spec]
-
-
-def _pip_install(spec: str) -> list[str]:
-    # No --no-deps: a target that adds or bumps a dependency must get it.
-    return [sys.executable, '-m', 'pip', 'install', spec]
-
-
 def _upgrade_cmd(
     *, current: str, nightly: bool, stable: bool, versions: list[str] | None
 ) -> list[str] | None:
@@ -465,12 +460,16 @@ def _upgrade_cmd(
         return None
     if channel_of(target) == 'stable':
         return (
-            _uv_reinstall('vibe-seller')
+            uv_tool.reinstall_argv('vibe-seller')
             if has_uv
-            else _pip_install(f'vibe-seller=={target}')
+            else uv_tool.pip_install_argv(f'vibe-seller=={target}')
         )
     spec = f'vibe-seller=={target}'
-    return _uv_reinstall(spec) if has_uv else _pip_install(spec)
+    return (
+        uv_tool.reinstall_argv(spec)
+        if has_uv
+        else uv_tool.pip_install_argv(spec)
+    )
 
 
 #: The Claude Code CLI every agent task spawns lives here, project-local
@@ -692,6 +691,9 @@ def _new_cli_version() -> str | None:
 def _upgrade_package(args: argparse.Namespace) -> int:
     if getattr(args, 'test_pypi', False):
         return _upgrade_from_test_pypi(args.target_version)
+    exact = (getattr(args, 'target_version', None) or '').strip()
+    if exact:
+        return uv_tool.install_exactly(exact)
     current = _resolve_version()
     stable = bool(getattr(args, 'stable', False))
     nightly = not stable and (

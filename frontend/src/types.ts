@@ -77,8 +77,15 @@ export interface UpdateStatus {
   running_tasks: number
   platform: ServerPlatform
   path: UpdatePath | null
-  /** True exactly when `path === 'pip'`: the server applies it alone. */
+  /** True exactly when the server will apply this on its own: the pip
+   *  path, AND not a release it already applied and had to put back.
+   *  A rolled-back release is never auto-applied a second time — an
+   *  admin's click is the only thing that runs it again. */
   auto_apply: boolean
+  /** The release an apply already rolled back (or failed to install),
+   *  when that is the one on offer. Null for every other version: a
+   *  newer release clears it and auto-apply comes back by itself. */
+  refusal: { version: string; status: string; stage: string | null } | null
   /** The server's answer to "should we ask the admin?" — installer: as
    *  soon as it is ready; pip: only after a day of never being idle.
    *  The frontend reads this flag and keeps no timer of its own. */

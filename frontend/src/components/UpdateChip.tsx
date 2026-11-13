@@ -53,9 +53,18 @@ export function UpdateChip({
   if (failed) {
     label = applyFailureLabel(t, failed)
   } else if (status.state === 'ready') {
-    label = pip
-      ? t('update.chipReadyPip', { version })
-      : t('update.chipReadyInstaller', { version })
+    // A pip release this machine already rolled back is ready but WILL
+    // not be applied by itself, so the chip must not promise it — that
+    // sentence is the one thing an admin checks when nothing moved.
+    // The installer path says nothing about a refusal: `auto_apply` is
+    // false there because only a click runs an installer, which is a
+    // different sentence entirely.
+    label =
+      pip && status.refusal
+        ? t('update.chipReadyRefused', { version })
+        : pip
+          ? t('update.chipReadyPip', { version })
+          : t('update.chipReadyInstaller', { version })
   } else if (status.state === 'restarting') {
     label = t('update.chipRestarting', { version })
   } else {

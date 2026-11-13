@@ -64,6 +64,7 @@ const status = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
   popup_due: true,
   ready_since: 1765670400,
   last_update: null,
+  refusal: null,
   ...over,
 })
 
@@ -196,5 +197,42 @@ describe('sidebar update chip', () => {
       expect(screen.queryByTestId('update-chip')).toBeNull()
       unmount()
     }
+  })
+})
+
+describe('chip — a release this machine already put back', () => {
+  /** The refusal for the version on offer: `auto_apply` false, and the
+   *  record of what went wrong beside it. */
+  const refused = (lngOver: Partial<UpdateStatus> = {}) =>
+    pip({
+      auto_apply: false,
+      popup_due: true,
+      last_update: lastUpdate({
+        status: 'rolled_back',
+        to: '0.3.2',
+        stage: 'health',
+        error: 'the server never reported 0.3.2',
+      }),
+      refusal: { version: '0.3.2', status: 'rolled_back', stage: 'health' },
+      ...lngOver,
+    })
+
+  it('zh: says it will not be retried, not that it will update by itself', () => {
+    renderChip(refused())
+    const text = chipText() ?? ''
+    expect(text).toContain('不会再自动重试')
+    expect(text).not.toContain('空闲时自动更新')
+  })
+
+  it('en: the same promise withdrawn', () => {
+    renderChip(refused(), 'en')
+    const text = chipText() ?? ''
+    expect(text).toContain('will not be retried on its own')
+    expect(text).not.toContain('updates automatically when idle')
+  })
+
+  it('a DIFFERENT version on offer keeps the promise', () => {
+    renderChip(pip({ auto_apply: true, popup_due: false, refusal: null }))
+    expect(chipText()).toContain('空闲时自动更新')
   })
 })

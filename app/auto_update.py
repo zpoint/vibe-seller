@@ -60,6 +60,7 @@ from app import (
     pip_update,
     update_events,
     update_idle,
+    update_refusal,
     windows_update as wu,
 )
 from app.env_options import Options
@@ -96,6 +97,10 @@ _state: dict = {
     'error': None,
     'ready_since': None,
     'last_update': None,
+    # The release an apply already put back, when that is the release on
+    # offer. Kept in the state because `snapshot()` answers the UI's
+    # every-two-seconds poll without touching the disk (review 4).
+    'refusal': None,
 }
 
 #: The detached apply child + its watcher (both paths).
@@ -110,12 +115,28 @@ def _update(**kw: object) -> None:
 
 def snapshot() -> dict:
     """The state as the UI sees it. No I/O — see ``_settle`` for what
-    that buys and ``load_last_update`` for how the record gets in."""
+    that buys and ``load_last_update`` for how the record gets in.
+
+    ``auto_apply`` is the answer to "will this update happen by
+    itself", and the pip path is only half of it: a release this
+    machine already applied and had to put back is never applied by
+    itself a second time (review 4), because every check cycle would
+    otherwise offer it again and every idle minute would pay for it
+    with another restart. The admin can still apply it — the click is
+    a decision, the tick is not.
+    """
     with _lock:
         st = dict(_state)
-    st['auto_apply'] = st['path'] == pip_update.PATH_PIP
-    st['popup_due'] = st['state'] == READY and update_idle.popup_due(
-        st['path'] or '', st['ready_since']
+    refusal = st['refusal'] or None
+    st['auto_apply'] = st['path'] == pip_update.PATH_PIP and not (
+        refusal and refusal.get('version') == st['version']
+    )
+    # A refused release pops: it is ready, it will never happen by
+    # itself, and the only person who can end that is the admin — who
+    # has to be told what happened, not left guessing why nothing moved.
+    st['popup_due'] = st['state'] == READY and (
+        bool(refusal)
+        or update_idle.popup_due(st['path'] or '', st['ready_since'])
     )
     return st
 
@@ -133,6 +154,7 @@ def reset_for_tests() -> None:
             'error': None,
             'ready_since': None,
             'last_update': None,
+            'refusal': None,
         })
     _apply_proc = None
     _apply_task = None
@@ -149,6 +171,11 @@ def load_last_update() -> dict | None:
     if doc is None:
         return None
     _update(last_update=doc)
+    # The refusal is remembered from the record rather than re-lived:
+    # the process that rolled the update back is usually gone by now,
+    # and the one booting on the old version is the one that must not
+    # try the same release again an hour later.
+    _update(refusal=update_refusal.note_apply_result(doc))
     report_unreported_failure(doc)
     return doc
 
@@ -229,6 +256,12 @@ def _mark_ready(version: str, path: str) -> None:
     if snapshot()['state'] == RESTARTING:
         return
     record = update_idle.note_ready(version, path)
+    # The release this machine put back, unless this offer passed it.
+    refusal = (
+        update_refusal.supersede(version)
+        if path == pip_update.PATH_PIP
+        else None
+    )
     _update(
         state=READY,
         version=version,
@@ -237,7 +270,16 @@ def _mark_ready(version: str, path: str) -> None:
         error=None,
         downloaded_bytes=None,
         total_bytes=None,
+        refusal=refusal,
     )
+    if refusal:
+        logger.warning(
+            'v%s is ready but will NOT be applied by itself: the last '
+            'apply of it ended in %s at stage %s',
+            version,
+            refusal.get('status'),
+            refusal.get('stage'),
+        )
 
 
 def _mark_idle() -> None:
@@ -252,6 +294,7 @@ def _mark_idle() -> None:
         total_bytes=None,
         error=None,
         ready_since=None,
+        refusal=None,
     )
 
 
@@ -545,6 +588,15 @@ async def idle_tick(task_queue, agents) -> str:
     st = snapshot()
     if st['state'] != READY or st['path'] != pip_update.PATH_PIP:
         return 'not ready'
+    if not st['auto_apply']:
+        # Another outage for a release this machine already put back is
+        # not a retry, it is the same failure on a timer (review 4).
+        refusal = st['refusal'] or {}
+        return (
+            f'refused: v{st["version"]} ended in {refusal.get("status")} '
+            f'at stage {refusal.get("stage")} and will not be applied '
+            'by itself again'
+        )
     verdict = await update_idle.evaluate(agents)
     if not verdict.idle:
         return f'busy: {verdict.reason}'
@@ -645,6 +697,7 @@ async def _watch_apply(since: float) -> None:
                 version=doc.get('to'),
                 path=doc.get('path'),
                 last_update=doc,
+                refusal=update_refusal.note_apply_result(doc),
             )
             return
         proc = _apply_proc
@@ -731,8 +784,15 @@ async def apply_restart(
 
 def manual_trigger() -> str:
     """How to label a click. After a day of never being idle, a pip
-    update's popup is what asked for this, and that is worth knowing."""
+    update's popup is what asked for this, and that is worth knowing.
+
+    A REFUSED release pops for a different reason — it already failed
+    once and nothing will apply it by itself again — so a click on it
+    is a deliberate retry, not the popup's answer, and `popup_due`
+    alone cannot tell the two apart."""
     st = snapshot()
-    if st['path'] == pip_update.PATH_PIP and st['popup_due']:
+    if st['path'] != pip_update.PATH_PIP or st['refusal']:
+        return pip_update.TRIGGER_MANUAL
+    if st['popup_due']:
         return pip_update.TRIGGER_MANUAL_AFTER_24H
     return pip_update.TRIGGER_MANUAL

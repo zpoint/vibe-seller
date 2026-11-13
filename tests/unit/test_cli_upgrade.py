@@ -294,3 +294,49 @@ class TestUpgradeWaitsForTheServer:
         with patch.object(cli.subprocess, 'run') as run:
             assert cli._await_servers_upgraded('1.0.0') == 0
         run.assert_not_called()
+
+
+class TestUpgradeVersionFlag:
+    """`--version X` means "install X", on the ordinary path too.
+
+    The mechanics of an exact install — the pinned argv, the receipt
+    repair that has to follow it — are `app/uv_tool.py`'s and are tested
+    there. What belongs here is the routing, because a `--version` that
+    is silently ignored is the bug: the command looks pinned, the apply
+    installs the newest thing in the index, and the update record
+    describes a version nobody installed.
+    """
+
+    def test_the_flag_selects_the_exact_install(self, monkeypatch):
+        seen = []
+        monkeypatch.setattr(
+            cli.uv_tool, 'install_exactly', lambda v: seen.append(v) or 0
+        )
+        monkeypatch.setattr(cli, '_install_browser_after_upgrade', lambda: None)
+        monkeypatch.setattr(cli, '_upgrade_claude_cli', lambda: 0)
+        monkeypatch.setattr(cli, '_await_servers_upgraded', lambda *_: 0)
+        assert cli._cmd_upgrade(_args(['upgrade', '--version', '99.0.2'])) == 0
+        assert seen == ['99.0.2']
+
+    def test_without_the_flag_the_plain_upgrade_is_untouched(self, monkeypatch):
+        def explode(*_a, **_k):
+            raise AssertionError('an exact install was run for a plain upgrade')
+
+        monkeypatch.setattr(cli.uv_tool, 'install_exactly', explode)
+        with (
+            patch.object(cli.shutil, 'which', return_value='/usr/bin/uv'),
+            patch.object(cli.subprocess, 'run') as run,
+        ):
+            run.return_value = MagicMock(returncode=0)
+            monkeypatch.setattr(
+                cli, '_install_browser_after_upgrade', lambda: None
+            )
+            monkeypatch.setattr(cli, '_upgrade_claude_cli', lambda: 0)
+            monkeypatch.setattr(cli, '_await_servers_upgraded', lambda *_: 0)
+            cli._cmd_upgrade(_args(['upgrade']))
+        assert run.call_args_list[0][0][0] == [
+            'uv',
+            'tool',
+            'upgrade',
+            'vibe-seller',
+        ]

@@ -52,6 +52,7 @@ const STATUS = (over: Record<string, unknown> = {}) => ({
   popup_due: true,
   ready_since: 1765670400,
   last_update: null,
+  refusal: null,
   ...over,
 })
 

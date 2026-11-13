@@ -11,8 +11,9 @@ have — the wrong path chosen, the rollback skipped, the digest never
 checked — written into the REAL source by exact-string replacement at the
 smallest honest spot, i.e. the one line that carries the decision. Each
 twist names the scenario ids it must turn red: the legs of
-``.github/workflows/cli-upgrade.yml`` run S1/S2/S5/S5b/S7, the jobs of
-``bundle-fingerprint.yml`` run S8, and S4/S6 belong to the Windows
+``.github/workflows/cli-upgrade.yml`` run S1/S2/S5/S5b/S5c/S7, the jobs
+of ``bundle-fingerprint.yml`` run S8, the release gate
+(``pip-upgrade-gate.yml``) runs S9, and S4/S6 belong to the Windows
 installer legs (``windows-installer.yml``), which a Linux/macOS runner
 cannot reach.
 
@@ -142,6 +143,19 @@ TWISTS: tuple[Twist, ...] = (
         new=('    return False  # TWIST(raw-fingerprint): raw bytes',),
     ),
     Twist(
+        name='retry-bad',
+        rel='app/auto_update.py',
+        breaks='S5c',
+        why=(
+            'the idle tick stops honouring the refusal, so a release '
+            'this machine already applied and had to put back is '
+            'applied again every cycle — not one outage for a bad '
+            'build but one per check, forever'
+        ),
+        old=("    if not st['auto_apply']:",),
+        new=('    if False:  # TWIST(retry-bad): refusal not honoured',),
+    ),
+    Twist(
         name='dev-updates',
         rel='app/release_channel.py',
         breaks='S7',
@@ -210,6 +224,7 @@ def apply(twist: Twist) -> int:
     if problem:
         sys.stderr.write(f'twist {twist.name}: {problem}\n')
         return 1
+    _out(f'== twist {twist.name} (breaks {twist.breaks})')
     text, nl = _read(twist.rel)
     patched = text.replace(nl.join(twist.old), nl.join(twist.new), 1)
     try:
@@ -278,7 +293,6 @@ def main(argv: list[str]) -> int:
             f'{", ".join(BY_NAME)}, none, --list\n'
         )
         return 2
-    _out(f'== twist {name} (breaks {twist.breaks})')
     return apply(twist)
 
 

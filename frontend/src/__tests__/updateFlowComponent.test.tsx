@@ -55,6 +55,7 @@ const status = {
   popup_due: true,
   ready_since: 1765670400,
   last_update: null,
+  refusal: null,
 } as unknown as UpdateStatus
 
 /** What /api/system/release-notes answers for 0.1.0 → 0.3.2. */

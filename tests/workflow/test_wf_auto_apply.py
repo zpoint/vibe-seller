@@ -431,3 +431,130 @@ class TestReleaseNotesRange:
             '/api/system/release-notes', params={'since': '0.1.0'}
         )
         assert r.status_code == 401
+
+
+class TestRefusedUpdate:
+    """A release this machine already put back never runs by itself again.
+
+    Review 4's outage loop: S5 fails on boot, the helper rolls back, the
+    server is serving the old version again — and six hours later the
+    same release is offered, warmed and marked ready, so the idle tick
+    applies it again. Every cycle is then a restart, an interrupted
+    machine and a rollback, forever, for a build that cannot boot. The
+    answer has three parts and all three are answered here: the idle
+    tick refuses, the status says why, and an admin's click still works
+    — because a click is a decision and a tick is a timer.
+    """
+
+    def _refuse(self, version=VERSION):
+        """As if the helper had just recorded this rollback."""
+        return au.update_refusal.note_apply_result({
+            'status': au.pip_update.ROLLED_BACK,
+            'from': '9.9.8',
+            'to': version,
+            'path': 'pip',
+            'trigger': 'auto_idle',
+            'stage': 'health',
+            'error': f'the server never reported {version}',
+            'at': '2026-11-13T04:00:00Z',
+            'reported': False,
+        })
+
+    def _ready_refused(self):
+        self._refuse()
+        au._mark_ready(VERSION, PIP)
+
+    async def test_the_idle_tick_refuses_the_release_it_put_back(
+        self, monkeypatch, install_fake_agent
+    ):
+        applied = []
+        monkeypatch.setattr(au, 'apply_restart', _recorder(applied))
+        self._ready_refused()
+        decision = await au.idle_tick(task_queue_scheduler, install_fake_agent)
+        assert decision.startswith('refused:'), decision
+        assert applied == [], 'a rolled-back release was applied again'
+        assert 'will not be applied by itself again' in decision
+
+    async def test_a_newer_release_clears_the_refusal(
+        self, monkeypatch, install_fake_agent, admin_client
+    ):
+        # `admin_client` for the database the idle tick's busy-count
+        # question reads: this tick must get PAST that question, and a
+        # missing schema would look like the policy refusing to move.
+        applied = []
+        monkeypatch.setattr(au, 'apply_restart', _recorder(applied))
+        self._ready_refused()
+        assert au.snapshot()['auto_apply'] is False
+        # The next release arrives. Nothing deletes the memory by hand:
+        # the offer being newer IS the clearing.
+        au._mark_ready('99.9.9', PIP)
+        snap = au.snapshot()
+        assert snap['refusal'] is None
+        assert snap['auto_apply'] is True, 'a new release must self-apply'
+        assert au.update_refusal.current() is None
+        assert (
+            await au.idle_tick(task_queue_scheduler, install_fake_agent)
+            == 'applied'
+        )
+
+    async def test_the_status_says_what_happened_and_why_nothing_moves(
+        self, admin_client
+    ):
+        self._ready_refused()
+        body = (await admin_client.get('/api/system/update-status')).json()
+        assert body['state'] == 'ready'
+        assert body['path'] == 'pip'
+        # The sidebar sentence ("updates automatically when idle") is
+        # wrong for this state, which is why the flag is in the payload.
+        assert body['auto_apply'] is False
+        assert body['popup_due'] is True, 'the admin has to be told'
+        assert body['refusal']['version'] == VERSION
+        assert body['refusal']['status'] == 'rolled_back'
+        assert body['refusal']['stage'] == 'health'
+
+    async def test_an_admin_can_still_apply_it(self, admin_client, monkeypatch):
+        """The refusal gates the TIMER, not the person."""
+
+        class _Proc:
+            def poll(self):
+                return None
+
+        started = []
+
+        def fake_apply(version, trigger, path):
+            started.append(trigger)
+            return _Proc()
+
+        monkeypatch.setattr(au.sys, 'platform', 'linux')
+        monkeypatch.setattr(au.pip_update, 'apply', fake_apply)
+        monkeypatch.setattr(au.pip_update, 'read_record', lambda: None)
+        monkeypatch.setattr(au.pip_update, 'record_mtime', lambda: 0.0)
+        self._ready_refused()
+        r = await admin_client.post('/api/system/update/restart')
+        assert r.status_code == 200
+        assert r.json()['state'] == 'restarting'
+        assert started == [pip_update.TRIGGER_MANUAL]
+
+    async def test_a_boot_remembers_the_refusal_of_the_previous_process(
+        self, monkeypatch, admin_client
+    ):
+        """The helper that rolled back is gone; the server that came up
+        on the old version is the one that must not try it again."""
+        doc = {
+            'status': au.pip_update.ROLLED_BACK,
+            'from': '9.9.8',
+            'to': VERSION,
+            'path': 'pip',
+            'trigger': 'auto_idle',
+            'stage': 'health',
+            'error': 'boom',
+            'reported': True,
+        }
+        monkeypatch.setattr(au.pip_update, 'read_record', lambda: doc)
+        monkeypatch.setattr(au.pip_update, 'mark_record_reported', lambda: None)
+        au.reset_for_tests()
+        au.load_last_update()
+        au._mark_ready(VERSION, PIP)
+        body = (await admin_client.get('/api/system/update-status')).json()
+        assert body['auto_apply'] is False
+        assert body['refusal']['version'] == VERSION
