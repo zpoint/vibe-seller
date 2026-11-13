@@ -329,6 +329,16 @@ EOF
     return 0
   fi
 
+  # A machine that runs OLD already has OLD's browser. Without this, the
+  # server's boot-time install and the update's own browser pre-install
+  # download the same ~250 MB Chromium at once, and how long the leg
+  # takes to reach `ready` is the CDN's speed, not the updater's: one
+  # minute on most runs, past seven on others, same code (measured on
+  # macos-latest, the prefetch's `playwright install chromium` still
+  # running after six minutes). A precondition, set up front, not timed.
+  echo "-- install the browser $OLD_V runs with (precondition)"
+  vibe-seller install-browser || fail "could not install $OLD_V's browser"
+
   vibe-seller start --port "$PORT" || fail "could not start $OLD_V"
   wait_for_version "$OLD_V" || fail "$OLD_V never came up on $PORT"
   do_logins
