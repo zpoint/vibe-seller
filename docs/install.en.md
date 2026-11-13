@@ -127,6 +127,7 @@ Teammates install nothing — they open `http://<your-machine's-ip>:7777`. On Wi
 
 !!! warning "There is no login by default"
    Anyone who can reach the port is acting as the default administrator. That's fine on a trusted LAN — **don't expose it to the public internet.** For remote access use a VPN / Tailscale; see the Tailscale section of the [Windows + WSL2 Deployment Guide](windows-setup.md).
+   To make colleagues log in first, turn on **Require Login** in **Settings → Account** — see [How do I set up or recover the login password?](faq-login.en.md#how-do-i-set-up-or-recover-the-login-password).
 
 ## Install failed?
 

@@ -131,6 +131,7 @@ cd vibe-seller
 
 !!! warning "默认不需要登录"
    谁能连上这个端口，谁就以默认管理员身份在操作。内网自用没有问题，**不要把它直接暴露到公网**。需要远程访问时请通过 VPN 或 Tailscale，具体见 [Windows + WSL2 Deployment Guide](windows-setup.md) 的 Tailscale 一节。
+   想让同事先登录再用，在「设置 → 账号」里打开「需要登录」，见[登录密码怎么设置和找回](faq-login.md#登录密码怎么设置和找回)。
 
 ## 安装失败了？
 
