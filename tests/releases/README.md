@@ -164,6 +164,19 @@ worth keeping:
   the installer's silent finish relaunches the tray, and the tray's
   default is port 7777 against the user's real data root. The env above
   is what makes that land in the sandbox instead.
+* **`$HOME` is read-only in every PowerShell**, and names are
+  case-insensitive: a harness line as ordinary as `$script:Home = $env:VIBE_HOME`
+  throws `Cannot overwrite variable HOME because it is read-only or
+  constant` at *dot-source* time, so each leg dies before it asks the
+  product anything. This is not a 5.1-only quirk and must not be
+  described as one — CI runs `shell: pwsh` (7) and failed all six Windows
+  legs at that line on the first run that got as far as loading the
+  harness, which is also why no Windows leg had ever been green there. It
+  sat for five commits because the host driver worked around it
+  (`Set-Variable -Name Home -Force`) and reported the workaround as a
+  host-only finding, and the next reader assumed CI was unaffected. The
+  check that keeps it true is a LOAD probe plus a real CI run, not a
+  parse: a file can parse perfectly and still refuse to load.
 * Every PowerShell block here is verified with the real parser
   (`[System.Management.Automation.Language.Parser]::ParseFile` under
   Windows PowerShell 5.1) rather than by eye — a block that does not

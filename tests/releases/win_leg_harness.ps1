@@ -46,13 +46,24 @@ if (-not $env:RUNNER_TEMP) {
   # without the guard a host run dies inside Copy-Tree on an empty path.
   throw "RUNNER_TEMP must point at this leg's scratch directory"
 }
-$script:Port = $env:VIBE_SELLER_PORT
-$script:Base = "http://127.0.0.1:$($script:Port)"
-$script:Install = $env:VS_INSTALL
-$script:Cli = "$($script:Install)\.venv\Scripts\vibe-seller.exe"
-$script:Exe = (Resolve-Path $env:VS_SETUP).Path
-$script:Home = $env:VIBE_HOME
-$script:Updates = "$($script:Home)\updates"
+# `$script:LegHome`, NOT `$script:Home`. `$HOME` is a read-only automatic
+# variable in PowerShell — Windows PowerShell 5.1 AND pwsh 7 — and names
+# are case-insensitive, so `$script:Home = …` throws
+# `Cannot overwrite variable HOME because it is read-only or constant` at
+# DOT-SOURCE time: every leg dies before it asks the product anything.
+#
+# Two independent measurements, and the second one corrects the first:
+# the host could not load the file at all under 5.1 until its driver ran
+# `Set-Variable -Name Home -Force` before each leg body
+# (§7b/§15 of win-e2e2.REPORT.md), and CI — `shell: pwsh`, PowerShell 7 —
+# then failed ALL SIX legs at this same line on the run that first got
+# this far (all six at `win_leg_harness.ps1:54`). The claim that 7 had
+# dropped that binding was an assumption passed from one agent to
+# another, and it is what let this survive as "a host-only quirk" for
+# five commits. It is not host-only: it is the reason no Windows leg has
+# ever been green in CI.
+$script:LegHome = $env:VIBE_HOME
+$script:Updates = "$($script:LegHome)\updates"
 $script:Old = ''
 
 function Json($o) { ($o | ConvertTo-Json -Compress -Depth 8) }
@@ -61,7 +72,7 @@ function Fail([string]$msg) {
   Write-Host "FAIL: $msg"
   Write-Host "  server answers: '$(Server-Version)'  state: $(Json (Status))"
   foreach ($f in @("$script:Updates\pip-apply.log", "$script:Updates\last.json",
-                   "$($script:Home)\logs\backend_$($script:Port).log")) {
+                   "$($script:LegHome)\logs\backend_$($script:Port).log")) {
     if (Test-Path $f) {
       Write-Host "--- $f"
       Get-Content $f -Tail 30 -ErrorAction SilentlyContinue
@@ -234,12 +245,12 @@ function Build-GoodWheel([string]$Version) {
 }
 
 function Start-LegServer {
-  if (Test-Path $script:Home) {
+  if (Test-Path $script:LegHome) {
     # A leg never inherits another leg's staging: the staged
     # installer and the ready-clock both decide what happens.
-    Remove-Item -Recurse -Force $script:Home
+    Remove-Item -Recurse -Force $script:LegHome
   }
-  New-Item -ItemType Directory -Force -Path $script:Home | Out-Null
+  New-Item -ItemType Directory -Force -Path $script:LegHome | Out-Null
   & $script:Cli start --port $script:Port
   if (-not (Loop { [bool](Server-Version) } 90)) {
     throw "the installed app never served on $($script:Port)"
@@ -256,8 +267,8 @@ function Start-LegServer {
 # it, and a wiped home would test nothing.
 function Restart-LegServer {
   Stop-LegServer
-  if (-not (Test-Path $script:Home)) {
-    throw "the leg's data root is gone: $($script:Home)"
+  if (-not (Test-Path $script:LegHome)) {
+    throw "the leg's data root is gone: $($script:LegHome)"
   }
   & $script:Cli start --port $script:Port
   if (-not (Loop { [bool](Server-Version) } 90)) {
