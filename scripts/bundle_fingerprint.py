@@ -16,6 +16,11 @@ document by construction.
 
 Exit 2 on a pin disagreement or a missing input: the build must stop
 rather than ship a fingerprint that describes a bundle nobody built.
+``--require-resolved`` (every build that publishes or installs a bundle)
+also refuses a manifest whose floating pins still say ``latest`` — run
+``scripts/resolve_bundle_pins.py`` first. Without it a checkout can
+still be fingerprinted as it is, which is what the cross-OS agreement
+check does.
 """
 
 from __future__ import annotations
@@ -47,10 +52,21 @@ def main(argv: list[str] | None = None) -> int:
         action='store_true',
         help='print the bare fingerprint',
     )
+    parser.add_argument(
+        '--require-resolved',
+        action='store_true',
+        help='refuse pins still at "latest" (run resolve_bundle_pins.py)',
+    )
     args = parser.parse_args(argv)
 
     try:
         doc = bundle.bundle_document(args.version)
+        open_pins = bundle.unresolved_pins(doc['pins'])
+        if args.require_resolved and open_pins:
+            raise ValueError(
+                f'{", ".join(open_pins)} still say "latest" — run '
+                'scripts/resolve_bundle_pins.py before building'
+            )
     except (bundle.PinMismatch, FileNotFoundError, ValueError) as exc:
         print(f'bundle fingerprint failed: {exc}', file=sys.stderr)
         return 2

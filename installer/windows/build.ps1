@@ -18,8 +18,17 @@
   build would make the bundle fingerprint (bundle.json, written below
   from the same manifest) describe a runtime nobody installed, and the
   app would then pip-update over a stale Python, Git, uv, claude or
-  Chromium. Bump the manifest; the fingerprint moves with it, and any
-  install older than it takes the installer path once.
+  Chromium.
+
+  Python, Git for Windows and uv are pinned in the manifest. The Claude
+  Code CLI and Playwright are NOT pinned in the repo: they say `latest`,
+  and step 0 below resolves them (scripts/resolve_bundle_pins.py) to the
+  newest release, or to BUNDLE_CLAUDE_VERSION / BUNDLE_PLAYWRIGHT_VERSION
+  when CI sets them, and stamps the answer into the manifest and
+  pyproject.toml before the wheels are built. A tree a workflow already
+  resolved keeps its answer. Whenever the resolved versions differ from
+  the previous release's, the fingerprint moves and installs take the
+  installer path once.
 
   The claude-CLI fetch is isolated in Get-ClaudeCli so it can be
   iterated independently.
@@ -97,6 +106,16 @@ function Reset-Dir($path) {
 }
 
 # -- 0. The bundle manifest: the only source of bundled versions ------
+
+# The floating pins (claude, Playwright) become exact versions HERE,
+# before anything reads the manifest or builds a wheel, so the bundled
+# claude.exe, the bundled Chromium, the wheel's `playwright==` and
+# bundle.json all name the same thing.
+Step "Resolving the floating bundle pins"
+python "$RepoRoot\scripts\resolve_bundle_pins.py" --root "$RepoRoot"
+if ($LASTEXITCODE -ne 0) {
+  throw "resolve_bundle_pins.py failed ($LASTEXITCODE)"
+}
 
 $ManifestPath = Join-Path $RepoRoot "app\bundle_pins.json"
 if (-not (Test-Path -LiteralPath $ManifestPath)) {
@@ -365,7 +384,8 @@ function Get-Chromium {
     "import importlib.metadata as m; print(m.version('playwright'))"
   if ("$got" -ne $PlaywrightPin) {
     throw "the wheel set carries Playwright $got, the bundle manifest " +
-      "pins $PlaywrightPin — bump app/bundle_pins.json in the same commit"
+      "resolved $PlaywrightPin — the wheel was not built from the " +
+      "resolved pyproject.toml"
   }
   $pw = "$venv\Scripts\playwright.exe"
   $dest = "$StagingDir\ms-playwright"
@@ -448,7 +468,7 @@ function Write-BundleJson {
   # Written by the one script that computes it — which also refuses to
   # run when the manifest and pyproject.toml name different Playwrights.
   Step "Writing bundle.json"
-  python "$RepoRoot\scripts\bundle_fingerprint.py" `
+  python "$RepoRoot\scripts\bundle_fingerprint.py" --require-resolved `
     --version $AppVersion -o "$StagingDir\bundle.json"
   if ($LASTEXITCODE -ne 0) {
     throw "bundle_fingerprint.py failed ($LASTEXITCODE)"

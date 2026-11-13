@@ -135,6 +135,15 @@ if (-not (Test-Path $idleLoop)) {
         'testing #244')
 }
 
+# The candidate's claude / Playwright are not in the repo: resolve them
+# the way a release build does (BUNDLE_*_VERSION when the caller set
+# them, else the newest release) BEFORE any wheel is built from this
+# tree and before its fingerprint is taken, so both describe one pair.
+Push-Location $env:GITHUB_WORKSPACE
+try {
+  python scripts/resolve_bundle_pins.py | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw "resolve_bundle_pins.py failed ($LASTEXITCODE)" }
+} finally { Pop-Location }
 . (Join-Path $env:GITHUB_WORKSPACE 'tests\releases\win_leg_harness.ps1')
 
 Start-LegServer
@@ -161,7 +170,7 @@ Build-GoodWheel $new
 $candBundle = Join-Path $env:RUNNER_TEMP 'candidate-bundle.json'
 Push-Location $env:GITHUB_WORKSPACE
 try {
-  python scripts/bundle_fingerprint.py -o $candBundle | Out-Host
+  python scripts/bundle_fingerprint.py --require-resolved -o $candBundle | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "bundle_fingerprint.py failed ($LASTEXITCODE)" }
 } finally { Pop-Location }
 # SKIP CONDITION 2: the two releases describe different runtimes.

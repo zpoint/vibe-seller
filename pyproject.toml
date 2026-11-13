@@ -95,17 +95,14 @@ dependencies = [
     "cryptography",
     "gitpython",
     "packaging",
-    # Pinned exactly, and the pin is a bundle contract rather than a
-    # compatibility range: the Windows installer bundles the Chromium
-    # revision THIS Playwright asks for, so the installed Playwright and
-    # the bundled browser are a matched pair. A floating pin would move
-    # that pair on every release, and app/bundle.py could not tell a
-    # code-only update (a few MB with uv) from one that needs a new
-    # ~700 MB installer. `app/bundle_pins.json` records the same version
-    # for the fingerprint, and app.bundle.assert_pins_agree fails the
-    # build if the two ever disagree. Bumping this is a bundle change:
-    # bump both, and the installer path takes it from there.
-    "playwright==1.65.1",
+    # Deliberately bare: the source tree follows upstream. A release
+    # build resolves it once (newest, or a version the build was told to
+    # use) and stamps `playwright==<that>` here before building
+    # (scripts/resolve_bundle_pins.py), because the Windows installer
+    # bundles the Chromium THIS Playwright asks for and the two must be
+    # a matched pair. app/bundle_pins.json says `latest` for the same
+    # reason, and app.bundle.assert_pins_agree keeps the two in step.
+    "playwright",
     "psutil>=5.9.0",
     "posthog>=7.7.0,<8",
     # GFM-strict markdown parser. Used by the set_task_result gate to

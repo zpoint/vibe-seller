@@ -396,3 +396,136 @@ class TestBundleComparison:
         path = tmp_path / 'out' / 'bundle.json'
         bundle.write_bundle(doc, path)
         assert bundle.read_bundle(path) == doc
+
+
+# ── the floating pins: latest in the repo, exact in every build ──────
+
+
+def _resolver():
+    """``scripts/resolve_bundle_pins.py`` as a module (it is a script,
+    not a package member)."""
+    import importlib.util  # noqa: PLC0415
+
+    path = _ROOT / 'scripts' / 'resolve_bundle_pins.py'
+    spec = importlib.util.spec_from_file_location('resolve_pins', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _floating_root(tmp_path: Path) -> Path:
+    root = _fake_root(tmp_path)
+    for name in bundle.FLOATING_PINS:
+        _set_pin(root, name, 'version', bundle.LATEST)
+    (root / bundle.PYPROJECT_PATH).write_text(
+        _PYPROJECT.replace('playwright==1.65.1', 'playwright'),
+        encoding='utf-8',
+    )
+    return root
+
+
+class TestFloatingPins:
+    def test_the_repo_pins_neither_claude_nor_playwright(self):
+        """The decision this pins: the source tree follows upstream, and
+        only a build chooses versions."""
+        pins = bundle.load_pins(_ROOT)
+        for name in bundle.FLOATING_PINS:
+            assert pins[name]['version'] == bundle.LATEST, name
+        assert bundle.pyproject_playwright_pin(_ROOT) == bundle.LATEST
+
+    def test_a_bare_playwright_reads_as_latest_and_agrees(self, tmp_path):
+        root = _floating_root(tmp_path)
+        assert bundle.pyproject_playwright_pin(root) == bundle.LATEST
+        pins = bundle.assert_pins_agree(root)
+        assert bundle.unresolved_pins(pins) == list(bundle.FLOATING_PINS)
+
+    def test_stamping_makes_the_wheel_and_the_manifest_agree(self, tmp_path):
+        root = _floating_root(tmp_path)
+        pins = bundle.stamp_pins(
+            root, {'claude_code': '2.2.0', 'playwright': '1.70.0'}
+        )
+        assert bundle.unresolved_pins(pins) == []
+        assert pins['claude_code']['version'] == '2.2.0'
+        assert bundle.pyproject_playwright_pin(root) == '1.70.0'
+        assert bundle.pinned_claude_version(root) == '2.2.0'
+        # A second stamp (a build told to use another version) replaces
+        # the first rather than appending a second requirement.
+        bundle.stamp_pins(root, {'playwright': '1.71.0'})
+        text = (root / bundle.PYPROJECT_PATH).read_text(encoding='utf-8')
+        assert text.count('"playwright') == 1
+        assert bundle.assert_pins_agree(root)['playwright']['version'] == (
+            '1.71.0'
+        )
+
+    def test_a_malformed_version_never_reaches_a_file(self, tmp_path):
+        root = _floating_root(tmp_path)
+        before = (root / bundle.PINS_PATH).read_text(encoding='utf-8')
+        with pytest.raises(ValueError, match='not a version'):
+            bundle.stamp_pins(root, {'claude_code': '2.0; rm -rf /'})
+        assert (root / bundle.PINS_PATH).read_text(encoding='utf-8') == before
+
+    def test_the_resolved_versions_decide_pip_or_installer(self, tmp_path):
+        """Same resolution → same fingerprint (a pip update); a newer
+        claude or Playwright → a different one (the installer)."""
+        a = _floating_root(tmp_path / 'a')
+        b = _floating_root(tmp_path / 'b')
+        c = _floating_root(tmp_path / 'c')
+        same = {'claude_code': '2.2.0', 'playwright': '1.70.0'}
+        bundle.stamp_pins(a, same)
+        bundle.stamp_pins(b, same)
+        bundle.stamp_pins(c, {**same, 'claude_code': '2.2.1'})
+        fa = bundle.bundle_document('1', a)['fingerprint']
+        assert fa == bundle.bundle_document('2', b)['fingerprint']
+        assert fa != bundle.bundle_document('2', c)['fingerprint']
+
+
+class TestResolverChoice:
+    def _fetch(self, name):
+        return {'claude_code': '9.9.9', 'playwright': '8.8.8'}[name]
+
+    def test_newest_when_nothing_is_said(self):
+        got = _resolver().choose('claude_code', None, {}, 'latest', self._fetch)
+        assert got == ('9.9.9', 'newest release')
+
+    def test_an_argument_beats_the_environment(self):
+        env = {'BUNDLE_CLAUDE_VERSION': '2.0.0'}
+        got = _resolver().choose(
+            'claude_code', '2.1.0', env, 'latest', self._fetch
+        )
+        assert got[0] == '2.1.0'
+
+    def test_the_environment_beats_a_resolved_tree(self):
+        env = {'BUNDLE_PLAYWRIGHT_VERSION': '1.60.0'}
+        got = _resolver().choose('playwright', None, env, '1.65.1', self._fetch)
+        assert got == ('1.60.0', 'BUNDLE_PLAYWRIGHT_VERSION')
+
+    def test_a_resolved_tree_keeps_its_answer(self):
+        """build.ps1 resolves again after a workflow already did: it
+        must not drift to a release that appeared in between."""
+        got = _resolver().choose('playwright', None, {}, '1.65.1', self._fetch)
+        assert got == ('1.65.1', 'already resolved')
+
+    def test_latest_or_empty_is_no_override(self):
+        env = {'BUNDLE_CLAUDE_VERSION': ''}
+        got = _resolver().choose(
+            'claude_code', 'latest', env, 'latest', self._fetch
+        )
+        assert got[0] == '9.9.9'
+
+
+class TestReleaseBundleMustBeResolved:
+    def test_the_build_refuses_a_bundle_that_says_latest(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        import importlib.util  # noqa: PLC0415
+
+        root = _floating_root(tmp_path)
+        monkeypatch.setattr(bundle, 'repo_root', lambda: root)
+        path = _ROOT / 'scripts' / 'bundle_fingerprint.py'
+        spec = importlib.util.spec_from_file_location('bfp', path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert mod.main(['--print', '--require-resolved']) == 2
+        assert 'still say "latest"' in capsys.readouterr().err
+        # The cross-OS agreement check fingerprints a checkout as it is.
+        assert mod.main(['--print']) == 0

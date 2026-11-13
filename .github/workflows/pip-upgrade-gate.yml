@@ -45,6 +45,20 @@ name: Pip Upgrade Gate
 
 on:
   workflow_call:
+    inputs:
+      claude_version:
+        description: >-
+          The Claude Code CLI version the candidate release resolved
+          (empty = the newest release). release.yml passes the one its
+          build uses, so the gate tests the bundle that ships.
+        required: false
+        default: ''
+        type: string
+      playwright_version:
+        description: The Playwright version the candidate resolved.
+        required: false
+        default: ''
+        type: string
   workflow_dispatch:
     inputs:
       prev_version:
@@ -66,6 +80,13 @@ on:
 
 permissions:
   contents: read
+
+# The floating bundle pins (app/bundle.py: FLOATING_PINS). Every job here
+# that fingerprints or builds the candidate resolves them first with
+# scripts/resolve_bundle_pins.py, which reads these.
+env:
+  BUNDLE_CLAUDE_VERSION: ${{ inputs.claude_version || vars.BUNDLE_CLAUDE_VERSION }}
+  BUNDLE_PLAYWRIGHT_VERSION: ${{ inputs.playwright_version || vars.BUNDLE_PLAYWRIGHT_VERSION }}
 
 jobs:
   # Everything the legs need to know, decided once, from the two
@@ -151,7 +172,11 @@ jobs:
             gh release download "v$PREV" --repo "$GITHUB_REPOSITORY" \
               --pattern 'bundle.json' --dir /tmp/prev-bundle
             # 2. Do the two releases describe the same runtime bundle?
-            python scripts/bundle_fingerprint.py -o /tmp/candidate.json
+            #    The candidate's claude / Playwright are resolved first,
+            #    exactly as its release build resolves them.
+            python scripts/resolve_bundle_pins.py || exit 1
+            python scripts/bundle_fingerprint.py --require-resolved \
+              -o /tmp/candidate.json || exit 1
             mine=$(python -c "import json;print(json.load(open('/tmp/candidate.json'))['fingerprint'])")
             theirs=$(python -c "import json;print(json.load(open('/tmp/prev-bundle/bundle.json'))['fingerprint'])")
             say "fingerprint here : $mine"
@@ -251,6 +276,9 @@ jobs:
       - name: Install lsof
         if: runner.os == 'Linux'
         run: sudo apt-get install -y lsof
+
+      - name: Resolve the candidate's claude / Playwright
+        run: uv run --no-project --python 3.11 python scripts/resolve_bundle_pins.py
 
       - name: Run the gate leg
         env:

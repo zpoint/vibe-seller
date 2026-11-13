@@ -481,13 +481,14 @@ CLAUDE_CODE_PACKAGE = '@anthropic-ai/claude-code'
 
 
 def _claude_cli_upgrade_cmd() -> list[str] | None:
-    """npm command that moves the project-local CLI to the pinned release.
+    """npm command that moves the project-local CLI to this release's CLI.
 
     The version comes from ``app/bundle_pins.json`` — the same manifest
-    the Windows installer bundles ``claude.exe`` from — so every
-    platform runs the CLI this release was tested with, instead of
-    whatever npm called latest on the day the user upgraded. That
-    agreement is what lets a bundle fingerprint be a thing at all.
+    the Windows installer bundles ``claude.exe`` from. A release build
+    resolves it to an exact version (the newest one, unless the build
+    was told otherwise — ``scripts/resolve_bundle_pins.py``), so every
+    platform runs the CLI that release was built and tested with. A
+    source checkout carries ``latest``, which npm reads as the newest.
 
     None without npm — the packaged Windows installer bundles its own
     ``claude.exe`` and upgrades it by shipping a new installer.

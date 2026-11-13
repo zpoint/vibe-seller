@@ -30,6 +30,18 @@ also fixes which Chromium revision the installer bundles, so it belongs
 in the manifest too. ``pyproject_playwright_pin()`` reads the real one
 and :func:`assert_pins_agree` refuses a manifest that disagrees, which
 is what stops the fingerprint from describing a bundle nobody built.
+
+**The repo does not pin the Claude Code CLI or Playwright.** Both stay
+``latest`` in the checkout (and ``playwright`` bare in
+``pyproject.toml``); a build resolves them ONCE, to whatever is newest
+or to a version the build was told to use, and stamps that concrete
+version into both files before anything is built
+(``scripts/resolve_bundle_pins.py``). So every release carries exact
+versions — its wheel requires ``playwright==X``, its ``bundle.json``
+names the claude it bundled — while the source tree keeps following
+upstream. A release whose resolved versions differ from the previous
+one's has a different fingerprint, and Windows takes the installer for
+it; one that resolved to the same versions is a pip update.
 """
 
 from __future__ import annotations
@@ -82,6 +94,28 @@ FORMAT_VERSION = 1
 BUNDLE_ASSET_NAME = 'bundle.json'
 
 
+#: The value a floating pin carries in the checkout. Never fingerprinted
+#: into a release: :func:`unresolved_pins` names it, and the build
+#: refuses to write a release bundle while any pin still says it.
+LATEST = 'latest'
+
+#: The pins the repo leaves floating — resolved per build, not per
+#: commit. Python, Git for Windows and uv stay pinned in the manifest.
+FLOATING_PINS = ('claude_code', 'playwright')
+
+#: Environment overrides a build reads for the floating pins (a CI
+#: input or repository variable feeds them). Empty means ``latest``.
+PIN_ENV = {
+    'claude_code': 'BUNDLE_CLAUDE_VERSION',
+    'playwright': 'BUNDLE_PLAYWRIGHT_VERSION',
+}
+
+#: What a version handed to a build may look like. It ends up in a URL,
+#: an npm spec and a requirement line, so anything else is refused
+#: before it gets near one.
+_VERSION_SHAPE = re.compile(r'^[0-9][0-9A-Za-z.+-]{0,63}$')
+
+
 class PinMismatch(RuntimeError):
     """The manifest and ``pyproject.toml`` name different versions of a
     dependency that is also a bundle pin."""
@@ -114,9 +148,10 @@ def load_pins(root: Path | None = None) -> dict[str, Any]:
 def pinned_claude_version(root: Path | None = None) -> str:
     """The Claude Code CLI version every platform should be running.
 
-    ``vibe-seller upgrade`` installs exactly this instead of
-    ``@latest``, so the CLI the installer bundles and the one the Unix
-    upgrade pulls are the one that was tested with the release."""
+    In a released wheel this is the exact version the release build
+    resolved, so ``vibe-seller upgrade`` installs the CLI the installer
+    bundled and the release was tested with. In a source checkout it is
+    :data:`LATEST`, which npm reads as the newest release."""
     pins = load_pins(root)
     return str(pins['claude_code']['version'])
 
@@ -149,13 +184,17 @@ def pyproject_playwright_pin(root: Path | None = None) -> str:
         if not parts or parts.group('name').lower() != 'playwright':
             continue
         spec = parts.group('spec').strip()
+        if not spec:
+            # Bare: the checkout follows upstream, and a build stamps
+            # the version it resolved (scripts/resolve_bundle_pins.py).
+            return LATEST
         exact = re.fullmatch(r'==\s*([^,;\s]+)', spec)
         if not exact:
             raise PinMismatch(
-                f'playwright must be pinned exactly in pyproject.toml '
-                f'(playwright==<version>); found {raw!r}. Its version '
-                'fixes the Chromium revision the Windows installer '
-                'bundles, so an open range makes the bundle float.'
+                f'playwright must be bare or pinned exactly in '
+                f'pyproject.toml; found {raw!r}. Its version fixes the '
+                'Chromium revision the Windows installer bundles, so a '
+                'range would let the wheel and the bundled browser part.'
             )
         return exact.group(1)
     raise PinMismatch(
@@ -183,6 +222,69 @@ def assert_pins_agree(root: Path | None = None) -> dict[str, Any]:
             'describe a Chromium the wheel never runs'
         )
     return pins
+
+
+def unresolved_pins(pins: dict[str, Any]) -> list[str]:
+    """The floating pins that still say :data:`LATEST`."""
+    return [
+        name
+        for name in FLOATING_PINS
+        if str(pins.get(name, {}).get('version', '')) in ('', LATEST)
+    ]
+
+
+def checked_version(name: str, version: str) -> str:
+    """*version* if it is shaped like one, else :class:`ValueError`."""
+    version = version.strip()
+    if not _VERSION_SHAPE.fullmatch(version):
+        raise ValueError(f'{name}: {version!r} is not a version')
+    return version
+
+
+_PYPROJECT_PLAYWRIGHT = re.compile(
+    r'^(?P<indent>[ \t]*)"playwright(?:==[^"]*)?",[ \t]*$', re.MULTILINE
+)
+
+
+def stamp_pyproject_playwright(text: str, version: str) -> str:
+    """``pyproject.toml`` text with its ``playwright`` line set to
+    ``playwright==<version>``. Exactly one such line must exist."""
+    version = checked_version('playwright', version)
+    found = _PYPROJECT_PLAYWRIGHT.findall(text)
+    if len(found) != 1:
+        raise PinMismatch(
+            f'expected one "playwright" dependency line in pyproject.toml, '
+            f'found {len(found)}'
+        )
+    return _PYPROJECT_PLAYWRIGHT.sub(
+        lambda m: f'{m.group("indent")}"playwright=={version}",', text
+    )
+
+
+def stamp_pins(root: Path, chosen: dict[str, str]) -> dict[str, Any]:
+    """Write the resolved floating pins into the manifest and
+    ``pyproject.toml`` of the tree at *root*, and prove they agree.
+
+    *chosen* maps a name from :data:`FLOATING_PINS` to an exact version.
+    The two files are what the wheel and the installer are built from,
+    so after this the build cannot carry two answers."""
+    pins = load_pins(root)
+    for name, version in chosen.items():
+        if name not in FLOATING_PINS:
+            raise ValueError(f'{name} is not a floating pin')
+        pins[name]['version'] = checked_version(name, version)
+    (root / PINS_PATH).write_text(
+        json.dumps(pins, indent=2) + '\n', encoding='utf-8'
+    )
+    if 'playwright' in chosen:
+        path = root / PYPROJECT_PATH
+        path.write_text(
+            stamp_pyproject_playwright(
+                path.read_text(encoding='utf-8'), chosen['playwright']
+            ),
+            encoding='utf-8',
+        )
+    return assert_pins_agree(root)
 
 
 # ── the fingerprint ──────────────────────────────────────────────────

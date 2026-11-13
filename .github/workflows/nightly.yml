@@ -56,6 +56,18 @@ on:
         description: 'Publish even if main has not moved since the last nightly'
         type: boolean
         default: false
+      claude_version:
+        description: >-
+          Claude Code CLI version to bundle. Empty = the newest release,
+          or the repository variable BUNDLE_CLAUDE_VERSION when set.
+        type: string
+        default: ''
+      playwright_version:
+        description: >-
+          Playwright version to pin (fixes the bundled Chromium). Empty =
+          the newest release, or BUNDLE_PLAYWRIGHT_VERSION when set.
+        type: string
+        default: ''
 
 # One nightly at a time; a second run waits instead of racing the tag.
 concurrency:
@@ -75,6 +87,11 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       last_sha: ${{ steps.plan.outputs.last_sha }}
       target: ${{ steps.plan.outputs.target }}
+      # The Claude Code CLI / Playwright this nightly bundles, resolved
+      # once (app/bundle.py: FLOATING_PINS) so the wheel and the
+      # installer below are built with the same pair.
+      claude: ${{ steps.pins.outputs.claude }}
+      playwright: ${{ steps.pins.outputs.playwright }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -124,6 +141,14 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "should_run=true" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve the bundled claude / Playwright
+        id: pins
+        if: steps.plan.outputs.should_run == 'true'
+        env:
+          BUNDLE_CLAUDE_VERSION: ${{ inputs.claude_version || vars.BUNDLE_CLAUDE_VERSION }}
+          BUNDLE_PLAYWRIGHT_VERSION: ${{ inputs.playwright_version || vars.BUNDLE_PLAYWRIGHT_VERSION }}
+        run: python3 scripts/resolve_bundle_pins.py
+
   test:
     name: Test (full CI)
     needs: plan
@@ -166,6 +191,12 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Stamp the resolved claude / Playwright into the tree
+        env:
+          BUNDLE_CLAUDE_VERSION: ${{ needs.plan.outputs.claude }}
+          BUNDLE_PLAYWRIGHT_VERSION: ${{ needs.plan.outputs.playwright }}
+        run: python scripts/resolve_bundle_pins.py
+
       - name: Build wheel (wheel only — no 10MB sdist every night)
         run: |
           python -m pip install --upgrade build
@@ -193,6 +224,11 @@ jobs:
     needs: [plan, test]
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      # build.ps1 stamps these, so the installer bundles the pair the
+      # nightly wheel requires.
+      BUNDLE_CLAUDE_VERSION: ${{ needs.plan.outputs.claude }}
+      BUNDLE_PLAYWRIGHT_VERSION: ${{ needs.plan.outputs.playwright }}
     steps:
       - uses: actions/checkout@v4
         with:

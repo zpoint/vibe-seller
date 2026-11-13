@@ -53,6 +53,7 @@ on:
       # hashes — either can change the path a release takes.
       - 'uv.lock'
       - 'scripts/bundle_fingerprint.py'
+      - 'scripts/resolve_bundle_pins.py'
       # The install check drives the shipped recovery wrapper.
       - 'scripts/reset_auth.bat'
       - 'scripts/reset_auth.sh'
@@ -95,6 +96,21 @@ on:
         required: false
         default: ''
         type: string
+      claude_version:
+        description: >-
+          Claude Code CLI version to bundle. Empty = the newest release
+          (or the repository variable BUNDLE_CLAUDE_VERSION when set).
+        required: false
+        default: ''
+        type: string
+      playwright_version:
+        description: >-
+          Playwright version to build with (fixes the bundled Chromium).
+          Empty = the newest release (or the repository variable
+          BUNDLE_PLAYWRIGHT_VERSION when set).
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -122,11 +138,20 @@ jobs:
        needs.e2e-approval.result == 'skipped')
     runs-on: windows-latest
     timeout-minutes: 45
+    outputs:
+      # The exact claude / Playwright this installer was built with, so
+      # the update legs build their wheels with the same pair.
+      claude: ${{ steps.pins.outputs.claude }}
+      playwright: ${{ steps.pins.outputs.playwright }}
     env:
       # A dispatch input, never pasted into a command line: the steps
       # read it as $env:TWIST. 'none' (and any PR run, where there is no
       # input at all) builds the code exactly as it is.
       TWIST: ${{ github.event.inputs.twist }}
+      # The floating bundle pins: empty means the newest release, which
+      # build.ps1 resolves (scripts/resolve_bundle_pins.py).
+      BUNDLE_CLAUDE_VERSION: ${{ github.event.inputs.claude_version || vars.BUNDLE_CLAUDE_VERSION }}
+      BUNDLE_PLAYWRIGHT_VERSION: ${{ github.event.inputs.playwright_version || vars.BUNDLE_PLAYWRIGHT_VERSION }}
 
     steps:
       - uses: actions/checkout@v4
@@ -173,6 +198,15 @@ jobs:
           }
           $env:SETUPTOOLS_SCM_PRETEND_VERSION = $ver
           .\installer\windows\build.ps1 -AppVersion $ver
+
+      - name: Report the bundle pins this build resolved
+        id: pins
+        shell: pwsh
+        run: |
+          $pins = Get-Content -Raw app\bundle_pins.json | ConvertFrom-Json
+          "claude=$($pins.claude_code.version)" >> $env:GITHUB_OUTPUT
+          "playwright=$($pins.playwright.version)" >> $env:GITHUB_OUTPUT
+          "bundled claude $($pins.claude_code.version), playwright $($pins.playwright.version)"
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
@@ -858,6 +892,16 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
 
+      # The wheels this leg builds are the "next release": they must be
+      # built with the claude / Playwright the installer bundled, exactly
+      # as a real release's wheel and installer come from one resolution.
+      - name: Resolve the bundle pins the installer was built with
+        env:
+          BUNDLE_CLAUDE_VERSION: ${{ needs.build.outputs.claude }}
+          BUNDLE_PLAYWRIGHT_VERSION: ${{ needs.build.outputs.playwright }}
+        run: python scripts/resolve_bundle_pins.py
+        shell: pwsh
+
       - name: Download the installer under test
         uses: actions/download-artifact@v4
         with:
@@ -1397,6 +1441,10 @@ jobs:
       VS_V2: '99.9.9'
       PREV_VERSION: ${{ github.event.inputs.prev_version }}
       GATE_FORCE: ${{ github.event.inputs.gate_force }}
+      # win_gate_leg.ps1 resolves the floating pins before it builds
+      # the candidate; empty means the newest release.
+      BUNDLE_CLAUDE_VERSION: ${{ github.event.inputs.claude_version || vars.BUNDLE_CLAUDE_VERSION }}
+      BUNDLE_PLAYWRIGHT_VERSION: ${{ github.event.inputs.playwright_version || vars.BUNDLE_PLAYWRIGHT_VERSION }}
     steps:
       - uses: actions/checkout@v4
         with:

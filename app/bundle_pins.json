@@ -11,9 +11,9 @@
     "version": "0.5.18"
   },
   "claude_code": {
-    "version": "2.1.323"
+    "version": "latest"
   },
   "playwright": {
-    "version": "1.65.1"
+    "version": "latest"
   }
 }

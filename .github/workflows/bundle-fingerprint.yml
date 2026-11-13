@@ -89,6 +89,7 @@ on:
       - 'uv.lock'
       - 'installer/windows/**'
       - 'scripts/bundle_fingerprint.py'
+      - 'scripts/resolve_bundle_pins.py'
       - 'tests/releases/**'
       - '.github/workflows/cli-upgrade.yml'
       - '.github/workflows/windows-installer.yml'
