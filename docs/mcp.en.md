@@ -4,14 +4,35 @@ description: 'Drive Vibe Seller from the AI tool you already use — MCP setup: 
 
 # MCP setup
 
-Already live in Claude, Codex, WorkBuddy, Qoder, Hermes Agent or Pi? You can now
-drive Vibe Seller from those tools: create tasks, follow their progress, and
-answer their questions.
+MCP setup lets an **outside AI tool** — Codex, Claude, WorkBuddy, Qoder, Hermes
+Agent, Pi — call Vibe Seller. You talk to Codex in its chat; Codex calls the tools
+Vibe Seller exposes over MCP: create tasks, check progress, answer the tasks'
+questions, fetch results and files. The work inside Seller Central is still done
+by Vibe Seller's tasks; Codex hands them out, follows them and sums them up for you.
 
-Just say something like “look at Store A's ads from last week” in the chat. The
-tool creates the task in Vibe Seller, keeps an eye on it, and brings the summary
-back to you. Questions the task wants to ask you, and plans that need your nod,
-all happen in the same conversation — no more hopping between windows.
+```mermaid
+sequenceDiagram
+    participant U as You
+    participant C as Codex (outside AI tool)
+    participant V as Vibe Seller
+    participant S as Seller Central
+    U->>C: Use Vibe Seller to look at Store A's ads from last week
+    C->>V: MCP call: create a task
+    V->>S: The task reads the ads in Store A's browser
+    V-->>C: The task's question (e.g. include the AE store?)
+    C-->>U: Passes the question on
+    U->>C: You answer in the chat
+    C->>V: MCP call: answer the question
+    V-->>C: Task done: findings and files
+    C-->>U: The summary
+```
+
+The rest of this page uses Codex as the example; the other tools work the same way.
+
+!!! note "Everything on this page is said to Codex"
+    The example sentences below go into **Codex's chat box**, and Codex decides
+    which Vibe Seller tool to call. They are not task descriptions for Vibe
+    Seller — when Codex creates a task, it writes the task description itself.
 
 Any MCP-capable tool works; all you need is an API key. Where each integration
 is configured and how they divide up: see the
@@ -19,16 +40,20 @@ is configured and how they divide up: see the
 
 ## What you can ask
 
-Once connected, just talk to it like a colleague:
+Once connected, talk to Codex like a colleague. Mentioning "Vibe Seller" in the
+sentence helps Codex think of calling it:
 
-- “How many stores does vibe-seller have right now?”
-- “Look at Store A's ad spend over the past week and suggest improvements —
-  don't change anything yet.”
-- “What is that task doing at the moment? How far along is it?”
-- “Turn this week's inspection into a weekly Monday-morning run — show me the
-  plan first.”
+| You say in Codex | What Codex does in Vibe Seller |
+|---|---|
+| “How many stores are in Vibe Seller right now?” | Reads the store list and answers — no task |
+| “Use Vibe Seller to look at Store A's ad spend over the past week and suggest improvements — don't change anything yet.” | Creates a task on Store A, waits for it, brings the findings back to the chat |
+| “How far along is that task?” | Reads the task's progress and tells you |
+| “In Vibe Seller, schedule this check for every Monday morning — show me the plan first.” | Creates a schedule and brings its plan back for you to review |
 
-You don't need to remember any commands — the tool figures out what to call.
+No commands to learn — Codex decides which tool to call. When a task needs an
+answer from you or a plan approved, the question shows up in the Codex chat; answer
+it there, no need to switch to the Vibe Seller web app. A full walkthrough:
+[Export a Ziniao store's financial data with Codex and analyse it](example-mcp.en.md).
 
 ## What it can and cannot do
 
