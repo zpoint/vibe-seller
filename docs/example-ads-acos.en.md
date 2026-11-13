@@ -66,25 +66,31 @@ It starts by reading the store's ad data: over the API when the store is
 authorized, through the store's browser when it isn't. The analysis window is the
 last 30 days by default, and the window you write in the description wins.
 
-## 3. When one store should live by different numbers
+## 3. Write the store's rules into its notes
 
-The 30% in the description governs this task only. Some thresholds are checked by
-the server per store, and to change those for good, open this store's `notes.md`
-under **Knowledge** and add one `key: value` per line:
+The 30% in the description governs this task only; what the store lives by for
+good goes in its `notes.md` — **Knowledge** → pick the store → `notes.md`. **This
+is your note to the AI**: every task on this store reads it before it starts and
+then follows it.
 
-![The store's notes.md: margin and acos_no_lower, one per line](images/example-ads-notes_en.png)
+Write anything, in plain language: which SKU is a new launch, what ACOS it takes
+before it needs touching, what not to do in the week before a big sale. The AI
+reads and applies it as part of its own judgement — there's no format to fit.
 
-The two you'll use most:
+![The store's notes.md: one rule about a new launch, plus margin and acos_no_lower](images/example-ads-notes_en.png)
+
+The same file has a second use: a few `key: value` lines that override the
+built-in defaults the server checks per store. The two you'll use most:
 
 | Key | Default | What it governs |
 |---|---|---|
 | `acos_no_lower` | 25 | don't propose bid cuts on rows whose ACOS is under this |
 | `margin` | 25 | your store's margin; the AI derives target ACOS and cut-off lines from it |
 
-It has to be the store's **top-level `notes.md`**, one entry per line — a key
-buried in a sentence doesn't count. All keys and their rules:
+Those lines have to be in the store's **top-level `notes.md`**, one entry per
+line — a key buried in a sentence doesn't count. All keys and their rules:
 [Store notes and parameter overrides](knowledge.md#store-notes-and-parameter-overrides).
-Whatever you write in the task description always outranks these defaults.
+Where the notes and this task's description disagree, the description wins.
 
 ## What you get when it finishes
 
