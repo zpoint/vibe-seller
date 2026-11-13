@@ -84,10 +84,6 @@ plus **Save** to remove the server.
 
 ![After saving, Vibe Seller is gone from On this device](images/mcp_hermes_win_08_after_remove_en.png)
 
-!!! warning "This editor shows the key in plain text"
-    **Edit mcp.json** displays the full key. Mask anything starting with
-    `vst_` before you share a screenshot.
-
 ## Next
 
 See [What you can ask](mcp.md#what-you-can-ask) for what to say once you're

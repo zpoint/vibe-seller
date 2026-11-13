@@ -78,10 +78,6 @@ Key，就再点一次「Add your own」→ 左下角「Edit mcp.json」，在编
 
 ![保存后「On this device」里已经没有 Vibe Seller](images/mcp_hermes_win_08_after_remove_zh.png)
 
-!!! warning "这个编辑器会明文显示 Key"
-    「Edit mcp.json」里能看到完整的 Key。把截图发给别人之前，先遮住
-    `vst_` 开头的内容。
-
 ## 接下来
 
 接入之后怎么用，见[可以这样用](mcp.md#可以这样用)；一步步的完整示例见

@@ -90,10 +90,6 @@ Open **Settings → Extension management → Connectors**: the "…" menu on the
 
 ![After removal, vibe-seller is gone from the list](images/mcp_qoder_win_11_after_delete_en.png)
 
-!!! note "Before sharing a screenshot"
-    Qoder shows your account's email in the bottom-left corner. Mask it before
-    you send screenshots to anyone.
-
 ## Next
 
 See [What you can ask](mcp.md#what-you-can-ask) for what to say once you're

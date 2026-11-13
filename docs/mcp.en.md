@@ -125,8 +125,3 @@ It answered from its own knowledge instead of running anything. The Claude
 plugin helps a lot here — it requires the agent to report only what the task
 really produced. You can also say outright “use vibe-seller to create a task
 for this”.
-
-**Will a screenshot leak the key?**
-
-Config UIs usually mask it, but scrub anything starting with `vst_` before
-sharing a screenshot.

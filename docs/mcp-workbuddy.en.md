@@ -85,10 +85,6 @@ again, delete the `"vibe-seller": {…}` entry in the editor and save.
 
 ![After removal, vibe-seller is gone from the list](images/mcp_workbuddy_win_11_after_remove_en.png)
 
-!!! warning "The editor shows the key in plain text"
-    You can read the full key in there. Mask anything starting with `vst_`
-    before you share a screenshot.
-
 ## Next
 
 See [What you can ask](mcp.md#what-you-can-ask) for what to say once you're

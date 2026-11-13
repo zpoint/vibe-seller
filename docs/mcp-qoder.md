@@ -81,9 +81,6 @@ description: 在 Qoder 里接入 Vibe Seller：把弹窗给的 JSON 粘贴进添
 
 ![删除后列表里不再有 vibe-seller](images/mcp_qoder_win_11_after_delete_zh.png)
 
-!!! note "分享截图前"
-    Qoder 左下角显示你登录账户的邮箱，把截图发给别人之前先遮住它。
-
 ## 接下来
 
 接入之后怎么用，见[可以这样用](mcp.md#可以这样用)；一步步的完整示例见

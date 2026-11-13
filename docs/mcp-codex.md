@@ -87,10 +87,6 @@ description: 在 Codex 里接入 Vibe Seller：在设置里填一张表单，或
 
 ![删除后列表里已经没有 vibe-seller](images/mcp_codex_win_11_after_uninstall_zh.png)
 
-!!! warning "这个页面会明文显示 Key"
-    详情页的「标头」一栏显示完整的 Key。把截图发给别人之前，先遮住
-    `vst_` 开头的内容。
-
 ## 接下来
 
 接入之后怎么用，见[可以这样用](mcp.md#可以这样用)；一步步的完整示例见

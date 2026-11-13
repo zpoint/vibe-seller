@@ -232,7 +232,7 @@ has it can. Delete and recreate the bot in the group chat (DingTalk
 and Feishu can also just reset the secret), then replace the URL under
 **Edit** in Vibe Seller, or delete the row and add it again. The list
 only ever shows a masked URL and only an admin can reveal the full
-one; check screenshots before sharing them.
+one.
 
 </details>
 

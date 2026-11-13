@@ -82,9 +82,6 @@ description: 在 WorkBuddy 里接入 Vibe Seller：把弹窗给的 JSON 粘贴�
 
 ![删除后列表里不再有 vibe-seller](images/mcp_workbuddy_win_11_after_remove_zh.png)
 
-!!! warning "编辑器会明文显示 Key"
-    编辑器里能看到完整的 Key。把截图发给别人之前，先遮住 `vst_` 开头的内容。
-
 ## 接下来
 
 接入之后怎么用，见[可以这样用](mcp.md#可以这样用)；一步步的完整示例见

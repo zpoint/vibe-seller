@@ -92,10 +92,6 @@ under **Settings → Plugins** and edit the URL or the headers on that page.
 
 ![After removing, vibe-seller is gone from the list](images/mcp_codex_win_11_after_uninstall_en.png)
 
-!!! warning "This page shows the key in plain text"
-    The **Headers** field displays the full key. Mask anything starting with
-    `vst_` before you share a screenshot.
-
 ## Next
 
 See [What you can ask](mcp.md#what-you-can-ask) for what to say once you're
