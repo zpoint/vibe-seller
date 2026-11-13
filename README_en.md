@@ -172,13 +172,24 @@ A few cross-border scenarios it's commonly used for:
 A single ad-tuning run is ≈ 3–5 minutes and costs about 0.15 USD in LLM tokens
 (DeepSeek, 10 or fewer campaigns; more campaigns cost more).
 
+**See it end to end** — each example has a description to copy, the
+settings screenshots and the finished result:
+
+- [Daily email digest to WeCom](https://docs.vibe-sellers.com/en/example-email-wecom/): reads the store's mailbox every day, posts what matters to the group and drafts replies;
+- [Analyse ad ACOS, get optimisation advice for anything above 30%, and apply it](https://docs.vibe-sellers.com/en/example-ads-acos/): lists the targets and search terms over the line, and applies the list once you confirm;
+- [Weekly listing check](https://docs.vibe-sellers.com/en/example-listing-check/): checks every store, then merges one cross-store issue list;
+- [Export last month's sales report every month and post it to the group](https://docs.vibe-sellers.com/en/example-daily-report/): one CSV per marketplace, posted with a summary;
+- [Export a Ziniao store's financial data with Codex and analyse it](https://docs.vibe-sellers.com/en/example-mcp/): one sentence in Codex — Vibe Seller downloads the reports, Codex analyses them.
+
+More in [All Examples](https://docs.vibe-sellers.com/en/examples/).
+
 ## Docs
 
 | | |
 |---|---|
 | **Getting started** | [Installation](https://docs.vibe-sellers.com/en/install/) · [Quickstart](https://docs.vibe-sellers.com/en/quickstart/) · [Configure AI Models](https://docs.vibe-sellers.com/en/llm-keys/) · [Core Concepts](https://docs.vibe-sellers.com/en/concepts/) |
 | **Integrations** | [Overview](https://docs.vibe-sellers.com/en/integrations/) · [MCP setup](https://docs.vibe-sellers.com/en/mcp/) · [Amazon Ads API](https://docs.vibe-sellers.com/en/ads-api/) · [Email](https://docs.vibe-sellers.com/en/email/) · [Chat bots](https://docs.vibe-sellers.com/en/chat-bots/) · [TickTick / Dida365](https://docs.vibe-sellers.com/en/ticktick/) · [Google Workspace](https://docs.vibe-sellers.com/en/google-workspace/) |
-| **Examples** | [All Examples](https://docs.vibe-sellers.com/en/examples/) · [Daily email digest to WeCom](https://docs.vibe-sellers.com/en/example-email-wecom/) · [Weekly ad ACOS review](https://docs.vibe-sellers.com/en/example-ads-acos/) · [Weekly listing check](https://docs.vibe-sellers.com/en/example-listing-check/) · [Daily sales report](https://docs.vibe-sellers.com/en/example-daily-report/) · [Export a Ziniao store's finances with Codex](https://docs.vibe-sellers.com/en/example-mcp/) |
+| **Examples** | [All Examples](https://docs.vibe-sellers.com/en/examples/) · [Daily email digest to WeCom](https://docs.vibe-sellers.com/en/example-email-wecom/) · [Analyse ad ACOS and apply fixes](https://docs.vibe-sellers.com/en/example-ads-acos/) · [Weekly listing check](https://docs.vibe-sellers.com/en/example-listing-check/) · [Monthly sales report](https://docs.vibe-sellers.com/en/example-daily-report/) · [Export a Ziniao store's finances with Codex](https://docs.vibe-sellers.com/en/example-mcp/) |
 | **User guide** | [Stores & Browsers](https://docs.vibe-sellers.com/en/stores/) · [Tasks](https://docs.vibe-sellers.com/en/using-tasks/) · [Schedules](https://docs.vibe-sellers.com/en/schedules/) · [Knowledge & Skills](https://docs.vibe-sellers.com/en/knowledge/) |
 | **FAQ** | [Ziniao: Setup & Common Errors](https://docs.vibe-sellers.com/en/ziniao/) · [Cost & Model Choice](https://docs.vibe-sellers.com/en/faq-cost/) · [Login & Accounts](https://docs.vibe-sellers.com/en/faq-login/) · [Deployment & Data](https://docs.vibe-sellers.com/en/faq-data/) · [All Questions](https://docs.vibe-sellers.com/en/faq/) |
 | **Community** | [Community & Feedback](https://docs.vibe-sellers.com/en/community/): the WeCom group, Slack, and how to report a problem or suggest a feature |

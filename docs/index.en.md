@@ -176,13 +176,24 @@ A few cross-border scenarios it's commonly used for:
 A single ad-tuning run is ≈ 3–5 minutes and costs about 0.15 USD in LLM tokens
 (DeepSeek, 10 or fewer campaigns; more campaigns cost more).
 
+**See it end to end** — each example has a description to copy, the
+settings screenshots and the finished result:
+
+- [Daily email digest to WeCom](example-email-wecom.en.md): reads the store's mailbox every day, posts what matters to the group and drafts replies;
+- [Analyse ad ACOS, get optimisation advice for anything above 30%, and apply it](example-ads-acos.en.md): lists the targets and search terms over the line, and applies the list once you confirm;
+- [Weekly listing check](example-listing-check.en.md): checks every store, then merges one cross-store issue list;
+- [Export last month's sales report every month and post it to the group](example-daily-report.en.md): one CSV per marketplace, posted with a summary;
+- [Export a Ziniao store's financial data with Codex and analyse it](example-mcp.en.md): one sentence in Codex — Vibe Seller downloads the reports, Codex analyses them.
+
+More in [All Examples](examples.en.md).
+
 ## Docs
 
 | | |
 |---|---|
 | **Getting started** | [Installation](install.en.md) · [Quickstart](quickstart.en.md) · [Configure AI Models](llm-keys.en.md) · [Core Concepts](concepts.en.md) |
 | **Integrations** | [Overview](integrations.en.md) · [MCP setup](mcp.en.md) · [Amazon Ads API](ads-api.en.md) · [Email](email.en.md) · [Chat bots](chat-bots.en.md) · [TickTick / Dida365](ticktick.en.md) · [Google Workspace](google-workspace.en.md) |
-| **Examples** | [All Examples](examples.en.md) · [Daily email digest to WeCom](example-email-wecom.en.md) · [Weekly ad ACOS review](example-ads-acos.en.md) · [Weekly listing check](example-listing-check.en.md) · [Daily sales report](example-daily-report.en.md) · [Export a Ziniao store's finances with Codex](example-mcp.en.md) |
+| **Examples** | [All Examples](examples.en.md) · [Daily email digest to WeCom](example-email-wecom.en.md) · [Analyse ad ACOS and apply fixes](example-ads-acos.en.md) · [Weekly listing check](example-listing-check.en.md) · [Monthly sales report](example-daily-report.en.md) · [Export a Ziniao store's finances with Codex](example-mcp.en.md) |
 | **User guide** | [Stores & Browsers](stores.en.md) · [Tasks](using-tasks.en.md) · [Schedules](schedules.en.md) · [Knowledge & Skills](knowledge.en.md) |
 | **FAQ** | [Ziniao: Setup & Common Errors](ziniao.en.md) · [Cost & Model Choice](faq-cost.en.md) · [Login & Accounts](faq-login.en.md) · [Deployment & Data](faq-data.en.md) · [All Questions](faq.en.md) |
 | **Community** | [Community & Feedback](community.en.md): the WeCom group, Slack, and how to report a problem or suggest a feature |

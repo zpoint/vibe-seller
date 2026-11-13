@@ -124,13 +124,23 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 
 一次广告调优通常 3–5 分钟完成，模型费用约 1 元人民币（DeepSeek，10 组广告以内；广告组数越多费用越高）。
 
+**看几个完整的例子**（每个都有可直接复制的描述、配置截图和跑完的结果）：
+
+- [每天把重要邮件发到企业微信](https://docs.vibe-sellers.com/example-email-wecom/)：每天读一遍店铺邮箱，挑出要紧的发到群里，并起草回复；
+- [分析广告 ACOS，高于 30% 的给出优化建议并执行](https://docs.vibe-sellers.com/example-ads-acos/)：列出超线的投放对象和搜索词，你确认后按清单执行；
+- [每周巡检 Listing](https://docs.vibe-sellers.com/example-listing-check/)：每家店各查一遍，再合成一份跨店问题清单；
+- [每月把上个月的销售报表导出来，发到群里](https://docs.vibe-sellers.com/example-daily-report/)：按站点存成 CSV，摘要连同文件一起进群；
+- [用 Codex 导出紫鸟店铺财务数据进行分析](https://docs.vibe-sellers.com/example-mcp/)：在 Codex 里说一句，Vibe Seller 下载报表，Codex 接着分析。
+
+更多见[全部示例](https://docs.vibe-sellers.com/examples/)。
+
 ## 文档导航
 
 | | |
 |---|---|
 | **入门** | [安装](https://docs.vibe-sellers.com/install/) · [快速开始](https://docs.vibe-sellers.com/quickstart/) · [配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/) · [核心概念](https://docs.vibe-sellers.com/concepts/) |
 | **集成** | [集成总览](https://docs.vibe-sellers.com/integrations/) · [MCP 接入](https://docs.vibe-sellers.com/mcp/) · [广告 API 绑定](https://docs.vibe-sellers.com/ads-api/) · [邮件](https://docs.vibe-sellers.com/email/) · [群机器人](https://docs.vibe-sellers.com/chat-bots/) · [滴答清单 / TickTick](https://docs.vibe-sellers.com/ticktick/) · [Google Workspace](https://docs.vibe-sellers.com/google-workspace/) |
-| **使用示例** | [全部示例](https://docs.vibe-sellers.com/examples/) · [每天把重要邮件发到企业微信](https://docs.vibe-sellers.com/example-email-wecom/) · [每周检查广告 ACOS](https://docs.vibe-sellers.com/example-ads-acos/) · [每周巡检 Listing](https://docs.vibe-sellers.com/example-listing-check/) · [每天导出销售报表](https://docs.vibe-sellers.com/example-daily-report/) · [用 Codex 导出紫鸟店铺财务数据进行分析](https://docs.vibe-sellers.com/example-mcp/) |
+| **使用示例** | [全部示例](https://docs.vibe-sellers.com/examples/) · [每天把重要邮件发到企业微信](https://docs.vibe-sellers.com/example-email-wecom/) · [分析广告 ACOS 并执行优化](https://docs.vibe-sellers.com/example-ads-acos/) · [每周巡检 Listing](https://docs.vibe-sellers.com/example-listing-check/) · [每月导出销售报表](https://docs.vibe-sellers.com/example-daily-report/) · [用 Codex 导出紫鸟店铺财务数据进行分析](https://docs.vibe-sellers.com/example-mcp/) |
 | **使用指南** | [店铺与浏览器](https://docs.vibe-sellers.com/stores/) · [任务](https://docs.vibe-sellers.com/using-tasks/) · [定时任务](https://docs.vibe-sellers.com/schedules/) · [知识库与 Skill](https://docs.vibe-sellers.com/knowledge/) |
 | **常见问题** | [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/) · [费用与模型选择](https://docs.vibe-sellers.com/faq-cost/) · [登录与账号](https://docs.vibe-sellers.com/faq-login/) · [部署与数据](https://docs.vibe-sellers.com/faq-data/) · [全部问题](https://docs.vibe-sellers.com/faq/) |
 | **加入社区** | [加入社区与问题反馈](https://docs.vibe-sellers.com/community/)：企业微信群、Slack，以及怎么反馈问题、提建议 |
