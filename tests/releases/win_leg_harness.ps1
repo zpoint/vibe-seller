@@ -31,6 +31,13 @@
 #   VS_DIST                   where the legs' fabricated wheels go
 #   VIBE_SELLER_RELEASES_URL  the mock release document's path
 $ErrorActionPreference = 'Stop'
+# The harness reaches the checkout through GITHUB_WORKSPACE — to copy it
+# for a wheel build, and to run `fabricate_bundle.py`. CI sets it; a host
+# driver has to as well, and failing HERE names the missing variable
+# instead of failing later on a path that begins `\tests\releases\`.
+if (-not $env:GITHUB_WORKSPACE) {
+  throw 'GITHUB_WORKSPACE must point at the checkout this leg builds from'
+}
 $script:Port = $env:VIBE_SELLER_PORT
 $script:Base = "http://127.0.0.1:$($script:Port)"
 $script:Install = $env:VS_INSTALL

@@ -140,9 +140,15 @@ $env:VS_SETUP = "$env:RUNNER_TEMP\setup\VibeSeller-Setup.exe"
 $env:VS_DIST = $env:RUNNER_TEMP\dist
 $env:UV_FIND_LINKS = $env:VS_DIST                            # where the prefetch finds the wheel
 $env:VS_V2 = '99.9.9'
+$env:GITHUB_WORKSPACE = (Get-Location).Path   # the harness copies THIS tree to build wheels
 . tests\releases\win_leg_harness.ps1
 ```
 
+`GITHUB_WORKSPACE` is not CI-only decoration: the harness builds the
+candidate wheel from a copy of that tree and runs
+`fabricate_bundle.py` out of it, so it throws up front when it is
+missing rather than halfway through a leg on a path that starts
+`\tests\releases\`.
 …and then execute the leg's own steps. Three things about this platform
 that are easy to get wrong:
 
