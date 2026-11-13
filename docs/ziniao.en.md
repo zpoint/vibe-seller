@@ -53,13 +53,18 @@ In the app this shows as "WebDriver is not enabled for this account." followed b
 
 ## "检测到您在新终端登录" when binding a store
 
-This is Ziniao's new-device security check, not a Vibe Seller bug. The first time a given machine logs into an account, Ziniao requires a one-time manual approval:
+Ziniao's new-device check: this account is logging in on this computer for the first time, and
+Ziniao wants one manual approval first. Do this:
 
-1. Open Ziniao on this machine and log in manually (normal mode, not WebDriver) with the same sub-account credentials.
-2. Ziniao will show a new-device prompt — submit the approval request.
-3. Have the admin (BOSS) account approve the device in the Ziniao backend.
+1. **Quit Ziniao**: right-click the Ziniao icon in the taskbar (the menu bar / Dock on a Mac) and quit;
+2. **Open Ziniao yourself** by double-clicking it — that starts the Ziniao you use by hand, not
+   the one Vibe Seller launches;
+3. **Log in to the same account by hand**: Ziniao says it's a new device — submit the approval
+   request it offers;
+4. **Have the admin (BOSS) account approve** the device in the Ziniao back office;
+5. **Once the login works**, go back to Vibe Seller and click **Refresh**.
 
-After that one-time approval the device is trusted, and Vibe Seller's WebDriver login goes through on the next refresh.
+From then on Ziniao trusts this computer and the prompt doesn't come back.
 
 ## Windows (WSL): getting Ziniao into developer mode (ziniao_webdriver.bat)
 
