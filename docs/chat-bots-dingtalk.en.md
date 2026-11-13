@@ -14,12 +14,13 @@ description: 'Steps to create a DingTalk group bot: the custom-robot entry, keyw
 2. Name it (an avatar is optional), then set up **security** — DingTalk
    requires at least one of:
     - **Custom keyword**: up to 10; every message must contain at least
-      one of them. Note one down for the Vibe Seller "Keyword" field —
-      Vibe Seller appends it to any message that lacks it.
+      one of them. Note one down for Vibe Seller's 自定义关键词 (keyword)
+      field — Vibe Seller appends it to any message that lacks it.
     - **Signing (加签)**: copy the `SEC…` secret into Vibe Seller's
-      "Signing secret" field; every message is signed automatically.
+      加签 (signed secret) field; every message is signed automatically.
     - **IP range**: only these public egress IPs may call the webhook.
-      Leave both fields empty if you don't use this one.
+      If you use this one, just tick IP 地址段 (IP range) in Vibe
+      Seller — there is nothing to fill in.
 3. Accept the terms, click **Done** and copy the **Webhook URL**:
 
     ```
@@ -41,14 +42,17 @@ Good to know:
 1. Open Vibe Seller, go to **Settings → Integrations → Chat bots**, and
    click **Add Bot**;
 2. Enter a **name** (e.g. "Ops alerts") and paste the **Webhook URL** you
-   just copied — the platform is detected as DingTalk, and two extra fields
-   appear. Fill them per the security setting you chose in the group:
-   - **Signing secret (加签)**: paste the `SEC…` secret;
-   - **Keyword**: one of your keywords (messages without it are appended
-     automatically by the server);
-   - IP whitelist: leave both fields empty.
+   just copied — the platform is detected as DingTalk and a "Security
+   settings (required — pick one)" section appears. Tick the setting you
+   actually configured in the group; only the ticked option's field shows
+   (tick every one the robot uses — DingTalk checks each of them):
+   - **加签 (signed secret)**: paste the `SEC…` secret;
+   - **自定义关键词 (keyword)**: one of your keywords (messages without it
+     are appended automatically by the server);
+   - **IP 地址段 (IP range)**: nothing to fill in — the range is set in
+     DingTalk; this only records that you use it.
 
-   ![Adding a DingTalk bot: signing secret and keyword](images/chatbots_form_dingtalk_en.png)
+   ![Adding a DingTalk bot: pick 加签 and paste the secret](images/chatbots_form_dingtalk_en.png)
 
 3. Click **Save** — the list row shows the platform badge, whether the bot
    is signed, and its keyword;

@@ -21,11 +21,13 @@ description: 'Steps to create a Feishu / Lark group bot: the custom-bot entry, c
 3. In the bot's detail page, set up **security** (you can combine
    them):
     - **Custom keyword**: up to 10; the message must contain at least
-      one. Put one of them into Vibe Seller's "Keyword" field.
-    - **Signature check**: copy the secret into Vibe Seller's "Signing
-      secret" field — Vibe Seller computes the signature for you.
+      one. Put one of them into Vibe Seller's 自定义关键词 (keyword)
+      field.
+    - **Signature check**: copy the secret into Vibe Seller's 签名校验
+      (signature) field — Vibe Seller computes the signature for you.
     - **IP allowlist**: only these IPs / ranges may call the webhook,
-      up to 10 entries. Leave empty for none.
+      up to 10 entries. Leave empty for none; in Vibe Seller just tick
+      IP 白名单 (IP whitelist) — nothing to fill in.
 
 Official docs: [Custom bot guide](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)
 
@@ -43,14 +45,17 @@ Good to know:
 1. Open Vibe Seller, go to **Settings → Integrations → Chat bots**, and
    click **Add Bot**;
 2. Enter a **name** (e.g. "Ops alerts") and paste the **Webhook URL** you
-   just copied — the platform is detected as Feishu / Lark, and two extra
-   fields appear. Fill whichever one you turned on in the bot's security
-   settings (leave both empty if you turned on neither):
-   - **Signing secret (签名校验)**: paste the signing key;
-   - **Keyword (关键词)**: one of your keywords — the server appends it to
-     messages that lack it.
+   just copied — the platform is detected as Feishu / Lark and a "Security
+   settings (optional)" section appears with only the three options Feishu
+   supports. Tick the ones you actually turned on and the form reveals
+   their field (turn none on and tick nothing — Save works as is):
+   - **签名校验 (signature)**: paste the signing key;
+   - **自定义关键词 (keyword)**: one of your keywords — the server appends
+     it to messages that lack it;
+   - **IP 白名单 (IP whitelist)**: nothing to fill in — the allowlist is
+     set in Feishu; this only records that you use it.
 
-   ![Adding a Feishu bot: paste the webhook URL, optionally the signing secret](images/chatbots_form_feishu_en.png)
+   ![Adding a Feishu bot: optional security settings, 自定义关键词 ticked](images/chatbots_form_feishu_en.png)
 
 3. Click **Save** — the bot appears in the list;
 4. Click **Test** on the bot's row: a green line appears and the group

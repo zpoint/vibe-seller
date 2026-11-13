@@ -24,13 +24,14 @@ description: Slack 群机器人的创建步骤：新建 App、打开 Incoming We
 - 消息固定发送到创建 Webhook 时选择的那个频道，事后不能更改；
 - 发出去的消息不能撤回；URL 本身就是凭证，泄露后 Slack 会撤销它；
 - 纯文本不超过 40 000 字符，Markdown（Block Kit）不超过 12 000 字符；
-- 不支持发文件；没有签名密钥，「签名密钥」栏不要填写。
+- 不支持发文件；除 Webhook URL 外没有别的安全设置（没有密钥、关键词或
+  IP 白名单）。
 
 ## 在 Vibe Seller 里添加
 
 1. 打开 Vibe Seller，进入「设置 → 集成 → 群机器人」，点击「添加机器人」；
 2. 填写**名称**（例如「运营告警」），把刚才复制的 **Webhook URL** 整段粘贴进去，
-   平台会自动识别为 Slack。Slack 没有签名密钥——密钥与关键词栏留空即可：
+   平台会自动识别为 Slack——URL 本身就是凭证，表单没有安全设置一栏：
 
    ![添加 Slack 机器人：粘贴 Incoming Webhook URL](images/chatbots_form_slack_zh.png)
 

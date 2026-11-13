@@ -27,15 +27,16 @@ Good to know:
   revokes leaked ones.
 - Plain text up to 40,000 characters, markdown (Block Kit) up to
   12,000 characters.
-- No file sending and no signing secret — leave the secret field empty.
+- No file sending; beyond the Webhook URL there is no security setting
+  at all (no secret, keyword or IP allowlist).
 
 ## Add it in Vibe Seller
 
 1. Open Vibe Seller, go to **Settings → Integrations → Chat bots**, and
    click **Add Bot**;
 2. Enter a **name** (e.g. "Ops alerts") and paste the **Webhook URL** you
-   just copied — the platform is detected as Slack. Slack has no signing
-   secret: leave the secret and keyword fields empty.
+   just copied — the platform is detected as Slack; the URL alone is the
+   credential, so the form has no security section.
 
    ![Adding a Slack bot: pasting the Incoming Webhook URL](images/chatbots_form_slack_en.png)
 
