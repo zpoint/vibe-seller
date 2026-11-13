@@ -301,6 +301,14 @@ to `PUT /api/skill-uploads/{upload_id}` from its own shell — the file
 bytes never pass through the agent's LLM — and `import(upload_id=…)`
 extracts the archive strictly and installs it (slug derived from the
 SKILL.md frontmatter `name`, `origin_url` records provenance).
+`import` also takes a **`url`** instead of an `upload_id` — a GitHub
+`tree`/`blob` URL of a skill folder or a direct archive URL — which
+the SERVER fetches (http(s) to public addresses only, loopback only
+under the e2e test flag, redirects re-checked, streamed caps; guards
+in `app/skill_fetch.py`) and installs through the same staged path,
+recording `origin_url` (default: the URL) so the skill lists as
+`imported`. Passing the URL verbatim matters: the server resolves
+every supported form itself.
 `import` replaces the skill directory wholesale, `update` merges, and
 replacing an existing user skill is refused without `overwrite: true` —
 see [workspace.md § Skills System](workspace.md#skills-system) for the
@@ -543,6 +551,8 @@ accepts `allow_send` or any other handler assigns it.
 | GET | `/api/workspace/knowledge/sync-status` | Compare the packaged knowledge tree with the workspace copy (content status — WHEN it synced is `GET /api/sync/status`) |
 | POST | `/api/workspace/skill` | Create a new user skill (scaffold: `name`, `description`, `origin_url`) — full content goes through `PUT /api/workspace/skills/{slug}` |
 | PUT | `/api/workspace/skills/{slug}` | Create or extend a user-space skill in ONE call. Body `SkillSaveRequest`: `skill_md`, `files` (text, stored as UTF-8), `files_bin` (base64, stored byte-identical), `executables` (which files keep the executable bit), `origin_url` (provenance — the skill then lists as `imported`), `replace`, `overwrite`. `replace: true` swaps in the whole tree — files the call does not carry are deleted, a failure leaves the old skill untouched; the default merges. Replacing an EXISTING user skill is refused without `overwrite: true` (`a skill named X already exists (source=…)` — nothing written). Built-in slugs rejected. Paths/size caps enforced in `app/workspace/skills_manager.py` |
+| POST | `/api/workspace/skills/import-local` | In-task only (the MCP process's session token; query `slug?`, `overwrite`, `origin_url`): the raw body is a tar.gz of the skill directory packed by `app/skill_pack.py`. Staged + extracted + installed exactly like a presigned archive upload (`skill_uploads.import_staged`) — the server never reads a caller-named path |
+| POST | `/api/workspace/skills/import-url` | Body `SkillImportUrlRequest` (`url`, `slug?`, `overwrite`): the SERVER fetches the URL (guards + recursive GitHub-tree walk + archive sniffing in `app/skill_fetch.py`; unreachable host → 502 refusal) and installs through the same staged path, recording `origin_url` (default: the URL) |
 | GET | `/api/workspace/structured` | Workspace grouped for the UI. One entry per store joining `stores/<slug>/` knowledge `files` with `store-data/<slug>/` run-data `data_files`/`data_path` (run-data sorted newest-first) |
 | GET | `/api/workspace/file` | Read a text file (`{path, content}`); decodes utf-8 with GB18030 fallback; 400 with a pointer to `/file/raw` for binary |
 | GET | `/api/workspace/file/raw` | Raw bytes with guessed content type. `Content-Disposition: inline` only for non-scriptable types (pdf, png/jpeg/gif/webp); everything else `attachment` (stored-XSS guard) |
@@ -566,7 +576,12 @@ Replaces the per-module sync routes the workspace router used to carry. See [sub
 This is the raw-`PUT` half of `manage_skill`'s import flow (see
 [agents.md § Workspace, skills and the assistant](agents.md#workspace-skills-and-the-assistant)):
 `begin_upload` mints the URL, the agent's own shell streams the
-archive to it, `import(upload_id=…)` installs it. The result carries
+archive to it, `import(upload_id=…)` installs it. The staging
+pipeline is shared with the in-task import routes —
+`POST /api/workspace/skills/import-local` (cookie-authed raw archive
+from the MCP process) and `…/import-url` (server-fetched) stage the
+same way and end in the same `skill_uploads.import_staged` install
+path. The result carries
 `put_path` alongside `put_url` so an agent behind a reverse proxy can
 `PUT` to its own MCP origin + `put_path`. Multipart uploads must
 declare `Content-Length` (411 otherwise) — Starlette spools file
