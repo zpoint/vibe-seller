@@ -105,9 +105,8 @@ proposed", "not the two pauses yet" all work. When it starts executing it
 outside the list, or at a value the list doesn't say, is refused. Reply "nothing"
 and it just keeps the report.
 
-If it also puts the choices on a question card: **an answer on that card is not
-this confirmation.** Changes cost your money, so the server counts the messages
-you have sent in the task, not what was ticked on a card.
+If it shows a choice card asking which ones to change, still answer in the
+message box — a pick on the card doesn't count as your go-ahead.
 
 ## Questions this example gets
 
