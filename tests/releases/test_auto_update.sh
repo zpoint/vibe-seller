@@ -21,7 +21,20 @@
 #   s5b OLD → NEW (ok) → BROKEN. The rollback must land on NEW — the
 #       version that was actually serving — not on OLD. A rollback that
 #       only works for the first hop is the bug this leg exists for.
+#   s5c S5, then the SAME offer again after a fresh boot: the release
+#       this machine already put back must never be applied by itself a
+#       second time (review 4 — without that rule every check cycle is
+#       another outage). The idle tick refuses, the admin is told, and
+#       the record is not rewritten.
 #   s7  A dev build is never offered a version and never applies one.
+#   s9  (release gate, .github/workflows/pip-upgrade-gate.yml) The
+#       STARTING install is the published release from PyPI, not a build
+#       of this checkout — i.e. what a customer actually runs — and the
+#       candidate is this checkout's wheel. Same expectations as s1:
+#       ready on the pip path, applied by itself with no click. It
+#       SKIPs, green, when that published release predates the idle
+#       apply (`app/update_idle.py` is not in its wheel), because then
+#       there is no self-applying update on it to test.
 #
 # The fabricated releases are built from THIS checkout with a patched
 # source tree (see build_wheel), not from hooks in the product.
@@ -29,6 +42,7 @@
 # Usage: tests/releases/test_auto_update.sh
 #   PORT      default 7825; each leg uses PORT + leg index
 #   LEG       default `all`
+#   PREV_V    LEG=s9 only: the published version to start from
 #   OLD_V / NEW_V / BROKEN_V    default 99.0.1 / 99.0.2 / 99.0.3
 #   KEEP      1 = leave the leg's server running in READY state (demo)
 #   DIST_OLD / DIST_NEW / DIST_BROKEN   reuse prebuilt wheel dirs
@@ -38,6 +52,9 @@ PORT=${PORT:-7825}
 OLD_V=${OLD_V:-99.0.1}
 NEW_V=${NEW_V:-99.0.2}
 BROKEN_V=${BROKEN_V:-99.0.3}
+# A good release NEWER than the one leg s1 auto-applies to, used by the
+# receipt check at the end of that leg.
+PLAIN_V=${PLAIN_V:-99.0.4}
 LEG=${LEG:-all}
 KEEP=${KEEP:-0}
 REPO=${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}
@@ -56,6 +73,14 @@ fail() {
       > "$d/status.json" 2>/dev/null
     echo "   debug kept in $d" >&2
   fi
+  # A failed leg leaves ITS SERVER RUNNING on purpose (the debug above is
+  # read from it), and that server is the first thing the next run of
+  # this leg will trip over — say who to stop, with the pid, rather than
+  # letting the next failure look like a mystery.
+  local owner
+  owner=$(ss -ltnp 2>/dev/null | grep -w "$PORT" | head -1)
+  [ -n "$owner" ] && echo "   NOTE: port $PORT is still occupied: $owner" \
+    >&2 && echo "         stop it with: ./stop.sh $PORT --scoped" >&2
   exit 1
 }
 
@@ -100,20 +125,38 @@ echo "== building the wheel set (OLD=$OLD_V NEW=$NEW_V BROKEN=$BROKEN_V)"
 DIST_OLD=${DIST_OLD:-$BUILT/dist-$OLD_V}
 DIST_NEW=${DIST_NEW:-$BUILT/dist-$NEW_V}
 DIST_BROKEN=${DIST_BROKEN:-$BUILT/dist-$BROKEN_V}
-build_wheel "$OLD_V" "$DIST_OLD"
+# LEG=s9 installs the published release from PyPI, so a local OLD wheel
+# would be pointless — and pretending this checkout is a version that
+# really exists (0.3.1) is worse than pointless: it would shadow the
+# real one in UV_FIND_LINKS. Only the candidate is built for it.
+DIST_PLAIN=${DIST_PLAIN:-$BUILT/dist-$PLAIN_V}
+if [ "$LEG" != s9 ]; then
+  build_wheel "$OLD_V" "$DIST_OLD"
+  build_wheel "$PLAIN_V" "$DIST_PLAIN"
+  build_wheel "$BROKEN_V" "$DIST_BROKEN" break
+  # The broken wheel must be a real wheel of the right version, or s5
+  # would prove nothing about a broken release.
+  compgen -G "$DIST_BROKEN/vibe_seller-$BROKEN_V-*.whl" >/dev/null \
+    || fail "no $BROKEN_V wheel built"
+fi
 build_wheel "$NEW_V" "$DIST_NEW"
-build_wheel "$BROKEN_V" "$DIST_BROKEN" break
-# The broken wheel must be a real wheel of the right version, or s5
-# would prove nothing about a broken release.
-compgen -G "$DIST_BROKEN/vibe_seller-$BROKEN_V-*.whl" >/dev/null \
-  || fail "no $BROKEN_V wheel built"
 
 # ── the leg runner ─────────────────────────────────────────────────
 run_leg() { # run_leg <leg> <target-version> <dist-dir> [extra env…]
   local leg=$1 target=$2 dist=$3
+  local from_pypi=0
+  if [ "$leg" = s9 ]; then
+    # The gate leg starts from a PUBLISHED release, not from a build of
+    # this checkout: what is installed is what a customer has, and the
+    # only thing under test is whether THAT can move onto the candidate
+    # by itself. OLD_V becomes that version.
+    [ -n "${PREV_V:-}" ] || fail "LEG=s9 needs PREV_V=<published version>"
+    OLD_V="$PREV_V"
+    from_pypi=1
+  fi
   PORT=$((BASE_PORT + LEG_INDEX)); LEG_INDEX=$((LEG_INDEX + 1))
   echo ""
-  echo "################ LEG $leg (port $PORT, target $target)"
+  echo "################ LEG $leg (port $PORT, target $target, old $OLD_V)"
   WORK=$(mktemp -d "${TMPDIR:-/tmp}/vibe-au-$leg.XXXXXX") || fail "mktemp"
   local marker="$WORK/.owned-by-test_auto_update"
   touch "$marker"
@@ -133,7 +176,25 @@ run_leg() { # run_leg <leg> <target-version> <dist-dir> [extra env…]
  "releases": {"$OLD_V": [{"yanked": false}], "$target": [{"yanked": false}]}}
 EOF
   export VIBE_SELLER_PYPI_JSON_URL="$mock"
-  export UV_FIND_LINKS="$DIST_OLD,$dist,$DIST_BROKEN"
+  # ALL THREE wheel sets are in the sources on purpose, including the
+  # BROKEN build, which is a HIGHER version than what legs s1 and s2
+  # offer. That is the point: an apply must install the release the
+  # update check APPROVED, not whatever the sources call newest, and
+  # the only way to prove it here is to leave a newer, wrong answer
+  # lying around. Measured on 2026-11-13 with the unpinned command the
+  # leg did exactly that — `uv tool upgrade` installed 99.0.3 from this
+  # list, the server died on boot with "fabricated broken release", and
+  # last.json described an update to 99.0.2 that never happened. The fix
+  # is in the product (`vibe-seller upgrade --version`, app/cli.py
+  # `_upgrade_to_exact`); these legs are its negative control.
+  if [ "$from_pypi" = 1 ]; then
+    # Only the candidate exists locally on the gate leg; naming the OLD
+    # and BROKEN dirs it never installs would point uv at directories
+    # this run never built.
+    export UV_FIND_LINKS="$dist"
+  else
+    export UV_FIND_LINKS="$DIST_OLD,$dist,$DIST_BROKEN"
+  fi
 
   ADMIN_JAR="$WORK/admin.cookies"; MEMBER_JAR="$WORK/member.cookies"
   LOG="$VIBE_HOME/logs/backend_$PORT.log"
@@ -143,10 +204,26 @@ EOF
   fi
 
   echo "-- install $OLD_V and start"
-  uv tool install -q --force --find-links "$DIST_OLD" "vibe-seller==$OLD_V" \
-    || fail "could not install $OLD_V"
-  compgen -G "$UV_TOOL_DIR/vibe-seller/lib/python*/site-packages/app/auto_update.py" \
-    >/dev/null || fail "installed $OLD_V is not this checkout's code"
+  if [ "$from_pypi" = 1 ]; then
+    uv tool install -q --force "vibe-seller==$OLD_V" \
+      || fail "could not install the published $OLD_V from PyPI"
+    # A published release older than the idle-apply loop has nothing
+    # that can apply an update by itself, so this leg would be testing a
+    # click — #244's, not this feature's. Skip, and say what was checked.
+    if ! compgen -G \
+      "$UV_TOOL_DIR/vibe-seller/lib/python*/site-packages/app/update_idle.py" \
+      >/dev/null; then
+      echo "SKIP: vibe-seller $OLD_V has no app/update_idle.py — that" \
+        "install cannot self-apply, so there is no pip path to gate on."
+      stop_leg
+      return 0
+    fi
+  else
+    uv tool install -q --force --find-links "$DIST_OLD" "vibe-seller==$OLD_V" \
+      || fail "could not install $OLD_V"
+    compgen -G "$UV_TOOL_DIR/vibe-seller/lib/python*/site-packages/app/auto_update.py" \
+      >/dev/null || fail "installed $OLD_V is not this checkout's code"
+  fi
   # An unpinned receipt, like install.sh leaves: a pin would freeze every
   # later `uv tool upgrade` at this version.
   local receipt="$UV_TOOL_DIR/vibe-seller/uv-receipt.toml"
@@ -157,18 +234,14 @@ EOF
   [ "$(vibe-seller --version | awk '{print $NF}')" = "$OLD_V" ] \
     || fail "installed CLI is not $OLD_V"
 
-  # Every leg needs a session: /api/system/update-status is behind
-  # auth, and a leg that cannot read it proves nothing.
-  echo "-- logins"
-  login "$ADMIN_JAR" admin admin
-  api "$ADMIN_JAR" POST /api/users \
-    '{"username":"auto-member","email":"a-m@example.com","password":"memberpass123","role":"member"}' \
-    >/dev/null 2>&1 || echo "   (member exists — reusing)"
-  login "$MEMBER_JAR" auto-member memberpass123
-
   if [ "$leg" = s7 ]; then
     # A dev-shaped version: setuptools-scm's own shape, not a nightly.
     echo "-- s7 reinstalls as a DEV build and expects to be left alone"
+    # Nothing may be running from the tool env while `uv tool install`
+    # replaces it: a live server keeps the receipt and the venv under
+    # it, and a reinstall that lands half-way leaves the leg testing an
+    # install that is neither OLD nor the dev build.
+    vibe-seller stop --port "$PORT" 2>/dev/null
     local devdist="$WORK/dist-dev"
     build_dev_wheel "$devdist"
     UV_FIND_LINKS="$devdist" uv tool install -q --force \
@@ -179,6 +252,7 @@ EOF
       || fail "installed CLI is not the dev version"
     vibe-seller start --port "$PORT" || fail "dev build would not start"
     wait_for_version "$DEV_V" || fail "dev build never came up"
+    do_logins
     assert_idle_no_update "a dev build"
     stop_leg
     return 0
@@ -186,6 +260,7 @@ EOF
 
   vibe-seller start --port "$PORT" || fail "could not start $OLD_V"
   wait_for_version "$OLD_V" || fail "$OLD_V never came up on $PORT"
+  do_logins
   BOOTS_BEFORE=$(boots); [ "$BOOTS_BEFORE" -ge 1 ] || fail "no boot logged"
   echo "   port $PORT serves $OLD_V (boots: $BOOTS_BEFORE)"
 
@@ -238,12 +313,18 @@ EOF
   case $leg in
     s1)
       echo "-- S1: no click. Wait for the server to move by itself."
-      wait_for_version "$target" 200 \
+      # The bound is the measured sequence, not a guess: first check 60 s
+      # after boot, then the idle tick (up to 60 s more), then the apply
+      # itself — a real `vibe-seller upgrade`, which also moves Chromium
+      # and the Claude Code CLI. s1 measured 154.9 s from the tick to the
+      # record on 2026-11-13, so 200 s left no room for a slow npm.
+      wait_for_version "$target" 360 \
         || fail "the idle apply never happened (port still $(version_on_port))"
       [ "$(boots)" -gt "$BOOTS_BEFORE" ] || fail "no second boot in $LOG"
       # The server that restarted is the NEW one; it must say so.
       [ "$(update_field state)" = idle ] \
         || fail "the NEW server is not idle: $(status_json)"
+      wait_for_record || fail "the apply never wrote a record"
       local rec
       rec=$(record_field status)
       [ "$rec" = ok ] || fail "the apply record says '$rec': $(record_json)"
@@ -251,6 +332,31 @@ EOF
       [ "$(record_field trigger)" = auto_idle ] \
         || fail "record trigger != auto_idle: $(record_json)"
       echo "   OK: applied itself onto $target, recorded pip/auto_idle/ok"
+
+      # The apply installed $target BY NAME (app/pip_update.py hands
+      # `vibe-seller upgrade --version` to the helper, review 4's
+      # sibling), and uv writes what it is told into the tool receipt —
+      # where a `==` would freeze EVERY later `uv tool upgrade` at this
+      # version, which is exactly why app/cli.py's own upgrade path
+      # goes unpinned. So the pin this apply needs and the pin that
+      # would quietly break the user's next manual upgrade are
+      # separated by one line of receipt repair (_unpin_tool_receipt),
+      # and the only honest proof is to do the user's next upgrade for
+      # real: plain, no version, a newer wheel available.
+      echo "-- a plain 'vibe-seller upgrade' still moves after that apply"
+      local receipt
+      receipt=$(ls "$UV_TOOL_DIR"/vibe-seller/uv-receipt.toml 2>/dev/null)
+      [ -n "$receipt" ] || fail "no uv receipt to read"
+      if grep -q 'specifier' "$receipt"; then
+        fail "the pinned apply left its specifier in $receipt"
+      fi
+      stop_server_only
+      UV_FIND_LINKS="$DIST_PLAIN" vibe-seller upgrade \
+        > "$WORK/plain-upgrade.log" 2>&1 \
+        || fail "the plain upgrade failed: $(tail -5 "$WORK/plain-upgrade.log")"
+      [ "$(installed_version)" = "$PLAIN_V" ] \
+        || fail "a plain upgrade stopped at $(installed_version), not $PLAIN_V"
+      echo "   OK: receipt unpinned, plain upgrade moved to $PLAIN_V"
       ;;
     s2)
       echo "-- S2: occupy the server with a task, and check it waits"
@@ -285,24 +391,29 @@ EOF
       done
       echo "   held for 150s with the task running — nothing applied"
       wait_for_task_done "$ADMIN_JAR" "$tid" || fail "the mock task never finished"
-      wait_for_version "$target" 200 \
+      wait_for_version "$target" 360 \
         || fail "after the task ended the update still did not apply"
       echo "   OK: waited for the task, then applied onto $target by itself"
       ;;
-    s5|s5b)
+    s5|s5b|s5c)
       echo "-- $leg: the target will not boot; the machine must come back"
       local expect_from=$OLD_V
       [ "$leg" = s5b ] && expect_from=$NEW_V
       if [ "$leg" = s5b ]; then
         echo "   hop 1: $OLD_V -> $NEW_V (a good release)"
-        wait_for_version "$NEW_V" 200 || fail "hop 1 never applied"
-        stop_leg
+        wait_for_version "$NEW_V" 360 || fail "hop 1 never applied"
+        stop_server_only
         # Same install tree, new target: the BROKEN wheel. Re-point the
         # mock index and restart, so the update check offers 99.0.3.
         cat > "$mock" <<EOF
 {"info": {"version": "$BROKEN_V"},
  "releases": {"$NEW_V": [{"yanked": false}], "$BROKEN_V": [{"yanked": false}]}}
 EOF
+        # The BROKEN build was already in the sources (see run_leg);
+        # what changes here is the OFFER. And the rollback after it has
+        # to find $NEW_V, which by then exists only in the uv cache —
+        # never in a directory anyone handed uv — which is the whole
+        # subject of this leg.
         unset MOCK_CLI
         vibe-seller start --port "$PORT" || fail "hop 1 restart failed"
         wait_for_version "$NEW_V" || fail "the server did not come back on $NEW_V"
@@ -319,8 +430,12 @@ EOF
       done
       [ "$state" = ready ] || fail "never reached ready for the broken build ($state)"
       echo "-- it is ready; now it must apply, fail, and put $expect_from back"
+      # An apply that dies has to run out the helper's own health
+      # bound (HEALTH_TIMEOUT, 300 s) before it starts putting OLD back,
+      # then reinstall offline and boot again — so the wait here is
+      # bounded by the helper's budget plus one boot, not by hope.
       local gone=0
-      for _ in $(seq 1 260); do
+      for _ in $(seq 1 400); do
         v=$(version_on_port)
         if [ "$v" = "$expect_from" ]; then gone=1; break; fi
         sleep 2
@@ -329,10 +444,58 @@ EOF
       health_ok || fail "the server answers /api/version but not /api/health"
       [ "$(installed_version)" = "$expect_from" ] \
         || fail "the INSTALL is still $(installed_version) — no real rollback"
+      wait_for_record || fail "the failed apply never wrote a record"
       [ "$(record_field status)" = rolled_back ] \
         || fail "the record should say rolled_back: $(record_json)"
       echo "   OK: the broken release failed, $expect_from is serving again"
       echo "   record: $(record_json)"
+      if [ "$leg" = s5c ]; then
+        # S5c — review 4's outage loop. The next check cycle (6 h in
+        # production, ~60 s after a boot here) offers this very release
+        # again: nothing about it changed. Warming it and marking it
+        # ready is fine; APPLYING it again is a second outage, and the
+        # third one comes six hours later, forever, for a build that
+        # cannot boot. So a boot is how this leg fast-forwards the
+        # cycle, and the assertion is that the idle tick REFUSES.
+        echo "-- S5c: the same release must never be applied a second time"
+        local applies_before record_before
+        applies_before=$(grep -c 'applying ' \
+          "$VIBE_HOME/updates/pip-apply.log" 2>/dev/null || echo 0)
+        record_before=$(record_json)
+        stop_server_only
+        vibe-seller start --port "$PORT" || fail "s5c restart failed"
+        wait_for_version "$expect_from" \
+          || fail "s5c: $expect_from never came back up after the restart"
+        state=''
+        for _ in $(seq 1 200); do
+          state=$(update_field state)
+          [ "$state" = ready ] && break
+          sleep 2
+        done
+        [ "$state" = ready ] \
+          || fail "s5c: the broken release was never offered again ($state)"
+        echo "   offered again and ready (as the bug would)"
+        # Two idle intervals past that: the tick must refuse it.
+        sleep 150
+        [ "$(version_on_port)" = "$expect_from" ] \
+          || fail "s5c: it applied the rolled-back release a second time"
+        local applies_after
+        applies_after=$(grep -c 'applying ' \
+          "$VIBE_HOME/updates/pip-apply.log" 2>/dev/null || echo 0)
+        [ "$applies_after" = "$applies_before" ] \
+          || fail "s5c: a second apply started ($applies_before -> $applies_after)"
+        [ "$(record_json)" = "$record_before" ] \
+          || fail "s5c: the record was rewritten — a second outage happened"
+        [ "$(installed_version)" = "$expect_from" ] \
+          || fail "s5c: the install moved to $(installed_version)"
+        [ "$(update_field auto_apply)" = false ] \
+          || fail "s5c: a rolled-back release still promises to apply itself"
+        [ "$(update_field refusal.version)" = "$BROKEN_V" ] \
+          || fail "s5c: no refusal reported for $BROKEN_V: $(status_json)"
+        [ "$(update_field popup_due)" = true ] \
+          || fail "s5c: the admin was never asked to decide"
+        echo "   OK: refused across a fresh boot — one outage per bad release"
+      fi
       ;;
   esac
   stop_leg
@@ -354,12 +517,51 @@ api() { # api <jar> <method> <path> [json]
   fi
 }
 login() { # login <jar> <identifier> <password>
-  curl -fsS --noproxy '*' -c "$1" -X POST "http://127.0.0.1:$PORT/api/auth/login" \
-    -H 'Content-Type: application/json' \
-    -d "{\"identifier\": \"$2\", \"password\": \"$3\"}" >/dev/null \
-    || fail "login failed for $2"
+  # The status code, not just "curl exited 22": a login can fail because
+  # nothing serves the port yet, because the credentials are not the
+  # seeded ones, or because auth is off, and `curl -f` calls all three
+  # the same. What the port answers is printed too, so the next failure
+  # is readable without rerunning anything.
+  local resp code
+  resp=$(curl -sS --noproxy '*' --max-time 20 -c "$1" -X POST \
+    "http://127.0.0.1:$PORT/api/auth/login" \
+    -H 'Content-Type: application/json' -w '\n%{http_code}' \
+    -d "{\"identifier\": \"$2\", \"password\": \"$3\"}") || resp=''
+  code=${resp##*$'\n'}
+  [ "$code" = 200 ] && return 0
+  fail "login failed for $2 (HTTP ${code:-no-answer}; /api/version says '$(version_on_port | head -c 160)'; body ${resp:0:200})"
 }
-json_field() { python3 -c "import json,sys;print(json.load(sys.stdin).get('$1'))" 2>/dev/null; }
+
+do_logins() {
+  # Every leg needs a session: /api/system/update-status is behind
+  # auth, and a leg that cannot read it proves nothing. This runs only
+  # once a server is SERVING — the admin row is created by the first
+  # boot of this VIBE_HOME's database, so a login attempted before that
+  # boot has no user to authenticate and no server to answer it.
+  echo "-- logins"
+  login "$ADMIN_JAR" admin admin
+  api "$ADMIN_JAR" POST /api/users \
+    '{"username":"auto-member","email":"a-m@example.com","password":"memberpass123","role":"member"}' \
+    >/dev/null 2>&1 || echo "   (member exists — reusing)"
+  login "$MEMBER_JAR" auto-member memberpass123
+}
+json_field() {
+  # Scalars print in JSON's own spelling — true / false / null, not
+  # Python's True / False / None — because that is what the API document
+  # says, and an assertion that only matches under one of the two
+  # spellings is a leg that fails for the wrong reason (s1's auto_apply
+  # check was exactly that: it could never pass).
+  #
+  # No backticks anywhere inside this string: they would be command
+  # substitutions to the shell, not prose to Python.
+  python3 -c "
+import json, sys
+v = json.load(sys.stdin)
+for k in '$1'.split('.'):
+    v = v.get(k) if isinstance(v, dict) else None
+print(json.dumps(v) if isinstance(v, (bool, type(None))) else v)
+" 2>/dev/null
+}
 version_on_port() {
   curl -fsS --noproxy '*' --max-time 3 "http://127.0.0.1:$PORT/api/version" 2>/dev/null
 }
@@ -383,6 +585,22 @@ wait_for_version() {
   echo "   port $PORT reports: ${got:-<nothing>}" >&2
   return 1
 }
+wait_for_record() { # the apply is not over when the VERSION moves
+  # `last.json` is the LAST thing the helper writes — after its own
+  # health check, after the rollback when there is one — so a leg that
+  # reads it the second the port answers the new version reads a half
+  # finished apply. Measured on 2026-11-13 in leg s1: the server was
+  # already serving 99.0.2 (it restarts itself onto the new install)
+  # while the upgrade command was still moving Chromium and the Claude
+  # Code CLI, and the record landed 40 s later.
+  local tries=${1:-200}
+  for _ in $(seq 1 "$tries"); do
+    [ -s "$VIBE_HOME/updates/last.json" ] && return 0
+    sleep 2
+  done
+  return 1
+}
+
 wait_for_task_done() { # wait_for_task_done <jar> <task id>
   local jar=$1 tid=$2 st
   for _ in $(seq 1 120); do
@@ -401,8 +619,9 @@ assert_idle_no_update() { # a dev build must be left alone entirely
     sleep 2
   done
   [ "$(update_field state)" = idle ] || fail "$(update_field state) for $who"
-  [ "$(update_field version)" = None ] || fail "offered $(update_field version)"
-  [ "$(update_field supported)" = False ] || fail "a dev build reports supported"
+  [ "$(update_field version)" = null ] || fail "offered $(update_field version)"
+  [ "$(update_field supported)" = false ] \
+    || fail "a dev build reports supported"
   echo "   OK: $who stayed idle and unsupported for 180s"
 }
 build_dev_wheel() { # a setuptools-scm dev shape, not a nightly
@@ -412,8 +631,11 @@ build_dev_wheel() { # a setuptools-scm dev shape, not a nightly
   (cd "$REPO" && SETUPTOOLS_SCM_PRETEND_VERSION=$DEV_V \
     uv build --wheel -q -o "$out") || fail "could not build the dev wheel"
 }
-stop_leg() {
-  [ "$KEEP" = 1 ] && { echo "   KEEP=1: leaving $PORT up in $WORK"; return 0; }
+stop_server_only() {
+  # The server down, the data root INTACT. s5b hops twice over one
+  # install, so its interlude cannot be a `stop_leg`: that also deletes
+  # VIBE_HOME, the seeded admin, the mock index and the cookie jars, and
+  # the second hop would boot a machine with no database behind it.
   local f pid
   for f in "$VIBE_HOME"/pids/*.pid; do
     [ -f "$f" ] || continue
@@ -426,6 +648,11 @@ stop_leg() {
   vibe-seller stop --port "$PORT" 2>/dev/null
   for _ in $(seq 1 15); do [ -z "$(version_on_port)" ] && break; sleep 1; done
   [ -z "$(version_on_port)" ] || fail "port $PORT still serving after stop"
+}
+
+stop_leg() {
+  [ "$KEEP" = 1 ] && { echo "   KEEP=1: leaving $PORT up in $WORK"; return 0; }
+  stop_server_only
   case "$WORK" in
     "${TMPDIR:-/tmp}"/vibe-au-*) rm -rf "$WORK" ;;
     *) echo "refusing to remove '$WORK'" >&2 ;;
@@ -444,14 +671,20 @@ for one in $(echo "$LEG" | tr ',' ' '); do
     s1) run_leg s1 "$NEW_V" "$DIST_NEW" ;;
     s2) run_leg s2 "$NEW_V" "$DIST_NEW" ;;
     s5) run_leg s5 "$BROKEN_V" "$DIST_BROKEN" ;;
-    s5b) run_leg s5b "$BROKEN_V" "$DIST_BROKEN" ;;
+    # s5b starts from the GOOD release: hop 1 must be a real pip update
+    # whose version is what the rollback has to find again. Offering it
+    # the broken build from the first boot would test s5 twice.
+    s5b) run_leg s5b "$NEW_V" "$DIST_NEW" ;;
+    s5c) run_leg s5c "$BROKEN_V" "$DIST_BROKEN" ;;
     s7) run_leg s7 "$NEW_V" "$DIST_NEW" ;;
+    s9) run_leg s9 "$NEW_V" "$DIST_NEW" ;;
     all) run_leg s1 "$NEW_V" "$DIST_NEW"
          run_leg s2 "$NEW_V" "$DIST_NEW"
          run_leg s5 "$BROKEN_V" "$DIST_BROKEN"
-         run_leg s5b "$BROKEN_V" "$DIST_BROKEN"
+         run_leg s5b "$NEW_V" "$DIST_NEW"
+         run_leg s5c "$BROKEN_V" "$DIST_BROKEN"
          run_leg s7 "$NEW_V" "$DIST_NEW" ;;
-    *) fail "unknown LEG '$one' (s1 s2 s5 s5b s7 all)" ;;
+    *) fail "unknown LEG '$one' (s1 s2 s5 s5b s5c s7 s9 all)" ;;
   esac
 done
 
