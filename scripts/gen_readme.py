@@ -33,9 +33,9 @@ Every rewrite rule (docs source -> GitHub README), applied per locale:
 5.  Links to sibling docs pages open on the docs site, not as raw
     markdown on GitHub: ``](tasks.md#x)`` -> ``](https://docs.vibe-sellers.com/tasks/#x)``,
     ``](mcp.en.md)`` -> ``](https://docs.vibe-sellers.com/en/mcp/)``.
-6.  Language-switch links go back to the READMEs: ``](/en/)`` and
-    ``href="/en/"`` -> ``README_en.md``; ``](/)`` and ``href="/"`` ->
-    ``README.md``.
+6.  Language-switch links open the docs site homepages: ``](/en/)`` and
+    ``href="/en/"`` -> ``https://docs.vibe-sellers.com/en/``; ``](/)`` and
+    ``href="/"`` -> ``https://docs.vibe-sellers.com/``.
 7.  ``markdown="1"`` attributes on ``<details>`` are stripped — they are
     for python-markdown (with ``md_in_html``), which the site needs and
     GitHub does not; GitHub renders markdown inside ``<details>``
@@ -142,10 +142,10 @@ def generate(text: str, source_name: str, locale: str) -> str:
     text = _DOC_LINK.sub(_site_link, text)
 
     # Rule 6: language-switch links back to the READMEs.
-    text = text.replace('](/en/)', '](README_en.md)')
-    text = text.replace('](/)', '](README.md)')
-    text = text.replace('href="/en/"', 'href="README_en.md"')
-    text = text.replace('href="/"', 'href="README.md"')
+    text = text.replace('](/en/)', f']({SITE_URL}en/)')
+    text = text.replace('](/)', f']({SITE_URL})')
+    text = text.replace('href="/en/"', f'href="{SITE_URL}en/"')
+    text = text.replace('href="/"', f'href="{SITE_URL}"')
 
     # Rule 7: strip the site-only markdown attribute on <details>.
     text = text.replace('<details markdown="1">', '<details>')

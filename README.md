@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  <a href="README_en.md">English</a> ·
-  <a href="README.md">中文</a>
+  <a href="https://docs.vibe-sellers.com/en/">English</a> ·
+  <a href="https://docs.vibe-sellers.com/">中文</a>
 </p>
 
 <p align="center">
@@ -133,6 +133,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 | **使用示例** | [全部示例](https://docs.vibe-sellers.com/examples/) · [每天把重要邮件发到企业微信](https://docs.vibe-sellers.com/example-email-wecom/) · [每周检查广告 ACOS](https://docs.vibe-sellers.com/example-ads-acos/) · [每周巡检 Listing](https://docs.vibe-sellers.com/example-listing-check/) · [每天导出销售报表](https://docs.vibe-sellers.com/example-daily-report/) · [用 Codex 导出紫鸟店铺财务数据进行分析](https://docs.vibe-sellers.com/example-mcp/) |
 | **使用指南** | [店铺与浏览器](https://docs.vibe-sellers.com/stores/) · [任务](https://docs.vibe-sellers.com/using-tasks/) · [定时任务](https://docs.vibe-sellers.com/schedules/) · [知识库与 Skill](https://docs.vibe-sellers.com/knowledge/) |
 | **常见问题** | [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/) · [费用与模型选择](https://docs.vibe-sellers.com/faq-cost/) · [登录与账号](https://docs.vibe-sellers.com/faq-login/) · [部署与数据](https://docs.vibe-sellers.com/faq-data/) · [全部问题](https://docs.vibe-sellers.com/faq/) |
+| **加入社区** | [加入社区与问题反馈](https://docs.vibe-sellers.com/community/)：企业微信群、Slack，以及怎么反馈问题、提建议 |
 | **开发者文档（英文）** | [开发者指南](https://docs.vibe-sellers.com/dev-guide/) · [任务内核](https://docs.vibe-sellers.com/tasks/) · [浏览器内核](https://docs.vibe-sellers.com/browser/) · [子系统](https://docs.vibe-sellers.com/subsystems/) · [外部 Agent（MCP API）](https://docs.vibe-sellers.com/agents/) · [Windows + WSL2 部署](https://docs.vibe-sellers.com/windows-setup/) · [macOS 常驻服务](https://docs.vibe-sellers.com/macos-setup/) |
 
 架构设计见 [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md)，各子系统的深入说明都在 [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) 里。

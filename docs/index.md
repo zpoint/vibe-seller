@@ -137,6 +137,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 | **使用示例** | [全部示例](examples.md) · [每天把重要邮件发到企业微信](example-email-wecom.md) · [每周检查广告 ACOS](example-ads-acos.md) · [每周巡检 Listing](example-listing-check.md) · [每天导出销售报表](example-daily-report.md) · [用 Codex 导出紫鸟店铺财务数据进行分析](example-mcp.md) |
 | **使用指南** | [店铺与浏览器](stores.md) · [任务](using-tasks.md) · [定时任务](schedules.md) · [知识库与 Skill](knowledge.md) |
 | **常见问题** | [紫鸟：开通与常见报错](ziniao.md) · [费用与模型选择](faq-cost.md) · [登录与账号](faq-login.md) · [部署与数据](faq-data.md) · [全部问题](faq.md) |
+| **加入社区** | [加入社区与问题反馈](community.md)：企业微信群、Slack，以及怎么反馈问题、提建议 |
 | **开发者文档（英文）** | [开发者指南](dev-guide.md) · [任务内核](tasks.md) · [浏览器内核](browser.md) · [子系统](subsystems.md) · [外部 Agent（MCP API）](agents.md) · [Windows + WSL2 部署](windows-setup.md) · [macOS 常驻服务](macos-setup.md) |
 
 架构设计见 [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md)，各子系统的深入说明都在 [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) 里。
