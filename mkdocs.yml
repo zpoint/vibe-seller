@@ -191,6 +191,12 @@ nav:
           - Core Concepts: concepts.md
       - Integrations:
           - Overview: integrations.md
+          - Amazon Ads API: ads-api.md
+          - Email: email.md
+          - TickTick / Dida365: ticktick.md
+          - Google Workspace: google-workspace.md
+          # Sections that expand go last, so the single pages above line up
+          # and the submenus don't split them.
           # Each section's overview page is its first child, so the submenu
           # shows 总览 / Overview plus the per-platform or per-tool pages.
           # (navigation.indexes only folds a page into the section title when
@@ -203,16 +209,12 @@ nav:
               - Hermes Agent: mcp-hermes.md
               - Pi: mcp-pi.md
               - Claude: mcp-claude.md
-          - Amazon Ads API: ads-api.md
-          - Email: email.md
           - Chat Bots:
               - Chat Bot Overview: chat-bots.md
               - WeCom: chat-bots-wecom.md
               - DingTalk: chat-bots-dingtalk.md
               - Feishu / Lark: chat-bots-feishu.md
               - Slack: chat-bots-slack.md
-          - TickTick / Dida365: ticktick.md
-          - Google Workspace: google-workspace.md
       - Examples:
           - All Examples: examples.md
           - Daily Email Digest to WeCom: example-email-wecom.md
