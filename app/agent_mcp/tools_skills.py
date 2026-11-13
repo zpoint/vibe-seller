@@ -11,7 +11,7 @@ reserved names, safe relative file paths, size caps) are the route's
 behaviour, not re-implemented here, and the archive side adds
 ``app.skill_uploads`` (signing, staging, strict extraction) and
 ``app.skill_fetch`` (URL guards) on top of the ONE install path —
-``skill_uploads.import_staged``, the same composition the in-task and
+``skill_install.import_staged``, the same composition the in-task and
 URL routes end in.
 """
 
@@ -30,12 +30,8 @@ from app.agent_mcp.support import (
 )
 from app.routers import sync as sync_route, workspace as workspace_route
 from app.schemas.workspace import SkillCreateRequest, SkillSaveRequest
-from app.skill_uploads import (
-    UploadError,
-    create_upload,
-    import_staged,
-    stage_stream,
-)
+from app.skill_install import describe_refusal, import_staged
+from app.skill_uploads import UploadError, create_upload
 from app.sync import state as sync_state
 from app.sync.jobs import SKILLS_JOB
 from app.workspace.skills_manager import derive_skill_slug
@@ -140,20 +136,37 @@ def _import_slug(args: dict, skill_md: str) -> str:
     return slug
 
 
+def _no_inline_files(args: dict, source: str) -> None:
+    """One validation for both streamed sources: an archive (staged
+    or fetched) IS the file list — inline payloads must not mix."""
+    if args.get('files') or args.get('files_bin'):
+        raise ToolError(
+            f'{source} imports the whole archive — do not also send '
+            'files / files_bin'
+        )
+
+
+def _tool_refusal(exc: Exception, kind: str) -> ToolError:
+    """The ToolError conversion of the ONE shared refusal mapping
+    (``skill_install.describe_refusal``) — the door only converts the
+    TYPE; ``kind`` keeps the door's context in the agent-facing text
+    (messages otherwise are decided once in the pipeline)."""
+    if isinstance(exc, UploadError):
+        return ToolError(exc.message)
+    _status, message = describe_refusal(exc)
+    return ToolError(f'{kind} refused: {message}')
+
+
 async def _import_upload(ctx: McpContext, args: dict, upload_id: str) -> dict:
     """Import the staged archive through the ONE install path.
 
-    ``skill_uploads.import_staged`` holds the skills-tree lock, runs
-    strict extraction + the shared install core in one thread hop,
-    consumes the upload only after a successful install, and
-    auto-commits outside the lock — the same composition the in-task
-    and URL routes end in, so no source has its own copy of it.
+    The archive was already staged through the presigned PUT (that
+    is the upload flow's front half); this door is args →
+    ``import_staged`` → error conversion — the shared sequence for
+    bytes that still need staging is ``install_stream``/
+    ``install_url``, used by the in-task and URL doors.
     """
-    if args.get('files') or args.get('files_bin'):
-        raise ToolError(
-            'upload_id imports the staged archive — do not also '
-            'send files / files_bin'
-        )
+    _no_inline_files(args, 'upload_id')
     try:
         return await import_staged(
             workspace_route.workspace_manager,
@@ -163,42 +176,29 @@ async def _import_upload(ctx: McpContext, args: dict, upload_id: str) -> dict:
             origin_url=args.get('origin_url') or '',
             overwrite=bool(args.get('overwrite')),
         )
-    except UploadError as exc:
-        raise ToolError(exc.message) from exc
-    except ValueError as exc:
-        raise ToolError(f'Archive refused: {exc}') from exc
+    except (UploadError, ValueError) as exc:
+        raise _tool_refusal(exc, 'Archive') from exc
 
 
 async def _import_url(ctx: McpContext, args: dict, url: str) -> dict:
-    """Import a skill FROM A URL: the server fetches it (guards and
-    caps in ``app.skill_fetch`` — the bytes never pass through the
-    agent's LLM), stages the archive and installs through the same
-    ONE path as an uploaded archive. ``origin_url`` defaults to the
-    fetched URL, so the skill lists as imported."""
-    if args.get('files') or args.get('files_bin'):
-        raise ToolError(
-            'url imports the remote skill — do not also send files / files_bin'
-        )
+    """Import a skill FROM A URL: one call —
+    ``skill_fetch.install_url`` fetches (guards and caps in
+    ``app.skill_fetch``; bytes never through the agent's LLM) and
+    runs the shared ``install_stream`` sequence; ``origin_url``
+    defaults to the fetched URL (inside the helper), so the skill
+    lists as imported."""
+    _no_inline_files(args, 'url')
     try:
-        minted = await asyncio.to_thread(create_upload, str(ctx.user.id), '')
-        upload_id = minted['upload_id']
-        await stage_stream(
-            upload_id,
-            skill_fetch.open_archive_stream(url),
-            'application/gzip',
-        )
-        return await import_staged(
+        return await skill_fetch.install_url(
             workspace_route.workspace_manager,
-            upload_id,
             str(ctx.user.id),
+            url,
             slug=args.get('slug'),
-            origin_url=args.get('origin_url') or url,
+            origin_url=args.get('origin_url'),
             overwrite=bool(args.get('overwrite')),
         )
-    except UploadError as exc:
-        raise ToolError(exc.message) from exc
-    except ValueError as exc:
-        raise ToolError(f'URL refused: {exc}') from exc
+    except (UploadError, ValueError) as exc:
+        raise _tool_refusal(exc, 'URL') from exc
 
 
 @tool(

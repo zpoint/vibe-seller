@@ -55,6 +55,7 @@ from urllib.parse import quote, unquote, urlsplit
 import httpx
 
 from app.notifiers.base import loopback_test_enabled
+from app.skill_install import install_stream
 from app.skill_pack import pack_tar_gz
 from app.skill_uploads import (
     MAX_ARCHIVE_UPLOAD_BYTES,
@@ -491,3 +492,30 @@ async def open_archive_stream(url: str) -> AsyncIterator[bytes]:
         yield await asyncio.to_thread(pack_tar_gz, files, execs)
     finally:
         await client.aclose()
+
+
+async def install_url(
+    manager,
+    user_id: str,
+    url: str,
+    *,
+    slug: str | None = None,
+    origin_url: str | None = None,
+    overwrite: bool = False,
+) -> dict:
+    """The URL door's whole sequence in ONE call: fetch through
+    :func:`open_archive_stream` and run the shared
+    ``skill_install.install_stream`` (mint → stage → install).
+    ``origin_url`` defaults to the fetched URL (falsy included —
+    doors pass whatever their caller gave), so the skill lists as
+    imported. Lives here (not in skill_install) to keep the import
+    direction one-way: skill_fetch -> skill_install -> skill_uploads."""
+    return await install_stream(
+        manager,
+        user_id,
+        open_archive_stream(url),
+        'application/gzip',
+        slug=slug,
+        origin_url=origin_url or url,
+        overwrite=overwrite,
+    )
