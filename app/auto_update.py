@@ -1,43 +1,45 @@
-"""In-app auto-update: fetch the new release in the background, restart on click.
+"""In-app auto-update: fetch the new release in the background, then
+apply it — by itself when it is small and the machine is idle, or on a
+click when it is not.
 
 One state machine, owned by this module (``app/routers/system.py`` only
 reads it): ``idle`` → ``downloading`` → ``ready`` → ``restarting``, or
-``error`` with a message. The web UI polls ``GET /api/system/update-status``
-and offers "重启并更新" when the state is ``ready``;
-``POST /api/system/update/restart`` applies it (admin only).
+``error`` with a message. The web UI polls
+``GET /api/system/update-status``; ``POST /api/system/update/restart``
+applies it now (admin only).
 
-What "downloaded" means per platform:
+``ready`` means one of two things, and the state says which:
 
-- **Windows (installer bundle)**: ``VIBE_SELLER_RELEASES_URL``/GitHub
-  offers ``VibeSeller-Setup.exe`` with size + sha256; it is staged under
-  ``<VIBE_HOME>/updates/<version>/`` (resumable ``.part`` + Range —
-  see ``app/windows_update.stage_installer``). Applying launches the
-  staged installer detached with ``/SILENT`` (progress window only):
-  the installer itself stops the server/tray/browsers
-  (``PrepareToInstall``) and relaunches the tray. A verified stage on
-  boot is ``ready`` immediately, no network needed.
-- **macOS/Linux (uv tool install)**: the target version's wheels are
-  prefetched into uv's shared cache (``uv tool run --from
-  vibe-seller==<v> …``) without touching the installed tool — provable
-  by ``UV_OFFLINE=1 uv tool upgrade`` afterwards. Applying runs the
-  real ``vibe-seller upgrade`` (all of what it does — package,
-  Chromium, Claude Code CLI) from the warm cache, then
-  ``app/upgrade_restart.request_restart()`` re-execs this process onto
-  the new install immediately: the admin already accepted that running
-  tasks are interrupted (no drain).
+- **path ``pip``** — the release changes only the Python package, so it
+  installs with uv over the venv already there: a few MB, already in the
+  cache, and proven to need no network (``app/pip_update.py``). Nothing
+  further is asked of anyone: the server restarts onto it the first time
+  it is idle (``app/update_idle.py``). If a busy machine has had no idle
+  moment for a day, the admin is asked instead — see below.
+- **path ``installer``** — the release changes the bundled runtime
+  (Python, Git, uv, the Claude Code CLI, Chromium) or this install
+  cannot prove otherwise, so #244's flow stands: the ~700 MB installer
+  is staged in the background and the admin clicks "重启并更新".
+
+Which of the two applies is decided by a fingerprint, never by a
+version number: the installer embeds what it bundled as
+``{app}\\bundle.json``, the release publishes the same document, and
+equal fingerprints mean the new wheels are the whole update
+(``app/bundle.py``). macOS/Linux have no installer to fingerprint, so
+they always take the pip path.
 
 Support is install-shaped, not a wish: channel ``dev`` never; native
 Windows must run from the installer bundle (``unins000.exe`` beside the
 venv); macOS/Linux must be a uv tool (``uv-receipt.toml`` in
-``sys.prefix``) with ``uv`` on PATH. pip / docker / source checkouts
-are **not supported** — the popup keeps showing the copy-command /
-download-link instructions. The kill switch
-``VIBE_SELLER_AUTO_UPDATE`` (env_options) defaults to on, and to off
-under pytest/CI unless explicitly enabled, mirroring telemetry.
+``sys.prefix``) with ``uv`` on PATH. pip / docker / source checkouts are
+**not supported** — the popup keeps showing the copy-command /
+download-link instructions. The kill switch ``VIBE_SELLER_AUTO_UPDATE``
+(env_options) defaults to on, and to off under pytest/CI unless
+explicitly enabled, mirroring telemetry.
 
-Everything blocking (urllib, hashing, subprocess, uv) runs through one
-``asyncio.to_thread`` per operation — nothing here touches the event
-loop.
+Everything blocking (urllib, hashing, subprocess, uv, the file system)
+runs through one ``asyncio.to_thread`` per operation — nothing here
+touches the event loop.
 """
 
 from __future__ import annotations
@@ -47,18 +49,22 @@ import logging
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import threading
 import time
 
 import httpx
 
-from app import telemetry, upgrade_restart, windows_update
-from app.config import VIBE_SELLER_DIR
+from app import (
+    bundle,
+    pip_update,
+    update_events,
+    update_idle,
+    windows_update as wu,
+)
 from app.env_options import Options
 from app.release_channel import channel_of, is_newer
-from app.telemetry_events import TelemetryEvent, UpdateStage
+from app.telemetry_events import UpdateStage
 from app.update_check import fetch_latest_pypi_version, fetch_nightly_upgrade
 from app.version import get_version
 
@@ -69,9 +75,10 @@ logger = logging.getLogger(__name__)
 FIRST_CHECK_DELAY_SECONDS = 60
 CHECK_INTERVAL_SECONDS = 6 * 3600
 
-#: How long the Unix apply watcher waits for the detached
-#: ``vibe-seller upgrade`` to change the installed version.
-APPLY_TIMEOUT_SECONDS = 15 * 60
+#: How often an in-flight apply looks for the helper's record. The apply
+#: is the one moment the machine may be down, so this is fast; the
+#: update_idle interval (a minute) is the opposite trade.
+APPLY_WATCH_INTERVAL_SECONDS = 2.0
 
 IDLE = 'idle'
 DOWNLOADING = 'downloading'
@@ -83,13 +90,16 @@ _lock = threading.Lock()
 _state: dict = {
     'state': IDLE,
     'version': None,
+    'path': None,
     'downloaded_bytes': None,
     'total_bytes': None,
     'error': None,
+    'ready_since': None,
+    'last_update': None,
 }
 
-#: The detached upgrade child + its watcher (Unix apply path).
-_upgrade_proc: subprocess.Popen | None = None
+#: The detached apply child + its watcher (both paths).
+_apply_proc = None
 _apply_task: asyncio.Task | None = None
 
 
@@ -99,22 +109,48 @@ def _update(**kw: object) -> None:
 
 
 def snapshot() -> dict:
+    """The state as the UI sees it. No I/O — see ``_settle`` for what
+    that buys and ``load_last_update`` for how the record gets in."""
     with _lock:
-        return dict(_state)
+        st = dict(_state)
+    st['auto_apply'] = st['path'] == pip_update.PATH_PIP
+    st['popup_due'] = st['state'] == READY and update_idle.popup_due(
+        st['path'] or '', st['ready_since']
+    )
+    return st
 
 
 def reset_for_tests() -> None:
     """Back to a cold machine. Tests only."""
-    global _upgrade_proc
+    global _apply_proc, _apply_task
     with _lock:
         _state.update({
             'state': IDLE,
             'version': None,
+            'path': None,
             'downloaded_bytes': None,
             'total_bytes': None,
             'error': None,
+            'ready_since': None,
+            'last_update': None,
         })
-    _upgrade_proc = None
+    _apply_proc = None
+    _apply_task = None
+
+
+def load_last_update() -> dict | None:
+    """The outcome of the last applied update, from ``<VIBE_HOME>``.
+
+    Read at boot (off the loop) and kept in the state, so ``snapshot()``
+    stays I/O-free and a server that restarted onto a rolled-back update
+    reports it to whoever asks.
+    """
+    doc = pip_update.read_record()
+    if doc is None:
+        return None
+    _update(last_update=doc)
+    report_unreported_failure(doc)
+    return doc
 
 
 def enabled() -> bool:
@@ -170,39 +206,53 @@ def in_app_update() -> bool:
 # ── cycles ───────────────────────────────────────────────────────────
 
 
-def _send_downloaded(
-    outcome: str,
-    *,
-    stage: str | None = None,
-    to_version: str | None,
-    seconds: float,
-    resumed: bool = False,
-) -> None:
-    try:
-        telemetry.send(
-            TelemetryEvent.UPDATE_DOWNLOADED,
-            {
-                'outcome': outcome,
-                'stage': stage,
-                'platform': sys.platform,
-                'channel': channel_of(get_version()),
-                'to_version': to_version,
-                'duration_bucket': telemetry.duration_bucket(seconds),
-                'resumed': resumed,
-            },
-        )
-    except Exception:  # never break the update for an event
-        logger.debug('update_downloaded send failed', exc_info=True)
-
-
 def _settle(**kw: object) -> None:
-    """Update the state unless a restart is already in flight — the
-    apply path owns the machine once it set ``restarting``, and a
-    cycle that finished racing it must not flip the UI back. The apply
-    path itself writes RESTARTING/ERROR directly."""
+    """Update the state unless a restart is already in flight — the apply
+    path owns the machine once it set ``restarting``, and a cycle that
+    finished racing it must not flip the UI back. The apply path itself
+    writes RESTARTING/ERROR directly.
+
+    ``ready`` goes through :func:`_mark_ready` instead, so the 24 h clock
+    cannot be set without being recorded."""
     if snapshot()['state'] == RESTARTING:
         return
     _update(**kw)
+
+
+def _mark_ready(version: str, path: str) -> None:
+    """Arrive at ``ready`` and start (or keep) the clock on it.
+
+    A ready pip update needs no answer from anyone, so its popup stays
+    off until a day of never-being-idle makes the ask worthwhile; an
+    installer update is inert until clicked, so it asks right away
+    (``app/update_idle.popup_due``)."""
+    if snapshot()['state'] == RESTARTING:
+        return
+    record = update_idle.note_ready(version, path)
+    _update(
+        state=READY,
+        version=version,
+        path=path,
+        ready_since=record['since'],
+        error=None,
+        downloaded_bytes=None,
+        total_bytes=None,
+    )
+
+
+def _mark_idle() -> None:
+    if snapshot()['state'] == RESTARTING:
+        return
+    update_idle.clear_ready()
+    _update(
+        state=IDLE,
+        version=None,
+        path=None,
+        downloaded_bytes=None,
+        total_bytes=None,
+        error=None,
+        ready_since=None,
+    )
 
 
 def _mark_error(message: str) -> None:
@@ -212,45 +262,134 @@ def _mark_error(message: str) -> None:
 def _stage_installer_windows(offer: dict, started: float) -> None:
     """Download (resumed) → verify → ``ready``. Runs in a worker thread."""
     version = offer['version']
-    had_part = windows_update.staged_paths(version)[1].exists()
+    had_part = wu.staged_paths(version)[1].exists()
 
     def progress(done: int, total: int | None) -> None:
         _update(
             state=DOWNLOADING,
             version=version,
+            path=pip_update.PATH_INSTALLER,
             downloaded_bytes=done,
             total_bytes=total if total is not None else offer.get('size'),
         )
 
     try:
-        windows_update.stage_installer(offer, progress=progress)
+        wu.stage_installer(offer, progress=progress)
     except Exception as exc:
         stage = (
             UpdateStage.VERIFY
-            if isinstance(exc, windows_update.VerifyError)
+            if isinstance(exc, wu.VerifyError)
             else UpdateStage.DOWNLOAD
         )
-        _send_downloaded(
+        update_events.downloaded(
             'failed',
             stage=stage,
+            path=pip_update.PATH_INSTALLER,
             to_version=version,
             seconds=time.monotonic() - started,
             resumed=had_part,
         )
         _mark_error(str(exc))
         return
-    _send_downloaded(
+    update_events.downloaded(
         'ok',
+        path=pip_update.PATH_INSTALLER,
         to_version=version,
         seconds=time.monotonic() - started,
         resumed=had_part,
     )
-    _settle(
-        state=READY,
+    _mark_ready(version, pip_update.PATH_INSTALLER)
+
+
+#: What a pip attempt ended as: ready to apply, go and stage the
+#: installer instead, or stop for this cycle (PyPI does not have the
+#: version yet — the next cycle retries).
+PIP_READY = 'ready'
+PIP_TO_INSTALLER = 'installer'
+PIP_FAILED = 'failed'
+
+
+def _pip_ready_windows(version: str, started: float) -> str:
+    """Warm the cache and prove the offline apply.
+
+    Returns one of :data:`PIP_READY`, :data:`PIP_TO_INSTALLER` (fetchable
+    but not installable offline: the release moved dependency bytes the
+    bundle does not hold, which is the installer's job, not an error) or
+    :data:`PIP_FAILED` (the state already says ``error``; retry next
+    cycle)."""
+    _update(
+        state=DOWNLOADING,
         version=version,
-        error=None,
+        path=pip_update.PATH_PIP,
         downloaded_bytes=None,
         total_bytes=None,
+        error=None,
+    )
+    try:
+        pip_update.warm(version)
+    except Exception as exc:
+        update_events.downloaded(
+            'failed',
+            stage=UpdateStage.PREFETCH,
+            path=pip_update.PATH_PIP,
+            to_version=version,
+            seconds=time.monotonic() - started,
+        )
+        _mark_error(str(exc))
+        return PIP_FAILED
+    reason = pip_update.offline_apply_proven(version)
+    if reason:
+        logger.info('pip path unavailable for %s: %s', version, reason)
+        update_events.downloaded(
+            'installer',
+            path=pip_update.PATH_PIP,
+            to_version=version,
+            seconds=time.monotonic() - started,
+        )
+        return PIP_TO_INSTALLER
+    pip_update.pre_install_browser(version)
+    update_events.downloaded(
+        'ok',
+        path=pip_update.PATH_PIP,
+        to_version=version,
+        seconds=time.monotonic() - started,
+    )
+    _mark_ready(version, pip_update.PATH_PIP)
+    return PIP_READY
+
+
+def _installer_path_windows(offer: dict, started: float) -> None:
+    version = offer['version']
+    if wu.staged_installer(
+        version,
+        expected_sha=wu.offer_sha256(offer),
+        expected_size=offer.get('size'),
+    ):
+        _mark_ready(version, pip_update.PATH_INSTALLER)
+        return
+    _update(state=DOWNLOADING, version=offer['version'])
+    _stage_installer_windows(offer, started)
+
+
+def _update_path_windows(offer: dict) -> str:
+    """pip or installer, from the two bundle documents.
+
+    Anything unknown — no asset on the release, no ``bundle.json`` in
+    this install (0.3.1 and earlier), a release source that would not
+    answer — is the installer path. It is the one that is always
+    correct; the pip path is only allowed when both sides positively
+    agree."""
+    release = None
+    if offer.get('bundle'):
+        try:
+            release = wu.fetch_bundle(offer)
+        except Exception:  # noqa: BLE001 — unknown means installer
+            logger.debug('could not read the release bundle', exc_info=True)
+    installed = bundle.read_bundle(bundle.bundle_file())
+    return (
+        pip_update.PATH_PIP
+        if bundle.pip_path_applies(release, installed)
+        else pip_update.PATH_INSTALLER
     )
 
 
@@ -258,67 +397,31 @@ def _cycle_windows() -> None:
     """One Windows background cycle; runs inside a worker thread."""
     started = time.monotonic()
     current = get_version()
-    staged_ver: str | None = None
     try:
-        offer = windows_update.check_for_update()
+        offer = wu.check_for_update()
     except Exception as exc:
         # Network/JSON failure must not lose a stage we already have.
         logger.warning('update check failed: %s', exc)
         offer = None
     if offer:
-        staged_ver = (
-            offer['version']
-            if windows_update.staged_installer(
-                offer['version'],
-                expected_sha=windows_update.offer_sha256(offer),
-                expected_size=offer.get('size'),
-            )
-            else None
-        )
-    if offer and staged_ver == offer['version']:
-        _settle(
-            state=READY,
-            version=offer['version'],
-            error=None,
-            downloaded_bytes=None,
-            total_bytes=None,
-        )
-        return
-    if offer:
-        _update(state=DOWNLOADING, version=offer['version'])
-        _stage_installer_windows(offer, started)
+        path = _update_path_windows(offer)
+        if path == pip_update.PATH_PIP:
+            outcome = _pip_ready_windows(offer['version'], started)
+            if outcome != PIP_TO_INSTALLER:
+                # Ready, or an error to retry next cycle. Only a release
+                # the cache cannot install offline continues below.
+                return
+            _installer_path_windows(offer, started)
+            return
+        _installer_path_windows(offer, started)
         return
     # Nothing offered: a boot scan of a newer verified stage still wins
     # (offline boot, or the release source is down).
-    boot = _boot_staged_version(current)
+    boot = wu.newest_staged_version(current)
     if boot:
-        _settle(state=READY, version=boot, error=None)
+        _mark_ready(boot, pip_update.PATH_INSTALLER)
         return
-    _settle(
-        state=IDLE,
-        version=None,
-        downloaded_bytes=None,
-        total_bytes=None,
-        error=None,
-    )
-
-
-def _boot_staged_version(current: str) -> str | None:
-    """Newest verified staged installer newer than *current*, or None."""
-    root = windows_update.updates_root()
-    try:
-        names = [p.name for p in root.iterdir() if p.is_dir()]
-    except OSError:
-        return None
-    newest: str | None = None
-    for name in names:
-        if not is_newer(name, current):
-            continue
-        if newest is not None and not is_newer(name, newest):
-            continue
-        if windows_update.staged_installer(name) is not None:
-            newest = name
-    return newest
+    _mark_idle()
 
 
 async def _pypi_target(client: httpx.AsyncClient) -> str | None:
@@ -333,135 +436,51 @@ async def _pypi_target(client: httpx.AsyncClient) -> str | None:
     return latest
 
 
-def _prefetch_python() -> str:
-    """The interpreter for the prefetch's ephemeral env (the macOS/Linux
-    path — Windows stages via the installer and never gets here).
-
-    MUST NOT be this venv's own ``sys.executable``: ``uv tool run
-    --python <a tool venv's python>`` installs INTO that venv
-    (observed live — the tool moved to the target version, and
-    ``upgrade_restart.watch`` then restarted the server with no admin
-    click, which is exactly what this feature must never do). The
-    venv's BASE interpreter produces the same wheel tags (same
-    version/platform) so the cache still warms the real upgrade, and
-    it is not an install target.
-
-    Candidates, in order: ``sys._base_executable`` (what venvs record;
-    only when it lives outside this venv), then the usual names under
-    ``<base_prefix>/bin`` — Homebrew/Debian/python.org bases often ship
-    ``python3`` or ``python3.X`` and no bare ``python``. Finding none
-    fails CLOSED (no interpreter outside the venv → no prefetch →
-    ``error`` state); it never falls back to the dangerous one.
-    """
-    prefix = Path(sys.prefix).resolve()
-    candidates: list[str] = []
-    base_exe = getattr(sys, '_base_executable', '') or ''
-    if base_exe:
-        candidates.append(base_exe)
-    bin_dir = Path(sys.base_prefix) / 'bin'
-    ver = f'python{sys.version_info[0]}.{sys.version_info[1]}'
-    candidates += [str(bin_dir / n) for n in (ver, 'python3', 'python')]
-    for cand in candidates:
-        try:
-            resolved = Path(cand).resolve()
-        except OSError:
-            continue
-        if not resolved.exists():
-            continue
-        if resolved.is_relative_to(prefix):
-            # Inside the tool venv — exactly the interpreter that must
-            # never be handed to `uv tool run`.
-            continue
-        return str(resolved)
-    raise RuntimeError(
-        'no base interpreter found for the prefetch (refusing to '
-        'use the installed tool venv python)'
-    )
-
-
-def _prefetch_unix(version: str) -> None:
-    """Warm uv's wheel cache for *version* without touching the install.
-
-    ``uv tool run`` resolves + downloads the pinned version and its
-    dependencies into the shared cache and runs the fresh CLI's
-    ``--version`` in an ephemeral env. The pin mirrors ``app/cli.py``'s
-    nightly rule (an exact ``==`` of a pre-release is allowed without
-    enabling pre-releases globally). Proof that the cache is warm:
-    after this, ``UV_OFFLINE=1`` resolution of the same pin succeeds.
-    The installed tool is asserted unchanged afterwards — a prefetch
-    that moved it would let the restart watcher apply an update no
-    admin asked for."""
-    cmd = [
-        'uv',
-        'tool',
-        'run',
-        '--from',
-        f'vibe-seller=={version}',
-        '--python',
-        _prefetch_python(),
-        'vibe-seller',
-        '--version',
-    ]
-    result = subprocess.run(  # noqa: S603
-        cmd, capture_output=True, text=True, timeout=900
-    )
-    if result.returncode != 0:
-        tail = (result.stderr or result.stdout or '').strip()[-400:]
-        raise RuntimeError(f'uv prefetch failed ({result.returncode}): {tail}')
-    on_disk = upgrade_restart.installed_version()
-    if on_disk != get_version():
-        raise RuntimeError(
-            f'the prefetch moved the installed tool to {on_disk} — '
-            'refusing to continue (an update must never apply itself)'
-        )
-
-
 async def _cycle_unix() -> None:
     """One macOS/Linux background cycle (async; only the fetch is
-    off-loop via to_thread)."""
+    off-loop via to_thread).
+
+    Always the pip path: there is no bundled runtime to change, and
+    the target came from PyPI, so it exists there."""
     started = time.monotonic()
     async with httpx.AsyncClient() as client:
         target = await _pypi_target(client)
     if not target:
-        _settle(
-            state=IDLE,
-            version=None,
-            downloaded_bytes=None,
-            total_bytes=None,
-            error=None,
-        )
+        _mark_idle()
         return
-    if snapshot()['state'] == READY and snapshot()['version'] == target:
+    st = snapshot()
+    if st['state'] == READY and st['version'] == target:
         return  # already warm this process
-    # Progress is indeterminate on these platforms (no byte counts).
+    # Progress is indeterminate here (no byte counts).
     _update(
         state=DOWNLOADING,
         version=target,
+        path=pip_update.PATH_PIP,
         downloaded_bytes=None,
         total_bytes=None,
         error=None,
     )
     try:
-        await asyncio.to_thread(_prefetch_unix, target)
+        await asyncio.to_thread(pip_update.warm, target)
+        await asyncio.to_thread(pip_update.pre_install_browser, target)
+        await asyncio.to_thread(pip_update.keep_rollback_warm)
     except Exception as exc:
-        _send_downloaded(
+        update_events.downloaded(
             'failed',
             stage=UpdateStage.PREFETCH,
+            path=pip_update.PATH_PIP,
             to_version=target,
             seconds=time.monotonic() - started,
         )
         _mark_error(str(exc))
         return
-    _send_downloaded(
-        'ok', to_version=target, seconds=time.monotonic() - started
+    update_events.downloaded(
+        'ok',
+        path=pip_update.PATH_PIP,
+        to_version=target,
+        seconds=time.monotonic() - started,
     )
-    _settle(
-        state=READY,
-        version=target,
-        error=None,
-        downloaded_bytes=None,
-        total_bytes=None,
-    )
+    _mark_ready(target, pip_update.PATH_PIP)
 
 
 async def run_cycle() -> None:
@@ -477,6 +496,7 @@ async def run_cycle() -> None:
 async def watch() -> None:
     """The lifespan background loop: first check after ~60 s, then every
     6 h. Exits silently when the feature is off/unsupported."""
+    await asyncio.to_thread(load_last_update)
     if not in_app_update():
         return
     await asyncio.sleep(FIRST_CHECK_DELAY_SECONDS)
@@ -488,154 +508,228 @@ async def watch() -> None:
         await asyncio.sleep(CHECK_INTERVAL_SECONDS)
 
 
+async def idle_watch(task_queue, agents) -> None:
+    """Apply a ready pip update the first moment the server is idle.
+
+    One check per minute, because the cheap thing is to wait and the
+    expensive thing is to be wrong: an update that restarts the server
+    while a task is running kills it.
+
+    The invariant is held by ordering, not by luck. Dispatch is paused
+    BEFORE the live-agent count that authorises the restart is read, so
+    nothing can start in the gap between deciding and acting — and if an
+    agent turned out to be live anyway (it started a moment before the
+    pause), dispatch resumes and this goes around again. The installer
+    path is never auto-applied: it is #244's click-to-apply flow, and
+    only a click may run an installer.
+    """
+    if not in_app_update():
+        return
+    while True:
+        await asyncio.sleep(update_idle.IDLE_CHECK_INTERVAL_SECONDS)
+        try:
+            await idle_tick(task_queue, agents)
+        except Exception as exc:  # noqa: BLE001 — retry at the next tick
+            logger.error('auto-apply tick failed, will retry: %s', exc)
+
+
+async def idle_tick(task_queue, agents) -> str:
+    """One look at the machine: apply if it is free, otherwise say why not.
+
+    Returns what it decided, so the caller's loop and the tests ask the
+    same question of the same code: `'applied'`, `'busy: <reason>'`,
+    `'not ready'` (nothing pending, or the installer path, which only a
+    click may run) or `'refused'` (another apply already holds the
+    single-flight lock — nothing was touched, look again next tick).
+    """
+    st = snapshot()
+    if st['state'] != READY or st['path'] != pip_update.PATH_PIP:
+        return 'not ready'
+    verdict = await update_idle.evaluate(agents)
+    if not verdict.idle:
+        return f'busy: {verdict.reason}'
+    # The gate is the invariant, and it is held by ordering: dispatch is
+    # paused BEFORE the live-agent count that authorises the restart is
+    # read, so nothing can start in the gap between deciding and acting.
+    task_queue.pause_dispatch()
+    started = False
+    try:
+        if agents.live_agent_count():
+            return 'busy: an agent started during the check'
+        logger.warning(
+            'applying v%s automatically — the server is idle', st['version']
+        )
+        await apply_restart(
+            interrupted_tasks=0, trigger=pip_update.TRIGGER_AUTO_IDLE
+        )
+        started = True
+        return 'applied'
+    except pip_update.ApplyInProgress:
+        # Somebody else is applying. It left the state alone; so do we.
+        return 'refused'
+    except Exception as exc:  # noqa: BLE001 — the loop retries next tick
+        logger.error('auto-apply failed, will retry: %s', exc)
+        raise
+    finally:
+        # Dispatch resumes on every route EXCEPT the one where the update
+        # is actually on its way: resuming there would start queued work
+        # in the seconds before the server goes down.
+        if not started:
+            task_queue.resume_dispatch()
+
+
 # ── apply ────────────────────────────────────────────────────────────
 
 
-def _send_restart_requested(interrupted: int) -> None:
-    try:
-        bucket = (
-            '0' if interrupted == 0 else ('1' if interrupted == 1 else '2+')
-        )
-        telemetry.send(
-            TelemetryEvent.UPDATE_RESTART_REQUESTED,
-            {
-                'from_version': get_version(),
-                'to_version': snapshot()['version'],
-                'platform': sys.platform,
-                'interrupted_tasks': bucket,
-            },
-        )
-    except Exception:
-        logger.debug('update_restart_requested send failed', exc_info=True)
+def report_unreported_failure(doc: dict) -> None:
+    """Turn the record a previous boot left behind into one report.
+
+    The helper that writes a failure is not the process that shows it:
+    it may have restarted the machine onto the old version, or the new
+    one may have come up over a rolled-back attempt. So the record
+    carries ``reported``, and whoever boots first sends the event and
+    clears it. Nothing is reported for a successful update — that is
+    what the restart itself says."""
+    if doc.get('reported') or doc.get('status') == pip_update.STATUS_OK:
+        return
+    update_events.apply_failed(
+        str(doc.get('stage') or UpdateStage.APPLY),
+        RuntimeError(doc.get('error') or 'the update failed'),
+        str(doc.get('path') or pip_update.PATH_PIP),
+    )
+    pip_update.mark_record_reported()
 
 
-def _send_apply_failed(stage: str, exc: BaseException) -> None:
-    try:
-        telemetry.send(
-            TelemetryEvent.UPDATE_APPLY_FAILED,
-            {
-                'platform': sys.platform,
-                'stage': stage,
-                'error_class': type(exc).__name__,
-            },
-        )
-    except Exception:
-        logger.debug('update_apply_failed send failed', exc_info=True)
-
-
-def _apply_windows(version: str) -> None:
+def _apply_windows_installer(version: str) -> None:
     # Full re-verification before launching an installer that stops the
     # server: a ready stage whose bytes went bad since (disk corruption,
     # a tampered file) must fail CLOSED here, not mid-install.
-    staged = windows_update.staged_installer(version)
+    staged = wu.staged_installer(version)
     if staged is None:
         raise RuntimeError('the staged installer is missing')
-    windows_update.run_installer(staged, mode='silent')
+    wu.run_installer(staged, mode='silent')
 
 
-def _unix_upgrade_argv() -> list[str]:
-    """How to run the REAL ``vibe-seller upgrade`` from this install —
-    one source of truth for what an upgrade does (package + Chromium +
-    Claude Code CLI, app/cli.py)."""
-    script = Path(sys.executable).parent / 'vibe-seller'
-    if script.exists():
-        return [str(script), 'upgrade']
-    return [sys.executable, '-I', '-m', 'app.cli', 'upgrade']
+def _read_record_and_mtime() -> tuple[dict | None, float]:
+    """One thread hop for both halves of "did the helper say anything?"."""
+    return pip_update.read_record(), pip_update.record_mtime()
 
 
-def _spawn_unix_upgrade() -> subprocess.Popen:
-    log_dir = VIBE_SELLER_DIR / 'updates'
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log = open(log_dir / 'upgrade.log', 'wb')  # noqa: SIM115 — the child inherits it; our copy closes below
-    try:
-        return subprocess.Popen(  # noqa: S603
-            _unix_upgrade_argv(),
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            cwd=str(log_dir),
-        )
-    finally:
-        log.close()
+async def _watch_apply(since: float) -> None:
+    """Watch an apply this process cannot see finish.
 
-
-def _upgrade_log_tail(limit: int = 400) -> str:
-    try:
-        text = (VIBE_SELLER_DIR / 'updates' / 'upgrade.log').read_text(
-            encoding='utf-8', errors='replace'
-        )
-    except OSError:
-        return ''
-    return text.strip()[-limit:]
-
-
-async def _watch_unix_upgrade(target: str) -> None:
-    """Wait for the detached upgrade to land, then restart right away.
-
-    The admin confirmed the interruption — no drain, no waiting for
-    tasks. If the upgrade fails, the OLD version keeps serving and the
-    state goes ``error``."""
-    global _upgrade_proc
-    loaded = get_version()
-    deadline = time.monotonic() + APPLY_TIMEOUT_SECONDS
-    proc = _upgrade_proc
+    On the way to success the helper stops this server, so a still-live
+    process with a NEW record means it gave up before stopping us, or
+    rolled back and restarted the old version. Without this the UI would
+    sit on "restarting" until its own timeout, on a machine that never
+    moved."""
+    global _apply_proc
+    deadline = time.monotonic() + pip_update.APPLY_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        on_disk = await asyncio.to_thread(upgrade_restart.installed_version)
-        if on_disk and on_disk != loaded:
-            logger.warning(
-                'auto-update applied %s — restarting the server now', on_disk
+        await asyncio.sleep(APPLY_WATCH_INTERVAL_SECONDS)
+        doc, mtime = await asyncio.to_thread(_read_record_and_mtime)
+        if doc is not None and mtime > since:
+            if doc.get('status') == 'ok':
+                return  # this process is about to be gone
+            error = str(doc.get('error') or 'the update failed')
+            if doc.get('status') == pip_update.ROLLED_BACK:
+                error = f'{error} — reverted to v{doc.get("from")}'
+            update_events.apply_failed(
+                str(doc.get('stage') or UpdateStage.APPLY),
+                RuntimeError(error),
+                str(doc.get('path') or pip_update.PATH_PIP),
             )
-            upgrade_restart.request_restart(on_disk)
+            _update(
+                state=ERROR,
+                error=error,
+                version=doc.get('to'),
+                path=doc.get('path'),
+                last_update=doc,
+            )
             return
+        proc = _apply_proc
         if proc is not None and proc.poll() is not None:
-            rc = proc.returncode
-            on_disk = await asyncio.to_thread(upgrade_restart.installed_version)
-            if on_disk and on_disk != loaded:
-                upgrade_restart.request_restart(on_disk)
-                return
             exc = RuntimeError(
-                f'vibe-seller upgrade exited {rc}: {_upgrade_log_tail()}'
+                f'the update helper exited {proc.returncode} without reporting'
             )
-            _send_apply_failed('apply', exc)
+            update_events.apply_failed(
+                UpdateStage.APPLY, exc, pip_update.PATH_PIP
+            )
             _update(state=ERROR, error=str(exc))
             return
-        await asyncio.sleep(2)
-    exc = RuntimeError('the upgrade did not finish in time')
-    _send_apply_failed('watch', exc)
+    exc = RuntimeError('the update did not finish in time')
+    update_events.apply_failed(UpdateStage.WATCH, exc, pip_update.PATH_PIP)
     _update(state=ERROR, error=str(exc))
 
 
-async def apply_restart(interrupted_tasks: int) -> dict:
+async def apply_restart(
+    interrupted_tasks: int,
+    trigger: str = pip_update.TRIGGER_MANUAL,
+) -> dict:
     """Restart onto the ready update. Caller checked 409/403 already.
 
-    Windows: launch the staged installer detached — its
-    ``PrepareToInstall`` stops the server/tray/browsers and its silent
-    finish relaunches the tray. The server must NOT stop itself first.
-    macOS/Linux: run the real upgrade from the warm cache, then
-    ``upgrade_restart.request_restart()`` the moment the new version is
-    installed on disk.
+    Two ways out, and both leave the machine serving:
+
+    - **Windows, installer path**: launch the staged installer detached.
+      Its ``PrepareToInstall`` stops the server/tray/browsers and its
+      silent finish relaunches the tray. The server must NOT stop itself
+      first — that is #244, unchanged.
+    - **every pip apply** (Windows and macOS/Linux): hand the machine to
+      the detached helper, which installs, restarts, health-checks and —
+      if the new version will not come up — puts the old one back
+      (``app/pip_apply_helper.py``). This process is expected to be
+      stopped by it.
+
+    The idle caller owns the dispatch pause it took before calling, and
+    releases it if this raises; this function never touches the queue.
     """
-    global _upgrade_proc, _apply_task
-    _send_restart_requested(interrupted_tasks)
+    global _apply_proc, _apply_task
     st = snapshot()
     version = st['version']
+    path = st['path'] or pip_update.PATH_INSTALLER
+    update_events.restart_requested(
+        trigger=trigger,
+        interrupted_tasks=interrupted_tasks,
+        from_version=get_version(),
+        to_version=version,
+        path=path,
+    )
     if not version:
         raise RuntimeError('no update is staged')
     _update(state=RESTARTING, error=None)
     try:
-        if sys.platform == 'win32':
-            await asyncio.to_thread(_apply_windows, version)
+        if path == pip_update.PATH_INSTALLER:
+            await asyncio.to_thread(_apply_windows_installer, version)
         else:
-            _upgrade_proc = await asyncio.to_thread(_spawn_unix_upgrade)
-            _apply_task = asyncio.create_task(_watch_unix_upgrade(version))
+            _apply_proc = await asyncio.to_thread(
+                pip_update.apply, version, trigger, path
+            )
+            _apply_task = asyncio.create_task(
+                _watch_apply(await asyncio.to_thread(pip_update.record_mtime))
+            )
+    except pip_update.ApplyInProgress as exc:
+        # Somebody else already owns this machine's update. Nothing was
+        # touched, so the state goes back to waiting rather than to
+        # `error`, and the caller answers 409.
+        logger.info('apply refused: %s', exc)
+        _update(state=READY, error=None)
+        raise
     except Exception as exc:
         stage = (
             UpdateStage.INSTALLER
-            if sys.platform == 'win32'
+            if path == pip_update.PATH_INSTALLER
             else UpdateStage.APPLY
         )
-        _send_apply_failed(stage, exc)
+        update_events.apply_failed(stage, exc, path)
         _update(state=ERROR, error=str(exc))
         raise
-    return {'state': RESTARTING, 'version': version}
+    return {'state': RESTARTING, 'version': version, 'path': path}
+
+
+def manual_trigger() -> str:
+    """How to label a click. After a day of never being idle, a pip
+    update's popup is what asked for this, and that is worth knowing."""
+    st = snapshot()
+    if st['path'] == pip_update.PATH_PIP and st['popup_due']:
+        return pip_update.TRIGGER_MANUAL_AFTER_24H
+    return pip_update.TRIGGER_MANUAL

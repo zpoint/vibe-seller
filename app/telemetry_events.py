@@ -101,8 +101,26 @@ class UpdateStage:
     VERIFY = 'verify'
     PREFETCH = 'prefetch'
     INSTALLER = 'installer'
+    OFFLINE_CHECK = 'offline_check'
     APPLY = 'apply'
     WATCH = 'watch'
+
+
+class UpdatePath:
+    """Which update mechanism did the work — the bounded dimension the
+    rollout of the pip path is measured on."""
+
+    PIP = 'pip'
+    INSTALLER = 'installer'
+
+
+class UpdateTrigger:
+    """Who decided to apply: the idle watcher, a click, or a click the
+    24 h timeout asked for."""
+
+    AUTO_IDLE = 'auto_idle'
+    MANUAL = 'manual'
+    MANUAL_AFTER_24H = 'manual_after_24h'
 
 
 class GateOutcome:

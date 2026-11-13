@@ -63,32 +63,35 @@ class TestRestartGate:
         assert r.status_code == 409
 
     async def test_admin_ok_when_ready(self, admin_client, monkeypatch):
-        # The unix apply path spawns `vibe-seller upgrade` — replace
-        # only the spawn, keep the endpoint + state machine for real.
+        # The pip apply spawns the detached helper (app/pip_update.py);
+        # replace only the spawn, keep the endpoint and the state machine
+        # for real.
         calls: list = []
 
         class _Proc:
-            returncode = None
-
             def poll(self):
                 return None
 
-        def fake_spawn():
-            calls.append(1)
+        monkeypatch.setattr(au.sys, 'platform', 'linux')
+
+        def fake_spawn(*args):
+            calls.append(args)
             return _Proc()
 
-        monkeypatch.setattr(au, '_spawn_unix_upgrade', fake_spawn)
-        monkeypatch.setattr(
-            au.upgrade_restart,
-            'installed_version',
-            lambda: au.get_version(),
-        )
-        au._update(state=au.READY, version='9.9.9')
+        monkeypatch.setattr(au.pip_update, 'apply', fake_spawn)
+        monkeypatch.setattr(au.pip_update, 'read_record', lambda: None)
+        monkeypatch.setattr(au.pip_update, 'record_mtime', lambda: 0.0)
+        monkeypatch.setattr(au.pip_update, 'APPLY_TIMEOUT_SECONDS', 0.05)
+        au._update(state=au.READY, version='9.9.9', path='pip')
         r = await admin_client.post('/api/system/update/restart')
         assert r.status_code == 200
         assert r.json()['state'] == 'restarting'
         assert r.json()['version'] == '9.9.9'
-        assert calls == [1]
+        # What the UI is told, and what the apply event will carry: an
+        # idle-applied small update is a different thing from an
+        # installer run, and the two must stay tellable apart afterwards.
+        assert r.json()['path'] == 'pip'
+        assert len(calls) == 1
         assert au.snapshot()['state'] == au.RESTARTING
         # The watcher would poll until its timeout — stop it.
         if au._apply_task is not None:

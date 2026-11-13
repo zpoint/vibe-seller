@@ -482,6 +482,22 @@ UPDATE_STATUS_KEYS = {
     'error',
     'running_tasks',
     'platform',
+    # Which mechanism `ready` refers to, whether it applies itself, and
+    # whether it may ask; plus what the last apply did. The modal reads
+    # all four — see app/auto_update.snapshot().
+    'path',
+    'auto_apply',
+    'popup_due',
+    'ready_since',
+    'last_update',
+}
+
+RELEASE_NOTES_KEYS = {
+    'since',
+    'until',
+    'releases',
+    'highlights',
+    'notes',
 }
 
 
@@ -512,6 +528,52 @@ class TestVersionContracts:
         r = await admin_client.get('/api/system/update-status')
         assert r.status_code == 200
         assert set(r.json().keys()) == UPDATE_STATUS_KEYS
+        body = r.json()
+        # A test server neither downloads nor applies, so the shape must
+        # still answer the two questions the modal asks: what would
+        # apply, and may it ask yet. Absent answers here would make the
+        # frontend branch on `undefined`.
+        assert body['path'] in ('pip', 'installer', None)
+        assert body['auto_apply'] is False
+        assert body['popup_due'] is False
+        assert body['ready_since'] is None
+        assert body['last_update'] is None
+
+    async def test_release_notes_shape(self, admin_client, monkeypatch):
+        """`已更新到 v{x}` asks for the range it just crossed."""
+        from unittest.mock import AsyncMock  # noqa: PLC0415 — test-local
+
+        import app.routers.system as sr  # noqa: PLC0415
+
+        monkeypatch.setattr(
+            sr,
+            'fetch_release_notes',
+            AsyncMock(
+                return_value=[
+                    {
+                        'version': '0.7.0',
+                        'name': 'v0.7.0',
+                        'body': '## Highlights\n\n- new thing\n',
+                        'url': 'https://x',
+                        'published_at': None,
+                    }
+                ]
+            ),
+        )
+        r = await admin_client.get(
+            '/api/system/release-notes', params={'since': '0.6.0'}
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert set(body.keys()) == RELEASE_NOTES_KEYS
+        assert body['since'] == '0.6.0'
+        assert body['until'] == body['until']  # defaults to the running version
+        assert body['releases'] == ['0.7.0']
+        assert body['highlights'][0]['version'] == '0.7.0'
+
+    async def test_release_notes_needs_a_start(self, admin_client):
+        r = await admin_client.get('/api/system/release-notes')
+        assert r.status_code == 422
 
 
 class TestUpdateCheckContract:
