@@ -26,8 +26,8 @@
 
 🔥 *News* 🔥
 
-- [Nov 2026] **MCP setup**: drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder: [**details**](docs/mcp.en.md)
-- [Nov 2026] **Amazon ads over the Ads API**: the same ad-optimization task went from 147 minutes to 11, with less need to step in: [**details**](docs/ads-api.en.md)
+- [Nov 2026] **MCP setup**: drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder: [**details**](https://docs.vibe-sellers.com/en/mcp/)
+- [Nov 2026] **Amazon ads over the Ads API**: the same ad-optimization task went from 147 minutes to 11, with less need to step in: [**details**](https://docs.vibe-sellers.com/en/ads-api/)
 
 ---
 
@@ -125,12 +125,27 @@ browse to `http://<your-host-ip>:7777` — nothing to install.
 > **⚠️ Before using Ziniao**
 >
 > The Ziniao main (BOSS) account must first enable developer mode on the [Ziniao Open Platform](https://open.ziniao.com/docSupport?docId=99) and tick "WebDriver login" for the sub-account, or Ziniao rejects the login when you bind a store.
-> The setup steps, and fixes for the two common errors ("无权限通过 webdriver 登录" and "检测到您在新终端登录"), are on [Ziniao: Setup & Common Errors](docs/ziniao.en.md).
+> The setup steps, and fixes for the two common errors ("无权限通过 webdriver 登录" and "检测到您在新终端登录"), are on [Ziniao: Setup & Common Errors](https://docs.vibe-sellers.com/en/ziniao/).
 
 Everything else — WSL2, installing from source, upgrade and
 uninstall, running it as an always-on service — is on the
-[Installation](docs/install.en.md) page. First time using it? Follow the
-[Quickstart](docs/quickstart.en.md).
+[Installation](https://docs.vibe-sellers.com/en/install/) page. First time using it? Follow the
+[Quickstart](https://docs.vibe-sellers.com/en/quickstart/).
+
+## Quickstart
+
+Once it's installed, these four steps get your first task running; the
+illustrated walkthrough is the [Quickstart](https://docs.vibe-sellers.com/en/quickstart/):
+
+1. **Open the web app** at <http://localhost:7777> — no login by default;
+2. **Configure an AI model**: in **Settings → AI**, click **Create Profile**,
+   pick a provider and paste its API key (how to get one:
+   [Configure AI Models](https://docs.vibe-sellers.com/en/llm-keys/));
+3. **Bind a store**: click **+ New Store**, choose the Ziniao or Chrome browser
+   backend and sign in to Seller Central once in the browser that opens (see
+   [Stores and browsers](https://docs.vibe-sellers.com/en/stores/));
+4. **Create your first task**: select the store, click **+ New Task** and say
+   what you want in one sentence, e.g. “Export the last 7 days' sales report”.
 
 ## What you can do with it
 
@@ -157,24 +172,39 @@ A few cross-border scenarios it's commonly used for:
 A single ad-tuning run is ≈ 3–5 minutes and costs about 0.15 USD in LLM tokens
 (DeepSeek, 10 or fewer campaigns; more campaigns cost more).
 
+## Docs
+
+| | |
+|---|---|
+| **Getting started** | [Installation](https://docs.vibe-sellers.com/en/install/) · [Quickstart](https://docs.vibe-sellers.com/en/quickstart/) · [Configure AI Models](https://docs.vibe-sellers.com/en/llm-keys/) · [Core Concepts](https://docs.vibe-sellers.com/en/concepts/) |
+| **Integrations** | [Overview](https://docs.vibe-sellers.com/en/integrations/) · [MCP setup](https://docs.vibe-sellers.com/en/mcp/) · [Amazon Ads API](https://docs.vibe-sellers.com/en/ads-api/) · [Email](https://docs.vibe-sellers.com/en/email/) · [Chat bots](https://docs.vibe-sellers.com/en/chat-bots/) · [TickTick / Dida365](https://docs.vibe-sellers.com/en/ticktick/) · [Google Workspace](https://docs.vibe-sellers.com/en/google-workspace/) |
+| **Examples** | [All Examples](https://docs.vibe-sellers.com/en/examples/) · [Daily email digest to WeCom](https://docs.vibe-sellers.com/en/example-email-wecom/) · [Weekly ad ACOS review](https://docs.vibe-sellers.com/en/example-ads-acos/) · [Weekly listing check](https://docs.vibe-sellers.com/en/example-listing-check/) · [Daily sales report](https://docs.vibe-sellers.com/en/example-daily-report/) · [Finances from Codex](https://docs.vibe-sellers.com/en/example-mcp/) |
+| **User guide** | [Stores & Browsers](https://docs.vibe-sellers.com/en/stores/) · [Tasks](https://docs.vibe-sellers.com/en/using-tasks/) · [Schedules](https://docs.vibe-sellers.com/en/schedules/) · [Knowledge & Skills](https://docs.vibe-sellers.com/en/knowledge/) |
+| **FAQ** | [Ziniao: Setup & Common Errors](https://docs.vibe-sellers.com/en/ziniao/) · [Cost & Model Choice](https://docs.vibe-sellers.com/en/faq-cost/) · [Login & Accounts](https://docs.vibe-sellers.com/en/faq-login/) · [Deployment & Data](https://docs.vibe-sellers.com/en/faq-data/) · [All Questions](https://docs.vibe-sellers.com/en/faq/) |
+| **Developer (English)** | [Developer Guide](https://docs.vibe-sellers.com/en/dev-guide/) · [Task Internals](https://docs.vibe-sellers.com/en/tasks/) · [Browser Internals](https://docs.vibe-sellers.com/en/browser/) · [Subsystems](https://docs.vibe-sellers.com/en/subsystems/) · [External Agents (MCP API)](https://docs.vibe-sellers.com/en/agents/) · [Windows + WSL2 service](https://docs.vibe-sellers.com/en/windows-setup/) · [macOS service](https://docs.vibe-sellers.com/en/macos-setup/) |
+
+Architecture lives in [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md);
+deeper subsystem notes are in the [`docs/`
+tree](https://github.com/zpoint/vibe-seller/tree/main/docs).
+
 ## Integrations
 
 Beyond the browser, the agent can call these external services
 directly — everything is hooked up under **Settings → Integrations**,
 no code:
 
-- **MCP** — drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder, Hermes Agent, Pi: create tasks, follow them, answer questions, review plans. [Setup guide](docs/mcp.en.md)
-- **Amazon Ads API** — Amazon ad tasks call the API instead of clicking through the seller console; in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](docs/ads-api.en.md)
-- **Email** (IMAP/SMTP) — read your linked store mailboxes, sort and summarize, draft and send replies (sending can be turned off per mailbox). Works with 163 / QQ / Gmail and more. [Setup guide](docs/email.en.md)
-- **Group chat bots** (WeCom / DingTalk / Feishu / Slack) — have the AI post results, reports and reminders straight into a group; WeCom bots can send files too. [Setup guide](docs/chat-bots.en.md)
-- **TickTick / Dida365** — auto-create todos (follow-ups, order tracking, periodic checks). [Setup guide](docs/ticktick.en.md)
-- **Google Workspace** — Gmail, Drive, Docs, Sheets, Slides, Calendar — read, write, edit. [Setup guide](docs/google-workspace.en.md)
+- **MCP** — drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder, Hermes Agent, Pi: create tasks, follow them, answer questions, review plans. [Setup guide](https://docs.vibe-sellers.com/en/mcp/)
+- **Amazon Ads API** — Amazon ad tasks call the API instead of clicking through the seller console; in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](https://docs.vibe-sellers.com/en/ads-api/)
+- **Email** (IMAP/SMTP) — read your linked store mailboxes, sort and summarize, draft and send replies (sending can be turned off per mailbox). Works with 163 / QQ / Gmail and more. [Setup guide](https://docs.vibe-sellers.com/en/email/)
+- **Group chat bots** (WeCom / DingTalk / Feishu / Slack) — have the AI post results, reports and reminders straight into a group; WeCom bots can send files too. [Setup guide](https://docs.vibe-sellers.com/en/chat-bots/)
+- **TickTick / Dida365** — auto-create todos (follow-ups, order tracking, periodic checks). [Setup guide](https://docs.vibe-sellers.com/en/ticktick/)
+- **Google Workspace** — Gmail, Drive, Docs, Sheets, Slides, Calendar — read, write, edit. [Setup guide](https://docs.vibe-sellers.com/en/google-workspace/)
 
 A single task can mix browser + service calls. e.g. *“Find all
 slow-moving SKUs across stores”* → browser pulls inventory →
 generates a Google Sheet → posts a chat summary → drops a "price
 review next week" todo into TickTick. Start at the
-[Integrations overview](docs/integrations.en.md).
+[Integrations overview](https://docs.vibe-sellers.com/en/integrations/).
 
 ## Platforms
 
@@ -213,21 +243,6 @@ on a new platform stabilize.
 Once you've ironed something out, please consider upstreaming it as
 a proper Skill — see *Contributing* below.
 
-## Docs
-
-| | |
-|---|---|
-| **Getting started** | [Installation](docs/install.en.md) · [Quickstart](docs/quickstart.en.md) · [Configure AI Models](docs/llm-keys.en.md) · [Core Concepts](docs/concepts.en.md) |
-| **Integrations** | [Overview](docs/integrations.en.md) · [MCP setup](docs/mcp.en.md) · [Amazon Ads API](docs/ads-api.en.md) · [Email](docs/email.en.md) · [Chat bots](docs/chat-bots.en.md) · [TickTick / Dida365](docs/ticktick.en.md) · [Google Workspace](docs/google-workspace.en.md) |
-| **Examples** | [All Examples](docs/examples.en.md) · [Daily email digest to WeCom](docs/example-email-wecom.en.md) · [Weekly ad ACOS review](docs/example-ads-acos.en.md) · [Weekly listing check](docs/example-listing-check.en.md) · [Daily sales report](docs/example-daily-report.en.md) · [Finances from Codex](docs/example-mcp.en.md) |
-| **User guide** | [Stores & Browsers](docs/stores.en.md) · [Tasks](docs/using-tasks.en.md) · [Schedules](docs/schedules.en.md) · [Knowledge & Skills](docs/knowledge.en.md) |
-| **FAQ** | [Ziniao: Setup & Common Errors](docs/ziniao.en.md) · [Cost & Model Choice](docs/faq-cost.en.md) · [Login & Accounts](docs/faq-login.en.md) · [Deployment & Data](docs/faq-data.en.md) · [All Questions](docs/faq.en.md) |
-| **Developer (English)** | [Developer Guide](docs/dev-guide.md) · [Task Internals](docs/tasks.md) · [Browser Internals](docs/browser.md) · [Subsystems](docs/subsystems.md) · [External Agents (MCP API)](docs/agents.md) · [Windows + WSL2 service](docs/windows-setup.md) · [macOS service](docs/macos-setup.md) |
-
-Architecture lives in [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md);
-deeper subsystem notes are in the [`docs/`
-tree](https://github.com/zpoint/vibe-seller/tree/main/docs).
-
 ## Contributing
 
 PRs welcome — whether you write the code yourself or let Claude
@@ -247,4 +262,4 @@ written for AI agents and reads cleanly as a contributor guide.
 
 <img alt="Vibe Seller WeChat user group" src="docs/images/wecom_group_qr.png" width="200" />
 
-Found a problem or have an idea? See [Community & Feedback](docs/community.en.md).
+Found a problem or have an idea? See [Community & Feedback](https://docs.vibe-sellers.com/en/community/).

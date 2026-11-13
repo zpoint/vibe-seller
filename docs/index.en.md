@@ -136,6 +136,21 @@ uninstall, running it as an always-on service — is on the
 [Installation](install.en.md) page. First time using it? Follow the
 [Quickstart](quickstart.en.md).
 
+## Quickstart
+
+Once it's installed, these four steps get your first task running; the
+illustrated walkthrough is the [Quickstart](quickstart.en.md):
+
+1. **Open the web app** at <http://localhost:7777> — no login by default;
+2. **Configure an AI model**: in **Settings → AI**, click **Create Profile**,
+   pick a provider and paste its API key (how to get one:
+   [Configure AI Models](llm-keys.en.md));
+3. **Bind a store**: click **+ New Store**, choose the Ziniao or Chrome browser
+   backend and sign in to Seller Central once in the browser that opens (see
+   [Stores and browsers](stores.en.md));
+4. **Create your first task**: select the store, click **+ New Task** and say
+   what you want in one sentence, e.g. “Export the last 7 days' sales report”.
+
 ## What you can do with it
 
 Vibe Seller is an **AI agent framework** — the browser is one of
@@ -160,6 +175,21 @@ A few cross-border scenarios it's commonly used for:
 
 A single ad-tuning run is ≈ 3–5 minutes and costs about 0.15 USD in LLM tokens
 (DeepSeek, 10 or fewer campaigns; more campaigns cost more).
+
+## Docs
+
+| | |
+|---|---|
+| **Getting started** | [Installation](install.en.md) · [Quickstart](quickstart.en.md) · [Configure AI Models](llm-keys.en.md) · [Core Concepts](concepts.en.md) |
+| **Integrations** | [Overview](integrations.en.md) · [MCP setup](mcp.en.md) · [Amazon Ads API](ads-api.en.md) · [Email](email.en.md) · [Chat bots](chat-bots.en.md) · [TickTick / Dida365](ticktick.en.md) · [Google Workspace](google-workspace.en.md) |
+| **Examples** | [All Examples](examples.en.md) · [Daily email digest to WeCom](example-email-wecom.en.md) · [Weekly ad ACOS review](example-ads-acos.en.md) · [Weekly listing check](example-listing-check.en.md) · [Daily sales report](example-daily-report.en.md) · [Finances from Codex](example-mcp.en.md) |
+| **User guide** | [Stores & Browsers](stores.en.md) · [Tasks](using-tasks.en.md) · [Schedules](schedules.en.md) · [Knowledge & Skills](knowledge.en.md) |
+| **FAQ** | [Ziniao: Setup & Common Errors](ziniao.en.md) · [Cost & Model Choice](faq-cost.en.md) · [Login & Accounts](faq-login.en.md) · [Deployment & Data](faq-data.en.md) · [All Questions](faq.en.md) |
+| **Developer (English)** | [Developer Guide](dev-guide.md) · [Task Internals](tasks.md) · [Browser Internals](browser.md) · [Subsystems](subsystems.md) · [External Agents (MCP API)](agents.md) · [Windows + WSL2 service](windows-setup.md) · [macOS service](macos-setup.md) |
+
+Architecture lives in [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md);
+deeper subsystem notes are in the [`docs/`
+tree](https://github.com/zpoint/vibe-seller/tree/main/docs).
 
 ## Integrations
 
@@ -216,21 +246,6 @@ on a new platform stabilize.
 
 Once you've ironed something out, please consider upstreaming it as
 a proper Skill — see *Contributing* below.
-
-## Docs
-
-| | |
-|---|---|
-| **Getting started** | [Installation](install.en.md) · [Quickstart](quickstart.en.md) · [Configure AI Models](llm-keys.en.md) · [Core Concepts](concepts.en.md) |
-| **Integrations** | [Overview](integrations.en.md) · [MCP setup](mcp.en.md) · [Amazon Ads API](ads-api.en.md) · [Email](email.en.md) · [Chat bots](chat-bots.en.md) · [TickTick / Dida365](ticktick.en.md) · [Google Workspace](google-workspace.en.md) |
-| **Examples** | [All Examples](examples.en.md) · [Daily email digest to WeCom](example-email-wecom.en.md) · [Weekly ad ACOS review](example-ads-acos.en.md) · [Weekly listing check](example-listing-check.en.md) · [Daily sales report](example-daily-report.en.md) · [Finances from Codex](example-mcp.en.md) |
-| **User guide** | [Stores & Browsers](stores.en.md) · [Tasks](using-tasks.en.md) · [Schedules](schedules.en.md) · [Knowledge & Skills](knowledge.en.md) |
-| **FAQ** | [Ziniao: Setup & Common Errors](ziniao.en.md) · [Cost & Model Choice](faq-cost.en.md) · [Login & Accounts](faq-login.en.md) · [Deployment & Data](faq-data.en.md) · [All Questions](faq.en.md) |
-| **Developer (English)** | [Developer Guide](dev-guide.md) · [Task Internals](tasks.md) · [Browser Internals](browser.md) · [Subsystems](subsystems.md) · [External Agents (MCP API)](agents.md) · [Windows + WSL2 service](windows-setup.md) · [macOS service](macos-setup.md) |
-
-Architecture lives in [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md);
-deeper subsystem notes are in the [`docs/`
-tree](https://github.com/zpoint/vibe-seller/tree/main/docs).
 
 ## Contributing
 

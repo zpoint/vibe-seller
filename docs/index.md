@@ -99,6 +99,15 @@ vibe-seller start
 
 完整说明（WSL2、源码安装、升级卸载、常驻服务）见 [安装](install.md)；第一次使用请看 [快速开始](quickstart.md)。
 
+## 快速开始
+
+装好之后，按这四步跑通第一个任务，图文步骤见[快速开始](quickstart.md)：
+
+1. **打开网页**：浏览器访问 <http://localhost:7777>，默认不需要登录；
+2. **配置 AI 模型**：进入「设置 → AI」，点击「创建配置文件」，选择供应商并粘贴 API 密钥（各家怎么获取见[配置 AI 模型](llm-keys.md)）；
+3. **绑定店铺**：点击「+ 新建店铺」，选择浏览器后端「紫鸟」或「Chrome」，在打开的浏览器里登录一次卖家后台（见[店铺与浏览器](stores.md)）；
+4. **创建第一个任务**：选中店铺，点击「+ 新建任务」，用一句话写清要做的事，比如“导出过去 7 天的销售报表”。
+
 ## 能干什么
 
 Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一。AI 能浏览页面、读你的邮件、发企业微信、写滴答清单、改 Google 文档——只要一件事符合「看了 → 判断 → 操作」，能用浏览器就走浏览器，有接口就直接调用接口。
@@ -118,6 +127,19 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 | **你想到的** | 写一个 Skill（markdown 步骤说明），或带着 AI 完整做一遍——它会自己记笔记，下次按你的习惯来。|
 
 一次广告调优通常 3–5 分钟完成，模型费用约 1 元人民币（DeepSeek，10 组广告以内；广告组数越多费用越高）。
+
+## 文档导航
+
+| | |
+|---|---|
+| **入门** | [安装](install.md) · [快速开始](quickstart.md) · [配置 AI 模型](llm-keys.md) · [核心概念](concepts.md) |
+| **集成** | [集成总览](integrations.md) · [MCP 接入](mcp.md) · [广告 API 绑定](ads-api.md) · [邮件](email.md) · [群机器人](chat-bots.md) · [滴答清单 / TickTick](ticktick.md) · [Google Workspace](google-workspace.md) |
+| **使用示例** | [全部示例](examples.md) · [每天把重要邮件发到企业微信](example-email-wecom.md) · [每周检查广告 ACOS](example-ads-acos.md) · [每周巡检 Listing](example-listing-check.md) · [每天导出销售报表](example-daily-report.md) · [用 Codex 分析财务数据](example-mcp.md) |
+| **使用指南** | [店铺与浏览器](stores.md) · [任务](using-tasks.md) · [定时任务](schedules.md) · [知识库与 Skill](knowledge.md) |
+| **常见问题** | [紫鸟：开通与常见报错](ziniao.md) · [费用与模型选择](faq-cost.md) · [登录与账号](faq-login.md) · [部署与数据](faq-data.md) · [全部问题](faq.md) |
+| **开发者文档（英文）** | [开发者指南](dev-guide.md) · [任务内核](tasks.md) · [浏览器内核](browser.md) · [子系统](subsystems.md) · [外部 Agent（MCP API）](agents.md) · [Windows + WSL2 部署](windows-setup.md) · [macOS 常驻服务](macos-setup.md) |
+
+架构设计见 [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md)，各子系统的深入说明都在 [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) 里。
 
 ## 集成
 
@@ -152,19 +174,6 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 **框架内置「自我学习」**：执行任务的过程中，AI 会自己记笔记——点错的按钮、走通的路径、遇到的问题，都会自动存入该店铺的知识库。这个过程**不需要你盯着**，AI 自己执行、自己记录；你补充的几句人工提示，也会一并记下。下次执行同样的任务时直接调用之前的经验，不会重复踩坑。执行几轮之后，新平台上的常见操作也能稳定下来。
 
 稳定之后，欢迎把这些经验整理成正式 Skill 提交给项目（PR 方式见下文「贡献代码」）。
-
-## 文档导航
-
-| | |
-|---|---|
-| **入门** | [安装](install.md) · [快速开始](quickstart.md) · [配置 AI 模型](llm-keys.md) · [核心概念](concepts.md) |
-| **集成** | [集成总览](integrations.md) · [MCP 接入](mcp.md) · [广告 API 绑定](ads-api.md) · [邮件](email.md) · [群机器人](chat-bots.md) · [滴答清单 / TickTick](ticktick.md) · [Google Workspace](google-workspace.md) |
-| **使用示例** | [全部示例](examples.md) · [每天把重要邮件发到企业微信](example-email-wecom.md) · [每周检查广告 ACOS](example-ads-acos.md) · [每周巡检 Listing](example-listing-check.md) · [每天导出销售报表](example-daily-report.md) · [用 Codex 分析财务数据](example-mcp.md) |
-| **使用指南** | [店铺与浏览器](stores.md) · [任务](using-tasks.md) · [定时任务](schedules.md) · [知识库与 Skill](knowledge.md) |
-| **常见问题** | [紫鸟：开通与常见报错](ziniao.md) · [费用与模型选择](faq-cost.md) · [登录与账号](faq-login.md) · [部署与数据](faq-data.md) · [全部问题](faq.md) |
-| **开发者文档（英文）** | [开发者指南](dev-guide.md) · [任务内核](tasks.md) · [浏览器内核](browser.md) · [子系统](subsystems.md) · [外部 Agent（MCP API）](agents.md) · [Windows + WSL2 部署](windows-setup.md) · [macOS 常驻服务](macos-setup.md) |
-
-架构设计见 [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md)，各子系统的深入说明都在 [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) 里。
 
 ## 贡献代码
 

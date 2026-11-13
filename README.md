@@ -26,8 +26,8 @@
 
 🔥 *最新动态* 🔥
 
-- [2026 年 11 月] **MCP 接入**：在 Claude、Codex、WorkBuddy、Qoder 这些 AI 工具里，一句话让 Vibe Seller 干活：[**详情**](docs/mcp.md)
-- [2026 年 11 月] **亚马逊广告直连 Ads API**：同一个广告优化任务从 147 分钟缩短到 11 分钟，人工介入更少：[**详情**](docs/ads-api.md)
+- [2026 年 11 月] **MCP 接入**：在 Claude、Codex、WorkBuddy、Qoder 这些 AI 工具里，一句话让 Vibe Seller 干活：[**详情**](https://docs.vibe-sellers.com/mcp/)
+- [2026 年 11 月] **亚马逊广告直连 Ads API**：同一个广告优化任务从 147 分钟缩短到 11 分钟，人工介入更少：[**详情**](https://docs.vibe-sellers.com/ads-api/)
 
 ---
 
@@ -91,9 +91,18 @@ vibe-seller start
 > **⚠️ 用紫鸟之前**
 >
 > 紫鸟需要先由主账号（BOSS 账号）在[紫鸟开放平台](https://open.ziniao.com/docSupport?docId=99)开通开发者模式，并给子账号勾选「WebDriver 登录」，否则绑定店铺时会被紫鸟拒绝。
-> 开通步骤，以及「无权限通过 webdriver 登录」「检测到您在新终端登录」这两个常见报错的解决办法，见 [紫鸟：开通与常见报错](docs/ziniao.md)。
+> 开通步骤，以及「无权限通过 webdriver 登录」「检测到您在新终端登录」这两个常见报错的解决办法，见 [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/)。
 
-完整说明（WSL2、源码安装、升级卸载、常驻服务）见 [安装](docs/install.md)；第一次使用请看 [快速开始](docs/quickstart.md)。
+完整说明（WSL2、源码安装、升级卸载、常驻服务）见 [安装](https://docs.vibe-sellers.com/install/)；第一次使用请看 [快速开始](https://docs.vibe-sellers.com/quickstart/)。
+
+## 快速开始
+
+装好之后，按这四步跑通第一个任务，图文步骤见[快速开始](https://docs.vibe-sellers.com/quickstart/)：
+
+1. **打开网页**：浏览器访问 <http://localhost:7777>，默认不需要登录；
+2. **配置 AI 模型**：进入「设置 → AI」，点击「创建配置文件」，选择供应商并粘贴 API 密钥（各家怎么获取见[配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/)）；
+3. **绑定店铺**：点击「+ 新建店铺」，选择浏览器后端「紫鸟」或「Chrome」，在打开的浏览器里登录一次卖家后台（见[店铺与浏览器](https://docs.vibe-sellers.com/stores/)）；
+4. **创建第一个任务**：选中店铺，点击「+ 新建任务」，用一句话写清要做的事，比如“导出过去 7 天的销售报表”。
 
 ## 能干什么
 
@@ -115,18 +124,31 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 
 一次广告调优通常 3–5 分钟完成，模型费用约 1 元人民币（DeepSeek，10 组广告以内；广告组数越多费用越高）。
 
+## 文档导航
+
+| | |
+|---|---|
+| **入门** | [安装](https://docs.vibe-sellers.com/install/) · [快速开始](https://docs.vibe-sellers.com/quickstart/) · [配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/) · [核心概念](https://docs.vibe-sellers.com/concepts/) |
+| **集成** | [集成总览](https://docs.vibe-sellers.com/integrations/) · [MCP 接入](https://docs.vibe-sellers.com/mcp/) · [广告 API 绑定](https://docs.vibe-sellers.com/ads-api/) · [邮件](https://docs.vibe-sellers.com/email/) · [群机器人](https://docs.vibe-sellers.com/chat-bots/) · [滴答清单 / TickTick](https://docs.vibe-sellers.com/ticktick/) · [Google Workspace](https://docs.vibe-sellers.com/google-workspace/) |
+| **使用示例** | [全部示例](https://docs.vibe-sellers.com/examples/) · [每天把重要邮件发到企业微信](https://docs.vibe-sellers.com/example-email-wecom/) · [每周检查广告 ACOS](https://docs.vibe-sellers.com/example-ads-acos/) · [每周巡检 Listing](https://docs.vibe-sellers.com/example-listing-check/) · [每天导出销售报表](https://docs.vibe-sellers.com/example-daily-report/) · [用 Codex 分析财务数据](https://docs.vibe-sellers.com/example-mcp/) |
+| **使用指南** | [店铺与浏览器](https://docs.vibe-sellers.com/stores/) · [任务](https://docs.vibe-sellers.com/using-tasks/) · [定时任务](https://docs.vibe-sellers.com/schedules/) · [知识库与 Skill](https://docs.vibe-sellers.com/knowledge/) |
+| **常见问题** | [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/) · [费用与模型选择](https://docs.vibe-sellers.com/faq-cost/) · [登录与账号](https://docs.vibe-sellers.com/faq-login/) · [部署与数据](https://docs.vibe-sellers.com/faq-data/) · [全部问题](https://docs.vibe-sellers.com/faq/) |
+| **开发者文档（英文）** | [开发者指南](https://docs.vibe-sellers.com/dev-guide/) · [任务内核](https://docs.vibe-sellers.com/tasks/) · [浏览器内核](https://docs.vibe-sellers.com/browser/) · [子系统](https://docs.vibe-sellers.com/subsystems/) · [外部 Agent（MCP API）](https://docs.vibe-sellers.com/agents/) · [Windows + WSL2 部署](https://docs.vibe-sellers.com/windows-setup/) · [macOS 常驻服务](https://docs.vibe-sellers.com/macos-setup/) |
+
+架构设计见 [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md)，各子系统的深入说明都在 [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) 里。
+
 ## 集成
 
 除了浏览器，AI 还能直接调用这些外部服务，全部在「设置 → 集成」里配置，不需要写代码：
 
-- **MCP 接入**——在 Claude、Codex、WorkBuddy、Qoder、Hermes Agent、Pi 等 AI 工具里直接指挥 Vibe Seller，[接入步骤](docs/mcp.md)
-- **Amazon Ads API**——广告任务直连接口，不再逐页操作卖家后台；实测同一个任务从 147 分钟缩短到 11 分钟，[绑定步骤和实测对比](docs/ads-api.md)
-- **邮件**（IMAP/SMTP）——读取绑定的店铺邮箱，分类、整理、起草并发送回复，支持 163、QQ、Gmail 等，[接入步骤](docs/email.md)
-- **群机器人**（企业微信、钉钉、飞书、Slack）——让 AI 把结果、报表、提醒直接发到群里，企业微信还支持发送文件，[接入步骤](docs/chat-bots.md)
-- **滴答清单 / TickTick**——自动创建待办（追单、跟进、定期检查），[接入步骤](docs/ticktick.md)
-- **Google Workspace**——Gmail、Drive、Docs、Sheets、Slides、Calendar，支持读取、写入和修改，[接入步骤](docs/google-workspace.md)
+- **MCP 接入**——在 Claude、Codex、WorkBuddy、Qoder、Hermes Agent、Pi 等 AI 工具里直接指挥 Vibe Seller，[接入步骤](https://docs.vibe-sellers.com/mcp/)
+- **Amazon Ads API**——广告任务直连接口，不再逐页操作卖家后台；实测同一个任务从 147 分钟缩短到 11 分钟，[绑定步骤和实测对比](https://docs.vibe-sellers.com/ads-api/)
+- **邮件**（IMAP/SMTP）——读取绑定的店铺邮箱，分类、整理、起草并发送回复，支持 163、QQ、Gmail 等，[接入步骤](https://docs.vibe-sellers.com/email/)
+- **群机器人**（企业微信、钉钉、飞书、Slack）——让 AI 把结果、报表、提醒直接发到群里，企业微信还支持发送文件，[接入步骤](https://docs.vibe-sellers.com/chat-bots/)
+- **滴答清单 / TickTick**——自动创建待办（追单、跟进、定期检查），[接入步骤](https://docs.vibe-sellers.com/ticktick/)
+- **Google Workspace**——Gmail、Drive、Docs、Sheets、Slides、Calendar，支持读取、写入和修改，[接入步骤](https://docs.vibe-sellers.com/google-workspace/)
 
-一个任务可以同时使用浏览器和这些服务。例如“找出所有店铺滞销的 SKU”可以这样安排：浏览器读取库存 → 生成 Google Sheet 报表 → 把摘要发到企业微信 → 在滴答清单里创建「下周降价」待办。全部集成见 [集成总览](docs/integrations.md)。
+一个任务可以同时使用浏览器和这些服务。例如“找出所有店铺滞销的 SKU”可以这样安排：浏览器读取库存 → 生成 Google Sheet 报表 → 把摘要发到企业微信 → 在滴答清单里创建「下周降价」待办。全部集成见 [集成总览](https://docs.vibe-sellers.com/integrations/)。
 
 ## 支持的平台
 
@@ -149,19 +171,6 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 
 稳定之后，欢迎把这些经验整理成正式 Skill 提交给项目（PR 方式见下文「贡献代码」）。
 
-## 文档导航
-
-| | |
-|---|---|
-| **入门** | [安装](docs/install.md) · [快速开始](docs/quickstart.md) · [配置 AI 模型](docs/llm-keys.md) · [核心概念](docs/concepts.md) |
-| **集成** | [集成总览](docs/integrations.md) · [MCP 接入](docs/mcp.md) · [广告 API 绑定](docs/ads-api.md) · [邮件](docs/email.md) · [群机器人](docs/chat-bots.md) · [滴答清单 / TickTick](docs/ticktick.md) · [Google Workspace](docs/google-workspace.md) |
-| **使用示例** | [全部示例](docs/examples.md) · [每天把重要邮件发到企业微信](docs/example-email-wecom.md) · [每周检查广告 ACOS](docs/example-ads-acos.md) · [每周巡检 Listing](docs/example-listing-check.md) · [每天导出销售报表](docs/example-daily-report.md) · [用 Codex 分析财务数据](docs/example-mcp.md) |
-| **使用指南** | [店铺与浏览器](docs/stores.md) · [任务](docs/using-tasks.md) · [定时任务](docs/schedules.md) · [知识库与 Skill](docs/knowledge.md) |
-| **常见问题** | [紫鸟：开通与常见报错](docs/ziniao.md) · [费用与模型选择](docs/faq-cost.md) · [登录与账号](docs/faq-login.md) · [部署与数据](docs/faq-data.md) · [全部问题](docs/faq.md) |
-| **开发者文档（英文）** | [开发者指南](docs/dev-guide.md) · [任务内核](docs/tasks.md) · [浏览器内核](docs/browser.md) · [子系统](docs/subsystems.md) · [外部 Agent（MCP API）](docs/agents.md) · [Windows + WSL2 部署](docs/windows-setup.md) · [macOS 常驻服务](docs/macos-setup.md) |
-
-架构设计见 [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md)，各子系统的深入说明都在 [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) 里。
-
 ## 贡献代码
 
 欢迎提交 PR——自己写代码，或用 Claude Code / Cursor 等你常用的编程 AI 工具来写都可以。Python 侧遵循 Google 风格（ruff 强制），前端 TypeScript 严格模式 + ESLint。[`CLAUDE.md`](https://github.com/zpoint/vibe-seller/blob/main/CLAUDE.md) 是项目规范文档——主要写给 AI 看，人读起来也清楚。
@@ -176,4 +185,4 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 
 <img alt="Vibe Seller 企业微信用户群" src="docs/images/wecom_group_qr.png" width="200" />
 
-海外用户也可以加入 [Slack](https://join.slack.com/t/vibeseller/shared_invite/zt-4fjzkwkqs-L0pM6VS7~_2WsPCxTeLbew)。遇到问题或有建议，见 [加入社区与问题反馈](docs/community.md)。
+海外用户也可以加入 [Slack](https://join.slack.com/t/vibeseller/shared_invite/zt-4fjzkwkqs-L0pM6VS7~_2WsPCxTeLbew)。遇到问题或有建议，见 [加入社区与问题反馈](https://docs.vibe-sellers.com/community/)。

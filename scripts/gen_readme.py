@@ -30,8 +30,9 @@ Every rewrite rule (docs source -> GitHub README), applied per locale:
            tags point one level up; markdown links are localized by
            mkdocs-static-i18n and use the same ``images/…`` form as zh)
       both: ``](videos/…``         -> ``](docs/videos/…`` (defensive)
-5.  Links to sibling docs pages gain the ``docs/`` prefix, e.g.
-    ``](tasks.md)`` -> ``](docs/tasks.md)``, for every page in ``docs/``.
+5.  Links to sibling docs pages open on the docs site, not as raw
+    markdown on GitHub: ``](tasks.md#x)`` -> ``](https://docs.vibe-sellers.com/tasks/#x)``,
+    ``](mcp.en.md)`` -> ``](https://docs.vibe-sellers.com/en/mcp/)``.
 6.  Language-switch links go back to the READMEs: ``](/en/)`` and
     ``href="/en/"`` -> ``README_en.md``; ``](/)`` and ``href="/"`` ->
     ``README.md``.
@@ -66,6 +67,13 @@ PAIRS = {
 
 # Site-only content: a full line that is a markdown link to a video file.
 _SITE_ONLY_VIDEO_LINE = re.compile(r'^\[.*\]\(videos/[^)]*\.mp4\)\s*$')
+
+# The published docs site (mkdocs.yml ``site_url``); README links to
+# docs pages open there.
+SITE_URL = 'https://docs.vibe-sellers.com/'
+
+# A markdown link target that is a docs page: ``](name.md#anchor)``.
+_DOC_LINK = re.compile(r'\]\(([A-Za-z0-9_.-]+)\.md(#[^)]*)?\)')
 
 _FRONT_MATTER = re.compile(r'\A---\n.*?\n---\n\n?', re.S)
 
@@ -112,9 +120,26 @@ def generate(text: str, source_name: str, locale: str) -> str:
     text = text.replace('](images/', '](docs/images/')
     text = text.replace('](videos/', '](docs/videos/')
 
-    # Rule 5: sibling docs pages.
-    for page in _docs_pages():
-        text = text.replace(f']({page}', f'](docs/{page}')
+    # Rule 5: sibling docs pages open on the docs SITE, not as raw
+    # markdown on GitHub (where admonitions, tabs and chips don't
+    # render). ``foo.md`` -> ``/foo/``, ``foo.en.md`` -> ``/en/foo/``;
+    # an English README sends a bare ``foo.md`` to ``/en/foo/`` too,
+    # mirroring how the i18n plugin resolves it on the site. Anchors
+    # are the site's own slugs, so they carry over unchanged.
+    pages = set(_docs_pages())
+
+    def _site_link(match: re.Match[str]) -> str:
+        name, anchor = match.group(1), match.group(2) or ''
+        if f'{name}.md' not in pages:
+            return match.group(0)
+        stem, is_en = (
+            (name[:-3], True) if name.endswith('.en') else (name, False)
+        )
+        prefix = 'en/' if (is_en or locale == 'en') else ''
+        path = '' if stem == 'index' else f'{stem}/'
+        return f']({SITE_URL}{prefix}{path}{anchor})'
+
+    text = _DOC_LINK.sub(_site_link, text)
 
     # Rule 6: language-switch links back to the READMEs.
     text = text.replace('](/en/)', '](README_en.md)')
