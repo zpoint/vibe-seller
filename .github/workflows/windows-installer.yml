@@ -1163,6 +1163,13 @@ jobs:
           if (-not $rec -or $rec.status -ne 'ok') {
             Fail "the apply left no ok record (got $(Json $rec))"
           }
+          # `trigger` is the leg's own claim: an update that reached NEW
+          # because a human clicked would satisfy every assertion above
+          # and still not be the thing s3 is for.
+          if ($rec.trigger -ne 'auto_idle') {
+            Fail "the update applied with trigger '$($rec.trigger)', not auto_idle"
+          }
+          if ($rec.path -ne 'pip') { Fail "record path is '$($rec.path)'" }
           if (-not (Test-Path "$script:Install\.venv\Scripts\pythonw.exe")) {
             Fail 'the tray python is gone — nothing owns the server now'
           }
@@ -1267,6 +1274,10 @@ jobs:
           if ($rec.to -ne $new -or $rec.from -ne $script:Old) {
             Fail "the record is about a different update: $(Json $rec)"
           }
+          # Which stage failed is the whole account of the outage: an
+          # install that returned nonzero is a different bug from a
+          # package that installed and never booted, and only the second
+          # one is what a health-checked rollback is for.
           if ($rec.stage -notmatch 'health|rollback') {
             Fail "the failure was recorded in stage '$($rec.stage)', not the boot/health one"
           }
@@ -1401,6 +1412,9 @@ jobs:
             Fail "the record started from $($rec.from), not ${v2}: $(Json $rec)"
           }
           if ($rec.status -ne 'rolled_back') { Fail "expected rolled_back, got $(Json $rec)" }
+          if ($rec.stage -notmatch 'health|rollback') {
+            Fail "hop 2's failure was recorded in stage '$($rec.stage)'"
+          }
           Write-Host "OK: s5b $script:Old -> $v2 -> broken $v3 -> back on $v2 from the cache"
           Stop-LegServer
 
