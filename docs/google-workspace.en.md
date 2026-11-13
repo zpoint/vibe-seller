@@ -17,9 +17,6 @@ then flip the toggle in Settings.
 Where each integration is configured and how they divide up: see the
 [Integrations overview](integrations.en.md).
 
-> The screenshots were taken on macOS; the steps look the same on
-> Windows and Linux.
-
 ## What you need
 
 - The **gws CLI** (step 1);
@@ -30,13 +27,8 @@ Where each integration is configured and how they divide up: see the
 
 ## Step 1: Install gws
 
-Any of these ([official README](https://github.com/googleworkspace/cli)):
-
-- **Prebuilt binary** (recommended): download the package for your OS
-  from [GitHub Releases](https://github.com/googleworkspace/cli/releases),
-  extract it and put `gws` on your PATH;
-- **npm**: `npm install -g @googleworkspace/cli`;
-- **Homebrew** (macOS / Linux): `brew install googleworkspace-cli`.
+Follow the [official README](https://github.com/googleworkspace/cli) to install
+the gws CLI.
 
 Confirm with `gws --version` in a terminal. The Vibe Seller settings
 card shows the detected version too.

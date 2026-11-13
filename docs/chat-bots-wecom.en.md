@@ -19,18 +19,13 @@ description: 'Steps to create a WeCom group bot: the internal-group rule, where 
     https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxx
     ```
 
-4. Optional: "publish to the company" so colleagues can add the same
-   bot to their own groups.
-
 Official docs: [How to set up Message Push](https://open.work.weixin.qq.com/help2/pc/14931) · [Message Push configuration](https://developer.work.weixin.qq.com/document/path/91770)
 
 Good to know:
 
-- Each bot sends at most **20 messages per minute**.
 - Text up to 2 KB, markdown up to 4 KB (a reduced syntax: headings,
   bold, links, inline code, quotes, three font colours — no tables).
-- Files from 5 bytes up to 20 MB (uploaded first, the material is valid
-  for 3 days).
+- Files up to 20 MB.
 - If the group has "mute all" enabled, messages are accepted but **never
   shown**.
 

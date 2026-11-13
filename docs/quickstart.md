@@ -29,7 +29,7 @@ http://localhost:7777
 
 进入「设置 → AI」（左侧栏顶部的齿轮图标，只有管理员能看到设置），在「AI 配置文件」卡片里点击「创建配置文件」：
 
-1. 在「环境预设」里选择你的供应商：[DeepSeek](llm-keys.md#deepseek) 按 token 付费、[Claude](llm-keys.md#claude) 能力上限高、[Kimi](llm-keys.md#kimi)、[MiniMax](llm-keys.md#minimax)、[智谱 GLM](llm-keys.md#智谱-glm)、[通义千问](llm-keys.md#通义千问阿里云百炼)、[MiMo](llm-keys.md#小米-mimo) 都可以接入；
+1. 在「环境预设」里选择你的供应商：[DeepSeek](llm-keys.md#deepseek) 按 token 付费，[Claude](llm-keys.md#claude)、[Kimi](llm-keys.md#kimi)、[MiniMax](llm-keys.md#minimax)、[智谱 GLM](llm-keys.md#智谱-glm)、[通义千问](llm-keys.md#通义千问阿里云百炼)、[MiMo](llm-keys.md#小米-mimo) 都可以接入；
 2. 粘贴「API 密钥」，其余字段（接口地址、模型）会跟随所选预设自动填好；
 3. 勾选「创建后设为我的默认 AI」，保存。
 
@@ -42,7 +42,7 @@ http://localhost:7777
 ![演示：配置 AI](images/setup_ai_zh.gif)
 
 !!! note "一个 Key 都没有？"
-    最省事的是 [DeepSeek](llm-keys.md#deepseek)：官网注册、按 token 付费，充值十几元就能开始使用。其他几家既支持按量付费也有月度套餐，用量大时更划算。每家怎么获取 Key、该选哪个预设、能用哪些模型，都写在 [配置 AI 模型](llm-keys.md) 里。
+    最省事的是 [DeepSeek](llm-keys.md#deepseek)：官网注册、按 token 付费，小额充值就能开始使用。其他几家既支持按量付费也有月度套餐，用量大时更划算。每家怎么获取 Key、该选哪个预设、能用哪些模型，都写在 [配置 AI 模型](llm-keys.md) 里。
 
 !!! tip "这台机器上的 Claude Code 已经登录过 Anthropic 订阅？"
     内置的那个「默认」配置使用的就是本机 Claude Code 环境，不需要再填 Key，可以先创建一个任务试试。

@@ -30,8 +30,6 @@ Official docs: [Custom robot access](https://open.dingtalk.com/document/group/cu
 
 Good to know:
 
-- At most **20 messages per minute** per bot; going over throttles the
-  bot for 10 minutes.
 - Markdown messages get a title derived from the first line — that is
   what notifications and the chat list show.
 - No file sending; keep messages under ~20 KB.

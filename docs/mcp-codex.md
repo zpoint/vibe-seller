@@ -9,9 +9,9 @@ description: 在 Codex 里接入 Vibe Seller：在设置里填一张表单，或
 需要准备两样东西：
 
 1. 一个 API Key：见[第一步：创建 API Key](mcp.md#第一步创建-api-key)。创建
-   成功后弹出的窗口（下文称「弹窗」）里有你的服务器地址和 Codex 的现成
+   成功后弹出的窗口里有你的服务器地址和 Codex 的现成
    配置；
-2. 已经安装 Codex：从 [chatgpt.com/codex](https://chatgpt.com/codex) 下载。
+2. 已安装 Codex。
 
 ## 接入
 

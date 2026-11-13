@@ -29,7 +29,7 @@ If the home page loads, the install worked.
 
 Go to **Settings → AI** (the gear at the top of the sidebar — only admins see Settings). In the **AI Profiles** card, click **Create Profile**:
 
-1. Pick your provider under **Environment Presets** — [DeepSeek](llm-keys.md#deepseek) bills per token, [Claude](llm-keys.md#claude) has the highest ceiling, [Kimi](llm-keys.md#kimi) / [MiniMax](llm-keys.md#minimax) / [Zhipu GLM](llm-keys.md#zhipu-glm) / [Qwen](llm-keys.md#qwen-alibaba-cloud-model-studio) / [MiMo](llm-keys.md#xiaomi-mimo) all work;
+1. Pick your provider under **Environment Presets** — [DeepSeek](llm-keys.md#deepseek) bills per token; [Claude](llm-keys.md#claude) / [Kimi](llm-keys.md#kimi) / [MiniMax](llm-keys.md#minimax) / [Zhipu GLM](llm-keys.md#zhipu-glm) / [Qwen](llm-keys.md#qwen-alibaba-cloud-model-studio) / [MiMo](llm-keys.md#xiaomi-mimo) all work;
 2. paste your **API Key** — the rest (endpoint URL, model) fills itself in from the preset;
 3. tick **Use as my default after creating**, then save.
 
@@ -42,7 +42,7 @@ A saved key is masked in the UI by default — an admin can click **Show** / **C
 ![Demo: set up AI](images/setup_ai_en.gif)
 
 !!! note "No key yet?"
-    [DeepSeek](llm-keys.md#deepseek) is the easiest start: sign up on their site, top up a couple of dollars, pay per token. The others sell both pay-as-you-go and monthly plans, which are cheaper under heavy use. Where to get each key, which preset to pick and which models are available: [Configure AI Models](llm-keys.md).
+    [DeepSeek](llm-keys.md#deepseek) is the easiest start: sign up on their site, top up a small amount, pay per token. The others sell both pay-as-you-go and monthly plans, which are cheaper under heavy use. Where to get each key, which preset to pick and which models are available: [Configure AI Models](llm-keys.md).
 
 !!! tip "Already signed in to Claude Code on this machine?"
     The built-in **Default** profile uses this machine's Claude Code environment, so there's nothing to fill in — run a task first and only create a profile if you want a different provider.

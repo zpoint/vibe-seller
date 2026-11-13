@@ -17,14 +17,6 @@ This page covers three things for each provider: **where to sign up, where to
 click to create the key, and which preset to pick in Vibe Seller**. New to all
 this? Start with "Which provider?" below.
 
-> Provider consoles change often. This page follows each provider's official
-> docs **as of November 2026**, and every section links them. If the screen
-> doesn't match the text, trust the official page.
->
-> The provider console screenshots below show the **Chinese** UI (the China
-> sites); button names are given in Chinese with an English gloss so you can
-> match them. International sites have the same steps in English.
-
 **Contents**
 
 - [Which provider?](#which-provider)
@@ -43,7 +35,7 @@ this? Start with "Which provider?" below.
 
 | Your situation | Suggestion |
 |---|---|
-| First time, just want to try it | **DeepSeek**: sign up, top up $2–3, pay per use, no monthly fee |
+| First time, just want to try it | **DeepSeek**: sign up, top up a small amount, pay per use, no monthly fee |
 | Claude Code on this machine is already signed in to a Claude subscription | **No key needed** — reuse it, see [Claude](#claude) |
 | Running every day, heavy usage, want it cheaper | Buy a **plan** (Token Plan / Coding Plan / M Plan) from one provider |
 | Your account is outside mainland China | Kimi, MiniMax, GLM, Qwen and MiMo all have international versions — just pick the "International" option (for MiMo: Singapore / Europe) |
@@ -131,8 +123,7 @@ dollars.
 5. In Vibe Seller pick the **DeepSeek** preset, paste the key, create.
 
 **Pitfall**: an empty balance returns `402 Insufficient Balance` — top up again.
-Official docs: [Claude Code integration](https://api-docs.deepseek.com/quick_start/agent_integrations/claude_code),
-[error codes](https://api-docs.deepseek.com/quick_start/error_codes).
+Official docs: [error codes](https://api-docs.deepseek.com/quick_start/error_codes).
 
 ## Kimi
 
@@ -161,9 +152,6 @@ clicking **Kimi ›** in Vibe Seller shows three options.
 Code key only works with `Kimi Code (membership)`, a platform key only with
 `Pay-as-you-go`, and a China-platform key with China, an international one with
 International. On a 401, check this first.
-Official docs: [Kimi Code in Claude Code](https://www.kimi.com/code/docs/en/third-party-tools/claude-code.html),
-[Kimi API Platform in Claude Code](https://platform.kimi.ai/docs/guide/claude-code-kimi),
-[Kimi API Platform in Claude Code (China, zh)](https://platform.kimi.com/docs/guide/claude-code-kimi).
 
 ## MiniMax
 
@@ -203,10 +191,7 @@ the menus are `API Keys > Create new secret key` (pay-as-you-go) and
 `Billing > M Plan` (plan). International keys only work on the international
 endpoint, so for either key pick **MiniMax › International**.
 
-Official docs: [Prerequisites](https://platform.minimax.io/docs/guides/quickstart-preparation),
-[M Plan FAQ](https://platform.minimax.io/docs/m-plan/faq),
-[Claude Code setup](https://platform.minimax.io/docs/token-plan/claude-code),
-[Claude Code setup (China)](https://platform.minimax.cn/docs/token-plan/claude-code).
+Official docs: [Prerequisites](https://platform.minimax.io/docs/guides/quickstart-preparation).
 
 ## Zhipu GLM
 
@@ -215,10 +200,6 @@ outside China use **Z.AI** (preset `GLM › International`). Both have
 pay-as-you-go and a GLM Coding Plan. **The two keys come from different pages
 and aren't interchangeable**; in Vibe Seller both go into the same preset, and
 the key you paste decides what it bills against.
-
-> Since October 16, 2026, Zhipu / Z.AI manage "standard API keys"
-> (pay-as-you-go / usage bundles) and "Coding Plan keys" separately. Older keys
-> keep working and were classified automatically.
 
 ### China: Zhipu BigModel
 
@@ -254,10 +235,6 @@ then create a key under **Personal Coding Plan** on the
 [Team Coding Plan → My Plan](https://z.ai/manage-apikey/coding-plan/team/my-plan)).
 
 Either key: in Vibe Seller click **GLM ›**, then **International**, paste, create.
-
-Official docs: [Z.AI API Key Management Guide](https://docs.z.ai/devpack/notice/api-key-management),
-[Z.AI Quick Start](https://docs.z.ai/devpack/quick-start),
-[BigModel key classification (zh)](https://docs.bigmodel.cn/cn/coding-plan/notice/api-key-management).
 
 ## Qwen (Alibaba Cloud Model Studio)
 
@@ -308,10 +285,7 @@ and pick **Token Plan (International)**.
   international key on a China option. Create the profile again with the
   matching option.
 
-Official docs: [Get an API key (zh)](https://help.aliyun.com/zh/model-studio/get-api-key),
-[Claude Code (international)](https://www.alibabacloud.com/help/en/model-studio/claude-code),
-[Claude Code (China, zh)](https://help.aliyun.com/zh/model-studio/claude-code),
-[Coding Plan (zh)](https://help.aliyun.com/zh/model-studio/coding-plan).
+Official docs: [Get an API key (zh)](https://help.aliyun.com/zh/model-studio/get-api-key).
 
 ## Xiaomi MiMo
 
@@ -356,15 +330,12 @@ plan.
 - `sk-` pay-as-you-go keys and `tp-`/`ttp-` plan keys can't be swapped — pick
   the matching option; a Token Plan key on the wrong cluster won't connect
   either.
-- Token Plan calls between 00:00 and 08:00 Beijing time use quota at 0.8×.
 
-Official docs: [First API call](https://mimo.mi.com/docs/quick-start/summary/first-api-call),
-[Token Plan quick access](https://mimo.mi.com/docs/tokenplan/Token%20Plan/quick-access),
-[Claude Code configuration](https://mimo.mi.com/docs/tokenplan/integration/claudecode).
+Official docs: [First API call](https://mimo.mi.com/docs/quick-start/summary/first-api-call).
 
 ## Claude
 
-Claude has the highest ceiling. Either way, you **sign in to Claude Code on this
+Either way, you **sign in to Claude Code on this
 machine** and Vibe Seller's built-in **Claude** profile ("System default
 environment") uses that sign-in — **no key is pasted into Vibe Seller**.
 
@@ -379,11 +350,11 @@ then sign in with your claude.ai account at step 2 below.
 
 Signing in:
 
-1. Install Claude Code following the [official setup guide](https://code.claude.com/docs/en/setup).
-2. Run `claude` in a terminal; a browser login page opens. Choose the claude.ai
-   account or the Console account, depending on how you pay.
-3. When the terminal shows `Login successful`, you're done.
-4. Back in Vibe Seller, `Settings → AI`: if the "Claude" row has no
+1. Run `claude` in a terminal (Vibe Seller's installers set Claude Code up
+   alongside it); a browser login page opens. Choose the claude.ai account or
+   the Console account, depending on how you pay.
+2. When the terminal shows `Login successful`, you're done.
+3. Back in Vibe Seller, `Settings → AI`: if the "Claude" row has no
    **★ Default** mark, click **Set as Default**.
 
 ![Settings → AI: the built-in Claude profile marked "★ Default"](images/vibeseller_claude_default_en.png)
@@ -393,11 +364,7 @@ Signing in:
 - Claude is available only in [supported countries and regions](https://platform.claude.com/docs/en/api/supported-regions);
   check before signing up.
 - If you use cc-switch or a similar tool, or have `ANTHROPIC_API_KEY` set in
-  your environment, Claude Code uses that instead of your sign-in. Type
-  `/status` in Claude Code to see which credential is active.
-
-Official docs: [Claude Code authentication](https://code.claude.com/docs/en/authentication),
-[Claude API overview](https://platform.claude.com/docs/en/api/overview).
+  your environment, Claude Code uses that instead of your sign-in.
 
 ## FAQ
 

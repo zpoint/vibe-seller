@@ -16,9 +16,6 @@ group back isn't wired up.
 Where each integration is configured and how they divide up: see the
 [Integrations overview](integrations.en.md).
 
-> The screenshots here were taken on macOS; the steps are the same on
-> Windows and Linux.
-
 ## What you get
 
 - Task results, alerts and reports posted to the group. The WeCom bot
@@ -38,7 +35,6 @@ The four platforms differ slightly:
 | Text | 2 KB | ~20 KB | 20 KB | 40,000 characters |
 | Markdown | 4 KB (reduced subset) | ~20 KB (title derived) | 20 KB (as a card) | 12,000 characters |
 | Files | ✔ up to 20 MB | ✘ | ✘ | ✘ |
-| Rate limit | 20 msgs/min | 20 msgs/min | 100 msgs/min | see Slack's docs |
 
 ## What to prepare
 
@@ -91,9 +87,7 @@ differ only in where the entry lives and which security settings exist.
 
     ![The list of configured bots](images/chatbots_list_en.png)
 
-5. Click **Test** on the bot. A green confirmation means it works (the
-   sample bot here uses a local test address; real setups show the
-   platform's webhook):
+5. Click **Test** on the bot. A green confirmation means it works:
 
     ![Test succeeded: green message under the bot row](images/chatbots_test_ok_en.png)
 
@@ -167,8 +161,7 @@ can check allowlists against it.
 Three usual causes:
 
 1. The WeCom group has **mute all** enabled — bot messages are accepted
-   but never displayed. Ask the group owner to turn mute off (the
-   official guide documents this).
+   but never displayed. Ask the group owner to turn mute off.
 2. Wrong group: one webhook belongs to one group (for Slack, the
    channel picked at creation). Add another bot for the other group.
 3. Make sure you are looking at the group the bot was added to, not a
@@ -188,12 +181,8 @@ the message already contains it, nothing is added.
 
 <details markdown="1"><summary><b>Feishu keyword on, and markdown fails with Key Words Not Found?</b></summary>
 
-Feishu's official guide says the keyword check "only applies to text
-parameters such as text and title", and markdown is delivered as a
-card whose body is not in those fields. If you see this error, switch
-the security setting to **signature check**, or include the keyword in
-the card's heading. (We have not re-verified this combination on a
-live group; handle it as the error suggests.)
+If you see this error, switch the security setting to **signature
+check**.
 
 </details>
 

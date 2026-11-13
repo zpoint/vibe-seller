@@ -17,9 +17,6 @@ password** — 163 and QQ Mail use an *authorization code*, Gmail uses an
 Where each integration is configured and how they divide up: see the
 [Integrations overview](integrations.en.md).
 
-> The screenshots were taken on macOS; the steps look the same on
-> Windows and Linux.
-
 ## What you need
 
 - A mailbox you use (163 / 126 / yeah.net, QQ Mail and Gmail are all
@@ -45,10 +42,6 @@ filled in automatically, so you only deal with the authorization code.
 4. A **16-character authorization code** appears — it is shown **once**,
    so copy it right away. One code can serve several clients; use
    "Add authorization password" whenever you need a fresh one.
-
-Full illustrated steps: NetEase help
-[How to enable client protocols](https://help.mail.163.com/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac2a5feb28b66796d3b)
-([official guide](https://help.mail.163.com/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac2a5feb28b66796d3b)).
 
 ### Step 2: Add it in Vibe Seller
 
@@ -93,9 +86,8 @@ store's tasks.
    password**, is what third-party clients sign in with. Copy and save
    it.
 
-Forgot or leaked it? Reset under **Settings → Account & Security →
-Device management → Authorization codes** — old codes stop working
-immediately. ([official guide](https://help.mail.qq.com/detail/0/1087))
+Forgot or leaked it? Reset it in the QQ Mail settings — old codes stop
+working immediately.
 
 !!! note "Corporate mail (exmail)"
     Tencent Exmail addresses (`you@yourcompany.com`) use different
@@ -138,8 +130,7 @@ requires 2-Step Verification first.
 ([official guide](https://support.google.com/mail/answer/185833))
 
 !!! note "Google Workspace (work / school) accounts"
-    Personal @gmail.com accounts have had IMAP always-on since January
-    2025 — nothing to enable. But on a managed Google Workspace
+    On a managed Google Workspace
     account the administrator may have **disabled IMAP or app
     passwords**. If you cannot find the "App passwords" page or the
     "Forwarding and POP/IMAP" tab, ask your administrator.
@@ -154,13 +145,12 @@ link to a store. Servers auto-detect to `imap.gmail.com` /
 ## Outlook / Hotmail: not supported
 
 **Outlook.com, Hotmail and Live mailboxes cannot be connected.**
-Microsoft retired password sign-in (Basic Authentication) in September
-2024 — those accounts require OAuth2, while Vibe Seller connects with
+Microsoft has retired password sign-in (Basic Authentication) — those
+accounts require OAuth2, while Vibe Seller connects with
 an authorization code / password. Clicking "Test Connection" with an
 Outlook mailbox shows the provider's own error
 (`Basic authentication is disabled.`); it is not a configuration
-problem. Microsoft's
-[announcement](https://techcommunity.microsoft.com/blog/outlook/keeping-our-outlook-personal-email-users-safe-reinforcing-our-commitment-to-secu/4164184).
+problem.
 If you need those messages, forward Outlook mail to a supported
 mailbox first.
 

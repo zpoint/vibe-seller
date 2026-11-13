@@ -14,8 +14,6 @@ Gmail、文档和日历——例如把广告数据填进周报表格、把发票
 
 各集成分别配在哪里、彼此怎么分工，见[集成总览](integrations.md)。
 
-> 下文的截图在 macOS 上完成，Windows、Linux 上的界面和步骤一样。
-
 ## 接入前准备
 
 - **gws 命令行工具**（见下面第一步）；
@@ -25,13 +23,7 @@ Gmail、文档和日历——例如把广告数据填进周报表格、把发票
 
 ## 第一步：安装 gws
 
-任选一种方式（[官方 README](https://github.com/googleworkspace/cli)）：
-
-- **下载预编译二进制**（推荐）：到
-  [GitHub Releases](https://github.com/googleworkspace/cli/releases)
-  下载对应系统的包，解压后把 `gws` 放进 PATH；
-- **npm**：`npm install -g @googleworkspace/cli`；
-- **Homebrew**（macOS / Linux）：`brew install googleworkspace-cli`。
+按 gws 的[官方 README](https://github.com/googleworkspace/cli) 把命令行工具装好。
 
 安装完成后在终端运行 `gws --version` 确认可用。Vibe Seller 的设置卡片
 也会显示检测到的版本号。

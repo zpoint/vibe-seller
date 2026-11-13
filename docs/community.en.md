@@ -28,7 +28,4 @@ The more complete the report, the faster it gets fixed:
 4. **Screenshots** — the error message and the task detail page.
 5. **Logs** (optional) — server logs live in `~/.vibe-seller/logs/`, e.g. `backend_7777.log` (on Windows: `C:\Users\<you>\.vibe-seller\logs\`).
 
-!!! warning "Check before you post"
-    Screenshots and logs can contain store names, email addresses, order data or API keys. Blur or remove them before posting publicly on GitHub.
-
 Common problems such as Ziniao binding errors may already have a fix — check the [FAQ](faq.md) first.

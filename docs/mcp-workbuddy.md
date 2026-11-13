@@ -9,10 +9,9 @@ description: 在 WorkBuddy 里接入 Vibe Seller：把弹窗给的 JSON 粘贴�
 需要准备两样东西：
 
 1. 一个 API Key：见[第一步：创建 API Key](mcp.md#第一步创建-api-key)。创建
-   成功后弹出的窗口（下文称「弹窗」）里有你的服务器地址和 WorkBuddy 的
+   成功后弹出的窗口里有你的服务器地址和 WorkBuddy 的
    现成配置；
-2. 已经安装 WorkBuddy：从 [workbuddy.cn](https://www.workbuddy.cn)（国内版）
-   或 [workbuddy.ai](https://www.workbuddy.ai)（国际版）下载。
+2. 已安装 WorkBuddy。
 
 ## 接入
 

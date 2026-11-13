@@ -70,8 +70,8 @@ address** to one the tool can reach first; the configs update as you type:
 
 A few things to keep in mind:
 
-- Keys start with `vst_`. **Treat one like a password**: a tool holding it acts
-  as you, with your permissions.
+- Keys start with `vst_`: **a tool holding one acts as you, with your
+  permissions**.
 - Revoke it in the same place whenever you like — if you're done with it or
   suspect it leaked.
 - Create a key even if your Vibe Seller runs without login. Turn login on later

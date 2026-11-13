@@ -15,9 +15,6 @@ Vibe Seller 本身免费，执行任务的 AI 模型需要使用你自己的 **A
 这一页按供应商讲清楚三件事：**去哪注册、在哪创建 Key、在 Vibe Seller 里
 选哪个预设**。第一次使用、不知道怎么选的，先看下面的「先选哪家」。
 
-> 各家供应商的控制台改版频繁。本文按 **2026 年 11 月** 各家官方文档整理，
-> 每一节都附了官方链接；如果界面和文中不一致，以官方页面为准。
-
 **目录**
 
 - [先选哪家](#先选哪家)
@@ -36,7 +33,7 @@ Vibe Seller 本身免费，执行任务的 AI 模型需要使用你自己的 **A
 
 | 你的情况 | 建议 |
 |---|---|
-| 第一次使用，想先试试 | **DeepSeek**：注册、充 15–20 元即可开始，按用量扣费，没有月费 |
+| 第一次使用，想先试试 | **DeepSeek**：注册、小额充值即可开始，按用量扣费，没有月费 |
 | 这台电脑上的 Claude Code 已登录 Claude 订阅 | **无需单独申请 Key**，直接复用现有登录，见 [Claude](#claude) |
 | 每天都在持续使用、量大，想省钱 | 购买一家的**套餐**（Token Plan / Coding Plan / M Plan），见下文各家说明 |
 | 公司或账号在海外 | Kimi、MiniMax、GLM、通义、MiMo 都有国际入口，在预设中选对应的「国际」子选项（MiMo 按集群选「新加坡集群」或「欧洲集群」子选项） |
@@ -115,8 +112,7 @@ Vibe Seller 本身免费，执行任务的 AI 模型需要使用你自己的 **A
 5. 在 Vibe Seller 中选预设「DeepSeek」，粘贴 Key，创建。
 
 **常见问题**：余额用完会报 `402 余额不足`，到充值页补足即可。
-官方说明：[接入 Claude Code](https://api-docs.deepseek.com/zh-cn/quick_start/agent_integrations/claude_code)、
-[错误码](https://api-docs.deepseek.com/zh-cn/quick_start/error_codes)。
+官方说明：[错误码](https://api-docs.deepseek.com/zh-cn/quick_start/error_codes)。
 
 ## Kimi
 
@@ -143,9 +139,6 @@ Vibe Seller 中选「Kimi ›」后会出现三个子选项。
 「Kimi Code（会员）」，开放平台的 Key 只能配「按量付费（国内）」或
 「按量付费（国际）」，按你的账号所在平台选择对应子选项。测试连接报 401
 时，先检查这一点。
-官方说明：[Kimi Code 在 Claude Code 中使用](https://www.kimi.com/code/docs/third-party-tools/claude-code.html)、
-[开放平台快速开始](https://platform.kimi.com/docs/get-api-key)、
-[开放平台在 Claude Code 中使用 Kimi](https://platform.kimi.com/docs/guide/claude-code-kimi)。
 
 ## MiniMax
 
@@ -177,10 +170,7 @@ MiniMax 两种都有，套餐叫 **M Plan**（以前叫 Token Plan）。**两把
 `API Keys > Create new secret key`（按量）和 `Billing > M Plan`（套餐）。海外账号的
 Key 只能连海外地址，两种 Key 都选「MiniMax › 国际」。
 
-官方说明：[前置准备](https://platform.minimax.cn/docs/guides/quickstart-preparation)、
-[开通 M Plan](https://platform.minimaxi.com/docs/m-plan/quickstart)、
-[M Plan 常见问题](https://platform.minimaxi.com/docs/m-plan/faq)、
-[Claude Code 接入](https://platform.minimax.cn/docs/token-plan/claude-code)。
+官方说明：[前置准备](https://platform.minimax.cn/docs/guides/quickstart-preparation)。
 
 ## 智谱 GLM
 
@@ -188,9 +178,6 @@ Key 只能连海外地址，两种 Key 都选「MiniMax › 国际」。
 「GLM › 国际」）。两边都有按量付费和 GLM Coding Plan 套餐，**两种 Key 在
 不同页面创建、互不通用**；在 Vibe Seller 里按量和套餐使用同一个预设，粘贴哪把
 Key 就扣哪边的费用。
-
-> 2026 年 10 月 16 日起，智谱 / Z.AI 把「标准 API Key」（按量 / 资源包）和
-> 「Coding Plan 套餐 Key」分开管理。之前创建的老 Key 不用更换，系统已自动归类。
 
 ### 国内：智谱开放平台
 
@@ -221,11 +208,6 @@ Key 就扣哪边的费用。
 （团队版在 [Team Coding Plan → My Plan](https://z.ai/manage-apikey/coding-plan/team/my-plan)）。
 
 两种 Key 创建后，在 Vibe Seller 中选「GLM ›」→「国际」，粘贴 Key，创建。
-
-官方说明：[API Key 分类管理说明](https://docs.bigmodel.cn/cn/coding-plan/notice/api-key-management)、
-[Coding Plan 快速开始](https://docs.bigmodel.cn/cn/coding-plan/quick-start)、
-[Z.AI API Key Management Guide](https://docs.z.ai/devpack/notice/api-key-management)、
-[Z.AI Quick Start](https://docs.z.ai/devpack/quick-start)。
 
 ## 通义千问（阿里云百炼）
 
@@ -266,10 +248,7 @@ Key 就扣哪边的费用。
   `sk-sp-` Key 选了按量的子选项，或者国际站的 Key 选了国内站。换成对应的子选项
   重新创建即可。
 
-官方说明：[获取 API Key](https://help.aliyun.com/zh/model-studio/get-api-key)、
-[Claude Code 接入（含四种方式对照）](https://help.aliyun.com/zh/model-studio/claude-code)、
-[Coding Plan](https://help.aliyun.com/zh/model-studio/coding-plan)、
-[国际站 Claude Code 接入](https://www.alibabacloud.com/help/en/model-studio/claude-code)。
+官方说明：[获取 API Key](https://help.aliyun.com/zh/model-studio/get-api-key)。
 
 ## 小米 MiMo
 
@@ -305,15 +284,12 @@ MiMo 两种都有，**两把 Key 不通用、连接地址也不同**；Token Pla
 
 - 以 `sk-` 开头的按量 Key 和以 `tp-` / `ttp-` 开头的套餐 Key 不能混用，子选项要选对；
   Token Plan 选错集群也会连不上。
-- Token Plan 在 北京时间 0–8 点 调用按 0.8 倍扣额度。
 
-官方说明：[首次调用 API](https://mimo.mi.com/docs/quick-start/summary/first-api-call)、
-[Token Plan 快速接入](https://mimo.mi.com/docs/tokenplan/Token%20Plan/quick-access)、
-[Claude Code 配置](https://mimo.mi.com/docs/zh-CN/tokenplan/integration/claudecode)。
+官方说明：[首次调用 API](https://mimo.mi.com/docs/quick-start/summary/first-api-call)。
 
 ## Claude
 
-Claude 的能力上限最高。两种付费方式的前提相同：**先让这台电脑上的 Claude Code
+两种付费方式的前提相同：**先让这台电脑上的 Claude Code
 完成登录**，Vibe Seller 内置的「Claude」配置（「系统默认环境」）直接复用这个登录，
 **不需要在 Vibe Seller 里粘贴 Key**。
 
@@ -327,11 +303,10 @@ Claude 的能力上限最高。两种付费方式的前提相同：**先让这�
 
 登录步骤：
 
-1. 按 [官方安装文档](https://code.claude.com/docs/en/setup) 安装 Claude Code。
-2. 在终端运行 `claude`，浏览器会弹出登录页，按你的付费方式选择 claude.ai 账号或
-   Console 账号。
-3. 终端显示 `Login successful` 即完成。
-4. 回到 Vibe Seller，进入「设置 → AI」，「Claude」这一行如果没有「★ 默认」标记，
+1. 在终端运行 `claude`（Vibe Seller 的安装脚本和安装包都会一并装好 Claude Code），
+   浏览器会弹出登录页，按你的付费方式选择 claude.ai 账号或 Console 账号。
+2. 终端显示 `Login successful` 即完成。
+3. 回到 Vibe Seller，进入「设置 → AI」，「Claude」这一行如果没有「★ 默认」标记，
    点击「设为默认」。
 
 ![设置 → AI：内置的 Claude 配置带「★ 默认」标记](images/vibeseller_claude_default_zh.png)
@@ -341,11 +316,7 @@ Claude 的能力上限最高。两种付费方式的前提相同：**先让这�
 - Claude 只在[部分国家和地区](https://platform.claude.com/docs/en/api/supported-regions)
   提供服务，注册前先确认。
 - 电脑上装了 cc-switch 之类的工具，或者环境变量里设置了 `ANTHROPIC_API_KEY`，
-  Claude Code 会优先使用它们而不是你的登录。可以在 Claude Code 里输入 `/status`
-  查看当前使用的是哪种登录。
-
-官方说明：[Claude Code 登录方式](https://code.claude.com/docs/en/authentication)、
-[Claude API 概览](https://platform.claude.com/docs/en/api/overview)。
+  Claude Code 会优先使用它们而不是你的登录。
 
 ## 常见问题
 

@@ -31,9 +31,6 @@ Official docs: [Custom bot guide](https://open.feishu.cn/document/client-docs/bo
 
 Good to know:
 
-- Rate limit: **100 messages per minute, 5 per second**. Around exact
-  hours and half hours the platform is busy and may answer 11232
-  (throttled) — avoid those moments for important messages.
 - The request body must stay under 20 KB.
 - Markdown is sent as a **card**.
 - No file sending.

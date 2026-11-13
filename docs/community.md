@@ -28,7 +28,4 @@ description: 加入 Vibe Seller 用户群和 Slack，或者在 GitHub 上反馈�
 4. **截图**：报错提示、任务详情页的截图。
 5. **日志**（可选）：服务日志在 `~/.vibe-seller/logs/` 目录下，例如 `backend_7777.log`（Windows 上是 `C:\Users\<你的用户名>\.vibe-seller\logs\`）。
 
-!!! warning "发出去之前先检查"
-    截图和日志里可能有店铺名、邮箱、订单数据或 API Key。公开发到 GitHub 之前，请先把这些信息打码或删掉。
-
 紫鸟绑定报错这类常见问题，可能已经有现成的解决办法，可以先看[常见问题](faq.md)。

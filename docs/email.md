@@ -13,8 +13,6 @@ description: 邮件接入：在 Vibe Seller 里添加邮箱，让 AI 读邮件�
 
 各集成分别配在哪里、彼此怎么分工，见[集成总览](integrations.md)。
 
-> 下文的截图在 macOS 上完成，Windows、Linux 上的界面和步骤一样。
-
 ## 常见需求
 
 - **想让 AI 读取、整理客户邮件**：按下方对应邮箱的步骤添加邮箱，并关联
@@ -48,9 +46,6 @@ description: 邮件接入：在 Vibe Seller 里添加邮箱，让 AI 读邮件�
 4. 验证通过后，页面会显示一串 **16 位客户端授权码**——
    **只显示这一次**，请立即复制保存。同一个授权码可以给多个客户端使用；
    以后要添加新客户端，点击「新增授权密码」再生成一个即可。
-
-完整图文步骤见网易官方帮助「如何开启客户端协议？」——
-[官方说明](https://help.mail.163.com/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac2a5feb28b66796d3b)。
 
 ### 第二步：在 Vibe Seller 里添加
 
@@ -89,8 +84,7 @@ description: 邮件接入：在 Vibe Seller 里添加邮箱，让 AI 读邮件�
 4. 验证通过后弹出一串 **16 位授权码**——这是以后登录第三方客户端使用的
    专属密码，**不是 QQ 密码**，请复制保存。
 
-授权码遗忘或泄露时，在「设置 → 账号与安全 → 设备管理 → 授权码管理」
-中重置，旧的立即失效。（[官方说明](https://help.mail.qq.com/detail/0/1087)）
+授权码遗忘或泄露时，在 QQ 邮箱的设置里重置，旧的立即失效。
 
 !!! note "企业邮箱（exmail）"
     腾讯企业邮箱的地址形如 `you@yourcompany.com`，服务器不同
@@ -128,8 +122,7 @@ Gmail 使用的不是登录密码，而是**应用专用密码**（App Password�
 （[官方说明](https://support.google.com/mail/answer/185833)）
 
 !!! note "Google Workspace（公司/学校）账号"
-    个人 @gmail.com 账号的 IMAP 自 2025 年 1 月起一直开启，无需设置。
-    但公司或学校管理的 Google Workspace 账号，管理员可能**关闭了 IMAP
+    公司或学校管理的 Google Workspace 账号，管理员可能**关闭了 IMAP
     或应用专用密码**——如果找不到「应用专用密码」入口或
     「转发和 POP/IMAP」标签，请联系管理员开启。
 
@@ -141,12 +134,10 @@ Gmail 使用的不是登录密码，而是**应用专用密码**（App Password�
 
 ## Outlook / Hotmail：暂不支持
 
-**Outlook.com、Hotmail、Live 邮箱目前无法接入。** 微软自 2024 年 9 月起
-全面停用了密码登录（Basic Authentication），这类邮箱必须走 OAuth2 授权，
+**Outlook.com、Hotmail、Live 邮箱目前无法接入。** 微软已全面停用这些邮箱的
+密码登录（Basic Authentication），这类邮箱必须走 OAuth2 授权，
 而 Vibe Seller 的接入方式是授权码或密码。用 Outlook 邮箱点击「测试连接」
 会看到明确的报错（`Basic authentication is disabled.`），这不是配置问题。
-微软官方说明见
-[公告](https://techcommunity.microsoft.com/blog/outlook/keeping-our-outlook-personal-email-users-safe-reinforcing-our-commitment-to-secu/4164184)。
 如有需要，可以先把 Outlook 邮件转发到一个支持的邮箱再接入。
 
 ## 验证

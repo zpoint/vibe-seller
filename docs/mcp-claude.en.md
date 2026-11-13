@@ -12,8 +12,7 @@ Two things to get ready first:
 1. An API key — see [First: create an API key](mcp.md#first-create-an-api-key).
    Right after you create it, the dialog shows your server address and a
    ready-made Claude command;
-2. Claude itself, installed from
-   [claude.com/download](https://claude.com/download).
+2. Claude installed.
 
 ## Connect
 

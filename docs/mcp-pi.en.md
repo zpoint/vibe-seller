@@ -12,8 +12,7 @@ Two things to get ready first:
 1. An API key — see [First: create an API key](mcp.md#first-create-an-api-key).
    Right after you create it, the dialog shows your server address and a
    ready-made Pi command;
-2. Pi itself, installed by following the instructions on the
-   [Pi website](https://pi.dev).
+2. Pi installed.
 
 ## Connect
 

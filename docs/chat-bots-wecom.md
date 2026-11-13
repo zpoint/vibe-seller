@@ -16,16 +16,13 @@ description: 企业微信群机器人的创建步骤：内部群限制、消息�
    https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxx
    ```
 
-4. （可选）把机器人「发布到企业」后，同事可以在别的群里直接添加它。
-
 官方说明：[如何设置消息推送](https://open.work.weixin.qq.com/help2/pc/14931) · [消息推送配置说明](https://developer.work.weixin.qq.com/document/path/91770)
 
 使用时注意：
 
-- 每个机器人**每分钟最多 20 条**消息；
 - 文本不超过 2 KB，Markdown 不超过 4 KB（支持标题、加粗、链接、行内代码、
   引用、三种字体颜色的精简语法，不支持表格）；
-- 文件 5 字节 ～ 20 MB，先上传再发送，素材 3 天内有效；
+- 文件 20 MB 以内；
 - 群开启「全员禁言」时，机器人消息会显示发送成功但**不出现**在群里。
 
 ## 在 Vibe Seller 里添加

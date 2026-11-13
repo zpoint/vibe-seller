@@ -14,8 +14,6 @@ description: 滴答清单 / TickTick 接入：在开发者平台注册应用、�
 
 各集成分别配在哪里、彼此怎么分工，见[集成总览](integrations.md)。
 
-> 下文的截图在 macOS 上完成，Windows、Linux 上的界面和步骤一样。
-
 ## 接入前准备
 
 - 一个滴答清单（[dida365.com](https://www.dida365.com/)）或
@@ -55,9 +53,6 @@ description: 滴答清单 / TickTick 接入：在开发者平台注册应用、�
    授权完成后弹窗自动关闭，页面上的状态会变为「已连接」。
 
 ![滴答清单接入向导：五步配置](images/ticktick_wizard_zh.png)
-
-图中的重定向地址就是**你自己的 Vibe Seller 地址**（按你实际打开的
-地址生成），直接从页面上复制即可。
 
 !!! note "弹窗被拦截了？"
     授权页以弹窗形式打开。如果浏览器拦截了弹窗，点击地址栏右侧的

@@ -37,15 +37,15 @@ One store (Store A, AE marketplace), one report-only ad-optimization task, one m
 | Report output | one 24 KB report | 103 KB report + PDF (full per-target / per-term tables) | richer |
 | Interruptions | none | 1 operator question (breakeven-ACOS) + 1 model-quota pause (36 min) | |
 
-Cost is estimated at MiniMax-M3.1-Flash's official pay-as-you-go prices (per
-1M tokens: 0.15 USD input, 0.60 USD output, 0.015 USD cache read). On a MiniMax
-subscription plan, the run uses plan quota instead of being billed per token.
+Cost is estimated at MiniMax-M3.1-Flash's official pay-as-you-go prices at
+the time of the run. On a MiniMax subscription plan, the run uses plan quota
+instead of being billed per token.
 
 This was a heavy run: the store has 20-plus campaigns and about 450 search
 terms, and the task drilled into every campaign and every term over the past
 14 days. Cost grows roughly with the number of campaigns and terms; for a
 typical store with 10 campaigns or fewer, one API-path run comes to roughly
-0.20 USD at the same prices (less on a token plan, just a few cents).
+0.20 USD estimated the same way (less on a token plan, just a few cents).
 
 ![One ad-optimization task: where the time goes](images/ads_time_en.png)
 
