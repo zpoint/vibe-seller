@@ -43,6 +43,9 @@ filled in automatically, so you only deal with the authorization code.
    so copy it right away. One code can serve several clients; use
    "Add authorization password" whenever you need a fresh one.
 
+Full illustrated steps: NetEase help
+[How to enable client protocols](https://help.mail.163.com/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac2a5feb28b66796d3b).
+
 ### Step 2: Add it in Vibe Seller
 
 Open **Settings → Email** in Vibe Seller:
@@ -86,8 +89,9 @@ store's tasks.
    password**, is what third-party clients sign in with. Copy and save
    it.
 
-Forgot or leaked it? Reset it in the QQ Mail settings — old codes stop
-working immediately.
+Forgot or leaked it? Reset under **Settings → Account & Security →
+Device management → Authorization codes** — old codes stop working
+immediately. ([official guide](https://help.mail.qq.com/detail/0/1087))
 
 !!! note "Corporate mail (exmail)"
     Tencent Exmail addresses (`you@yourcompany.com`) use different

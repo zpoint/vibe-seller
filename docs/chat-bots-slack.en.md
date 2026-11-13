@@ -23,6 +23,8 @@ Good to know:
 
 - Messages always go to the channel chosen when the webhook was
   created; it cannot be changed later.
+- Posted messages cannot be deleted. The URL is the credential — Slack
+  revokes leaked ones.
 - Plain text up to 40,000 characters, markdown (Block Kit) up to
   12,000 characters.
 - No file sending and no signing secret — leave the secret field empty.

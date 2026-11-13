@@ -42,7 +42,7 @@ http://localhost:7777
 ![演示：配置 AI](images/setup_ai_zh.gif)
 
 !!! note "一个 Key 都没有？"
-    最省事的是 [DeepSeek](llm-keys.md#deepseek)：官网注册、按 token 付费，小额充值就能开始使用。其他几家既支持按量付费也有月度套餐，用量大时更划算。每家怎么获取 Key、该选哪个预设、能用哪些模型，都写在 [配置 AI 模型](llm-keys.md) 里。
+    最省事的是 [DeepSeek](llm-keys.md#deepseek)：官网注册、按 token 付费，充值几块钱就能开始使用。其他几家既支持按量付费也有月度套餐，用量大时更划算。每家怎么获取 Key、该选哪个预设、能用哪些模型，都写在 [配置 AI 模型](llm-keys.md) 里。
 
 !!! tip "这台机器上的 Claude Code 已经登录过 Anthropic 订阅？"
     内置的那个「默认」配置使用的就是本机 Claude Code 环境，不需要再填 Key，可以先创建一个任务试试。

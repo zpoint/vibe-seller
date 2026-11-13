@@ -11,7 +11,8 @@ description: 在 Qoder 里接入 Vibe Seller：把弹窗给的 JSON 粘贴进添
 1. 一个 API Key：见[第一步：创建 API Key](mcp.md#第一步创建-api-key)。创建
    成功后弹出的窗口里有你的服务器地址和 Qoder 的现成
    配置；
-2. 已安装 Qoder（国内版的应用名是 **Qoder CN**）。
+2. 已经安装 Qoder：从 [qoder.com/download](https://qoder.com/download) 下载
+   （国内版的应用名是 **Qoder CN**）。
 
 ## 接入
 

@@ -12,7 +12,9 @@ Two things to get ready first:
 1. An API key — see [First: create an API key](mcp.md#first-create-an-api-key).
    Right after you create it, the dialog shows your server address and a
    ready-made Qoder config;
-2. Qoder installed (the China edition is called **Qoder CN**).
+2. Qoder itself, installed from
+   [qoder.com/download](https://qoder.com/download) (the China edition is
+   called **Qoder CN**).
 
 ## Connect
 

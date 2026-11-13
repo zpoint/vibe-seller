@@ -350,11 +350,11 @@ then sign in with your claude.ai account at step 2 below.
 
 Signing in:
 
-1. Run `claude` in a terminal (Vibe Seller's installers set Claude Code up
-   alongside it); a browser login page opens. Choose the claude.ai account or
-   the Console account, depending on how you pay.
-2. When the terminal shows `Login successful`, you're done.
-3. Back in Vibe Seller, `Settings → AI`: if the "Claude" row has no
+1. Install Claude Code following the [official setup guide](https://code.claude.com/docs/en/setup).
+2. Run `claude` in a terminal; a browser login page opens. Choose the claude.ai
+   account or the Console account, depending on how you pay.
+3. When the terminal shows `Login successful`, you're done.
+4. Back in Vibe Seller, `Settings → AI`: if the "Claude" row has no
    **★ Default** mark, click **Set as Default**.
 
 ![Settings → AI: the built-in Claude profile marked "★ Default"](images/vibeseller_claude_default_en.png)
@@ -364,7 +364,11 @@ Signing in:
 - Claude is available only in [supported countries and regions](https://platform.claude.com/docs/en/api/supported-regions);
   check before signing up.
 - If you use cc-switch or a similar tool, or have `ANTHROPIC_API_KEY` set in
-  your environment, Claude Code uses that instead of your sign-in.
+  your environment, Claude Code uses that instead of your sign-in. Type
+  `/status` in Claude Code to see which credential is active.
+
+Official docs: [Claude Code authentication](https://code.claude.com/docs/en/authentication),
+[Claude API overview](https://platform.claude.com/docs/en/api/overview).
 
 ## FAQ
 

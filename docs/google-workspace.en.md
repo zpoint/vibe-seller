@@ -27,8 +27,13 @@ Where each integration is configured and how they divide up: see the
 
 ## Step 1: Install gws
 
-Follow the [official README](https://github.com/googleworkspace/cli) to install
-the gws CLI.
+Any of these ([official README](https://github.com/googleworkspace/cli)):
+
+- **Prebuilt binary** (recommended): download the package for your OS
+  from [GitHub Releases](https://github.com/googleworkspace/cli/releases),
+  extract it and put `gws` on your PATH;
+- **npm**: `npm install -g @googleworkspace/cli`;
+- **Homebrew** (macOS / Linux): `brew install googleworkspace-cli`.
 
 Confirm with `gws --version` in a terminal. The Vibe Seller settings
 card shows the detected version too.

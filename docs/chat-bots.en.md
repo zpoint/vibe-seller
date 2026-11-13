@@ -35,6 +35,7 @@ The four platforms differ slightly:
 | Text | 2 KB | ~20 KB | 20 KB | 40,000 characters |
 | Markdown | 4 KB (reduced subset) | ~20 KB (title derived) | 20 KB (as a card) | 12,000 characters |
 | Files | ✔ up to 20 MB | ✘ | ✘ | ✘ |
+| Rate limit | 20 msgs/min | 20 msgs/min | 100 msgs/min | see Slack's docs |
 
 ## What to prepare
 
@@ -161,7 +162,8 @@ can check allowlists against it.
 Three usual causes:
 
 1. The WeCom group has **mute all** enabled — bot messages are accepted
-   but never displayed. Ask the group owner to turn mute off.
+   but never displayed. Ask the group owner to turn mute off (the
+   official guide documents this).
 2. Wrong group: one webhook belongs to one group (for Slack, the
    channel picked at creation). Add another bot for the other group.
 3. Make sure you are looking at the group the bot was added to, not a
@@ -181,8 +183,12 @@ the message already contains it, nothing is added.
 
 <details markdown="1"><summary><b>Feishu keyword on, and markdown fails with Key Words Not Found?</b></summary>
 
-If you see this error, switch the security setting to **signature
-check**.
+Feishu's official guide says the keyword check "only applies to text
+parameters such as text and title", and markdown is delivered as a
+card whose body is not in those fields. If you see this error, switch
+the security setting to **signature check**, or include the keyword in
+the card's heading. (We have not re-verified this combination on a
+live group; handle it as the error suggests.)
 
 </details>
 

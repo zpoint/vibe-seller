@@ -12,7 +12,8 @@ Two things to get ready first:
 1. An API key — see [First: create an API key](mcp.md#first-create-an-api-key).
    Right after you create it, the dialog shows your server address and a
    ready-made Hermes config;
-2. Hermes Agent installed.
+2. Hermes Agent itself, installed by following the
+   [official installation guide](https://hermes-agent.nousresearch.com/docs/getting-started/installation).
 
 ## Connect
 

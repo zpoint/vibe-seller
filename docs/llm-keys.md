@@ -303,10 +303,11 @@ MiMo 两种都有，**两把 Key 不通用、连接地址也不同**；Token Pla
 
 登录步骤：
 
-1. 在终端运行 `claude`（Vibe Seller 的安装脚本和安装包都会一并装好 Claude Code），
-   浏览器会弹出登录页，按你的付费方式选择 claude.ai 账号或 Console 账号。
-2. 终端显示 `Login successful` 即完成。
-3. 回到 Vibe Seller，进入「设置 → AI」，「Claude」这一行如果没有「★ 默认」标记，
+1. 按 [官方安装文档](https://code.claude.com/docs/en/setup) 安装 Claude Code。
+2. 在终端运行 `claude`，浏览器会弹出登录页，按你的付费方式选择 claude.ai 账号或
+   Console 账号。
+3. 终端显示 `Login successful` 即完成。
+4. 回到 Vibe Seller，进入「设置 → AI」，「Claude」这一行如果没有「★ 默认」标记，
    点击「设为默认」。
 
 ![设置 → AI：内置的 Claude 配置带「★ 默认」标记](images/vibeseller_claude_default_zh.png)
@@ -316,7 +317,11 @@ MiMo 两种都有，**两把 Key 不通用、连接地址也不同**；Token Pla
 - Claude 只在[部分国家和地区](https://platform.claude.com/docs/en/api/supported-regions)
   提供服务，注册前先确认。
 - 电脑上装了 cc-switch 之类的工具，或者环境变量里设置了 `ANTHROPIC_API_KEY`，
-  Claude Code 会优先使用它们而不是你的登录。
+  Claude Code 会优先使用它们而不是你的登录。可以在 Claude Code 里输入 `/status`
+  查看当前使用的是哪种登录。
+
+官方说明：[Claude Code 登录方式](https://code.claude.com/docs/en/authentication)、
+[Claude API 概览](https://platform.claude.com/docs/en/api/overview)。
 
 ## 常见问题
 

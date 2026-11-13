@@ -10,7 +10,7 @@ description: 在 Pi 里接入 Vibe Seller：执行弹窗给的 pi mcp add 命令
 
 1. 一个 API Key：见[第一步：创建 API Key](mcp.md#第一步创建-api-key)。创建
    成功后弹出的窗口里有你的服务器地址和 Pi 的现成命令；
-2. 已安装 Pi。
+2. 已经安装 Pi：按 [Pi 官网](https://pi.dev) 的说明安装。
 
 ## 接入
 

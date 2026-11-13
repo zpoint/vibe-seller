@@ -12,7 +12,8 @@ Two things to get ready first:
 1. An API key — see [First: create an API key](mcp.md#first-create-an-api-key).
    Right after you create it, the dialog shows your server address and a
    ready-made WorkBuddy config;
-2. WorkBuddy installed.
+2. WorkBuddy itself, installed from [workbuddy.cn](https://www.workbuddy.cn)
+   (China) or [workbuddy.ai](https://www.workbuddy.ai) (international).
 
 ## Connect
 

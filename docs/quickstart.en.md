@@ -42,7 +42,7 @@ A saved key is masked in the UI by default — an admin can click **Show** / **C
 ![Demo: set up AI](images/setup_ai_en.gif)
 
 !!! note "No key yet?"
-    [DeepSeek](llm-keys.md#deepseek) is the easiest start: sign up on their site, top up a small amount, pay per token. The others sell both pay-as-you-go and monthly plans, which are cheaper under heavy use. Where to get each key, which preset to pick and which models are available: [Configure AI Models](llm-keys.md).
+    [DeepSeek](llm-keys.md#deepseek) is the easiest start: sign up on their site, top up a few dollars, pay per token. The others sell both pay-as-you-go and monthly plans, which are cheaper under heavy use. Where to get each key, which preset to pick and which models are available: [Configure AI Models](llm-keys.md).
 
 !!! tip "Already signed in to Claude Code on this machine?"
     The built-in **Default** profile uses this machine's Claude Code environment, so there's nothing to fill in — run a task first and only create a profile if you want a different provider.
