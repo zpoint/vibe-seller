@@ -83,7 +83,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 $setup = Join-Path $prev_dir 'VibeSeller-Setup.exe'
 
-# SKIP CONDITION 1: the document that makes the choice knowable.
+# SKIP CONDITION 1: the document that makes the choice knowable. With
+# no manifest on the release there is no fingerprint to compare, and a
+# client installed from that release cannot take the pip path by
+# construction.
 $prevBundle = Join-Path $prev_dir 'bundle.json'
 gh release download "v$prev" --repo $env:GITHUB_REPOSITORY `
   --pattern 'bundle.json' --dir $prev_dir
@@ -114,10 +117,13 @@ if (-not (Test-Path "$env:VS_INSTALL\bundle.json")) {
         'the manifest, so nothing on it can compare fingerprints')
 }
 
-# SKIP CONDITION 3: the previous release predates the in-app updater? The idle loop is
-# code INSIDE the installed wheel, so the install is what gets asked —
-# the same third condition `pip-upgrade-gate.yml`'s decision job checks
-# from the previous wheel on PyPI.
+# SKIP CONDITION 3 (the numbering follows the gate's `decision` job, not
+# this file: the install is ready to be asked only after step 2's
+# download, and condition 2 needs the candidate document, which needs
+# the build): the previous release predates the in-app updater.
+# The idle loop is code INSIDE the installed wheel, so the install is
+# what gets asked — the same third condition
+# `pip-upgrade-gate.yml`'s decision job checks from the previous wheel.
 # One call per line: a PowerShell command ends at a line break unless
 # the break follows an operator or a comma, so a two-line `Join-Path`
 # inside `Test-Path` is a parse error, not a wrapped expression.
@@ -158,6 +164,7 @@ try {
   python scripts/bundle_fingerprint.py -o $candBundle | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "bundle_fingerprint.py failed ($LASTEXITCODE)" }
 } finally { Pop-Location }
+# SKIP CONDITION 2: the two releases describe different runtimes.
 $prevFp = (Get-Content $prevBundle -Raw | ConvertFrom-Json).fingerprint
 $candFp = (Get-Content $candBundle -Raw | ConvertFrom-Json).fingerprint
 Say "candidate bundle fingerprint: $candFp"

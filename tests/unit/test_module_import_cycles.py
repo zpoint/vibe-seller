@@ -44,6 +44,7 @@ MODULES = [
     'app.update_check',
     'app.routers.system',
     'app.apply_launch',
+    'app.update_windows',
 ]
 
 
