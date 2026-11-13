@@ -108,9 +108,9 @@ plugins:
             Examples: 使用示例
             All Examples: 全部示例
             Daily Email Digest to WeCom: 每天把重要邮件发到企业微信
-            Weekly Ad ACOS Review: 每周检查广告 ACOS
+            Analyse Ad ACOS and Apply Fixes: 分析广告 ACOS 并执行优化
             Weekly Listing Check: 每周巡检 Listing
-            Daily Sales Report: 每天导出销售报表
+            Monthly Sales Report: 每月导出销售报表
             Ziniao Finances with Codex: 用 Codex 导出紫鸟店铺财务数据进行分析
             User Guide: 使用指南
             Stores & Browsers: 店铺与浏览器
@@ -216,9 +216,9 @@ nav:
       - Examples:
           - All Examples: examples.md
           - Daily Email Digest to WeCom: example-email-wecom.md
-          - Weekly Ad ACOS Review: example-ads-acos.md
+          - Analyse Ad ACOS and Apply Fixes: example-ads-acos.md
           - Weekly Listing Check: example-listing-check.md
-          - Daily Sales Report: example-daily-report.md
+          - Monthly Sales Report: example-daily-report.md
           - Ziniao Finances with Codex: example-mcp.md
       - User Guide:
           - Stores & Browsers: stores.md

@@ -1,23 +1,24 @@
 ---
-description: "Example: every Monday at 09:00, review the store's Amazon ads for the last 7 days, list every targeting and search term above 30% ACOS with spend, orders and a proposal, and post a summary to WeCom. Nothing changes on the ad account until you confirm."
+description: "Example: one task in a store that reads the store's Amazon ads for the last 30 days, lists every targeting and search term above 30% ACOS with spend, orders and a proposal, and applies the ones you name in a reply — nothing changes until you do."
 ---
 
-# Check ads every week, propose fixes above 30% ACOS, and alert me
+# Analyse ad ACOS, get optimisation advice for anything above 30%, and apply it
 
-Every Monday morning Vibe Seller looks over this store's Amazon ads for the last
-7 days and puts everything with ACOS above 30% into one table: spend, orders,
-current bid, and what to do about it. The list goes to your WeCom group, and
-**nothing on the ad account changes** — it touches the account only after you
-reply with which proposals to run.
+Create one task under a store and have it read that store's Amazon ads for the
+last 30 days: every targeting and search term above 30% ACOS goes into a table —
+spend, orders, current bid, what to do about it — and it then applies the rows
+you approve.
 
-Setup takes about 15 minutes (not counting the Amazon ad authorization); after
-that it runs weekly by itself.
+**Saying "and apply it" in the description does not let it edit the account on
+the spot**: it shows you the list of changes first and stops. It touches the
+account only after you reply with which rows to run, and it runs exactly those.
+
+This is a one-off task: create it, and it runs once. Setup takes about 15
+minutes (not counting the Amazon ad authorization).
 
 ## What you need first
 
 - A store with its browser backend bound (see [Stores & Browsers](stores.md));
-- A group bot (see [Chat bots](chat-bots.md) — the same one the
-  [mailbox example](example-email-wecom.md) uses);
 - Optional but strongly recommended: this store's **Amazon Ads authorization**.
   Reading the numbers over the API is far faster and steadier than having the AI
   click through pages.
@@ -40,40 +41,30 @@ the ad console and reads it page by page — just slower. The measured compariso
 and how to authorize several marketplaces are in
 [Amazon Ads API setup](ads-api.md).
 
-## 2. Create the schedule
+## 2. Create the task in the store
 
-Checking one store only? **Select that store** on the left before creating the
-schedule. Every store? Stay on **All Stores** and use **Fan out** (next section).
+**Tasks** in the sidebar → **select this store** on the left → **New Task**. The
+dialog is titled "New Task for {store}" — a store task acts on that one store, so
+there is no execution mode to pick.
 
-**Tasks** in the sidebar → **Scheduled** → **New Schedule**.
-
-**Title**: "Weekly ads ACOS check"
+**Title**: "Ad ACOS clean-up"
 
 **Description** (copy this block, and replace 30% with your own line):
 
-> Review this store's Amazon ads for the last 7 days and list every targeting
+> Analyse this store's Amazon ads for the last 30 days and list every targeting
 > and search term with ACOS above 30%, with its spend, orders and why it is a
-> problem, then propose a fix (lower bid / add negative / pause). Show me the
-> proposal first - do not touch the ad account until I confirm. Send a summary
-> to the "Ops group" bot.
+> problem, then propose a fix (lower bid / add negative / pause) and apply it.
 
-**Frequency**: every 1 weeks, **Day of Week** "Monday", **At time** 09:00,
-**Timezone** your own zone.
+![The New Task dialog: this store selected, description filled in](images/example-ads-task_en.png)
 
-![The New Schedule form: every 1 week Monday 09:00, Fan out plus Run stores one at a time](images/example-ads-schedule_en.png)
+Click **Create & Run** and the task starts right away. Store tasks default to
+**auto mode**: it plans and executes without a separate approval step (to see the
+plan first, flip the **Auto / Review** switch at the bottom of the task detail —
+see [Auto mode vs Review mode](using-tasks.md#auto-mode-vs-review-mode)).
 
-**Which mode under All Stores**:
-
-| Situation | Pick |
-|---|---|
-| Every store needs the ad console logged in | **Fan out** + tick **Run stores one at a time** |
-| Very few stores, or the Ads API is authorized | **Fan out**, no need to tick it |
-| You only want one cross-store summary | **Fan out**; the AI registers a finalize step when it needs the merge |
-
-**Run stores one at a time** finishes one store before starting the next, so
-browser profiles on the same machine don't push each other out; a store that
-fails in the middle doesn't stop the ones after it. The two scopes and both modes
-are laid out in [Two scopes and the execution modes](schedules.md#two-scopes-and-the-execution-modes).
+It starts by reading the store's ad data: over the API when the store is
+authorized, through the store's browser when it isn't. The analysis window is the
+last 30 days by default, and the window you write in the description wins.
 
 ## 3. When one store should live by different numbers
 
@@ -95,34 +86,35 @@ buried in a sentence doesn't count. All keys and their rules:
 [Store notes and parameter overrides](knowledge.md#store-notes-and-parameter-overrides).
 Whatever you write in the task description always outranks these defaults.
 
-## What you get after it runs
+## What you get when it finishes
 
-After 09:00 on Monday, that round's task holds a table sorted by ACOS:
+The task holds a table sorted by ACOS first: every row with its spend, orders,
+current bid and one proposal, and under the table a line saying the ad account
+was not touched.
 
 ![The ACOS table: rows over the line, spend, orders and the proposal for each](images/example-ads-result_en.png)
 
-Under the table it says it changed nothing on the ad account and is waiting for
-you. The conversation shows a question card whose options are "All 6 / Only the 3
-bid cuts / Change nothing":
+That is where it waits for you. Type one line in the box below saying which rows
+to run, and it continues:
 
-![The task waiting for your answer: which proposals to apply](images/example-ads-confirm_en.png)
+![Reply in the task: which proposals to apply](images/example-ads-confirm_en.png)
 
-Pick one, click **Submit Answers**, and only then does it make the changes — each
-result lands in the same run record. Choose "Change nothing" and it just keeps the
-report.
+Only the rows your reply names get executed — "all of them", "the first 3 as
+proposed", "not the two pauses yet" all work. When it starts executing it
+**freezes** that approved list, then re-reads the console row by row; a change
+outside the list, or at a value the list doesn't say, is refused. Reply "nothing"
+and it just keeps the report.
+
+If it also puts the choices on a question card: **an answer on that card is not
+this confirmation.** Changes cost your money, so the server counts the messages
+you have sent in the task, not what was ticked on a card.
 
 ## Questions this example gets
 
 **Will it edit my ads on its own?**
-No. The check phase only produces a proposal; execution needs your reply in the
-task. After you reply it works through that exact list, and a change outside the
-list is refused.
-
-**The summary didn't reach the group?**
-First check that **Test** on the bot works, then compare the group name in the
-description with the bot's name. Chat bots only send out: the AI can't read group
-replies, so “go ahead and apply it” has to be said in this task in Vibe Seller,
-not in the group.
+No. The analysis phase only produces the list; execution needs your reply in the
+task, naming the rows. After that it works through that exact list, and a change
+outside the list is refused.
 
 **What does one run cost?**
 Cost grows with the number of campaigns and search terms. A store with 20-plus
@@ -130,3 +122,16 @@ campaigns and about 450 search terms, over the Ads API, came to roughly 0.45 USD
 for one run; a typical store with 10 campaigns or fewer works out to about
 0.20 USD. The same task without the API, driving the browser instead, costs
 several times more — see the [Measured comparison](ads-api.md#measured-comparison).
+
+**Is the result kept?**
+The table and the data files stay in this task's working folder and download from
+the panel at the bottom of the task; conclusions worth keeping across tasks go
+into the store's knowledge. Ask "run the last 90 days too" and it continues in the
+same task — statuses and Continue vs Re-run are in
+[Continue, retry, stop, delete](using-tasks.md#continue-retry-stop-delete).
+
+---
+
+Want it every week instead? Turn the same description into a schedule: **Tasks**
+in the sidebar → **Scheduled** → **New Schedule**, frequency every 1 weeks —
+see [Scheduled Tasks](schedules.md).
