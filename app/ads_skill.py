@@ -258,9 +258,9 @@ async def remove() -> None:
     async with skills_tree.hold():
         await asyncio.to_thread(shutil.rmtree, skill_dir(), ignore_errors=True)
     # Nothing is on disk any more, so the memory must not keep claiming
-    # a version — otherwise the header of the service we bind to next
-    # would match what we "have" and the skill would stay missing until
-    # a run that checks the files too.
+    # a version. The rebind that brings the skill back is the thing that
+    # installs it, with its own reason in the journal; what this line
+    # buys is that "what we hold" is a fact rather than a habit.
     _set_installed('')
 
 
@@ -313,12 +313,28 @@ def note_service_version(remote: str) -> None:
       skill — that is the whole point, and the limit, of this path.
 
     The comparison is against the in-memory installed version, so a
-    header costs no database read; the first mismatch of a process does
-    one, inside the task, off the request's way.
+    header costs no database read; the first news of a process does one,
+    inside the task, off the request's way.
+
+    **A machine with nothing installed is not behind.** This path answers
+    "the service moved and we did not hear about it"; a version-less
+    machine is answering "we have never pulled this", and that question
+    already has three doors that say what they are doing — the bind
+    (``reason=event``), the boot tick and the daily job. Taking it here
+    would also steal the label: a store sync ``POST /me/stores`` is
+    answered with the header, and the same request triggers the
+    authorization run milliseconds later; whichever starts first owns
+    the run's reason in the journal, so the operator would read
+    ``reason=stale`` where a person authorized a store. That rule is
+    applied in :func:`_refresh_for`, where the installed version is
+    known, and not here, where it may still be unread.
     """
     if not remote or remote == _installed:
-        # Either the same version we hold, or a service that said
-        # nothing — which is no information, not a mismatch.
+        # A service that said nothing, or said what we hold. Both are
+        # answers, not news — and the empty machine is not decided here,
+        # because here we may not know yet: ``_installed`` is ``None``
+        # until the row is read, and that read happens in the task, on
+        # the one side of this that can act on the answer.
         return
     now = time.monotonic()
     last = _refreshed_at.get(remote)
@@ -355,7 +371,13 @@ async def _refresh_for(remote: str) -> None:
     ``sync_bundle`` at all, so the flag would only make the call say
     something the job then ignores.
     """
-    if remote == await installed_version():
+    installed = await installed_version()
+    if not installed:
+        # Nothing installed to be behind, which is what the memory said
+        # before this read turned ``None`` into ``''``: the bind, the
+        # boot tick or the daily job will say why it installs.
+        return
+    if remote == installed:
         # Somebody caught up while we were scheduled — a tick, a bind,
         # a peer call. Not a mismatch any more, so not a run.
         return

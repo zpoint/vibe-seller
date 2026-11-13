@@ -35,6 +35,13 @@ MARKETPLACE = 'SA'
 API_SPEND = '123.45'
 API_SALES = '617.25'
 
+#: The second version's own figure, on the second version's own path.
+#: Neither appears in :data:`SKILL_MD`, so a report carrying it proves
+#: the client read the newer document.
+VERSION_V2 = 'e2e-2'
+PULSE = '424.24'
+PULSE_PATH = '/facts/e2e-pulse'
+
 SKILL_MD = """---
 name: amazon-ads-api
 description: "ONLY for a store authorized with the ads service. Load this BEFORE any advertising work on such a store. Everything goes through the `vibe_seller_ads_call` tool — never a browser."
@@ -55,9 +62,33 @@ advertising work here. One tool reaches everything:
 Answers the last 30 days per campaign, with totals.
 """
 
+#: What the service ships after one change lands: the same document,
+#: plus the path and the figure that did not exist in ``e2e-1``. A
+#: client that refreshed reads it; a client that did not has no idea
+#: this path is there, and its calls to it are guesses.
+SKILL_MD_V2 = (
+    SKILL_MD
+    + """
+## The pulse metric
+
+    vibe_seller_ads_call(path="/facts/e2e-pulse", store="<store name>")
+
+Answers this store's advertising pulse for the last 30 days. It exists
+only here — the console has no such number — and is the figure to quote
+when the question asks for the store's pulse.
+"""
+)
+
 
 class AdsService(http.server.ThreadingHTTPServer):
-    """The service, plus a log of every call it answered."""
+    """The service, plus a log of every call it answered.
+
+    **What it ships lives on the instance, not in module globals.** Two
+    fakes can run in one process (xdist workers each start their own,
+    and a test may want two services on two ports), and a version
+    published through a module global would leak between them — one
+    test's ``publish`` silently making another's client current.
+    """
 
     allow_reuse_address = True
 
@@ -65,6 +96,8 @@ class AdsService(http.server.ThreadingHTTPServer):
         super().__init__(*args, **kwargs)
         self.calls: list[tuple[str, str, dict]] = []
         self._lock = threading.Lock()
+        self.bundle_version = VERSION
+        self.bundle_files: dict[str, str] = {'SKILL.md': SKILL_MD}
 
     def record(self, method: str, path: str, query: dict) -> None:
         with self._lock:
@@ -73,6 +106,35 @@ class AdsService(http.server.ThreadingHTTPServer):
     def calls_to(self, path: str) -> list[dict]:
         with self._lock:
             return [q for _, p, q in self.calls if p == path]
+
+    def publish(self, version: str, files: dict[str, str]) -> None:
+        """Ship a new bundle, the way a deploy on the real service does."""
+        with self._lock:
+            self.bundle_version = version
+            self.bundle_files = dict(files)
+
+    def served_version(self) -> str:
+        with self._lock:
+            return self.bundle_version
+
+    def served(self, name: str = 'SKILL.md') -> str:
+        """The bytes a client pulling the bundle would get for *name*."""
+        with self._lock:
+            return self.bundle_files[name]
+
+    def served_files(self) -> dict[str, str]:
+        with self._lock:
+            return dict(self.bundle_files)
+
+    def log_index(self) -> int:
+        """Where the call log stands now, for an order assertion."""
+        with self._lock:
+            return len(self.calls)
+
+    def calls_since(self, index: int) -> list[tuple[str, str, dict]]:
+        """Everything answered since :meth:`log_index` was taken."""
+        with self._lock:
+            return list(self.calls[index:])
 
 
 def store_key(local_id: str) -> str:
@@ -102,6 +164,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(payload)))
+        # What the real service puts on EVERY answer, the refused ones
+        # included (vibe-ads-server PR #19), and the reason this whole
+        # test module exists. One place, in the reply, so no route here
+        # can miss it either.
+        self.send_header('X-Skill-Version', self.server.served_version())
         self.end_headers()
         self.wfile.write(payload)
 
@@ -127,14 +194,36 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 })
             return self._reply(200, {'stores': rows})
         if url.path == '/skill/version':
-            return self._reply(200, {'version': VERSION})
+            return self._reply(
+                200,
+                {
+                    'version': self.server.served_version(),
+                    'files': len(self.server.served_files()),
+                },
+            )
         if url.path == '/skill/bundle':
-            return self._reply(200, {'files': {'SKILL.md': SKILL_MD}})
+            return self._reply(
+                200,
+                {
+                    'version': self.server.served_version(),
+                    'files': self.server.served_files(),
+                },
+            )
         if url.path == '/facts/rollup':
             key = query.get('store_key')
             if not key:
                 return self._reply(400, {'detail': 'store_key is required'})
             return self._reply(200, _rollup(key))
+        if url.path == PULSE_PATH:
+            # Answered since the first version, so the ONLY thing that
+            # keeps a client from finding it is the skill that names it.
+            key = query.get('store_key')
+            if not key:
+                return self._reply(400, {'detail': 'store_key is required'})
+            return self._reply(
+                200,
+                {'store_key': key, 'window': 'last 30 days', 'pulse': PULSE},
+            )
         return self._reply(404, {'detail': f'no such path: {url.path}'})
 
     def do_GET(self):  # noqa: N802 (stdlib interface)

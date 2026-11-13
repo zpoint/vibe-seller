@@ -516,10 +516,14 @@ class TestInstalledVersionIsMemory:
         assert scheduler.calls == []
         assert session.opens == 1
 
-    async def test_remove_forgets_it_so_a_rebind_installs_again(self, service):
-        """Unbinding drops the skill; the service's next header has to
-        be news again, or the skill stays missing until a run that also
-        looks at the files."""
+    async def test_remove_empties_it_so_no_version_is_claimed(self, service):
+        """Unbinding drops the skill, and the memory drops with it.
+
+        Claiming ``v1`` afterwards would lie about the tree. And a
+        machine that holds nothing is not a machine that is behind: its
+        next skill comes from the bind that follows, which says so in
+        its own reason.
+        """
         _session, scheduler, answer, _mp = service
         ads_skill._installed = INSTALLED
 
@@ -530,7 +534,47 @@ class TestInstalledVersionIsMemory:
         await ads_client.call(None, '/facts/rollup')
         await _settled()
 
-        assert len(scheduler.calls) == 1
+        assert scheduler.calls == []
+
+    async def test_a_machine_holding_nothing_is_not_behind(self, service):
+        """The header of a store sync is not news to an empty machine.
+
+        ``POST /me/stores`` is answered with the version, and the same
+        request triggers the authorization run moments later. Whichever
+        starts first owns the run's reason in the journal, so a stale
+        trigger here would read ``reason=stale`` where a person
+        authorized a store — for an install that was already on its way.
+        """
+        session, scheduler, answer, _mp = service
+        session.rows.pop(ads_skill.VERSION_KEY)  # never installed
+
+        answer(_Response(headers=_header(NEWER)))
+        await ads_client.call(None, '/me/stores', method='POST')
+        await _settled()
+
+        assert scheduler.calls == []
+        # The one read it did to find that out, and it is remembered.
+        assert session.opens == 1
+        assert await ads_skill.installed_version() == ''
+
+    async def test_an_empty_machine_asks_once_not_often(self, service):
+        """Four calls on a machine that holds nothing: no run, and one
+        read between them, not four.
+
+        The empty answer is remembered, so the rule costs the first call
+        a query and the rest nothing.
+        """
+        session, scheduler, answer, _mp = service
+        session.rows.pop(ads_skill.VERSION_KEY)
+
+        for _ in range(4):
+            answer(_Response(headers=_header(NEWER)))
+            await ads_client.call(None, '/facts/rollup')
+        await _settled()
+
+        assert scheduler.calls == []
+        assert session.opens == 1
+        assert ads_skill._pending == set()
 
 
 class TestTheCallItselfIsUntouched:
