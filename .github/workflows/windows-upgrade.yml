@@ -405,7 +405,10 @@ jobs:
       - name: Basic e2e on the UPGRADED build (health + store/profile API)
         shell: bash
         run: |
-          export PATH="$VS_INSTALL/.venv/Scripts:$PATH"
+          # The tray starts the server with the bundled claude + the venv
+          # on PATH (installer/windows/tray.py); verify_install.sh checks
+          # that the agent CLI the server resolves actually runs.
+          export PATH="$VS_INSTALL/claude:$VS_INSTALL/.venv/Scripts:$PATH"
           # Pass "" to skip verify_install.sh's `vibe-seller --version`
           # check (fragile under Git Bash with a Windows-path PATH). The
           # version-after-upgrade is already asserted authoritatively via

@@ -360,7 +360,9 @@ jobs:
       - name: Smoke test (verify_install.sh — health + store/profile API)
         shell: bash
         run: |
-          export PATH="$VS_INSTALL/.venv/Scripts:$PATH"
+          # The tray starts the server with the bundled claude + the venv
+          # on PATH; the smoke test resolves the agent CLI the same way.
+          export PATH="$VS_INSTALL/claude:$VS_INSTALL/.venv/Scripts:$PATH"
           # Empty version arg → skip the version-match check (this is a
           # PR build, not a published release).
           bash tests/releases/verify_install.sh ""

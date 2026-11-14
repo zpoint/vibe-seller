@@ -60,9 +60,17 @@ fi
 # package's postinstall (its native binary) while still exiting 0. An
 # install whose `claude` answers "claude native binary not installed"
 # serves every page and runs no task, so a release must not pass with
-# one. The path is the one the daemon resolves first
-# (app/ai/claude_backend_utils.py: <VIBE_HOME>/node_modules/.bin).
+# one. Resolved the way the daemon resolves it
+# (app/ai/claude_backend_utils.py: resolve_claude_binary): the
+# project-local <VIBE_HOME>/node_modules/.bin/claude first, else
+# `claude` on PATH — which is where the Windows installer's bundled
+# claude.exe is found (its tray puts {app}\claude on PATH).
 claude_bin="${VIBE_HOME:-$HOME/.vibe-seller}/node_modules/.bin/claude"
+if [ ! -e "$claude_bin" ]; then
+    claude_bin=$(command -v claude || true)
+fi
+[ -n "$claude_bin" ] \
+    || _die "no Claude Code CLI: neither <VIBE_HOME>/node_modules/.bin/claude nor claude on PATH"
 _log "agent CLI runs ($claude_bin --version)"
 claude_version=$("$claude_bin" --version 2>&1) \
     || _die "the Claude Code CLI does not run: $claude_version"
