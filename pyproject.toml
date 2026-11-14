@@ -272,6 +272,9 @@ classmethod-decorators = ["classmethod"]
 # and the detached update helper captures that stdout as its apply log —
 # so the module that runs the tool install speaks in the same voice.
 "app/uv_tool.py" = ["T20"]
+# Same voice as `vibe-seller upgrade`, whose step it is: one `==> <command>`
+# line per action, and the reason a CLI does not run, on the terminal.
+"app/claude_cli_install.py" = ["T20"]
 "app/auth_reset.py" = ["T20"]  # same: a command-line tool
 "app/skills/**/generate_invoice.py" = ["T20"]
 "app/skills/**/scripts/*.py" = ["T20"]  # skill CLI tools print output

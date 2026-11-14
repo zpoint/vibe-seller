@@ -18,6 +18,7 @@
 #
 # What it verifies, end-to-end, against the just-installed wheel:
 #   1. `vibe-seller --version` matches the expected version
+#   1b. the project-local Claude Code CLI every agent task spawns runs
 #   2. /api/health returns 200
 #   3. POST /api/stores creates a Chrome-backend store, GET confirms
 #   4. POST /api/profiles creates an AI profile, GET confirms
@@ -53,6 +54,19 @@ if [ -n "$EXPECTED_VERSION" ]; then
 else
     _log "skipping version check (no expected version supplied)"
 fi
+
+# --- 0b. the agent CLI runs --------------------------------------
+# install.sh installs Claude Code with npm, and newer npm skips the
+# package's postinstall (its native binary) while still exiting 0. An
+# install whose `claude` answers "claude native binary not installed"
+# serves every page and runs no task, so a release must not pass with
+# one. The path is the one the daemon resolves first
+# (app/ai/claude_backend_utils.py: <VIBE_HOME>/node_modules/.bin).
+claude_bin="${VIBE_HOME:-$HOME/.vibe-seller}/node_modules/.bin/claude"
+_log "agent CLI runs ($claude_bin --version)"
+claude_version=$("$claude_bin" --version 2>&1) \
+    || _die "the Claude Code CLI does not run: $claude_version"
+_log "  agent CLI OK: $claude_version"
 
 # --- 1. wait for /api/health -------------------------------------
 _log "wait for $BASE/api/health"

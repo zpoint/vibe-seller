@@ -119,11 +119,18 @@ class TestUpgradeClaudeCli:
     """An upgrade moves the project-local Claude Code CLI too — the copy
     every agent task spawns, which a global upgrade never reaches."""
 
-    def _run(self, tmp_path, monkeypatch, *, which, rcs, argv=('upgrade',)):
+    def _run(
+        self, tmp_path, monkeypatch, *, which, rcs, argv=('upgrade',), runs=0
+    ):
         monkeypatch.setenv('VIBE_HOME', str(tmp_path))
         # The browser-engine step between the two has its own tests
         # (test_chromium_engine.py); keep these about the CLI sequence.
         monkeypatch.setattr(cli, '_install_browser_after_upgrade', lambda: None)
+        # Likewise the check that the installed CLI runs
+        # (test_claude_cli_install.py): these are about the sequence.
+        monkeypatch.setattr(
+            cli.claude_cli_install, 'finish', lambda _home: runs
+        )
         with (
             patch.object(cli.shutil, 'which', side_effect=which),
             patch.object(cli.subprocess, 'run') as run,
@@ -204,6 +211,20 @@ class TestUpgradeClaudeCli:
     ):
         rc, _ = self._run(
             tmp_path, monkeypatch, which=lambda n: f'/usr/bin/{n}', rcs=[0, 1]
+        )
+        assert rc == 1
+
+    def test_an_installed_cli_that_does_not_run_fails_the_command(
+        self, tmp_path, monkeypatch
+    ):
+        """npm exits 0 even when it skipped the package's install step;
+        whether the CLI runs is what decides, not npm's exit code."""
+        rc, _ = self._run(
+            tmp_path,
+            monkeypatch,
+            which=lambda n: f'/usr/bin/{n}',
+            rcs=[0, 0],
+            runs=1,
         )
         assert rc == 1
 
