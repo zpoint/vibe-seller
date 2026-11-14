@@ -113,7 +113,10 @@ export interface Task extends TaskUsage {
   schedule_id: string | null;
   batch_id: string | null;
   created_by_name: string | null;
-  created_at: string; started_at: string | null; completed_at: string | null;
+  // `updated_at` is on every task the API returns (TaskResponse); it was
+  // simply never declared here, so code sorting by last activity could
+  // not be type-checked.
+  created_at: string; updated_at: string; started_at: string | null; completed_at: string | null;
 }
 /** Live usage meter (app/task_usage.py) — on the task row and pushed
  *  during a run as the `task_usage` SSE event, with these names. */

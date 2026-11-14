@@ -80,6 +80,7 @@ export function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
 }
 
 export function makeTask(overrides: Partial<Task> = {}): Task {
+  const now = new Date().toISOString()
   return {
     id: `task-${++_idCounter}`,
     store_id: null,
@@ -98,7 +99,8 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     schedule_id: null,
     batch_id: null,
     created_by_name: null,
-    created_at: new Date().toISOString(),
+    created_at: now,
+    updated_at: now,
     started_at: null,
     completed_at: null,
     ...overrides,
