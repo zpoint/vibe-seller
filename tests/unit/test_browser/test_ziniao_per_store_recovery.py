@@ -19,7 +19,7 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def cfg():
+def cfg(cdp_version_port):
     return {
         'company': 'co',
         'username': 'u',
@@ -27,7 +27,8 @@ def cfg():
         'socket_port': 16851,
         'client_path': 'ziniao',
         'browser_oauth': 'OAUTH==',
-        'proxy_port': 9222,
+        # A real listener, so the CDP probe's outcome is not the host's.
+        'proxy_port': cdp_version_port,
         'store_slug': 'store-x',
     }
 
