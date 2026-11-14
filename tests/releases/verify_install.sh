@@ -89,11 +89,17 @@ done
 [ "$code" = "200" ] || _die "/api/health didn't reach 200 within ${HEALTH_TIMEOUT_S}s (last=$code)"
 
 # --- 2. POST /api/stores (Chrome backend, no Ziniao) -------------
-_log "POST /api/stores"
+# A name of this run's own: the release's in-place upgrade check runs
+# this script twice against one data dir (the previous version, then
+# the upgraded one), and a store name another store's slug already has
+# is refused with 409 — one store per slug, since the browser wrapper,
+# profile and `stores/<slug>/` are keyed by it (app/routers/stores.py).
+store_name="ci-verify-store-$(date +%s)-$$"
+_log "POST /api/stores ($store_name)"
 store_json=$(
     curl -fsS -X POST "$BASE/api/stores" \
         -H 'Content-Type: application/json' \
-        -d '{"name":"ci-verify-store","browser_backend":"chrome","platforms":["amazon"],"countries":["US"]}'
+        -d "{\"name\":\"$store_name\",\"browser_backend\":\"chrome\",\"platforms\":[\"amazon\"],\"countries\":[\"US\"]}"
 )
 echo "$store_json" | jq .
 store_id=$(echo "$store_json" | jq -r '.id // empty')
