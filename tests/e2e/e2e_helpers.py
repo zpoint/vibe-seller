@@ -14,6 +14,7 @@ from pathlib import Path
 import threading
 import time
 from urllib.parse import urlparse
+import uuid
 
 import httpx
 
@@ -238,6 +239,20 @@ def get_messages(client: httpx.Client, task_id: str) -> list[dict]:
     resp = client.get(f'{BASE_URL}/api/tasks/{task_id}/messages')
     resp.raise_for_status()
     return resp.json()
+
+
+def run_tag() -> str:
+    """A suffix for a store name that no other xdist worker can produce.
+
+    A module-scoped fixture runs once PER WORKER, so with names built
+    from ``int(time.time())`` two workers entering the same module in the
+    same second asked for the same store name — the same slug, and so
+    the same browser wrapper, profile and CDP proxy, until one worker's
+    teardown deleted the other's browser mid-test. Slug-safe on purpose
+    (lowercase letters, digits, hyphens): the name IS the slug here.
+    """
+    worker = os.environ.get('PYTEST_XDIST_WORKER', 'gw0').removeprefix('gw')
+    return f'{int(time.time())}-w{worker}-{uuid.uuid4().hex[:4]}'
 
 
 def create_store(

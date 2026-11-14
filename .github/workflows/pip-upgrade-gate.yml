@@ -1,0 +1,402 @@
+name: Pip Upgrade Gate
+
+# The release gate this feature exists for: the PREVIOUS published
+# release must be able to move onto the candidate over the PIP path —
+# the few-MB wheel install a server applies BY ITSELF the first moment
+# the machine is idle. `windows-upgrade.yml` gates the other path
+# (previous installer -> new installer); nothing else proves that an
+# ordinary release, the kind that changes Python code only, reaches a
+# real install without a human touching it.
+#
+# It SKIPS — green, with the reason in the log and the run summary —
+# whenever the comparison cannot mean anything, and each reason is a
+# fact about the two releases rather than a pass:
+#
+#   * the previous release publishes no `bundle.json` asset. 0.3.1 does
+#     not: the manifest ships with this PR. The very first release after
+#     this has no fingerprint to compare against, and a client installed
+#     from it cannot take the pip path by construction.
+#   * the two fingerprints DIFFER. That is not a failure either — it is
+#     the correct answer for a release that moved the bundled runtime,
+#     and the installer path (`windows-upgrade.yml`) is what a client
+#     must then take. Saying "the pip gate did not run because the pip
+#     path is not the right path here" is the honest result.
+#   * the previous release predates the in-app updater: its wheel has no
+#     `app/update_idle.py`. Nothing on that install can apply itself,
+#     and a leg that clicked the #244 button instead would be testing
+#     #244, not this gate.
+#
+# WINDOWS: the job below, the same hop for an installer-built install.
+# `windows-installer.yml` leg s3 proves the pip path from a bundle THIS
+# RUN built, which is the right thing to prove about the mechanism and
+# the wrong thing to prove about a release: only the published
+# installer carries the `bundle.json` a customer's machine actually
+# compares against, so only a gate that installs the PREVIOUS release's
+# real `VibeSeller-Setup.exe` says anything about whether the next
+# release reaches Windows installs by itself. It cannot go green until
+# two releases after this one have shipped the manifest — which is
+# exactly when it starts mattering — and `force=true` is how it is
+# shown capable of failing before then.
+#
+# `force=true` (workflow_dispatch) runs the legs even when a skip
+# condition holds. They are then EXPECTED TO FAIL on exactly that
+# condition — which is how this gate is rehearsed before the first
+# release that publishes a bundle document.
+
+on:
+  workflow_call:
+    inputs:
+      claude_version:
+        description: >-
+          The Claude Code CLI version the candidate release resolved
+          (empty = the newest release). release.yml passes the one its
+          build uses, so the gate tests the bundle that ships.
+        required: false
+        default: ''
+        type: string
+      playwright_version:
+        description: The Playwright version the candidate resolved.
+        required: false
+        default: ''
+        type: string
+  workflow_dispatch:
+    inputs:
+      prev_version:
+        description: >-
+          Previous stable version to upgrade FROM. Empty means the
+          newest stable release on PyPI, which is what a release gate
+          uses.
+        required: false
+        default: ''
+        type: string
+      force:
+        description: >-
+          Run the legs even when a skip condition holds, so the gate can
+          be rehearsed against a release that cannot actually take the
+          pip path. The legs then fail on that condition, on purpose.
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# The floating bundle pins (app/bundle.py: FLOATING_PINS). Every job here
+# that fingerprints or builds the candidate resolves them first with
+# scripts/resolve_bundle_pins.py, which reads these.
+env:
+  BUNDLE_CLAUDE_VERSION: ${{ inputs.claude_version || vars.BUNDLE_CLAUDE_VERSION }}
+  BUNDLE_PLAYWRIGHT_VERSION: ${{ inputs.playwright_version || vars.BUNDLE_PLAYWRIGHT_VERSION }}
+
+jobs:
+  # Everything the legs need to know, decided once, from the two
+  # releases themselves rather than from anything this repo remembers.
+  decision:
+    name: can the previous release take the pip path?
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      prev: ${{ steps.prev.outputs.version }}
+      reason: ${{ steps.decide.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: The previous stable release
+        id: prev
+        env:
+          PREV_INPUT: ${{ inputs.prev_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PREV_INPUT" ]; then
+            echo "version=$PREV_INPUT" >> "$GITHUB_OUTPUT"
+            echo "prev (dispatch input): $PREV_INPUT"
+            exit 0
+          fi
+          # PyPI's newest NON-prerelease — the same question
+          # app/update_check.py asks when a stable install answers it.
+          prev=$(python - <<'PY'
+          import json, urllib.request
+          with urllib.request.urlopen(
+              'https://pypi.org/pypi/vibe-seller/json', timeout=30
+          ) as resp:
+              print(json.load(resp)['info']['version'])
+          PY
+          )
+          [ -n "$prev" ] || { echo "::error::no stable version on PyPI"; exit 1; }
+          echo "version=$prev" >> "$GITHUB_OUTPUT"
+          echo "prev (PyPI latest stable): $prev"
+
+      - name: Decide
+        id: decide
+        env:
+          PREV: ${{ steps.prev.outputs.version }}
+          FORCE: ${{ inputs.force }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          say() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+          run=true
+          reason=''
+
+          # 1. Does the previous release publish the manifest at all?
+          #
+          # A FAILED `gh` must not become "no bundle.json": the whole
+          # point of this job is a SKIP that is a fact about the two
+          # releases, and swallowing an auth or network error here would
+          # print that same confident sentence while the gate quietly
+          # stopped gating anything. `gh` reads GH_TOKEN, which the
+          # runner does not put in the environment on its own — every
+          # `gh` step in this repo passes it explicitly, and this file
+          # did not.
+          if ! gh release view "v$PREV" --repo "$GITHUB_REPOSITORY" \
+              --json assets -q '.assets[].name' > /tmp/assets.txt; then
+            echo "::error::gh could not read release v$PREV — the gate " \
+              "cannot tell a missing asset from a failed API call, and " \
+              "refuses to skip on that"
+            exit 1
+          fi
+          if ! grep -qx 'bundle.json' /tmp/assets.txt; then
+            run=false
+            reason="release v$PREV publishes no bundle.json asset, so there "
+            reason+="is no fingerprint on either side of the comparison (the "
+            reason+="manifest ships with this PR)"
+          else
+            gh release download "v$PREV" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'bundle.json' --dir /tmp/prev-bundle
+            # 2. Do the two releases describe the same runtime bundle?
+            #    The candidate's claude / Playwright are resolved first,
+            #    exactly as its release build resolves them.
+            python scripts/resolve_bundle_pins.py || exit 1
+            python scripts/bundle_fingerprint.py --require-resolved \
+              -o /tmp/candidate.json || exit 1
+            mine=$(python -c "import json;print(json.load(open('/tmp/candidate.json'))['fingerprint'])")
+            theirs=$(python -c "import json;print(json.load(open('/tmp/prev-bundle/bundle.json'))['fingerprint'])")
+            say "fingerprint here : $mine"
+            say "fingerprint there: $theirs"
+            if [ "$mine" != "$theirs" ]; then
+              run=false
+              reason="the bundles differ, so v$PREV -> this candidate is an "
+              reason+="INSTALLER hop and windows-upgrade.yml gates it; the "
+              reason+="pip path is not the answer for this pair"
+            fi
+          fi
+
+          # 3. Can that installed release apply anything by itself? The
+          #    idle loop is code in the WHEEL, so the wheel is what gets
+          #    read — never this checkout's copy of it, which always has
+          #    one and would answer yes for every release.
+          if [ "$run" = true ]; then
+            if python - "$PREV" <<'PY'
+          import glob
+          import subprocess
+          import sys
+          import zipfile
+
+          version = sys.argv[1]
+          subprocess.run(
+              [sys.executable, '-m', 'pip', 'download', '--quiet',
+               '--no-deps', '-d', '/tmp/prev-wheel',
+               f'vibe-seller=={version}'],
+              check=True,
+          )
+          wheels = glob.glob('/tmp/prev-wheel/*.whl')
+          assert wheels, f'no wheel was downloaded for {version}'
+          names = zipfile.ZipFile(wheels[0]).namelist()
+          ok = 'app/update_idle.py' in names
+          print('previous wheel has app/update_idle.py:', ok)
+          raise SystemExit(0 if ok else 3)
+          PY
+            then :
+            else
+              run=false
+              reason="vibe-seller $PREV contains no app/update_idle.py, so "
+              reason+="that install has no idle-apply loop to run — there is "
+              reason+="no self-applying update on it to test"
+            fi
+          fi
+
+          if [ "$FORCE" = true ] && [ "$run" = false ]; then
+            say "::notice::force=true — running the legs anyway"
+            say "(they are expected to fail on: $reason)"
+            run=true
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "reason=${reason:-the previous release can take the pip path}" \
+            >> "$GITHUB_OUTPUT"
+          if [ "$run" = true ]; then
+            say "RUN: v$PREV -> candidate over the pip path"
+          else
+            say "SKIP: $reason"
+          fi
+
+  # macOS and Linux: the same script as the PR legs, from a real
+  # published release.
+  pip-path-unix:
+    name: previous release -> candidate, pip path (${{ matrix.os }})
+    needs: decision
+    if: needs.decision.outputs.run == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      VIBE_SELLER_TELEMETRY: '0'
+      # The leg's own skip is a fact about the previous release's WHEEL
+      # (no app/update_idle.py in it), which `decision` cannot see from
+      # the release assets alone — so the leg is told to fail instead of
+      # skip when the gate was forced, and `force=true` means the same
+      # thing on both platforms.
+      GATE_FORCE: ${{ inputs.force }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install lsof
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y lsof
+
+      - name: Resolve the candidate's claude / Playwright
+        run: uv run --no-project --python 3.11 python scripts/resolve_bundle_pins.py
+
+      - name: Run the gate leg
+        env:
+          PREV_V: ${{ needs.decision.outputs.prev }}
+          REASON: ${{ needs.decision.outputs.reason }}
+        run: |
+          echo "s9: upgrading the published $PREV_V to this checkout's build"
+          echo "why this gate runs at all: $REASON"
+          LEG=s9 PORT=7931 PREV_V="$PREV_V" \
+            bash tests/releases/test_auto_update.sh
+
+  # Windows: the published installer, moved onto this commit's wheel by
+  # the update check running on that install. The Unix leg above proves
+  # the same hop for a `uv tool` install; on Windows the install the
+  # customer has is the one Inno laid down, with its own base python,
+  # its own uv and — the point of this job — the `bundle.json` that
+  # release put beside it. Nothing in this repo's own tree can answer
+  # "does the release an actual machine holds take the pip path", and
+  # `windows-installer.yml`'s s3, which upgrades from the installer this
+  # run just built, cannot answer it either: that installer is made from
+  # the same commit as the candidate, so its fingerprint matches by
+  # construction.
+  #
+  # Turns red under: `no-rollback`/`retry-bad` (the apply side and the
+  # refusal), `wrong-path` (a fabricated bundle would be pip-installed
+  # anyway), and `raw-fingerprint`, because the two sides of the
+  # comparison — the file the build wrote into the installer and the
+  # asset the release job published from a Linux runner — are then
+  # hashed with different line endings and the client reads
+  # "different runtime".
+  pip-path-windows:
+    name: previous release -> candidate, pip path (windows)
+    needs: decision
+    if: needs.decision.outputs.run == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      # VIBE_SELLER_AUTO_UPDATE and VIBE_SELLER_PORT reach both the
+      # daemon and the detached helper it spawns, because
+      # app/apply_launch.py copies them into the helper's argument
+      # document. VS_V2 is a candidate above every real release, so
+      # PyPI can never win a resolution and `is_newer` always sees an
+      # upgrade.
+      VIBE_SELLER_AUTO_UPDATE: '1'
+      VIBE_SELLER_PORT: '7794'
+      VIBE_SELLER_TELEMETRY: '0'
+      VS_V2: '99.9.9'
+      PREV_VERSION: ${{ needs.decision.outputs.prev }}
+      GATE_FORCE: ${{ inputs.force }}
+      # The leg downloads the previous release's own installer and
+      # bundle document with the CLI; without this it cannot.
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The candidate wheel is built from this tree with
+          # SETUPTOOLS_SCM_PRETEND_VERSION; the build backend still runs
+          # setuptools-scm, which needs the tags.
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: The gate hop
+        shell: pwsh
+        run: |
+          # One file, because the same leg has to be runnable from a
+          # workflow_dispatch that IS available during the PR: a
+          # workflow that exists only on a branch cannot be dispatched
+          # at all (GitHub answers HTTP 404 until the file lands on the
+          # default branch), so `windows-installer.yml`'s
+          # `gate-rehearsal` job runs this script too. That is what
+          # makes "the gate's Windows leg has never been executed" a
+          # claim this PR can disprove.
+          $t = $env:RUNNER_TEMP
+          $env:VIBE_HOME = "$t\vs-gate-home"
+          $env:VIBE_SELLER_RELEASES_URL = "$t\vs-gate-release.json"
+          $env:UV_FIND_LINKS = "$t\dist"
+          $env:VS_DIST = "$t\dist"
+          # An explicit policy: this shell would otherwise be
+          # governed by the machine's execution policy, which is
+          # not something a leg should have to know.
+          pwsh -NoProfile -ExecutionPolicy Bypass -File `
+            ./tests/releases/win_gate_leg.ps1
+
+          # A child pwsh's exit code is NOT a PowerShell error: with
+          # `$ErrorActionPreference='Stop'` and no
+          # `PSNativeCommandUseErrorActionPreference`, a script that
+          # throws in the child leaves THIS step to finish normally and
+          # report success — and this leg's whole purpose is to be able
+          # to go red. Look at the code.
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Stop the leg's server + tray
+        if: always()
+        shell: pwsh
+        run: |
+          $install = "$env:LOCALAPPDATA\Programs\VibeSeller"
+          if (Test-Path "$install\.venv\Scripts\vibe-seller.exe") {
+            & "$install\.venv\Scripts\vibe-seller.exe" stop --port 7794 2>$null
+          }
+          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') -and
+              $_.ExecutablePath -and
+              $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+      - name: Upload the gate's forensics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-gate-windows
+          path: |
+            ${{ runner.temp }}\vs-gate-home
+            ${{ runner.temp }}\prev\bundle.json
+          if-no-files-found: ignore

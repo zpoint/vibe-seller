@@ -118,8 +118,24 @@ Locally on a Windows box:
 # → installer\windows\out\VibeSeller-Setup.exe
 ```
 
-`build.ps1` parameters pin every third-party version (CPython, uv,
-Git for Windows) for reproducible, reviewable bumps.
+Bundled versions come from `app/bundle_pins.json`. CPython, uv and Git
+for Windows are pinned there. The **Claude Code CLI and Playwright are
+not pinned in the repo** — they say `latest` (and `playwright` is bare in
+`pyproject.toml`). `build.ps1` resolves them first
+(`scripts/resolve_bundle_pins.py`): the newest releases, unless
+`BUNDLE_CLAUDE_VERSION` / `BUNDLE_PLAYWRIGHT_VERSION` name exact versions.
+It stamps the answer into both files before building, so the bundled
+`claude.exe`, the bundled Chromium, the wheel's `playwright==` and
+`bundle.json` all describe one pair.
+
+In CI the same two values are workflow inputs (`claude_version`,
+`playwright_version`) on `release.yml`, `nightly.yml` and
+`windows-installer.yml`, with the repository variables of the same
+`BUNDLE_*` names as the fallback a tag push reads. A release resolves
+once and hands the answer to every job that builds, so its PyPI wheel
+and its installer always agree. When the resolved pair differs from the
+previous release's, the bundle fingerprint moves and Windows installs
+take the full installer for that release; otherwise it is a pip update.
 
 ## Verification status
 

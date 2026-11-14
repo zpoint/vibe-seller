@@ -176,6 +176,16 @@ class FakeAgent(AIAgentBackend):
         # same mode as the original.
         self._last_mode: dict[str, str] = {}
 
+    def live_agent_count(self) -> int:
+        """Mirror ``ClaudeCodeBackendManager.live_agent_count``.
+
+        The upgrade-restart drain and the auto-update idle gate both ask
+        the agent manager this one question, and a fake that cannot
+        answer it means neither can be exercised through the real task
+        lifecycle — which is the only way to catch "the update restarted
+        the server on top of a running task"."""
+        return sum(1 for running in self._running.values() if running)
+
     def set_max_concurrent(self, n: int) -> None:
         """Mirror ClaudeCodeBackend.set_max_concurrent."""
         self._semaphore = asyncio.Semaphore(max(1, n))

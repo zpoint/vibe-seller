@@ -5,31 +5,40 @@
 .DESCRIPTION
   Runs on a Windows runner (GitHub-hosted windows-latest). Produces
   staging\ (relocatable CPython, offline wheels, uv, Git for Windows,
-  claude CLI, Playwright Chromium, tray.py) then invokes Inno Setup to
-  build VibeSeller-Setup.exe. Nothing the installer needs is fetched on
-  the user's machine.
+  claude CLI, Playwright Chromium, tray.py, bundle.json) then invokes
+  Inno Setup to build VibeSeller-Setup.exe. Nothing the installer needs
+  is fetched on the user's machine.
 
   Nothing here builds on macOS — this is driven by
   .github/workflows/windows-installer.yml. See README.md.
 
 .NOTES
-  Pinned third-party versions are parameters so bumps are one-line and
-  reviewable. The claude-CLI fetch is the least-certain step and is
-  isolated in Get-ClaudeCli so it can be iterated independently.
+  Every bundled version comes from ONE file: app/bundle_pins.json. They
+  are not parameters here on purpose — a bump that only happened in the
+  build would make the bundle fingerprint (bundle.json, written below
+  from the same manifest) describe a runtime nobody installed, and the
+  app would then pip-update over a stale Python, Git, uv, claude or
+  Chromium.
+
+  Python, Git for Windows and uv are pinned in the manifest. The Claude
+  Code CLI and Playwright are NOT pinned in the repo: they say `latest`,
+  and step 0 below resolves them (scripts/resolve_bundle_pins.py) to the
+  newest release, or to BUNDLE_CLAUDE_VERSION / BUNDLE_PLAYWRIGHT_VERSION
+  when CI sets them, and stamps the answer into the manifest and
+  pyproject.toml before the wheels are built. A tree a workflow already
+  resolved keeps its answer. Whenever the resolved versions differ from
+  the previous release's, the fingerprint moves and installs take the
+  installer path once.
+
+  The claude-CLI fetch is isolated in Get-ClaudeCli so it can be
+  iterated independently.
 #>
 [CmdletBinding()]
 param(
   [string]$RepoRoot   = (Resolve-Path "$PSScriptRoot\..\.."),
   [string]$StagingDir = "$PSScriptRoot\staging",
   [string]$OutputDir  = "$PSScriptRoot\out",
-  [string]$AppVersion = "0.0.0",
-  # python-build-standalone (Astral) — relocatable CPython.
-  [string]$PbsTag     = "20250115",
-  [string]$PyVersion  = "3.11.11",
-  # Git for Windows (PortableGit) — git + bash + curl/perl/sleep.
-  [string]$GitVersion = "2.47.1",
-  # uv release containing uv.exe.
-  [string]$UvVersion  = "0.5.18"
+  [string]$AppVersion = "0.0.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,21 +46,135 @@ $ProgressPreference    = "SilentlyContinue"  # faster Invoke-WebRequest
 
 function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 
+function Invoke-Native {
+  <#
+    Run an external and return {Text, Code} WITHOUT the error stream.
+
+    Two things fight here, and CI hides the first: `$ErrorActionPreference
+    = 'Stop'` does not make a nonzero native exit throw, but in Windows
+    PowerShell 5.1 a `2>&1` merge turns every stderr line into an
+    ErrorRecord in the ERROR stream, and under Stop the first one is
+    terminating — so `pnpm --version`, which exits 0 and merely warns,
+    killed a build at `NativeCommandError` before $LASTEXITCODE was read.
+    pwsh 7 renders the same warning without throwing, which is why the
+    workflow never showed this. So: relax Stop just for the call, then
+    judge the command by its exit code, which is the only honest signal.
+  #>
+  param([string]$Exe, [string[]]$CmdArgs = @())
+  $eap = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $raw = & $Exe @CmdArgs 2>&1
+  } finally {
+    $ErrorActionPreference = $eap
+  }
+  return @{ Text = @($raw | ForEach-Object { "$_" }); Code = $LASTEXITCODE }
+}
+
+function Invoke-Checked {
+  <#
+    The contract the pnpm steps were missing: a failed
+    `pnpm install --frozen-lockfile` printed
+    ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE and the build carried
+    on, zipping a wheel from whatever app/static the last successful run
+    had left behind. Exit code decides, with the command's own output
+    attached to the failure. (See Invoke-Native for why the merge is
+    done there and not inline.)
+  #>
+  param(
+    [string]$Exe,
+    [string[]]$CmdArgs = @(),
+    [string]$What
+  )
+  Write-Host "    \$ $Exe $($CmdArgs -join ' ')"
+  $r = Invoke-Native -Exe $Exe -CmdArgs $CmdArgs
+  $code = $r.Code
+  $text = $r.Text
+  if ($code -ne 0) {
+    $tail = ($text | Select-Object -Last 40) -join "`n"
+    throw "$What failed with exit code $code.`n--- last 40 lines of output ---`n$tail"
+  }
+  # Keep the log readable but never empty: the last lines are what a
+  # reviewer needs to tell "worked" from "worked differently".
+  ($text | Select-Object -Last 8) | ForEach-Object { Write-Host "    $_" }
+  return ($text -join "`n")
+}
+
 function Reset-Dir($path) {
   if (Test-Path $path) { Remove-Item -Recurse -Force $path }
   New-Item -ItemType Directory -Force -Path $path | Out-Null
 }
+
+# -- 0. The bundle manifest: the only source of bundled versions ------
+
+# The floating pins (claude, Playwright) become exact versions HERE,
+# before anything reads the manifest or builds a wheel, so the bundled
+# claude.exe, the bundled Chromium, the wheel's `playwright==` and
+# bundle.json all name the same thing.
+Step "Resolving the floating bundle pins"
+python "$RepoRoot\scripts\resolve_bundle_pins.py" --root "$RepoRoot"
+if ($LASTEXITCODE -ne 0) {
+  throw "resolve_bundle_pins.py failed ($LASTEXITCODE)"
+}
+
+$ManifestPath = Join-Path $RepoRoot "app\bundle_pins.json"
+if (-not (Test-Path -LiteralPath $ManifestPath)) {
+  throw "bundle manifest not found: $ManifestPath"
+}
+$Manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
+
+# An absent or empty pin must stop the build, not reach a URL as "".
+function Get-Pin([string]$Path) {
+  $node = $script:Manifest
+  foreach ($part in $Path.Split(".")) {
+    $node = $node.$part
+    if ($null -eq $node) {
+      throw "bundle manifest $script:ManifestPath has no '$Path'"
+    }
+  }
+  if (-not "$node") { throw "bundle manifest pin '$Path' is empty" }
+  return "$node"
+}
+
+# python-build-standalone (Astral) — relocatable CPython.
+$PbsTag        = Get-Pin "python.pbs_tag"
+$PyVersion     = Get-Pin "python.version"
+# Git for Windows (PortableGit) — git + bash + curl/perl/sleep.
+$GitVersion    = Get-Pin "git_for_windows.version"
+# uv release containing uv.exe.
+$UvVersion     = Get-Pin "uv.version"
+# The Claude Code CLI binary bundled as {app}\claude\claude.exe.
+$ClaudeVersion = Get-Pin "claude_code.version"
+# Which Chromium revision the installed Playwright expects.
+$PlaywrightPin = Get-Pin "playwright.version"
+Step ("Bundle pins: python $PyVersion ($PbsTag), git $GitVersion, " +
+      "uv $UvVersion, claude $ClaudeVersion, playwright $PlaywrightPin")
 
 # -- 1. Frontend → app/static, then build offline wheels --------------
 
 function Build-Wheels {
   Step "Building frontend (pnpm) into app/static"
   Push-Location "$RepoRoot\frontend"
-  corepack enable
-  corepack prepare pnpm@latest --activate
-  pnpm install --frozen-lockfile
-  pnpm build
+  # pnpm@latest is the repo-wide convention (ci.yml, release.yml,
+  # nightly.yml all prepare it, because the lockfile is written by it and
+  # an older pnpm refuses that). It is a moving target, so it is echoed
+  # here and every step below is checked: `pnpm install --frozen-lockfile`
+  # has printed ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE on this
+  # host and the build went on to ship a stale app/static.
+  $null = Invoke-Checked 'corepack' @('enable') 'corepack enable'
+  $null = Invoke-Checked 'corepack' @('prepare', 'pnpm@latest', '--activate') `
+    'corepack prepare pnpm@latest --activate'
+  $pv = Invoke-Native 'pnpm' @('--version')
+  if ($pv.Code -ne 0) { throw "pnpm --version failed ($($pv.Code))" }
+  $pnpmVer = $pv.Text | Select-Object -First 1
+  Step "pnpm version: $pnpmVer"
+  $null = Invoke-Checked 'pnpm' @('install', '--frozen-lockfile') `
+    'pnpm install --frozen-lockfile'
+  $null = Invoke-Checked 'pnpm' @('build') 'pnpm build'
   Pop-Location
+  if (-not (Test-Path "$RepoRoot\frontend\dist\index.html")) {
+    throw "pnpm build left no frontend\dist\index.html — app/static would be empty"
+  }
   $static = "$RepoRoot\app\static"
   if (Test-Path $static) { Remove-Item -Recurse -Force $static }
   Copy-Item -Recurse "$RepoRoot\frontend\dist" $static
@@ -158,33 +281,72 @@ function Get-GitForWindows {
 }
 
 # -- 5. claude CLI (Anthropic native binary) --------------------------
-# LEAST-CERTAIN STEP: verify the install mechanism + resulting binary
-# path on the first CI run, then pin it here.
 function Get-ClaudeCli {
-  # Supply-chain note: this runs Anthropic's official installer
-  # (irm | iex) — the documented native-install path. It is NOT
-  # pinned/checksummed because Anthropic doesn't publish a stable
-  # versioned binary URL; revisit and pin + verify a checksum once one
-  # is available. Isolated in this function so it can be hardened on
-  # its own without touching the rest of the build.
-  Step "Installing claude CLI (native) and bundling the binary"
-  $claudeHome = "$env:TEMP\claude-home"
-  Reset-Dir $claudeHome
-  # The native installer drops claude.exe under the user profile, so
-  # redirect USERPROFILE to capture it — restore it afterwards so the
-  # override can't leak into later build steps in this session.
-  $origProfile = $env:USERPROFILE
+  # Supply-chain note: we bundle the VERSION THE MANIFEST PINS, taken as
+  # a checksummed direct download from Anthropic's release store
+  # (downloads.claude.ai/claude-code-releases/<version>/win32-x64/), the
+  # same store the official installer script fetches from.
+  #
+  # Pinning is what makes this possible at all: with `latest`, every
+  # release bundled a different claude.exe, so no two releases could
+  # ever share a bundle fingerprint and the pip path would be dead on
+  # arrival. Isolated in this function so it can be hardened on its own.
+  #
+  # The hardening: fetch that exact binary ourselves and check it against
+  # the manifest checksum, instead of downloading `claude.ai/install.ps1`
+  # and executing it. Running a remote script we do not pin adds a
+  # third-party supply chain to a build that then re-verifies nothing, and
+  # the installer's own `claude.exe install <version>` step — unpacking
+  # under a redirected USERPROFILE — failed on the build host with
+  # "timeout of 10000ms exceeded", a failure the build could neither see
+  # nor act on. These are the same two URLs that installer uses, without
+  # the script and without the install step: what we need is the one
+  # self-contained binary. What lands in staging is unchanged.
+  Step "Fetching claude CLI $ClaudeVersion (checksummed download) and bundling it"
+  $claudeDir = "$env:TEMP\claude-fetch"
+  Reset-Dir $claudeDir
+  $base = 'https://downloads.claude.ai/claude-code-releases'
+  $plat = 'win32-x64'
+  $manifest = Invoke-RestMethod -Uri "$base/$ClaudeVersion/manifest.json"
+  $entry = $manifest.platforms.$plat
+  if (-not $entry -or -not $entry.binary -or -not $entry.checksum) {
+    throw "claude release $ClaudeVersion has no $plat binary+checksum in manifest.json"
+  }
+  # Invoke-WebRequest's progress bar costs minutes on a 350 MB binary.
+  $prog = $ProgressPreference
+  $ProgressPreference = 'SilentlyContinue'
   try {
-    $env:USERPROFILE = $claudeHome
-    Invoke-RestMethod -Uri 'https://claude.ai/install.ps1' | Invoke-Expression
+    Invoke-WebRequest -Uri "$base/$ClaudeVersion/$plat/$($entry.binary)" `
+      -OutFile "$claudeDir\claude.exe"
   } finally {
-    $env:USERPROFILE = $origProfile
+    $ProgressPreference = $prog
   }
-  $bin = Get-ChildItem -Path $claudeHome -Recurse -Filter 'claude.exe' `
-    -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $bin) {
-    throw "claude.exe not found after install — inspect $claudeHome layout"
+  $bin = Get-Item "$claudeDir\claude.exe"
+  # Get-FileHash uppercases, the manifest is lowercase.
+  $actual = (Get-FileHash -Algorithm SHA256 $bin.FullName).Hash
+  if ($actual -inotmatch ('^' + [regex]::Escape($entry.checksum) + '$')) {
+    throw "claude.exe checksum mismatch for $ClaudeVersion ${plat}: " +
+      "manifest says $($entry.checksum), download is $actual"
   }
+  if ($entry.size -and $bin.Length -ne [long]$entry.size) {
+    throw "claude.exe is $($bin.Length) bytes, manifest says $($entry.size) " +
+      "for $ClaudeVersion $plat"
+  }
+  Write-Host "    sha256 $actual ($($bin.Length) bytes) matches the manifest"
+  # The pin is only real if the bundled binary IS that version: a build
+  # that grabbed `latest` would silently ship whatever was current, and
+  # the fingerprint would name a claude nobody bundled.
+  $cr = Invoke-Native $bin.FullName @('--version')
+  if ($cr.Code -ne 0) {
+    throw "claude.exe --version failed ($($cr.Code)) — " +
+      "cannot verify the pin reached the binary"
+  }
+  $reported = $cr.Text | Select-Object -First 1
+  if ("$reported" -notmatch [regex]::Escape($ClaudeVersion)) {
+    throw "bundled claude reports '$reported', not the pinned " +
+      "$ClaudeVersion — the pin is not reaching the binary"
+  }
+  Step "Bundled claude CLI: $reported"
   Reset-Dir "$StagingDir\claude"
   Copy-Item $bin.FullName "$StagingDir\claude\claude.exe"
 }
@@ -214,6 +376,16 @@ function Get-Chromium {
     --find-links "$StagingDir\wheels" playwright
   if ($LASTEXITCODE -ne 0) {
     throw "could not install playwright from the wheel set"
+  }
+  # The manifest names this version and the fingerprint hashes the
+  # manifest, so a wheel set that resolved anything else would put a
+  # Chromium under the user's feet that no bundle document describes.
+  $got = & "$venv\Scripts\python.exe" -c `
+    "import importlib.metadata as m; print(m.version('playwright'))"
+  if ("$got" -ne $PlaywrightPin) {
+    throw "the wheel set carries Playwright $got, the bundle manifest " +
+      "resolved $PlaywrightPin — the wheel was not built from the " +
+      "resolved pyproject.toml"
   }
   $pw = "$venv\Scripts\playwright.exe"
   $dest = "$StagingDir\ms-playwright"
@@ -286,6 +458,26 @@ function Copy-TrayAndIcon {
   }
 }
 
+function Write-BundleJson {
+  # The installer lays this down as {app}\bundle.json, and the release
+  # publishes the SAME document as an asset beside the .exe. An update
+  # check compares the two fingerprints: equal means nothing outside
+  # the venv changed, so the new release is a few-MB pip install rather
+  # than this ~700 MB installer. See app/bundle.py.
+  #
+  # Written by the one script that computes it — which also refuses to
+  # run when the manifest and pyproject.toml name different Playwrights.
+  Step "Writing bundle.json"
+  python "$RepoRoot\scripts\bundle_fingerprint.py" --require-resolved `
+    --version $AppVersion -o "$StagingDir\bundle.json"
+  if ($LASTEXITCODE -ne 0) {
+    throw "bundle_fingerprint.py failed ($LASTEXITCODE)"
+  }
+  if (-not (Test-Path "$StagingDir\bundle.json")) {
+    throw "bundle_fingerprint.py wrote no bundle.json"
+  }
+}
+
 function Invoke-Inno {
   Step "Compiling installer with Inno Setup"
   Reset-Dir $OutputDir
@@ -331,4 +523,7 @@ Get-ClaudeCli
 Get-Chromium
 Get-ChineseLang
 Copy-TrayAndIcon
+# After the version is final: bundle.json records it (descriptively),
+# and the fingerprint hashes every installer-owned file above.
+Write-BundleJson
 Invoke-Inno

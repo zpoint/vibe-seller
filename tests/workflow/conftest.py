@@ -64,6 +64,9 @@ ASYNC_SESSION_MODULES = [
     'app.workspace.knowledge_sync',
     'app.workspace.skills_sync',
     'app.scheduler.task_queue',
+    # The auto-update idle gate counts busy tasks, so its query has
+    # to land on the test DB like everything else.
+    'app.update_idle',
     'app.scheduler.heartbeat',
     'app.browser.idle_sweep',
     'app.scheduler.cron',

@@ -81,6 +81,18 @@ class TaskQueueScheduler:
             logger.info('Task dispatch paused: draining for a restart')
         self._dispatch_paused = True
 
+    def resume_dispatch(self) -> None:
+        """Undo :meth:`pause_dispatch`.
+
+        Only for a pause that did not lead to a restart: the auto-update
+        pause exists to close the window between "the server is idle"
+        and "the update is applied", and if the second half turns out
+        not to hold, queued work must go back to moving."""
+        if self._dispatch_paused:
+            logger.info('Task dispatch resumed: nothing to restart onto')
+            self._dispatch_paused = False
+        self._tick_event.set()
+
     async def start(self):
         """Recover state from DB and start the tick loop."""
         await self._recover_from_db()

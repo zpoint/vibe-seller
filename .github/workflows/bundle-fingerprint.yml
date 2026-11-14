@@ -1,0 +1,371 @@
+name: Bundle Fingerprint
+
+# The one thing this proves: two checkouts of the SAME commit answer
+# the same bundle fingerprint, no matter how each checkout spelled its
+# newlines.
+#
+# Why it needs a job of its own: the fingerprint is the ONLY thing that
+# chooses between the two update paths (app/bundle.py
+# `pip_path_applies`) — equal fingerprints mean "this release changed
+# nothing outside the venv", so the update is a few MB of wheels the
+# server applies by itself when the machine is idle; anything else means
+# the ~700 MB Windows installer and a human click. A version number
+# cannot answer that question, and a fingerprint that depends on the
+# machine that computed it is worse than no answer at all: the install's
+# own value ({app}\bundle.json, written by the build that made the
+# installer) and the release asset's value (written by whatever job
+# published the release) would never match, every client would conclude
+# "the runtime changed", and every update would take the installer path
+# for the rest of that install's life. NOTHING ERRORS — the small
+# update just never happens, on every machine, forever.
+#
+# The concrete way that goes wrong: `.gitattributes` pins LF only for
+# `*.sh`, and `actions/checkout` runs Windows with `core.autocrlf=true`
+# and Linux with `input`, so the same committed file lands on disk as
+# CRLF bytes here and LF bytes there. `app/bundle.py` normalises text
+# inputs before hashing them (`hashed_as_text` → `file_digest`) for no
+# other reason. This job is that normalisation, tested the only way it
+# can be: compute on both spellings, compare.
+#
+# Nothing is built here — the fingerprint reads the source tree, so this
+# costs one checkout per OS and a few hundred milliseconds. It is
+# deliberately NOT behind the `e2e` approval environment that
+# windows-installer.yml's `e2e-approval` job waits on: that gate is
+# there because the job behind it runs an agent and spends provider
+# credits, which this one does not do at all. Putting this check behind
+# it would mean the guard on every client's update path sits waiting for
+# a human, and on a dispatch (where the gate is skipped) it would look
+# like a test that nobody had to approve — so it has no `environment:`
+# key and runs on the PR by itself.
+#
+# `twist=raw-fingerprint` (workflow_dispatch) injects the bug this job
+# exists to catch — tests/releases/twist.py drops the normalisation and
+# hashes raw bytes — and the two sides then disagree, which is scenario
+# S8. Any other twist is invisible here and the job says so.
+
+on:
+  workflow_dispatch:
+    inputs:
+      twist:
+        description: >-
+          Inject one named bug (tests/releases/twist.py --list) before
+          computing. 'raw-fingerprint' is the one this job can see: the
+          fingerprint inputs get hashed as raw bytes, so a CRLF checkout
+          and an LF checkout of the same commit answer differently
+          (scenario S8) and this job must go RED. 'none' (default)
+          builds the code as it is and both sides must agree. The other
+          twists — wrong-path, no-rollback, ignore-idle,
+          no-digest-check, dev-updates — cannot change a fingerprint;
+          they are proved by cli-upgrade.yml and windows-installer.yml.
+        required: false
+        default: 'none'
+        type: string
+  pull_request:
+    branches: [main]
+    paths:
+      # The same list as cli-upgrade.yml: anything that can move an
+      # update's path, or move the fingerprint that chooses it.
+      - 'app/auto_update.py'
+      - 'app/pip_update.py'
+      - 'app/apply_launch.py'
+      - 'app/pip_apply_helper.py'
+      # The Windows half of the path choice lives here since the
+      # cycle was split out of auto_update.py: which release gets
+      # the pip path on Windows is decided in update_windows.py.
+      - 'app/update_windows.py'
+      - 'app/update_idle.py'
+      - 'app/update_events.py'
+      - 'app/windows_update.py'
+      - 'app/upgrade_restart.py'
+      - 'app/update_check.py'
+      - 'app/bundle.py'
+      - 'app/bundle_pins.json'
+      - 'app/release_channel.py'
+      - 'app/cli.py'
+      - 'app/main.py'
+      - 'app/routers/system.py'
+      - 'app/scheduler/task_queue.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'installer/windows/**'
+      - 'scripts/bundle_fingerprint.py'
+      - 'scripts/resolve_bundle_pins.py'
+      - 'tests/releases/**'
+      - '.github/workflows/cli-upgrade.yml'
+      - '.github/workflows/windows-installer.yml'
+      - '.github/workflows/bundle-fingerprint.yml'
+
+concurrency:
+  group: bundle-fingerprint-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Both sides run the identical steps; only the machine differs, and
+  # that difference is the whole test. `fail-fast: false` so a Windows
+  # checkout problem still leaves the Linux value on the run, which is
+  # what makes the compare job able to say WHICH side is missing.
+  fingerprint:
+    name: fingerprint on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Every twist's anchor text, checked without injecting anything:
+      # a twist whose target line has moved would otherwise run the
+      # pristine tree while the dispatch log claimed a bug was in it.
+      - name: Self-test the twists (anchor check, injects nothing)
+        shell: bash
+        run: python tests/releases/twist.py --list
+
+      # Before the fingerprint is computed: with a twist injected, the
+      # value each side prints is the value that buggy code would have
+      # published to a release asset.
+      - name: Inject the named bug
+        env:
+          TWIST: ${{ inputs.twist }}
+        # bash, not the Windows default pwsh: `"$TWIST"` is a shell
+        # variable in one and a (never-set) PowerShell one in the other,
+        # and a silently-empty twist here would run the pristine tree
+        # while the log claimed otherwise.
+        shell: bash
+        run: python tests/releases/twist.py "$TWIST"
+
+      - name: Say what this run is testing
+        env:
+          TWIST: ${{ inputs.twist }}
+        shell: bash
+        run: |
+          case "${TWIST:-none}" in
+            ''|none)
+              echo 'twist=none: both sides fingerprint the pristine' \
+                   'tree, and they must answer the same value.'
+              ;;
+            raw-fingerprint)
+              echo 'twist=raw-fingerprint: the digests keep each' \
+                   'checkouts own line endings. The two sides are' \
+                   'EXPECTED TO DISAGREE — a green run here would mean' \
+                   'S8 does not actually test anything.'
+              ;;
+            *)
+              echo "::warning::twist=$TWIST cannot change a fingerprint," \
+                   "so this job cannot see it. It is proved by" \
+                   "cli-upgrade.yml (S1/S2/S5/S5b/S7) or" \
+                   "windows-installer.yml (S4/S6)."
+              ;;
+          esac
+
+      - name: Record how this checkout spells its newlines
+        shell: bash
+        run: |
+          python - <<'PY'
+          import platform
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, '.')
+          from app import bundle
+
+          # The text-input rule, spelled out instead of read from
+          # bundle.hashed_as_text(): the diagnostic must not depend on
+          # the code it is describing, or a twist that changes that rule
+          # would make this line of evidence agree with it. Keep in step
+          # with app/bundle.py _HASHED_AS_TEXT (a test pins the file set).
+          TEXT_SUFFIXES = ('.iss', '.py', '.ps1', '.md', '.txt', '.toml')
+
+          rows, crlf, text = [], 0, 0
+          for rel in bundle.INSTALLER_OWNED_FILES:
+              data = Path(rel).read_bytes()
+              is_text = Path(rel).suffix.lower() in TEXT_SUFFIXES
+              has_crlf = b'\r\n' in data
+              if is_text:
+                  text += 1
+                  if has_crlf:
+                      crlf += 1
+              rows.append(
+                  f'{rel}: text={int(is_text)} crlf={int(has_crlf)}'
+              )
+
+          with open('checkout.txt', 'w', encoding='utf-8') as out:
+              out.write(f'os={platform.system()}\n')
+              out.write(f'hashed_text_inputs={text}\n')
+              out.write(f'crlf_text_inputs={crlf}\n')
+
+          print('\n'.join(rows))
+          print(f'checkout: {platform.system()}, {crlf}/{text} hashed'
+                f' text inputs carry CRLF bytes')
+          PY
+
+      - name: Print the fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          # --print is the bare value. `tr` strips the line ending the
+          # shell wrote, so both sides upload the same bytes and the
+          # compare is a comparison of the FINGERPRINT, not of how each
+          # runner redirects stdout.
+          python scripts/bundle_fingerprint.py --print \
+            | tr -d '\r\n' > fingerprint.txt
+          python scripts/bundle_fingerprint.py -o bundle.json >/dev/null
+          echo "fingerprint = $(cat fingerprint.txt)"
+          cat checkout.txt
+
+      - name: Upload this side
+        # !cancelled(): a side that went red under a twist still has to
+        # leave its value behind, or the compare job would report a
+        # missing artifact instead of the disagreement.
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-fingerprint-${{ matrix.os }}
+          path: |
+            checkout.txt
+            fingerprint.txt
+            bundle.json
+          retention-days: 14
+
+  compare:
+    name: the two checkouts must agree
+    needs: fingerprint
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download both sides
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-fingerprint-*
+          path: sides
+          merge-multiple: false
+
+      - name: Compare
+        shell: bash
+        run: |
+          set -uo pipefail
+          U=sides/bundle-fingerprint-ubuntu-latest
+          W=sides/bundle-fingerprint-windows-latest
+
+          # One ::error:: line for the checks table, and the full body
+          # in both the log and the run summary: whoever reads the red X
+          # has to learn what breaks on a customer's machine from it,
+          # not just that two strings differed.
+          # die "<one argument, the line a check list shows>" <body-file>
+          die() {
+            echo "::error::$1"
+            {
+              echo ''
+              echo "## $1"
+              echo ''
+              cat "$2"
+            } >> "$GITHUB_STEP_SUMMARY"
+            cat "$2"
+            exit 1
+          }
+
+          for d in "$U" "$W"; do
+            [ -f "$d/fingerprint.txt" ] && [ -f "$d/checkout.txt" ] \
+              && continue
+            cat > why.md <<TXT
+          That side's job stopped before it printed a value, so this
+          comparison has nothing to compare. Read the failing
+          \`fingerprint\` leg — a side that cannot compute a fingerprint
+          is itself a break (a missing input, or a manifest that
+          disagrees with pyproject.toml), and until both sides print
+          this job says nothing about S8.
+          TXT
+            die "$d never finished its side (no fingerprint.txt, no checkout.txt) — nothing to compare" why.md
+          done
+
+          FU=$(cat "$U/fingerprint.txt")
+          FW=$(cat "$W/fingerprint.txt")
+          CU=$(sed -n 's/^crlf_text_inputs=//p' "$U/checkout.txt")
+          CW=$(sed -n 's/^crlf_text_inputs=//p' "$W/checkout.txt")
+          echo "ubuntu  ($CU CRLF text input(s)): $FU"
+          echo "windows ($CW CRLF text input(s)): $FW"
+
+          # A check that cannot fail is not a check. The same CRLF count
+          # on both sides means the two trees are spelled identically in
+          # the ONLY dimension this job compares, so agreeing values
+          # below would prove nothing about line endings at all.
+          if [ "$CU" = "$CW" ]; then
+            cat > why.md <<TXT
+          Both checkouts spell their hashed text inputs the same way
+          (ubuntu: $CU CRLF, windows: $CW CRLF), so this run compared
+          two identically-spelled trees. It CANNOT detect a fingerprint
+          that depends on line endings, and a green result here would be
+          a green result of nothing.
+
+          What usually changes this: \`actions/checkout\` no longer
+          checking out Windows with \`core.autocrlf=true\`, or
+          \`.gitattributes\` gaining a rule that pins these inputs to LF
+          everywhere. If the latter is now true on purpose, the
+          normalisation in \`app/bundle.py\` still matters for installs
+          built by other machines — but THIS job is no longer the way to
+          prove it. Replace it with two trees that really do differ; do
+          not let it pass quietly.
+          TXT
+            die "the two checkouts are spelled identically — S8 checks nothing" why.md
+          fi
+
+          if [ "$FU" = "$FW" ]; then
+            echo "OK: one commit, one fingerprint, whatever the checkout" \
+                 "spells its newlines ($FU)"
+            exit 0
+          fi
+
+          cat > why.md <<TXT
+          Two answers for ONE commit: \`$FU\` from the LF checkout,
+          \`$FW\` from the CRLF one.
+
+          The fingerprint is the only thing that chooses an update path
+          (\`app/bundle.py\` \`pip_path_applies\`), and the two sides of
+          that comparison come from different machines: an install reads
+          the value its own build wrote into \`{app}\bundle.json\`, and
+          the update check reads the \`bundle.json\` asset the release
+          job published. If one commit can carry two fingerprints, those
+          two never match for some real pair of builder/installs — and
+          the answer to "did the bundled runtime change?" becomes "yes"
+          forever. Every client then takes the ~700 MB installer path for
+          every update: no few-MB wheel install, and therefore no
+          self-applying update on an idle machine either (that is the pip
+          path only), just a popup an admin has to click on every
+          release, on every Windows install, indefinitely.
+
+          **Nothing errors.** That is what makes this the dangerous
+          failure of the feature: the app works, the updates work, and
+          the small update quietly never happens.
+
+          The usual cause is a text input being hashed as raw bytes, so
+          the same file digests differently under CRLF and LF. The
+          normalisation is \`app/bundle.py\` \`hashed_as_text\` +
+          \`file_digest\`; the per-input diff below names which input
+          moved.
+          TXT
+          python3 - "$U/bundle.json" "$W/bundle.json" >> why.md <<'PY'
+          import json
+          import sys
+
+          a = json.load(open(sys.argv[1], encoding='utf-8'))
+          b = json.load(open(sys.argv[2], encoding='utf-8'))
+          keys = sorted(set(a['files']) | set(b['files']))
+          diff = [k for k in keys if a['files'].get(k) != b['files'].get(k)]
+          print('')
+          print(f'inputs whose digest differs: {len(diff)}/{len(keys)}')
+          for k in diff:
+              print(f'  DIFFERS {k}')
+              print(f'    ubuntu   {a["files"].get(k)}')
+              print(f'    windows  {b["files"].get(k)}')
+          if a.get('pins') != b.get('pins'):
+              print('the PIN SETS differ too — a different bug: two'
+                    ' checkouts of one commit read the same manifest')
+          PY
+          die "one commit, two fingerprints: $FU vs $FW — every client would take the installer path forever" why.md

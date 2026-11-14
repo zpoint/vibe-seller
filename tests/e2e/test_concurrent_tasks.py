@@ -23,6 +23,7 @@ from tests.e2e.e2e_helpers import (
     create_task,
     login,
     poll_task_status,
+    run_tag,
     server_log_path,
 )
 
@@ -100,7 +101,7 @@ def api_client():
 
 @pytest.fixture(scope='module')
 def chrome_store_us_amazon(api_client):
-    ts = int(time.time())
+    ts = run_tag()
     return create_store(
         api_client,
         f'concurrent-us-{ts}',
@@ -110,7 +111,7 @@ def chrome_store_us_amazon(api_client):
 
 @pytest.fixture(scope='module')
 def chrome_store_multi_country(api_client):
-    ts = int(time.time())
+    ts = run_tag()
     return create_store(
         api_client,
         f'concurrent-mc-{ts}',
@@ -120,7 +121,7 @@ def chrome_store_multi_country(api_client):
 
 @pytest.fixture(scope='module')
 def chrome_store_multi_platform(api_client):
-    ts = int(time.time())
+    ts = run_tag()
     return create_store(
         api_client,
         f'concurrent-mp-{ts}',

@@ -44,6 +44,7 @@ import threading
 import time
 import urllib.request
 
+from app.bundle import BUNDLE_ASSET_NAME
 from app.release_channel import (
     NIGHTLY_TAG,
     best_upgrade,
@@ -107,33 +108,87 @@ def _fetch_release(src: str | None = None) -> dict:
         return json.loads(resp.read().decode())
 
 
+def _assets(rel: dict) -> list[dict]:
+    assets = rel.get('assets') or []
+    if isinstance(assets, dict):  # PowerShell may unwrap a 1-item array
+        assets = [assets]
+    return [a for a in assets if isinstance(a, dict)]
+
+
+def _asset(rel: dict, name: str) -> dict | None:
+    return next((a for a in _assets(rel) if a.get('name') == name), None)
+
+
 def _installer_offer(rel: dict, version: str) -> dict | None:
-    """``{'version', 'url', 'size', 'digest'}`` when *rel* carries the
-    installer asset.
+    """``{'version', 'url', 'size', 'digest'[, 'bundle']}`` when *rel*
+    carries the installer asset.
 
     ``size`` is the asset's byte count and ``digest`` GitHub's
     ``sha256:<hex>`` — the staged download verifies against them. A
     mock release may omit either; the verification then covers only
-    what is known."""
-    assets = rel.get('assets') or []
-    if isinstance(assets, dict):  # PowerShell may unwrap a 1-item array
-        assets = [assets]
-    asset = next(
-        (
-            a
-            for a in assets
-            if isinstance(a, dict) and a.get('name') == ASSET_NAME
-        ),
-        None,
-    )
+    what is known.
+
+    ``bundle`` is the same release's ``bundle.json`` asset in the same
+    shape — the runtime-bundle fingerprint this install's own copy is
+    compared with to choose pip-vs-installer (``app/bundle.py``). Its
+    absence is not an error: a release published before the asset
+    existed can only be installed by the installer, and
+    ``app.bundle.pip_path_applies`` says so.
+    """
+    asset = _asset(rel, ASSET_NAME)
     if not version or not asset or not asset.get('browser_download_url'):
         return None
-    return {
+    offer = {
         'version': version,
         'url': asset['browser_download_url'],
         'size': asset.get('size'),
         'digest': asset.get('digest'),
     }
+    bundle_asset = _asset(rel, BUNDLE_ASSET_NAME)
+    if bundle_asset and bundle_asset.get('browser_download_url'):
+        offer['bundle'] = {
+            'url': bundle_asset['browser_download_url'],
+            'size': bundle_asset.get('size'),
+            'digest': bundle_asset.get('digest'),
+        }
+    return offer
+
+
+def fetch_bundle(offer: dict) -> dict | None:
+    """The release's bundle document, or None.
+
+    None on any failure — missing asset, unreachable URL, bad JSON, a
+    size mismatch. Every one of those means "we cannot prove the
+    runtime is unchanged", which routes the update through the
+    installer. Never guess a fingerprint.
+
+    Runs blocking I/O: call it through ``asyncio.to_thread``.
+    """
+    src = offer.get('bundle') or {}
+    url = src.get('url')
+    if not url:
+        return None
+    try:
+        if _is_url(url):
+            with _open(url, timeout=15) as resp:
+                raw = resp.read()
+        else:
+            raw = Path(url).read_bytes()
+    except (OSError, ValueError):
+        return None
+    size = src.get('size')
+    if isinstance(size, int) and size and len(raw) != size:
+        return None
+    expected = offer_sha256(src)
+    if expected and hashlib.sha256(raw).hexdigest() != expected:
+        return None
+    try:
+        doc = json.loads(raw.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(doc, dict) or not isinstance(doc.get('fingerprint'), str):
+        return None
+    return doc
 
 
 def check_for_update() -> dict | None:
@@ -195,6 +250,31 @@ def fetch_release_notes(current: str, *, limit: int = 5) -> list[dict]:
         if len(notes) >= limit:
             break
     return notes
+
+
+def newest_staged_version(current: str) -> str | None:
+    """The newest verified staged installer newer than *current*.
+
+    Asked when the release source gave no answer — an offline boot,
+    or a GitHub that would not reply — so a machine that already
+    downloaded its update still knows one is sitting there. None when
+    the staging dir holds nothing trustworthy: a directory named like
+    a version is not evidence, a verified stage is.
+    """
+    root = updates_root()
+    try:
+        names = [p.name for p in root.iterdir() if p.is_dir()]
+    except OSError:
+        return None
+    newest: str | None = None
+    for name in names:
+        if not is_newer(name, current):
+            continue
+        if newest is not None and not is_newer(name, newest):
+            continue
+        if staged_installer(name) is not None:
+            newest = name
+    return newest
 
 
 def download_installer(url: str, dest: Path) -> Path:

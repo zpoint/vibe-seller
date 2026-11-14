@@ -35,6 +35,7 @@ from tests.e2e.e2e_helpers import (
     PIPELINE_TIMEOUT,
     create_store,
     get_task,
+    run_tag,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ TASK_DESCRIPTION = (
 @pytest.fixture(scope='module')
 def watermark_env(api_client: httpx.Client):
     """Provision store + email account + schedule; seed SECRET_1."""
-    ts = int(time.time())
+    ts = run_tag()
     store = create_store(
         api_client,
         f'watermark-e2e-{ts}',

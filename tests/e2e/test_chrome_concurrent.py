@@ -14,7 +14,6 @@ Run:
 import http.server
 import logging
 import threading
-import time
 
 import pytest
 
@@ -23,6 +22,7 @@ from tests.e2e.e2e_helpers import (
     create_store,
     create_task,
     poll_task_status,
+    run_tag,
     server_log_path,
 )
 
@@ -75,7 +75,7 @@ def test_site():
 @pytest.fixture(scope='module')
 def chrome_store(api_client):
     """Create a Chrome-backed store for testing."""
-    ts = int(time.time())
+    ts = run_tag()
     store = create_store(
         api_client,
         f'chrome-e2e-{ts}',

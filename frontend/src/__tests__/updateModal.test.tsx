@@ -1,7 +1,13 @@
 /**
  * The update modal, in the states the auto-update machine can be in,
- * in both languages, admin and member. Chinese texts are the approved
- * mockup's, copied exactly.
+ * on either apply path, in both languages, admin and member. Chinese
+ * texts are the approved mockup's, copied exactly.
+ *
+ * The path is what decides the copy now — "this applies itself when
+ * the server is idle" versus "this reinstalls the bundled runtime" —
+ * so each path gets its own block rather than a platform one, and the
+ * apply that failed is read from `last_update`, not inferred from the
+ * absence of a spinner.
  */
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -10,7 +16,7 @@ import i18n from 'i18next'
 import enTranslation from '../i18n/locales/en/translation.json'
 import zhTranslation from '../i18n/locales/zh/translation.json'
 import { UpdateAvailableModal } from '../components/UpdateAvailableModal'
-import type { UpdateCheckResult, UpdateStatus } from '../types'
+import type { LastUpdate, UpdateCheckResult, UpdateStatus } from '../types'
 
 const make = (lng: 'en' | 'zh' = 'zh') => {
   const instance = i18n.createInstance()
@@ -57,6 +63,35 @@ const baseStatus = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
   error: null,
   running_tasks: 0,
   platform: 'windows',
+  // Installer path by default: that is the one whose copy and button
+  // #244 already had, so the pip cases below name themselves.
+  path: 'installer',
+  auto_apply: false,
+  popup_due: true,
+  ready_since: 1765670400,
+  last_update: null,
+  refusal: null,
+  ...over,
+})
+
+/** A package-only release: it applies itself, so the dialog offers
+ *  "now" instead of asking for a restart. */
+const pipStatus = (over: Partial<UpdateStatus> = {}): UpdateStatus =>
+  baseStatus({ path: 'pip', auto_apply: true, popup_due: false, ...over })
+
+/** The record of the apply that just ran; `from` is the version the
+ *  machine is left serving when it rolls back. */
+const lastApply = (over: Partial<LastUpdate> = {}): LastUpdate => ({
+  status: 'ok',
+  from: '0.1.0',
+  to: '0.3.2',
+  at: '2026-11-13T00:00:00Z',
+  path: 'pip',
+  trigger: 'auto_idle',
+  stage: null,
+  error: null,
+  error_class: null,
+  seconds: 11.4,
   ...over,
 })
 
@@ -84,29 +119,22 @@ const renderModal = (
   return { onClose, onRestart }
 }
 
-describe('update modal — ready', () => {
-  it('windows admin: title, exactly the machine note, restart button', () => {
+describe('update modal — ready, installer path', () => {
+  it('windows admin: title, the bundled-runtime subtitle, machine note, restart button', () => {
     renderModal('zh')
     expect(screen.getByText('新版本 v0.3.2 已下载好')).toBeTruthy()
     expect(
       screen.getByText('需要在运行 Vibe Seller 的电脑上操作。')
     ).toBeTruthy()
+    // What the click really costs: the runtime is reinstalled with it.
     expect(
-      screen.getByText(/点「重启并更新」后，Vibe Seller 会退出并打开安装程序/)
+      screen.getByText(
+        '当前 v0.1.0。这次更新包含随包的运行环境，点「重启并更新」会重新安装它' +
+          '（约 700 MB，需要 2–5 分钟），装完自动启动，页面会自动刷新。'
+      )
     ).toBeTruthy()
     expect(screen.getByText('重启并更新')).toBeTruthy()
     expect(screen.getByText('稍后')).toBeTruthy()
-  })
-
-  it('unix admin: the 30-second subtitle, no machine note', () => {
-    renderModal('zh', {
-      status: baseStatus({ platform: 'linux' }),
-      check: baseCheck({ platform: 'linux' }),
-    })
-    expect(
-      screen.getByText(/服务器会重启到新版本，大约 30 秒/)
-    ).toBeTruthy()
-    expect(screen.queryByText('需要在运行 Vibe Seller 的电脑上操作。')).toBeNull()
   })
 
   it('running tasks: warning box and the "anyway" button', () => {
@@ -116,10 +144,12 @@ describe('update modal — ready', () => {
     expect(screen.queryByText(/^重启并更新$/)).toBeNull()
   })
 
-  it('member: subtitle about the admin, only 知道了', () => {
+  it('member: the admin has to click, only 知道了', () => {
     renderModal('zh', { isAdmin: false })
     expect(
-      screen.getByText('当前 v0.1.0。新版本已经下载好，需要管理员点「重启并更新」后生效。')
+      screen.getByText(
+        '当前 v0.1.0。这次更新包含随包的运行环境，需要管理员点「重启并更新」后生效。'
+      )
     ).toBeTruthy()
     expect(screen.getByText('知道了')).toBeTruthy()
     expect(screen.queryByText('重启并更新')).toBeNull()
@@ -132,6 +162,115 @@ describe('update modal — ready', () => {
     expect(onRestart).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByText('Later'))
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('update modal — ready, pip path', () => {
+  it('admin: says it applies itself when idle, and the button is 立即更新', () => {
+    renderModal('zh', {
+      status: pipStatus(),
+      check: baseCheck({ platform: 'linux' }),
+    })
+    expect(
+      screen.getByText(
+        '当前 v0.1.0。这次只更新程序本身，服务器空闲时会自动完成更新；' +
+          '想马上更新就点「立即更新」，页面会自动刷新。'
+      )
+    ).toBeTruthy()
+    expect(screen.getByText('立即更新')).toBeTruthy()
+    expect(screen.queryByText('重启并更新')).toBeNull()
+    // Nothing needs doing on the machine itself: the server does it.
+    expect(screen.queryByText('需要在运行 Vibe Seller 的电脑上操作。')).toBeNull()
+  })
+
+  it('admin (en): "Update now", and it goes to the same apply endpoint', () => {
+    const { onRestart } = renderModal('en', { status: pipStatus() })
+    fireEvent.click(screen.getByText('Update now'))
+    expect(onRestart).toHaveBeenCalledTimes(1)
+  })
+
+  it('running tasks: the warning stays, because this button interrupts too', () => {
+    renderModal('zh', { status: pipStatus({ running_tasks: 3 }) })
+    expect(screen.getByText('有 3 个任务正在运行。')).toBeTruthy()
+    expect(screen.getByText('仍然立即更新')).toBeTruthy()
+    expect(screen.queryByText(/^立即更新$/)).toBeNull()
+  })
+
+  it('member: nothing to do, and no button to do it with', () => {
+    renderModal('zh', { status: pipStatus(), isAdmin: false })
+    expect(
+      screen.getByText(
+        '当前 v0.1.0。这次只更新程序本身，服务器空闲时会自动完成更新，不需要你做任何事。'
+      )
+    ).toBeTruthy()
+    expect(screen.getByText('知道了')).toBeTruthy()
+    expect(screen.queryByText('立即更新')).toBeNull()
+  })
+})
+
+describe('update modal — the apply that did not land', () => {
+  it('rolled back: names the version the machine came back on', () => {
+    renderModal('zh', {
+      status: baseStatus({
+        state: 'idle',
+        version: null,
+        last_update: lastApply({ status: 'rolled_back' }),
+      }),
+    })
+    expect(screen.getByText('更新失败，已恢复到 v0.1.0')).toBeTruthy()
+    // The dialog is no longer about an update waiting to be clicked.
+    expect(screen.queryByText('新版本 v0.3.2 已下载好')).toBeNull()
+  })
+
+  it("rolled back with a reason: the server's own words, and the manual route for an admin", () => {
+    renderModal('zh', {
+      status: baseStatus({
+        state: 'idle',
+        version: null,
+        last_update: lastApply({
+          status: 'rolled_back',
+          error: 'new version did not answer within 90s',
+        }),
+      }),
+    })
+    expect(screen.getByText('更新失败，已恢复到 v0.1.0')).toBeTruthy()
+    expect(
+      screen.getByText('new version did not answer within 90s')
+    ).toBeTruthy()
+    expect(screen.getByText('下载最新版本')).toBeTruthy()
+  })
+
+  it('a member sees the failure and has no way to act on it', () => {
+    renderModal('zh', {
+      isAdmin: false,
+      status: baseStatus({
+        state: 'idle',
+        version: null,
+        last_update: lastApply({ status: 'rolled_back' }),
+      }),
+    })
+    expect(screen.getByText('更新失败，已恢复到 v0.1.0')).toBeTruthy()
+    expect(screen.getByText('知道了')).toBeTruthy()
+    expect(screen.queryByText('下载最新版本')).toBeNull()
+  })
+
+  it('failed without a rollback: the target version, plainly', () => {
+    renderModal('en', {
+      status: baseStatus({
+        state: 'idle',
+        version: null,
+        last_update: lastApply({ status: 'failed' }),
+      }),
+    })
+    expect(screen.getByText('The update to v0.3.2 failed')).toBeTruthy()
+  })
+
+  it('a new attempt staged after the failure: the dialog says both', () => {
+    renderModal('zh', {
+      status: baseStatus({ last_update: lastApply({ status: 'rolled_back' }) }),
+    })
+    expect(screen.getByText('新版本 v0.3.2 已下载好')).toBeTruthy()
+    expect(screen.getByText('更新失败，已恢复到 v0.1.0')).toBeTruthy()
   })
 })
 
@@ -332,5 +471,55 @@ describe('update modal — manual experience', () => {
     expect(screen.getByText('后台自动更新没有成功')).toBeTruthy()
     expect(screen.getByText('installer size mismatch')).toBeTruthy()
     expect(screen.getByText('vibe-seller upgrade')).toBeTruthy()
+  })
+})
+
+describe('update modal — the release that was put back', () => {
+  /** `auto_apply` false on a pip release: the machine applied it once,
+   *  rolled it back, and will not do that to itself again. */
+  const refused = () =>
+    pipStatus({
+      auto_apply: false,
+      popup_due: true,
+      refusal: { version: '0.3.2', status: 'rolled_back', stage: 'health' },
+      last_update: lastApply({
+        status: 'rolled_back',
+        stage: 'health',
+        error: 'the server never reported 0.3.2',
+      }),
+    })
+
+  it('zh admin: says nothing will happen by itself, and that a click is a retry', () => {
+    renderModal('zh', { status: refused(), check: baseCheck({ platform: 'linux' }) })
+    const sub = screen.getByText((content) => content.includes('不会再自动重试'))
+    expect(sub.textContent).toContain('点「立即更新」是主动再试一次')
+    expect(sub.textContent).toContain('下一个新版本仍会照常自动更新')
+    expect(screen.getByText('立即更新')).toBeTruthy()
+    // The idle promise must be gone: this is the sentence an admin
+    // reads to work out why nothing happened overnight.
+    expect(screen.queryByText(/空闲时会自动完成更新/)).toBeNull()
+  })
+
+  it('en admin: the same, in English', () => {
+    renderModal('en', { status: refused() })
+    expect(
+      screen.getByText((content) => content.includes('will not be retried automatically'))
+    ).toBeTruthy()
+  })
+
+  it('member: no button, and the next release will still come', () => {
+    renderModal('zh', { status: refused(), isAdmin: false })
+    expect(screen.queryByText('立即更新')).toBeNull()
+    expect(
+      screen.getByText((content) => content.includes('请联系管理员'))
+    ).toBeTruthy()
+  })
+
+  it('the rollback itself is still reported beside the explanation', () => {
+    renderModal('zh', {
+      status: refused(),
+      check: baseCheck({ platform: 'linux' }),
+    })
+    expect(screen.getByText(/已恢复到 v0.1.0|更新失败/)).toBeTruthy()
   })
 })

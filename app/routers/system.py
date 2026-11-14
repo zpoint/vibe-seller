@@ -5,13 +5,14 @@ things like host OS and build version instead of having to infer
 them from error payloads or stale env vars.
 """
 
+import asyncio
 import subprocess
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 import httpx
 
-from app import auto_update, telemetry
+from app import auto_update, pip_update, telemetry
 from app.ai.claude_backend_manager import agent_manager
 from app.auth import get_current_user, require_admin
 from app.browser.ziniao_utils import get_platform
@@ -199,11 +200,31 @@ async def update_check() -> dict:
 @router.get('/update-status')
 async def update_status(user=Depends(get_current_user)) -> dict:
     """In-app auto-update state — cheap, no network I/O; the frontend
-    polls this while an update is downloading or a restart is running.
+    polls this while an update downloads, is waiting to be applied, or
+    is restarting.
 
     ``running_tasks`` is the live-agent count a restart right now would
     interrupt (the modal warns about it before offering the button).
+
+    ``path`` says what ``ready`` means: ``pip`` (a few MB into the venv,
+    applied by itself the moment the server is idle — so ``auto_apply``
+    is true and ``popup_due`` stays false for a day) or ``installer``
+    (the bundled runtime changed; nothing happens until an admin
+    clicks). ``last_update`` is what the previous apply did — including
+    one that failed and rolled back, which the machine is now serving.
+
+    ``refusal`` is that failure becoming a rule: when the release on
+    offer is the one an apply already put back, ``auto_apply`` is false
+    and this carries what happened, so the UI can say "this will not be
+    retried by itself; the next release will be" instead of looking
+    idle. An admin may still apply it — a click is a decision, a tick
+    is not, and only the second one repeats every six hours.
     """
+    # The record can be newer than this process — an apply that failed
+    # after boot writes it as its last act (app/auto_update.py:
+    # refresh_last_update) — so ask before answering. Off the loop: this
+    # is a stat and, only when the mtime moved, one small file.
+    await asyncio.to_thread(auto_update.refresh_last_update)
     snap = auto_update.snapshot()
     return {
         'supported': auto_update.in_app_update(),
@@ -215,6 +236,41 @@ async def update_status(user=Depends(get_current_user)) -> dict:
         'error': snap['error'],
         'running_tasks': agent_manager.live_agent_count(),
         'platform': get_platform(),
+        'path': snap['path'],
+        'auto_apply': snap['auto_apply'],
+        'popup_due': snap['popup_due'],
+        'ready_since': snap['ready_since'],
+        'last_update': snap['last_update'],
+        'refusal': snap['refusal'],
+    }
+
+
+@router.get('/release-notes')
+async def release_notes(
+    since: str = Query(..., min_length=1, max_length=64),
+    until: str | None = Query(None, max_length=64),
+    user=Depends(get_current_user),
+) -> dict:
+    """Merged release notes for ``since`` → ``until`` (the latter
+    defaults to the version running here).
+
+    Exists because ``/update-check`` can only ever describe what is NEWER
+    than this server: right after an update, that is nothing, so the
+    "已更新到 v{x}" panel has to ask for the range it just crossed.
+    Best-effort like the check itself — an unreachable GitHub yields
+    empty lists rather than an error.
+    """
+    target = until or APP_VERSION
+    async with httpx.AsyncClient() as client:
+        releases = await fetch_release_notes(client, since)
+        releases = [r for r in releases if not is_newer(r['version'], target)]
+    merged = merged_notes(releases)
+    return {
+        'since': since,
+        'until': target,
+        'releases': [r['version'] for r in releases],
+        'highlights': merged['highlights'],
+        'notes': merged['notes'],
     }
 
 
@@ -233,7 +289,14 @@ async def update_restart(user=Depends(require_admin)) -> dict:
         )
     try:
         return await auto_update.apply_restart(
-            interrupted_tasks=agent_manager.live_agent_count()
+            interrupted_tasks=agent_manager.live_agent_count(),
+            trigger=auto_update.manual_trigger(),
         )
+    except pip_update.ApplyInProgress as exc:
+        # A second click while an update is already applying, or another
+        # server on the same data dir got there first. Nothing failed —
+        # there is one already running — so this is 409, not a 500 that
+        # the UI would read as "the updater is broken".
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

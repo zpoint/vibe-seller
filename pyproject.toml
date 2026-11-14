@@ -95,6 +95,13 @@ dependencies = [
     "cryptography",
     "gitpython",
     "packaging",
+    # Deliberately bare: the source tree follows upstream. A release
+    # build resolves it once (newest, or a version the build was told to
+    # use) and stamps `playwright==<that>` here before building
+    # (scripts/resolve_bundle_pins.py), because the Windows installer
+    # bundles the Chromium THIS Playwright asks for and the two must be
+    # a matched pair. app/bundle_pins.json says `latest` for the same
+    # reason, and app.bundle.assert_pins_agree keeps the two in step.
     "playwright",
     "psutil>=5.9.0",
     "posthog>=7.7.0,<8",
@@ -180,6 +187,11 @@ app = [
     "skills/**/*",
     "skills_v2/**/*",
     "static/**/*",
+    # The runtime-bundle manifest. Read at update-check time by a
+    # running install (app/bundle.py), so a wheel without it cannot
+    # name the CLI or Chromium version it is supposed to be paired
+    # with.
+    "bundle_pins.json",
 ]
 
 [tool.setuptools_scm]
@@ -252,6 +264,14 @@ classmethod-decorators = ["classmethod"]
 [tool.ruff.lint.per-file-ignores]
 "app/events_system/backends/google_calendar.py" = ["E402"]
 "app/cli.py" = ["T20"]  # CLI uses print for user-facing output
+# The update helper is a detached script, not a library: its stdout IS
+# the apply log (app/pip_update.py redirects it there), so print is the
+# logging mechanism rather than a stray debug call.
+"app/pip_apply_helper.py" = ["T20"]
+# `vibe-seller upgrade` prints one `==> <command>` line per step it runs,
+# and the detached update helper captures that stdout as its apply log —
+# so the module that runs the tool install speaks in the same voice.
+"app/uv_tool.py" = ["T20"]
 "app/auth_reset.py" = ["T20"]  # same: a command-line tool
 "app/skills/**/generate_invoice.py" = ["T20"]
 "app/skills/**/scripts/*.py" = ["T20"]  # skill CLI tools print output
@@ -259,6 +279,10 @@ classmethod-decorators = ["classmethod"]
 "app/skills_v2/**/scripts/*.py" = ["T20"]  # skill CLI tools print output
 "scripts/**/*.py" = ["T20"]
 "tests/**" = ["N", "B", "SIM"]
+# The release harness speaks to a log, not to a test: the leg transcript
+# is what a reviewer reads, and PowerShell pipes a child command's stdout
+# into it deliberately (see win_leg_harness.ps1:New-ChangedBundle).
+"tests/releases/*.py" = ["T20"]
 "tests/e2e/**" = ["T20", "E402", "PLC0415"]
 ".github/**" = ["N", "B", "SIM", "T20"]
 

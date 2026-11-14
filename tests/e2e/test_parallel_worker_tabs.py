@@ -37,12 +37,11 @@ import signal
 import subprocess
 import tempfile
 import threading
-import time
 
 import pytest
 
 from app.config import VIBE_SELLER_DIR
-from tests.e2e.e2e_helpers import BASE_URL, create_store
+from tests.e2e.e2e_helpers import BASE_URL, create_store, run_tag
 
 logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.e2e]
@@ -100,7 +99,7 @@ def test_site():
 @pytest.fixture(scope='module')
 def chrome_store(api_client):
     """A Chrome store whose wrapper + browser are up and reachable."""
-    ts = int(time.time())
+    ts = run_tag()
     slug = f'worker-e2e-{ts}'
     store = create_store(api_client, slug, browser_backend='chrome')
     # try/finally, not a bare yield: every check below can skip, and a

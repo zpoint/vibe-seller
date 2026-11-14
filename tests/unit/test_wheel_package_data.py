@@ -50,6 +50,19 @@ def _covered_top_dirs() -> set[str]:
     return {g.split('/', 1)[0] for g in _package_data_globs()}
 
 
+def _is_covered(rel) -> bool:
+    """Whether a package-data glob names this file's home.
+
+    A file in a directory is covered by that directory's glob
+    (``prompts/**/*``); a file sitting directly in ``app/`` —
+    ``bundle_pins.json`` — has no directory to name, so it needs its OWN
+    entry. Both are checked for, because a top-level data file is the
+    case that a dirs-only test would wave through."""
+    if len(rel.parts) > 1:
+        return rel.parts[0] in _covered_top_dirs()
+    return str(rel) in _package_data_globs()
+
+
 def _shipped_data_files():
     """Every non-``.py`` file under ``app/`` that a wheel would carry."""
     for path in _APP.rglob('*'):
@@ -66,11 +79,10 @@ def _shipped_data_files():
 
 def test_every_shipped_data_dir_is_named_in_package_data():
     """No runtime data file may depend on the git file finder."""
-    covered = _covered_top_dirs()
     uncovered = sorted({
-        rel.parts[0] if len(rel.parts) > 1 else str(rel)
+        (rel.parts[0] if len(rel.parts) > 1 else str(rel))
         for rel in _shipped_data_files()
-        if not (len(rel.parts) > 1 and rel.parts[0] in covered)
+        if not _is_covered(rel)
     })
     assert not uncovered, (
         'These ship non-.py files that no package-data glob names, so '

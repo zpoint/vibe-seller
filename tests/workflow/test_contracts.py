@@ -482,6 +482,24 @@ UPDATE_STATUS_KEYS = {
     'error',
     'running_tasks',
     'platform',
+    # Which mechanism `ready` refers to, whether it applies itself, and
+    # whether it may ask; plus what the last apply did, and whether
+    # THIS release is the one it had to put back. The modal reads all
+    # five — see app/auto_update.snapshot().
+    'path',
+    'auto_apply',
+    'popup_due',
+    'ready_since',
+    'last_update',
+    'refusal',
+}
+
+RELEASE_NOTES_KEYS = {
+    'since',
+    'until',
+    'releases',
+    'highlights',
+    'notes',
 }
 
 
@@ -512,6 +530,76 @@ class TestVersionContracts:
         r = await admin_client.get('/api/system/update-status')
         assert r.status_code == 200
         assert set(r.json().keys()) == UPDATE_STATUS_KEYS
+        body = r.json()
+        # A test server neither downloads nor applies, so the shape must
+        # still answer the two questions the modal asks: what would
+        # apply, and may it ask yet. Absent answers here would make the
+        # frontend branch on `undefined`.
+        assert body['path'] in ('pip', 'installer', None)
+        assert body['auto_apply'] is False
+        assert body['popup_due'] is False
+        assert body['ready_since'] is None
+        assert body['last_update'] is None
+
+    async def test_release_notes_shape(self, admin_client, monkeypatch):
+        """`已更新到 v{x}` asks for the range it just crossed."""
+        from unittest.mock import AsyncMock  # noqa: PLC0415 — test-local
+
+        import app.routers.system as sr  # noqa: PLC0415
+
+        # Say which version is running HERE, because `until` defaults to
+        # it and the endpoint then drops every release newer than
+        # `until`. Without this the answer depends on the checkout the
+        # test runs from: in CI (0.3.x) the fabricated 0.7.0 is newer
+        # than the running version and is correctly filtered out, so the
+        # contract test failed; in a dev tree whose `vibe_seller.egg-info`
+        # a release leg had just rewritten to 99.x it passed. Same code,
+        # two verdicts, neither about the contract.
+        monkeypatch.setattr(sr, 'APP_VERSION', '0.7.0')
+        monkeypatch.setattr(
+            sr,
+            'fetch_release_notes',
+            AsyncMock(
+                return_value=[
+                    {
+                        'version': '0.7.0',
+                        'name': 'v0.7.0',
+                        'body': '## Highlights\n\n- new thing\n',
+                        'url': 'https://x',
+                        'published_at': None,
+                    },
+                    # One NEWER than the version running here. Without it
+                    # the endpoint's drop rule (`not is_newer(version,
+                    # target)`) has nothing to exclude and the test passes
+                    # even if that line is deleted: a range with one
+                    # answer cannot show which end of it is the range.
+                    {
+                        'version': '0.8.0',
+                        'name': 'v0.8.0',
+                        'body': '## Highlights\n\n- a later release\n',
+                        'url': 'https://y',
+                        'published_at': None,
+                    },
+                ]
+            ),
+        )
+        r = await admin_client.get(
+            '/api/system/release-notes', params={'since': '0.6.0'}
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert set(body.keys()) == RELEASE_NOTES_KEYS
+        assert body['since'] == '0.6.0'
+        assert body['until'] == '0.7.0'  # defaults to the running version
+        assert body['releases'] == ['0.7.0']
+        assert '0.8.0' not in body['releases'], (
+            'a release newer than the one running here must not be in the range'
+        )
+        assert body['highlights'][0]['version'] == '0.7.0'
+
+    async def test_release_notes_needs_a_start(self, admin_client):
+        r = await admin_client.get('/api/system/release-notes')
+        assert r.status_code == 422
 
 
 class TestUpdateCheckContract:

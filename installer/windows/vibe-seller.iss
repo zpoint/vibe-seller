@@ -99,6 +99,14 @@ Source: "{#StagingDir}\wheels\*";  DestDir: "{app}\wheels";  Flags: recursesubdi
 Source: "{#StagingDir}\git\*";  DestDir: "{app}\git";  Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StagingDir}\claude\*";  DestDir: "{app}\claude";  Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StagingDir}\uv.exe";    DestDir: "{app}";         Flags: ignoreversion
+; What this bundle IS: the pins above plus the installer-owned files, as
+; a fingerprint (app/bundle.py). The update check compares it with the
+; fingerprint published beside the new release: equal means the new
+; version changes nothing outside the venv, so it can be installed with
+; uv in a few MB instead of running this ~700 MB installer again.
+; Written by build.ps1 from the same manifest the release publishes, so
+; the two sides of that comparison cannot disagree.
+Source: "{#StagingDir}\bundle.json"; DestDir: "{app}";       Flags: ignoreversion
 Source: "{#StagingDir}\tray.py";   DestDir: "{app}";         Flags: ignoreversion
 Source: "{#StagingDir}\dialogs.py"; DestDir: "{app}";        Flags: ignoreversion
 Source: "{#StagingDir}\autostart.py"; DestDir: "{app}";      Flags: ignoreversion

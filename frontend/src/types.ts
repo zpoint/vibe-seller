@@ -29,7 +29,43 @@ export interface UpdateCheckResult {
 }
 export interface ReleaseHighlight { version: string; zh: string; en: string }
 export interface ReleaseNoteItem { version: string; text: string }
+/** GET /api/system/release-notes?since=&until= — the merged notes for a
+ *  range this server already crossed. /update-check cannot describe it:
+ *  it only ever lists releases NEWER than the running version. */
+export interface ReleaseNotesRange {
+  since: string
+  until: string
+  /** Version tags, newest first — not the release objects. */
+  releases: string[]
+  highlights: ReleaseHighlight[]
+  notes: ReleaseNoteItem[]
+}
 export type AutoUpdateState = 'idle' | 'downloading' | 'ready' | 'error' | 'restarting'
+/** Which of the two apply paths a release is on. `pip` changes only the
+ *  Python package (a few MB, applied by the server itself when idle);
+ *  `installer` changes the bundled runtime, so nothing happens until an
+ *  admin clicks. null = nothing is staged. */
+export type UpdatePath = 'pip' | 'installer'
+export type LastUpdateOutcome = 'ok' | 'rolled_back' | 'failed'
+/** How the last apply was started: by the idle watcher, or by a click
+ *  (the latter after the ready-but-never-idle day was up). */
+export type LastUpdateTrigger = 'auto_idle' | 'manual' | 'manual_after_24h'
+/** What the PREVIOUS apply did, kept by the server across restarts
+ *  (`<VIBE_HOME>/updates/last.json`). Without it a rolled-back update
+ *  would look like one that never happened. */
+export interface LastUpdate {
+  status: LastUpdateOutcome
+  from: string
+  to: string
+  /** ISO8601 UTC. */
+  at: string
+  path: UpdatePath
+  trigger: LastUpdateTrigger
+  stage: string | null
+  error: string | null
+  error_class: string | null
+  seconds: number | null
+}
 export interface UpdateStatus {
   supported: boolean
   state: AutoUpdateState
@@ -40,6 +76,23 @@ export interface UpdateStatus {
   error: string | null
   running_tasks: number
   platform: ServerPlatform
+  path: UpdatePath | null
+  /** True exactly when the server will apply this on its own: the pip
+   *  path, AND not a release it already applied and had to put back.
+   *  A rolled-back release is never auto-applied a second time — an
+   *  admin's click is the only thing that runs it again. */
+  auto_apply: boolean
+  /** The release an apply already rolled back (or failed to install),
+   *  when that is the one on offer. Null for every other version: a
+   *  newer release clears it and auto-apply comes back by itself. */
+  refusal: { version: string; status: string; stage: string | null } | null
+  /** The server's answer to "should we ask the admin?" — installer: as
+   *  soon as it is ready; pip: only after a day of never being idle.
+   *  The frontend reads this flag and keeps no timer of its own. */
+  popup_due: boolean
+  /** Epoch seconds when this version reached `ready`, or null. */
+  ready_since: number | null
+  last_update: LastUpdate | null
 }
 export interface Store {
   id: string; name: string; browser_backend: string; browser_config: Record<string, unknown>;

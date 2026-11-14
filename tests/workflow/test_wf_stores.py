@@ -331,6 +331,42 @@ class TestStoreUpdate:
         )
         assert r.status_code == 409
 
+    async def test_create_refuses_a_name_another_store_slugs_to(
+        self, admin_client
+    ):
+        """One store per slug: the browser wrapper, profile, CDP proxy
+        and `stores/<slug>/` are all keyed by it, so a second store
+        whose name reduces to the same slug would share them."""
+        r1 = await admin_client.post('/api/stores', json={'name': 'Acme'})
+        assert r1.status_code == 200
+        r2 = await admin_client.post('/api/stores', json={'name': 'acme!'})
+        assert r2.status_code == 409
+        names = [
+            s['name'] for s in (await admin_client.get('/api/stores')).json()
+        ]
+        assert names.count('Acme') == 1 and 'acme!' not in names
+
+    async def test_two_creates_at_once_leave_one_store(self, admin_client):
+        """The CI collision: two clients create the same name in the same
+        instant. Exactly one may win; the other is refused."""
+        r1, r2 = await asyncio.gather(
+            admin_client.post('/api/stores', json={'name': 'Twin Store'}),
+            admin_client.post('/api/stores', json={'name': 'Twin Store'}),
+        )
+        assert sorted([r1.status_code, r2.status_code]) == [200, 409]
+        names = [
+            s['name'] for s in (await admin_client.get('/api/stores')).json()
+        ]
+        assert names.count('Twin Store') == 1
+
+    async def test_rename_refuses_another_stores_slug(self, admin_client):
+        await admin_client.post('/api/stores', json={'name': 'Store Q'})
+        r2 = await admin_client.post('/api/stores', json={'name': 'Store R'})
+        r = await admin_client.put(
+            f'/api/stores/{r2.json()["id"]}', json={'name': 'store_q'}
+        )
+        assert r.status_code == 409
+
     async def test_update_platform_countries(self, admin_client):
         r = await admin_client.post('/api/stores', json={'name': 'PC Store'})
         sid = r.json()['id']

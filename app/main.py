@@ -312,6 +312,12 @@ async def lifespan(app: FastAPI):
     # this install can't update itself (unsupported shape or switched
     # off).
     auto_update_task = asyncio.create_task(auto_update.watch())
+    # Apply a ready pip update by itself once the machine is idle
+    # (app/update_idle.py); one check a minute, and it never interrupts
+    # a task.
+    idle_apply_task = asyncio.create_task(
+        auto_update.idle_watch(task_queue_scheduler, agent_manager)
+    )
     yield
     # Cancel background tasks
     for t in [
@@ -319,6 +325,7 @@ async def lifespan(app: FastAPI):
         history_task,
         upgrade_task,
         auto_update_task,
+        idle_apply_task,
         *service_tasks,
     ]:
         if not t.done():

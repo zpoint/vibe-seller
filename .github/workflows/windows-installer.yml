@@ -14,10 +14,46 @@ on:
     paths:
       - 'installer/windows/**'
       - '.github/workflows/windows-installer.yml'
+      - '.github/workflows/pip-upgrade-gate.yml'
+      - '.github/workflows/bundle-fingerprint.yml'
       - 'pyproject.toml'
+      # Every module that decides what is offered, which path applies
+      # it, when it may restart the machine, and what it reports: the
+      # fingerprint that chooses pip-vs-installer lives in app/bundle.py
+      # and the choice itself in app/auto_update.py, and a change to
+      # either can silently move every client onto the ~700 MB path.
       - 'app/**'
+      - 'app/bundle_pins.json'
+      - 'app/auto_update.py'
+      - 'app/pip_update.py'
+      - 'app/apply_launch.py'
+      - 'app/pip_apply_helper.py'
+      - 'app/update_idle.py'
+      # The rule that a release this machine already rolled back is
+      # never applied by itself again — it decides WHETHER an apply
+      # happens, exactly like the idle gate beside it.
+      - 'app/update_refusal.py'
+      # What an apply actually runs on macOS/Linux: the exact-version
+      # install and the receipt repair. A change here moves the apply
+      # path without touching a single file above it.
+      - 'app/uv_tool.py'
+      - 'app/update_events.py'
+      - 'app/windows_update.py'
+      - 'app/upgrade_restart.py'
+      - 'app/update_check.py'
+      - 'app/bundle.py'
+      - 'app/release_channel.py'
+      - 'app/cli.py'
+      - 'app/main.py'
+      - 'app/routers/system.py'
+      - 'app/scheduler/task_queue.py'
       - 'frontend/**'
       - 'tests/releases/**'
+      # What an install is made of, and what the bundle fingerprint
+      # hashes — either can change the path a release takes.
+      - 'uv.lock'
+      - 'scripts/bundle_fingerprint.py'
+      - 'scripts/resolve_bundle_pins.py'
       # The install check drives the shipped recovery wrapper.
       - 'scripts/reset_auth.bat'
       - 'scripts/reset_auth.sh'
@@ -27,6 +63,54 @@ on:
         description: 'Installer version string'
         required: false
         default: '0.0.0'
+      twist:
+        description: >-
+          Build and install from a checkout with one named bug injected
+          (tests/releases/twist.py --list): wrong-path, no-rollback,
+          ignore-idle, no-digest-check, raw-fingerprint, dev-updates.
+          'none' builds the code as it is.
+        required: false
+        default: 'none'
+        type: string
+      rehearse_gate:
+        description: >-
+          Also run the RELEASE GATE's Windows leg (previous published
+          release -> this commit's wheel, pip path) in this dispatch.
+          It is the same tests/releases/win_gate_leg.ps1 that
+          pip-upgrade-gate.yml runs; that workflow cannot be dispatched
+          while it exists only on a branch, so this is the one path on
+          which the gate's Windows leg can be shown running before it
+          ships.
+        required: false
+        default: false
+        type: boolean
+      gate_force:
+        description: >-
+          With rehearse_gate: fail on the gate's skip conditions instead
+          of skipping, so the leg is shown capable of going red.
+        required: false
+        default: false
+        type: boolean
+      prev_version:
+        description: 'Release to upgrade FROM (empty = newest stable on PyPI)'
+        required: false
+        default: ''
+        type: string
+      claude_version:
+        description: >-
+          Claude Code CLI version to bundle. Empty = the newest release
+          (or the repository variable BUNDLE_CLAUDE_VERSION when set).
+        required: false
+        default: ''
+        type: string
+      playwright_version:
+        description: >-
+          Playwright version to build with (fixes the bundled Chromium).
+          Empty = the newest release (or the repository variable
+          BUNDLE_PLAYWRIGHT_VERSION when set).
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -54,8 +138,32 @@ jobs:
        needs.e2e-approval.result == 'skipped')
     runs-on: windows-latest
     timeout-minutes: 45
+    outputs:
+      # The exact claude / Playwright this installer was built with, so
+      # the update legs build their wheels with the same pair.
+      claude: ${{ steps.pins.outputs.claude }}
+      playwright: ${{ steps.pins.outputs.playwright }}
+    env:
+      # A dispatch input, never pasted into a command line: the steps
+      # read it as $env:TWIST. 'none' (and any PR run, where there is no
+      # input at all) builds the code exactly as it is.
+      TWIST: ${{ github.event.inputs.twist }}
+      # The floating bundle pins: empty means the newest release, which
+      # build.ps1 resolves (scripts/resolve_bundle_pins.py).
+      BUNDLE_CLAUDE_VERSION: ${{ github.event.inputs.claude_version || vars.BUNDLE_CLAUDE_VERSION }}
+      BUNDLE_PLAYWRIGHT_VERSION: ${{ github.event.inputs.playwright_version || vars.BUNDLE_PLAYWRIGHT_VERSION }}
+
     steps:
       - uses: actions/checkout@v4
+
+      # BEFORE the installer is compiled: the bundle fingerprint goes
+      # INTO the installer, and every wheel in it carries the twist. A
+      # leg that is supposed to fail on a bug has to be installed from
+      # a build that has it.
+      - name: Inject the named bug (no-op when twist=none)
+        if: env.TWIST != 'none' && env.TWIST != ''
+        run: python tests/releases/twist.py "$env:TWIST"
+        shell: pwsh
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -90,6 +198,15 @@ jobs:
           }
           $env:SETUPTOOLS_SCM_PRETEND_VERSION = $ver
           .\installer\windows\build.ps1 -AppVersion $ver
+
+      - name: Report the bundle pins this build resolved
+        id: pins
+        shell: pwsh
+        run: |
+          $pins = Get-Content -Raw app\bundle_pins.json | ConvertFrom-Json
+          "claude=$($pins.claude_code.version)" >> $env:GITHUB_OUTPUT
+          "playwright=$($pins.playwright.version)" >> $env:GITHUB_OUTPUT
+          "bundled claude $($pins.claude_code.version), playwright $($pins.playwright.version)"
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
@@ -402,114 +519,6 @@ jobs:
           }
           Write-Host "OK: agent venv reused the bundled Python ($bundled)"
 
-      # The user's real in-app update path on Windows: the server's
-      # background loop must stage the offered installer under
-      # <VIBE_HOME>\updates\<version>\ (verified by size + sha256),
-      # and the admin's restart request must launch THAT file — the
-      # installer then stops the server, upgrades in place, and
-      # relaunches the tray, which brings the server back. A mock
-      # release (plain local path in the GitHub shape) points at the
-      # JUST-BUILT installer; it runs against its own VIBE_HOME and
-      # port, never the shared ~/.vibe-seller or 7777. This does not
-      # dispatch windows-upgrade.yml (release-only); it gates every PR
-      # that touches the installer or the updater.
-      - name: In-app auto-update (stage → restart → server back)
-        shell: pwsh
-        env:
-          # Step-level env (not in-script $env:) so it reliably reaches
-          # the daemon and its detached children. Plain local path for
-          # the mock release — same shape windows-upgrade.yml uses.
-          VIBE_HOME: ${{ runner.temp }}\vs-autoupdate-home
-          VIBE_SELLER_AUTO_UPDATE: '1'
-          VIBE_SELLER_RELEASES_URL: ${{ runner.temp }}\vs-autoupdate-release.json
-          VIBE_SELLER_PORT: '7794'
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $install = $env:VS_INSTALL
-          $exe = (Resolve-Path "installer\windows\out\VibeSeller-Setup.exe").Path
-          $hash = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower()
-          $size = (Get-Item $exe).Length
-          $ws = ($exe -replace '\\','/')
-          $rel = '{"tag_name":"v99.9.9","assets":[{"name":"VibeSeller-Setup.exe","browser_download_url":"' + $ws + '","size":' + $size + ',"digest":"sha256:' + $hash + '"}]}'
-          [System.IO.File]::WriteAllText($env:VIBE_SELLER_RELEASES_URL, $rel)
-          if (Test-Path $env:VIBE_HOME) { Remove-Item -Recurse -Force $env:VIBE_HOME }
-          New-Item -ItemType Directory -Force -Path $env:VIBE_HOME | Out-Null
-          $clean = ($env:PATH -split ';' | Where-Object { $_ -and $_ -notlike 'C:\Program Files\Git\*' -and $_ -ne 'C:\Program Files\Git' }) -join ';'
-          $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
-                      "$install\git\cmd;$install\git\bin;" +
-                      "$install\git\usr\bin;$install\git\mingw64\bin;$clean"
-          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7794
-          $ok = $false
-          for ($i = 0; $i -lt 90; $i++) {
-            try { Invoke-RestMethod http://127.0.0.1:7794/api/health -TimeoutSec 3 | Out-Null; $ok = $true; break } catch { }
-            Start-Sleep 2
-          }
-          if (-not $ok) { throw 'auto-update test server never became healthy' }
-          # First background cycle runs 60 s after boot; the local
-          # "download" is a verified copy of the just-built exe.
-          $st = $null
-          for ($i = 0; $i -lt 150; $i++) {
-            try { $st = Invoke-RestMethod http://127.0.0.1:7794/api/system/update-status -TimeoutSec 5 } catch { }
-            if ($st -and $st.state -eq 'ready') { break }
-            if ($st -and $st.state -eq 'error') { throw "stage failed: $($st.error)" }
-            if ($st -and -not $st.supported) { throw 'update-status says this install is not supported' }
-            Start-Sleep 2
-          }
-          if (-not $st -or $st.state -ne 'ready') { throw "never reached ready (last: $($st | ConvertTo-Json -Compress))" }
-          if ($st.version -ne '99.9.9') { throw "ready for the wrong version: $($st.version)" }
-          $staged = "$env:VIBE_HOME\updates\99.9.9\VibeSeller-Setup.exe"
-          if (-not (Test-Path $staged)) { throw "staged installer missing: $staged" }
-          $oldPid = (Get-NetTCPConnection -LocalPort 7794 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
-          if (-not $oldPid) { throw 'no server listening on 7794 before restart' }
-          $r = Invoke-RestMethod -Uri http://127.0.0.1:7794/api/system/update/restart -Method Post -TimeoutSec 10
-          if ($r.state -ne 'restarting') { throw "restart reply: $($r | ConvertTo-Json -Compress)" }
-          # The installer kills the server, upgrades, rebuilds the venv
-          # and relaunches the tray. Wait for a NEW pid serving 7794.
-          $back = $false
-          for ($i = 0; $i -lt 360; $i++) {
-            try {
-              $newPid = (Get-NetTCPConnection -LocalPort 7794 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
-              $v = (Invoke-RestMethod http://127.0.0.1:7794/api/version -TimeoutSec 3).version
-              if ($v -and $newPid -and $newPid -ne $oldPid) { $back = $true; break }
-            } catch { }
-            Start-Sleep 2
-          }
-          if (-not $back) {
-            Get-Content "$env:VIBE_HOME\updates\99.9.9\install.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
-            throw "the restart did not bring the server back on 7794 (old pid $oldPid)"
-          }
-          # Proof the STAGED file was the installer that ran, from the
-          # installer's own /LOG (run_installer adds it for silent modes).
-          $setupLog = "$env:VIBE_HOME\updates\99.9.9\install.log"
-          if (-not (Test-Path $setupLog)) { throw "no installer log at $setupLog" }
-          Select-String -Path $setupLog -Pattern 'updates' -SimpleMatch |
-            Where-Object { $_.Line -match 'Source:' } | Select-Object -First 1 |
-            ForEach-Object { Write-Host "setup: $($_.Line)" }
-          if (-not (Select-String -Path $setupLog -Pattern 'Source:.*updates' )) {
-            throw 'installer /LOG does not account for running from the updates stage'
-          }
-          if (-not (Select-String -Path $setupLog -Pattern 'Relaunched the tray' -SimpleMatch)) {
-            throw 'silent upgrade did not relaunch the tray'
-          }
-          Write-Host "OK: in-app auto-update on Windows (staged 99.9.9 -> /SILENT -> back on 7794, tray relaunched)"
-
-      - name: Stop auto-update test server + tray
-        if: always()
-        shell: pwsh
-        env:
-          VIBE_HOME: ${{ runner.temp }}\vs-autoupdate-home
-        run: |
-          # Best effort: the relaunched tray keeps a server + pythonw
-          # alive on the runner; stop what the gate started (never 7777).
-          if (Test-Path "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe") {
-            & "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe" stop --port 7794 2>$null
-          }
-          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object { ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') -and
-              $_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:VS_INSTALL, [System.StringComparison]::OrdinalIgnoreCase) -and
-              $_.CommandLine -match 'tray\.py' } |
-            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-
       - name: Stop server + stage logs
         if: always()
         shell: pwsh
@@ -770,3 +779,724 @@ jobs:
           & "$install\.venv\Scripts\vibe-seller.exe" stop --port 7777
           if (-not $ok) { throw "reinstalled server never became healthy" }
           Write-Host "OK: uninstall (python running) -> reinstall rebuilds the venv"
+
+  # ── The Windows update paths, one leg per scenario ────────────────
+  # tests/releases/README.md is the map: which leg proves what, and
+  # which twist turns it red.
+  #
+  # The install under test is the installer the `build` job just
+  # compiled, silently installed for real — so the layout is what a user
+  # has: {app}\python, {app}\uv.exe, {app}\wheels, {app}\bundle.json
+  # and unins000.exe next to the venv. That layout is the only thing
+  # that makes app/auto_update.py offer the pip path at all, and a
+  # source checkout cannot fake it.
+  #
+  # Nothing here publishes, and nothing here reads GitHub's release API:
+  # the release an install is offered is a plain local JSON in the
+  # GitHub shape whose assets are files on the runner. The two update
+  # paths differ ONLY by the bundle fingerprint, so the legs differ ONLY
+  # by the bundle.json asset beside that release — same installer, same
+  # wheels, everything else equal.
+  #
+  #   s3   same bundle            -> pip path, applied BY ITSELF
+  #   s4   a pin differs          -> installer path, waits for the click
+  #   s5   a package that dies    -> OLD comes back; never left dark
+  #   s5b  OLD -> v2 -> broken v3 -> back on v2, not on OLD
+  #   s6   tampered installer     -> refused, nothing launched
+  #
+  # This was one step inside `build` (#244's installer path). It is a
+  # matrix now because the pip path needs scenarios the installer path
+  # never had, and `build` is already at its timeout with the agent e2e.
+  # It still needs `build` for the installer artifact, but runs even when
+  # that job's e2e steps failed: the artifact is uploaded long before
+  # them, and a flaky provider must not hide whether the updater works.
+  auto-update:
+    name: in-app update leg ${{ matrix.leg }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    needs: build
+    if: >-
+      always() &&
+      (needs.build.result == 'success' ||
+       needs.build.result == 'failure')
+    strategy:
+      # One red leg must not hide whether the other four still work.
+      fail-fast: false
+      matrix:
+        leg: [s3, s4, s5, s5b, s5c, s6]
+    env:
+      # Only literals and allowed contexts here: the `runner` context is
+      # NOT available at job level (GitHub rejects the whole file — see
+      # the scratch-path step below), and a job-level value would also be
+      # identical for every matrix leg.
+      #
+      # These three still reach the daemon AND the detached apply helper
+      # it spawns, because app/apply_launch.py copies the environment
+      # into the helper's argument document.
+      VIBE_SELLER_AUTO_UPDATE: '1'
+      VIBE_SELLER_PORT: '7794'
+      VIBE_SELLER_TELEMETRY: '0'
+      TWIST: ${{ github.event.inputs.twist }}
+      # Higher than every real release and than the installer's own
+      # 99.0.<run>, so PyPI can never win a resolution and `is_newer`
+      # always sees an upgrade. Two hops for s5b.
+      VS_V2: '99.9.9'
+      VS_V3: '99.9.10'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The legs build wheels from this tree with
+          # SETUPTOOLS_SCM_PRETEND_VERSION, like every other upgrade
+          # job; the build backend still runs setuptools-scm.
+          fetch-depth: 0
+
+      - name: Name this leg's scratch paths
+        env:
+          LEG: ${{ matrix.leg }}
+        shell: pwsh
+        run: |
+          # Each leg gets its own VIBE_HOME and its own mock release
+          # document: a leg that inherited another leg's staged installer
+          # or ready-clock would not be testing anything. And these are
+          # here rather than in job env because the `runner` context only
+          # exists inside a step — GitHub refuses to load a workflow that
+          # uses it at job level, and `matrix.leg` would be the same
+          # answer everywhere else anyway.
+          $t = $env:RUNNER_TEMP
+          "VIBE_HOME=$t\vs-$env:LEG-home"            | Out-File -Append -FilePath $env:GITHUB_ENV
+          "VIBE_SELLER_RELEASES_URL=$t\vs-$env:LEG-release.json" | Out-File -Append -FilePath $env:GITHUB_ENV
+          # Where the prefetch finds the target wheel. The apply itself
+          # runs `uv pip install --offline`, so this only has to be true
+          # for the prefetch — and if the cache did NOT get the wheel,
+          # the offline dry run refuses (app/pip_update
+          # .offline_apply_proven) and the update goes to the installer
+          # instead, which is exactly what legs s3/s5/s5b/s5c assert
+          # against by demanding path == 'pip'.
+          "UV_FIND_LINKS=$t\dist"                   | Out-File -Append -FilePath $env:GITHUB_ENV
+          "VS_DIST=$t\dist"                         | Out-File -Append -FilePath $env:GITHUB_ENV
+          "VS_SETUP=$t\setup\VibeSeller-Setup.exe" | Out-File -Append -FilePath $env:GITHUB_ENV
+          "leg $env:LEG home: $t\vs-$env:LEG-home"
+
+      - name: Inject the named bug (no-op when twist=none)
+        if: env.TWIST != 'none' && env.TWIST != ''
+        env:
+          TWIST: ${{ github.event.inputs.twist }}
+        run: python tests/releases/twist.py "$env:TWIST"
+        shell: pwsh
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      # The wheels this leg builds are the "next release": they must be
+      # built with the claude / Playwright the installer bundled, exactly
+      # as a real release's wheel and installer come from one resolution.
+      - name: Resolve the bundle pins the installer was built with
+        env:
+          BUNDLE_CLAUDE_VERSION: ${{ needs.build.outputs.claude }}
+          BUNDLE_PLAYWRIGHT_VERSION: ${{ needs.build.outputs.playwright }}
+        run: python scripts/resolve_bundle_pins.py
+        shell: pwsh
+
+      - name: Download the installer under test
+        uses: actions/download-artifact@v4
+        with:
+          name: VibeSeller-Setup
+          path: ${{ runner.temp }}\setup
+
+      - name: Silent-install the release the legs upgrade FROM
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path $env:VS_SETUP).Path
+          $p = Start-Process -FilePath $exe -PassThru `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          $null = $p.Handle
+          $p.WaitForExit()
+          if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
+          $install = "$env:LOCALAPPDATA\Programs\VibeSeller"
+          "VS_INSTALL=$install" >> $env:GITHUB_ENV
+          # The three things the pip path needs from this layout, checked
+          # HERE so a leg that can never take the pip path fails with a
+          # reason instead of a timeout.
+          foreach ($need in @(
+              "$install\.venv\Scripts\vibe-seller.exe",
+              "$install\bundle.json",
+              "$install\uv.exe",
+              "$install\python\python.exe",
+              "$install\unins000.exe")) {
+            if (-not (Test-Path $need)) {
+              throw "the installed bundle is missing $need — the pip path cannot exist here"
+            }
+          }
+          "installed bundle fingerprint: $((Get-Content "$install\bundle.json" -Raw | ConvertFrom-Json).fingerprint)"
+          "installed app version: $((& "$install\.venv\Scripts\vibe-seller.exe" --version))"
+
+      # OLD -> NEW with the SAME runtime bundle: a few MB of wheels into
+      # the venv that is already there. Nobody clicks anything — the idle
+      # tick applies it (app/auto_update.py:idle_tick) — and the bundle
+      # beside the venv must come out of it untouched, because that file
+      # is what every future update check compares against.
+      # Turns red under: no-rollback (S5 too), ignore-idle only in the
+      # other direction, and raw-fingerprint would break the CHOICE,
+      # which leg s8 in bundle-fingerprint.yml owns.
+      - name: Leg s3 — same bundle means the pip path, applied by itself
+        if: matrix.leg == 's3'
+        shell: pwsh
+        run: |
+          . "$env:GITHUB_WORKSPACE\tests\releases\win_leg_harness.ps1"
+          Start-LegServer
+          $new = $env:VS_V2
+          Build-GoodWheel $new
+          $bundle = BundleHash
+          # The release's bundle.json asset IS the installed file: equal
+          # fingerprints are the whole pip-path signal, and nothing else
+          # about this release says it.
+          Write-Release -Version $new -BundleAsset (BundlePath)
+          $st = Wait-OnState @('ready', 'error')
+          if (-not $st -or $st.state -ne 'ready') {
+            Fail "never reached ready (last: $(Json $st))"
+          }
+          if ($st.version -ne $new) { Fail "ready for $($st.version), not $new" }
+          if ($st.path -ne 'pip') {
+            Fail "chose the '$($st.path)' path for a release whose bundle is identical — app/bundle.py's pip_path_applies is not answering"
+          }
+          if (-not $st.auto_apply) { Fail 'a pip update must be able to apply itself' }
+          if ($st.popup_due) { Fail 'a ready pip update must not ask for a click' }
+          $before = Server-Pid
+          # No restart POST anywhere in this leg: the machine must move
+          # by itself, within a couple of idle intervals.
+          if (-not (Wait-OnVersion -want $new -tries 420)) {
+            Fail "the idle server did not apply the pip update by itself (still $(Server-Version), state $(Json (Status)))"
+          }
+          if ((Server-Pid) -eq $before) {
+            Fail "$new answers from the SAME process that served $script:Old — the files changed, the server did not"
+          }
+          if ((Get-NetTCPConnection -LocalPort $script:Port -State Listen -ErrorAction SilentlyContinue | Measure-Object).Count -ne 1) {
+            Fail 'two servers answer the port: the helper started a copy beside the one the tray owns'
+          }
+          if ((BundleHash) -ne $bundle) {
+            Fail '{app}\bundle.json was rewritten — a pip update must not touch the runtime beside the venv'
+          }
+          # The version flipped first and the record lands after it —
+          # measured at a six-second gap on the host, where this leg
+          # failed with `the apply left no ok record (got )` on
+          # byte-identical text that had passed an hour earlier. A leg
+          # that reads the record the moment the port answers the new
+          # version is a leg that passes by luck.
+          if (-not (Wait-RecordField to $new)) {
+            Fail "the apply left no record for $new (got $(Json (Read-Record)))"
+          }
+          $rec = Read-Record
+          if ($rec.status -ne 'ok') {
+            Fail "the apply left no ok record (got $(Json $rec))"
+          }
+          # `trigger` is the leg's own claim: an update that reached NEW
+          # because a human clicked would satisfy every assertion above
+          # and still not be the thing s3 is for.
+          if ($rec.trigger -ne 'auto_idle') {
+            Fail "the update applied with trigger '$($rec.trigger)', not auto_idle"
+          }
+          if ($rec.path -ne 'pip') { Fail "record path is '$($rec.path)'" }
+          if (-not (Test-Path "$script:Install\.venv\Scripts\pythonw.exe")) {
+            Fail 'the tray python is gone — nothing owns the server now'
+          }
+          if (-not (Loop { (Status).state -eq 'idle' } 60)) {
+            Fail "the NEW server does not consider itself up to date: $(Json (Status))"
+          }
+          Write-Host "OK: s3 $script:Old -> $new over the pip path, no click, bundle.json untouched"
+          Stop-LegServer
+
+      # A release whose bundle.json names a different runtime (one pin
+      # fabricated). The ~700 MB installer is the only correct answer —
+      # a pip install cannot replace the Python, Git, uv, claude or
+      # Chromium beside the venv. And it must WAIT: only a click may run
+      # an installer.
+      # Turns red under: wrong-path, which answers pip for this release.
+      - name: Leg s4 — a changed pin means the installer path, and waits for the click
+        if: matrix.leg == 's4'
+        shell: pwsh
+        run: |
+          . "$env:GITHUB_WORKSPACE\tests\releases\win_leg_harness.ps1"
+          Start-LegServer
+          $new = $env:VS_V2
+          # The wheels are NOT built here on purpose: an install that
+          # could be pip-applied must not be, so if a bug did choose the
+          # pip path it fails at the fingerprint, not at a missing wheel.
+          $changed = New-ChangedBundle "$env:RUNNER_TEMP\bundle-changed.json"
+          Write-Release -Version $new -BundleAsset $changed
+          $st = Wait-OnState @('ready', 'error')
+          if (-not $st -or $st.state -ne 'ready') {
+            Fail "never staged the installer (last: $(Json $st))"
+          }
+          if ($st.path -ne 'installer') {
+            Fail "chose the '$($st.path)' path although the release's bundle fingerprint differs — #244's flow is the only safe one here"
+          }
+          if ($st.auto_apply) { Fail 'an installer update must never apply itself' }
+          if (-not $st.popup_due) {
+            Fail 'an installer update is inert until clicked, so it must ask (#244)'
+          }
+          $staged = "$script:Updates\$new\VibeSeller-Setup.exe"
+          if (-not (Test-Path $staged)) { Fail "the installer was not staged at $staged" }
+          Assert-NoSelfApply $new
+          # The click. This is the whole of what the installer path owes
+          # a user: it runs the STAGED file, and the app comes back.
+          $before = Server-Pid
+          $r = Invoke-RestMethod -Method Post `
+            "$($script:Base)/api/system/update/restart" -TimeoutSec 20
+          if ($r.state -ne 'restarting') { Fail "restart reply: $(Json $r)" }
+          if (-not (Loop { $pid2 = Server-Pid; ($pid2 -and $pid2 -ne $before -and [bool](Server-Version)) } 360)) {
+            Fail "the installer never brought the app back on $($script:Port) (old pid $before)"
+          }
+          $log = "$script:Updates\$new\install.log"
+          if (-not (Test-Path $log)) { Fail "no installer log at $log" }
+          if (-not (Select-String -Path $log -Pattern 'Source:.*updates')) {
+            Fail 'the installer /LOG does not account for running from the staged file'
+          }
+          if (-not (Select-String -Path $log -Pattern 'Relaunched the tray' -SimpleMatch)) {
+            Fail 'the silent upgrade did not relaunch the tray'
+          }
+          # Honest limit: the asset this leg stages is the SAME installer
+          # the leg installed from, so the version cannot move — only a
+          # second installer build could, and that is windows-upgrade.yml
+          # (real previous release -> a built NEW) and the pip path's
+          # version move is leg s3 here and pip-upgrade-gate.yml between
+          # two real releases. What this leg owns is the CHOICE, the
+          # refusal to self-apply, and that the staged bytes are what ran.
+          Write-Host "OK: s4 chose the installer path, refused to self-apply, and ran the staged file on the click ($(Server-Version), pid $(Server-Pid))"
+          Stop-LegServer
+
+      # The one failure an updater is not allowed to produce: a machine
+      # with no server. The offered release installs cleanly and then
+      # dies at boot, so the detached helper must put the old version
+      # back and bring THAT up (app/pip_apply_helper.py step 4).
+      # Turns red under: no-rollback — the box stays dark.
+      - name: Leg s5 — a package that dies at boot must land back on OLD, never on nothing
+        if: matrix.leg == 's5'
+        shell: pwsh
+        run: |
+          . "$env:GITHUB_WORKSPACE\tests\releases\win_leg_harness.ps1"
+          Start-LegServer
+          $new = $env:VS_V2
+          Build-BrokenWheel $new
+          # Same bundle as this install, so the pip path IS the right
+          # answer here — the bug is inside the wheel, and only the
+          # health check can catch it.
+          Write-Release -Version $new -BundleAsset (BundlePath)
+          $st = Wait-OnState @('ready', 'error')
+          if (-not $st -or $st.state -ne 'ready' -or $st.path -ne 'pip') {
+            Fail "expected a ready pip update, got $(Json $st)"
+          }
+          # Marked BEFORE waiting for anything: this machine already
+          # answers $script:Old, so "wait for the port to answer the OLD
+          # version" is true the instant it is asked, and the record read
+          # one line later is one that does not exist yet. On the host
+          # (§9 of win-e2e2.REPORT.md) that is exactly what happened — the
+          # leg asserted a record ~2 s after `ready`, before the
+          # once-a-minute idle tick could have spawned the helper — and
+          # the same shape was measured twice in the Linux legs the same
+          # day. What an apply produces is a line in the helper's own log
+          # and then a NEW last.json, in that order.
+          $applies0 = Applies-Started
+          $recBefore = Record-Identity (Read-Record)
+          if (-not (Wait-ApplyStart $applies0)) {
+            Fail "the idle tick never started an apply for v$new (pip-apply.log holds $(Applies-Started) apply line(s), was $applies0)"
+          }
+          if (-not (Wait-NewRecord $recBefore)) {
+            Fail "the apply for v$new never wrote a record (last.json: $(Json (Read-Record)))"
+          }
+          # The apply is over; only now is "did the machine come back" a
+          # question with an answer. Darkness during the attempt was
+          # allowed; staying dark is the bug.
+          if (-not (Wait-OnVersion -want $script:Old -tries 120)) {
+            Fail "the machine is dark: v$new never booted and v$script:Old was never put back"
+          }
+          if ((Server-Version) -eq $new) { Fail "v$new answered — it is supposed to die at boot" }
+          $rec = Read-Record
+          if (-not $rec) { Fail 'the apply left no record at all' }
+          if ($rec.status -ne 'rolled_back') {
+            Fail "expected a rolled_back record, got $(Json $rec)"
+          }
+          if ($rec.to -ne $new -or $rec.from -ne $script:Old) {
+            Fail "the record is about a different update: $(Json $rec)"
+          }
+          # Which stage failed is the whole account of the outage: an
+          # install that returned nonzero is a different bug from a
+          # package that installed and never booted, and only the second
+          # one is what a health-checked rollback is for.
+          # `health`, the stage the fabricated release died in — and
+          # never `rollback`, which is the stage of a recovery that
+          # itself failed. The record's stage is quoted verbatim by the
+          # refusal, the dialog and the event, so a rolled-back apply
+          # that blamed `rollback` told the admin the recovery broke on
+          # a machine that had just been put back correctly.
+          if ($rec.stage -ne 'health') {
+            Fail "the failure was recorded in stage '$($rec.stage)', not the boot/health one"
+          }
+          # The reverted machine has to SAY so — this is what the admin
+          # reads after a restart they did not ask for.
+          $st2 = Status
+          if (-not $st2.last_update -or $st2.last_update.status -ne 'rolled_back') {
+            Fail "update-status does not report the rollback: $(Json $st2)"
+          }
+          if ($st2.current_version -ne $script:Old) {
+            Fail "update-status says current_version=$($st2.current_version)"
+          }
+          Write-Host "OK: s5 v$new failed, v$script:Old restored and serving, rollback reported"
+          Stop-LegServer
+
+      # S5, then the SAME broken release offered again to a fresh boot.
+      # Review 4's outage loop: the check cycle has no memory, so six
+      # hours later it warms the very build this machine just put back,
+      # marks it ready, and the idle tick applies it again — an outage
+      # per cycle, forever, for a release that cannot boot. Windows
+      # matters most here because the apply rewrites {app}\.venv in
+      # place, so a second attempt is a second window in which the
+      # machine is not serving. Nothing new is built for this leg: the
+      # offer is the same broken wheel, and the only new thing is a
+      # reboot, which is how the next cycle arrives on schedule.
+      # Turns red under: retry-bad (the tick stops honouring the
+      # refusal) and, in the other direction, no-rollback (leg s5).
+      - name: Leg s5c — a rolled-back release is never applied again
+        if: matrix.leg == 's5c'
+        shell: pwsh
+        run: |
+          . "$env:GITHUB_WORKSPACE\tests\releases\win_leg_harness.ps1"
+          Start-LegServer
+          $new = $env:VS_V2
+          Build-BrokenWheel $new
+          Write-Release -Version $new -BundleAsset (BundlePath)
+          $st = Wait-OnState @('ready', 'error')
+          if (-not $st -or $st.state -ne 'ready' -or $st.path -ne 'pip') {
+            Fail "expected a ready pip update, got $(Json $st)"
+          }
+          # Outage one: it applies itself, dies, and must come back —
+          # and the two events that prove it are the helper being
+          # spawned and then writing a record, not the port answering a
+          # version it answered before the apply started (see leg s5).
+          $applies0 = Applies-Started
+          $recBefore = Record-Identity (Read-Record)
+          if (-not (Wait-ApplyStart $applies0)) {
+            Fail "the idle tick never started an apply for v$new (pip-apply.log holds $(Applies-Started) apply line(s), was $applies0)"
+          }
+          if (-not (Wait-NewRecord $recBefore)) {
+            Fail "the first outage never wrote a record (last.json: $(Json (Read-Record)))"
+          }
+          if (-not (Wait-OnVersion -want $script:Old -tries 120)) {
+            Fail "the machine is dark: v$new never booted and v$($script:Old) was never put back"
+          }
+          $rec1 = Read-Record
+          if (-not $rec1 -or $rec1.status -ne 'rolled_back') {
+            Fail "the first outage left no rollback record: $(Json $rec1)"
+          }
+          $applies1 = Applies-Started
+          if ($applies1 -lt 1) { Fail 'no apply was ever attempted' }
+          Write-Host "  outage one recorded: $applies1 apply, $($rec1.status)"
+          # Outage two must not happen: reboot into the same offer.
+          Restart-LegServer
+          $st2 = Wait-OnState @('ready', 'error')
+          if (-not $st2 -or $st2.state -ne 'ready') {
+            Fail "the broken release was never offered again: $(Json $st2)"
+          }
+          if ($st2.auto_apply) {
+            Fail 'a release this machine rolled back still promises to apply itself'
+          }
+          if (-not $st2.refusal -or $st2.refusal.version -ne $new) {
+            Fail "update-status reports no refusal for ${new}: $(Json $st2)"
+          }
+          if (-not $st2.popup_due) {
+            Fail 'nothing will happen by itself, so the admin must be asked'
+          }
+          # Two idle intervals past ready: the tick must refuse it.
+          Start-Sleep 150
+          if ((Server-Version) -ne $script:Old) {
+            Fail "it applied the rolled-back release a second time (now $(Server-Version))"
+          }
+          $applies2 = Applies-Started
+          if ($applies2 -ne $applies1) {
+            Fail "a second apply started ($applies1 -> $applies2)"
+          }
+          # The identity, not the bytes: the reboot this leg just forced
+          # reports the FIRST outage (`reported: false` -> `true`) and
+          # rewrites last.json without any second apply having happened.
+          # CI measured exactly that on the Linux leg the same day — the
+          # tick logged `refused: …` twice, no second `applying` line
+          # existed, and the leg still went red.
+          if ((Record-Identity (Read-Record)) -ne (Record-Identity $rec1)) {
+            Fail 'the record describes another apply — a second outage happened'
+          }
+          if (-not (Read-Record).reported) {
+            Fail 'the reboot never reported the outage it found on disk'
+          }
+          if ((Get-Content "$script:Updates\apply-blocked.json" -Raw `
+              -ErrorAction SilentlyContinue) -notmatch $new) {
+            Fail 'the refusal is not on disk: the next boot would retry it'
+          }
+          Write-Host "OK: s5c — one outage for v$new, refusal on disk, admin asked"
+          Stop-LegServer
+
+      # Two hops: OLD -> v2 (fine) -> v3 (dies at boot). The rollback
+      # target is what was SERVING, not what shipped — v2's wheel exists
+      # only in the uv cache by then, so this is the hop that catches a
+      # rollback pinned to the bundle's own wheel set.
+      # Turns red under: no-rollback (dark), and under a rollback that
+      # restores the wrong version.
+      - name: Leg s5b — broken v3 rolls back to v2, not to OLD
+        if: matrix.leg == 's5b'
+        shell: pwsh
+        run: |
+          . "$env:GITHUB_WORKSPACE\tests\releases\win_leg_harness.ps1"
+          Start-LegServer
+          $v2 = $env:VS_V2
+          $v3 = $env:VS_V3
+          # Hop 1: a good pip update, applied by itself.
+          Build-GoodWheel $v2
+          Write-Release -Version $v2 -BundleAsset (BundlePath)
+          if (-not (Loop { $s = Status; ($s.state -eq 'ready' -and $s.path -eq 'pip') } 200)) {
+            Fail "hop 1 never reached ready(pip): $(Json (Status))"
+          }
+          if (-not (Wait-OnVersion -want $v2 -tries 420)) {
+            Fail "hop 1 did not apply itself (still $(Server-Version))"
+          }
+          # Hop 1 is not over when the VERSION moves: the record is the
+          # last thing its helper writes, ~2 min later. Hop 2 marks
+          # against that record, and a marker taken from a file that is
+          # not there yet is EMPTY — an empty marker is satisfied by any
+          # record, which is how the Linux leg read hop 1's own `ok` as
+          # hop 2's verdict (`FAIL: the new record is about …2, not …3`)
+          # two minutes before the second apply could have written one.
+          $hop1 = $null
+          for ($i = 0; $i -lt 200; $i++) {
+            $hop1 = Read-Record
+            if ($hop1 -and $hop1.to -eq $v2) { break }
+            Start-Sleep 2
+          }
+          if (-not $hop1 -or $hop1.to -ne $v2) {
+            Fail "hop 1 never wrote its record (last.json: $(Json (Read-Record)))"
+          }
+          if ($hop1.status -ne 'ok' -or $hop1.trigger -ne 'auto_idle') {
+            Fail "hop 1 was not an ok auto_idle apply: $(Json $hop1)"
+          }
+          Write-Host "  hop 1 done: $($hop1.from) -> $($hop1.to) $($hop1.status)"
+          # Hop 2: the release now dies at boot. v2 is only in the cache,
+          # never in {app}\wheels — which is the point of this leg.
+          if (Test-Path "$script:Install\wheels\vibe_seller-$v2-py3-none-any.whl") {
+            Fail "v2's wheel is in the bundle wheel set; this leg no longer proves the cache is what carries the rollback"
+          }
+          $applies0 = Applies-Started
+          $recBefore = Record-Identity (Read-Record)
+          if (-not $recBefore) {
+            Fail 'hop 2 began with no hop-1 record to mark against'
+          }
+          Build-BrokenWheel $v3
+          Write-Release -Version $v3 -BundleAsset (BundlePath)
+          if (-not (Loop { $s = Status; ($s.state -eq 'ready' -and $s.path -eq 'pip' -and $s.version -eq $v3) } 200)) {
+            Fail "hop 2 never reached ready(pip) for ${v3}: $(Json (Status))"
+          }
+          if (-not (Wait-ApplyStart $applies0)) {
+            Fail "hop 2's idle tick never started an apply (pip-apply.log holds $(Applies-Started) apply line(s), was $applies0)"
+          }
+          if (-not (Wait-NewRecord $recBefore)) {
+            Fail "hop 2's apply never wrote a new record (last.json: $(Json (Read-Record)))"
+          }
+          $rec = Read-Record
+          if ($rec.status -ne 'rolled_back') { Fail "expected rolled_back, got $(Json $rec)" }
+          if ($rec.to -ne $v3) {
+            Fail "hop 2's record is about $($rec.to), not ${v3}: $(Json $rec)"
+          }
+          if (-not (Wait-OnVersion -want $v2 -tries 120)) {
+            $got = Server-Version
+            if (-not $got) { Fail "dark: $v3 died and nothing came back" }
+            if ($got -eq $script:Old) {
+              Fail "rolled back PAST $v2 to the shipped release $script:Old — the rollback target must be what was serving"
+            }
+            Fail "never came back on $v2 (answering $got, record $(Json $rec))"
+          }
+          if ($rec.from -ne $v2) {
+            Fail "the record started from $($rec.from), not ${v2}: $(Json $rec)"
+          }
+          if ($rec.stage -ne 'health') {
+            Fail ("hop 2's failure was recorded in stage " +
+                  "'$($rec.stage)', not the boot/health one")
+          }
+          Write-Host "OK: s5b $script:Old -> $v2 -> broken $v3 -> back on $v2 from the cache"
+          Stop-LegServer
+
+      # The staged installer's bytes are not the bytes the release named.
+      # One byte flipped AT THE SAME SIZE, so a size check alone cannot
+      # catch it — only the sha256 from the release asset can. Nothing
+      # may be launched, and an un-verified stage must never exist.
+      # Turns red under: no-digest-check.
+      - name: Leg s6 — a tampered installer is refused and never launched
+        if: matrix.leg == 's6'
+        shell: pwsh
+        run: |
+          . "$env:GITHUB_WORKSPACE\tests\releases\win_leg_harness.ps1"
+          Start-LegServer
+          $new = $env:VS_V2
+          $tamperDir = "$env:RUNNER_TEMP\tampered"
+          New-Item -ItemType Directory -Force -Path $tamperDir | Out-Null
+          $tampered = Join-Path $tamperDir 'VibeSeller-Setup.exe'
+          Copy-Item $script:Exe $tampered
+          $real = (Get-FileHash -Algorithm SHA256 $script:Exe).Hash.ToLower()
+          $fs = [System.IO.File]::Open($tampered, 'Open', 'ReadWrite')
+          try {
+            $null = $fs.Seek(4096, 'Begin')
+            $b = $fs.ReadByte()
+            $fs.Position = 4096
+            $fs.WriteByte(($b -bxor 0xFF))
+          } finally { $fs.Close() }
+          $sizeReal = (Get-Item $script:Exe).Length
+          if ((Get-Item $tampered).Length -ne $sizeReal) {
+            Fail 'the tampered copy changed size — leg s6 must defeat the DIGEST check, not the size one'
+          }
+          if ((Get-FileHash -Algorithm SHA256 $tampered).Hash.ToLower() -eq $real) {
+            Fail 'flipping a byte did not change the hash — nothing was tampered'
+          }
+          # A changed bundle so the installer path is the one under test
+          # (the pip path never hashes an installer).
+          $changed = New-ChangedBundle "$env:RUNNER_TEMP\bundle-changed-s6.json"
+          Write-Release -Version $new -BundleAsset $changed `
+            -InstallerAsset $tampered -DigestOverride $real
+          $st = Wait-OnState @('error', 'ready')
+          if (-not $st -or $st.state -ne 'error') {
+            Fail "tampered bytes were accepted: $(Json $st)"
+          }
+          if ($st.error -notmatch 'sha256') {
+            Fail "refused for the wrong reason: '$($st.error)' (expected the sha256)"
+          }
+          if (Test-Path "$script:Updates\$new\VibeSeller-Setup.exe") {
+            Fail 'the tampered file was left staged as a ready installer'
+          }
+          if (Test-Path "$script:Updates\$new\install.log") {
+            Fail 'an installer ran'
+          }
+          if ((Server-Version) -ne $script:Old) { Fail "the app moved to $(Server-Version)" }
+          # And the click cannot rescue it: nothing is ready, so there is
+          # nothing to launch. 409, not 500 and not a launch.
+          $code = $null
+          try {
+            $code = (Invoke-WebRequest -Method Post `
+              "$($script:Base)/api/system/update/restart" -TimeoutSec 20 `
+              -UseBasicParsing).StatusCode
+          } catch {
+            $code = $_.Exception.Response.StatusCode.value__
+          }
+          if ($code -ne 409) { Fail "restart after a refused stage answered $code, expected 409" }
+          Write-Host "OK: s6 refused the tampered installer (sha256), staged nothing, launched nothing"
+          Stop-LegServer
+
+      - name: Stop the leg's server + tray
+        if: always()
+        shell: pwsh
+        run: |
+          # Best effort, and only what this leg started (never 7777): a
+          # relaunched tray keeps pythonw + the server alive on the
+          # runner otherwise.
+          $install = $env:VS_INSTALL
+          if ($install -and (Test-Path "$install\.venv\Scripts\vibe-seller.exe")) {
+            & "$install\.venv\Scripts\vibe-seller.exe" stop --port $env:VIBE_SELLER_PORT 2>$null
+          }
+          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') -and
+              $_.ExecutablePath -and $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) -and
+              $_.CommandLine -match 'tray\.py' } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+      - name: Upload the leg's update forensics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-${{ matrix.leg }}-updates
+          path: |
+            ${{ runner.temp }}\vs-${{ matrix.leg }}-home\updates
+            ${{ runner.temp }}\vs-${{ matrix.leg }}-release.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # The release gate's Windows leg, on the one path that can run it
+  # today. `pip-upgrade-gate.yml` is the job that gates a release, and a
+  # workflow file that exists only on a branch CANNOT be dispatched —
+  # GitHub answers HTTP 404 until the file is on the default branch — so
+  # without this job the gate's Windows leg would merge as code nobody
+  # has ever executed anywhere. It runs the identical script, from the
+  # identical inputs, on the identical runner; the only difference is who
+  # asked. `rehearse_gate` is false on every PR, so this job does not
+  # exist for normal runs at all.
+  gate-rehearsal:
+    name: gate rehearsal (previous release -> candidate, pip path)
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.rehearse_gate == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      VIBE_SELLER_AUTO_UPDATE: '1'
+      VIBE_SELLER_PORT: '7795'
+      VIBE_SELLER_TELEMETRY: '0'
+      VS_V2: '99.9.9'
+      PREV_VERSION: ${{ github.event.inputs.prev_version }}
+      GATE_FORCE: ${{ github.event.inputs.gate_force }}
+      # win_gate_leg.ps1 resolves the floating pins before it builds
+      # the candidate; empty means the newest release.
+      BUNDLE_CLAUDE_VERSION: ${{ github.event.inputs.claude_version || vars.BUNDLE_CLAUDE_VERSION }}
+      BUNDLE_PLAYWRIGHT_VERSION: ${{ github.event.inputs.playwright_version || vars.BUNDLE_PLAYWRIGHT_VERSION }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: The gate hop
+        shell: pwsh
+        run: |
+          $t = $env:RUNNER_TEMP
+          $env:VIBE_HOME = "$t\vs-rehearse-home"
+          $env:VIBE_SELLER_RELEASES_URL = "$t\vs-rehearse-release.json"
+          $env:UV_FIND_LINKS = "$t\dist"
+          $env:VS_DIST = "$t\dist"
+          # An explicit policy: this shell would otherwise be
+          # governed by the machine's execution policy, which is
+          # not something a leg should have to know.
+          pwsh -NoProfile -ExecutionPolicy Bypass -File `
+            ./tests/releases/win_gate_leg.ps1
+
+          # A child pwsh's exit code is NOT a PowerShell error: a script
+          # that throws in the child leaves THIS step to finish normally
+          # and report success, and this job exists to show the gate's
+          # Windows leg can go red.
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Stop the leg's server + tray
+        if: always()
+        shell: pwsh
+        run: |
+          $install = "$env:LOCALAPPDATA\Programs\VibeSeller"
+          if (Test-Path "$install\.venv\Scripts\vibe-seller.exe") {
+            & "$install\.venv\Scripts\vibe-seller.exe" stop --port 7795 2>$null
+          }
+          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') -and
+              $_.ExecutablePath -and
+              $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+      - name: Upload the rehearsal's forensics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-rehearsal-windows
+          path: |
+            ${{ runner.temp }}\vs-rehearse-home
+          if-no-files-found: ignore

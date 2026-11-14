@@ -17,6 +17,16 @@ name: Release
 #                         `vibe-seller upgrade` restarts the running
 #                         server onto the new version (macOS + Linux).
 #                         Also gates publish-testpypi.
+#   1d. pip-upgrade-gate-test  Calls pip-upgrade-gate.yml (reusable).
+#                         Proves the PREVIOUS published release can move
+#                         onto this candidate by itself — the few-MB pip
+#                         path, no click, Windows and macOS/Linux. It
+#                         SKIPS, green, when that release publishes no
+#                         `bundle.json`, when the two bundles differ
+#                         (then the installer path is the right answer,
+#                         and gate 1 already covers it), or when the
+#                         previous release predates the idle apply.
+#                         Also gates publish-testpypi.
 #   2. build              Produces TWO wheels in the same checkout:
 #                         - dist-pypi/      canonical (version from tag)
 #                         - dist-testpypi/  dev-versioned (`<tag>.devYYYYMMDDHHMMSS`)
@@ -24,9 +34,9 @@ name: Release
 #                         across runs without colliding with previous
 #                         uploads (PyPI/TestPyPI versions are immutable).
 #   3. publish-testpypi   Publish the dev-versioned wheel. Needs
-#                         `build` and all three upgrade gates
+#                         `build` and all four upgrade gates
 #                         (`windows-upgrade-test`, `sync-upgrade-test`,
-#                         `cli-upgrade-test`).
+#                         `cli-upgrade-test`, `pip-upgrade-gate-test`).
 #   4. verify-testpypi    Fresh runner: install via `install.sh --test-pypi
 #                         --version <dev>`, start server, run
 #                         `tests/releases/verify_install.sh <dev>` — asserts
@@ -65,11 +75,53 @@ on:
   # Ad-hoc runs of the release gates (the upgrade tests) without
   # tagging.
   workflow_dispatch:
+    inputs:
+      claude_version:
+        description: >-
+          Claude Code CLI version this release bundles. Empty = the
+          newest release, or the repository variable
+          BUNDLE_CLAUDE_VERSION when set (a tag push reads only that).
+        required: false
+        default: ''
+        type: string
+      playwright_version:
+        description: >-
+          Playwright version this release pins (fixes the bundled
+          Chromium). Empty = the newest release, or the repository
+          variable BUNDLE_PLAYWRIGHT_VERSION when set.
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
 
 jobs:
+  # The Claude Code CLI and Playwright are not pinned in the repo
+  # (app/bundle.py: FLOATING_PINS). They are resolved ONCE here — the
+  # newest releases unless an input or repository variable names a
+  # version — and every job below that builds or fingerprints the
+  # candidate gets this one answer, so the wheel on PyPI (its
+  # `playwright==`, its manifest's claude), the installer and the
+  # published bundle.json describe the same pair.
+  bundle-pins:
+    name: Resolve the bundled claude / Playwright
+    runs-on: ubuntu-latest
+    outputs:
+      claude: ${{ steps.pins.outputs.claude }}
+      playwright: ${{ steps.pins.outputs.playwright }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Resolve
+        id: pins
+        env:
+          BUNDLE_CLAUDE_VERSION: ${{ inputs.claude_version || vars.BUNDLE_CLAUDE_VERSION }}
+          BUNDLE_PLAYWRIGHT_VERSION: ${{ inputs.playwright_version || vars.BUNDLE_PLAYWRIGHT_VERSION }}
+        run: python scripts/resolve_bundle_pins.py
+
   windows-upgrade-test:
     name: Windows Upgrade Test (gate)
     uses: ./.github/workflows/windows-upgrade.yml
@@ -88,8 +140,23 @@ jobs:
     name: CLI upgrade restart test (gate)
     uses: ./.github/workflows/cli-upgrade.yml
 
+  pip-upgrade-gate-test:
+    name: Pip upgrade gate (previous release -> candidate)
+    # Reusable workflow (pip-upgrade-gate.yml): the previous PUBLISHED
+    # release must be able to move onto this one by itself over the few-MB
+    # pip path. It skips, green, when that release ships no bundle.json or
+    # the two bundles differ — then the installer hop is the right answer
+    # and job 1 already gates it — so the first release after this PR
+    # passes on a printed reason rather than on a lie.
+    needs: bundle-pins
+    uses: ./.github/workflows/pip-upgrade-gate.yml
+    with:
+      claude_version: ${{ needs.bundle-pins.outputs.claude }}
+      playwright_version: ${{ needs.bundle-pins.outputs.playwright }}
+
   build:
     name: Build wheels (canonical + testpypi-dev)
+    needs: bundle-pins
     runs-on: ubuntu-latest
     outputs:
       dev_version: ${{ steps.build_testpypi.outputs.dev_version }}
@@ -134,9 +201,24 @@ jobs:
       - name: Install build
         run: python -m pip install --upgrade build
 
+      - name: Stamp the resolved claude / Playwright into the tree
+        # pyproject.toml gets `playwright==<resolved>` and the manifest
+        # the claude version, so the wheel installs exactly the pair the
+        # installer bundles (see the bundle-pins job).
+        env:
+          BUNDLE_CLAUDE_VERSION: ${{ needs.bundle-pins.outputs.claude }}
+          BUNDLE_PLAYWRIGHT_VERSION: ${{ needs.bundle-pins.outputs.playwright }}
+        run: python scripts/resolve_bundle_pins.py
+
       - name: Build canonical wheel (for PyPI)
-        # Tag-derived version, e.g. v0.0.1 → 0.0.1.
-        run: python -m build --outdir dist-pypi
+        # The tag's version, e.g. v0.0.1 → 0.0.1. Stated explicitly: the
+        # stamp above leaves the tree dirty, and setuptools-scm would
+        # otherwise append a `+d<date>` local version PyPI refuses.
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            export SETUPTOOLS_SCM_PRETEND_VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          python -m build --outdir dist-pypi
 
       - name: Build dev-versioned wheels (for TestPyPI)
         id: build_testpypi
@@ -195,7 +277,8 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI (dev-versioned)
-    needs: [build, windows-upgrade-test, sync-upgrade-test, cli-upgrade-test]
+    needs: [build, windows-upgrade-test, sync-upgrade-test,
+           cli-upgrade-test, pip-upgrade-gate-test]
     runs-on: ubuntu-latest
     environment:
       name: test-pypi
@@ -467,8 +550,14 @@ jobs:
 
   build-windows-installer:
     name: Build Windows installer (for the release)
+    needs: bundle-pins
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      # build.ps1 stamps these (scripts/resolve_bundle_pins.py), so the
+      # installer bundles the pair the PyPI wheel requires.
+      BUNDLE_CLAUDE_VERSION: ${{ needs.bundle-pins.outputs.claude }}
+      BUNDLE_PLAYWRIGHT_VERSION: ${{ needs.bundle-pins.outputs.playwright }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -485,12 +574,30 @@ jobs:
         shell: pwsh
         run: |
           $ver = "${env:GITHUB_REF_NAME}".TrimStart('v')
+          # The stamp leaves the tree dirty, and setuptools-scm would
+          # give the bundled wheel a `+d<date>` local version.
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $env:SETUPTOOLS_SCM_PRETEND_VERSION = $ver
+          }
           .\installer\windows\build.ps1 -AppVersion $ver
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: VibeSeller-Setup
           path: installer/windows/out/VibeSeller-Setup.exe
+          if-no-files-found: error
+      # The document the installer embedded as {app}\bundle.json, from
+      # the same build. It goes on the release page as the asset
+      # `bundle.json` (below), and an installed app compares its own copy
+      # with that one to decide whether the new release is a few-MB pip
+      # update or this ~700 MB installer (app/bundle.py). Publishing the
+      # staged file — not a freshly generated one — is what makes the two
+      # sides of the comparison the same bytes.
+      - name: Upload the bundle manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-json
+          path: installer/windows/staging/bundle.json
           if-no-files-found: error
 
   github-release:
@@ -516,6 +623,12 @@ jobs:
           name: VibeSeller-Setup
           path: dist-win/
 
+      - name: Download the bundle manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: bundle-json
+          path: dist-bundle/
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -528,4 +641,4 @@ jobs:
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
             ${PREV:+--notes-start-tag "$PREV"} \
-            dist/* dist-win/VibeSeller-Setup.exe
+            dist/* dist-win/VibeSeller-Setup.exe dist-bundle/bundle.json

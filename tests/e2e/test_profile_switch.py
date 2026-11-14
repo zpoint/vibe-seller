@@ -27,6 +27,7 @@ from tests.e2e.e2e_helpers import (
     get_distinct_providers,
     get_task,
     poll_task_status,
+    run_tag,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ def providers():
 
 @pytest.fixture(scope='module')
 def test_store(api_client):
-    tag = int(time.time())
+    tag = run_tag()
     resp = api_client.post(
         f'{BASE_URL}/api/stores',
         json={'name': f'e2e-profile-{tag}'},
