@@ -661,7 +661,27 @@ install_claude() {
         _warn "Claude CLI install failed (non-fatal)"
         return 1
     }
-    _success "claude CLI installed (project-local)"
+    # npm's exit code is not the answer. The package ships a stub at
+    # bin/claude.exe and its postinstall (install.cjs) puts the native
+    # binary in place — and newer npm skips unapproved install scripts
+    # by default and still exits 0, leaving a CLI that answers every
+    # call with "claude native binary not installed". So ask the CLI
+    # itself, run the package's install step when it does not answer,
+    # and never report a CLI that does not run as installed. Same rule
+    # as `vibe-seller upgrade` (app/claude_cli_install.py).
+    local claude_bin="$data_dir/node_modules/.bin/claude"
+    local claude_pkg="$data_dir/node_modules/@anthropic-ai/claude-code"
+    if ! "$claude_bin" --version >/dev/null 2>&1 \
+        && [[ -f "$claude_pkg/install.cjs" ]]; then
+        _info "npm skipped Claude Code's install step; running it (node install.cjs)"
+        (cd "$claude_pkg" && node install.cjs) || true
+    fi
+    if ! "$claude_bin" --version >/dev/null 2>&1; then
+        _warn "Claude CLI is installed but does not run: $claude_bin"
+        _warn "  run 'node install.cjs' in $claude_pkg, then start Vibe Seller"
+        return 1
+    fi
+    _success "claude CLI installed (project-local): $("$claude_bin" --version 2>/dev/null)"
 }
 
 # ============================================================

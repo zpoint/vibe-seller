@@ -29,7 +29,7 @@ import urllib.request
 
 from packaging.version import Version
 
-from app import bundle, uv_tool
+from app import bundle, claude_cli_install, uv_tool
 from app.platform import (
     collect_agent_descendants,
     find_pid_listening_on_port,
@@ -530,7 +530,8 @@ def _upgrade_claude_cli() -> int:
     rc = subprocess.run(cmd).returncode
     if rc != 0:
         print('Claude Code CLI upgrade failed.', file=sys.stderr)
-    return rc
+        return rc
+    return claude_cli_install.finish(_vibe_home())
 
 
 def _cmd_install_browser(args: argparse.Namespace) -> int:

@@ -19,6 +19,7 @@ from app.sync import jobs as sync_jobs, state as sync_state
 from app.sync.scheduler import (
     REASON_EVENT,
     REASON_MANUAL,
+    REASON_STALE,
     REASON_TICK,
     SOURCE_EXTERNAL,
     SOURCE_GITHUB_MAIN,
@@ -410,6 +411,64 @@ async def test_false_precondition_skips_without_moving_last_ok_at(sched, state):
     assert result.skip_reason == 'precondition'
     assert rec.calls == []
     assert (await state.get_dict('ads_skill'))['last_ok_at'] is None
+
+
+async def test_a_precondition_skip_never_answers_a_strong_caller_that_joined(
+    sched, state
+):
+    """The ads authorization race, measured in a nightly e2e: the
+    authorization's own call to the service carried a newer skill
+    version, so a stale refresh started mid-request and checked its
+    precondition before the route committed the authorized store; the
+    route's event trigger then joined that run and got its skip — and
+    the machine had no ads skill until the next hourly tick."""
+    db = {'authorized': False}
+    looked = asyncio.Event()
+    go_on = asyncio.Event()
+
+    async def ready():
+        seen = db['authorized']
+        looked.set()
+        await go_on.wait()
+        return seen
+
+    rec = Recorder()
+    await sched.register(job('ads_skill', when=ready, run=rec))
+    stale = asyncio.create_task(sched.trigger('ads_skill', reason=REASON_STALE))
+    await looked.wait()
+
+    db['authorized'] = True  # the route commits the authorization …
+    event = asyncio.create_task(  # … and asks for the skill
+        sched.trigger('ads_skill', reason=REASON_EVENT, force=True)
+    )
+    await asyncio.sleep(0)
+    go_on.set()
+
+    assert (await stale).skip_reason == 'precondition'
+    result = await event
+    assert result.skip_reason is None, result
+    assert len(rec.calls) == 1
+
+
+async def test_a_tick_still_shares_a_precondition_skip(sched, state):
+    """Only a caller that needs work done gets the fresh run; the clock
+    talking twice is still one check."""
+    looked = asyncio.Event()
+    go_on = asyncio.Event()
+
+    async def never():
+        looked.set()
+        await go_on.wait()
+        return False
+
+    rec = Recorder()
+    await sched.register(job('ads_skill', when=never, run=rec))
+    first = asyncio.create_task(sched.trigger('ads_skill', reason=REASON_TICK))
+    await looked.wait()
+    second = asyncio.create_task(sched.trigger('ads_skill', reason=REASON_TICK))
+    await asyncio.sleep(0)
+    go_on.set()
+    assert await first is await second
 
 
 async def test_depends_on_joins_an_in_flight_dependency(sched, state):

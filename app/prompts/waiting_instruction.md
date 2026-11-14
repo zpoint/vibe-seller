@@ -33,3 +33,10 @@ After you include this block, the system will:
 
 Use this whenever the next step depends on an external party's action that
 you cannot control or accelerate.
+
+The person who gave you this task is not an external party. When the next
+step is their answer — an approval, a confirmation, a choice between
+options — end your turn with the question and what they are deciding on;
+their reply continues the task. Do not add a `wait-condition` block for
+that: it would park the task as waiting on the outside world and start
+its expiry clock, when all it needs is the reply.
