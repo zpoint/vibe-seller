@@ -307,6 +307,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # wait_for_index.sh asks uv itself to resolve the version before it
+      # lets the install run (a page that lists the wheel is not proof
+      # the edge uv reaches does).
+      - uses: astral-sh/setup-uv@v7
+
       - name: Wait for TestPyPI /simple/ index to see the new version
         # Poll the SIMPLE index (what uv/pip read) rather than the JSON
         # API. TestPyPI runs them on separate caches — JSON can return
@@ -396,6 +401,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # wait_for_index.sh asks uv itself to resolve the version before it
+      # lets the install run (a page that lists the wheel is not proof
+      # the edge uv reaches does).
+      - uses: astral-sh/setup-uv@v7
+
       - name: Wait for both dev versions on the TestPyPI simple index
         run: |
           for want in "$PREV" "$NEW"; do
@@ -471,6 +481,11 @@ jobs:
 
       - name: Normalise tag → version
         run: echo "VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+
+      # wait_for_index.sh asks uv itself to resolve the version before it
+      # lets the install run (a page that lists the wheel is not proof
+      # the edge uv reaches does).
+      - uses: astral-sh/setup-uv@v7
 
       - name: Wait for PyPI /simple/ index to see the new version
         # Same reason as TestPyPI verify: poll the simple index (what

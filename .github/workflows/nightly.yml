@@ -318,6 +318,11 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.sha }}
 
+      # wait_for_index.sh asks uv itself to resolve the version before it
+      # lets the install run (a page that lists the wheel is not proof
+      # the edge uv reaches does).
+      - uses: astral-sh/setup-uv@v7
+
       - name: Wait for the simple index to list the version
         run: |
           if [ "$TARGET" = testpypi ]; then
