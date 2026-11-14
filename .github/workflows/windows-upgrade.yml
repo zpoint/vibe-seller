@@ -408,7 +408,10 @@ jobs:
           # The tray starts the server with the bundled claude + the venv
           # on PATH (installer/windows/tray.py); verify_install.sh checks
           # that the agent CLI the server resolves actually runs.
-          export PATH="$VS_INSTALL/claude:$VS_INSTALL/.venv/Scripts:$PATH"
+          # VS_INSTALL is a Windows path (C:\...); its drive colon would
+          # split a PATH entry in two, so convert it for Git Bash first.
+          install=$(cygpath -u "$VS_INSTALL")
+          export PATH="$install/claude:$install/.venv/Scripts:$PATH"
           # Pass "" to skip verify_install.sh's `vibe-seller --version`
           # check (fragile under Git Bash with a Windows-path PATH). The
           # version-after-upgrade is already asserted authoritatively via

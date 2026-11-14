@@ -362,7 +362,10 @@ jobs:
         run: |
           # The tray starts the server with the bundled claude + the venv
           # on PATH; the smoke test resolves the agent CLI the same way.
-          export PATH="$VS_INSTALL/claude:$VS_INSTALL/.venv/Scripts:$PATH"
+          # VS_INSTALL is a Windows path (C:\...); its drive colon would
+          # split a PATH entry in two, so convert it for Git Bash first.
+          install=$(cygpath -u "$VS_INSTALL")
+          export PATH="$install/claude:$install/.venv/Scripts:$PATH"
           # Empty version arg → skip the version-match check (this is a
           # PR build, not a published release).
           bash tests/releases/verify_install.sh ""
