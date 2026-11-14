@@ -62,6 +62,20 @@ def _child_env() -> dict:
     return env
 
 
+def _faked_argv0_env() -> dict:
+    """``_child_env`` plus where the interpreter's stdlib lives.
+
+    The children below run with argv0 replaced by a server-shaped
+    command line, which is what ``stop.sh`` must recognise. A
+    relocatable CPython (uv's, on Linux) finds its own stdlib from
+    argv0, so with argv0 faked it cannot start at all — measured: exit 1
+    with the inherited env, exit 0 with ``PYTHONHOME`` set to
+    ``sys.base_prefix``. The children import only the stdlib, so naming
+    the base installation is all they need, on any interpreter.
+    """
+    return {**_child_env(), 'PYTHONHOME': sys.base_prefix}
+
+
 def _fake_server_script(dir_: Path) -> Path:
     script = dir_ / 'fake_server.py'
     script.write_text(
@@ -95,7 +109,7 @@ def _spawn_uvicorn(script: Path, port: int, child_file: Path):
             sys.executable,
         ],
         executable=sys.executable,
-        env=_child_env(),
+        env=_faked_argv0_env(),
     )
 
 
@@ -104,7 +118,7 @@ def _spawn_sleeping_uvicorn():
     return subprocess.Popen(
         ['uvicorn app.main:app', '-c', 'import time; time.sleep(300)'],
         executable=sys.executable,
-        env=_child_env(),
+        env=_faked_argv0_env(),
     )
 
 
@@ -144,7 +158,7 @@ def _spawn_agent_decoy():
     return subprocess.Popen(
         ['claude -p ' + AGENT_PATTERN, '-c', 'import time; time.sleep(300)'],
         executable=sys.executable,
-        env=_child_env(),
+        env=_faked_argv0_env(),
     )
 
 

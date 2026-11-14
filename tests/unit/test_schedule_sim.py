@@ -101,8 +101,21 @@ def _collect(extra=()):
         'E2E_BASE_URL': 'http://127.0.0.1:9',
         'E2E_VIBE_HOME': '/tmp/none',
     }
+    # `sys.executable -m pytest`, not the `pytest` console script: the
+    # script is on PATH only when the venv is activated (or under
+    # `uv run`), so `.venv/bin/python -m pytest` died here with
+    # FileNotFoundError while the suite around it ran fine.
     out = subprocess.run(
-        ['pytest', '--collect-only', '-q', 'tests/e2e', '--e2e', *extra],
+        [
+            sys.executable,
+            '-m',
+            'pytest',
+            '--collect-only',
+            '-q',
+            'tests/e2e',
+            '--e2e',
+            *extra,
+        ],
         capture_output=True,
         text=True,
         env=env,
