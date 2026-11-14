@@ -11,7 +11,6 @@ Requires: real ``claude`` CLI + LLM API key + running server.
 import json
 import logging
 import re
-import time
 
 import httpx
 import pytest
@@ -23,6 +22,7 @@ from tests.e2e.e2e_helpers import (
     get_messages,
     login,
     poll_task_status,
+    run_tag,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ def api_client():
 
 @pytest.fixture(scope='module')
 def sandbox_store(api_client: httpx.Client) -> dict:
-    ts = int(time.time())
+    ts = run_tag()
     return create_store(
         api_client,
         f'sandbox-test-{ts}',

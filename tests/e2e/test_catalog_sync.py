@@ -39,6 +39,7 @@ from tests.e2e.e2e_helpers import (
     create_task,
     get_messages,
     poll_task_status,
+    run_tag,
 )
 from tests.e2e.own_server import owned_agent_stack
 
@@ -83,7 +84,7 @@ def api_client(own_stack):
 
 @pytest.fixture(scope='module')
 def store_a(api_client: httpx.Client) -> dict:
-    ts = int(time.time())
+    ts = run_tag()
     return create_store(
         api_client,
         f'cat-store-a-{ts}',
@@ -96,7 +97,7 @@ def store_a(api_client: httpx.Client) -> dict:
 
 @pytest.fixture(scope='module')
 def store_b(api_client: httpx.Client) -> dict:
-    ts = int(time.time())
+    ts = run_tag()
     return create_store(
         api_client,
         f'cat-store-b-{ts}',

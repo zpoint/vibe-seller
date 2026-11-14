@@ -31,6 +31,7 @@ from tests.e2e.e2e_helpers import (
     get_task,
     login,
     poll_task_status,
+    run_tag,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ pytestmark = [pytest.mark.e2e]
 @pytest.fixture(scope='module')
 def test_store(api_client: httpx.Client) -> dict:
     """Create a store for the test module."""
-    ts = int(time.time())
+    ts = run_tag()
     return create_store(
         api_client,
         f'pipeline-test-{ts}',

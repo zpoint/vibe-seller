@@ -15,6 +15,7 @@ from tests.e2e.conftest import BASE_URL
 from tests.e2e.e2e_helpers import (
     create_task,
     poll_task_status,
+    run_tag,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ pytestmark = [pytest.mark.e2e]
 @pytest.fixture(scope='module')
 def test_store(api_client):
     """Create a store for E2E tests (avoids orchestrator prompt)."""
-    tag = int(time.time())
+    tag = run_tag()
     resp = api_client.post(
         f'{BASE_URL}/api/stores',
         json={'name': f'e2e-conversation-{tag}'},

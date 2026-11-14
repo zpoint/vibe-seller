@@ -22,7 +22,6 @@ import json
 import logging
 from pathlib import Path
 import re
-import time
 
 import pytest
 
@@ -32,6 +31,7 @@ from tests.e2e.e2e_helpers import (
     create_store,
     create_task,
     poll_task_status,
+    run_tag,
     server_log_path,
 )
 from tests.e2e.mux_probe import assert_slots_isolated, parse
@@ -58,7 +58,7 @@ def site():
 
 @pytest.fixture(scope='module')
 def chrome_store(api_client):
-    ts = int(time.time())
+    ts = run_tag()
     slug = f'slots-e2e-{ts}'
     store = create_store(api_client, slug, browser_backend='chrome')
     try:
