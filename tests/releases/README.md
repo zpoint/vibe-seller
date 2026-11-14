@@ -268,7 +268,7 @@ inside the wheels and the installer the legs then upgrade between:
 ```
 wrong-path         app/bundle.py              breaks S4
 no-rollback        app/pip_apply_helper.py    breaks S5, S5b
-ignore-idle        app/update_idle.py         breaks S2
+ignore-idle        app/auto_update.py         breaks S2
 no-digest-check    app/windows_update.py      breaks S6
 raw-fingerprint    app/bundle.py              breaks S8
 retry-bad          app/auto_update.py         breaks S5c
@@ -281,7 +281,12 @@ matching would turn every prove-it-can-fail run green, which is worse
 than having no twists; `python tests/releases/twist.py --list` runs
 that check without touching anything. And one file per twist, so
 `git diff --stat` after a run shows exactly what the job was built
-from, and a red leg points at one decision rather than a refactor. The
+from, and a red leg points at one decision rather than a refactor. A
+twist may carry more than one hunk in that file when the decision is
+made in more than one place: `ignore-idle` disables both halves of the
+idle gate in `idle_tick` (the policy verdict and the re-check after
+dispatch is paused), because breaking either half alone is caught by the
+other and leaves S2 green. The
 injected line carries a `TWIST(<name>)` comment, which is how a log
 names the bug it just met.
 

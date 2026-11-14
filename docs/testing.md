@@ -193,9 +193,54 @@ touch their surface.
 | Workflow | Script / steps | Proves |
 |----------|----------------|--------|
 | `cli-upgrade.yml` (ubuntu + macOS) | `tests/releases/test_cli_upgrade_restart.sh` | `vibe-seller upgrade` restarts the running server: builds the checkout as 99.0.1/99.0.2, `uv tool install`s the first, starts it, runs the real upgrade, and requires the command to report the server on 99.0.2, a **second boot** in the daemon log, and `vibe-seller stop` still working |
-| `cli-upgrade.yml` (ubuntu + macOS) | `tests/releases/test_auto_update.sh` | In-app auto-update (app/auto_update.py): a started OLD server reaches `ready` on its own via the background prefetch (mock PyPI JSON + `UV_FIND_LINKS`), the warm cache is proven with a `UV_OFFLINE=1` re-resolution, a member's restart gets 403, the admin's restart lands the server on NEW with a second daemon-log boot and an idle `update-status` afterwards |
+| `cli-upgrade.yml` (ubuntu + macOS) | `tests/releases/test_auto_update.sh` | In-app auto-update scenarios S1, S2, S5, S5b, S5c, S7 (one leg per job — see the table below) |
 | `sync-upgrade.yml` | `tests/releases/test_upgrade_sync_state.sh` | an older release's sync bookkeeping migrates into `sync_state` |
 | `windows-upgrade.yml` | inline pwsh | the native installer upgrades in place, including a silent upgrade over a running server that must come back on its own under a new PID |
+| `pip-upgrade-gate.yml` | `test_auto_update.sh` (`LEG=s9`) + `tests/releases/win_gate_leg.ps1` | S9: the previous PUBLISHED release moves onto the candidate over the pip path, or the gate skips green and prints why that pair cannot take it |
+
+### In-app update scenarios and twists
+
+The in-app update is tested as one scenario per leg, so a red job names
+the behaviour that broke. The full matrix, how to run a leg locally and
+the Windows harness are in
+[`tests/releases/README.md`](https://github.com/zpoint/vibe-seller/blob/main/tests/releases/README.md);
+which workflow owns which scenario:
+
+| Scenario | What must happen | Workflow |
+|----------|------------------|----------|
+| S1 / S2 | applies itself when idle, never while a task runs | `cli-upgrade.yml` (ubuntu + macOS) |
+| S3 / S4 | same bundle → pip path, applied by itself; a changed bundle → installer path, waits for the click | `windows-installer.yml` |
+| S5 / S5b / S5c | a release that dies at boot is rolled back (on every hop) and never applied by itself again | both of the above |
+| S6 | a tampered staged installer is refused | `windows-installer.yml` |
+| S7 | a dev build is never offered an update | `cli-upgrade.yml` |
+| S8 | one commit fingerprints identically on Windows and Ubuntu | `bundle-fingerprint.yml` |
+| S9 | previous release → candidate (release gate) | `pip-upgrade-gate.yml`; rehearsed by the `gate-rehearsal` dispatch jobs of `cli-upgrade.yml` and `windows-installer.yml` |
+
+**Twists** prove each guard can fail. `cli-upgrade.yml`,
+`windows-installer.yml` and `bundle-fingerprint.yml` take a
+`workflow_dispatch` input `twist`; `tests/releases/twist.py <name>`
+injects that named bug into the checkout before anything is built, and
+the run must go red at the scenario the twist names:
+
+| Twist | Breaks | Dispatch on |
+|-------|--------|-------------|
+| `ignore-idle` | S2 | `cli-upgrade.yml` |
+| `no-rollback` | S5, S5b | `cli-upgrade.yml`, `windows-installer.yml` |
+| `retry-bad` | S5c | `cli-upgrade.yml`, `windows-installer.yml` |
+| `dev-updates` | S7 | `cli-upgrade.yml` |
+| `wrong-path` | S4 | `windows-installer.yml` |
+| `no-digest-check` | S6 | `windows-installer.yml` |
+| `raw-fingerprint` | S8 | `bundle-fingerprint.yml` |
+
+```bash
+python tests/releases/twist.py --list    # every anchor still matches; changes nothing
+gh workflow run cli-upgrade.yml --ref <branch> -f twist=ignore-idle
+```
+
+Dispatch one run per workflow at a time: runs of one workflow on one
+ref share a concurrency group and cancel each other. Read the failing
+leg's `FAIL:` line — a twist that went red for another reason proves
+nothing.
 
 Assert on a **restart**, not only on `/api/version`: that endpoint
 once re-read the package metadata from disk, so an un-restarted server
