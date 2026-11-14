@@ -126,6 +126,68 @@ def test_both_representations_listing_it_is_the_release(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
 
 
+def _fake_uv(tmp_path, script: str) -> Path:
+    """A `uv` on PATH whose `pip compile` answers as *script* says.
+
+    `uv` is the installer the audit runs next; the wait must not end
+    before IT resolves the version, whatever the page said."""
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    uv = bin_dir / 'uv'
+    uv.write_text('#!/bin/bash\n' + script)
+    uv.chmod(0o755)
+    return bin_dir
+
+
+def _wait_with_uv(tmp_path, page, uv_script, tries, stable='2'):
+    index = tmp_path / 'index.html'
+    index.write_text(f'<html><body>\n{page}</body></html>\n')
+    bin_dir = _fake_uv(tmp_path, uv_script)
+    return subprocess.run(
+        [shutil.which('bash'), str(SCRIPT), index.as_uri(), '0.3.1'],
+        env={
+            'PATH': f'{bin_dir}:/usr/bin:/bin',
+            'WAIT_TRIES': tries,
+            'WAIT_STABLE': stable,
+            'FAKE_STATE': str(tmp_path / 'state'),
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def test_a_listed_wheel_uv_cannot_resolve_is_not_the_release(tmp_path):
+    """The v0.3.2 audit: the page listed the wheel, uv still found no
+    such version — the edge uv reached was behind the one curl saw."""
+    r = _wait_with_uv(tmp_path, REAL_031, 'exit 1', tries='3')
+    assert r.returncode == 1, r.stdout + r.stderr
+
+
+def test_one_lucky_resolution_is_not_enough(tmp_path):
+    """uv answers yes, no, yes, no …: never twice in a row, so never
+    stable — exactly what one edge caught up and the next not looks
+    like."""
+    flip = (
+        'n=$(cat "$FAKE_STATE" 2>/dev/null || echo 0)\n'
+        'echo $((n + 1)) > "$FAKE_STATE"\n'
+        '[ $((n % 2)) -eq 0 ]\n'
+    )
+    r = _wait_with_uv(tmp_path, REAL_031, flip, tries='4')
+    assert r.returncode == 1, r.stdout + r.stderr
+
+
+def test_a_version_uv_resolves_steadily_is_the_release(tmp_path):
+    late = (
+        'n=$(cat "$FAKE_STATE" 2>/dev/null || echo 0)\n'
+        'echo $((n + 1)) > "$FAKE_STATE"\n'
+        '[ "$n" -ge 1 ]\n'
+    )
+    r = _wait_with_uv(tmp_path, REAL_031, late, tries='5')
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert 'resolved by uv 2 times in a row' in r.stdout
+
+
 def test_every_index_wait_uses_the_script():
     wf = Path(__file__).resolve().parents[2] / '.github' / 'workflows'
     for name in ('release.yml', 'nightly.yml'):
