@@ -27,6 +27,9 @@ URL = f'http://127.0.0.1:{PORT}'
 
 #: A store whose name carries this is authorized; every other is not.
 AUTHORIZED_MARK = '-api-'
+#: The installation key the service issues and then requires on every
+#: other call (``X-Api-Key``), as the real service does.
+INSTALLATION_KEY = 'vas_e2e'
 #: The bundle version /skill/version reports.
 VERSION = 'e2e-1'
 MARKETPLACE = 'SA'
@@ -175,12 +178,26 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def _route(self, method: str) -> None:
         url = urlparse(self.path)
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
-        self.server.record(method, url.path, query)
         length = int(self.headers.get('Content-Length') or 0)
         body = json.loads(self.rfile.read(length) or b'{}') if length else {}
 
+        # Like the real service, the ad data answers only the
+        # installation's key, which the vibe-seller server holds and
+        # sends on every call (app/ads_client.py). An agent that reaches
+        # the service around `vibe_seller_ads_call` — its URL is in the
+        # server's environment — is refused, and is not a read: a fake
+        # that served it recorded a key-less rollup no production
+        # deployment could have made (agent e2e, test_ads_mixed_fanout:
+        # "rollups were asked for {None, 'sk_…'}" while every call the
+        # server itself made carried the store's key).
+        if url.path.startswith('/facts/') and (
+            self.headers.get('X-Api-Key') != INSTALLATION_KEY
+        ):
+            return self._reply(401, {'detail': 'missing or wrong X-Api-Key'})
+        self.server.record(method, url.path, query)
+
         if (method, url.path) == ('POST', '/installations'):
-            return self._reply(200, {'api_key': 'vas_e2e'})
+            return self._reply(200, {'api_key': INSTALLATION_KEY})
         if (method, url.path) == ('POST', '/me/stores'):
             rows = []
             for s in body.get('stores', []):

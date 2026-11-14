@@ -420,7 +420,18 @@ class SyncScheduler:
         previous = self._inflight.get(name)
         if previous is not None and not previous.done():
             if not strong or self._strong.get(name):
-                return await previous
+                joined = await previous
+                if strong and joined.skip_reason == 'precondition':
+                    # That run judged its precondition before this
+                    # caller asked — and a strong caller is often the
+                    # one that just made it true (the ads authorization
+                    # commits, then triggers; a stale-header refresh
+                    # that started mid-request had already looked and
+                    # found no authorized store). Its skip describes a
+                    # state this caller has moved past, so it gets one
+                    # fresh run, shared with any peer doing the same.
+                    return await self._share_or_start(job, reason, force)
+                return joined
             await self._wait_out(previous)
             current = self._inflight.get(name)
             if current is not previous:

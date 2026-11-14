@@ -386,3 +386,85 @@ def test_every_chromium_install_goes_through_the_source_picker():
     assert outside.count('_install_playwright_chromium "$') == 2, (
         'expected the end-user and --dev paths to call the helper'
     )
+
+
+# ── Claude Code CLI: installed means it RUNS ─────────────────────────
+
+# A fake npm that lays down what `npm install @anthropic-ai/claude-code`
+# does when install scripts are skipped: the package, its install.cjs,
+# and a `.bin/claude` stub that answers only once the native binary is
+# in place (the marker install.cjs creates).
+_FAKE_NPM = """#!/bin/bash
+prefix=""
+while [ $# -gt 0 ]; do
+  [ "$1" = --prefix ] && { prefix=$2; shift; }
+  shift
+done
+pkg="$prefix/node_modules/@anthropic-ai/claude-code"
+mkdir -p "$pkg" "$prefix/node_modules/.bin"
+echo '// install.cjs' > "$pkg/install.cjs"
+cat > "$prefix/node_modules/.bin/claude" <<STUB
+#!/bin/sh
+[ -f "$pkg/native" ] || { echo "claude native binary not installed" >&2; exit 1; }
+echo "9.9.9 (Claude Code)"
+STUB
+chmod +x "$prefix/node_modules/.bin/claude"
+exit 0
+"""
+
+# `node install.cjs` puts the native binary in place — unless the test
+# says the install step itself is broken.
+_FAKE_NODE = """#!/bin/bash
+[ "$1" = install.cjs ] || exit 2
+[ -n "$FAKE_INSTALL_BROKEN" ] && exit 1
+touch native
+"""
+
+
+def _run_install_claude(tmp_path, **env):
+    fake_bin = tmp_path / 'fakebin'
+    fake_bin.mkdir(exist_ok=True)
+    for name, body in (('npm', _FAKE_NPM), ('node', _FAKE_NODE)):
+        p = fake_bin / name
+        p.write_text(body)
+        p.chmod(0o755)
+    home = tmp_path / 'vs-home'
+    return subprocess.run(
+        [
+            shutil.which('bash'),
+            '-c',
+            # install.sh runs under `set -e`; read the status in an `if`.
+            f'source "{INSTALL_SH}"; OS=macos; '
+            'if install_claude; then echo RC=0; else echo "RC=$?"; fi',
+        ],
+        env={
+            'PATH': f'{fake_bin}:/usr/bin:/bin',
+            'HOME': str(tmp_path),
+            'VIBE_HOME': str(home),
+            'VIBE_SELLER_INSTALL_SH_NO_MAIN': '1',
+            **env,
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+@pytest.mark.unit
+def test_install_claude_runs_the_install_step_npm_skipped(tmp_path):
+    """Newer npm skips the package's postinstall and still exits 0. The
+    installer must run that step itself and report the CLI's version."""
+    result = _run_install_claude(tmp_path)
+    out = result.stdout + result.stderr
+    assert 'RC=0' in out, out
+    assert 'running it (node install.cjs)' in out, out
+    assert '9.9.9 (Claude Code)' in out, out
+
+
+@pytest.mark.unit
+def test_install_claude_never_reports_a_cli_that_does_not_run(tmp_path):
+    result = _run_install_claude(tmp_path, FAKE_INSTALL_BROKEN='1')
+    out = result.stdout + result.stderr
+    assert 'RC=1' in out, out
+    assert 'installed but does not run' in out, out
+    assert 'claude CLI installed (project-local)' not in out, out
