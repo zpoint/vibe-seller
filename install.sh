@@ -51,6 +51,143 @@ done
 # Normalize: strip any leading `v` (so callers can pass `v0.0.1` or `0.0.1`).
 VERSION="${VERSION#v}"
 
+# -- Color output (only when interactive) --
+if [[ -t 2 ]]; then
+    _R=$'\033[31m' _G=$'\033[32m' _B=$'\033[34m'
+    _Y=$'\033[33m' _W=$'\033[1m' _Z=$'\033[0m'
+else
+    _R='' _G='' _B='' _Y='' _W='' _Z=''
+fi
+
+_info()    { printf "%s==>%s %s%s\n" "$_B$_W" "$_Z$_W" "$*" "$_Z"; }
+_success() { printf "%s[ok]%s %s\n" "$_G" "$_Z" "$*"; }
+_warn()    { printf "%s[!]%s %s\n" "$_Y" "$_Z" "$*" >&2; }
+_error()   { printf "%s[error]%s %s\n" "$_R" "$_Z" "$*" >&2; }
+_check()   { command -v "$1" > /dev/null 2>&1; }
+
+# -- System proxy: use it when it works ------------------------------
+# Users in mainland China usually run a proxy client (Clash, V2Ray, …)
+# and switch on the OS "system proxy". Browsers follow that setting;
+# curl, uv, npm, git and Playwright do not — they read only the
+# *_proxy env vars. So the browser reaches GitHub while this script
+# stalls on its first download with no output. Read the OS setting,
+# check that the proxy actually answers, and only then export it for
+# every download below. A proxy that does not answer is ignored, and
+# the install goes over the direct network as before.
+#
+# Already-set *_proxy vars win (the user chose them). Opt out with
+# VIBE_SELLER_PROXY=off.
+PROXY_PROBE_URL="${VIBE_SELLER_PROXY_PROBE_URL:-https://github.com}"
+
+# Print the OS proxy as a URL, or nothing. macOS: `scutil --proxy`;
+# Linux desktops: GNOME's setting in manual mode.
+_system_proxy() {
+    local out host port
+    if _check scutil; then
+        out="$(scutil --proxy 2>/dev/null || true)"
+        _scutil_val() { awk -v k="$1" '$1 == k { print $3; exit }' <<<"$out"; }
+        local kind
+        for kind in HTTPS HTTP; do
+            if [[ "$(_scutil_val "${kind}Enable")" == 1 ]]; then
+                host="$(_scutil_val "${kind}Proxy")"
+                port="$(_scutil_val "${kind}Port")"
+                if [[ -n "$host" && -n "$port" ]]; then
+                    printf 'http://%s:%s' "$host" "$port"
+                    return 0
+                fi
+            fi
+        done
+        if [[ "$(_scutil_val SOCKSEnable)" == 1 ]]; then
+            host="$(_scutil_val SOCKSProxy)"
+            port="$(_scutil_val SOCKSPort)"
+            if [[ -n "$host" && -n "$port" ]]; then
+                printf 'socks5h://%s:%s' "$host" "$port"
+                return 0
+            fi
+        fi
+        return 0
+    fi
+    if _check gsettings \
+        && [[ "$(gsettings get org.gnome.system.proxy mode 2>/dev/null)" \
+            == "'manual'" ]]; then
+        host="$(gsettings get org.gnome.system.proxy.https host \
+            2>/dev/null | tr -d "'")"
+        port="$(gsettings get org.gnome.system.proxy.https port \
+            2>/dev/null)"
+        if [[ -n "$host" && -n "$port" && "$port" != 0 ]]; then
+            printf 'http://%s:%s' "$host" "$port"
+        fi
+    fi
+    return 0
+}
+
+# True when $1 relays a request to PROXY_PROBE_URL in time.
+_proxy_alive() {
+    local code
+    code="$(curl -sS -o /dev/null -x "$1" --connect-timeout 5 \
+        --max-time 15 -w '%{http_code}' "$PROXY_PROBE_URL" \
+        2>/dev/null)" || code=000
+    [[ "$code" != 000 ]]
+}
+
+setup_proxy() {
+    if [[ "${VIBE_SELLER_PROXY:-}" == off ]]; then
+        return 0
+    fi
+    local env_proxy="${https_proxy:-${HTTPS_PROXY:-${all_proxy:-${ALL_PROXY:-}}}}"
+    if [[ -n "$env_proxy" ]]; then
+        _info "Using the proxy from your environment: $env_proxy"
+        return 0
+    fi
+    _check curl || return 0
+    local proxy
+    proxy="$(_system_proxy)"
+    [[ -n "$proxy" ]] || return 0
+    if ! _proxy_alive "$proxy"; then
+        _warn "System proxy $proxy is not answering — downloading over the direct network"
+        return 0
+    fi
+    export https_proxy="$proxy" HTTPS_PROXY="$proxy"
+    export http_proxy="$proxy" HTTP_PROXY="$proxy"
+    export all_proxy="$proxy" ALL_PROXY="$proxy"
+    local local_hosts='localhost,127.0.0.1,::1'
+    export no_proxy="${no_proxy:+$no_proxy,}$local_hosts"
+    export NO_PROXY="$no_proxy"
+    _success "Using your system proxy for downloads: $proxy"
+}
+
+# -- Oldest supported OS: refuse before downloading anything ---------
+# Claude Code, which runs every AI task, supports macOS 13.0+
+# (https://code.claude.com/docs/en/setup#system-requirements); its
+# binary is built for 13.0 and aborts on load on older macOS
+# (`dyld: Symbol not found … built for Mac OS X 13.0`). Without this
+# check a macOS 11 user downloaded ~400 MB and finished with an install
+# whose AI features could never start. Keep in step with docs/install.md.
+MACOS_MIN_MAJOR=13
+
+check_os_version() {
+    [[ "${OSTYPE:-}" == darwin* ]] || return 0
+    local ver major
+    ver="$(sw_vers -productVersion 2>/dev/null || true)"
+    major="${ver%%.*}"
+    [[ "$major" =~ ^[0-9]+$ ]] || return 0
+    if (( major < MACOS_MIN_MAJOR )); then
+        _error "macOS $ver is not supported — Vibe Seller needs macOS ${MACOS_MIN_MAJOR} (Ventura) or newer."
+        echo "  Claude Code, which runs every AI task, does not start on older macOS." >&2
+        echo "  Update macOS (System Settings → General → Software Update), then run this installer again." >&2
+        echo "  Vibe Seller 需要 macOS ${MACOS_MIN_MAJOR} 或更高版本，请先升级系统（系统设置 → 通用 → 软件更新）再重新安装。" >&2
+        exit 1
+    fi
+}
+
+# Not on a pure query (--print-path, --help), and not when tests source
+# this file for its functions.
+if [[ "$PRINT_PATH" != true && "$HELP" != true \
+    && "${VIBE_SELLER_INSTALL_SH_NO_MAIN:-}" != 1 ]]; then
+    check_os_version
+    setup_proxy
+fi
+
 # -- Dev-mode bootstrap: clone repo if not already in one --
 # Detection requires a *vibe-seller* checkout, not just any directory
 # with a pyproject.toml — running `curl ... | bash` from inside an
@@ -115,20 +252,6 @@ if [ "$DEV" = true ] && ! _is_vibe_seller_checkout "$SCRIPT_DIR"; then
     cd "$INSTALL_DIR"
     exec bash "./install.sh" "$@"
 fi
-
-# -- Color output (only when interactive) --
-if [[ -t 2 ]]; then
-    _R=$'\033[31m' _G=$'\033[32m' _B=$'\033[34m'
-    _Y=$'\033[33m' _W=$'\033[1m' _Z=$'\033[0m'
-else
-    _R='' _G='' _B='' _Y='' _W='' _Z=''
-fi
-
-_info()    { printf "%s==>%s %s%s\n" "$_B$_W" "$_Z$_W" "$*" "$_Z"; }
-_success() { printf "%s[ok]%s %s\n" "$_G" "$_Z" "$*"; }
-_warn()    { printf "%s[!]%s %s\n" "$_Y" "$_Z" "$*" >&2; }
-_error()   { printf "%s[error]%s %s\n" "$_R" "$_Z" "$*" >&2; }
-_check()   { command -v "$1" > /dev/null 2>&1; }
 
 # Canonical set of bin dirs where our installers drop binaries:
 # uv → ~/.local/bin or ~/.cargo/bin; node/pnpm → Homebrew's bin on
@@ -244,6 +367,25 @@ require_sudo() {
     exit 1
 }
 
+# Run a command as root, carrying the proxy across. sudo's default
+# env_reset drops *_proxy, so behind a proxy every apt/dnf call went
+# direct and failed while the user-level downloads (uv, npm) worked.
+# The proxy vars are passed explicitly; as root, sudo is skipped.
+_sudo() {
+    local envs=() v
+    for v in http_proxy https_proxy all_proxy no_proxy \
+        HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY; do
+        if [[ -n "${!v:-}" ]]; then
+            envs+=("$v=${!v}")
+        fi
+    done
+    if is_root; then
+        env ${envs[@]+"${envs[@]}"} "$@"
+    else
+        sudo env ${envs[@]+"${envs[@]}"} "$@"
+    fi
+}
+
 # -- npm permissions (user-local prefix on Linux) --
 fix_npm_permissions() {
     if [[ "$OS" != "linux" ]]; then
@@ -288,7 +430,7 @@ _apk()    { _check apk; }
 _apt_updated=false
 _apt_update() {
     if [[ "$_apt_updated" == false ]]; then
-        sudo apt-get update -qq
+        _sudo apt-get update -qq
         _apt_updated=true
     fi
 }
@@ -298,15 +440,15 @@ _pkg_install() {
     local pkg="$1"
     if _apt; then
         _apt_update
-        sudo apt-get install -y -qq "$pkg"
+        _sudo apt-get install -y -qq "$pkg"
     elif _pacman; then
-        sudo pacman -S --noconfirm "$pkg"
+        _sudo pacman -S --noconfirm "$pkg"
     elif _dnf; then
-        sudo dnf install -y -q "$pkg"
+        _sudo dnf install -y -q "$pkg"
     elif _yum; then
-        sudo yum install -y -q "$pkg"
+        _sudo yum install -y -q "$pkg"
     elif _apk; then
-        sudo apk add --no-cache "$pkg"
+        _sudo apk add --no-cache "$pkg"
     elif _brew; then
         brew install "$pkg"
     else
@@ -465,14 +607,63 @@ check_node() {
     return 1
 }
 
+# macOS without Homebrew (common on sellers' Macs): install the official
+# Node release into ~/.local/node — no sudo, no compiler — and link its
+# commands into ~/.local/bin, which _compute_bootstrap_path and start.sh
+# already put on PATH. Asking the user to install Homebrew first stopped
+# the install outright.
+NODE_DIST_URLS=(
+    "https://nodejs.org/dist"
+    "https://npmmirror.com/mirrors/node"
+)
+
+_install_node_tarball() {
+    local arch base name ver_dir tmp
+    case "$ARCH" in
+        arm64|aarch64) arch=arm64 ;;
+        *) arch=x64 ;;
+    esac
+    tmp="$(mktemp -d -t vibe-seller-node-XXXXXX)"
+    for base in "${NODE_DIST_URLS[@]}"; do
+        name="$(curl -fsSL --connect-timeout 10 --max-time 30 \
+            "$base/latest-v${NODE_MIN_MAJOR}.x/SHASUMS256.txt" 2>/dev/null \
+            | grep -o "node-v[0-9.]*-darwin-${arch}\.tar\.gz" \
+            | head -n1)" || name=""
+        [[ -n "$name" ]] || continue
+        _info "Downloading $name from $base"
+        if curl -fSL --connect-timeout 10 \
+            "$base/latest-v${NODE_MIN_MAJOR}.x/$name" -o "$tmp/$name"; then
+            break
+        fi
+        name=""
+    done
+    if [[ -z "$name" ]]; then
+        rm -rf "$tmp"
+        _error "Could not download Node.js ${NODE_MIN_MAJOR} (tried: ${NODE_DIST_URLS[*]})"
+        _warn "Install it from https://nodejs.org, then run this installer again"
+        exit 1
+    fi
+    mkdir -p "$HOME/.local/node" "$HOME/.local/bin"
+    tar -xzf "$tmp/$name" -C "$HOME/.local/node"
+    rm -rf "$tmp"
+    ver_dir="$HOME/.local/node/${name%.tar.gz}"
+    ln -sfn "$ver_dir" "$HOME/.local/node/current"
+    local b
+    for b in node npm npx corepack; do
+        if [[ -e "$HOME/.local/node/current/bin/$b" ]]; then
+            ln -sf "$HOME/.local/node/current/bin/$b" "$HOME/.local/bin/$b"
+        fi
+    done
+    export PATH="$HOME/.local/bin:$PATH"
+}
+
 install_node() {
     _info "Installing Node.js..."
     if [[ "$OS" == "macos" ]]; then
         if _brew; then
             brew install node
         else
-            _error "Homebrew not found — install Homebrew first: https://brew.sh"
-            exit 1
+            _install_node_tarball
         fi
     else
         # Linux: try NodeSource for latest LTS
@@ -480,7 +671,7 @@ install_node() {
             local tmpdir
             tmpdir="$(mktemp -d)"
             curl -fsSL https://deb.nodesource.com/setup_22.x -o "$tmpdir/nodesource_setup.sh"
-            sudo -E bash "$tmpdir/nodesource_setup.sh"
+            _sudo bash "$tmpdir/nodesource_setup.sh"
             rm -rf "$tmpdir"
             _apt_updated=true  # NodeSource setup already ran apt-get update
             # Ubuntu LTS ships nodejs 12 + libnode-dev which OWN
@@ -490,13 +681,13 @@ install_node() {
             # with "trying to overwrite ... which is also in
             # package libnode-dev". Purge the OS nodejs stack first
             # — NodeSource is the source of truth from here on.
-            sudo apt-get remove -y -qq \
+            _sudo apt-get remove -y -qq \
                 nodejs nodejs-doc libnode-dev libnode72 npm 2>/dev/null || true
-            sudo apt-get install -y -qq nodejs
+            _sudo apt-get install -y -qq nodejs
         elif _pacman; then
-            sudo pacman -S --noconfirm nodejs npm
+            _sudo pacman -S --noconfirm nodejs npm
         elif _dnf; then
-            sudo dnf install -y -q nodejs
+            _sudo dnf install -y -q nodejs
         elif _brew; then
             brew install node
         else
@@ -571,11 +762,11 @@ install_sqlite3() {
     else
         if _apt; then
             _apt_update
-            sudo apt-get install -y -qq sqlite3
+            _sudo apt-get install -y -qq sqlite3
         elif _pacman; then
-            sudo pacman -S --noconfirm sqlite
+            _sudo pacman -S --noconfirm sqlite
         elif _dnf; then
-            sudo dnf install -y -q sqlite
+            _sudo dnf install -y -q sqlite
         elif _brew; then
             brew install sqlite3
         else
@@ -624,9 +815,16 @@ check_claude() {
     # that we don't need the local install. Use VIBE_HOME for the
     # same reason — must match the daemon (see app/config.py).
     local data_dir="${VIBE_HOME:-$HOME/.vibe-seller}"
-    if [[ -x "$data_dir/node_modules/.bin/claude" ]]; then
-        _success "claude CLI found (project-local, $data_dir/node_modules/.bin/claude)"
+    local claude_bin="$data_dir/node_modules/.bin/claude"
+    # Present is not installed: a re-run after a failed install found
+    # the file, said "[ok]", and hid that it could not start. Same rule
+    # as install_claude() — it has to answer --version.
+    if [[ -x "$claude_bin" ]] && "$claude_bin" --version >/dev/null 2>&1; then
+        _success "claude CLI found (project-local, $claude_bin)"
         return 0
+    fi
+    if [[ -e "$claude_bin" ]]; then
+        _info "claude CLI at $claude_bin does not run — reinstalling"
     fi
     # System claude on PATH is acknowledged but does NOT satisfy the
     # check — install_claude() still runs to lay down the
@@ -768,8 +966,17 @@ _pick_playwright_host() {
 _install_playwright_chromium() {
     local pw="$1" host
     local args=(install chromium)
+    # Chromium's system libraries come from apt, as root. Not via
+    # `install --with-deps`: Playwright then calls sudo itself, which
+    # drops the proxy (see _sudo), and behind a proxy apt fails.
     if [[ "$OS" == "linux" ]]; then
-        args=(install --with-deps chromium)
+        # Playwright's own bundled node needs libatomic, which minimal
+        # Ubuntu images (servers, arm64) lack — without it even
+        # install-deps cannot start.
+        if _apt && ! ldconfig -p 2>/dev/null | grep -q 'libatomic\.so\.1'; then
+            _pkg_install libatomic1
+        fi
+        _sudo "$pw" install-deps chromium
     fi
     if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then
         _info "Downloading Chromium from $PLAYWRIGHT_DOWNLOAD_HOST" \

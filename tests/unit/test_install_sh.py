@@ -468,3 +468,450 @@ def test_install_claude_never_reports_a_cli_that_does_not_run(tmp_path):
     assert 'RC=1' in out, out
     assert 'installed but does not run' in out, out
     assert 'claude CLI installed (project-local)' not in out, out
+
+
+# ── Shared harness for the functions below ───────────────────────────
+
+
+def _run_sourced(tmp_path, call, fakes=(), env=None, os_type=None):
+    """Source install.sh without main(), then run `call` in bash.
+
+    `fakes` is (name, script body) pairs put first on PATH. Returns the
+    completed process; stdout+stderr are in .stdout/.stderr.
+    """
+    fake_bin = tmp_path / 'fakebin'
+    fake_bin.mkdir(exist_ok=True)
+    for name, body in fakes:
+        p = fake_bin / name
+        p.write_text(body)
+        p.chmod(0o755)
+    home = tmp_path / 'home'
+    home.mkdir(exist_ok=True)
+    prefix = f'OSTYPE={os_type}; ' if os_type else ''
+    return subprocess.run(
+        [shutil.which('bash'), '-c', f'{prefix}source "{INSTALL_SH}"; {call}'],
+        env={
+            'PATH': f'{fake_bin}:/usr/bin:/bin',
+            'HOME': str(home),
+            'VIBE_SELLER_INSTALL_SH_NO_MAIN': '1',
+            **(env or {}),
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+# ── System proxy: used when it answers, ignored when it doesn't ──────
+#
+# Browsers follow the macOS "system proxy"; curl/uv/npm/git/Playwright
+# read only *_proxy env vars. A user whose proxy client is on reached
+# GitHub in the browser while install.sh stalled on its first download.
+
+_SCUTIL_HTTP_AND_SOCKS = """#!/bin/sh
+cat <<EOF
+<dictionary> {
+  HTTPEnable : 1
+  HTTPPort : 7890
+  HTTPProxy : 127.0.0.1
+  HTTPSEnable : 1
+  HTTPSPort : 7890
+  HTTPSProxy : 127.0.0.1
+  SOCKSEnable : 1
+  SOCKSPort : 7891
+  SOCKSProxy : 127.0.0.1
+}
+EOF
+"""
+
+_SCUTIL_SOCKS_ONLY = """#!/bin/sh
+cat <<EOF
+<dictionary> {
+  HTTPEnable : 0
+  SOCKSEnable : 1
+  SOCKSPort : 1080
+  SOCKSProxy : 10.0.0.2
+}
+EOF
+"""
+
+_SCUTIL_NONE = """#!/bin/sh
+cat <<EOF
+<dictionary> {
+  HTTPEnable : 0
+  HTTPSEnable : 0
+  SOCKSEnable : 0
+}
+EOF
+"""
+
+# Answers through a proxy only when FAKE_PROXY_ALIVE=1; logs each call.
+_FAKE_PROXY_CURL = """#!/bin/bash
+echo "curl $*" >> "$FAKE_LOG"
+if [ "$FAKE_PROXY_ALIVE" = 1 ]; then printf 200; exit 0; fi
+printf 000; exit 7
+"""
+
+_PRINT_PROXY_ENV = (
+    'echo "https_proxy=${https_proxy:-} HTTPS_PROXY=${HTTPS_PROXY:-} '
+    'http_proxy=${http_proxy:-} all_proxy=${all_proxy:-} '
+    'no_proxy=${no_proxy:-}"'
+)
+
+
+def _proxy_run(tmp_path, scutil, alive, **env):
+    log = tmp_path / 'calls.log'
+    log.write_text('')
+    result = _run_sourced(
+        tmp_path,
+        f'setup_proxy; {_PRINT_PROXY_ENV}',
+        fakes=(('scutil', scutil), ('curl', _FAKE_PROXY_CURL)),
+        env={
+            'FAKE_LOG': str(log),
+            'FAKE_PROXY_ALIVE': '1' if alive else '0',
+            **env,
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    return result, log.read_text()
+
+
+@pytest.mark.unit
+def test_system_proxy_prefers_http_over_socks(tmp_path):
+    result = _run_sourced(
+        tmp_path,
+        'echo "P=[$(_system_proxy)]"',
+        fakes=(('scutil', _SCUTIL_HTTP_AND_SOCKS),),
+    )
+    assert 'P=[http://127.0.0.1:7890]' in result.stdout, result
+
+
+@pytest.mark.unit
+def test_system_proxy_socks_only(tmp_path):
+    result = _run_sourced(
+        tmp_path,
+        'echo "P=[$(_system_proxy)]"',
+        fakes=(('scutil', _SCUTIL_SOCKS_ONLY),),
+    )
+    assert 'P=[socks5h://10.0.0.2:1080]' in result.stdout, result
+
+
+@pytest.mark.unit
+def test_system_proxy_none_when_disabled(tmp_path):
+    result = _run_sourced(
+        tmp_path,
+        'echo "P=[$(_system_proxy)]"',
+        fakes=(('scutil', _SCUTIL_NONE),),
+    )
+    assert 'P=[]' in result.stdout, result
+
+
+@pytest.mark.unit
+def test_live_system_proxy_is_exported_for_every_downloader(tmp_path):
+    result, calls = _proxy_run(tmp_path, _SCUTIL_HTTP_AND_SOCKS, alive=True)
+    p = 'http://127.0.0.1:7890'
+    assert f'https_proxy={p} HTTPS_PROXY={p}' in result.stdout, result
+    assert f'http_proxy={p} all_proxy={p}' in result.stdout, result
+    # Local servers (vibe-seller's own health checks) never go through it.
+    assert 'no_proxy=localhost,127.0.0.1,::1' in result.stdout, result
+    assert 'Using your system proxy' in result.stdout, result
+    # It was probed through the proxy before being trusted.
+    assert f'-x {p}' in calls, calls
+
+
+@pytest.mark.unit
+def test_dead_system_proxy_falls_back_to_direct_network(tmp_path):
+    result, _ = _proxy_run(tmp_path, _SCUTIL_HTTP_AND_SOCKS, alive=False)
+    assert 'https_proxy= HTTPS_PROXY= http_proxy= all_proxy=' in (
+        result.stdout
+    ), result
+    assert 'not answering' in result.stderr, result
+
+
+@pytest.mark.unit
+def test_no_system_proxy_changes_nothing(tmp_path):
+    result, calls = _proxy_run(tmp_path, _SCUTIL_NONE, alive=True)
+    assert 'https_proxy= HTTPS_PROXY=' in result.stdout, result
+    assert calls == '', 'no proxy configured, nothing to probe'
+
+
+@pytest.mark.unit
+def test_user_set_proxy_env_wins_unprobed(tmp_path):
+    result, calls = _proxy_run(
+        tmp_path,
+        _SCUTIL_HTTP_AND_SOCKS,
+        alive=True,
+        https_proxy='http://corp-proxy:3128',
+    )
+    assert 'https_proxy=http://corp-proxy:3128' in result.stdout, result
+    assert calls == '', calls
+
+
+@pytest.mark.unit
+def test_proxy_detection_can_be_switched_off(tmp_path):
+    result, calls = _proxy_run(
+        tmp_path, _SCUTIL_HTTP_AND_SOCKS, alive=True, VIBE_SELLER_PROXY='off'
+    )
+    assert 'https_proxy= HTTPS_PROXY=' in result.stdout, result
+    assert calls == '', calls
+
+
+@pytest.mark.unit
+def test_print_path_never_probes_a_proxy(tmp_path):
+    """--print-path is captured by start.sh; a probe would slow every
+    start and its chatter would corrupt the captured PATH."""
+    log = tmp_path / 'calls.log'
+    log.write_text('')
+    fake_bin = tmp_path / 'fakebin'
+    fake_bin.mkdir()
+    for name, body in (
+        ('scutil', _SCUTIL_HTTP_AND_SOCKS),
+        ('curl', _FAKE_PROXY_CURL),
+    ):
+        (fake_bin / name).write_text(body)
+        (fake_bin / name).chmod(0o755)
+    home = tmp_path / 'home'
+    home.mkdir()
+    result = subprocess.run(
+        [shutil.which('bash'), str(INSTALL_SH), '--print-path'],
+        env={
+            'PATH': f'{fake_bin}:/usr/bin:/bin',
+            'HOME': str(home),
+            'FAKE_LOG': str(log),
+            'FAKE_PROXY_ALIVE': '1',
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert log.read_text() == ''
+    assert 'proxy' not in result.stdout + result.stderr
+
+
+# ── Oldest supported macOS: refuse before downloading anything ───────
+
+
+def _sw_vers(version):
+    return f'#!/bin/sh\necho {version}\n'
+
+
+def _os_check(tmp_path, version, os_type='darwin20.0'):
+    return _run_sourced(
+        tmp_path,
+        'check_os_version; echo PASSED',
+        fakes=(('sw_vers', _sw_vers(version)),),
+        os_type=os_type,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('version', ['11.1', '12.7.6'])
+def test_macos_older_than_13_is_refused(tmp_path, version):
+    result = _os_check(tmp_path, version)
+    assert result.returncode == 1, result
+    assert 'PASSED' not in result.stdout
+    assert f'macOS {version} is not supported' in result.stderr
+    assert 'Software Update' in result.stderr
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('version', ['13.0', '14.6.1', '15.2', '26.1'])
+def test_macos_13_and_newer_pass(tmp_path, version):
+    result = _os_check(tmp_path, version)
+    assert result.returncode == 0, result.stderr
+    assert 'PASSED' in result.stdout
+
+
+@pytest.mark.unit
+def test_os_check_ignores_linux(tmp_path):
+    result = _os_check(tmp_path, '11.1', os_type='linux-gnu')
+    assert result.returncode == 0, result.stderr
+    assert 'PASSED' in result.stdout
+
+
+@pytest.mark.unit
+def test_os_check_runs_before_any_download():
+    """The check must sit ahead of the proxy probe, the --dev clone and
+    every installer — the point is to stop before ~400 MB of downloads.
+    """
+    text = INSTALL_SH.read_text()
+    call = text.index('\n    check_os_version\n')
+    for later in (
+        '\n    setup_proxy\n',
+        'git clone "$REPO_URL"',
+        '\nmain() {',
+    ):
+        assert call < text.index(later), later
+
+
+# ── macOS without Homebrew: Node from the official tarball ───────────
+
+# Serves SHASUMS256.txt and the tarball; FAKE_DOWN_HOST never answers.
+_FAKE_NODE_CURL = """#!/bin/bash
+echo "curl $*" >> "$FAKE_LOG"
+out=""
+url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out=$2; shift ;;
+    http*) url=$1 ;;
+  esac
+  shift
+done
+if [ -n "$FAKE_DOWN_HOST" ] && [[ "$url" == *"$FAKE_DOWN_HOST"* ]]; then
+  exit 7
+fi
+case "$url" in
+  */SHASUMS256.txt)
+    echo "abc  node-v22.9.9-darwin-x64.tar.gz"
+    echo "def  node-v22.9.9-darwin-arm64.tar.gz" ;;
+  *.tar.gz) cp "$FAKE_TARBALL" "$out" ;;
+  *) exit 22 ;;
+esac
+"""
+
+
+def _node_tarball(tmp_path):
+    root = tmp_path / 'tarsrc' / 'node-v22.9.9-darwin-x64' / 'bin'
+    root.mkdir(parents=True)
+    (root / 'node').write_text('#!/bin/sh\necho v22.9.9\n')
+    (root / 'node').chmod(0o755)
+    (root / 'npm').write_text('#!/bin/sh\necho 10.0.0\n')
+    (root / 'npm').chmod(0o755)
+    tarball = tmp_path / 'node.tar.gz'
+    subprocess.run(
+        ['tar', '-czf', str(tarball), '-C', str(tmp_path / 'tarsrc'), '.'],
+        check=True,
+    )
+    return tarball
+
+
+def _install_node_no_brew(tmp_path, **env):
+    log = tmp_path / 'calls.log'
+    log.write_text('')
+    result = _run_sourced(
+        tmp_path,
+        'OS=macos; ARCH=x86_64; install_node; echo "NODE=$(node -v)"',
+        fakes=(('curl', _FAKE_NODE_CURL),),
+        env={
+            'FAKE_LOG': str(log),
+            'FAKE_TARBALL': str(_node_tarball(tmp_path)),
+            **env,
+        },
+    )
+    return result, log.read_text()
+
+
+@pytest.mark.unit
+def test_macos_without_homebrew_installs_node_tarball(tmp_path):
+    result, calls = _install_node_no_brew(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert 'NODE=v22.9.9' in result.stdout, result
+    home = tmp_path / 'home'
+    assert (home / '.local' / 'bin' / 'node').resolve() == (
+        home / '.local/node/node-v22.9.9-darwin-x64/bin/node'
+    ).resolve()
+    assert 'nodejs.org/dist/latest-v22.x' in calls, calls
+    assert 'Homebrew' not in result.stderr
+
+
+@pytest.mark.unit
+def test_node_tarball_falls_back_to_mirror(tmp_path):
+    result, calls = _install_node_no_brew(tmp_path, FAKE_DOWN_HOST='nodejs.org')
+    assert result.returncode == 0, result.stderr
+    assert 'NODE=v22.9.9' in result.stdout, result
+    assert 'npmmirror.com/mirrors/node/latest-v22.x/node-v22.9.9' in calls
+
+
+# ── A claude that is present but does not run is not "found" ─────────
+
+
+@pytest.mark.unit
+def test_check_claude_rejects_a_cli_that_does_not_run(tmp_path):
+    """Re-running install.sh after Claude Code failed to start (macOS 11:
+    dyld abort) printed "[ok] claude CLI found" and hid the failure."""
+    vs_home = tmp_path / 'vs'
+    bin_dir = vs_home / 'node_modules' / '.bin'
+    bin_dir.mkdir(parents=True)
+    claude = bin_dir / 'claude'
+    claude.write_text(
+        '#!/bin/sh\necho "dyld: Symbol not found" >&2\nexit 134\n'
+    )
+    claude.chmod(0o755)
+    result = _run_sourced(
+        tmp_path,
+        'if check_claude; then echo FOUND; else echo MISSING; fi',
+        env={'VIBE_HOME': str(vs_home)},
+    )
+    assert 'MISSING' in result.stdout, result
+    assert 'claude CLI found' not in result.stdout
+
+
+@pytest.mark.unit
+def test_check_claude_accepts_a_cli_that_runs(tmp_path):
+    vs_home = tmp_path / 'vs'
+    bin_dir = vs_home / 'node_modules' / '.bin'
+    bin_dir.mkdir(parents=True)
+    claude = bin_dir / 'claude'
+    claude.write_text('#!/bin/sh\necho "2.1.0 (Claude Code)"\n')
+    claude.chmod(0o755)
+    result = _run_sourced(
+        tmp_path,
+        'if check_claude; then echo FOUND; else echo MISSING; fi',
+        env={'VIBE_HOME': str(vs_home)},
+    )
+    assert 'FOUND' in result.stdout, result
+
+
+# ── Root commands keep the proxy ─────────────────────────────────────
+
+# sudo resets the environment; this one shows what reached the command.
+_FAKE_SUDO = '#!/bin/sh\necho "SUDO $*"\n'
+
+
+@pytest.mark.unit
+def test_sudo_carries_the_proxy_to_root_commands(tmp_path):
+    """sudo's env_reset dropped *_proxy, so behind a proxy apt went
+    direct and failed (seen in the blocked-network install test)."""
+    result = _run_sourced(
+        tmp_path,
+        'is_root() { return 1; }; _sudo apt-get update -qq',
+        fakes=(('sudo', _FAKE_SUDO),),
+        env={'https_proxy': 'http://p:7890', 'no_proxy': 'localhost'},
+    )
+    assert result.returncode == 0, result.stderr
+    assert (
+        'SUDO env https_proxy=http://p:7890 no_proxy=localhost '
+        'apt-get update -qq'
+    ) in result.stdout, result
+
+
+@pytest.mark.unit
+def test_sudo_without_a_proxy_is_plain_sudo(tmp_path):
+    result = _run_sourced(
+        tmp_path,
+        'is_root() { return 1; }; _sudo apt-get update -qq',
+        fakes=(('sudo', _FAKE_SUDO),),
+    )
+    assert 'SUDO env apt-get update -qq' in result.stdout, result
+
+
+@pytest.mark.unit
+def test_no_bare_sudo_package_installs():
+    """Every root command goes through _sudo, or it loses the proxy."""
+    code = [
+        line.strip()
+        for line in INSTALL_SH.read_text().splitlines()
+        if not line.lstrip().startswith('#')
+    ]
+    # Allowed: the credential check (sudo -n / -v) and _sudo itself.
+    bare = [
+        line
+        for line in code
+        if line.startswith('sudo ')
+        and not line.startswith(('sudo -n', 'sudo -v', 'sudo env '))
+    ]
+    assert not bare, bare
+    # Playwright's --with-deps calls sudo itself and loses the proxy.
+    assert not [line for line in code if '--with-deps' in line]

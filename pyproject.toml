@@ -93,6 +93,13 @@ dependencies = [
     "PyJWT>=2.8.0",
     "bcrypt",
     "cryptography",
+    # cryptography 49+ ships macOS wheels for arm64 only. On an Intel
+    # Mac the newest version is a source build that needs Rust and
+    # OpenSSL, so `uv tool install vibe-seller` failed there outright.
+    # 48.x is the last line with a universal2 wheel. CI checks that
+    # every dependency installs from a wheel on every platform we
+    # support (scripts/check_wheel_coverage.sh).
+    "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "gitpython",
     "packaging",
     # Deliberately bare: the source tree follows upstream. A release
