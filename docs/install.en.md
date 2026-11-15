@@ -13,7 +13,7 @@ Three minutes: pick your OS, paste one command, open the web page. For what to d
 
 - One LLM API key — any of Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen / MiMo. Where to get one: [Configure AI Models](llm-keys.md)
 - A browser — Ziniao (the anti-detect browser) or the bundled Chromium engine
-- A machine you can leave on: macOS, Linux, or Windows 10 version 1809 / Windows Server 2019 or later (64-bit)
+- A machine you can leave on: macOS 13 or later, Linux, or Windows 10 version 1809 / Windows Server 2019 or later (64-bit)
 
 No account to register, no subscription to buy. The code and the data stay on your machine.
 
@@ -49,6 +49,8 @@ curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh |
 ```
 
 The script installs the toolchain it needs (uv, Node, Claude Code), installs Vibe Seller, and downloads the Chromium the agent drives (about 250 MB — it picks whichever of the official CDN and the npmmirror China mirror answers faster). You're done when the output ends with `[ok] Vibe Seller installed!`; the last lines tell you what to run next.
+
+Behind a proxy, the script uses your system proxy for downloads when it answers. If the command itself hangs, run `export https_proxy=http://127.0.0.1:7890` (your proxy client's port) and retry.
 
 Then start the server:
 

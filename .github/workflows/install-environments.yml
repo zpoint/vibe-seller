@@ -1,0 +1,73 @@
+name: Install environments
+
+# install.sh on the machines and networks users actually have, not just
+# a clean CI runner with open internet:
+#   wheel-coverage   every dependency installs from a wheel on every
+#                    supported platform (no Rust/C toolchain on a
+#                    seller's Mac). Resolution is cross-platform, so one
+#                    Linux runner covers Intel/Apple-silicon macOS,
+#                    Linux and Windows.
+#   proxy-network    direct network blocked + proxy alive (the full
+#                    install must complete through the proxy), proxy
+#                    dead + direct alive, both alive, both dead.
+#   intel-mac        a real Intel Mac: the project's dependencies
+#                    install wheels-only and the installer's unit tests
+#                    pass there.
+#
+# Upstream packages drop platforms on their own schedule (cryptography
+# 49 dropped Intel-macOS wheels), so this also runs daily, not only
+# when our files change.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - install.sh
+      - pyproject.toml
+      - scripts/check_wheel_coverage.sh
+      - tests/releases/install_proxy_network.sh
+      - tests/unit/test_install_sh.py
+      - .github/workflows/install-environments.yml
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: install-environments-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wheel-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - name: Every dependency installs from a wheel on every platform
+        run: scripts/check_wheel_coverage.sh
+
+  proxy-network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - name: install.sh with blocked / proxied networks
+        run: tests/releases/install_proxy_network.sh
+
+  intel-mac:
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - name: Dependencies install wheels-only on Intel macOS
+        run: |
+          uv venv --python 3.11 .venv
+          uv pip compile pyproject.toml --extra dev -o /tmp/reqs.txt
+          uv pip install --python .venv --only-binary :all: -r /tmp/reqs.txt
+          uv pip install --python .venv --no-deps -e .
+          .venv/bin/python -c 'import cryptography, platform; print(platform.machine(), "cryptography", cryptography.__version__)'
+          .venv/bin/vibe-seller --version
+      - name: Installer unit tests
+        run: .venv/bin/python -m pytest -m unit tests/unit/test_install_sh.py -q

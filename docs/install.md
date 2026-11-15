@@ -15,7 +15,7 @@ description: 安装 Vibe Seller：Windows 原生安装包、macOS / Linux 一行
 
 - 一个 LLM API Key：Claude、DeepSeek、Kimi、MiniMax、GLM、通义千问、MiMo 任选一家，获取方式见 [配置 AI 模型](llm-keys.md)
 - 一个浏览器：紫鸟（防关联浏览器），或者使用程序自带的 Chromium
-- 一台长期运行的电脑：macOS、Linux，或 Windows 10 版本 1809 / Windows Server 2019 及以上（64 位）
+- 一台长期运行的电脑：macOS 13 及以上、Linux，或 Windows 10 版本 1809 / Windows Server 2019 及以上（64 位）
 
 不需要注册账号，不需要购买服务，代码和数据都保存在你自己的机器上。
 
@@ -51,6 +51,8 @@ curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh |
 ```
 
 脚本会依次装好工具链（uv、Node、Claude Code）、安装 Vibe Seller，再下载 AI 需要使用的 Chromium（约 250MB，国内网络自动走 npmmirror 镜像，选择较快的一侧）。看到 `[ok] Vibe Seller installed!` 表示安装完成，末尾还会提示你接下来要执行的命令。
+
+开着代理（梯子）时，脚本会自动使用可用的系统代理下载。如果这行命令本身卡住，先执行 `export https_proxy=http://127.0.0.1:7890`（端口以代理软件为准）再重试。
 
 然后启动服务：
 
