@@ -52,7 +52,7 @@ curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh |
 
 脚本会依次装好工具链（uv、Node、Claude Code）、安装 Vibe Seller，再下载 AI 需要使用的 Chromium（约 250MB，国内网络自动走 npmmirror 镜像，选择较快的一侧）。看到 `[ok] Vibe Seller installed!` 表示安装完成，末尾还会提示你接下来要执行的命令。
 
-开着代理（梯子）时，脚本会自动使用可用的系统代理下载。如果这行命令本身卡住，先执行 `export https_proxy=http://127.0.0.1:7890`（端口以代理软件为准）再重试。
+开着代理（梯子）时，脚本会自动使用可用的系统代理下载（`VIBE_SELLER_PROXY=off` 可关闭）。如果这行命令本身卡住，先执行 `export https_proxy=http://127.0.0.1:7890`（端口以代理软件为准）再重试。
 
 然后启动服务：
 

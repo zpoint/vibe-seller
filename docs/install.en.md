@@ -50,7 +50,7 @@ curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh |
 
 The script installs the toolchain it needs (uv, Node, Claude Code), installs Vibe Seller, and downloads the Chromium the agent drives (about 250 MB — it picks whichever of the official CDN and the npmmirror China mirror answers faster). You're done when the output ends with `[ok] Vibe Seller installed!`; the last lines tell you what to run next.
 
-Behind a proxy, the script uses your system proxy for downloads when it answers. If the command itself hangs, run `export https_proxy=http://127.0.0.1:7890` (your proxy client's port) and retry.
+Behind a proxy, the script uses your system proxy for downloads when it answers (`VIBE_SELLER_PROXY=off` turns this off). If the command itself hangs, run `export https_proxy=http://127.0.0.1:7890` (your proxy client's port) and retry.
 
 Then start the server:
 
