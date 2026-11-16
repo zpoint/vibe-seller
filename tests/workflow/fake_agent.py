@@ -14,6 +14,7 @@ from types import SimpleNamespace as _SNS
 from sqlalchemy import func, select
 
 from app.ai.base import AIAgentBackend
+from app.ai.concurrency import ResizableLimiter
 from app.ai.stop_gates import recorded_skills
 import app.database as _db
 from app.models.schedule import Schedule
@@ -26,6 +27,9 @@ from tests.workflow.db_calls import wait_db_idle
 
 # Real asyncio.sleep — never affected by fast_polling monkeypatch
 _real_sleep = asyncio.sleep
+
+# Agent-slot limit before anything sets one — no test runs this many.
+_UNLIMITED_SLOTS = 10_000
 
 
 @dataclass
@@ -166,7 +170,11 @@ class FakeAgent(AIAgentBackend):
         self.calls: list[FakeAgentCall] = []
         self.scenarios: dict[str, FakeAgentScenario] = {}
         self.default_scenario = FakeAgentScenario()
-        self._semaphore: asyncio.Semaphore | None = None
+        # The production limiter, so a resize through PUT /api/settings
+        # behaves here exactly as it does in ClaudeCodeBackend. Large
+        # by default (effectively unlimited) until a test or the
+        # settings API sets a real limit.
+        self._slots = ResizableLimiter(_UNLIMITED_SLOTS)
         # Track which task_ids have already burned their
         # one-time resume-failure simulation, so the second
         # session (after retry_without_resume) runs cleanly.
@@ -188,7 +196,7 @@ class FakeAgent(AIAgentBackend):
 
     def set_max_concurrent(self, n: int) -> None:
         """Mirror ClaudeCodeBackend.set_max_concurrent."""
-        self._semaphore = asyncio.Semaphore(max(1, n))
+        self._slots.resize(n)
 
     async def _create_message(
         self, task_id: str, role: str, content: str
@@ -234,16 +242,13 @@ class FakeAgent(AIAgentBackend):
     ) -> bool:
         if self._running.get(task_id):
             return False
-        # Acquire semaphore if configured (mirrors
-        # ClaudeCodeBackend concurrency limit).
-        if self._semaphore is not None:
-            await self._semaphore.acquire()
-        # Honour on_start callback (mirrors semaphore-acquired
+        # Take an agent slot (mirrors ClaudeCodeBackend).
+        await self._slots.acquire()
+        # Honour on_start callback (mirrors slot-acquired
         # notification in ClaudeCodeBackend).
         if on_start is not None:
             if not await on_start():
-                if self._semaphore is not None:
-                    self._semaphore.release()
+                self._slots.release()
                 return False
         self._running[task_id] = True
         session = _FakeSession(auto_approve_plan=auto_approve_plan)
@@ -403,8 +408,7 @@ class FakeAgent(AIAgentBackend):
             if self._sessions.get(task_id) is my_session:
                 self._running.pop(task_id, None)
                 self._tasks.pop(task_id, None)
-            if self._semaphore is not None:
-                self._semaphore.release()
+            self._slots.release()
 
     async def retry_without_resume(self, task_id: str) -> bool:
         """Mirror ClaudeCodeBackend.retry_without_resume.
@@ -422,8 +426,7 @@ class FakeAgent(AIAgentBackend):
             return False
         # Acquire concurrency slot for the retry, matching the real
         # manager's contract.
-        if self._semaphore is not None:
-            await self._semaphore.acquire()
+        await self._slots.acquire()
         new_session = _FakeSession(
             auto_approve_plan=prior.auto_approve_plan,
             resume_session_id=None,  # fresh — no --resume

@@ -75,13 +75,13 @@ async def test_a_stop_during_the_launch_cancels_it(monkeypatch, tmp_path):
     monkeypatch.setattr(
         mgr_mod.workspace_manager, 'prepare_task_workspace', _workspace
     )
-    free_before = manager._semaphore._value
+    in_flight_before = manager._slots.in_flight
 
     ok = await manager.run('gone-task', 'p', no_store=True)
 
     assert ok is False
     assert started == []
-    assert manager._semaphore._value == free_before
+    assert manager._slots.in_flight == in_flight_before
     assert not (tmp_path / 'gone-task').exists()
     # Nothing left behind to cancel a later, legitimate launch.
     assert not manager._cancelled and not manager._launching
