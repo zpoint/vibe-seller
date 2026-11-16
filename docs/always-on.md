@@ -16,30 +16,44 @@ description: 让跑 Vibe Seller 的电脑 7×24 小时不睡眠：台式 Mac、M
 
 做之前先记住一条：**熄屏、锁屏可以，睡眠、注销不行。**
 
+步骤里有「界面操作 / 命令行」两个标签的，**二选一**，点开一个照做就行，不用两个都做。
+
 - 屏幕熄灭、锁屏都不影响任务。实测：一台设成 5 分钟熄屏并锁屏的 Mac，凌晨的紫鸟店铺定时任务每天照常跑完。
 - 睡眠时程序全部暂停，任务不会触发。
 - 注销（退出登录）会把 Vibe Seller 和浏览器一起关掉。锁屏保留登录，注销不保留。
 
 ## Mac mini / iMac（台式 Mac）
 
-1. **插电时不睡眠。** 打开「系统设置 → 能耗」（System Settings → Energy；部分系统版本中文叫「能源」），
-   打开「显示器关闭时，防止自动进入睡眠」（Prevent automatic sleeping when the display is off）。
-   屏幕多久熄灭随意，在「系统设置 → 锁定屏幕」（Lock Screen）里设置。
+1. **插电时不睡眠。**
 
-    命令行做法（在「终端」里执行，会要求输入开机密码）：
+    === "界面操作"
 
-    ```bash
-    sudo pmset -c sleep 0 displaysleep 10
-    pmset -g    # 检查：sleep 一行应该是 0
-    ```
+        打开「系统设置 → 能耗」（System Settings → Energy；部分系统版本中文叫「能源」），
+        打开「显示器关闭时，防止自动进入睡眠」（Prevent automatic sleeping when the display is off）。
+        屏幕多久熄灭随意，在「系统设置 → 锁定屏幕」（Lock Screen）里设置。
 
-2. **断电后自动开机。** 还是在「系统设置 → 能耗」，打开「断电后自动启动」
-   （Start up automatically after a power failure）。有些较新的 Mac 显示的是「接入电源时启动」
-   （Start up when power is connected），选「断电后」。命令行做法：
+    === "命令行"
 
-    ```bash
-    sudo pmset -a autorestart 1
-    ```
+        在「终端」里执行，会要求输入开机密码：
+
+        ```bash
+        sudo pmset -c sleep 0 displaysleep 10
+        pmset -g    # 检查：sleep 一行应该是 0
+        ```
+
+2. **断电后自动开机。**
+
+    === "界面操作"
+
+        还是在「系统设置 → 能耗」，打开「断电后自动启动」
+        （Start up automatically after a power failure）。有些较新的 Mac 显示的是「接入电源时启动」
+        （Start up when power is connected），选「断电后」。
+
+    === "命令行"
+
+        ```bash
+        sudo pmset -a autorestart 1
+        ```
 
 3. **开机后自动登录。** 打开「系统设置 → 用户与群组」（Users & Groups），
    在「自动以此身份登录」（Automatically log in as）里选你的账户，输入密码。
@@ -74,19 +88,25 @@ description: 让跑 Vibe Seller 的电脑 7×24 小时不睡眠：台式 Mac、M
 1. **一直插着电源，别合盖。** MacBook 合上盖子会睡眠，任务就停了。开着盖子放着就行，屏幕会自己熄灭。
    苹果的「合盖模式」是例外：需要同时接着电源、外接显示器和外接键盘鼠标。
 
-2. **插电时不睡眠。** 打开「系统设置 → 电池」，点「选项」（System Settings → Battery → Options），
-   打开「使用电源适配器供电且显示器关闭时，防止自动进入睡眠」
-   （Prevent automatic sleeping on power adapter when the display is off）。
-   屏幕多久熄灭在「系统设置 → 锁定屏幕」里的「使用电源适配器供电且不活跃时关闭显示器」，设成几分钟都可以。
+2. **插电时不睡眠。**
 
-    命令行做法（在「终端」里执行，会要求输入开机密码）：
+    === "界面操作"
 
-    ```bash
-    sudo pmset -c sleep 0 displaysleep 10
-    pmset -g    # 检查：sleep 一行应该是 0
-    ```
+        打开「系统设置 → 电池」，点「选项」（System Settings → Battery → Options），
+        打开「使用电源适配器供电且显示器关闭时，防止自动进入睡眠」
+        （Prevent automatic sleeping on power adapter when the display is off）。
+        屏幕多久熄灭在「系统设置 → 锁定屏幕」里的「使用电源适配器供电且不活跃时关闭显示器」，设成几分钟都可以。
 
-    `-c` 表示只在接电源时生效，用电池时照常睡眠。
+    === "命令行"
+
+        在「终端」里执行，会要求输入开机密码：
+
+        ```bash
+        sudo pmset -c sleep 0 displaysleep 10
+        pmset -g    # 检查：sleep 一行应该是 0
+        ```
+
+        `-c` 表示只在接电源时生效，用电池时照常睡眠。
 
 3. **开机后自动登录。** 打开「系统设置 → 用户与群组」（Users & Groups），
    在「自动以此身份登录」（Automatically log in as）里选你的账户，输入密码。
@@ -123,21 +143,27 @@ description: 让跑 Vibe Seller 的电脑 7×24 小时不睡眠：台式 Mac、M
 
 1. **插电时不睡眠。**
 
-    Windows 11：打开「设置 → 系统 → 电源 & 电池」，展开「屏幕、睡眠 & 休眠超时」
-    （Settings → System → Power & battery → Screen, sleep, & hibernate timeouts），
-    把接通电源时的「在以下时间后使设备进入睡眠状态」（Make my device sleep after）设为「从不」。
-    「在以下操作后关闭我的屏幕」（Turn my screen off after）随意。
+    === "界面操作"
 
-    Windows 10 和 11 都能用的命令：在开始菜单搜索 PowerShell 打开，粘贴：
+        Windows 11：打开「设置 → 系统 → 电源 & 电池」，展开「屏幕、睡眠 & 休眠超时」
+        （Settings → System → Power & battery → Screen, sleep, & hibernate timeouts），
+        把接通电源时的「在以下时间后使设备进入睡眠状态」（Make my device sleep after）设为「从不」。
+        「在以下操作后关闭我的屏幕」（Turn my screen off after）随意。
 
-    ```powershell
-    powercfg /change standby-timeout-ac 0
-    powercfg /change hibernate-timeout-ac 0
-    powercfg /change monitor-timeout-ac 10
-    ```
+        Windows 10 请用「命令行」标签的做法。
 
-    前两行是接电源时永不睡眠、永不休眠，第三行是 10 分钟后熄屏。想把休眠彻底关掉，
-    右键 PowerShell 选「以管理员身份运行」，再执行 `powercfg /hibernate off`。
+    === "命令行"
+
+        Windows 10 和 11 都能用：在开始菜单搜索 PowerShell 打开，粘贴：
+
+        ```powershell
+        powercfg /change standby-timeout-ac 0
+        powercfg /change hibernate-timeout-ac 0
+        powercfg /change monitor-timeout-ac 10
+        ```
+
+        前两行是接电源时永不睡眠、永不休眠，第三行是 10 分钟后熄屏。想把休眠彻底关掉，
+        右键 PowerShell 选「以管理员身份运行」，再执行 `powercfg /hibernate off`。
 
 2. **断电后自动开机。** 这项在电脑的 BIOS 里，不在 Windows 设置里。很多台式机和迷你主机有一个
    「来电自动开机」类的选项，英文常叫 Restore on AC Power Loss 或 AC Power Recovery，
