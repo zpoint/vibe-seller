@@ -17,6 +17,8 @@ Pick your computer and follow its steps from top to bottom:
 
 One rule first: **screen off and locked is fine; asleep or logged out is not.**
 
+Where a step has **GUI / Command line** tabs, **pick one** and follow it — you don't need both.
+
 - A dark or locked screen doesn't affect tasks. Tested: on a Mac set to turn the display
   off and lock after 5 minutes, the overnight scheduled tasks for Ziniao stores finish every night.
 - While the computer sleeps, everything is paused and no task fires.
@@ -24,26 +26,37 @@ One rule first: **screen off and locked is fine; asleep or logged out is not.**
 
 ## Mac mini / iMac (desktop Mac)
 
-1. **No sleep while plugged in.** Open **System Settings → Energy** (Chinese UI: 系统设置 → 能耗,
-   or 能源 on some versions) and turn on "**Prevent automatic sleeping when the display is off**"
-   (显示器关闭时，防止自动进入睡眠). When the screen turns off is up to you, under
-   **System Settings → Lock Screen**.
+1. **No sleep while plugged in.**
 
-    From the command line (in Terminal; it asks for your login password):
+    === "GUI"
 
-    ```bash
-    sudo pmset -c sleep 0 displaysleep 10
-    pmset -g    # check: the sleep line should read 0
-    ```
+        Open **System Settings → Energy** (Chinese UI: 系统设置 → 能耗, or 能源 on some
+        versions) and turn on "**Prevent automatic sleeping when the display is off**"
+        (显示器关闭时，防止自动进入睡眠). When the screen turns off is up to you, under
+        **System Settings → Lock Screen**.
 
-2. **Start up after a power cut.** Also in **System Settings → Energy**, turn on
-   "**Start up automatically after a power failure**" (断电后自动启动). Some newer Macs show
-   "**Start up when power is connected**" (接入电源时启动) instead — choose **After power
-   failure**. From the command line:
+    === "Command line"
 
-    ```bash
-    sudo pmset -a autorestart 1
-    ```
+        In Terminal (it asks for your login password):
+
+        ```bash
+        sudo pmset -c sleep 0 displaysleep 10
+        pmset -g    # check: the sleep line should read 0
+        ```
+
+2. **Start up after a power cut.**
+
+    === "GUI"
+
+        Also in **System Settings → Energy**, turn on "**Start up automatically after a power
+        failure**" (断电后自动启动). Some newer Macs show "**Start up when power is connected**"
+        (接入电源时启动) instead — choose **After power failure**.
+
+    === "Command line"
+
+        ```bash
+        sudo pmset -a autorestart 1
+        ```
 
 3. **Log in automatically.** Open **System Settings → Users & Groups** (用户与群组) and pick
    your account under "**Automatically log in as**" (自动以此身份登录), then enter its password.
@@ -83,20 +96,26 @@ One rule first: **screen off and locked is fine; asleep or logged out is not.**
    exception: it needs the power adapter, an external display, and an external keyboard and
    mouse connected.
 
-2. **No sleep while plugged in.** Open **System Settings → Battery** and click **Options**
-   (系统设置 → 电池 → 选项), then turn on "**Prevent automatic sleeping on power adapter when
-   the display is off**" (使用电源适配器供电且显示器关闭时，防止自动进入睡眠). When the screen
-   turns off is set in **System Settings → Lock Screen** under "**Turn display off on power
-   adapter when inactive**" — any value works.
+2. **No sleep while plugged in.**
 
-    From the command line (in Terminal; it asks for your login password):
+    === "GUI"
 
-    ```bash
-    sudo pmset -c sleep 0 displaysleep 10
-    pmset -g    # check: the sleep line should read 0
-    ```
+        Open **System Settings → Battery** and click **Options** (系统设置 → 电池 → 选项),
+        then turn on "**Prevent automatic sleeping on power adapter when the display is off**"
+        (使用电源适配器供电且显示器关闭时，防止自动进入睡眠). When the screen turns off is set in
+        **System Settings → Lock Screen** under "**Turn display off on power adapter when
+        inactive**" — any value works.
 
-    `-c` means it only applies on the charger; on battery the Mac still sleeps as usual.
+    === "Command line"
+
+        In Terminal (it asks for your login password):
+
+        ```bash
+        sudo pmset -c sleep 0 displaysleep 10
+        pmset -g    # check: the sleep line should read 0
+        ```
+
+        `-c` means it only applies on the charger; on battery the Mac still sleeps as usual.
 
 3. **Log in automatically.** Open **System Settings → Users & Groups** (用户与群组) and pick
    your account under "**Automatically log in as**" (自动以此身份登录), then enter its password.
@@ -134,22 +153,28 @@ For the WSL2 setup see the [Windows + WSL2 Deployment Guide](windows-setup.md).
 
 1. **No sleep while plugged in.**
 
-    Windows 11: open **Settings → System → Power & battery**, expand **Screen, sleep, &
-    hibernate timeouts** (设置 → 系统 → 电源 & 电池 → 屏幕、睡眠 & 休眠超时), and set the
-    plugged-in "**Make my device sleep after**" (在以下时间后使设备进入睡眠状态) to **Never**.
-    "**Turn my screen off after**" (在以下操作后关闭我的屏幕) can be anything.
+    === "GUI"
 
-    A command for both Windows 10 and 11: search the Start menu for PowerShell, open it, and paste:
+        Windows 11: open **Settings → System → Power & battery**, expand **Screen, sleep, &
+        hibernate timeouts** (设置 → 系统 → 电源 & 电池 → 屏幕、睡眠 & 休眠超时), and set the
+        plugged-in "**Make my device sleep after**" (在以下时间后使设备进入睡眠状态) to **Never**.
+        "**Turn my screen off after**" (在以下操作后关闭我的屏幕) can be anything.
 
-    ```powershell
-    powercfg /change standby-timeout-ac 0
-    powercfg /change hibernate-timeout-ac 0
-    powercfg /change monitor-timeout-ac 10
-    ```
+        On Windows 10, use the **Command line** tab.
 
-    The first two lines mean never sleep and never hibernate on AC power; the third turns
-    the screen off after 10 minutes. To switch hibernation off completely, right-click
-    PowerShell, choose **Run as administrator**, and run `powercfg /hibernate off`.
+    === "Command line"
+
+        Works on Windows 10 and 11: search the Start menu for PowerShell, open it, and paste:
+
+        ```powershell
+        powercfg /change standby-timeout-ac 0
+        powercfg /change hibernate-timeout-ac 0
+        powercfg /change monitor-timeout-ac 10
+        ```
+
+        The first two lines mean never sleep and never hibernate on AC power; the third turns
+        the screen off after 10 minutes. To switch hibernation off completely, right-click
+        PowerShell, choose **Run as administrator**, and run `powercfg /hibernate off`.
 
 2. **Start up after a power cut.** This lives in the PC's BIOS, not in Windows Settings.
    Many desktops and mini PCs have an option usually called Restore on AC Power Loss or AC
