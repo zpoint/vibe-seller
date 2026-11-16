@@ -188,9 +188,9 @@ nav:
       - Getting Started:
           - Installation: install.md
           - Quickstart: quickstart.md
-          - Keep It Running 24/7: always-on.md
           - Configure AI Models: llm-keys.md
           - Core Concepts: concepts.md
+          - Keep It Running 24/7: always-on.md
       - Integrations:
           - Overview: integrations.md
           - Amazon Ads API: ads-api.md
