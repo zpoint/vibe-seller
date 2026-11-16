@@ -88,9 +88,13 @@ PROBE='VIBE_SELLER_INSTALL_SH_NO_MAIN=1 source /repo/install.sh
 setup_proxy
 echo "https_proxy=[${https_proxy:-}]"'
 
+# grep runs on the file inside the proxy container: no pipe. Piping
+# `docker exec … cat` into `grep -q` under pipefail answered "absent"
+# for lines that were there — grep -q exits on the first match, the
+# writer dies of SIGPIPE (141), and pipefail reports the pipeline's
+# failure, more often the earlier the match sits in the log.
 proxy_log_has() {
-    docker exec "$PROXY" cat /var/log/squid/access.log 2>/dev/null \
-        | grep -q "$1"
+    docker exec "$PROXY" grep -qF "$1" /var/log/squid/access.log
 }
 
 fail=0
