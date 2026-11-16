@@ -35,7 +35,7 @@ Working notes:
 - Local Knowledge and store files are yours: never overwritten;
 - Every file has **History** — you can restore an earlier version.
 
-![The Knowledge page: built-in skills, project knowledge, local knowledge and per-store files, with the selected file previewed on the right](images/knowledge-app-page_en.png)
+![The Knowledge page: click Knowledge, pick the store's notes.md under Files and click Edit; the AI also writes the rules it learns into this file](images/knowledge-app-page_en.png)
 
 **The easiest habit is the AI Chat mode**: tell the assistant things like
 “our US store ships with FedEx, DHL for international” or “Store A's
