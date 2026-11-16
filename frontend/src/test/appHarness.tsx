@@ -4,14 +4,21 @@
  * whole-app behaviour — what a keystroke or an SSE event re-renders —
  * which a single-component render cannot show.
  *
- * Call `bootApp()` after setting the URL with `window.history`; the
- * caller's module must import `../router` lazily (inside the test) so
- * the router reads that URL.
+ * Call `bootApp()` after setting the URL with `window.history`; it
+ * navigates the router to that URL before rendering.
+ *
+ * The first import of `../router` transforms and evaluates the whole
+ * app module graph — seconds on a loaded CI runner. That is file
+ * setup, not the behaviour under test, so it runs once in a
+ * `beforeAll` instead of inside the first test's time budget (where it
+ * used to eat most of the 5 s per-test timeout).
  */
 import { act, render } from '@testing-library/react'
-import { vi } from 'vitest'
+import { beforeAll, vi } from 'vitest'
 import type { Task } from '../types'
 import { makeTask } from './factories'
+
+beforeAll(async () => { await import('../router') })
 
 type Listener = ((evt: MessageEvent) => void) | null
 export interface FakeEventSource { onmessage: Listener; close: () => void }
