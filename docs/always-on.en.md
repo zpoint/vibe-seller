@@ -1,5 +1,5 @@
 ---
-description: Keep the computer that runs Vibe Seller awake around the clock on Mac and Windows — no sleep on power, start up after a power cut, automatic login, Vibe Seller starting by itself, plus notes on Ziniao, the lock screen and Windows Update restarts.
+description: Keep the computer that runs Vibe Seller awake around the clock — one complete how-to each for desktop Macs, MacBooks and Windows — no sleep on power, start up after a power cut, automatic login, and Vibe Seller starting after login.
 ---
 
 # Keep It Running 24/7
@@ -9,229 +9,183 @@ A scheduled task (say, a report export at 3 a.m.) only runs when two things are 
 down, or sitting at the login screen after a reboot, the task is skipped when its time
 comes. **A missed run is not made up later** — the schedule just waits for the next one.
 
-This page shows how to keep a Mac or a Windows PC online. Start with the summary, then
-follow the steps for your system.
+Pick your computer and follow its steps from top to bottom:
 
-| Setting | Mac | Windows (installer) |
-|---|---|---|
-| No sleep while plugged in (screen may turn off) | Turn on the prevent-sleep option in "**Energy**" or "**Battery → Options**"; or `sudo pmset -c sleep 0` | Set sleep to "**Never**"; or `powercfg /change standby-timeout-ac 0` |
-| Start up after a power cut | Desktop Macs: "**Start up automatically after a power failure**"; or `sudo pmset -a autorestart 1` | Turn on power-on-after-AC-loss in the BIOS (name varies by maker) |
-| Log in automatically after start-up | "**Users & Groups → Automatically log in as**" | Microsoft's Autologon tool |
-| Vibe Seller starts after login | Add it once yourself (one command block below) | Built into the installer: tray "**Start at login**" is on by default |
-| Don't | Log out, shut down, close a MacBook lid without an external display | Log out, shut down; move update restarts away with active hours |
+- [Mac mini / iMac (desktop Mac)](#mac-mini--imac-desktop-mac)
+- [MacBook](#macbook)
+- [Windows](#windows)
 
-## Screen off and locked: fine. Asleep: not fine
+One rule first: **screen off and locked is fine; asleep or logged out is not.**
 
-- **A dark screen or a locked screen is fine.** Vibe Seller and the store browsers keep
-  running. Tested: on a Mac set to turn the display off and lock after 5 minutes, the
-  overnight scheduled tasks for Ziniao stores finish every night.
-- **Sleep is not.** While the computer sleeps, everything is paused and no task fires.
-- **Logging out is not either.** Vibe Seller and the browsers run inside your login
-  session, and logging out closes them. Locking keeps the session; logging out ends it.
-- Set the screen-off timer to whatever you like — it saves power and doesn't affect tasks.
+- A dark or locked screen doesn't affect tasks. Tested: on a Mac set to turn the display
+  off and lock after 5 minutes, the overnight scheduled tasks for Ziniao stores finish every night.
+- While the computer sleeps, everything is paused and no task fires.
+- Logging out closes Vibe Seller and the browsers. Locking keeps you logged in; logging out doesn't.
 
-## Mac
+## Mac mini / iMac (desktop Mac)
 
-### 1. No sleep while plugged in
+1. **No sleep while plugged in.** Open **System Settings → Energy** (Chinese UI: 系统设置 → 能耗,
+   or 能源 on some versions) and turn on "**Prevent automatic sleeping when the display is off**"
+   (显示器关闭时，防止自动进入睡眠). When the screen turns off is up to you, under
+   **System Settings → Lock Screen**.
 
-**Desktop Macs (Mac mini, iMac):**
+    From the command line (in Terminal; it asks for your login password):
 
-1. Open **System Settings → Energy** (Chinese UI: 系统设置 → 能耗, or 能源 on some versions).
-2. Turn on "**Prevent automatic sleeping when the display is off**" (显示器关闭时，防止自动进入睡眠).
+    ```bash
+    sudo pmset -c sleep 0 displaysleep 10
+    pmset -g    # check: the sleep line should read 0
+    ```
 
-**MacBook:**
+2. **Start up after a power cut.** Also in **System Settings → Energy**, turn on
+   "**Start up automatically after a power failure**" (断电后自动启动). Some newer Macs show
+   "**Start up when power is connected**" (接入电源时启动) instead — choose **After power
+   failure**. From the command line:
 
-1. Keep it plugged in.
-2. Open **System Settings → Battery** and click **Options** (系统设置 → 电池 → 选项).
-3. Turn on "**Prevent automatic sleeping on power adapter when the display is off**"
-   (使用电源适配器供电且显示器关闭时，防止自动进入睡眠).
+    ```bash
+    sudo pmset -a autorestart 1
+    ```
 
-When the screen turns off is set in **System Settings → Lock Screen** (锁定屏幕) under
-"**Turn display off on power adapter when inactive**" — any value works.
+3. **Log in automatically.** Open **System Settings → Users & Groups** (用户与群组) and pick
+   your account under "**Automatically log in as**" (自动以此身份登录), then enter its password.
 
-From the command line: open Terminal and run (it asks for your login password):
+    If the option is greyed out, FileVault is usually on — the pane says "Automatic login
+    can't be turned on because FileVault is enabled." Whether to turn FileVault off for this
+    is your call: with automatic login, anyone who can reach the machine can power it on into
+    your account, so keep it somewhere safe. Check the current state with
+    `sysadminctl -autologin status`.
 
-```bash
-sudo pmset -c sleep 0 displaysleep 10
-```
+4. **Make Vibe Seller start after login.** In Terminal:
 
-`-c` means "on charger", `sleep 0` means never sleep, `displaysleep 10` turns the screen
-off after 10 minutes. Check it — the `sleep` line should read `0`:
+    ```bash
+    vibe-seller autostart on
+    ```
 
-```bash
-pmset -g
-```
+    From then on every login runs `vibe-seller start` once; if the server isn't running
+    right now, this command starts it too.
 
-### 2. Start up after a power cut, and log in automatically
+    - Check: `vibe-seller autostart status` should say "Start at login: on".
+    - Turn it off: `vibe-seller autostart off`.
+    - Not on the default port 7777? Add `--port <port>` to all three commands.
+    - Nothing to redo after `vibe-seller upgrade`.
 
-**Start up after a power cut (desktop Macs):** in **System Settings → Energy**, turn on
-"**Start up automatically after a power failure**" (断电后自动启动). Some newer Macs show
-"**Start up when power is connected**" (接入电源时启动) instead — choose **After power
-failure**. From the command line:
+    It starts the server once per login; it does not restart it if it crashes. For crash
+    restarts, or if you run from a source checkout, see
+    [macOS Deployment — Auto-Launch on Login](macos-setup.md).
 
-```bash
-sudo pmset -a autorestart 1
-```
+5. **Ziniao stores:** see [Ziniao stores](#ziniao-stores) below.
 
-A MacBook has a battery and doesn't need this.
+6. **Test it with a restart:** see [Test it once](#test-it-once).
 
-**Automatic login:** Vibe Seller only starts after you log in, so after a power cut or an
-update restart the Mac has to log itself in.
+## MacBook
 
-1. Open **System Settings → Users & Groups** (用户与群组).
-2. Under "**Automatically log in as**" (自动以此身份登录), pick your account and enter its password.
+1. **Keep it plugged in, lid open.** Closing a MacBook's lid puts it to sleep, and tasks
+   stop. Leave it open; the screen turns itself off. Apple's closed-display mode is the
+   exception: it needs the power adapter, an external display, and an external keyboard and
+   mouse connected.
 
-If the option is greyed out, FileVault is usually on — the pane says "Automatic login can't
-be turned on because FileVault is enabled." Whether to turn FileVault off for this is your
-call: with automatic login, anyone who can reach the machine can power it on into your
-account, so keep it somewhere safe.
+2. **No sleep while plugged in.** Open **System Settings → Battery** and click **Options**
+   (系统设置 → 电池 → 选项), then turn on "**Prevent automatic sleeping on power adapter when
+   the display is off**" (使用电源适配器供电且显示器关闭时，防止自动进入睡眠). When the screen
+   turns off is set in **System Settings → Lock Screen** under "**Turn display off on power
+   adapter when inactive**" — any value works.
 
-Check the current state:
+    From the command line (in Terminal; it asks for your login password):
 
-```bash
-sysadminctl -autologin status
-```
+    ```bash
+    sudo pmset -c sleep 0 displaysleep 10
+    pmset -g    # check: the sleep line should read 0
+    ```
 
-### 3. Make Vibe Seller start after login
+    `-c` means it only applies on the charger; on battery the Mac still sleeps as usual.
 
-`vibe-seller start` starts the server once; after a reboot it does not come back on its
-own. Paste this whole block into Terminal. It uses macOS's built-in `launchd` to run
-`vibe-seller start` once after every login:
+3. **Log in automatically.** Open **System Settings → Users & Groups** (用户与群组) and pick
+   your account under "**Automatically log in as**" (自动以此身份登录), then enter its password.
 
-```bash
-mkdir -p ~/Library/LaunchAgents ~/Library/Logs
-cat > ~/Library/LaunchAgents/com.vibe-seller.start.plist <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.vibe-seller.start</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$(command -v vibe-seller)</string>
-    <string>start</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>HOME</key>
-    <string>$HOME</string>
-    <key>PATH</key>
-    <string>$HOME/.local/bin:$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-  </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>AbandonProcessGroup</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>$HOME/Library/Logs/vibe-seller-start.log</string>
-  <key>StandardErrorPath</key>
-  <string>$HOME/Library/Logs/vibe-seller-start.log</string>
-</dict>
-</plist>
-EOF
-plutil -lint ~/Library/LaunchAgents/com.vibe-seller.start.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vibe-seller.start.plist
-```
+    If the option is greyed out, FileVault is usually on — the pane says "Automatic login
+    can't be turned on because FileVault is enabled." Whether to turn FileVault off for this
+    is your call: with automatic login, anyone who can reach the machine can power it on into
+    your account. Check the current state with `sysadminctl -autologin status`.
 
-- Before pasting, make sure the `vibe-seller` command works (`vibe-seller --version`
-  prints something).
-- The last line runs it once right away. If the server is already running, the log says
-  "already running" — that's harmless.
-- To check it worked: open <http://localhost:7777>, or read
-  `~/Library/Logs/vibe-seller-start.log`.
-- Nothing to redo after `vibe-seller upgrade`.
-- To remove it:
+4. **Make Vibe Seller start after login.** In Terminal:
 
-```bash
-launchctl bootout gui/$(id -u)/com.vibe-seller.start
-rm ~/Library/LaunchAgents/com.vibe-seller.start.plist
-```
+    ```bash
+    vibe-seller autostart on
+    ```
 
-This only starts the server once per login; it does not restart it if it crashes. For
-crash restarts, or if you run from a source checkout, see
-[macOS Deployment — Auto-Launch on Login](macos-setup.md).
+    From then on every login runs `vibe-seller start` once; if the server isn't running
+    right now, this command starts it too.
 
-### 4. Don't close the MacBook lid
+    - Check: `vibe-seller autostart status` should say "Start at login: on".
+    - Turn it off: `vibe-seller autostart off`.
+    - Not on the default port 7777? Add `--port <port>` to all three commands.
+    - Nothing to redo after `vibe-seller upgrade`.
 
-Closing a MacBook's lid puts it to sleep, and tasks stop. The easy way is to leave it open
-and plugged in; the screen turns itself off. Apple's closed-display mode is the exception:
-it needs the power adapter, an external display, and an external keyboard and mouse
-connected.
+    It starts the server once per login and does not restart it if it crashes; for that see
+    [macOS Deployment — Auto-Launch on Login](macos-setup.md).
 
-## Windows (installer)
+5. **Ziniao stores:** see [Ziniao stores](#ziniao-stores) below.
+
+6. **Test it with a restart:** see [Test it once](#test-it-once).
+
+## Windows
 
 This covers the [native Windows installer](install.md#windows-native-installer-recommended).
 For the WSL2 setup see the [Windows + WSL2 Deployment Guide](windows-setup.md).
 
-### 1. No sleep while plugged in
+1. **No sleep while plugged in.**
 
-**Windows 11:**
+    Windows 11: open **Settings → System → Power & battery**, expand **Screen, sleep, &
+    hibernate timeouts** (设置 → 系统 → 电源 & 电池 → 屏幕、睡眠 & 休眠超时), and set the
+    plugged-in "**Make my device sleep after**" (在以下时间后使设备进入睡眠状态) to **Never**.
+    "**Turn my screen off after**" (在以下操作后关闭我的屏幕) can be anything.
 
-1. Open **Settings → System → Power & battery** and expand **Screen, sleep, & hibernate
-   timeouts** (设置 → 系统 → 电源 & 电池 → 屏幕、睡眠 & 休眠超时).
-2. Set the plugged-in "**Make my device sleep after**" (在以下时间后使设备进入睡眠状态) to **Never**.
-3. "**Turn my screen off after**" (在以下操作后关闭我的屏幕) can be anything — a dark
-   screen doesn't affect tasks.
+    A command for both Windows 10 and 11: search the Start menu for PowerShell, open it, and paste:
 
-**A command for both Windows 10 and 11:** search the Start menu for PowerShell, open it,
-and paste:
+    ```powershell
+    powercfg /change standby-timeout-ac 0
+    powercfg /change hibernate-timeout-ac 0
+    powercfg /change monitor-timeout-ac 10
+    ```
 
-```powershell
-powercfg /change standby-timeout-ac 0
-powercfg /change hibernate-timeout-ac 0
-powercfg /change monitor-timeout-ac 10
-```
+    The first two lines mean never sleep and never hibernate on AC power; the third turns
+    the screen off after 10 minutes. To switch hibernation off completely, right-click
+    PowerShell, choose **Run as administrator**, and run `powercfg /hibernate off`.
 
-The first two lines mean never sleep and never hibernate on AC power; the third turns the
-screen off after 10 minutes. To switch hibernation off completely, right-click PowerShell,
-choose **Run as administrator**, and run:
+2. **Start up after a power cut.** This lives in the PC's BIOS, not in Windows Settings.
+   Many desktops and mini PCs have an option usually called Restore on AC Power Loss or AC
+   Power Recovery; the name and location vary by maker, so check the motherboard or PC manual.
 
-```powershell
-powercfg /hibernate off
-```
+3. **Sign in automatically.** Use Microsoft's official
+   [Autologon](https://learn.microsoft.com/sysinternals/downloads/autologon) tool: download
+   and run it, fill in Username, Domain and Password, and click **Enable**. To turn it off,
+   run it again and click **Disable**; holding Shift during start-up skips automatic sign-in once.
 
-### 2. Start up after a power cut, and log in automatically
+    The password is stored encrypted in the registry, but an administrator on this PC can
+    read it back, and anyone who can reach the machine can power it on into your account —
+    keep it somewhere safe.
 
-**Start up after a power cut:** this lives in the PC's BIOS, not in Windows Settings. Many
-desktops and mini PCs have an option usually called Restore on AC Power Loss or AC Power
-Recovery; the name and location vary by maker, so check the motherboard or PC manual.
+4. **Vibe Seller starts after sign-in.** The installer already does this: after you sign
+   in, the Vibe Seller icon appears in the tray and the server runs in the background. Make
+   sure the tray's "**Start at login**" (开机自动启动) item is still ticked — it is the same
+   switch as Vibe Seller's entry on Task Manager's Startup page.
 
-**Automatic login:** the Vibe Seller tray starts after you sign in to Windows, so after a
-restart the PC has to sign itself in. Use Microsoft's official
-[Autologon](https://learn.microsoft.com/sysinternals/downloads/autologon) tool:
+    The tray's "**Quit**" (退出) also stops the server, until the next sign-in. Don't click
+    it if you don't mean to.
 
-1. Download and run Autologon.
-2. Fill in Username, Domain and Password, then click **Enable**.
-3. To turn it off, run it again and click **Disable**. Holding Shift during start-up skips
-   automatic login once.
+5. **Keep Windows Update from restarting at night.** Put the hours your schedules usually
+   run inside **active hours**, and Windows tries to avoid restarting then:
 
-The password is stored encrypted in the registry, but an administrator on this PC can read
-it back, and anyone who can reach the machine can power it on into your account — keep it
-somewhere safe.
+    - Windows 11: **Settings → Windows Update → Advanced options → Active hours**, set
+      **Adjust active hours** to **Manually**, then pick the start and end times
+      (设置 → Windows 更新 → 高级选项 → 使用时段 → 调整使用时段 → 手动).
+    - Windows 10: **Settings → Update & Security → Windows Update → Change active hours**
+      (设置 → 更新和安全 → Windows 更新 → 更改使用时段).
 
-### 3. Vibe Seller starts by itself
+    If it restarts anyway, automatic sign-in plus the tray's start-at-login bring Vibe Seller back.
 
-The installer already does this: after you sign in to Windows, the Vibe Seller icon
-appears in the tray and the server runs in the background.
+6. **Ziniao stores:** see [Ziniao stores](#ziniao-stores) below.
 
-- The tray's "**Start at login**" (开机自动启动) item is ticked by default — make sure it
-  still is. It is the same switch as Vibe Seller's entry on Task Manager's Startup page.
-- The tray's "**Quit**" (退出) also stops the server, until the next sign-in. Don't click it
-  if you don't mean to.
-
-### 4. Keep Windows Update from restarting at night
-
-Windows Update sometimes needs a restart. Put the hours your schedules usually run inside
-**active hours**, and Windows tries to avoid restarting then:
-
-- **Windows 11:** **Settings → Windows Update → Advanced options → Active hours**, set
-  **Adjust active hours** to **Manually**, then pick the start and end times
-  (设置 → Windows 更新 → 高级选项 → 使用时段 → 调整使用时段 → 手动).
-- **Windows 10:** **Settings → Update & Security → Windows Update → Change active hours**
-  (设置 → 更新和安全 → Windows 更新 → 更改使用时段).
-
-If it restarts anyway, automatic login plus the tray's start-at-login bring Vibe Seller back.
+7. **Test it with a restart:** see [Test it once](#test-it-once).
 
 ## Ziniao stores
 
@@ -246,16 +200,12 @@ If it restarts anyway, automatic login plus the tray's start-at-login bring Vibe
 - **Chrome stores:** if the seller center asks for a slider or SMS check the first time,
   you need to log in by hand once — see [Logins stick around](stores.md#logins-stick-around).
 
-## Checking in when you're away
-
-On the same network, open `http://<this computer's IP>:7777` — see
-[Access from the local network](install.md#access-from-the-local-network). From outside,
-use a VPN or Tailscale; never expose the port to the public internet.
-
 ## Test it once
 
 1. Restart the computer and don't touch it.
-2. A few minutes later, open `http://<this computer's IP>:7777` from another device. If it
-   loads, automatic login and auto-start both work.
+2. A few minutes later, open `http://<this computer's IP>:7777` from another device (see
+   [Access from the local network](install.md#access-from-the-local-network)). If it loads,
+   automatic login and auto-start both work. From outside, use a VPN or Tailscale; never
+   expose the port to the public internet.
 3. Create a schedule that fires a few minutes from now (see [Scheduled Tasks](schedules.md))
    and check it still runs to completion after the screen has turned off.

@@ -122,6 +122,7 @@ cd vibe-seller
 | 重启 | `vibe-seller stop && vibe-seller start` | `./restart.sh` | 托盘 → **重启服务** |
 | 前台运行（查看日志） | `vibe-seller start --foreground` | `./start.sh --dev` | — |
 | 补装浏览器引擎 | `vibe-seller install-browser` | `./install.sh --dev` 时装好 | 安装包自带 |
+| 登录后自动启动 | `vibe-seller autostart on`（仅 macOS，见 [7×24 小时运行](always-on.md)） | 见 [macOS 常驻服务](macos-setup.md) | 托盘「开机自动启动」，默认开启 |
 
 浏览器引擎在每次启动时也会自动检查并补装，通常不需要手动处理。
 

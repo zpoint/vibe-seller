@@ -118,6 +118,7 @@ cd vibe-seller
 | Restart | `vibe-seller stop && vibe-seller start` | `./restart.sh` | tray → **Restart server** |
 | Run in the foreground (watch logs) | `vibe-seller start --foreground` | `./start.sh --dev` | — |
 | (Re)install the browser engine | `vibe-seller install-browser` | done by `./install.sh --dev` | bundled |
+| Start after login | `vibe-seller autostart on` (macOS only; see [Keep It Running 24/7](always-on.md)) | see [macOS Service](macos-setup.md) | tray **Start at login**, on by default |
 
 The engine check also runs by itself at every server start, so you rarely need the last one.
 
