@@ -719,19 +719,6 @@
     "contextBadgeTitle": "Claude Code 在此配置下实际使用的上下文窗口：模型 id 带 [1m] 或设置了 CLAUDE_CODE_MAX_CONTEXT_TOKENS 才能用到 1M，否则默认 200K；不会超过模型本身的上限。",
     "contextBadgeHint": "模型旁的 1M / 200K 是 Claude Code 实际可用的上下文：同一模型，带 [1m] 的版本用 1M，不带的默认 200K（上下文越小越早压缩，但更省 token）。"
   },
-  "errors": {
-    "externalConfigOverride": {
-      "title": "外部工具的配置与当前 Profile 冲突",
-      "intro": "Profile「{{profileId}}」无法使用：{{settingsPath}} 里写了优先级更高的环境变量，会把 Agent 静默地路由到另一个 endpoint：",
-      "pickOne": "二选一：",
-      "optionDefault": "把 Profile 切到「Claude（默认）」，把供应商路由交给外部工具（例如 cc-switch）管理。",
-      "optionClear": "退出写入这些配置的工具（cc-switch 或类似），然后执行下面这条命令清掉冲突的 env：",
-      "useDefault": "切换到默认 Profile",
-      "copyCommand": "复制命令",
-      "copied": "已复制",
-      "close": "关闭"
-    }
-  },
   "status": {
     "pending": "待处理",
     "in_progress": "进行中",

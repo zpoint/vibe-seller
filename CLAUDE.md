@@ -23,6 +23,7 @@ Team collaboration platform for e-commerce store automation. Users create browse
 - AI agent abstraction in `app/ai/` (`AIAgentBackend` ABC, `ClaudeCodeBackend` impl)
 - System prompts in `app/prompts/*.md` — loaded once at import via `app/prompts/__init__.py`
 - Tasks auto-execute on creation in **auto mode** (default, `plan_mode=false`): `bypassPermissions`, PENDING → RUNNING → COMPLETED. Opt-in **plan mode** (`plan_mode=true`): agent plans in read-only mode, user reviews, then executes (PENDING → DESIGNING → PLANNED → RUNNING → COMPLETED). Toggle via Auto/Plan switch in task detail footer. Non-store tasks always use plan mode. Plan-mode schedules author the plan once at creation via an `is_plan_only=True` Task (user reviews, plan is frozen on `Schedule.plan`, `plan_status=ready`); each subsequent fire copies the frozen plan and skips planning. See `app/plan_states.py` + [docs/subsystems.md](docs/subsystems.md#plan-at-creation-lifecycle).
+- **Agents never load the machine user's own Claude Code config** (`app/ai/claude_isolation.py`): every launch excludes the user's `CLAUDE.md` / rules (and every `CLAUDE.md` above the workspace) via `claudeMdExcludes`; a non-default profile also runs with `--setting-sources project,local`, so a cc-switch `ANTHROPIC_*` env in `~/.claude/settings.json` cannot reroute it. Only the `default` profile (= this machine's Claude Code setup) keeps the user settings source. "Load global MCP" re-adds the user-scope servers from `~/.claude.json` by `--mcp-config`. See [docs/backend.md](docs/backend.md#agent-config-isolation-aiclaude_isolationpy).
 - JWT cookie auth (httpOnly, 24h rolling expiry; service tokens are 7-day)
 - **External agents connect over `/api/mcp` with `vst_` API tokens** (minted in Settings → Integrations → API keys; the token acts as its owner, with that owner's role). **Never expose `app/mcp_server.py`** — that is the *in-task* stdio MCP (`--task-id`, tools like `set_task_result` / `declare_ad_task`); publishing it would let an outside agent forge task results and walk around the review gates. The external toolset is a separate, operator-level one: create and follow tasks, answer questions, review plans. See [docs/agents.md](docs/agents.md).
 - UUIDs for all primary keys
@@ -311,7 +312,7 @@ All LLM system prompts live in `app/prompts/*.md`, loaded once at import via `ap
 9. Caller extra context (conversation history, wake trigger)
 10. Store ads note (the last word — a fanout plan is shared), then plugin `system_extra` fragments
 
-There is no post-task reflection turn: the agent keeps `knowledge/` and `stores/` correct in-task, after its result is recorded (`design_system.md` § Keeping knowledge correct). Claude Code's own auto-memory is off for every agent (`profiles.disable_auto_memory`); `knowledge/` + `stores/` is the only memory.
+There is no post-task reflection turn: the agent keeps `knowledge/` and `stores/` correct in-task, after its result is recorded (`design_system.md` § Keeping knowledge correct). Claude Code's own auto-memory is off for every agent (`profiles.disable_auto_memory` env + `autoMemoryEnabled: false` in the launch `--settings`, `app/ai/claude_isolation.py`); `knowledge/` + `stores/` is the only memory.
 
 `start_agent()` (ad-hoc agent start) intentionally skips full context — it's for raw interaction.
 

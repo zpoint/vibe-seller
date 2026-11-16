@@ -47,14 +47,10 @@ A saved key is masked in the UI by default — an admin can click **Show** / **C
 !!! tip "Already signed in to Claude Code on this machine?"
     The built-in **Default** profile uses this machine's Claude Code environment, so there's nothing to fill in — run a task first and only create a profile if you want a different provider.
 
-!!! warning "Using cc-switch or a similar Claude account switcher? Pick the default here"
-    Those tools switch AI providers by editing your global `~/.claude/settings.json`, which conflicts with Vibe Seller's own AI picker. Pick the default and let cc-switch keep managing which AI you use.
+!!! note "Using cc-switch or a similar Claude account switcher? Either choice works"
+    Pick **Default** and tasks use cc-switch's current setup (this machine's Claude Code). Pick any other profile and tasks use that profile's own provider and key — cc-switch can't override it. No need to quit cc-switch or edit `~/.claude/settings.json`.
 
-    If you'd rather Vibe Seller manage it: quit cc-switch, then **copy-paste this line into a terminal** and hit return — it edits your global Claude Code config (`~/.claude/settings.json`) and removes the `ANTHROPIC_*` environment variables cc-switch wrote there:
-
-    ```bash
-    python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
-    ```
+    Task agents don't read your own global Claude Code config: `~/.claude/CLAUDE.md` and `~/.claude/rules` are never loaded, and with any profile other than Default your `~/.claude/settings.json`, skills and plugins aren't loaded either (Default keeps your settings and sign-in, which is how cc-switch takes effect). With **Load global MCP servers** turned on in a profile, the MCP servers you added to `~/.claude.json` still load.
 
 ## 3. Connect a store
 

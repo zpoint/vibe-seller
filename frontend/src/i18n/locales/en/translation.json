@@ -717,19 +717,6 @@
     "contextBadgeTitle": "The context window Claude Code actually uses with this profile: 1M only when the model id ends in [1m] or CLAUDE_CODE_MAX_CONTEXT_TOKENS is set, otherwise the 200K default — never more than the model itself allows.",
     "contextBadgeHint": "1M / 200K next to a model is the context Claude Code actually gets: the same model with [1m] uses 1M, without it the 200K default (a smaller window compacts sooner but spends fewer tokens)."
   },
-  "errors": {
-    "externalConfigOverride": {
-      "title": "External config conflicts with this profile",
-      "intro": "Profile \"{{profileId}}\" can't be used: {{settingsPath}} has env entries that take precedence and silently route the agent to another endpoint:",
-      "pickOne": "Pick one:",
-      "optionDefault": "Switch your profile to \"Claude\" (default) and let the external tool (e.g. cc-switch) own provider routing.",
-      "optionClear": "Quit the tool that wrote it (cc-switch / similar), then run this once to clear the conflicting env block:",
-      "useDefault": "Use Default Profile",
-      "copyCommand": "Copy Command",
-      "copied": "Copied!",
-      "close": "Close"
-    }
-  },
   "status": {
     "pending": "Pending",
     "in_progress": "In Progress",

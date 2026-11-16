@@ -17,6 +17,7 @@ from app.ai.claude_backend_utils import (
     write_mcp_config_file,
     write_system_prompt_file,
 )
+from app.ai.claude_isolation import read_user_mcp_servers
 
 
 def build_launch_artifacts(
@@ -28,6 +29,7 @@ def build_launch_artifacts(
     env: dict | None = None,
     store_slug: str | None = None,
     mcp_config: dict | None = None,
+    user_mcp_env: dict | None = None,
 ) -> dict:
     """Write EVERY launch artifact in ONE thread hop.
 
@@ -41,7 +43,12 @@ def build_launch_artifacts(
     *settings* of ``None`` skips the ``--settings`` payload; *env* of
     ``None`` skips the venv/PATH wiring; *mcp_config* of ``None``
     skips the per-session ``--mcp-config`` payload (the workspace
-    assistant's restricted skill-tool registration).
+    assistant's restricted skill-tool registration). *user_mcp_env*
+    (the spawn env) reads the user-scope MCP servers out of the CLI's
+    global config and writes them to a ``--mcp-config`` payload — for
+    a profile that loads global MCP while the user setting source is
+    off (``app.ai.claude_isolation``); ``None`` skips it, and so does
+    a user config with no servers.
     """
     prompt_path = write_system_prompt_file(system_prompt, task_id, task_dir)
     settings_path = (
@@ -51,6 +58,16 @@ def build_launch_artifacts(
     )
     if env is not None:
         apply_agent_venv_path(env, store_slug)
+    user_mcp_path = None
+    if user_mcp_env is not None:
+        servers = read_user_mcp_servers(user_mcp_env)
+        if servers:
+            user_mcp_path = write_mcp_config_file(
+                {'mcpServers': servers},
+                task_id,
+                task_dir,
+                suffix='.user-mcp.json',
+            )
     return {
         'system_prompt': prompt_path,
         'settings': settings_path,
@@ -59,4 +76,5 @@ def build_launch_artifacts(
             if mcp_config is not None
             else None
         ),
+        'user_mcp_config': user_mcp_path,
     }

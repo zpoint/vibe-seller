@@ -162,6 +162,7 @@ def mcp_launch_flags(
     load_global: bool,
     session_config: Path | None,
     project_config: Path | None = None,
+    user_config: Path | None = None,
 ) -> list[str]:
     """The MCP flags for one launch — ONE decision, both launches.
 
@@ -174,19 +175,32 @@ def mcp_launch_flags(
     project ``.mcp.json`` IS auto-discovered from its cwd. Callers pass
     ``ProfileManager.get_load_global_mcp(profile_id)`` — the flag
     composition lives here, once.
+
+    *user_config* is the user-scope servers Vibe Seller read out of
+    the CLI's global config itself — needed when the launch runs with
+    the user setting source off (a non-default profile, see
+    ``app.ai.claude_isolation``), where the CLI no longer loads them.
+    It only ever rides along with globals ON; a strict launch never
+    sees it.
     """
     if not load_global:
         cfg = session_config or project_config
         if cfg is None:
             return []
         return ['--mcp-config', str(cfg), '--strict-mcp-config']
+    configs = []
     if session_config is not None and session_config != project_config:
-        return ['--mcp-config', str(session_config)]
-    return []
+        configs.append(str(session_config))
+    if user_config is not None:
+        configs.append(str(user_config))
+    return ['--mcp-config', *configs] if configs else []
 
 
 def write_mcp_config_file(
-    mcp_config: dict, task_id: str, task_dir: Path | None
+    mcp_config: dict,
+    task_id: str,
+    task_dir: Path | None,
+    suffix: str = '.mcp.json',
 ) -> Path:
     """Write the session's ``--mcp-config`` payload beside its prompt.
 
@@ -195,7 +209,7 @@ def write_mcp_config_file(
     ``.mcp.json`` at the workspace root (store-less tasks write that
     with their full task toolset; two writers would race).
     """
-    path = system_prompt_file(task_id, task_dir).with_suffix('.mcp.json')
+    path = system_prompt_file(task_id, task_dir).with_suffix(suffix)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(mcp_config), encoding='utf-8')
     return path

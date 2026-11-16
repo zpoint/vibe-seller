@@ -774,7 +774,7 @@ export default function App() {
           onClose={() => setShowProfileModal(false)}
           onSave={async (profile, opts) => {
             if (editingProfile) { await updateProfile(editingProfile.id, profile); return }
-            // Create errors (e.g. external-config 409) propagate so the
+            // Create errors (e.g. a 400) propagate so the
             // modal can surface them and stay open.
             const newProfile = await createProfile(profile)
             if (opts.setAsDefault) {

@@ -404,7 +404,7 @@ function ProfileForm({
       setValidating(false)
     }
 
-    // Persist. onSave may throw (e.g. external-config 409) — keep the
+    // Persist. onSave may throw (e.g. a 400) — keep the
     // modal open and surface the reason.
     try {
       await onSave(
