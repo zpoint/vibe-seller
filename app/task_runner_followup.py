@@ -9,14 +9,9 @@ follow-up turns.
 
 import asyncio
 from datetime import UTC, datetime
-import json
 import logging
 
 from app.ai.claude_backend_manager import agent_manager
-from app.ai.external_config import (
-    ExternalConfigOverrideError,
-    assert_profile_compatible,
-)
 from app.ai.turn_hold_budget import reset_ledger
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
@@ -61,53 +56,22 @@ async def spawn_followup_agent(
     reset_ledger(task_id)
     started = False
     try:
-        # cc-switch / external override may have appeared since the
-        # initial task ran — re-check before each follow-up spawn so
-        # the agent never silently routes to whatever endpoint the
-        # external tool configured. Treat as a normal launch failure
-        # so the existing revert path runs (task back to its prior
-        # terminal status, error surfaced on the task card).
-        try:
-            assert_profile_compatible(profile_id)
-        except ExternalConfigOverrideError as override_err:
-            # Expected, user-actionable condition — don't ``raise``
-            # into the outer ``except Exception`` (it would log a
-            # full stack trace via ``logger.exception``). Instead
-            # update the revert vars in-place and skip past the
-            # agent_manager.run call so the existing revert path
-            # below runs with the structured detail.
-            #
-            # JSON-encode so the frontend's
-            # ``ExternalConfigOverrideErrorCard`` renders the
-            # localized template (same shape as auto_run_task).
-            revert_error = json.dumps(override_err.to_api_detail())
-            revert_error_category = 'external_config_override'
-            logger.info(
-                'Follow-up for task %s blocked by external config '
-                'override (%s); will revert.',
-                task_id,
-                override_err.overriding_keys,
-            )
-            started = False
-        else:
-            started = await agent_manager.run(
-                task_id,
-                prompt,
-                system_extra=system_extra,
-                mode=mode,
-                profile_id=profile_id,
-                resume=resume,
-                auto_approve_plan=auto_approve_plan,
-                store_slug=(
-                    _store_slug(store.name, store.id) if store else None
-                ),
-                # The conversation router already persisted the user's
-                # message before spawning us — persisting the prompt
-                # again in AgentSession.start() duplicated every
-                # follow-up message (fresh-session and dead-session
-                # resume paths both start with empty message_history).
-                persist_prompt=False,
-            )
+        started = await agent_manager.run(
+            task_id,
+            prompt,
+            system_extra=system_extra,
+            mode=mode,
+            profile_id=profile_id,
+            resume=resume,
+            auto_approve_plan=auto_approve_plan,
+            store_slug=(_store_slug(store.name, store.id) if store else None),
+            # The conversation router already persisted the user's
+            # message before spawning us — persisting the prompt
+            # again in AgentSession.start() duplicated every
+            # follow-up message (fresh-session and dead-session
+            # resume paths both start with empty message_history).
+            persist_prompt=False,
+        )
     except Exception:
         logger.exception(
             'Background follow-up agent run failed for task %s', task_id

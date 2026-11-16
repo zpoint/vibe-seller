@@ -6,10 +6,6 @@ from sqlalchemy import select
 
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.claude_backend_utils import parse_wait_condition
-from app.ai.external_config import (
-    ExternalConfigOverrideError,
-    assert_profile_compatible,
-)
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.turn_hold_budget import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
@@ -19,10 +15,7 @@ from app.events.bus import event_bus
 from app.models.store import Store
 from app.models.task import Task
 from app.models.task_message import TaskMessage
-from app.task_finalize import (
-    check_parent_after_run,
-    fail_task_external_config_override,
-)
+from app.task_finalize import check_parent_after_run
 from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
 from app.task_runner import (
     Mailbox,
@@ -205,16 +198,6 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 store,
                 header=TaskHeader.EXECUTE,
             )
-            # Re-check the override before each execute-phase spawn —
-            # cc-switch may have written settings.json since the
-            # initial plan.
-            try:
-                assert_profile_compatible(
-                    task.ai_profile_id or DEFAULT_PROFILE_ID
-                )
-            except ExternalConfigOverrideError as ext_err:
-                await fail_task_external_config_override(task_id, ext_err)
-                return
             await agent_manager.run(
                 task_id,
                 bundle.prompt,
@@ -529,13 +512,6 @@ async def execute_woken_task(task_id: str, store: Store | None):
             header=TaskHeader.WOKEN,
             store_emails=store_emails,
         )
-        # Same cc-switch / external-override re-check as the execute
-        # phase above.
-        try:
-            assert_profile_compatible(task.ai_profile_id or DEFAULT_PROFILE_ID)
-        except ExternalConfigOverrideError as ext_err:
-            await fail_task_external_config_override(task_id, ext_err)
-            return
         await agent_manager.run(
             task_id,
             prompt,

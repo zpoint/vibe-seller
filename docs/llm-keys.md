@@ -317,8 +317,8 @@ MiMo 两种都有，**两把 Key 不通用、连接地址也不同**；Token Pla
 - Claude 只在[部分国家和地区](https://platform.claude.com/docs/en/api/supported-regions)
   提供服务，注册前先确认。
 - 电脑上装了 cc-switch 之类的工具，或者环境变量里设置了 `ANTHROPIC_API_KEY`，
-  Claude Code 会优先使用它们而不是你的登录。可以在 Claude Code 里输入 `/status`
-  查看当前使用的是哪种登录。
+  「默认」配置会优先使用它们而不是你的登录。可以在 Claude Code 里输入 `/status`
+  查看当前使用的是哪种登录。其他配置不受 cc-switch 影响，用的是配置里自己的 Key。
 
 官方说明：[Claude Code 登录方式](https://code.claude.com/docs/en/authentication)、
 [Claude API 概览](https://platform.claude.com/docs/en/api/overview)。

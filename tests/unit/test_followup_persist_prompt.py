@@ -38,9 +38,6 @@ async def test_spawn_followup_agent_does_not_repersist_prompt():
     mgr = _CaptureManager()
     with (
         patch.object(followup_mod, 'agent_manager', mgr),
-        patch.object(
-            followup_mod, 'assert_profile_compatible', lambda _pid: None
-        ),
         patch.object(followup_mod, 'finalize_followup_session', _noop_finalize),
     ):
         await followup_mod.spawn_followup_agent(

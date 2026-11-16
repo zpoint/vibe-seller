@@ -296,6 +296,16 @@ jobs:
       - name: Install Playwright browsers
         run: uv run playwright install --with-deps chromium
 
+      # tests/integration/test_claude_cli_config_isolation.py runs the
+      # REAL CLI against a local fake endpoint (no model credits). npm
+      # can skip the package's install step and still exit 0 — run it
+      # when the CLI does not answer (same rule as install.sh).
+      - name: Install Claude Code CLI
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude --version || (cd "$(npm root -g)/@anthropic-ai/claude-code" && node install.cjs)
+          claude --version
+
       - name: Run integration tests
         run: uv run pytest tests/integration -v
 

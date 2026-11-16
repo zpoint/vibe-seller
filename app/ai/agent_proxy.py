@@ -38,7 +38,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from app.ai.claude_backend_utils import system_prompt_file
-from app.ai.external_config import claude_settings_path
+from app.ai.claude_isolation import claude_settings_path
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +93,16 @@ def _bypasses_all(no_proxy: str) -> bool:
     return any(p.strip() == '*' for p in no_proxy.split(','))
 
 
-def resolve_agent_proxy(env: dict[str, str]) -> AgentProxy | None:
-    """The proxy Claude Code will use when spawned with *env*, or None."""
-    settings_env = _settings_env(env)
+def resolve_agent_proxy(
+    env: dict[str, str], user_settings: bool = True
+) -> AgentProxy | None:
+    """The proxy Claude Code will use when spawned with *env*, or None.
+
+    *user_settings* False: the launch runs with the user setting
+    source off (``app.ai.claude_isolation``), so the user settings
+    file's ``env`` never reaches the CLI and only *env* counts.
+    """
+    settings_env = _settings_env(env) if user_settings else {}
     merged = {**env, **settings_env}
     no_proxy = merged.get('no_proxy') or merged.get('NO_PROXY') or ''
     if _bypasses_all(no_proxy):
@@ -192,6 +199,7 @@ async def drop_dead_proxy(
     task_id: str,
     settings: dict,
     notify: Callable[[str, str], Awaitable[None]] | None = None,
+    user_settings: bool = True,
 ) -> AgentProxy | None:
     """Strip a refusing proxy from the agent's spawn (*env*).
 
@@ -206,7 +214,7 @@ async def drop_dead_proxy(
     passes a single ``--settings``; this function never touches *cmd*,
     so no launch can end up with two competing settings flags.
     """
-    proxy = resolve_agent_proxy(env)
+    proxy = resolve_agent_proxy(env, user_settings)
     if proxy is None or not await proxy_refuses(proxy.url):
         return None
     # Go fully direct: drop every proxy key from the env, and blank them

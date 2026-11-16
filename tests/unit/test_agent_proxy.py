@@ -21,7 +21,7 @@ from app.ai.agent_proxy import (
     launch_settings_file,
     resolve_agent_proxy,
 )
-from app.ai.external_config import claude_settings_path
+from app.ai.claude_isolation import claude_settings_path
 
 pytestmark = pytest.mark.unit
 

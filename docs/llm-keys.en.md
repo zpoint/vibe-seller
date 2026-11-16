@@ -364,8 +364,9 @@ Signing in:
 - Claude is available only in [supported countries and regions](https://platform.claude.com/docs/en/api/supported-regions);
   check before signing up.
 - If you use cc-switch or a similar tool, or have `ANTHROPIC_API_KEY` set in
-  your environment, Claude Code uses that instead of your sign-in. Type
-  `/status` in Claude Code to see which credential is active.
+  your environment, the Default profile uses that instead of your sign-in. Type
+  `/status` in Claude Code to see which credential is active. Other profiles
+  are not affected by cc-switch; they use their own key.
 
 Official docs: [Claude Code authentication](https://code.claude.com/docs/en/authentication),
 [Claude API overview](https://platform.claude.com/docs/en/api/overview).

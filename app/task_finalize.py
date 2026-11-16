@@ -19,7 +19,6 @@ import logging
 
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.claude_backend_utils import parse_wait_condition
-from app.ai.external_config import ExternalConfigOverrideError
 from app.ai.task_status_reconcile import should_park_qa_followup
 from app.database import async_session
 from app.events.bus import event_bus
@@ -33,7 +32,7 @@ from app.task_runner import (
     park_waiting_for_pending_question,
     park_waiting_for_text_only_response,
 )
-from app.task_states import TaskStatus, assert_transition, can_transition
+from app.task_states import TaskStatus, assert_transition
 
 logger = logging.getLogger(__name__)
 
@@ -402,31 +401,3 @@ async def check_parent_after_run(task_id: str) -> None:
                 await check_parent_completion(task, db)
     except Exception:
         logger.debug('Parent check after task %s: %s', task_id, exc_info=True)
-
-
-async def fail_task_external_config_override(
-    task_id: str, ext_err: ExternalConfigOverrideError
-) -> None:
-    """Persist a structured external-config failure on the task.
-
-    JSON detail in task.error + error_category='external_config_
-    override' so the frontend's ExternalConfigOverrideErrorCard renders
-    the localized template. Lives here because it is a terminal-status
-    writer — the same reason the other finalizers do.
-    """
-    async with async_session() as db_fail:
-        t = await db_fail.get(Task, task_id)
-        if t and can_transition(t.status, TaskStatus.FAILED):
-            t.status = TaskStatus.FAILED
-            t.error = json.dumps(ext_err.to_api_detail())
-            t.error_category = 'external_config_override'
-            t.completed_at = datetime.now(UTC).isoformat()
-            await db_fail.commit()
-            await event_bus.emit(
-                'task_update',
-                {
-                    'task_id': task_id,
-                    'status': TaskStatus.FAILED,
-                    'error': t.error,
-                },
-            )

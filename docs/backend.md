@@ -151,25 +151,29 @@ constraint. Wrap the constrained type instead —
 `Annotated[Annotated[str, StringConstraints(...)], SANITIZE_SURROGATES]`
 (see `routers/tasks_schedule_state.py`).
 
-## External Config Detection (`ai/external_config.py`)
+## Agent Config Isolation (`ai/claude_isolation.py`)
 
-Detects when an external tool (e.g. cc-switch — https://github.com/farion1231/cc-switch) has written `ANTHROPIC_*` env entries into `~/.claude/settings.json`. Claude Code applies those entries with **higher precedence than the subprocess env our agent passes at spawn time**, so without this guard, a user's AI-profile selection silently becomes a no-op and the agent runs against whatever endpoint the external tool configured.
+Task agents and the workspace assistant run the `claude` CLI, which by default loads the machine user's own Claude Code setup: `~/.claude/CLAUDE.md` and `~/.claude/rules`, `~/.claude/settings.json` (`env`, hooks, plugins, permissions), `~/.claude/skills` and user-scope MCP servers. None of it is written for a store agent, and all of it is sent to the profile's provider. The settings `env` also **outranks the env the agent is spawned with**, so a provider switcher such as cc-switch (which writes `ANTHROPIC_*` there) used to silently reroute a non-default profile.
 
-| Symbol | Purpose |
-|---|---|
-| `detect_claude_settings_overrides()` | Returns the sorted list of `ANTHROPIC_*` keys present in `settings.json`'s `env` block. Prefix-match (no hardcoded enumeration) so a future Anthropic env var is caught automatically. |
-| `assert_profile_compatible(profile_id)` | Raises `ExternalConfigOverrideError` if `profile_id` is non-default *and* the env block has any `ANTHROPIC_*` keys. No-op for the default profile (the documented escape hatch — lets the external tool fully own routing). |
-| `ExternalConfigOverrideError.to_api_detail()` | Structured `HTTPException.detail` payload (`code`, `profile_id`, `overriding_keys`, `settings_path`, `clear_command`, English-fallback `message`). The frontend renders this in the user's locale via `errors.externalConfigOverride.*` i18n keys (see `frontend/src/components/ExternalConfigOverrideModal.tsx` and `ExternalConfigOverrideErrorCard.tsx`). |
+| Profile | User setting source | What the agent gets |
+|---|---|---|
+| `default` ("this machine's Claude Code") | on | The user's settings and sign-in — a cc-switch `env` keeps working. |
+| any other | off: `--setting-sources project,local` | Only the profile's env; no user settings `env`, hooks, plugins, skills or user MCP servers. The task workspace's own `CLAUDE.md` / `.claude/skills` / `.mcp.json` are project sources and still load. |
 
-### Wired into
+Every launch, whatever the profile, carries in its one `--settings` payload (which outranks user and project settings):
 
-- `routers/profiles.py` — POST `/api/profiles`, PUT `/api/profiles/{id}`, PATCH `/api/profiles/{id}/set-default` all return HTTP 409 with the structured detail when a non-default profile is selected while overrides exist.
-- `task_runner_auto.auto_run_task` — fails the task fast with `error_category='external_config_override'` and the JSON-encoded detail in `task.error` *before* the agent is spawned. The frontend's `ExternalConfigOverrideErrorCard` parses the JSON and renders the localized template on the failed-task panel.
+- `claudeMdExcludes` — the user's memory file + rules in the config home, and every `CLAUDE.md` / `CLAUDE.local.md` / `.claude/CLAUDE.md` / `.claude/rules/**` in a directory **above** the workspace root. `--setting-sources` alone is not enough: the CLI also walks up from the cwd reading those files as *project* memory, and the workspace lives under HOME, so the walk reaches `~/.claude/CLAUDE.md` again.
+- `autoMemoryEnabled: false` + env `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` (on top of `profiles.disable_auto_memory`).
+
+**Load global MCP** (`load_global_mcp`) with the user source off: Vibe Seller reads the user-scope servers itself (`mcpServers` in the CLI's global config — `$CLAUDE_CONFIG_DIR/.claude.json`, else `~/.claude.json`, or a legacy `<config home>/.config.json`) inside the launch-artifact thread hop, writes them to a per-launch file and passes it with `--mcp-config` (never with `--strict-mcp-config`). A missing or malformed file means no user servers, never a failed launch. On `default` the CLI loads them itself.
+
+The dead-proxy check (`agent_proxy`) only counts the user settings file's proxy when the user source is on.
 
 ### Test surface
 
-- `tests/unit/test_external_config.py` — detection across no-settings / no-env / malformed JSON / non-`ANTHROPIC` keys / single + multiple overrides; default-profile escape hatch; load-bearing pieces of the user message; future-key prefix-match.
-- `tests/workflow/test_wf_external_config_override.py` — end-to-end across the profile router (409) and the task runner (fail-fast).
+- `tests/unit/test_claude_config_isolation.py` — flag/settings composition per profile kind for the task and assistant launches, `CLAUDE_CONFIG_DIR`, the global-config path rule, malformed/missing `.claude.json`, the global-MCP toggle.
+- `tests/workflow/test_wf_profile_config_isolation.py` — a non-default profile is created, made default and runs while a cc-switch `settings.json` exists.
+- `tests/integration/test_claude_cli_config_isolation.py` — the real CLI against a fake Anthropic endpoint: which endpoint/model each profile kind reaches, that no user `CLAUDE.md` / rule / `~/CLAUDE.md` reaches the provider while the workspace `CLAUDE.md` does, and the global-MCP toggle.
 
 ## Profile Endpoint Validation (`ai/profile_validation.py`)
 

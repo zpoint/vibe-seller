@@ -24,6 +24,11 @@ from app.ai.claude_backend_utils import (
     mcp_launch_flags,
     resolve_claude_binary,
 )
+from app.ai.claude_isolation import (
+    isolation_settings,
+    setting_sources_flags,
+    uses_user_settings,
+)
 from app.ai.launch_artifacts import build_launch_artifacts
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
 from app.auth import create_token
@@ -311,12 +316,27 @@ class WorkspaceAgentSession(AgentSession):
         )
 
         env = ProfileManager.get_env_for_profile(self.profile_id)
+        user_settings = uses_user_settings(self.profile_id)
+        load_global_mcp = ProfileManager.get_load_global_mcp(self.profile_id)
+        # The machine user's own Claude Code setup stays out of a
+        # non-default profile's session (app.ai.claude_isolation).
+        if not mock_cli:
+            cmd.extend(setting_sources_flags(self.profile_id))
         # ONE --settings file per launch (auto-mode classifier off, see
-        # app.ai.agent_proxy.launch_settings), dead-proxy blanks merged
-        # into the same payload.
-        settings = launch_settings()
+        # app.ai.agent_proxy.launch_settings, plus the config isolation),
+        # dead-proxy blanks merged into the same payload.
+        settings = {
+            **launch_settings(),
+            **isolation_settings(VIBE_SELLER_DIR, env),
+        }
         # A proxy that refuses connections fails every model call (#168).
-        await drop_dead_proxy(env, self.task_id, settings, self._emit_message)
+        await drop_dead_proxy(
+            env,
+            self.task_id,
+            settings,
+            self._emit_message,
+            user_settings=user_settings,
+        )
         # The launch artifacts (system-prompt file + --settings payload)
         # are written in ONE thread hop — start() is async and the
         # event loop must never touch the disk. By file: the store list
@@ -359,6 +379,11 @@ class WorkspaceAgentSession(AgentSession):
             self.system_prompt_extra or '',
             settings,
             mcp_config=mcp_config,
+            user_mcp_env=(
+                env
+                if load_global_mcp and not user_settings and not mock_cli
+                else None
+            ),
         )
         if artifacts['system_prompt'] is not None:
             cmd.extend([
@@ -368,9 +393,10 @@ class WorkspaceAgentSession(AgentSession):
         cmd.extend(['--settings', str(artifacts['settings'])])
         cmd.extend(
             mcp_launch_flags(
-                load_global=ProfileManager.get_load_global_mcp(self.profile_id),
+                load_global=load_global_mcp,
                 session_config=artifacts['mcp_config'],
                 project_config=None,
+                user_config=artifacts['user_mcp_config'],
             )
         )
         venv_bin = venv_bin_dir(VIBE_SELLER_DIR / '.venv')

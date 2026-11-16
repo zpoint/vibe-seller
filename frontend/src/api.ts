@@ -21,7 +21,7 @@ const handleResponse = async (r: Response) => {
     const err = await r.json().catch(() => ({}))
     const detail = err.detail
     // Preserve the structured ``detail`` object so callers can branch
-    // on ``err.detail.code`` (e.g. external_config_override modal).
+    // on ``err.detail.code``.
     // Stringify only when ``detail`` is already a string / missing.
     const msg = typeof detail === 'string' && detail
       ? detail

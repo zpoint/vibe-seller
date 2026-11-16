@@ -47,14 +47,10 @@ http://localhost:7777
 !!! tip "这台机器上的 Claude Code 已经登录过 Anthropic 订阅？"
     内置的那个「默认」配置使用的就是本机 Claude Code 环境，不需要再填 Key，可以先创建一个任务试试。
 
-!!! warning "装了 cc-switch 之类的 Claude 账号切换工具？这里请选择「默认」"
-    这类工具直接修改你的全局配置文件 `~/.claude/settings.json` 来切换 AI 供应商，和 Vibe Seller 自己的 AI 选择器会冲突。直接选择「默认」即可，AI 供应商的切换交给 cc-switch 管理。
+!!! note "装了 cc-switch 之类的 Claude 账号切换工具？两种选法都能正常用"
+    选「默认」，就用 cc-switch（也就是本机 Claude Code）当前的设置；选别的配置，就用 Vibe Seller 里这份配置自己的供应商和 Key，cc-switch 改不到它。不用退出 cc-switch，也不用改 `~/.claude/settings.json`。
 
-    如果想反过来让 Vibe Seller 管理供应商：先退出 cc-switch，然后在终端里**原样复制粘贴**下面这一行并回车。它会修改你的 Claude Code 全局配置（`~/.claude/settings.json`），清除 cc-switch 写入的 `ANTHROPIC_*` 环境变量：
-
-    ```bash
-    python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
-    ```
+    任务里的 AI 不会读取你自己的全局 Claude Code 配置：`~/.claude/CLAUDE.md`、`~/.claude/rules` 一律不加载；选别的配置时，`~/.claude/settings.json`、你装的技能和插件也不加载（选「默认」时保留设置和登录，这样 cc-switch 才能生效）。配置里打开「加载全局 MCP 服务器」时，`~/.claude.json` 里你自己添加的 MCP 服务器仍然会加载。
 
 ## 3. 绑定店铺
 

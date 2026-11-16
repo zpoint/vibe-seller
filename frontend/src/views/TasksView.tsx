@@ -14,7 +14,6 @@ import { isAwaitingUser } from '../handlers/composerGate'
 import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
 import { EditScheduleModal } from '../components/EditScheduleModal'
-import { ExternalConfigOverrideErrorCard } from '../components/ExternalConfigOverrideErrorCard'
 import { SubtaskList } from '../components/SubtaskList'
 import { MobileMenuButton } from '../components/MobileMenuButton'
 import { getUI, hasProgressingTask } from '../taskStates'
@@ -488,9 +487,6 @@ export function TasksView({
                   </div>
                 )}
                 {selectedTask.error && (
-                  selectedTask.error_category === 'external_config_override'
-                    ? <ExternalConfigOverrideErrorCard error={selectedTask.error} />
-                    : (
                   <div className="mt-2 text-sm text-red-600 bg-red-50 px-3 py-2 rounded whitespace-pre-line">
                     {selectedTask.error_category
                       ? t(`tasks.error_${selectedTask.error_category}`, selectedTask.error)
@@ -499,7 +495,6 @@ export function TasksView({
                       <a href="/api/ziniao/launcher" download className="ml-2 inline-block px-2 py-0.5 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoDownloadLauncher')}</a>
                     )}
                   </div>
-                    )
                 )}
                 <SubtaskList parentTaskId={selectedTask.id} onSelect={selectTask} stores={stores} />
                 <div className="mt-2 flex gap-2 flex-wrap">

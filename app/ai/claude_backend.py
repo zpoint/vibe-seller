@@ -48,6 +48,11 @@ from app.ai.claude_backend_utils import (
     resolve_claude_binary,
     sdk_initialize_request,
 )
+from app.ai.claude_isolation import (
+    isolation_settings,
+    setting_sources_flags,
+    uses_user_settings,
+)
 from app.ai.compaction import build_history_prompt, dump_history_file
 from app.ai.launch_artifacts import build_launch_artifacts
 from app.ai.model_pricing import ModelPrice, price_for, provider_for_preset
@@ -307,23 +312,9 @@ class AgentSession(
             # mcp_json check so the file exists in the task dir).
             await self._register_vibe_seller_mcp(ws_dir)
 
-            # MCP flags: ONE shared decision (claude_backend_utils.
-            # mcp_launch_flags) — the profile's load_global_mcp decides
-            # strictness; when globals load, the project .mcp.json is
-            # picked up by the CLI from the cwd with no flags. Global
-            # MCP configs can add 200+ tool definitions that bloat the
-            # prompt and slow down third-party LLM APIs — that is why
-            # the default profile opts out and gets the strict pair.
-            mcp_json = ws_dir / '.mcp.json'
-            cmd.extend(
-                mcp_launch_flags(
-                    load_global=ProfileManager.get_load_global_mcp(
-                        self.profile_id
-                    ),
-                    session_config=None,
-                    project_config=mcp_json if mcp_json.exists() else None,
-                )
-            )
+            # The machine user's own Claude Code setup stays out of a
+            # non-default profile's session (app.ai.claude_isolation).
+            cmd.extend(setting_sources_flags(self.profile_id))
 
             # Build system prompt (assembled by build_system_extra)
             system_prompt = self.system_prompt_extra or ''
@@ -342,13 +333,25 @@ class AgentSession(
 
         env = ProfileManager.get_env_for_profile(self.profile_id)
         self._usage_provider = provider_for_preset(preset_id_for_env(env))
+        user_settings = uses_user_settings(self.profile_id)
+        load_global_mcp = ProfileManager.get_load_global_mcp(self.profile_id)
         # ONE --settings file per launch. It always carries the
         # backend-owned settings (the CLI's auto-mode classifier off —
-        # claude_backend_hooks are the ONE permission authority) and
-        # gains the dead-proxy blanks when one is dropped.
-        settings = launch_settings()
+        # claude_backend_hooks are the ONE permission authority), the
+        # config isolation (no user CLAUDE.md, auto memory locked off)
+        # and gains the dead-proxy blanks when one is dropped.
+        settings = {
+            **launch_settings(),
+            **isolation_settings(VIBE_SELLER_DIR, env),
+        }
         # A proxy that refuses connections fails every model call (#168).
-        await drop_dead_proxy(env, self.task_id, settings, self._emit_message)
+        await drop_dead_proxy(
+            env,
+            self.task_id,
+            settings,
+            self._emit_message,
+            user_settings=user_settings,
+        )
         if not mock_cli:
             # EVERY launch artifact — system-prompt file, --settings
             # payload and the browser-use guard
@@ -364,6 +367,12 @@ class AgentSession(
                 settings,
                 env=env,
                 store_slug=self.store_slug,
+                # Globals on with the user source off: the CLI no
+                # longer loads the user-scope MCP servers, so they are
+                # read here and handed over by file.
+                user_mcp_env=(
+                    env if load_global_mcp and not user_settings else None
+                ),
             )
             if artifacts['system_prompt'] is not None:
                 cmd.extend([
@@ -371,6 +380,22 @@ class AgentSession(
                     str(artifacts['system_prompt']),
                 ])
             cmd.extend(['--settings', str(artifacts['settings'])])
+            # MCP flags: ONE shared decision (claude_backend_utils.
+            # mcp_launch_flags) — the profile's load_global_mcp decides
+            # strictness; when globals load, the project .mcp.json is
+            # picked up by the CLI from the cwd with no flags. Global
+            # MCP configs can add 200+ tool definitions that bloat the
+            # prompt and slow down third-party LLM APIs — that is why
+            # the default profile opts out and gets the strict pair.
+            mcp_json = ws_dir / '.mcp.json'
+            cmd.extend(
+                mcp_launch_flags(
+                    load_global=load_global_mcp,
+                    session_config=None,
+                    project_config=mcp_json if mcp_json.exists() else None,
+                    user_config=artifacts['user_mcp_config'],
+                )
+            )
         logger.info(
             'Starting agent for task %s (mode=%s, profile=%s, '
             'base_url=%s, model=%s)',
