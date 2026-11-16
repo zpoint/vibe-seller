@@ -8,6 +8,7 @@ import shutil
 from app import ads_routing
 from app.ai.base import AIAgentBackend
 from app.ai.claude_backend import AgentSession
+from app.ai.concurrency import ResizableLimiter
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.stop_gates import ad_scope, recorded_skills
 from app.database import async_session
@@ -28,31 +29,41 @@ class ClaudeCodeBackend(AIAgentBackend):
 
     def __init__(self):
         self._sessions: dict[str, AgentSession] = {}
-        self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
-        self._in_flight = 0
+        # The one agent-slot limiter for the process. Resized in place
+        # (``set_max_concurrent``), never replaced: a replacement would
+        # strand every run already waiting on the old object.
+        self._slots = ResizableLimiter(self.MAX_CONCURRENT)
         # Launches past the semaphore that have not spawned yet, and the
         # ones a stop asked to drop (``run`` checks before spawning).
         self._launching: set[str] = set()
         self._cancelled: set[str] = set()
 
-    def set_max_concurrent(self, n: int) -> None:
-        """Update concurrency limit at runtime.
+    @property
+    def _in_flight(self) -> int:
+        """Agents holding a slot — read from the limiter, never kept
+        as a second counter."""
+        return self._slots.in_flight
 
-        Creates a new semaphore with permits reduced by the
-        number of currently in-flight agents, so new runs
-        block until active count drops below the new max.
+    def set_max_concurrent(self, n: int) -> None:
+        """Update the concurrency limit at runtime.
+
+        Resizes the one limiter in place. Raising the limit admits
+        runs already queued for a slot; lowering it stops nothing that
+        runs and admits no new run until in-flight drops below it.
         """
         old = self.MAX_CONCURRENT
         n = max(1, n)
         self.MAX_CONCURRENT = n
-        free = max(0, n - self._in_flight)
-        self._semaphore = asyncio.Semaphore(free)
+        waiting = self._slots.waiting
+        self._slots.resize(n)
         logger.info(
-            'Agent concurrency changed: %d -> %d (in-flight=%d, free=%d)',
+            'Agent concurrency changed: %d -> %d '
+            '(in-flight=%d, admitted from queue=%d, still queued=%d)',
             old,
             n,
-            self._in_flight,
-            free,
+            self._slots.in_flight,
+            waiting - self._slots.waiting,
+            self._slots.waiting,
         )
 
     async def run(
@@ -73,8 +84,7 @@ class ClaudeCodeBackend(AIAgentBackend):
     ) -> bool:
         if task_id in self._sessions and self._sessions[task_id].running:
             return False
-        await self._semaphore.acquire()
-        self._in_flight += 1
+        await self._slots.acquire()
         self._launching.add(task_id)
         try:
             # Notify caller that semaphore was acquired (e.g. to
@@ -83,8 +93,7 @@ class ClaudeCodeBackend(AIAgentBackend):
                 if not await on_start():
                     self._launching.discard(task_id)
                     self._cancelled.discard(task_id)
-                    self._in_flight -= 1
-                    self._semaphore.release()
+                    self._slots.release()
                     return False
 
             # Skill scripts may import their requirements — join the
@@ -154,8 +163,7 @@ class ClaudeCodeBackend(AIAgentBackend):
                     await asyncio.to_thread(
                         shutil.rmtree, task_dir, ignore_errors=True
                     )
-                self._in_flight -= 1
-                self._semaphore.release()
+                self._slots.release()
                 return False
 
             session = AgentSession(
@@ -197,8 +205,7 @@ class ClaudeCodeBackend(AIAgentBackend):
         except Exception:
             self._launching.discard(task_id)
             self._cancelled.discard(task_id)
-            self._in_flight -= 1
-            self._semaphore.release()
+            self._slots.release()
             raise
 
         async def _release_on_done():
@@ -234,8 +241,7 @@ class ClaudeCodeBackend(AIAgentBackend):
                         task_id,
                         exc_info=True,
                     )
-            self._in_flight -= 1
-            self._semaphore.release()
+            self._slots.release()
 
         asyncio.create_task(_release_on_done())
         return True
@@ -262,8 +268,7 @@ class ClaudeCodeBackend(AIAgentBackend):
         if prior is None:
             return False
 
-        await self._semaphore.acquire()
-        self._in_flight += 1
+        await self._slots.acquire()
         try:
             new_session = AgentSession(
                 task_id,
@@ -304,12 +309,10 @@ class ClaudeCodeBackend(AIAgentBackend):
                     'Failed to start retry session for %s',
                     task_id,
                 )
-                self._in_flight -= 1
-                self._semaphore.release()
+                self._slots.release()
                 return False
         except Exception:
-            self._in_flight -= 1
-            self._semaphore.release()
+            self._slots.release()
             raise
 
         async def _release_retry_on_done():
@@ -332,8 +335,7 @@ class ClaudeCodeBackend(AIAgentBackend):
                         task_id,
                         exc_info=True,
                     )
-            self._in_flight -= 1
-            self._semaphore.release()
+            self._slots.release()
 
         asyncio.create_task(_release_retry_on_done())
         return True
