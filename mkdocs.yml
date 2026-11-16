@@ -103,6 +103,7 @@ plugins:
             Getting Started: 入门
             Installation: 安装
             Quickstart: 快速开始
+            Keep It Running 24/7: 7×24 小时运行
             Configure AI Models: 配置 AI 模型
             Core Concepts: 核心概念
             Examples: 使用示例
@@ -187,6 +188,7 @@ nav:
       - Getting Started:
           - Installation: install.md
           - Quickstart: quickstart.md
+          - Keep It Running 24/7: always-on.md
           - Configure AI Models: llm-keys.md
           - Core Concepts: concepts.md
       - Integrations:

@@ -10,7 +10,7 @@
  * not depend on where the draft is held.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { act, fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import { bootApp, longTranscript } from '../test/appHarness'
 
 const renders = vi.hoisted(() => ({ stream: 0, sidebar: 0 }))
@@ -57,7 +57,11 @@ describe('typing in the composer', () => {
 
     expect(input.value).toBe('hello')
     // The send button reflects the draft — the composer did re-render.
-    expect(screen.getByRole('button', { name: /send/i })).toBeEnabled()
+    // Looked up inside the composer row: a role query over the whole
+    // 300-entry transcript computes an accessible name for every node
+    // (~0.75 s in jsdom) and found the same button.
+    const composer = within(input.parentElement as HTMLElement)
+    expect(composer.getByRole('button', { name: /send/i })).toBeEnabled()
     expect(renders.stream - before.stream).toBe(0)
     expect(renders.sidebar - before.sidebar).toBe(0)
   })

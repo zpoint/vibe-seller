@@ -122,6 +122,7 @@ cd vibe-seller
 | 重启 | `vibe-seller stop && vibe-seller start` | `./restart.sh` | 托盘 → **重启服务** |
 | 前台运行（查看日志） | `vibe-seller start --foreground` | `./start.sh --dev` | — |
 | 补装浏览器引擎 | `vibe-seller install-browser` | `./install.sh --dev` 时装好 | 安装包自带 |
+| 登录后自动启动 | `vibe-seller autostart on`（仅 macOS，见 [7×24 小时运行](always-on.md)） | 见 [macOS 常驻服务](macos-setup.md) | 托盘「开机自动启动」，默认开启 |
 
 浏览器引擎在每次启动时也会自动检查并补装，通常不需要手动处理。
 
@@ -140,6 +141,8 @@ cd vibe-seller
 把仓库链接 <https://github.com/zpoint/vibe-seller> 交给你手边任意一个编程助手，说一句“读一下 README 帮我安装”。它会自己查阅文档、执行命令、帮你排查。
 
 ## 让它一直开着
+
+想让定时任务半夜也能跑？先按 [7×24 小时运行](always-on.md) 把电脑设成插电不睡眠、断电后自动开机、登录后自动启动 Vibe Seller。
 
 想把 Vibe Seller 部署成 7×24 常驻服务（登录自动启动、崩溃后自动拉起），看这两份部署手册（英文）：
 

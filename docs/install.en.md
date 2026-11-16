@@ -118,6 +118,7 @@ cd vibe-seller
 | Restart | `vibe-seller stop && vibe-seller start` | `./restart.sh` | tray → **Restart server** |
 | Run in the foreground (watch logs) | `vibe-seller start --foreground` | `./start.sh --dev` | — |
 | (Re)install the browser engine | `vibe-seller install-browser` | done by `./install.sh --dev` | bundled |
+| Start after login | `vibe-seller autostart on` (macOS only; see [Keep It Running 24/7](always-on.md)) | see [macOS Service](macos-setup.md) | tray **Start at login**, on by default |
 
 The engine check also runs by itself at every server start, so you rarely need the last one.
 
@@ -136,6 +137,8 @@ Teammates install nothing — they open `http://<your-machine's-ip>:7777`. On Wi
 Paste the repo URL <https://github.com/zpoint/vibe-seller> into whatever coding agent you have at hand and say “read the README and install this.” It will work through the docs and the commands and help you troubleshoot.
 
 ## Keep it running around the clock
+
+Want scheduled tasks to run in the middle of the night? First follow [Keep It Running 24/7](always-on.md): no sleep on power, start up after a power cut, and Vibe Seller starting after login.
 
 To turn it into a proper always-on service (starts on boot, restarts if it dies), use one of these runbooks:
 

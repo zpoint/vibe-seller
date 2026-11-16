@@ -29,7 +29,7 @@ import urllib.request
 
 from packaging.version import Version
 
-from app import bundle, claude_cli_install, uv_tool
+from app import bundle, claude_cli_install, login_autostart, uv_tool
 from app.platform import (
     collect_agent_descendants,
     find_pid_listening_on_port,
@@ -237,7 +237,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
         add_help=False,
     )
-
+    login_autostart.add_subparser(subs)
     return parser
 
 
@@ -784,15 +784,14 @@ def main(argv: list[str] | None = None) -> int:
         return auth_reset_main(argv[1:])
 
     args = _build_parser().parse_args(argv)
-    if args.command == 'start':
-        return _cmd_start(args)
-    if args.command == 'stop':
-        return _cmd_stop(args)
-    if args.command == 'upgrade':
-        return _cmd_upgrade(args)
-    if args.command == 'install-browser':
-        return _cmd_install_browser(args)
-    return 1  # unreachable: subparsers.required = True
+    handlers = {
+        'start': _cmd_start,
+        'stop': _cmd_stop,
+        'upgrade': _cmd_upgrade,
+        'install-browser': _cmd_install_browser,
+        'autostart': login_autostart.cmd_autostart,
+    }
+    return handlers[args.command](args)  # subparsers.required = True
 
 
 if __name__ == '__main__':
