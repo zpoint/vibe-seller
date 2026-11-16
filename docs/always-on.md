@@ -16,7 +16,7 @@ description: 让跑 Vibe Seller 的电脑 7×24 小时不睡眠：台式 Mac、M
 
 做之前先记住一条：**熄屏、锁屏可以，睡眠、注销不行。**
 
-步骤里有「界面操作 / 命令行」两个标签的，**二选一**，点开一个照做就行，不用两个都做。
+步骤里有「电脑上操作 / 命令行」两个标签的，**二选一**，点开一个照做就行，不用两个都做。
 
 - 屏幕熄灭、锁屏都不影响任务。实测：一台设成 5 分钟熄屏并锁屏的 Mac，凌晨的紫鸟店铺定时任务每天照常跑完。
 - 睡眠时程序全部暂停，任务不会触发。
@@ -26,7 +26,7 @@ description: 让跑 Vibe Seller 的电脑 7×24 小时不睡眠：台式 Mac、M
 
 1. **插电时不睡眠。**
 
-    === "界面操作"
+    === "电脑上操作"
 
         打开「系统设置 → 能耗」（System Settings → Energy；部分系统版本中文叫「能源」），
         打开「显示器关闭时，防止自动进入睡眠」（Prevent automatic sleeping when the display is off）。
@@ -43,7 +43,7 @@ description: 让跑 Vibe Seller 的电脑 7×24 小时不睡眠：台式 Mac、M
 
 2. **断电后自动开机。**
 
-    === "界面操作"
+    === "电脑上操作"
 
         还是在「系统设置 → 能耗」，打开「断电后自动启动」
         （Start up automatically after a power failure）。有些较新的 Mac 显示的是「接入电源时启动」
@@ -90,7 +90,7 @@ description: 让跑 Vibe Seller 的电脑 7×24 小时不睡眠：台式 Mac、M
 
 2. **插电时不睡眠。**
 
-    === "界面操作"
+    === "电脑上操作"
 
         打开「系统设置 → 电池」，点「选项」（System Settings → Battery → Options），
         打开「使用电源适配器供电且显示器关闭时，防止自动进入睡眠」
@@ -143,7 +143,7 @@ description: 让跑 Vibe Seller 的电脑 7×24 小时不睡眠：台式 Mac、M
 
 1. **插电时不睡眠。**
 
-    === "界面操作"
+    === "电脑上操作"
 
         Windows 11：打开「设置 → 系统 → 电源 & 电池」，展开「屏幕、睡眠 & 休眠超时」
         （Settings → System → Power & battery → Screen, sleep, & hibernate timeouts），
