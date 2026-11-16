@@ -137,6 +137,8 @@ Paste the repo URL <https://github.com/zpoint/vibe-seller> into whatever coding 
 
 ## Keep it running around the clock
 
+Want scheduled tasks to run in the middle of the night? First follow [Keep It Running 24/7](always-on.md): no sleep on power, start up after a power cut, and Vibe Seller starting after login.
+
 To turn it into a proper always-on service (starts on boot, restarts if it dies), use one of these runbooks:
 
 - [macOS Deployment — Auto-Launch on Login](macos-setup.md): a `launchd` LaunchAgent, no extra software

@@ -17,6 +17,7 @@ site they are marked as such.
 |------|--------|
 | [install.md](install.md) / [install.en.md](install.en.md) | Requirements, Windows installer, macOS / Linux one-liner, upgrade, uninstall, WSL2, source install, service management, LAN access |
 | [quickstart.md](quickstart.md) / [quickstart.en.md](quickstart.en.md) | First run: open the web UI, add an LLM key, bind a store, run your first task |
+| [always-on.md](always-on.md) / [always-on.en.md](always-on.en.md) | Keep the Mac / Windows machine online 24/7 so overnight schedules run: no sleep, power-loss restart, auto login, Vibe Seller auto-start |
 | [llm-keys.md](llm-keys.md) / [llm-keys.en.md](llm-keys.en.md) | Getting an API key from each provider, pay-as-you-go vs plans |
 | [concepts.md](concepts.md) / [concepts.en.md](concepts.en.md) | Store, task (two scopes), schedule, knowledge & skills, integrations, AI profiles |
 

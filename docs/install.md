@@ -141,6 +141,8 @@ cd vibe-seller
 
 ## 让它一直开着
 
+想让定时任务半夜也能跑？先按 [7×24 小时运行](always-on.md) 把电脑设成插电不睡眠、断电后自动开机、登录后自动启动 Vibe Seller。
+
 想把 Vibe Seller 部署成 7×24 常驻服务（登录自动启动、崩溃后自动拉起），看这两份部署手册（英文）：
 
 - [macOS Deployment — Auto-Launch on Login](macos-setup.md)：使用系统自带的 `launchd` 配置一个 LaunchAgent
