@@ -271,6 +271,7 @@ classmethod-decorators = ["classmethod"]
 [tool.ruff.lint.per-file-ignores]
 "app/events_system/backends/google_calendar.py" = ["E402"]
 "app/cli.py" = ["T20"]  # CLI uses print for user-facing output
+"app/login_autostart.py" = ["T20"]  # `vibe-seller autostart` output
 # The update helper is a detached script, not a library: its stdout IS
 # the apply log (app/pip_update.py redirects it there), so print is the
 # logging mechanism rather than a stray debug call.

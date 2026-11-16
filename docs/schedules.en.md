@@ -146,3 +146,6 @@ maintains this per task type on its own.
 - If a fired task is stuck in **Waiting** for your answer when the next fire
   arrives, the scheduler cancels the stale waiting run rather than blocking
   the timetable — the new fire proceeds normally.
+- If the computer is asleep or off, or Vibe Seller isn't running, when a fire
+  comes due, that fire is skipped and not made up later. To keep overnight
+  schedules reliable, see [Keep It Running 24/7](always-on.md).

@@ -109,7 +109,7 @@ A task created under **All Stores** (the last row of the store list, subtitled "
 Now that a task has run, add whatever fits your workflow:
 
 - **Hook up more channels** — email, group chat bots (WeCom / DingTalk / Feishu / Slack), TickTick / Dida365, Google Workspace, all under **Settings → Integrations**, no code. What each one does and how to connect it: [Integrations overview](integrations.md).
-- **Put it on a clock** — daily audits, a weekly report every Monday: [Schedules](schedules.md).
+- **Put it on a clock** — daily audits, a weekly report every Monday: [Schedules](schedules.md). Want them to run at night too? Keep the computer online: [Keep It Running 24/7](always-on.md).
 - **Run Amazon ad work over the Ads API** — the same ad task went from 147 minutes to 11 in our test, with batch operations and history: [Amazon Ads API](ads-api.md).
 - **Drive Vibe Seller from the AI tool you already use** — Claude, Codex, WorkBuddy, Qoder: create tasks, follow progress, approve plans from that chat. [MCP setup](mcp.md).
 - **Understand how the pieces fit** — stores, tasks, schedules, knowledge, integrations and AI profiles in one page: [Core Concepts](concepts.md).
