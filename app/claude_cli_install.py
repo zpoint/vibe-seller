@@ -21,7 +21,15 @@ import shutil
 import subprocess
 import sys
 
+from app.system_proxy import checked_download_env, npm_target
+
 PACKAGE = ('@anthropic-ai', 'claude-code')
+
+
+def download_env() -> dict[str, str]:
+    """``env=`` for the commands that fetch Claude Code: the proxy, only
+    when it is alive and reaches the npm registry."""
+    return checked_download_env((npm_target(),))
 
 
 def binary(home: Path) -> Path:
@@ -57,7 +65,9 @@ def finish(home: Path) -> int:
             "==> npm skipped Claude Code's install step; running it: "
             f'node install.cjs (in {package})'
         )
-        subprocess.run([node, 'install.cjs'], cwd=str(package))
+        subprocess.run(
+            [node, 'install.cjs'], cwd=str(package), env=download_env()
+        )
         if runs(cli):
             return 0
     print(

@@ -38,6 +38,7 @@ from app.models.event import Event
 from app.platform import venv_executable, venv_python
 from app.plugins import registered_skill_sources
 from app.sync import github as github_probe
+from app.system_proxy import checked_download_env_async, pypi_target
 from app.utils.json_file import read_json_object, update_json_file
 from app.workspace import skills_tree
 from app.workspace.manager import VIBE_SELLER_DIR
@@ -716,6 +717,7 @@ class SkillsSyncManager(SkillMirrorMixin):
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    env=await checked_download_env_async((pypi_target(),)),
                 )
                 _, stderr = await proc.communicate()
                 if proc.returncode != 0:

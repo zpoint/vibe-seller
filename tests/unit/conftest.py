@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import bundle
+from app import bundle, system_proxy
 import app.pip_update as pu
 
 
@@ -31,3 +31,17 @@ def _bundle_home(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(bundle, 'app_root', lambda: app)
     return app
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_proxy(monkeypatch):
+    """No ambient proxy, from the env or the OS, reaches a unit test.
+
+    A developer machine with Clash on would otherwise send real probe
+    requests from any test that reaches a download, and change what
+    that test sees. A test that needs a proxy sets its own.
+    """
+    for var in system_proxy.PROXY_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(system_proxy.urllib.request, 'getproxies', lambda: {})
+    system_proxy._reach_cache.clear()

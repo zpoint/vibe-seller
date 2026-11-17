@@ -25,9 +25,13 @@ import os
 import shutil
 import signal
 
-from app.ai.agent_proxy import redact_proxy_url
 from app.platform import IS_WINDOWS, venv_python
-from app.system_proxy import download_env
+from app.system_proxy import (
+    GITHUB,
+    checked_download_env_async,
+    pypi_target,
+    redact_proxy_url,
+)
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -144,7 +148,7 @@ async def ensure_ticktick_mcp() -> str:
         # A directory here that is not "installed" is an interrupted
         # run's leftover; cloning into it would fail on it.
         await _remove_tree()
-        env = download_env()
+        env = await checked_download_env_async((GITHUB, pypi_target()))
         # A credential prompt would wait on a terminal nobody has.
         env['GIT_TERMINAL_PROMPT'] = '0'
         venv = root / '.venv'

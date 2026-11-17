@@ -152,14 +152,51 @@ async def test_installed_checkout_is_left_alone(fake, monkeypatch):
     assert not (fake / 'git-proxy').exists()
 
 
-async def test_clone_goes_through_the_system_proxy(fake, monkeypatch):
+async def test_clone_goes_through_a_live_system_proxy(fake, monkeypatch):
     monkeypatch.setattr(
         system_proxy.urllib.request,
         'getproxies',
         lambda: {'https': '127.0.0.1:7890'},
     )
+    monkeypatch.setattr(system_proxy, 'reaches', lambda url, proxy: True)
     await inst.ensure_ticktick_mcp()
     assert (fake / 'git-proxy').read_text().strip() == 'http://127.0.0.1:7890'
+
+
+async def test_a_proxy_that_cannot_reach_github_is_not_used(fake, monkeypatch):
+    """A system proxy that is down must not be forced on the clone: it
+    goes direct, with no proxy var for git to die on."""
+    monkeypatch.setattr(
+        system_proxy.urllib.request,
+        'getproxies',
+        lambda: {'https': '127.0.0.1:7890'},
+    )
+    monkeypatch.setattr(system_proxy, 'reaches', lambda url, proxy: False)
+    await inst.ensure_ticktick_mcp()
+    assert (fake / 'git-proxy').read_text().strip() == ''
+
+
+async def test_a_stale_exported_proxy_is_stripped(fake, monkeypatch):
+    monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
+    monkeypatch.setattr(system_proxy, 'reaches', lambda url, proxy: False)
+    await inst.ensure_ticktick_mcp()
+    assert (fake / 'git-proxy').read_text().strip() == ''
+
+
+async def test_both_github_and_the_package_index_are_checked(fake, monkeypatch):
+    monkeypatch.setattr(
+        system_proxy.urllib.request,
+        'getproxies',
+        lambda: {'https': '127.0.0.1:7890'},
+    )
+    asked = []
+    monkeypatch.setattr(
+        system_proxy,
+        'reaches',
+        lambda url, proxy: asked.append(url) or True,
+    )
+    await inst.ensure_ticktick_mcp()
+    assert asked == [system_proxy.GITHUB, system_proxy.PYPI]
 
 
 async def test_concurrent_clicks_install_once(fake):

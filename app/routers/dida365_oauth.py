@@ -11,14 +11,13 @@ from fastapi.responses import HTMLResponse
 import httpx
 from pydantic import BaseModel
 
-from app import telemetry
+from app import telemetry, ticktick_mcp_install
 from app.auth import get_current_user
 from app.browser.manager import atomic_write_json, read_mcp_config
 from app.events_system.syncer import load_backend_config, save_backend_config
 from app.platform import safe_chmod
 from app.telemetry_events import TelemetryEvent
 from app.ticktick_mcp_install import (
-    TICKTICK_MCP_DIR,
     ensure_ticktick_mcp,
     ticktick_mcp_installed,
 )
@@ -67,7 +66,7 @@ def _prune_expired_states() -> None:
 
 def _register_ticktick_mcp(config: dict) -> None:
     """Register ticktick MCP server in .mcp.json."""
-    mcp_path = str(TICKTICK_MCP_DIR)
+    mcp_path = str(ticktick_mcp_install.TICKTICK_MCP_DIR)
     if not ticktick_mcp_installed():
         return
 
@@ -174,7 +173,7 @@ async def setup_mcp(
     """Clone and install ticktick-mcp if not present."""
     already_installed = ticktick_mcp_installed()
     try:
-        await ensure_ticktick_mcp()
+        path = await ensure_ticktick_mcp()
     except RuntimeError as e:
         raise HTTPException(
             status_code=500,
@@ -187,7 +186,7 @@ async def setup_mcp(
     return {
         'ok': True,
         'already_installed': already_installed,
-        'path': str(TICKTICK_MCP_DIR),
+        'path': path,
     }
 
 

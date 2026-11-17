@@ -527,7 +527,7 @@ def _upgrade_claude_cli() -> int:
         )
         return 0
     print(f'==> {" ".join(cmd)}')
-    rc = subprocess.run(cmd).returncode
+    rc = subprocess.run(cmd, env=claude_cli_install.download_env()).returncode
     if rc != 0:
         print('Claude Code CLI upgrade failed.', file=sys.stderr)
         return rc

@@ -39,6 +39,7 @@ from urllib.parse import urlsplit
 
 from app.ai.claude_backend_utils import system_prompt_file
 from app.ai.claude_isolation import claude_settings_path
+from app.system_proxy import redact_proxy_url
 
 logger = logging.getLogger(__name__)
 
@@ -63,18 +64,6 @@ class AgentProxy:
         ``user:password@`` and query tokens, and the notice is logged
         and persisted to task history."""
         return redact_proxy_url(self.url)
-
-
-def redact_proxy_url(url: str) -> str:
-    parts = urlsplit(url if '://' in url else f'http://{url}')
-    host = parts.hostname or '?'
-    if ':' in host:
-        host = f'[{host}]'
-    try:
-        port = parts.port
-    except ValueError:
-        port = None
-    return f'{parts.scheme}://{host}' + (f':{port}' if port else '')
 
 
 def _settings_env(env: dict[str, str]) -> dict[str, str]:
