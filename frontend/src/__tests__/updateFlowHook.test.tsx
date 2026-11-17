@@ -237,6 +237,49 @@ describe('useUpdateFlow', () => {
     expect(reload).toHaveBeenCalled()
   })
 
+  it('restart: the click moves to "updating" at once, and a second click sends nothing', async () => {
+    // The apply POST can take a moment. The button used to stay live
+    // until it answered, so an impatient user clicked again and again.
+    let answer: (r: Response) => void = () => {}
+    const posts: string[] = []
+    global.fetch = vi.fn((url: string) => {
+      if (String(url).includes('/restart')) {
+        posts.push(String(url))
+        return new Promise<Response>(res => {
+          answer = res
+        })
+      }
+      if (String(url).includes('/update-status')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => STATUS({ state: 'ready' }),
+        } as unknown as Response)
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => CHECK(),
+      } as unknown as Response)
+    }) as never
+    const { result } = renderHook(() => useUpdateFlow(user))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10)
+    })
+    await act(async () => {
+      void result.current.restart()
+    })
+    // POST still unanswered — the UI is already on the updating view.
+    expect(result.current.status?.state).toBe('restarting')
+    await act(async () => {
+      void result.current.restart()
+      void result.current.restart()
+    })
+    expect(posts).toHaveLength(1)
+    await act(async () => {
+      answer({ ok: true, json: async () => ({}) } as unknown as Response)
+    })
+    expect(result.current.status?.state).toBe('restarting')
+  })
+
   it('restart failure (409) surfaces inline, no overlay', async () => {
     mockRoutes({
       '/api/system/update-check': CHECK(),

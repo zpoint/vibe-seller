@@ -2,6 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import logging
 import os
+import re
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -467,6 +468,21 @@ def _wire_plugins(fastapi_app: FastAPI) -> None:
 _wire_plugins(app)
 
 
+@app.middleware('http')
+async def _revalidate_plugin_bundles(request, call_next):
+    """Plugin JS lives at fixed, unhashed routes: keep it cached but
+    revalidated, so a plugin upgrade is not hidden behind the browser's
+    heuristic cache. A handler's own Cache-Control wins."""
+    response = await call_next(request)
+    if request.url.path in _plugin_bundle_paths():
+        response.headers.setdefault('Cache-Control', 'no-cache')
+    return response
+
+
+def _plugin_bundle_paths() -> set[str]:
+    return {r for r, _h, _e in get_extension_context().frontend_bundles}
+
+
 @app.get('/api/plugins')
 async def list_plugins():
     """List active plugins' frontend bundles for the dashboard loader.
@@ -483,6 +499,40 @@ async def list_plugins():
     ]
 
 
+_IMMUTABLE = 'public, max-age=31536000, immutable'
+# What Vite emits under assets/: ``<name>-<hash>.<ext>`` (JS, CSS, chunks,
+# fonts, images). Anything under assets/ NOT shaped like this is treated
+# as mutable.
+_HASHED_ASSET = re.compile(r'^assets/.+-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$')
+
+
+def url_form(path: str) -> str:
+    """StaticFiles hands ``get_response`` an OS path — backslashes on
+    Windows. Every ``assets/`` / ``api/`` check is on the URL form."""
+    return path.replace('\\', '/')
+
+
+def cache_control_for(url_path: str) -> str:
+    """Cache policy for one served frontend file, in one place, so an
+    upgrade always reaches the UI:
+
+    - A hashed build asset (``assets/index-<hash>.js``) never changes
+      under its name, so it is cached for good — a new release ships NEW
+      names, which is the invalidation.
+    - Anything else (the HTML shell that NAMES those assets, icons, any
+      unhashed file) gets ``no-cache``: the browser keeps its copy but
+      revalidates by ETag on every load — a cheap 304 while unchanged,
+      the new bytes the moment it changes. With neither header a browser
+      caches by Last-Modified (~10% of the file's age), keeps booting the
+      OLD shell after an upgrade, and runs the old frontend against the
+      new API (a stale update dialog, seen on a freshly reinstalled
+      Windows box).
+    """
+    if _HASHED_ASSET.match(url_path):
+        return _IMMUTABLE
+    return 'no-cache'
+
+
 class SPAStaticFiles(StaticFiles):
     """Static files with a client-side-routing (history API) fallback.
 
@@ -497,13 +547,22 @@ class SPAStaticFiles(StaticFiles):
     """
 
     async def get_response(self, path, scope):
+        url_path = url_form(path)
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
-            # Never mask a real API 404 with the SPA shell.
-            if exc.status_code == 404 and not path.startswith('api/'):
-                return await super().get_response('index.html', scope)
-            raise
+            # A missing build asset is a real 404, never the HTML shell:
+            # the shell served under a .js URL would be cached as one.
+            if exc.status_code == 404 and not url_path.startswith((
+                'api/',
+                'assets/',
+            )):
+                response = await super().get_response('index.html', scope)
+                url_path = 'index.html'
+            else:
+                raise
+        response.headers['Cache-Control'] = cache_control_for(url_path)
+        return response
 
 
 # Serve frontend static files (after API routes)

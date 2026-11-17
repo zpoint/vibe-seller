@@ -36,6 +36,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 
+from app.models.schedule_constants import SYSTEM_CATALOG_SYNC_ID
 from app.task_states import TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,18 @@ BUSY_TASK_STATUSES = tuple(
 #: behaviour under any deploy.
 SCHEDULE_JOB_PREFIX = 'schedule_'
 
+#: The system-seeded catalog sync is housekeeping, not a user schedule,
+#: although its job id (``schedule__catalog_sync``) carries the same
+#: prefix. It fires daily at 03:00 and nobody planned their day around
+#: it: counting it made every machine "busy" for the ten minutes before
+#: 03:00, so an update that became ready then waited a day (and every
+#: update e2e that happened to start in that window failed). A restart
+#: only delays it by seconds, and a run already under way is held back
+#: by the live-agent check.
+SYSTEM_SCHEDULE_JOB_IDS = frozenset({
+    f'{SCHEDULE_JOB_PREFIX}{SYSTEM_CATALOG_SYNC_ID}',
+})
+
 
 @dataclass(frozen=True)
 class Verdict:
@@ -106,6 +119,8 @@ def schedule_due_within(
 
     for job in scheduler.get_jobs():
         if not str(job.id).startswith(SCHEDULE_JOB_PREFIX):
+            continue
+        if str(job.id) in SYSTEM_SCHEDULE_JOB_IDS:
             continue
         when = getattr(job, 'next_run_time', None)
         if when is None:  # paused

@@ -304,8 +304,18 @@ export function useUpdateFlow(currentUser: AuthUser | null) {
   const closeUpdated = useCallback(() => setAppliedNotes(null), [])
 
   const restart = useCallback(async () => {
-    if (!status) return
+    // Re-entry guard: the first click owns the apply. A second click
+    // before the POST answers must not send a second request.
+    if (!status || applyingNowRef.current) return
     setRestartError(null)
+    // Go to the "updating" view NOW, not after the POST answers: the
+    // endpoint can take a moment, and the button stayed live meanwhile.
+    applyingRef.current = {
+      from: status.current_version,
+      platform: status.platform,
+    }
+    applyingNowRef.current = true
+    setApplying(true)
     try {
       const r = await fetch('/api/system/update/restart', {
         method: 'POST',
@@ -323,12 +333,10 @@ export function useUpdateFlow(currentUser: AuthUser | null) {
               : `restart failed (${r.status})`
         )
       }
-      applyingRef.current = {
-        from: status.current_version,
-        platform: status.platform,
-      }
-      setApplying(true)
     } catch (e) {
+      // Nothing was started: back to the dialog, with the reason.
+      applyingNowRef.current = false
+      setApplying(false)
       setRestartError(e instanceof Error ? e.message : String(e))
     }
   }, [status])
