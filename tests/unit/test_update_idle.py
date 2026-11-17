@@ -167,6 +167,33 @@ class TestScheduleWindow:
             is None
         )
 
+    def test_the_system_catalog_sync_does_not_hold_an_update(self, monkeypatch):
+        """It fires daily at 03:00 and is seeded by the system, not a
+        schedule anyone planned around. Counting it made every machine
+        "busy" for the ten minutes before 03:00."""
+        from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+
+        from app.models.schedule_constants import (  # noqa: PLC0415
+            SYSTEM_CATALOG_SYNC_ID,
+        )
+
+        now = datetime.now(UTC)
+        soon = now + timedelta(minutes=5)
+        self._patch(
+            monkeypatch,
+            [self._Job(f'schedule_{SYSTEM_CATALOG_SYNC_ID}', soon)],
+        )
+        assert update_idle.schedule_due_within(600) is None
+        # ...while a user's schedule due at the same moment still does.
+        self._patch(
+            monkeypatch,
+            [
+                self._Job(f'schedule_{SYSTEM_CATALOG_SYNC_ID}', soon),
+                self._Job('schedule_user-1', soon),
+            ],
+        )
+        assert update_idle.schedule_due_within(600) == 'schedule_user-1'
+
     def test_a_paused_schedule_is_not_due(self, monkeypatch):
         self._patch(monkeypatch, [self._Job('schedule_x', None)])
         assert update_idle.schedule_due_within(600) is None
