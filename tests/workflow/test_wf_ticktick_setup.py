@@ -7,11 +7,13 @@ says why and leaves nothing behind for the next click to mistake for an
 install.
 """
 
+import asyncio
 import os
+import urllib.request
 
 import pytest
 
-from app import ticktick_mcp_install as inst
+from app import system_proxy, ticktick_mcp_install as inst
 from app.platform import IS_WINDOWS
 
 pytestmark = [
@@ -49,6 +51,11 @@ def fake_tools(monkeypatch, tmp_path):
         script.chmod(0o755)
     monkeypatch.setenv('PATH', f'{bin_dir}{os.pathsep}/bin{os.pathsep}/usr/bin')
     monkeypatch.setattr(inst, 'TICKTICK_MCP_DIR', tmp_path / 'ticktick-mcp')
+    # No ambient proxy: a dev machine with one on would send real probes.
+    for var in system_proxy.PROXY_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(urllib.request, 'getproxies', dict)
+    monkeypatch.setattr(inst, '_ONE_AT_A_TIME', asyncio.Lock())
     return tmp_path / 'ticktick-mcp'
 
 

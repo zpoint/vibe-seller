@@ -16,10 +16,9 @@ whether the proxy reached ``git`` is read off the proxy's own tunnel
 count, not off our env.
 """
 
+import asyncio
 import contextlib
-import datetime
 import http.server
-import ipaddress
 import os
 from pathlib import Path
 import select
@@ -31,14 +30,11 @@ import subprocess
 import threading
 import urllib.request
 
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
 import pytest
 
 from app import system_proxy, ticktick_mcp_install as inst
 from app.platform import IS_WINDOWS
+from tests.fixtures.tls import self_signed
 
 pytestmark = [
     pytest.mark.workflow,
@@ -54,38 +50,6 @@ if [ "$1" = venv ]; then
 fi
 exit 0
 """
-
-
-def _self_signed(directory: Path) -> tuple[Path, Path]:
-    key = ec.generate_private_key(ec.SECP256R1())
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, '127.0.0.1')])
-    now = datetime.datetime.now(datetime.UTC)
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(name)
-        .issuer_name(name)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(minutes=5))
-        .not_valid_after(now + datetime.timedelta(days=1))
-        .add_extension(
-            x509.SubjectAlternativeName([
-                x509.IPAddress(ipaddress.ip_address('127.0.0.1'))
-            ]),
-            critical=False,
-        )
-        .sign(key, hashes.SHA256())
-    )
-    cert_path, key_path = directory / 'cert.pem', directory / 'key.pem'
-    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    key_path.write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.TraditionalOpenSSL,
-            serialization.NoEncryption(),
-        )
-    )
-    return cert_path, key_path
 
 
 class _TLSServer(http.server.ThreadingHTTPServer):
@@ -241,7 +205,7 @@ def github(tmp_path_factory):
         check=True,
         env=isolated,
     )
-    cert, key = _self_signed(base)
+    cert, key = self_signed(base)
     handler = type('Handler', (_GitHub,), {'root': root})
     server = _TLSServer(('127.0.0.1', 0), handler)
     server.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -279,6 +243,7 @@ def net(github, monkeypatch, tmp_path):
     monkeypatch.setattr(urllib.request, 'proxy_bypass', lambda host: False)
     monkeypatch.setattr(urllib.request, 'getproxies', dict)
     monkeypatch.setattr(system_proxy, 'PROBE_TIMEOUT_S', 1.0)
+    monkeypatch.setattr(inst, '_ONE_AT_A_TIME', asyncio.Lock())
     system_proxy._reach_cache.clear()
     proxy = _Proxy(port)
     _serve(proxy)
@@ -344,6 +309,19 @@ async def test_a_live_system_proxy_carries_the_download(admin_client, net):
 
 async def test_a_live_exported_proxy_is_kept(admin_client, net):
     net.export_proxy(net.proxy.url)
+    _installed(net, await _click(admin_client))
+    assert net.proxy.tunnels >= 3
+    assert net.uv_proxy() == net.proxy.url
+
+
+async def test_a_mirror_with_credentials_keeps_a_working_proxy(
+    admin_client, net, github, monkeypatch
+):
+    """``user:token@`` in the index URL (a private mirror) is not the
+    proxy's fault: the probe asks the host, and the proxy stays."""
+    url = github[0].replace('https://', 'https://me:t0ken@')
+    monkeypatch.setenv('UV_DEFAULT_INDEX', f'{url}/simple/')
+    net.use_system_proxy(net.proxy.url)
     _installed(net, await _click(admin_client))
     assert net.proxy.tunnels >= 3
     assert net.uv_proxy() == net.proxy.url

@@ -10,6 +10,8 @@ the system proxy.
 
 import asyncio
 import os
+from pathlib import Path
+import re
 import time
 
 import pytest
@@ -27,6 +29,7 @@ _FAKE_GIT = """#!/bin/sh
 dest=""
 for a in "$@"; do dest="$a"; done
 echo "$HTTPS_PROXY" > "$FAKE_LOG/git-proxy"
+echo "$GIT_HTTP_LOW_SPEED_LIMIT/$GIT_HTTP_LOW_SPEED_TIME" > "$FAKE_LOG/git-low-speed"
 case "$FAKE_GIT" in
   hang)
     sleep 300 &
@@ -49,7 +52,10 @@ if [ "$1" = venv ]; then
   touch "$2/bin/python3"
   exit 0
 fi
-[ "$FAKE_UV_PIP" = fail ] && { echo "no matching distribution" >&2; exit 1; }
+[ "$FAKE_UV_PIP" = fail ] && {
+  echo "no matching distribution in https://me:s3cr3t@m.test/simple" >&2
+  exit 1
+}
 exit 0
 """
 
@@ -71,6 +77,9 @@ def fake(monkeypatch, tmp_path):
     for var in system_proxy.PROXY_VARS:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(system_proxy.urllib.request, 'getproxies', lambda: {})
+    # A module-level asyncio.Lock binds to the first loop that waits on
+    # it; each test has its own loop.
+    monkeypatch.setattr(inst, '_ONE_AT_A_TIME', asyncio.Lock())
     return log
 
 
@@ -205,6 +214,62 @@ async def test_concurrent_clicks_install_once(fake):
     )
     assert results[0] == results[1] == str(inst.TICKTICK_MCP_DIR)
     assert inst.ticktick_mcp_installed()
+
+
+def test_the_install_answers_before_the_browser_stops_waiting():
+    """The frontend gives the request LONG_TIMEOUT_MS; the install
+    (probes included) must end, with its own reason, inside it."""
+    source = (
+        Path(__file__).parents[2] / 'frontend/src/lib/requestDeadline.ts'
+    ).read_text()
+    match = re.search(r'LONG_TIMEOUT_MS = ([\d_ *]+)', source)
+    assert match, 'LONG_TIMEOUT_MS not found'
+    client_s = eval(match.group(1).replace('_', '')) / 1000  # noqa: S307
+    worst = inst.INSTALL_BUDGET_S + 2 * system_proxy.PROBE_TIMEOUT_S
+    assert worst + 15 < client_s
+
+
+async def test_the_whole_click_has_one_deadline(fake, monkeypatch):
+    """Per-step caps alone add up past the browser's wait; the budget
+    cuts the step that would overrun it."""
+    monkeypatch.setenv('FAKE_GIT', 'hang')
+    monkeypatch.setattr(inst, 'INSTALL_BUDGET_S', 1.0)
+    started = time.monotonic()
+    with pytest.raises(inst.TickTickInstallError) as err:
+        await inst.ensure_ticktick_mcp()
+    assert time.monotonic() - started < 10
+    assert 'timed out after' in str(err.value)
+    assert not inst.TICKTICK_MCP_DIR.exists()
+
+
+async def test_git_aborts_a_crawling_transfer_itself(fake):
+    await inst.ensure_ticktick_mcp()
+    assert (fake / 'git-low-speed').read_text().strip() == '1000/30'
+
+
+async def test_an_index_token_in_tool_output_is_not_shown(fake, monkeypatch):
+    monkeypatch.setenv('FAKE_UV_PIP', 'fail')
+    with pytest.raises(inst.TickTickInstallError) as err:
+        await inst.ensure_ticktick_mcp()
+    assert 's3cr3t' not in str(err.value)
+    assert 'https://***@m.test/simple' in str(err.value)
+
+
+async def test_a_dropped_proxy_is_named_in_the_error(fake, monkeypatch):
+    """The user's proxy is on; the message must not tell them to turn
+    it on, but say it was tried and could not reach GitHub."""
+    monkeypatch.setattr(
+        system_proxy.urllib.request,
+        'getproxies',
+        lambda: {'https': '127.0.0.1:7890'},
+    )
+    monkeypatch.setattr(system_proxy, 'reaches', lambda url, proxy: False)
+    monkeypatch.setenv('FAKE_GIT', 'fail')
+    with pytest.raises(inst.TickTickInstallError) as err:
+        await inst.ensure_ticktick_mcp()
+    message = str(err.value)
+    assert 'proxy http://127.0.0.1:7890 could not reach github.com' in message
+    assert 'Turn on the system proxy' not in message
 
 
 async def test_missing_tool_names_it(fake, monkeypatch, tmp_path):

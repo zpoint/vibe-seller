@@ -20,16 +20,19 @@ themselves:
   and the download goes direct — a proxy that cannot serve the download
   is never forced on it.
 
-Use the checked one for a download whose targets you know; the answer
-is cached for a minute, so the next download in a burst does not pay
-for the probes again. A proxy that is not http(s) (``socks5://``)
+Use the checked one for a download whose targets you know; a yes is
+cached for a minute (a no for seconds), so the next download in a
+burst does not pay for the probes again. ``decide_download_env`` also
+says what was decided, for an error message that tells the truth. A proxy that is not http(s) (``socks5://``)
 cannot be probed with urllib and is trusted as set.
 """
 
 import asyncio
+import dataclasses
 import http.client
 import logging
 import os
+import ssl
 import time
 import urllib.error
 from urllib.parse import urlsplit
@@ -52,6 +55,7 @@ NPM = 'https://registry.npmjs.org/'
 
 PROBE_TIMEOUT_S = 6.0
 _CACHE_TTL_S = 60.0
+_NEGATIVE_TTL_S = 10.0
 
 # (proxy or None, url) -> (when, reached). Process-wide, small.
 _reach_cache: dict[tuple[str | None, str], tuple[float, bool]] = {}
@@ -95,47 +99,100 @@ def download_env() -> dict[str, str]:
     return {**os.environ, **proxy_env()}
 
 
+# The vars an https download reads, in curl's order. ``http_proxy`` is
+# not one: curl, git, uv and pip use it for plain-http URLs only.
+_HTTPS_PROXY_VARS = ('https_proxy', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY')
+
+
 def _env_proxy() -> str | None:
-    for var in PROXY_VARS:
+    for var in _HTTPS_PROXY_VARS:
         if os.environ.get(var):
             return os.environ[var]
     return None
 
 
 def candidate_proxy() -> str | None:
-    """The proxy a download would take: exported, else the OS's."""
+    """The proxy an https download would take: exported, else the OS's.
+
+    None when the only exported var is ``http_proxy``: the download
+    will not use it for https, so there is nothing to decide.
+    """
     env = _env_proxy()
     if env:
         return env
     return proxy_env().get('HTTPS_PROXY')
 
 
+def _origin(url: str) -> str:
+    """``scheme://host[:port]/`` of *url*: no credentials, no path.
+
+    A mirror URL can carry ``user:token@`` (which urllib rejects as a
+    bad port) and a path that needs auth; reaching the host is the
+    question.
+    """
+    parts = urlsplit(url)
+    host = parts.hostname or ''
+    if ':' in host:
+        host = f'[{host}]'
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    return f'{parts.scheme}://{host}' + (f':{port}' if port else '') + '/'
+
+
+# What a proxy answers when IT could not reach the target, for a
+# plain-http URL (an https URL gets these as a failed CONNECT instead).
+_PROXY_GATEWAY_ERRORS = (502, 503, 504)
+
+
 def _probe(url: str, proxy: str | None) -> bool:
     """Whether *url* answers through *proxy* (None = direct).
 
-    Any HTTP answer counts, a 403 or 404 included: the server was
-    reached. Only a connection that fails or stalls does not.
+    Any HTTP answer from the server counts, a 403 or 404 included: it
+    was reached. Not reached: a connection that fails or stalls, or a
+    proxy saying it could not get there. Reached although urllib fails:
+    a proxy asking for auth (407; the download's own client may do
+    NTLM/Kerberos) and a certificate this Python does not trust (a
+    TLS-inspecting corporate proxy — the download has its own CA store).
+    A handshake that is cut off is NOT a certificate problem; that is
+    what a blocked connection looks like.
     """
     handlers = {'http': proxy, 'https': proxy} if proxy else {}
     opener = urllib.request.build_opener(urllib.request.ProxyHandler(handlers))
     request = urllib.request.Request(url, method='HEAD')
     try:
         opener.open(request, timeout=PROBE_TIMEOUT_S).close()
-    except urllib.error.HTTPError:
+    except urllib.error.HTTPError as e:
+        return not (proxy and e.code in _PROXY_GATEWAY_ERRORS)
+    except urllib.error.URLError as e:
+        return isinstance(e.reason, ssl.SSLCertVerificationError) or (
+            bool(proxy) and ' 407' in str(e.reason)
+        )
+    except ssl.SSLCertVerificationError:
         return True
-    except (OSError, http.client.HTTPException, ValueError):
+    except OSError as e:
+        # A refused CONNECT: "Tunnel connection failed: 407 ...".
+        return bool(proxy) and ' 407' in str(e)
+    except (http.client.HTTPException, ValueError):
         return False
     return True
 
 
 def reaches(url: str, proxy: str | None) -> bool:
-    """``_probe`` with a one-minute memory."""
-    key = (proxy, url)
+    """``_probe`` of *url*'s host, remembered.
+
+    A yes for a minute; a no only briefly, so a retry after the proxy
+    came up (or a one-off stall) asks again.
+    """
+    key = (proxy, _origin(url))
     hit = _reach_cache.get(key)
     now = time.monotonic()
-    if hit is not None and now - hit[0] < _CACHE_TTL_S:
+    if hit is not None and now - hit[0] < (
+        _CACHE_TTL_S if hit[1] else _NEGATIVE_TTL_S
+    ):
         return hit[1]
-    ok = _probe(url, proxy)
+    ok = _probe(key[1], proxy)
     _reach_cache[key] = (now, ok)
     return ok
 
@@ -151,9 +208,36 @@ def _probeable(proxy: str) -> bool:
     )
 
 
-def checked_download_env(
+@dataclasses.dataclass(frozen=True)
+class Decision:
+    """The ``env=`` for a download, and how it was arrived at."""
+
+    env: dict[str, str]
+    proxy: str | None = None  # the candidate, if there was one
+    blocked: tuple[str, ...] = ()  # hosts it did not reach
+
+    @property
+    def dropped(self) -> bool:
+        """A proxy was found and NOT used: the download goes direct."""
+        return bool(self.blocked)
+
+    def describe(self) -> str:
+        """For an error message: which path the download took."""
+        if self.dropped:
+            return (
+                f'proxy {redact_proxy_url(self.proxy or "")} could not '
+                f'reach {", ".join(self.blocked)}, so the direct network '
+                'was used'
+            )
+        proxy = self.env.get('HTTPS_PROXY') or self.env.get('https_proxy')
+        if proxy:
+            return f'through proxy {redact_proxy_url(proxy)}'
+        return 'no proxy configured'
+
+
+def decide_download_env(
     targets: tuple[str, ...] = (GITHUB, PYPI),
-) -> dict[str, str]:
+) -> Decision:
     """``env=`` for a download from *targets*, proxy decided by probing.
 
     No proxy anywhere: the env as is. A proxy that is alive and reaches
@@ -163,25 +247,41 @@ def checked_download_env(
     """
     proxy = candidate_proxy()
     if proxy is None:
-        return dict(os.environ)
+        return Decision(dict(os.environ))
     if not _probeable(proxy):
-        return download_env()
-    blocked = [t for t in targets if not reaches(t, proxy)]
+        return Decision(download_env(), proxy)
+    blocked = tuple(
+        urlsplit(t).hostname or t for t in targets if not reaches(t, proxy)
+    )
     if not blocked:
-        return download_env()
+        return Decision(download_env(), proxy)
     logger.warning(
         'Proxy %s does not reach %s — downloading over the direct network',
         redact_proxy_url(proxy),
-        ', '.join(urlsplit(t).hostname or t for t in blocked),
+        ', '.join(blocked),
     )
-    return _direct_env()
+    return Decision(_direct_env(), proxy, blocked)
+
+
+def checked_download_env(
+    targets: tuple[str, ...] = (GITHUB, PYPI),
+) -> dict[str, str]:
+    """``decide_download_env(targets).env``."""
+    return decide_download_env(targets).env
+
+
+async def decide_download_env_async(
+    targets: tuple[str, ...] = (GITHUB, PYPI),
+) -> Decision:
+    """``decide_download_env`` off the event loop (it makes requests)."""
+    return await asyncio.to_thread(decide_download_env, targets)
 
 
 async def checked_download_env_async(
     targets: tuple[str, ...] = (GITHUB, PYPI),
 ) -> dict[str, str]:
     """``checked_download_env`` off the event loop (it makes requests)."""
-    return await asyncio.to_thread(checked_download_env, targets)
+    return (await decide_download_env_async(targets)).env
 
 
 def pypi_target(env: dict[str, str] | None = None) -> str:

@@ -27,8 +27,8 @@ PACKAGE = ('@anthropic-ai', 'claude-code')
 
 
 def download_env() -> dict[str, str]:
-    """``env=`` for the commands that fetch Claude Code: the proxy, only
-    when it is alive and reaches the npm registry."""
+    """``env=`` for the ``npm install`` that fetches Claude Code: the
+    proxy, only when it is alive and reaches the npm registry."""
     return checked_download_env((npm_target(),))
 
 
@@ -65,9 +65,9 @@ def finish(home: Path) -> int:
             "==> npm skipped Claude Code's install step; running it: "
             f'node install.cjs (in {package})'
         )
-        subprocess.run(
-            [node, 'install.cjs'], cwd=str(package), env=download_env()
-        )
+        # Local only: it links the binary npm already fetched with the
+        # package's optionalDependencies; no download to route.
+        subprocess.run([node, 'install.cjs'], cwd=str(package))
         if runs(cli):
             return 0
     print(

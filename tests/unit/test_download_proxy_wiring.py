@@ -125,7 +125,9 @@ async def test_skill_requirements_install(network, monkeypatch, tmp_path):
     assert [u for u, _ in network] == [system_proxy.PYPI]
 
 
-def test_claude_cli_install_step(network, monkeypatch, tmp_path):
+def test_claude_cli_install_step_asks_no_network(monkeypatch, tmp_path):
+    """``install.cjs`` only links the binary npm already fetched: no
+    probe (it would cost up to a probe timeout for nothing)."""
     package = tmp_path.joinpath('node_modules', *claude_cli_install.PACKAGE)
     package.mkdir(parents=True)
     (package / 'install.cjs').write_text('//\n')
@@ -133,11 +135,16 @@ def test_claude_cli_install_step(network, monkeypatch, tmp_path):
     monkeypatch.setattr(
         claude_cli_install.shutil, 'which', lambda name: '/usr/bin/node'
     )
+    # A proxy that a download WOULD have to probe.
+    monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:7890')
+    probed = []
+    monkeypatch.setattr(
+        system_proxy, 'reaches', lambda u, p: probed.append(u) or True
+    )
     seen = _capture_run(monkeypatch, claude_cli_install)
     claude_cli_install.finish(tmp_path)
     assert seen['cmd'][-1] == 'install.cjs'
-    _assert_env(seen['env'], network)
-    assert [u for u, _ in network] == [system_proxy.NPM]
+    assert probed == []
 
 
 def test_upgrade_of_the_claude_cli_through_npm(network, monkeypatch):

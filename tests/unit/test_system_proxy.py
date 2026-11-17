@@ -12,11 +12,13 @@ import asyncio
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
 import socket
+import ssl
 import threading
 
 import pytest
 
 from app import system_proxy as sp
+from tests.fixtures.tls import self_signed
 
 pytestmark = pytest.mark.unit
 
@@ -145,6 +147,9 @@ class _Origin(BaseHTTPRequestHandler):
         self.send_response(type(self).status)
         self.end_headers()
 
+    # As a proxy for an https URL: the answer to the tunnel request.
+    do_CONNECT = do_HEAD  # noqa: N815
+
     def log_message(self, *args):
         pass
 
@@ -200,6 +205,99 @@ def test_probe_fails_when_the_proxy_never_answers(monkeypatch):
         stall.close()
 
 
+@pytest.mark.parametrize('status', [502, 503, 504])
+def test_a_proxy_saying_it_could_not_get_there_is_not_reached(server, status):
+    """For a plain-http URL the proxy's own gateway error comes back as
+    an HTTP answer; it is the proxy speaking, not the server."""
+    server.handler.status = status
+    assert sp._probe('http://never-resolves.invalid/', server.url) is False
+
+
+def test_the_same_status_from_the_server_itself_is_reached(server):
+    server.handler.status = 503
+    assert sp._probe(server.url + '/', None) is True
+
+
+@pytest.mark.parametrize(('status', 'reached'), [(407, True), (502, False)])
+def test_the_answer_to_a_tunnel_request(server, status, reached):
+    """https through a proxy: 407 means the proxy is there and wants
+    auth the download's own client may do (NTLM); 502 means it could
+    not reach the host."""
+    server.handler.status = status
+    assert sp._probe('https://never-resolves.invalid/', server.url) is reached
+
+
+@pytest.fixture
+def tls(tmp_path):
+    """An HTTPS origin whose certificate this Python does not trust."""
+    cert, key = self_signed(tmp_path)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    srv = HTTPServer(('127.0.0.1', 0), type('H', (_Origin,), {}))
+    srv.socket = context.wrap_socket(srv.socket, server_side=True)
+    srv.handle_error = lambda *a: None
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f'https://127.0.0.1:{srv.server_port}/'
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_an_untrusted_certificate_is_still_reached(tls):
+    """A TLS-inspecting proxy whose CA is in the OS store but not in
+    this Python's: the download (own CA store) gets through."""
+    assert sp._probe(tls, None) is True
+
+
+def test_a_cut_handshake_is_not_reached(monkeypatch):
+    """What a blocked connection looks like — not a certificate issue."""
+    monkeypatch.setattr(sp, 'PROBE_TIMEOUT_S', 2.0)
+    listener = socket.socket()
+    listener.bind(('127.0.0.1', 0))
+    listener.listen(1)
+
+    def hang_up():
+        conn, _ = listener.accept()
+        conn.recv(1024)  # the ClientHello
+        conn.close()
+
+    threading.Thread(target=hang_up, daemon=True).start()
+    try:
+        port = listener.getsockname()[1]
+        assert sp._probe(f'https://127.0.0.1:{port}/', None) is False
+    finally:
+        listener.close()
+
+
+def test_credentials_in_a_mirror_url_do_not_fail_the_probe(server):
+    """``https://user:token@mirror/simple/`` — urllib reads ``user:token``
+    as a bad port; the host is what is asked."""
+    url = server.url.replace('http://', 'http://me:t0ken@') + '/simple/'
+    assert sp.reaches(url, None) is True
+
+
+def test_only_http_proxy_exported_decides_nothing_for_https(monkeypatch):
+    """git/curl/uv do not use ``http_proxy`` for https: probing it
+    would test a path the download never takes."""
+    monkeypatch.setenv('http_proxy', 'http://127.0.0.1:1')
+
+    def boom(url, proxy):
+        raise AssertionError('probed a proxy https never uses')
+
+    _decide(monkeypatch, boom)
+    assert sp.checked_download_env((sp.GITHUB,)) == dict(os.environ)
+
+
+def test_a_dropped_proxy_is_described_as_such(monkeypatch):
+    _os_proxy(monkeypatch, {'https': '127.0.0.1:7890'})
+    _decide(monkeypatch, lambda url, proxy: url != sp.PYPI)
+    decision = sp.decide_download_env((sp.GITHUB, sp.PYPI))
+    assert decision.dropped
+    assert decision.describe() == (
+        'proxy http://127.0.0.1:7890 could not reach pypi.org, so the '
+        'direct network was used'
+    )
+
+
 def test_probe_fails_for_an_unreachable_origin_direct():
     sock = socket.socket()
     sock.bind(('127.0.0.1', 0))
@@ -219,11 +317,25 @@ def test_an_answer_is_remembered_for_a_minute_then_asked_again(monkeypatch):
     now = [1000.0]
     monkeypatch.setattr(sp.time, 'monotonic', lambda: now[0])
     assert sp.reaches('https://a.test', _ALIVE)
-    assert sp.reaches('https://a.test', _ALIVE)
-    assert calls == ['https://a.test']
+    assert sp.reaches('https://a.test/other/path', _ALIVE)  # same host
+    assert calls == ['https://a.test/']
     now[0] += sp._CACHE_TTL_S + 1
     assert sp.reaches('https://a.test', _ALIVE)
-    assert calls == ['https://a.test'] * 2
+    assert calls == ['https://a.test/'] * 2
+
+
+def test_a_no_is_remembered_only_briefly(monkeypatch):
+    """A retry after the proxy came up must not be told "no" again."""
+    answer = [False]
+    monkeypatch.setattr(sp, '_probe', lambda url, proxy: answer[0])
+    now = [1000.0]
+    monkeypatch.setattr(sp.time, 'monotonic', lambda: now[0])
+    assert not sp.reaches('https://a.test', _ALIVE)
+    answer[0] = True
+    assert not sp.reaches('https://a.test', _ALIVE)  # inside the burst
+    now[0] += sp._NEGATIVE_TTL_S + 1
+    assert sp.reaches('https://a.test', _ALIVE)
+    assert sp._NEGATIVE_TTL_S < sp._CACHE_TTL_S
 
 
 def test_a_different_proxy_is_a_different_question(monkeypatch):
