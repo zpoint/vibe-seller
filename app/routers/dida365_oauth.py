@@ -15,8 +15,13 @@ from app import telemetry
 from app.auth import get_current_user
 from app.browser.manager import atomic_write_json, read_mcp_config
 from app.events_system.syncer import load_backend_config, save_backend_config
-from app.platform import safe_chmod, venv_python
+from app.platform import safe_chmod
 from app.telemetry_events import TelemetryEvent
+from app.ticktick_mcp_install import (
+    TICKTICK_MCP_DIR,
+    ensure_ticktick_mcp,
+    ticktick_mcp_installed,
+)
 from app.utils.crypto import decrypt_password, encrypt_password
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -26,10 +31,6 @@ router = APIRouter(prefix='/api/dida365', tags=['dida365'])
 
 # Single-use state tokens: {state: {'expires': float}}
 _pending_states: dict[str, dict] = {}
-
-# Auto-managed ticktick-mcp installation
-TICKTICK_MCP_REPO = 'https://github.com/jacepark12/ticktick-mcp.git'
-TICKTICK_MCP_DIR = VIBE_SELLER_DIR / 'ticktick-mcp'
 
 # URL mapping per service type
 _SERVICE_URLS: dict[str, dict[str, str]] = {
@@ -64,63 +65,10 @@ def _prune_expired_states() -> None:
         del _pending_states[k]
 
 
-async def ensure_ticktick_mcp() -> str:
-    """Clone and install ticktick-mcp if not present.
-
-    Returns the path to the ticktick-mcp directory.
-    """
-    mcp_dir = str(TICKTICK_MCP_DIR)
-    if TICKTICK_MCP_DIR.is_dir():
-        return mcp_dir
-
-    logger.info('Cloning ticktick-mcp to %s', mcp_dir)
-    proc = await asyncio.create_subprocess_exec(
-        'git',
-        'clone',
-        TICKTICK_MCP_REPO,
-        mcp_dir,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise RuntimeError(f'git clone failed: {stderr.decode().strip()}')
-
-    logger.info('Installing ticktick-mcp dependencies')
-    proc = await asyncio.create_subprocess_exec(
-        'uv',
-        'venv',
-        str(TICKTICK_MCP_DIR / '.venv'),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
-
-    proc = await asyncio.create_subprocess_exec(
-        'uv',
-        'pip',
-        'install',
-        '-e',
-        mcp_dir,
-        '--python',
-        str(venv_python(TICKTICK_MCP_DIR / '.venv')),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        logger.warning(
-            'uv pip install failed (will try uv run): %s',
-            stderr.decode().strip(),
-        )
-
-    return mcp_dir
-
-
 def _register_ticktick_mcp(config: dict) -> None:
     """Register ticktick MCP server in .mcp.json."""
     mcp_path = str(TICKTICK_MCP_DIR)
-    if not TICKTICK_MCP_DIR.is_dir():
+    if not ticktick_mcp_installed():
         return
 
     access_token = decrypt_password(config['access_token_enc'])
@@ -224,7 +172,7 @@ async def setup_mcp(
     _user=Depends(get_current_user),
 ):
     """Clone and install ticktick-mcp if not present."""
-    already_installed = TICKTICK_MCP_DIR.is_dir()
+    already_installed = ticktick_mcp_installed()
     try:
         await ensure_ticktick_mcp()
     except RuntimeError as e:
