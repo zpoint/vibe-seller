@@ -19,7 +19,7 @@ The table below is real usage from two computers running store tasks in October 
 | Check today's orders and revenue | ~1.2M | ~¥0.03 | ~¥0.3 |
 | Check 4 stores' email, push exceptions to WeCom | ~6.3M | ~¥0.2 | ~¥1.6 |
 | Download one store's report for last month | ~5.8M | ~¥0.2 | ~¥1 |
-| Collect reviews and ratings for all of one store's products | ~11M | ~¥0.3 | ~¥2.8 |
+| Collect reviews and ratings for all of one store's products (~40–200 products) | ~11M | ~¥0.3 | ~¥2.8 |
 | Edit a batch of listings (marketplace by marketplace, verifying each) | ~4.7M | ~¥0.1 | ~¥2.3 |
 | Export one store's quarterly tax report and work out the figures | ~7.2M | ~¥0.2 | ~¥4 |
 | Review one store's ads and suggest changes (2 marketplaces, ~70 campaigns) | ~60–80M | ~¥2 | ~¥11–14 |
