@@ -242,6 +242,18 @@ def net(github, monkeypatch, tmp_path):
     # The loopback origin must not be exempted by the OS's bypass list.
     monkeypatch.setattr(urllib.request, 'proxy_bypass', lambda host: False)
     monkeypatch.setattr(urllib.request, 'getproxies', dict)
+    monkeypatch.setattr(system_proxy, '_platform_proxies', dict)
+
+    def use_system_proxy(_, url):
+        """The OS setting: what getproxies sees with the env empty,
+        and what the OS answers directly."""
+        monkeypatch.setattr(
+            urllib.request, 'getproxies', lambda: {'https': url}
+        )
+        monkeypatch.setattr(
+            system_proxy, '_platform_proxies', lambda: {'https': url}
+        )
+
     monkeypatch.setattr(system_proxy, 'PROBE_TIMEOUT_S', 1.0)
     monkeypatch.setattr(inst, '_ONE_AT_A_TIME', asyncio.Lock())
     system_proxy._reach_cache.clear()
@@ -254,9 +266,7 @@ def net(github, monkeypatch, tmp_path):
             'proxy': proxy,
             'dir': tmp_path / 'ticktick-mcp',
             'uv_proxy': lambda self: (log / 'uv-proxy').read_text().strip(),
-            'use_system_proxy': lambda self, url: monkeypatch.setattr(
-                urllib.request, 'getproxies', lambda: {'https': url}
-            ),
+            'use_system_proxy': use_system_proxy,
             'export_proxy': lambda self, url: monkeypatch.setenv(
                 'HTTPS_PROXY', url
             ),
@@ -334,6 +344,19 @@ async def test_a_proxy_that_refuses_the_target_is_not_used(admin_client, net):
     assert net.proxy.asked >= 1  # it was asked, and said no
     assert net.proxy.tunnels == 0  # so git never went through it
     assert net.uv_proxy() == ''
+
+
+async def test_a_stale_export_does_not_hide_a_working_system_proxy(
+    admin_client, net
+):
+    """An old ``HTTPS_PROXY`` left exported while the system proxy is
+    on and GitHub is unreachable direct (found live): the system proxy
+    carries the download instead of the direct network."""
+    net.export_proxy(_dead_port())
+    net.use_system_proxy(net.proxy.url)
+    _installed(net, await _click(admin_client))
+    assert net.proxy.tunnels >= 3
+    assert net.uv_proxy() == net.proxy.url
 
 
 async def test_a_dead_exported_proxy_is_dropped(admin_client, net):

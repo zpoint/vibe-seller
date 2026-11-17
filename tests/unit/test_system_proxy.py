@@ -117,6 +117,48 @@ def test_a_live_exported_proxy_is_kept_as_set(monkeypatch):
     assert 'HTTPS_PROXY' not in env
 
 
+def test_a_dead_export_falls_back_to_a_live_os_proxy(monkeypatch):
+    """The stale export must not hide the system proxy the user has on."""
+    monkeypatch.setenv('https_proxy', 'http://127.0.0.1:1')
+    monkeypatch.setenv('http_proxy', 'http://127.0.0.1:1')
+    monkeypatch.setattr(sp, '_platform_proxies', lambda: {'https': 'h:7890'})
+    _decide(monkeypatch, lambda url, proxy: proxy == 'http://h:7890')
+    decision = sp.decide_download_env((sp.GITHUB,))
+    assert _proxy_vars(decision.env) == {
+        'HTTPS_PROXY': 'http://h:7890',
+        'HTTP_PROXY': 'http://h:7890',
+    }
+    assert not decision.dropped
+    assert decision.describe() == (
+        'through proxy http://h:7890 '
+        '(proxy http://127.0.0.1:1 could not reach github.com)'
+    )
+
+
+def test_a_live_export_is_used_without_asking_about_the_os_proxy(
+    monkeypatch,
+):
+    monkeypatch.setenv('HTTPS_PROXY', 'http://mine:3128')
+    monkeypatch.setattr(sp, '_platform_proxies', lambda: {'https': 'h:7890'})
+    asked = []
+    _decide(monkeypatch, lambda url, proxy: asked.append(proxy) or True)
+    assert sp.checked_download_env((sp.GITHUB,))['HTTPS_PROXY'] == (
+        'http://mine:3128'
+    )
+    assert asked == ['http://mine:3128']
+
+
+def test_neither_proxy_working_goes_direct_naming_both(monkeypatch):
+    monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
+    monkeypatch.setattr(sp, '_platform_proxies', lambda: {'https': 'h:7890'})
+    _decide(monkeypatch, lambda url, proxy: False)
+    decision = sp.decide_download_env((sp.GITHUB,))
+    assert _proxy_vars(decision.env) == {}
+    assert decision.dropped
+    assert 'http://127.0.0.1:1' in decision.describe()
+    assert 'http://h:7890' in decision.describe()
+
+
 def test_a_socks_proxy_is_trusted_unprobed(monkeypatch):
     """urllib cannot speak SOCKS, so the answer would be a false no."""
     monkeypatch.setenv('all_proxy', 'socks5://127.0.0.1:7891')

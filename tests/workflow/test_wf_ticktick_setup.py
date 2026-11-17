@@ -55,6 +55,7 @@ def fake_tools(monkeypatch, tmp_path):
     for var in system_proxy.PROXY_VARS:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(urllib.request, 'getproxies', dict)
+    monkeypatch.setattr(system_proxy, '_platform_proxies', dict)
     monkeypatch.setattr(inst, '_ONE_AT_A_TIME', asyncio.Lock())
     return tmp_path / 'ticktick-mcp'
 

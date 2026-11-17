@@ -33,6 +33,7 @@ import http.client
 import logging
 import os
 import ssl
+import sys
 import time
 import urllib.error
 from urllib.parse import urlsplit
@@ -85,13 +86,33 @@ def proxy_env() -> dict[str, str]:
     """
     if any(os.environ.get(v) for v in PROXY_VARS):
         return {}
-    system = urllib.request.getproxies()
-    proxy = system.get('https') or system.get('http')
+    proxy = _system_proxy()
     if not proxy:
         return {}
-    if '://' not in proxy:
-        proxy = 'http://' + proxy
     return {'HTTPS_PROXY': proxy, 'HTTP_PROXY': proxy}
+
+
+def _platform_proxies() -> dict[str, str]:
+    """The OS proxy settings alone, whatever the env says."""
+    if sys.platform == 'darwin':
+        return urllib.request.getproxies_macosx_sysconf()
+    if os.name == 'nt':
+        return urllib.request.getproxies_registry()  # type: ignore[attr-defined]
+    return {}
+
+
+def _system_proxy() -> str | None:
+    """The OS's proxy as a URL, or None. With no proxy var exported,
+    ``getproxies`` IS the OS setting; with one exported it would echo
+    the env back, so the OS is asked directly."""
+    if any(os.environ.get(v) for v in PROXY_VARS):
+        system = _platform_proxies()
+    else:
+        system = urllib.request.getproxies()
+    proxy = system.get('https') or system.get('http')
+    if not proxy:
+        return None
+    return proxy if '://' in proxy else 'http://' + proxy
 
 
 def download_env() -> dict[str, str]:
@@ -117,10 +138,7 @@ def candidate_proxy() -> str | None:
     None when the only exported var is ``http_proxy``: the download
     will not use it for https, so there is nothing to decide.
     """
-    env = _env_proxy()
-    if env:
-        return env
-    return proxy_env().get('HTTPS_PROXY')
+    return _env_proxy() or proxy_env().get('HTTPS_PROXY')
 
 
 def _origin(url: str) -> str:
@@ -213,25 +231,26 @@ class Decision:
     """The ``env=`` for a download, and how it was arrived at."""
 
     env: dict[str, str]
-    proxy: str | None = None  # the candidate, if there was one
-    blocked: tuple[str, ...] = ()  # hosts it did not reach
+    proxy: str | None = None  # the proxy the download takes, if any
+    # Proxies tried and passed over, each with the hosts it missed.
+    failed: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
     def dropped(self) -> bool:
-        """A proxy was found and NOT used: the download goes direct."""
-        return bool(self.blocked)
+        """A proxy was found and none was used: the download goes direct."""
+        return self.proxy is None and bool(self.failed)
 
     def describe(self) -> str:
         """For an error message: which path the download took."""
+        misses = '; '.join(
+            f'proxy {redact_proxy_url(p)} could not reach {", ".join(h)}'
+            for p, h in self.failed
+        )
         if self.dropped:
-            return (
-                f'proxy {redact_proxy_url(self.proxy or "")} could not '
-                f'reach {", ".join(self.blocked)}, so the direct network '
-                'was used'
-            )
-        proxy = self.env.get('HTTPS_PROXY') or self.env.get('https_proxy')
-        if proxy:
-            return f'through proxy {redact_proxy_url(proxy)}'
+            return f'{misses}, so the direct network was used'
+        if self.proxy:
+            via = f'through proxy {redact_proxy_url(self.proxy)}'
+            return f'{via} ({misses})' if misses else via
         return 'no proxy configured'
 
 
@@ -240,27 +259,47 @@ def decide_download_env(
 ) -> Decision:
     """``env=`` for a download from *targets*, proxy decided by probing.
 
-    No proxy anywhere: the env as is. A proxy that is alive and reaches
-    every target: the env with that proxy. Otherwise the env with every
-    proxy var removed, so the download goes direct instead of dying on
-    a proxy that cannot serve it.
+    Candidates in order: the exported proxy, then the OS's. The first
+    one that is alive and reaches every target is used; the exported
+    one as set, the OS one as ``HTTPS_PROXY``/``HTTP_PROXY`` (with any
+    other proxy var removed). A stale export therefore no longer hides
+    a working system proxy. None works: the env with every proxy var
+    removed, so the download goes direct. No proxy anywhere: the env
+    as is.
     """
-    proxy = candidate_proxy()
-    if proxy is None:
+    exported = _env_proxy()
+    candidates = [p for p in (exported, _system_proxy()) if p]
+    failed: list[tuple[str, tuple[str, ...]]] = []
+    for proxy in dict.fromkeys(candidates):
+        if _probeable(proxy):
+            blocked = tuple(
+                urlsplit(t).hostname or t
+                for t in targets
+                if not reaches(t, proxy)
+            )
+            if blocked:
+                failed.append((proxy, blocked))
+                continue
+        if proxy == exported:
+            env = download_env()
+        else:
+            env = {**_direct_env(), 'HTTPS_PROXY': proxy, 'HTTP_PROXY': proxy}
+        if failed:
+            logger.warning(
+                'Proxy %s does not reach %s — using %s',
+                redact_proxy_url(failed[0][0]),
+                ', '.join(failed[0][1]),
+                redact_proxy_url(proxy),
+            )
+        return Decision(env, proxy, tuple(failed))
+    if not failed:
         return Decision(dict(os.environ))
-    if not _probeable(proxy):
-        return Decision(download_env(), proxy)
-    blocked = tuple(
-        urlsplit(t).hostname or t for t in targets if not reaches(t, proxy)
-    )
-    if not blocked:
-        return Decision(download_env(), proxy)
     logger.warning(
-        'Proxy %s does not reach %s — downloading over the direct network',
-        redact_proxy_url(proxy),
-        ', '.join(blocked),
+        'No proxy reaches %s (%s) — downloading over the direct network',
+        ', '.join(failed[-1][1]),
+        ', '.join(redact_proxy_url(p) for p, _ in failed),
     )
-    return Decision(_direct_env(), proxy, blocked)
+    return Decision(_direct_env(), None, tuple(failed))
 
 
 def checked_download_env(

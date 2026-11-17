@@ -88,7 +88,7 @@ def _network_hint(decision: Decision) -> str:
             'network did not work either. Switch the proxy to a node '
             'that reaches github.com and pypi.org, then try again.'
         )
-    if decision.env.get('HTTPS_PROXY') or decision.env.get('https_proxy'):
+    if decision.proxy:
         return (
             'Check that the proxy can reach github.com and pypi.org, '
             'then try again.'

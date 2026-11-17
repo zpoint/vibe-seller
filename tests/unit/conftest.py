@@ -44,4 +44,6 @@ def _hermetic_proxy(monkeypatch):
     for var in system_proxy.PROXY_VARS:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(system_proxy.urllib.request, 'getproxies', lambda: {})
+    # The OS settings read directly (when a proxy var is exported).
+    monkeypatch.setattr(system_proxy, '_platform_proxies', dict)
     system_proxy._reach_cache.clear()
