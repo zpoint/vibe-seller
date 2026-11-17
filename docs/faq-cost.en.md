@@ -12,7 +12,7 @@ Rough scale: one ad-tuning run on DeepSeek, 10 campaigns or fewer, costs about 1
 
 ### Measured reference: what one run of a common task costs
 
-The table below is real usage from two computers running store tasks in October 2026, averaged per task type. Prices are for Qwen: the **Token Plan** column is converted at Alibaba Cloud Bailian's Token Plan rate, and the **Pay-as-you-go API** column uses Qwen's official API prices.
+The table below is real usage from two computers running store tasks in October 2026, averaged per task type. Prices are for Qwen.
 
 | Task | Tokens per run | Token Plan | Pay-as-you-go API |
 |---|---|---|---|
