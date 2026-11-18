@@ -399,6 +399,10 @@ WSL **cannot** auto-launch Ziniao because Electron's Node.js V8 rejects unknown 
 
 If Ziniao is already running with the correct port, everything works automatically. The backend only raises errors when Ziniao is unreachable, guiding the user to the launcher script.
 
+## Yuehulian (悦互联) on Windows
+
+Yuehulian is a second supported anti-detect client, joining Ziniao — but **Windows-only** (incl. WSL-on-Windows, driving the Windows side over `127.0.0.1`); it is refused on macOS / pure Linux at runtime (`UnsupportedPlatform`) and hidden in the Store form off-Windows (via `serverPlatform`). Unlike Ziniao it ships **no local HTTP API**, so the `InjectCdpBackend` family drives its Electron client through a Node inspector + renderer DOM and injects `--remote-debugging-port` into the launched kernel (spawn hook → `DevToolsActivePort`), then reuses the same CDPMuxProxy path. There is no account record — the user logs into the GUI client manually (one login identity per machine) and the Store-form dropdown lists that login's stores via `GET /api/yuehulian/stores`. Full mechanism: [browser.md § Yuehulian Backend](browser.md).
+
 ## CDP Proxy Architecture
 
 Each Ziniao store gets a stable CDP multiplexing proxy (`app/browser/cdp_mux_proxy.py`) that listens on `127.0.0.1:{proxy_port}` and connects upstream (WebSocket) to the actual Ziniao `debuggingPort` (which changes on each `startBrowser` call). On WSL, the proxy connects to the Windows gateway IP instead of localhost. The browser-use wrapper's `BU_CDP_WS` env var (0.13; was `--cdp-url`) always points to the stable proxy port with a per-task client ID.

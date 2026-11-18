@@ -7,13 +7,21 @@ Pluggable browser backend system for launching and managing browser instances pe
 ## Architecture
 
 ```
-BrowserBackend (abstract)     BrowserManager (singleton)
-    ├── ZiniaoBackend             auto-launches & connects via CDP proxy
-    └── CustomCDPBackend (planned)
+BrowserBackend (abstract)         BrowserManager (singleton)
+    ├── ChromeBackend                 Playwright Chromium (macOS/Linux/WSLg)
+    ├── WinChromeBackend              native Windows Chrome (WSL2-on-Windows)
+    ├── ZiniaoBackend                 anti-detect, HTTP API → CDP proxy
+    └── InjectCdpBackend              anti-detect, no API → inject CDP port
+          └── YuehulianBackend        悦互联 (Windows/WSL-on-Windows only)
 
-Both Chrome and Ziniao stores use CDPMuxProxy for shared browser access
-and cookie persistence. BrowserManager generates a browser-use wrapper
-script per store that connects via the proxy.
+All backends front their browser with CDPMuxProxy for shared access and
+cookie persistence; BrowserManager generates a per-store browser-use
+wrapper that connects via the proxy. The two anti-detect families differ
+only in how they obtain the CDP endpoint — ziniao asks its local HTTP API,
+the inject family (yuehulian) drives the GUI client via a Node inspector +
+renderer DOM and plants `--remote-debugging-port` into the launched kernel
+(see the yuehulian section below). Downstream of the CDP endpoint they are
+identical.
 
 Agent interaction: browser-use CLI wrapper scripts at
 ~/.vibe-seller/bin/{slug}/browser-use (not MCP)
