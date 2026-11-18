@@ -11,8 +11,15 @@ swapped for a fake in tests via the ``client_factory`` seam.
 """
 
 from app.browser.adapters.yuehulian_client import RealYuehulianClient
+from app.browser.base import BrowserSessionInfo
 from app.browser.inject.client import InjectClient
 from app.browser.inject.engine import ClientFactory, InjectCdpBackend
+from app.browser.inject.errors import UnsupportedPlatform
+from app.browser.ziniao_utils import get_platform
+
+# Needs the Windows 悦互联 client. WSL-on-Windows is fine (we drive the
+# Windows side over 127.0.0.1); pure Linux / macOS cannot reach a client.
+_SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl'})
 
 
 def make_client(browser_config: dict) -> InjectClient:
@@ -27,3 +34,11 @@ class YuehulianBackend(InjectCdpBackend):
         # BrowserManager constructs backends with no args (the real
         # path). Tests pass a factory that returns a FakeYuehulianClient.
         super().__init__(client_factory or (lambda cfg: make_client(cfg)))
+
+    async def start(self, browser_config: dict) -> BrowserSessionInfo:
+        platform = get_platform()
+        if platform not in _SUPPORTED_PLATFORMS:
+            raise UnsupportedPlatform(
+                f'yuehulian is Windows-only; platform is {platform}'
+            )
+        return await super().start(browser_config)

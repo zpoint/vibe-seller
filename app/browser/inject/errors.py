@@ -45,3 +45,8 @@ class AccountConflict(InjectError):
 class IdleExpired(InjectError):
     code = 'IDLE_EXPIRED'
     hint = 'The session dropped while idle; it will be reopened.'
+
+
+class UnsupportedPlatform(InjectError):
+    code = 'UNSUPPORTED_PLATFORM'
+    hint = 'This backend is Windows-only (incl. WSL on Windows).'

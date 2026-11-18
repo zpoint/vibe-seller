@@ -21,6 +21,7 @@ from app.browser.inject.errors import (
     ClientNotRunning,
     LoginRequired,
     StoreNotFound,
+    UnsupportedPlatform,
 )
 from tests.unit.test_browser.fake_yuehulian import (
     FakeScenario,
@@ -28,6 +29,17 @@ from tests.unit.test_browser.fake_yuehulian import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _force_windows_platform():
+    # These tests exercise backend logic, not platform gating (which has
+    # its own tests). Force a supported platform so they run on CI/linux.
+    with mock.patch(
+        'app.browser.adapters.yuehulian.get_platform',
+        return_value='windows',
+    ):
+        yield
 
 
 def _backend(scenario: FakeScenario):
@@ -236,6 +248,38 @@ async def test_cdp_unreachable_engine_probe_when_port_dead(
         with pytest.raises(CdpUnreachable):
             await be.start(_cfg(9299, 'store-a'))
     proxy.assert_not_called()
+
+
+# ── platform gating: mac/linux refused, windows/wsl allowed ──────────
+async def test_platform_gating_blocks_mac(cdp_version_port, tmp_path):
+    be, _ = _backend(
+        FakeScenario(stores=[StoreRef('store-a')], cdp_port=cdp_version_port)
+    )
+    with (
+        mock.patch(
+            'app.browser.adapters.yuehulian.get_platform',
+            return_value='mac',
+        ),
+        _mocked_proxy(tmp_path) as proxy,
+    ):
+        with pytest.raises(UnsupportedPlatform):
+            await be.start(_cfg(9299, 'store-a'))
+    proxy.assert_not_called()
+
+
+async def test_platform_gating_twist_wsl_allowed(cdp_version_port, tmp_path):
+    be, _ = _backend(
+        FakeScenario(stores=[StoreRef('store-a')], cdp_port=cdp_version_port)
+    )
+    with (
+        mock.patch(
+            'app.browser.adapters.yuehulian.get_platform',
+            return_value='wsl',
+        ),
+        _mocked_proxy(tmp_path),
+    ):
+        info = await be.start(_cfg(9299, 'store-a'))
+    assert info.cdp_port == cdp_version_port
 
 
 # ── stop() tears down proxy and closes the env ───────────────────────
