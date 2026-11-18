@@ -141,6 +141,22 @@ async def test_open_store_no_port_is_cdp_unreachable():
         await _open(_FakeProc(port=None), insp)
 
 
+async def test_open_store_already_open_is_cdp_unreachable_not_not_found():
+    # The store exists but its env is already open ('Opened') — the client
+    # won't spawn a fresh debug-port kernel, so CDP can't attach. Report it
+    # clearly (CdpUnreachable), NOT a misleading StoreNotFound, and still
+    # clean up the spawn hook. The happy path above (click 'OK:0' → spawn →
+    # success) is the negative control for this branch.
+    insp = _FakeInspector(click='ALREADYOPEN:Opened')
+    with pytest.raises(CdpUnreachable):
+        await _open(_FakeProc(), insp)
+    with pytest.raises(StoreNotFound):
+        # sanity: the two are distinct outcomes, not the same raise
+        insp2 = _FakeInspector(click='NOTFOUND')
+        await _open(_FakeProc(), insp2)
+    assert insp.installed and insp.uninstalled
+
+
 async def test_ensure_running_launches_when_down():
     proc = _FakeProc(running=False, launch_ok=True)
     p1, p2, p3 = _patched(proc, _FakeInspector())

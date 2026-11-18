@@ -33,12 +33,25 @@ LOGIN_HASH_JS = 'location.hash'
 
 
 def click_open_js(store_name: str) -> str:
-    """JS that clicks the Open button on the row matching ``store_name``.
+    """JS that clicks the Open action on the row matching ``store_name``.
 
-    Rows are filtered to data rows (numeric seq first line); the Nth data
-    row's Open button is the Nth button whose text is exactly 'Open'
-    (verified: "Open in Batches" is excluded, order matches rows).
-    Returns ``'OK:<idx>'`` or ``'NOTFOUND'``.
+    Element-UI renders the action column as a parallel
+    ``.el-table__fixed-right`` table — one row per data row, in the same
+    order. We scope to the matched store's OWN action row and click its
+    primary button (the first with non-empty text; the others are empty
+    icon buttons). That button reads ``'Open'`` when the store is closed
+    and ``'Opened'`` when it is already open.
+
+    Matching per row — not a global ``=== 'Open'`` list indexed by
+    position — stays correct when stores are in mixed states (one open,
+    one closed). The global list drops the already-open store's button, so
+    the Nth entry no longer lines up with the Nth data row and the click
+    lands on the wrong store. That case is real: two concurrent tasks
+    open two stores, so the second one always sees the first as 'Opened'.
+
+    Returns ``'OK:<idx>'`` (clicked), ``'ALREADYOPEN:<label>'`` (the store
+    is already open, so no fresh debug-port kernel will spawn), or
+    ``'NOTFOUND'``.
     """
     name = json.dumps(store_name)
     return (
@@ -48,10 +61,16 @@ def click_open_js(store_name: str) -> str:
         '.trim();return /^[0-9]+$/.test(h);});'
         'var idx=rows.findIndex(function(r){'
         "return (r.innerText||'').includes(name);});"
-        "var opens=Array.from(document.querySelectorAll('button'))"
-        ".filter(function(b){return (b.innerText||'').trim()==='Open';});"
-        "if(idx<0||!opens[idx])return 'NOTFOUND';"
-        "opens[idx].click();return 'OK:'+idx;"
+        "if(idx<0)return 'NOTFOUND';"
+        'var actionRows=Array.from(document.querySelectorAll('
+        "'.el-table__fixed-right .el-table__row'));"
+        "var cell=actionRows[idx];if(!cell)return 'NOTFOUND';"
+        "var btn=Array.from(cell.querySelectorAll('button')).find("
+        "function(b){return (b.innerText||'').trim().length>0;});"
+        "if(!btn)return 'NOTFOUND';"
+        "var label=(btn.innerText||'').trim();"
+        "if(label!=='Open')return 'ALREADYOPEN:'+label;"
+        "btn.click();return 'OK:'+idx;"
         '})(' + name + ')'
     )
 

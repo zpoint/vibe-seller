@@ -60,6 +60,28 @@ def test_click_open_js_embeds_name_as_json():
     assert "querySelectorAll('.el-table__row')" in js
 
 
+def test_click_open_js_scopes_to_the_stores_own_action_row():
+    # The click must scope to the matched store's OWN fixed-right action
+    # row, not a global list of 'Open' buttons indexed by position — that
+    # list misaligns when stores are in mixed open/closed states and clicks
+    # the wrong store. Guards against a regression back to the global match.
+    js = click_open_js('store-a')
+    assert '.el-table__fixed-right .el-table__row' in js
+    # It must NOT build a global exact-'Open' button list and index it.
+    assert "==='Open';})" not in js
+    assert 'opens[idx]' not in js
+
+
+def test_click_open_js_signals_open_already_open_and_not_found():
+    # Three distinct outcomes the client classifier depends on.
+    js = click_open_js('store-a')
+    assert "'OK:'" in js
+    assert "'ALREADYOPEN:'" in js
+    assert "'NOTFOUND'" in js
+    # Only the exact 'Open' label clicks; any other label is already-open.
+    assert "label!=='Open'" in js
+
+
 def test_click_open_js_twist_injection_is_escaped():
     # A quote in the name must be JSON-escaped, never injected raw.
     js = click_open_js('a"; alert(1); //')

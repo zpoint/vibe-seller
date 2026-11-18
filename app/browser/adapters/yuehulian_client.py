@@ -92,8 +92,19 @@ class RealYuehulianClient(InjectClient):
             try:
                 before = len(await insp.recorded_spawns())
                 click_ts = time.time()
-                result = await insp.eval_in_renderer(click_open_js(ref))
-                if not str(result or '').startswith('OK'):
+                result = str(await insp.eval_in_renderer(click_open_js(ref)))
+                if result.startswith('ALREADYOPEN'):
+                    # The store env is already running — the client won't
+                    # spawn a fresh kernel, and the existing one was not
+                    # launched with a debug port, so CDP can't attach. A
+                    # clean task start/stop closes it (engine Browser.close);
+                    # a leftover from an unclean shutdown must be closed in
+                    # the client. Report that, not a misleading not-found.
+                    raise CdpUnreachable(
+                        f'store {ref!r} is already open in the 悦互联 client '
+                        'without a debug port; close it there and retry'
+                    )
+                if not result.startswith('OK'):
                     raise StoreNotFound(ref)
                 udd = await self._await_spawn_udd(insp, before)
             finally:

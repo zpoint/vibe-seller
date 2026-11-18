@@ -55,6 +55,25 @@ def win_path_to_wsl(win_path: str) -> str:
     return p
 
 
+def win_path_to_local(win_path: str) -> str:
+    """Resolve a Windows path to where THIS Python process reads files.
+
+    The 悦互联 client always reports Windows paths (``C:\\...``) and
+    sometimes doubles the separators in a kernel's spawn args
+    (``C:\\\\Users\\\\...``). The server reading the file may itself run as
+    native Windows (open ``C:\\...`` directly) or under WSL driving the
+    Windows side (open it under ``/mnt/<drive>/``). An earlier version
+    always converted to ``/mnt`` and so could not find the file on a
+    native-Windows install — the real deployment target. Pick the form for
+    the current OS; ``normpath`` collapses the doubled separators on
+    Windows and ``win_path_to_wsl`` does on WSL.
+    """
+    raw = win_path.strip().strip('"')
+    if os.name == 'nt':
+        return os.path.normpath(raw)
+    return win_path_to_wsl(raw)
+
+
 class ProcessLayer:
     """Locate, launch and inspect the Yuehulian client process tree."""
 
@@ -147,8 +166,8 @@ class ProcessLayer:
         rewritten since, so open_store only accepts the port its own
         launch wrote.
         """
-        path = (
-            win_path_to_wsl(user_data_dir).rstrip('/') + '/DevToolsActivePort'
+        path = os.path.join(
+            win_path_to_local(user_data_dir), 'DevToolsActivePort'
         )
         try:
             if newer_than is not None:
