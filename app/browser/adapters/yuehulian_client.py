@@ -75,15 +75,40 @@ class RealYuehulianClient(InjectClient):
             route = await insp.eval_in_renderer(LOGIN_HASH_JS)
             if not is_logged_in_hash(route):
                 raise LoginRequired()
-            rows = await insp.eval_in_renderer(SCRAPE_STORES_JS)
+            rows = await self._scrape_stores_until_ready(insp)
         return parse_store_list_json(json.dumps(rows))
+
+    async def _scrape_stores_until_ready(
+        self, insp: InspectorSession, *, attempts: int = 15, delay: float = 1.0
+    ) -> list:
+        """Scrape the store table, waiting for its rows to render.
+
+        The client's el-table fetches and renders its rows asynchronously
+        after the page mounts, so on a freshly started / just-logged-in
+        client the first scrape can see zero rows and wrongly look like an
+        empty login ("no visible stores"). Poll until rows parse,
+        re-confirming login each round (the session may still be
+        restoring); a genuinely empty login returns ``[]`` after the
+        budget. Returns the raw rows (parsing is the caller's job).
+        """
+        rows: list = []
+        for i in range(attempts):
+            route = await insp.eval_in_renderer(LOGIN_HASH_JS)
+            if not is_logged_in_hash(route):
+                raise LoginRequired()
+            rows = await insp.eval_in_renderer(SCRAPE_STORES_JS)
+            if parse_store_list_json(json.dumps(rows)):
+                return rows
+            if i < attempts - 1:
+                await asyncio.sleep(delay)
+        return rows
 
     async def open_store(self, ref: str) -> OpenedStore:
         async with self._inspector() as insp:
             route = await insp.eval_in_renderer(LOGIN_HASH_JS)
             if not is_logged_in_hash(route):
                 raise LoginRequired()
-            rows = await insp.eval_in_renderer(SCRAPE_STORES_JS)
+            rows = await self._scrape_stores_until_ready(insp)
             names = {s.name for s in parse_store_list_json(json.dumps(rows))}
             if ref not in names:
                 raise StoreNotFound(ref)

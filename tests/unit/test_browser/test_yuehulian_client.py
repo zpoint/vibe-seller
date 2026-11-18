@@ -87,6 +87,25 @@ class _FakeInspector:
         return list(self._spawns)
 
 
+class _SlowTableInspector(_FakeInspector):
+    """Returns an empty store table for the first ``empty_rounds`` scrapes,
+    then the populated rows — simulating the el-table rendering late on a
+    freshly started / just-logged-in client."""
+
+    def __init__(self, *, empty_rounds, **kw):
+        super().__init__(**kw)
+        self._empty_rounds = empty_rounds
+        self.scrape_calls = 0
+
+    async def eval_in_renderer(self, js, **kw):
+        if js == SCRAPE_STORES_JS:
+            self.scrape_calls += 1
+            if self.scrape_calls <= self._empty_rounds:
+                return []  # table not rendered yet
+            return self.rows
+        return await super().eval_in_renderer(js, **kw)
+
+
 def _patched(proc, insp):
     return (
         mock.patch.object(mod, 'ProcessLayer', return_value=proc),
@@ -155,6 +174,29 @@ async def test_open_store_already_open_is_cdp_unreachable_not_not_found():
         insp2 = _FakeInspector(click='NOTFOUND')
         await _open(_FakeProc(), insp2)
     assert insp.installed and insp.uninstalled
+
+
+async def test_list_stores_waits_for_the_table_to_render():
+    # The store table renders async; the first few scrapes see 0 rows. The
+    # enumerate must poll until rows appear instead of reporting "no stores"
+    # on a freshly started / just-logged-in client (the user-reported bug).
+    insp = _SlowTableInspector(empty_rounds=3)
+    p1, p2, p3 = _patched(_FakeProc(), insp)
+    with p1, p2, p3:
+        stores = await RealYuehulianClient({}).list_stores()
+    assert [s.name for s in stores] == ['store-a']
+    assert insp.scrape_calls >= 4  # polled past the empty rounds
+
+
+async def test_list_stores_twist_empty_login_returns_empty_not_hang():
+    # Negative control: the table never populates (a genuinely empty login)
+    # → return [] after the bounded budget, never an unbounded wait.
+    insp = _SlowTableInspector(empty_rounds=10_000)
+    p1, p2, p3 = _patched(_FakeProc(), insp)
+    with p1, p2, p3:
+        stores = await RealYuehulianClient({}).list_stores()
+    assert stores == []
+    assert insp.scrape_calls == 15  # the attempts budget, then gives up
 
 
 async def test_ensure_running_launches_when_down():

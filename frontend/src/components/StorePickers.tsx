@@ -47,12 +47,6 @@ export function YuehulianSection(props: {
         </select>
       )}
       {statusHint && <p className="text-[11px] text-amber-600">{statusHint}</p>}
-      <input
-        value={p.selectedBrowserOauth}
-        onChange={e => p.setSelectedBrowserOauth(e.target.value)}
-        placeholder={t('settings.yuehulianHandFill')}
-        className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs"
-      />
     </div>
   )
 }
