@@ -1,0 +1,281 @@
+"""``app.ticktick_mcp_install``: first-use install of ticktick-mcp.
+
+Run against real subprocesses: fake ``git`` / ``uv`` scripts on PATH
+stand in for the network, so a hang, a failure and a kill are the real
+thing. The invariants: "installed" means the marker (never just "the
+directory exists"); a failed or timed-out install leaves nothing
+behind; a stalled clone ends with an error saying why; the clone gets
+the system proxy.
+"""
+
+import asyncio
+import os
+from pathlib import Path
+import re
+import time
+
+import pytest
+
+from app import system_proxy, ticktick_mcp_install as inst
+from app.platform import IS_WINDOWS
+
+pytestmark = [
+    pytest.mark.unit,
+    pytest.mark.skipif(IS_WINDOWS, reason='fake git/uv are shell scripts'),
+]
+
+# `git clone --depth 1 URL DEST`: DEST is the last argument.
+_FAKE_GIT = """#!/bin/sh
+dest=""
+for a in "$@"; do dest="$a"; done
+echo "$HTTPS_PROXY" > "$FAKE_LOG/git-proxy"
+echo "$GIT_HTTP_LOW_SPEED_LIMIT/$GIT_HTTP_LOW_SPEED_TIME" > "$FAKE_LOG/git-low-speed"
+case "$FAKE_GIT" in
+  hang)
+    sleep 300 &
+    echo $! > "$FAKE_LOG/grandchild-pid"
+    mkdir -p "$dest/.git"
+    wait ;;
+  fail)
+    echo "fatal: unable to access: Could not resolve host" >&2
+    exit 128 ;;
+  *)
+    mkdir -p "$dest/ticktick_mcp" "$dest/.git"
+    touch "$dest/ticktick_mcp/__init__.py" ;;
+esac
+"""
+
+# `uv venv PATH` and `uv pip install ...`.
+_FAKE_UV = """#!/bin/sh
+if [ "$1" = venv ]; then
+  mkdir -p "$2/bin"
+  touch "$2/bin/python3"
+  exit 0
+fi
+[ "$FAKE_UV_PIP" = fail ] && {
+  echo "no matching distribution in https://me:s3cr3t@m.test/simple" >&2
+  exit 1
+}
+exit 0
+"""
+
+
+@pytest.fixture
+def fake(monkeypatch, tmp_path):
+    """Fake git/uv first on PATH; install dir and proxy isolated."""
+    bin_dir = tmp_path / 'bin'
+    log = tmp_path / 'log'
+    bin_dir.mkdir()
+    log.mkdir()
+    for name, body in (('git', _FAKE_GIT), ('uv', _FAKE_UV)):
+        script = bin_dir / name
+        script.write_text(body)
+        script.chmod(0o755)
+    monkeypatch.setenv('PATH', f'{bin_dir}{os.pathsep}/bin{os.pathsep}/usr/bin')
+    monkeypatch.setenv('FAKE_LOG', str(log))
+    monkeypatch.setattr(inst, 'TICKTICK_MCP_DIR', tmp_path / 'ticktick-mcp')
+    for var in system_proxy.PROXY_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(system_proxy.urllib.request, 'getproxies', lambda: {})
+    # A module-level asyncio.Lock binds to the first loop that waits on
+    # it; each test has its own loop.
+    monkeypatch.setattr(inst, '_ONE_AT_A_TIME', asyncio.Lock())
+    return log
+
+
+def _pid_gone(pid: int) -> bool:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+async def test_stalled_clone_fails_with_a_reason_and_leaves_nothing(
+    fake, monkeypatch
+):
+    """The field bug: on a network that cannot reach GitHub the clone
+    never returned and the UI sat on "installing…" forever."""
+    monkeypatch.setenv('FAKE_GIT', 'hang')
+    monkeypatch.setattr(inst, 'CLONE_TIMEOUT_S', 1.0)
+    started = time.monotonic()
+    with pytest.raises(inst.TickTickInstallError) as err:
+        await inst.ensure_ticktick_mcp()
+    assert time.monotonic() - started < 10
+    message = str(err.value)
+    assert 'timed out' in message
+    assert 'proxy' in message
+    # The half-made directory must not pass for an install next time.
+    assert not inst.TICKTICK_MCP_DIR.exists()
+    assert not inst.ticktick_mcp_installed()
+    # git's own helper process dies with it, not just git.
+    grandchild = int((fake / 'grandchild-pid').read_text())
+    assert _pid_gone(grandchild)
+
+
+async def test_failed_clone_reports_git_output(fake, monkeypatch):
+    monkeypatch.setenv('FAKE_GIT', 'fail')
+    with pytest.raises(inst.TickTickInstallError) as err:
+        await inst.ensure_ticktick_mcp()
+    assert 'Could not resolve host' in str(err.value)
+    assert not inst.TICKTICK_MCP_DIR.exists()
+
+
+async def test_dependency_failure_is_not_an_install(fake, monkeypatch):
+    """Clone fine, deps fail: the next click must retry, not find a
+    directory and call it done."""
+    monkeypatch.setenv('FAKE_UV_PIP', 'fail')
+    with pytest.raises(inst.TickTickInstallError):
+        await inst.ensure_ticktick_mcp()
+    assert not inst.TICKTICK_MCP_DIR.exists()
+    assert not inst.ticktick_mcp_installed()
+    monkeypatch.delenv('FAKE_UV_PIP')
+    await inst.ensure_ticktick_mcp()
+    assert inst.ticktick_mcp_installed()
+
+
+async def test_leftover_directory_is_redone_not_trusted(fake):
+    leftover = inst.TICKTICK_MCP_DIR
+    (leftover / '.git').mkdir(parents=True)
+    assert not inst.ticktick_mcp_installed()
+    await inst.ensure_ticktick_mcp()
+    assert inst.ticktick_mcp_installed()
+    assert (leftover / inst.INSTALL_MARKER).is_file()
+    assert (leftover / 'ticktick_mcp' / '__init__.py').is_file()
+
+
+async def test_installed_checkout_is_left_alone(fake, monkeypatch):
+    """An install from before the marker (package + venv) counts, and
+    no network command runs for it."""
+    root = inst.TICKTICK_MCP_DIR
+    (root / 'ticktick_mcp').mkdir(parents=True)
+    (root / 'ticktick_mcp' / '__init__.py').touch()
+    (root / '.venv' / 'bin').mkdir(parents=True)
+    (root / '.venv' / 'bin' / 'python3').touch()
+    # A git that would fail the test if it were run.
+    monkeypatch.setenv('FAKE_GIT', 'fail')
+    assert await inst.ensure_ticktick_mcp() == str(root)
+    assert not (fake / 'git-proxy').exists()
+
+
+async def test_clone_goes_through_a_live_system_proxy(fake, monkeypatch):
+    monkeypatch.setattr(
+        system_proxy.urllib.request,
+        'getproxies',
+        lambda: {'https': '127.0.0.1:7890'},
+    )
+    monkeypatch.setattr(system_proxy, 'reaches', lambda url, proxy: True)
+    await inst.ensure_ticktick_mcp()
+    assert (fake / 'git-proxy').read_text().strip() == 'http://127.0.0.1:7890'
+
+
+async def test_a_proxy_that_cannot_reach_github_is_not_used(fake, monkeypatch):
+    """A system proxy that is down must not be forced on the clone: it
+    goes direct, with no proxy var for git to die on."""
+    monkeypatch.setattr(
+        system_proxy.urllib.request,
+        'getproxies',
+        lambda: {'https': '127.0.0.1:7890'},
+    )
+    monkeypatch.setattr(system_proxy, 'reaches', lambda url, proxy: False)
+    await inst.ensure_ticktick_mcp()
+    assert (fake / 'git-proxy').read_text().strip() == ''
+
+
+async def test_a_stale_exported_proxy_is_stripped(fake, monkeypatch):
+    monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
+    monkeypatch.setattr(system_proxy, 'reaches', lambda url, proxy: False)
+    await inst.ensure_ticktick_mcp()
+    assert (fake / 'git-proxy').read_text().strip() == ''
+
+
+async def test_both_github_and_the_package_index_are_checked(fake, monkeypatch):
+    monkeypatch.setattr(
+        system_proxy.urllib.request,
+        'getproxies',
+        lambda: {'https': '127.0.0.1:7890'},
+    )
+    asked = []
+    monkeypatch.setattr(
+        system_proxy,
+        'reaches',
+        lambda url, proxy: asked.append(url) or True,
+    )
+    await inst.ensure_ticktick_mcp()
+    assert asked == [system_proxy.GITHUB, system_proxy.PYPI]
+
+
+async def test_concurrent_clicks_install_once(fake):
+    results = await asyncio.gather(
+        inst.ensure_ticktick_mcp(), inst.ensure_ticktick_mcp()
+    )
+    assert results[0] == results[1] == str(inst.TICKTICK_MCP_DIR)
+    assert inst.ticktick_mcp_installed()
+
+
+def test_the_install_answers_before_the_browser_stops_waiting():
+    """The frontend gives the request LONG_TIMEOUT_MS; the install
+    (probes included) must end, with its own reason, inside it."""
+    source = (
+        Path(__file__).parents[2] / 'frontend/src/lib/requestDeadline.ts'
+    ).read_text()
+    match = re.search(r'LONG_TIMEOUT_MS = ([\d_ *]+)', source)
+    assert match, 'LONG_TIMEOUT_MS not found'
+    client_s = eval(match.group(1).replace('_', '')) / 1000  # noqa: S307
+    worst = inst.INSTALL_BUDGET_S + 2 * system_proxy.PROBE_TIMEOUT_S
+    assert worst + 15 < client_s
+
+
+async def test_the_whole_click_has_one_deadline(fake, monkeypatch):
+    """Per-step caps alone add up past the browser's wait; the budget
+    cuts the step that would overrun it."""
+    monkeypatch.setenv('FAKE_GIT', 'hang')
+    monkeypatch.setattr(inst, 'INSTALL_BUDGET_S', 1.0)
+    started = time.monotonic()
+    with pytest.raises(inst.TickTickInstallError) as err:
+        await inst.ensure_ticktick_mcp()
+    assert time.monotonic() - started < 10
+    assert 'timed out after' in str(err.value)
+    assert not inst.TICKTICK_MCP_DIR.exists()
+
+
+async def test_git_aborts_a_crawling_transfer_itself(fake):
+    await inst.ensure_ticktick_mcp()
+    assert (fake / 'git-low-speed').read_text().strip() == '1000/30'
+
+
+async def test_an_index_token_in_tool_output_is_not_shown(fake, monkeypatch):
+    monkeypatch.setenv('FAKE_UV_PIP', 'fail')
+    with pytest.raises(inst.TickTickInstallError) as err:
+        await inst.ensure_ticktick_mcp()
+    assert 's3cr3t' not in str(err.value)
+    assert 'https://***@m.test/simple' in str(err.value)
+
+
+async def test_a_dropped_proxy_is_named_in_the_error(fake, monkeypatch):
+    """The user's proxy is on; the message must not tell them to turn
+    it on, but say it was tried and could not reach GitHub."""
+    monkeypatch.setattr(
+        system_proxy.urllib.request,
+        'getproxies',
+        lambda: {'https': '127.0.0.1:7890'},
+    )
+    monkeypatch.setattr(system_proxy, 'reaches', lambda url, proxy: False)
+    monkeypatch.setenv('FAKE_GIT', 'fail')
+    with pytest.raises(inst.TickTickInstallError) as err:
+        await inst.ensure_ticktick_mcp()
+    message = str(err.value)
+    assert 'proxy http://127.0.0.1:7890 could not reach github.com' in message
+    assert 'Turn on the system proxy' not in message
+
+
+async def test_missing_tool_names_it(fake, monkeypatch, tmp_path):
+    empty = tmp_path / 'empty'
+    empty.mkdir()
+    monkeypatch.setenv('PATH', str(empty))
+    with pytest.raises(inst.TickTickInstallError) as err:
+        await inst.ensure_ticktick_mcp()
+    assert '`git`' in str(err.value)

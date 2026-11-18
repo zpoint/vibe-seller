@@ -383,3 +383,80 @@ def test_no_proxy_anywhere_probes_direct(monkeypatch):
     monkeypatch.setattr(ce.urllib.request, 'getproxies', lambda: {})
     assert ce.proxy_env() == {}
     assert _probe_proxies() == {}
+
+
+# -- the processes Playwright is actually spawned as ---------------------
+
+
+class _Done:
+    """A finished child: what both spawn sites read back."""
+
+    stdout = ''
+    returncode = 0
+
+    async def communicate(self):
+        return b'', None
+
+
+def _spawn_env(monkeypatch, site: str) -> dict[str, str]:
+    """The env the real spawn at *site* hands Playwright."""
+    seen: dict[str, dict] = {}
+
+    def fake_run(cmd, **kw):
+        seen['env'] = kw['env']
+        return _Done()
+
+    async def fake_exec(*cmd, **kw):
+        seen['env'] = kw['env']
+        return _Done()
+
+    monkeypatch.setattr(ce.subprocess, 'run', fake_run)
+    monkeypatch.setattr(ce.asyncio, 'create_subprocess_exec', fake_exec)
+    if site == 'dry_run':
+        ce.dry_run(None)
+    elif site == 'install_foreground':
+        monkeypatch.setattr(ce, 'missing', lambda: [Path('/x')])
+        monkeypatch.setattr(ce, 'user_download_host', lambda: 'mirror.test')
+        ce.install_foreground(lambda msg: None)
+    else:
+        asyncio.run(ce._run_install(None))
+    return seen['env']
+
+
+_SPAWN_SITES = ('dry_run', 'install_foreground', 'run_install')
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('site', _SPAWN_SITES)
+def test_spawned_playwright_gets_the_system_proxy(monkeypatch, site):
+    """Every place Playwright is launched reaches the network the way
+    the user's browser does — not just the helper that builds the env."""
+    _clear_proxy_env(monkeypatch)
+    monkeypatch.setattr(
+        ce.urllib.request, 'getproxies', lambda: {'https': '127.0.0.1:7890'}
+    )
+    env = _spawn_env(monkeypatch, site)
+    assert env['HTTPS_PROXY'] == 'http://127.0.0.1:7890'
+    assert env['HTTP_PROXY'] == 'http://127.0.0.1:7890'
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('site', _SPAWN_SITES)
+def test_spawned_playwright_keeps_the_users_own_proxy(monkeypatch, site):
+    _clear_proxy_env(monkeypatch)
+    monkeypatch.setenv('https_proxy', 'http://mine:3128')
+    monkeypatch.setattr(
+        ce.urllib.request, 'getproxies', lambda: {'https': 'sys:1'}
+    )
+    env = _spawn_env(monkeypatch, site)
+    assert env['https_proxy'] == 'http://mine:3128'
+    assert 'HTTPS_PROXY' not in env
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('site', _SPAWN_SITES)
+def test_spawned_playwright_goes_direct_without_any_proxy(monkeypatch, site):
+    _clear_proxy_env(monkeypatch)
+    monkeypatch.setattr(ce.urllib.request, 'getproxies', lambda: {})
+    env = _spawn_env(monkeypatch, site)
+    assert not any(v in env for v in _NO_PROXY_ENV)

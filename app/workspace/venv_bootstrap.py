@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 
 from app.platform import venv_executable, venv_python
+from app.system_proxy import checked_download_env_async, pypi_target
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ async def bootstrap_venv_tools(venv_dir: Path) -> None:
         python,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=await checked_download_env_async((pypi_target(),)),
     )
     _, stderr_bytes = await proc.communicate()
     if proc.returncode != 0:

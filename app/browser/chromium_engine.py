@@ -44,6 +44,7 @@ import urllib.error
 import urllib.request
 
 from app.env_options import Options
+from app.system_proxy import download_env, proxy_env
 
 logger = logging.getLogger(__name__)
 
@@ -79,38 +80,6 @@ def _playwright(*args: str) -> list[str]:
     return [sys.executable, '-m', 'playwright', *args]
 
 
-_PROXY_VARS = (
-    'https_proxy',
-    'HTTPS_PROXY',
-    'http_proxy',
-    'HTTP_PROXY',
-    'all_proxy',
-    'ALL_PROXY',
-)
-
-
-def proxy_env() -> dict[str, str]:
-    """Proxy vars to hand Playwright's downloader, beyond os.environ.
-
-    Playwright's downloader reads proxy ENV VARS only, never the OS
-    system proxy — which is all that Clash-style "system proxy" mode
-    sets (Windows Internet Settings, macOS network preferences). With
-    no proxy var exported, translate the system proxy into
-    HTTPS_PROXY/HTTP_PROXY so the download takes the path the user's
-    browser does; that ignored proxy is how the Windows installer's
-    download hung for an hour. Proxy vars the user exported win.
-    """
-    if any(os.environ.get(v) for v in _PROXY_VARS):
-        return {}
-    system = urllib.request.getproxies()  # env empty → OS settings
-    proxy = system.get('https') or system.get('http')
-    if not proxy:
-        return {}
-    if '://' not in proxy:
-        proxy = 'http://' + proxy
-    return {'HTTPS_PROXY': proxy, 'HTTP_PROXY': proxy}
-
-
 def _probe_opener() -> urllib.request.OpenerDirector:
     """urllib opener on the SAME network path the download will take.
 
@@ -128,7 +97,7 @@ def _probe_opener() -> urllib.request.OpenerDirector:
 
 def _env(host: str | None) -> dict[str, str]:
     """os.environ (+ system proxy), PLAYWRIGHT_DOWNLOAD_HOST unless None."""
-    env = {**os.environ, **proxy_env()}
+    env = download_env()
     if host is not None:
         # Playwright treats an empty value as unset (its own CDN).
         env['PLAYWRIGHT_DOWNLOAD_HOST'] = host
