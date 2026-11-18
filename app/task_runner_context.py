@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import ads_routing
+from app.browser.base import is_antidetect
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
@@ -172,7 +173,7 @@ def build_store_context(
 ) -> str:
     slug = _store_slug(store.name, store.id)
     backend = store.browser_backend
-    if backend == 'ziniao':
+    if is_antidetect(backend):
         ctx = (
             f"You are working on store '{store.name}'.\n"
             f'Store profile: stores/{slug}/ — read STORE.md, '

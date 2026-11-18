@@ -12,6 +12,20 @@ class BrowserSessionInfo:
     ws_endpoint: str | None = None
 
 
+# Anti-detect backends: a logged-in, IP-isolated per-store browser that
+# restricts non-seller URLs (so agents get the dual-browser routing, the
+# IP-isolation cookie rule, etc.). ziniao talks to its client over HTTP;
+# yuehulian injects CDP into its GUI client — but to the agent/prompt and
+# the routing layer they behave the same. Credential/OTP auto-fill is
+# ziniao-specific and is gated on the exact backend, not this set.
+ANTIDETECT_BACKENDS = frozenset({'ziniao', 'yuehulian'})
+
+
+def is_antidetect(backend: str) -> bool:
+    """True for logged-in IP-isolated per-store browsers (ziniao/yuehulian)."""
+    return backend in ANTIDETECT_BACKENDS
+
+
 class BrowserBackend(ABC):
     @abstractmethod
     async def start(self, browser_config: dict) -> BrowserSessionInfo: ...
