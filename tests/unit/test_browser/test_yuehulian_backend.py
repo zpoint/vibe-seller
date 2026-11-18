@@ -283,12 +283,21 @@ async def test_platform_gating_twist_wsl_allowed(cdp_version_port, tmp_path):
 
 
 # ── stop() tears down proxy and closes the env ───────────────────────
-async def test_stop_closes_proxy_and_env(cdp_version_port, tmp_path):
+async def test_stop_closes_browser_proxy_and_env(cdp_version_port, tmp_path):
     be, fake = _backend(
         FakeScenario(stores=[StoreRef('store-a')], cdp_port=cdp_version_port)
     )
-    with _mocked_proxy(tmp_path) as proxy:
+    with (
+        _mocked_proxy(tmp_path) as proxy,
+        mock.patch.object(
+            YuehulianBackend, '_close_browser', new=mock.AsyncMock()
+        ) as close_br,
+    ):
         info = await be.start(_cfg(9299, 'store-a'))
         await be.stop(info)
+    # env closed via CDP (so a later task re-opens fresh), proxy stopped,
+    # client env closed
+    close_br.assert_awaited_once()
+    assert close_br.await_args.args[1] == cdp_version_port
     proxy.return_value.stop.assert_awaited_once()
     assert fake.closed == ['store-a']

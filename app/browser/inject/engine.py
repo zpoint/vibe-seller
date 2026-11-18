@@ -17,7 +17,7 @@ import aiohttp
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.cdp_mux_proxy import CDPMuxProxy
 from app.browser.downloads import prepare_download_dir
-from app.browser.inject.client import InjectClient
+from app.browser.inject.client import InjectClient, OpenedStore
 from app.browser.inject.errors import CdpUnreachable, LoginRequired
 from app.config import LOCALHOST
 
@@ -38,6 +38,7 @@ class InjectCdpBackend(BrowserBackend):
         self._client: InjectClient | None = None
         self._proxy: CDPMuxProxy | None = None
         self._store_ref: str | None = None
+        self._opened: OpenedStore | None = None
 
     async def start(self, browser_config: dict) -> BrowserSessionInfo:
         store_ref = browser_config.get('browser_ref', '')
@@ -53,6 +54,7 @@ class InjectCdpBackend(BrowserBackend):
 
         opened = await client.open_store(store_ref)
         self._store_ref = store_ref
+        self._opened = opened
 
         if not await self._cdp_reachable(opened.cdp_host, opened.cdp_port):
             raise CdpUnreachable(
@@ -80,6 +82,16 @@ class InjectCdpBackend(BrowserBackend):
         return BrowserSessionInfo(cdp_port=opened.cdp_port)
 
     async def stop(self, info: BrowserSessionInfo) -> None:
+        # Close the store env itself (CDP Browser.close) BEFORE tearing
+        # down the proxy, so the kernel exits cleanly and the next task
+        # re-opens a fresh env. Without this, close_store is a no-op and a
+        # second task on the same store finds it already open (no new
+        # spawn → CdpUnreachable).
+        if self._opened is not None:
+            await self._close_browser(
+                self._opened.cdp_host, self._opened.cdp_port
+            )
+            self._opened = None
         try:
             if self._proxy:
                 await self._proxy.stop()
@@ -93,6 +105,27 @@ class InjectCdpBackend(BrowserBackend):
                 logger.warning('inject backend close_store failed: %s', e)
             finally:
                 self._store_ref = None
+
+    @staticmethod
+    async def _close_browser(host: str, port: int) -> None:
+        """Best-effort CDP ``Browser.close`` on the kernel (clean exit)."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f'http://{host}:{port}/json/version',
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    ws_url = (await resp.json()).get('webSocketDebuggerUrl')
+                if not ws_url:
+                    return
+                async with session.ws_connect(ws_url, timeout=10) as ws:
+                    await ws.send_json({'id': 1, 'method': 'Browser.close'})
+                    try:
+                        await asyncio.wait_for(ws.receive(), timeout=3)
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug('Browser.close on %s:%s failed: %s', host, port, e)
 
     async def _cdp_reachable(self, host: str, port: int) -> bool:
         """True once Chrome's CDP endpoint answers on ``host:port``."""
