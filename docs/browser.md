@@ -221,6 +221,17 @@ Key behaviors:
 - `pkill` (SIGTERM) may not fully terminate Ziniao (daemon auto-restarts); SIGKILL (`pkill -9`) is required
 - WebDriver permission error (`statusCode: -10003`) means the BOSS account hasn't enabled WebDriver on the Ziniao Open Platform. Guide: https://open.ziniao.com/docSupport?docId=99
 
+### `adapters/yuehulian*.py` — Yuehulian Backend (Route B, Windows-only)
+
+**悦互联 (Yuehulian)** is an ixBrowser OEM with **no local automation API**. Instead of HTTP (ziniao), it is driven by injecting a CDP debug port into the client-launched kernel:
+
+- **`inject/`** — shared Route-B engine (`InjectCdpBackend`), the `InjectClient` boundary, and typed operator errors (`CLIENT_NOT_RUNNING` / `LOGIN_REQUIRED` / `STORE_NOT_FOUND` / `CDP_UNREACHABLE` / `ACCOUNT_CONFLICT` / `IDLE_EXPIRED` / `UNSUPPORTED_PLATFORM`).
+- **`adapters/yuehulian_win.py`** — Windows I/O: `ProcessLayer` (locate install; Electron **main** pid, excluding the kernel `chrome.exe`; launch; kernel `--user-data-dir`s; `DevToolsActivePort`) and `InspectorSession` (open the Node inspector via `ELECTRON_RUN_AS_NODE` + `process._debugProcess`; `Runtime.evaluate` incl. `webContents.executeJavaScript`; spawn-hook install/uninstall; `require('inspector').close()`).
+- **`adapters/yuehulian_dom.py`** — pure parsing of the renderer's Element-UI store table (drops fixed-column duplicate rows), the login-state route hash, and the click-Open-by-name JS. (UIA is a dead end — the renderer ships with accessibility off.)
+- **`adapters/yuehulian_client.py`** — `RealYuehulianClient` composing the above; `open_store` installs the spawn-hook (adds `--remote-debugging-port=0`), clicks Open, waits for the intercepted kernel's `--user-data-dir`, then reads a **fresh** (mtime-guarded) `DevToolsActivePort`.
+
+From the CDP endpoint on it reuses `CDPMuxProxy` exactly like the other backends, and it is routed through the anti-detect prompt path (`is_antidetect`) like ziniao — minus ziniao's credential auto-fill (yuehulian envs are cookie-persisted). No account record: the user logs into the GUI client manually (one login identity per machine); store selection comes from `GET /api/yuehulian/stores`. **Windows-only** (incl. WSL-on-Windows); refused elsewhere at runtime and hidden in the UI off-Windows.
+
 ## Browser Lifecycle — idle termination + tab cap
 
 Browsers start lazily but historically were **never stopped**
