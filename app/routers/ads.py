@@ -29,6 +29,7 @@ from sqlalchemy import select
 from app import ads_client, ads_path_guard, ads_skill, telemetry
 from app.ai.ad_scope_access import ads_call_refusal
 from app.auth import get_current_user, require_admin
+from app.browser.base import is_antidetect
 from app.config import VIBE_SELLER_DIR
 from app.database import get_db
 from app.models.store import Store
@@ -159,7 +160,11 @@ async def store_auth_url(
     except ads_client.AdsServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    needs_antidetect = store.browser_backend == 'ziniao'
+    # Any anti-detect backend (ziniao / yuehulian) must open the auth URL
+    # in the store's own browser for the right IP + seller login. The
+    # 'ziniao' value selects that instruction; its text already reads
+    # "...or the browser this store uses", so it covers yuehulian too.
+    needs_antidetect = is_antidetect(store.browser_backend)
     body['open_in'] = 'ziniao' if needs_antidetect else 'browser'
     body['instruction_key'] = (
         'ads.authorize.openInZiniao'

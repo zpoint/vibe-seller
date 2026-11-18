@@ -5,6 +5,7 @@ from unittest import mock
 
 import pytest
 
+from app.browser.adapters.yuehulian import YuehulianBackend
 from app.browser.bu_binary import BrowserUseNotFound
 from app.browser.chrome import ChromeBackend
 from app.browser.manager import (
@@ -401,6 +402,12 @@ class TestBrowserManagerPerStore:
         mgr = BrowserManager()
         b = mgr._get_backend('store-c', 'chrome')
         assert isinstance(b, ChromeBackend)
+
+    def test_yuehulian_returns_yuehulian_backend(self):
+        """Yuehulian stores return a YuehulianBackend instance."""
+        mgr = BrowserManager()
+        b = mgr._get_backend('store-y', 'yuehulian')
+        assert isinstance(b, YuehulianBackend)
 
     def test_unique_proxy_ports(self):
         """Each store gets a unique proxy port."""

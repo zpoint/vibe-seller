@@ -438,6 +438,18 @@ class BrowserManager:
             if store.browser_oauth:
                 browser_config['browser_oauth'] = store.browser_oauth
 
+        # Yuehulian: no credentials (the user logs into the GUI client
+        # manually; it keeps a token). We only need which store env to
+        # open — reuse the browser_oauth column to hold its env name. The
+        # install path is auto-detected, with an optional AppSettings
+        # override.
+        if store.browser_backend == 'yuehulian':
+            if store.browser_oauth:
+                browser_config['browser_ref'] = store.browser_oauth
+            row = await db.get(AppSettings, 'yuehulian_client_path')
+            if row and row.value:
+                browser_config['client_path'] = row.value
+
         # Allocate unique proxy port — both backends use CDPMuxProxy.
         # Reuse the DB-persisted port if available.
         existing_port = session.proxy_port if session else None

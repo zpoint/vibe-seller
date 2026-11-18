@@ -6,10 +6,19 @@ auto-fill would be wrong. Each assertion pairs with a twist.
 
 import pytest
 
+from app.browser.base import is_antidetect
 from app.models.store import Store
 from app.task_runner_context import build_store_context
 
 pytestmark = pytest.mark.unit
+
+
+def test_is_antidetect_covers_ziniao_and_yuehulian_only():
+    assert is_antidetect('ziniao')
+    assert is_antidetect('yuehulian')
+    assert not is_antidetect('chrome')
+    assert not is_antidetect('winchrome')
+    assert not is_antidetect('web')
 
 
 def _store(backend: str) -> Store:
