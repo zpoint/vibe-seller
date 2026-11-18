@@ -2,14 +2,24 @@
 
 ## Contents
 
-- [Business Reports](#business-reports)
+- [Business Reports (retiring)](#business-reports-retiring)
 - [Tax Document Library](#tax-document-library)
 - [Listing reports (Custom Reports)](#listing-reports-custom-reports)
 
-## Business Reports
+## Business Reports (retiring)
+
+**Retiring at the end of 2026.** Every Business Reports page carries
+Amazon's banner (seen 2026-11-18): "Business Reports is retiring by the
+end of the year. Move to Custom Analytics now" / 「业务报告将于年底停用。
+立即迁移到定制分析」. Amazon has published no exact date. Use
+[Custom Analytics](custom-analytics.md) for new work; this page is kept
+for the window in which both exist, because its CSV still carries ASINs
+(the Custom Analytics export leaves them empty).
 
 **URL:** `https://sellercentral.amazon.{tld}/business-reports` (lands on
-`#/dashboard`, the Sales Dashboard).
+`#/dashboard`, the Sales Dashboard). The NGS favorites row and drawer may
+link the older `/gp/site-metrics/report.html#/dashboard`, which opens the
+same page.
 
 The left sidebar groups **Dashboards** (Sales Dashboard), **By Date** and
 **By ASIN**. Report rows are anchors whose `#/report?id=…` hrefs are
@@ -18,15 +28,19 @@ language-stable — match by href, not the localized label:
 | Report | href fragment |
 |---|---|
 | Sales and Traffic | `#/report?id=102:SalesTrafficTimeSeries` |
-| Detail Page Sales and Traffic | `#/report?id=102:DetailSalesTrafficByTime` |
+| Detail Page Sales and Traffic (by date) | `#/report?id=102:DetailSalesTrafficByTime` |
 | Seller Performance | `#/report?id=102:SellerPerformanceForMerchants` |
+| Detail Page Sales and Traffic (by ASIN) | `#/report?id=102:DetailSalesTrafficBySKU` |
 | Detail Page Sales and Traffic By Parent Item | `#/report?id=102:DetailSalesTrafficByParentItem` |
 | Detail Page Sales and Traffic By Child Item | `#/report?id=102:DetailSalesTrafficByChildItem` |
+| Sales and orders by month (seen on US only) | `#/report?id=SalesOrderByMonth` |
 
-Data is pre-loaded; the single **Download** button (a `kat-button` in a
-`kat-table-cell`) exports the current view as CSV instantly. Use the
-download snippet from SKILL.md, matching on the button's label rather
-than a date row.
+Data is pre-loaded. The **Download (.csv)** / 「下载 (.csv)」 button is
+`kat-button[data-testid=BR_TABLE_BAR_DOWNLOAD_BUTTON]` in the bar above
+the table; click the `<button>` inside its shadow root. It exports the
+current view instantly as `BusinessReport-MM-DD-YY.csv`, named by the
+download date, not by the report's range. Values are display strings:
+`"1,234"`, `12.34%`, `"SAR 1,234.56"`.
 
 ## Tax Document Library
 

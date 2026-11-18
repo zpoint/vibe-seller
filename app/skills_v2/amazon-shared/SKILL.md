@@ -168,7 +168,7 @@ on both.
 ### 4a. Navigate by direct URL first
 
 `/reportcentral/...`, `/payments/reports-repository`, `/orders-v3`,
-`/business-reports`, `/myinventory/inventory` and the rest load directly
+`/business-reports`, `/custom-analytics`, `/myinventory/inventory` and the rest load directly
 on both UIs. For a known destination just `new_tab(<url>)` with the path
 from `amazon-sites.md`. Use the menus (§4c/§4d) only to discover a page
 whose URL you don't have.
@@ -257,61 +257,81 @@ header chip's "Switch Accounts" entry leads to the same page.)
 ### 4b. Detecting the UI generation
 
 Load `/home` and see where you land (Amazon renames this chrome often —
-re-check on a stale session):
+re-check on a stale session). Verified 2026-11-18 on four stores:
 
-- **NGS** — redirects to `/amazonsell/business?ref=homepage_redirect_ngs`,
-  title "New Amazon Selling Experience", chrome is `ngstrim-*`:
-  `nav.ngstrim-top-navigation`, `button[aria-label="Menu"]` (drawer
-  toggle), `div#ngstrim-nav-menu` (drawer), `nav#ngstrim-bookmarks`
-  (favorites row), `nav#ngstrim-breadcrumbs`. A "Classic Seller Central"
-  link (`/home?ngs_do_not_redirect_flag=1`) sits at the bottom of the
-  drawer.
-- **Classic** — plain `/home` (title "Amazon"), `#sc-navbar-container` /
-  `#navbar`, the `navigation-hamburger-menu` web component, and a
-  top-right "New Seller Central" link (`a[href^="/amazonsell"]`).
+- **NGS** — redirects to `/amazonsell/business?ref=homepage_direct_serve_ngs`;
+  the title is the localized product name ("Seller Central" /
+  「卖家平台」). Tells: `nav.ngstrim-top-navigation` and the drawer toggle
+  `button.ngstrim-nav-menu-trigger` (its `aria-label` is localized,
+  "Menu" / 「菜单」). The drawer ends with a classic link,
+  `/home?ngs_do_not_redirect_flag=1` (「传统卖家平台」 in zh).
+- **Classic** — `/home?ngs_do_not_redirect_flag=1` still loads it (title
+  "Amazon" / 「亚马逊」): the `navigation-hamburger-menu` web component, no
+  `ngstrim-nav-menu-trigger`, and a "New Seller Central" link
+  (`a[href^="/amazonsell"]`, 「新版卖家平台」). Its banner says the
+  option to keep classic as the default is going away.
 
-`casino-*` web components appear on both, so don't use them as a signal;
-key on the URL, the title, and `ngstrim-*` vs `#sc-navbar-container`.
+Key on the URL and on `button.ngstrim-nav-menu-trigger` vs
+`navigation-hamburger-menu`. `#sc-navbar-container` and `casino-*`
+components appear on **both**, so they are not a signal.
 
-To switch generation: on NGS open the drawer and click "Classic Seller
-Central"; on classic click the top-right "New Seller Central" link. When
-a page misbehaves under NGS, `/home?ngs_do_not_redirect_flag=1` keeps you
-on the classic home.
+To switch generation: on NGS open the drawer and click the classic link;
+on classic click the "New Seller Central" link. When a page misbehaves
+under NGS, `/home?ngs_do_not_redirect_flag=1` keeps you on the classic
+home.
 
 ### 4c. NGS chrome (discovery)
 
+- **All reports** — the home page's top-right **All reports** /
+  「所有报告」 button opens a menu of every report page as plain anchors
+  (Custom analytics, Business reports, inventory, order, returns,
+  payments, tax…). It is the quickest way to find a report URL.
 - **Favorites row** (`nav#ngstrim-bookmarks`): plain
-  `navigation-favorites-button` anchors — Manage products, Manage
-  shipments, Manage orders, Ads console (`/cm?source=ngs`), Coupons,
-  Payments, Business reports, Fulfillment, Manage Amazon inventory, … Read
-  the href and open it.
-- **Drawer** (`button[aria-label="Menu"]` → `div#ngstrim-nav-menu`):
+  `navigation-favorites-button` anchors (Manage products, Ads console,
+  Business reports, Fulfillment, …). The row is per user — one store
+  had no Business reports entry — so treat it as a shortcut, not a map.
+- **Drawer** (`button.ngstrim-nav-menu-trigger` → `div#ngstrim-nav-menu`):
   sections Products / Supply chain / Orders / Marketing / Finance /
   Account health / Programs and apps, each with a "Workspace" link and
   plain-anchor items (e.g. Supply chain → Send to Amazon
-  `/fba/sendtoamazon`).
+  `/fba/sendtoamazon`). Its items carry
+  `data-testid="ngstrim-nav-l2-<name>"` (e.g. `…-site-metrics`,
+  `…-brand-analytics-v2`), stable across UI languages.
 - On NGS the trim wraps the classic page bodies (`/myinventory/inventory`,
   `/orders-v3`, report pages); only `/home` is a different page.
 
-### 4d. Classic chrome — hamburger hover-to-reveal
+### 4d. Classic chrome — the hamburger's shadow root
 
-Categories open on `mouseover`; a click navigates away:
+The menu is the `navigation-hamburger-menu` web component; its sections
+(报告 / Reports among them) and their links are inside its shadow root,
+so `document.querySelectorAll` finds none of them. It renders nothing
+while the tab is in the background, and its links appear a moment after
+it opens. Open it and read the hrefs from the shadow root:
 
 ```bash
 browser-use <<'PY'
-js("document.querySelector('navigation-hamburger-menu').shadowRoot.querySelector('[role=button]').click()")
+import time
+new_tab("https://sellercentral.amazon.<tld>/home?ngs_do_not_redirect_flag=1")
 wait_for_load()
-js("""
-var cat = [...document.querySelectorAll('[aria-expanded=false]')]
-  .find(e => e.textContent.trim() === 'Reports');
-cat.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
-""")
-js("""[...document.querySelectorAll('a, [role=button]')]
-  .find(e => e.textContent.trim() === 'Business Reports').click();""")
+cdp('Page.bringToFront')   # a background tab never renders the menu
+MENU = "document.querySelector('navigation-hamburger-menu').shadowRoot"
+for _ in range(15):
+    if js(f"return !!{MENU}.querySelector('[role=button]')"):
+        break
+    time.sleep(1)
+js(f"{MENU}.querySelector('[role=button]').click()")
+time.sleep(2)              # the links render a moment after it opens
+print(js(f"""
+return [...{MENU}.querySelectorAll('a')]
+  .map(a => a.getAttribute('href'))
+  .filter(h => h && /report|analytics/.test(h));
+"""))
 PY
 ```
 
-Without a stable selector, `capture_screenshot()` + `click_at_xy(x, y)`.
+Then `new_tab()` the href you need (e.g. `/custom-analytics?ref_=…`,
+`/business-reports/ref=…`). Without a usable href,
+`capture_screenshot()` + `click_at_xy(x, y)`.
 
 ### 4e. Store type — per-country vs aggregated
 
@@ -361,7 +381,11 @@ Before any `browser-use` call against Amazon:
    references the task needs.
 
 The wrapper starts the browser on the first `new_tab(...)`; open the URL,
-`wait_for_load()`, then read state with `print(page_info())`. Read page
+`wait_for_load()`, then read state with `print(page_info())`. A tab
+opened by `new_tab()` starts in the background
+(`document.visibilityState === 'hidden'`); pages that render on
+visibility — the classic hamburger menu, Custom Analytics tiles — stay
+empty until `cdp('Page.bringToFront')`. Read page
 data from the DOM; screenshots are for locating native overlays and
 buttons, not for reading figures.
 

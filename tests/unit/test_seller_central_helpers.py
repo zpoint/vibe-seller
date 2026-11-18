@@ -1105,3 +1105,66 @@ def test_an_unreachable_control_reports_the_pages_own_state():
     assert "out['drawer']" in src
     assert 'getComputedStyle' in src
     assert 'visibility:hidden' in src, 'the reason must state the page fact'
+
+
+def _ca_export_src():
+    return (
+        _SCRIPTS / 'amazon-reports' / 'scripts' / 'bh_ca_export.py'
+    ).read_text(encoding='utf-8')
+
+
+def test_ca_export_foregrounds_the_tab_before_reading():
+    """A background tab renders Custom Analytics tiles but never asks for
+    their data: measured live, a tab with visibilityState 'hidden' sat on
+    grey placeholders with no metricdata request until bringToFront."""
+    src = _ca_export_src()
+    assert src.index("cdp('Page.bringToFront')") < src.index('goto_url(url)')
+
+
+def test_ca_export_presses_both_applies_and_checks_the_range():
+    """The range dialog's Apply alone relabels the tile and leaves the data
+    on the old period -- an export taken then holds the wrong range."""
+    src = _ca_export_src()
+    block = src[src.index('if START:') : src.index('# 4. Export')]
+    assert block.count('_APPLY') == 2, 'dialog Apply, then popover Apply'
+    assert "want = f'{START} — {END}'" in block
+    assert "_finish('range'" in block
+
+
+def test_ca_export_clears_a_leave_page_dialog():
+    """A filter left on the page makes the next navigation stop on a
+    leave-page dialog (goto_url times out); accepting it lets the blocked
+    navigation carry on, and an immediate second goto_url collides with
+    it -- seen live, so the helper waits before navigating again."""
+    src = _ca_export_src()
+    nav = src[
+        src.index('try:\n    goto_url(url)') : src.index('wait_for_load()')
+    ]
+    assert "cdp('Page.handleJavaScriptDialog', accept=True)" in nav
+    assert nav.index('handleJavaScriptDialog') < nav.index('time.sleep(')
+
+
+def test_ca_export_names_a_signed_out_session_first():
+    src = _ca_export_src()
+    check = src.index("'/ap/signin' in _href")
+    assert "'/ap/mfa' in _href" in src
+    assert check < src.index("out['marketplace'] = js(")
+    assert check < src.index('st = _state()')
+
+
+def test_ca_export_finishes_inside_the_wrapper_alarm():
+    src = _ca_export_src()
+    budget = int(re.search(r"'CA_BUDGET', '(\d+)'", src).group(1))
+    assert budget + 15 < 120
+    assert "RESULT '" in src
+
+
+def test_ca_export_is_documented_where_the_agent_reads():
+    ref = (
+        _SCRIPTS / 'amazon-reports' / 'references' / 'custom-analytics.md'
+    ).read_text(encoding='utf-8')
+    assert 'amazon-reports/scripts/bh_ca_export.py' in ref
+    skill = (_SCRIPTS / 'amazon-reports' / 'SKILL.md').read_text(
+        encoding='utf-8'
+    )
+    assert 'references/custom-analytics.md' in skill
