@@ -15,6 +15,7 @@ it with ``require('inspector').close()``.
 import asyncio
 import json
 import logging
+import os
 import subprocess
 
 import aiohttp
@@ -136,12 +137,23 @@ class ProcessLayer:
         out = _run_ps(script)
         return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
-    def read_devtools_port(self, user_data_dir: str) -> int | None:
-        """First line of ``<user_data_dir>/DevToolsActivePort`` (the port)."""
+    def read_devtools_port(
+        self, user_data_dir: str, newer_than: float | None = None
+    ) -> int | None:
+        """First line of ``<user_data_dir>/DevToolsActivePort`` (the port).
+
+        A kernel launched earlier (e.g. a prior injected session) leaves a
+        stale file; pass ``newer_than`` (a unix ts) to reject a file not
+        rewritten since, so open_store only accepts the port its own
+        launch wrote.
+        """
         path = (
             win_path_to_wsl(user_data_dir).rstrip('/') + '/DevToolsActivePort'
         )
         try:
+            if newer_than is not None:
+                if os.path.getmtime(path) < newer_than:
+                    return None
             with open(path, encoding='utf-8') as f:
                 first = f.readline().strip()
             return int(first) if first.isdigit() else None
