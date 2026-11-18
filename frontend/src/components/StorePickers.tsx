@@ -25,7 +25,6 @@ export function YuehulianSection(props: {
   })()
   return (
     <div className="mb-2 space-y-2">
-      <p className="text-[11px] text-gray-500">{t('settings.yuehulianLoginFirst')}</p>
       <button
         type="button"
         onClick={p.fetchYuehulianStores}
@@ -46,7 +45,7 @@ export function YuehulianSection(props: {
           ))}
         </select>
       )}
-      {statusHint && <p className="text-[11px] text-amber-600">{statusHint}</p>}
+      {statusHint && <p className="text-[11px] text-red-600">{statusHint}</p>}
     </div>
   )
 }
