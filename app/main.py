@@ -81,6 +81,7 @@ from app.routers.users import router as users_router
 from app.routers.vision import router as vision_router
 from app.routers.workspace import router as workspace_router
 from app.routers.workspace_assistant import router as ws_assistant_router
+from app.routers.yuehulian import router as yuehulian_router
 from app.routers.ziniao_accounts import router as ziniao_accounts_router
 from app.scheduler.cron import (
     rebuild_schedule_jobs,
@@ -417,6 +418,7 @@ app.include_router(channels_router)
 app.include_router(cron_router)
 app.include_router(schedules_router)
 app.include_router(ziniao_accounts_router)
+app.include_router(yuehulian_router)
 app.include_router(email_accounts_router)
 app.include_router(email_polling_router)
 app.include_router(profiles_router)
