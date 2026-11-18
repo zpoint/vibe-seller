@@ -17,23 +17,25 @@ count, not off our env.
 """
 
 import asyncio
-import contextlib
 import http.server
 import os
 from pathlib import Path
-import select
 import shutil
 import socket
-import socketserver
-import ssl
 import subprocess
-import threading
 import urllib.request
 
 import pytest
 
 from app import system_proxy, ticktick_mcp_install as inst
 from app.platform import IS_WINDOWS
+from tests.fixtures.pretend_net import (
+    Proxy,
+    dead_port,
+    https_server,
+    serve,
+    stop,
+)
 from tests.fixtures.tls import self_signed
 
 pytestmark = [
@@ -50,24 +52,6 @@ if [ "$1" = venv ]; then
 fi
 exit 0
 """
-
-
-class _TLSServer(http.server.ThreadingHTTPServer):
-    daemon_threads = True
-    context: ssl.SSLContext
-
-    def get_request(self):
-        sock, addr = self.socket.accept()
-        # Handshake in the handler's thread, not in the accept loop.
-        return (
-            self.context.wrap_socket(
-                sock, server_side=True, do_handshake_on_connect=False
-            ),
-            addr,
-        )
-
-    def handle_error(self, request, client_address):
-        pass  # a probe that hangs up mid-handshake is not a test failure
 
 
 class _GitHub(http.server.BaseHTTPRequestHandler):
@@ -122,60 +106,6 @@ class _GitHub(http.server.BaseHTTPRequestHandler):
     do_GET = do_POST = _backend  # noqa: N815
 
 
-class _Proxy(socketserver.ThreadingTCPServer):
-    """A CONNECT proxy that tunnels everything to the one local origin."""
-
-    daemon_threads = True
-    allow_reuse_address = True
-
-    def __init__(self, origin_port: int):
-        super().__init__(('127.0.0.1', 0), _Tunnel)
-        self.origin_port = origin_port
-        self.refuse = False
-        self.asked = 0  # CONNECTs received
-        self.tunnels = 0  # CONNECTs that got through
-
-    @property
-    def url(self) -> str:
-        return f'http://127.0.0.1:{self.server_address[1]}'
-
-
-class _Tunnel(socketserver.StreamRequestHandler):
-    def handle(self):
-        request = self.rfile.readline().split()
-        while self.rfile.readline().strip():
-            pass
-        if len(request) < 2 or request[0] != b'CONNECT':
-            self.wfile.write(b'HTTP/1.1 405 Method Not Allowed\r\n\r\n')
-            return
-        proxy: _Proxy = self.server  # type: ignore[assignment]
-        proxy.asked += 1
-        if proxy.refuse:
-            self.wfile.write(b'HTTP/1.1 502 Bad Gateway\r\n\r\n')
-            return
-        upstream = socket.create_connection(('127.0.0.1', proxy.origin_port))
-        proxy.tunnels += 1
-        self.wfile.write(b'HTTP/1.1 200 Connection established\r\n\r\n')
-        self.wfile.flush()
-        with contextlib.closing(upstream):
-            sockets = [self.connection, upstream]
-            while True:
-                ready, _, _ = select.select(sockets, [], [], 30)
-                if not ready:
-                    return
-                for sock in ready:
-                    data = sock.recv(65536)
-                    if not data:
-                        return
-                    (
-                        upstream if sock is self.connection else self.connection
-                    ).sendall(data)
-
-
-def _serve(server) -> None:
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-
-
 @pytest.fixture(scope='module')
 def github(tmp_path_factory):
     """A real bare repo behind HTTPS; yields (base_url, cert_path)."""
@@ -207,13 +137,9 @@ def github(tmp_path_factory):
     )
     cert, key = self_signed(base)
     handler = type('Handler', (_GitHub,), {'root': root})
-    server = _TLSServer(('127.0.0.1', 0), handler)
-    server.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    server.context.load_cert_chain(cert, key)
-    _serve(server)
+    server = https_server(handler, cert, key)
     yield f'https://127.0.0.1:{server.server_port}', cert, server.server_port
-    server.shutdown()
-    server.server_close()
+    stop(server)
 
 
 @pytest.fixture
@@ -257,8 +183,8 @@ def net(github, monkeypatch, tmp_path):
     monkeypatch.setattr(system_proxy, 'PROBE_TIMEOUT_S', 1.0)
     monkeypatch.setattr(inst, '_ONE_AT_A_TIME', asyncio.Lock())
     system_proxy._reach_cache.clear()
-    proxy = _Proxy(port)
-    _serve(proxy)
+    proxy = Proxy(port)
+    serve(proxy)
     yield type(
         'Net',
         (),
@@ -272,14 +198,7 @@ def net(github, monkeypatch, tmp_path):
             ),
         },
     )()
-    proxy.shutdown()
-    proxy.server_close()
-
-
-def _dead_port() -> str:
-    with socket.socket() as sock:
-        sock.bind(('127.0.0.1', 0))
-        return f'http://127.0.0.1:{sock.getsockname()[1]}'
+    stop(proxy)
 
 
 @pytest.fixture
@@ -352,7 +271,7 @@ async def test_a_stale_export_does_not_hide_a_working_system_proxy(
     """An old ``HTTPS_PROXY`` left exported while the system proxy is
     on and GitHub is unreachable direct (found live): the system proxy
     carries the download instead of the direct network."""
-    net.export_proxy(_dead_port())
+    net.export_proxy(dead_port())
     net.use_system_proxy(net.proxy.url)
     _installed(net, await _click(admin_client))
     assert net.proxy.tunnels >= 3
@@ -360,7 +279,7 @@ async def test_a_stale_export_does_not_hide_a_working_system_proxy(
 
 
 async def test_a_dead_exported_proxy_is_dropped(admin_client, net):
-    net.export_proxy(_dead_port())
+    net.export_proxy(dead_port())
     _installed(net, await _click(admin_client))
     assert net.proxy.tunnels == 0
     assert net.uv_proxy() == ''
@@ -378,8 +297,8 @@ async def test_a_black_hole_proxy_is_dropped_after_the_probe_deadline(
 async def test_nothing_reachable_says_why_and_leaves_nothing(
     admin_client, net, monkeypatch
 ):
-    monkeypatch.setattr(inst, 'TICKTICK_MCP_REPO', f'{_dead_port()}/x.git')
-    net.use_system_proxy(_dead_port())
+    monkeypatch.setattr(inst, 'TICKTICK_MCP_REPO', f'{dead_port()}/x.git')
+    net.use_system_proxy(dead_port())
     failed = await _click(admin_client)
     assert failed.status_code == 500
     assert 'ticktick-mcp' in failed.json()['detail']

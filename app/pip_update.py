@@ -46,6 +46,7 @@ import subprocess
 import sys
 
 from app import bundle, upgrade_restart
+from app.system_proxy import checked_download_env, pypi_target
 from app.version import get_version
 
 logger = logging.getLogger(__name__)
@@ -318,9 +319,21 @@ def apply_command(version: str, *, dry_run: bool = False) -> list[str]:
 
 
 def _run(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
+    """Run a uv command with the proxy decided for the package index.
+
+    uv reads only the ``*_proxy`` env vars — never the OS proxy a CN
+    user switches on — and does not ask whether an exported one still
+    works, so the fetch would sit on a dead network until the timeout
+    (15 minutes). ``checked_download_env`` hands it a proxy that reaches
+    the index, or none. An ``--offline`` command reads nothing from
+    the network and is run as is.
+    """
     logger.info('pip update: %s', ' '.join(argv))
+    env = (
+        None if '--offline' in argv else checked_download_env((pypi_target(),))
+    )
     return subprocess.run(  # noqa: S603
-        argv, capture_output=True, text=True, timeout=timeout
+        argv, capture_output=True, text=True, timeout=timeout, env=env
     )
 
 

@@ -179,6 +179,87 @@ def test_the_async_form_decides_the_same(monkeypatch):
     assert env['HTTPS_PROXY'] == _ALIVE
 
 
+def test_a_local_source_is_never_probed(monkeypatch):
+    """A ``file://`` or plain-path source (the mock hooks) has no
+    network to decide: no probe, the env as it is."""
+    monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
+
+    def boom(url, proxy):
+        raise AssertionError('probed a local source')
+
+    _decide(monkeypatch, boom)
+    decision = sp.decide_download_env(('file:///tmp/pypi.json', '/tmp/x'))
+    assert decision.env == dict(os.environ)
+    assert decision.client_proxies is None
+
+
+# -- the same decision for an in-process client (urllib, httpx) ---------
+
+
+_SYS = 'http://h:7890'
+
+
+@pytest.mark.parametrize(
+    ('exported', 'os_proxy', 'live', 'client'),
+    [
+        # Nothing to correct: the client's own reading of the env.
+        (None, None, set(), None),
+        ('http://mine:3128', None, {'http://mine:3128'}, None),
+        # The OS proxy a client would not pick, or would pick unchecked.
+        (None, 'h:7890', {_SYS}, {'http': _SYS, 'https': _SYS}),
+        ('http://127.0.0.1:1', 'h:7890', {_SYS}, {'http': _SYS, 'https': _SYS}),
+        # Nothing works: direct, whatever the env says.
+        ('http://127.0.0.1:1', None, set(), {}),
+        (None, 'h:7890', set(), {}),
+    ],
+)
+def test_an_in_process_client_follows_the_decision(
+    monkeypatch, exported, os_proxy, live, client
+):
+    if exported:
+        monkeypatch.setenv('HTTPS_PROXY', exported)
+    if os_proxy:
+        _os_proxy(monkeypatch, {'https': os_proxy})
+        monkeypatch.setattr(
+            sp, '_platform_proxies', lambda: {'https': os_proxy}
+        )
+    _decide(monkeypatch, lambda url, proxy: proxy in live)
+    assert sp.decide_download_env((sp.PYPI,)).client_proxies == client
+
+
+def test_urlopen_is_the_plain_one_with_nothing_to_correct(monkeypatch):
+    """Same opener, same handlers as before: a run with no proxy
+    anywhere is exactly what it was."""
+    opened = []
+    monkeypatch.setattr(
+        sp.urllib.request,
+        'urlopen',
+        lambda req, timeout: opened.append((req, timeout)) or 'resp',
+    )
+    assert sp.urlopen(sp.PYPI, timeout=3) == 'resp'
+    assert opened == [(sp.PYPI, 3)]
+
+
+def test_urlopen_goes_through_the_proxy_that_works(monkeypatch, server):
+    """A stale export, and the OS proxy that works: the request takes
+    the OS proxy. Only the proxy can answer this host."""
+    monkeypatch.setenv('HTTPS_PROXY', _dead_port())
+    monkeypatch.setattr(
+        sp, '_platform_proxies', lambda: {'http': server.url.split('//')[1]}
+    )
+    req = sp.urllib.request.Request(
+        'http://never-resolves.invalid/', method='HEAD'
+    )
+    with sp.urlopen(req, timeout=5) as resp:
+        assert resp.status == 200
+
+
+def _dead_port() -> str:
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0))
+        return f'http://127.0.0.1:{sock.getsockname()[1]}'
+
+
 # -- the probe itself, against real sockets -----------------------------
 
 

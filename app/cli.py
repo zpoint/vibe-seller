@@ -38,6 +38,7 @@ from app.platform import (
     reap_task_agents,
 )
 from app.release_channel import best_upgrade, channel_of, offered_versions
+from app.system_proxy import urlopen as checked_urlopen
 
 
 def _resolve_version() -> str:
@@ -403,7 +404,7 @@ _PYPI_JSON_URL = 'https://pypi.org/pypi/vibe-seller/json'
 
 def _pypi_versions() -> list[str]:
     """Every non-yanked vibe-seller version on PyPI."""
-    with urllib.request.urlopen(_PYPI_JSON_URL, timeout=30) as resp:  # noqa: S310
+    with checked_urlopen(_PYPI_JSON_URL, timeout=30) as resp:
         releases = json.loads(resp.read().decode())['releases']
     return [
         v
@@ -716,7 +717,7 @@ def _upgrade_package(args: argparse.Namespace) -> int:
         print(f'vibe-seller {current} is already up to date.')
         return 0
     print(f'==> {" ".join(cmd)}')
-    return subprocess.run(cmd).returncode
+    return subprocess.run(cmd, env=uv_tool.index_env()).returncode
 
 
 def _upgrade_from_test_pypi(version: str | None) -> int:
@@ -742,7 +743,7 @@ def _upgrade_from_test_pypi(version: str | None) -> int:
         return 2
     meta_url = f'https://test.pypi.org/pypi/vibe-seller/{version}/json'
     try:
-        with urllib.request.urlopen(meta_url, timeout=30) as resp:  # noqa: S310
+        with checked_urlopen(meta_url, timeout=30) as resp:
             meta = json.loads(resp.read().decode())
         wheel_url = next(
             u['url'] for u in meta['urls'] if u['packagetype'] == 'bdist_wheel'
@@ -758,15 +759,14 @@ def _upgrade_from_test_pypi(version: str | None) -> int:
     wheel_path = os.path.join(tmp_dir, os.path.basename(wheel_url))
     try:
         with (
-            urllib.request.urlopen(  # noqa: S310
-                wheel_url, timeout=300
-            ) as resp,
+            checked_urlopen(wheel_url, timeout=300) as resp,
             open(wheel_path, 'wb') as f,
         ):
             shutil.copyfileobj(resp, f)
         cmd = ['uv', 'tool', 'install', '--force', wheel_path]
         print(f'==> {" ".join(cmd)}')
-        return subprocess.run(cmd).returncode
+        # The dependencies still come from the index.
+        return subprocess.run(cmd, env=uv_tool.index_env()).returncode
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

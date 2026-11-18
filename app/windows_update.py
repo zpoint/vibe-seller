@@ -44,6 +44,7 @@ import threading
 import time
 import urllib.request
 
+from app import system_proxy
 from app.bundle import BUNDLE_ASSET_NAME
 from app.release_channel import (
     NIGHTLY_TAG,
@@ -88,7 +89,8 @@ def _nightly_url() -> str:
 def _open(url: str, timeout: float):
     # GitHub's API rejects requests without a User-Agent; file:// ignores it.
     req = urllib.request.Request(url, headers={'User-Agent': 'vibe-seller'})
-    return urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
+    # Over a proxy that reaches GitHub, or none — never a stale one.
+    return system_proxy.urlopen(req, timeout=timeout)
 
 
 def _is_url(s: str) -> bool:
@@ -433,7 +435,7 @@ def _download_stream(
         headers['Range'] = f'bytes={have}-'
     req = urllib.request.Request(url, headers=headers)
     try:
-        resp = urllib.request.urlopen(req, timeout=600)  # noqa: S310
+        resp = system_proxy.urlopen(req, timeout=600)
     except urllib.error.HTTPError as exc:
         if exc.code == 416 and have:
             logger.info(
@@ -446,7 +448,7 @@ def _download_stream(
             req = urllib.request.Request(
                 url, headers={'User-Agent': 'vibe-seller'}
             )
-            resp = urllib.request.urlopen(req, timeout=600)  # noqa: S310
+            resp = system_proxy.urlopen(req, timeout=600)
         else:
             raise
     with resp:
