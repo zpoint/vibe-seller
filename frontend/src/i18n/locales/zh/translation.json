@@ -416,6 +416,8 @@
     "yuehulianClientNotRunning": "无法自动启动悦互联客户端——请先手动打开（或确认已安装），再点「加载店铺」。",
     "yuehulianNoStores": "该登录身份下没有可见店铺。",
     "yuehulianLoadFailed": "加载店铺失败——请检查客户端后重试。",
+    "storeNameTaken": "该店铺名已被占用，请换一个名称。",
+    "createStoreFailed": "创建店铺失败：{{msg}}",
     "ziniaoLoading": "正在加载店铺列表...",
     "ziniaoConnectError": "紫鸟未运行或未处于 WebDriver 模式。",
     "ziniaoDownloadLauncher": "下载 ziniao_webdriver.bat",

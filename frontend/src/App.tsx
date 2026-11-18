@@ -26,7 +26,7 @@ import { resolveLanding } from './lib/landing'
 import { registerUserHash, unregisterUserHash } from './lib/telemetry'
 import { useTaskOpener } from './hooks/useTaskOpener'
 import { useTaskActions } from './hooks/useTaskActions'
-import { api, AUTH_EXPIRED_EVENT, uploadTaskAttachment } from './api'
+import { api, AUTH_EXPIRED_EVENT, storeCreateError, uploadTaskAttachment } from './api'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
@@ -436,7 +436,8 @@ export default function App() {
       if (newStoreProxyBypass.trim()) bc.proxy_bypass = newStoreProxyBypass.trim()
       body.browser_config = bc
     }
-    await api.post('/api/stores', body)
+    try { await api.post('/api/stores', body) }
+    catch (e) { alert(storeCreateError(e, t)); return }
     setNewStoreName(''); setNewStoreBackend('chrome'); setSelectedZiniaoAccountId(''); setZiniaoBrowsers([]); setSelectedBrowserOauth(''); resetYuehulian()
     setShowProxy(false); setNewStoreProxyServer(''); setNewStoreProxyBypass(''); setShowCreateStore(false); await loadStores()
   }

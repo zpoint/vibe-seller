@@ -34,6 +34,19 @@ const handleResponse = async (r: Response) => {
   return r.json()
 }
 
+// Friendly message for a failed store-create (POST /api/stores). A 409 on
+// create is always a name/slug conflict; other errors show the backend
+// detail. Pure (no alert) so the UI layer decides how to surface it.
+export function storeCreateError(
+  e: unknown,
+  t: (k: string, o?: Record<string, unknown>) => string,
+): string {
+  const err = e as Error & { status?: number }
+  return err.status === 409
+    ? t('settings.storeNameTaken')
+    : t('settings.createStoreFailed', { msg: err.message || '' })
+}
+
 const jsonInit = (method: string, body?: unknown): RequestInit => ({
   method,
   headers: { 'Content-Type': 'application/json' },
