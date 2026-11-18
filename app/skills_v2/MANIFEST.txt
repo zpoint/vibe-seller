@@ -52,6 +52,8 @@ amazon-reports/references/seller-central-reports.md
 amazon-reports/references/fulfillment-reports.md
 amazon-reports/references/payments-repository.md
 amazon-reports/references/ads-unified-reporting.md
+amazon-reports/references/custom-analytics.md
+amazon-reports/scripts/bh_ca_export.py
 amazon-fba-inbound/SKILL.md
 amazon-fba-inbound/references/cancel.md
 review-collect/SKILL.md

@@ -1,6 +1,6 @@
 ---
 name: amazon-reports
-description: "Navigates and exports Amazon Seller Central and Amazon Ads reports: Business Reports, Fulfillment/FBA reports (storage fees, customer returns, inventory), Tax Document Library invoices, listing reports, the Payments Reports Repository, and Unified Reporting ad reports. Covers URLs, kat-* date and download controls, download-folder handling, the monthly report-run file layout, and CSV structures. Use when a task downloads, exports or analyses any Amazon Seller Central or advertising report."
+description: "Navigates and exports Amazon Seller Central and Amazon Ads reports: Custom Analytics (定制分析) dashboards and tile exports, Business Reports (retiring end of 2026), Fulfillment/FBA reports (storage fees, customer returns, inventory), Tax Document Library invoices, listing reports, the Payments Reports Repository, and Unified Reporting ad reports. Covers URLs, date ranges, filters, kat-* and Cloudscape controls, download-folder handling, the monthly report-run file layout, and file structures. Use when a task downloads, exports or analyses any Amazon Seller Central or advertising report, or asks for sessions, page views or conversion by ASIN."
 requires: [amazon-shared]
 ---
 
@@ -15,7 +15,8 @@ screenshots) are in the `browser-harness` skill.
 
 | Report | URL (Seller Central unless noted) | Export | Typical wait | Details |
 |---|---|---|---|---|
-| Business Reports | `/business-reports` | CSV, instant | — | [seller-central-reports.md](references/seller-central-reports.md#business-reports) |
+| Custom Analytics (定制分析) — sales, traffic, conversion by ASIN | `/custom-analytics/dashboard/<slug>` | XLSX, instant | — | [custom-analytics.md](references/custom-analytics.md) |
+| Business Reports — **retiring end of 2026** | `/business-reports` | CSV, instant | — | [seller-central-reports.md](references/seller-central-reports.md#business-reports-retiring) |
 | Fulfillment / Return / inventory reports | `/reportcentral/WelcomePage` | Request → CSV/TSV | 1-5 min | [fulfillment-reports.md](references/fulfillment-reports.md) |
 | FBA Customer Returns | `/reportcentral/CUSTOMER_RETURNS/1` | Request → CSV | 1-5 min | [fulfillment-reports.md](references/fulfillment-reports.md#fba-customer-returns-exact-dates) |
 | Monthly Storage Fees | Report Central → Fees | Request → CSV | ~30 s once published | [fulfillment-reports.md](references/fulfillment-reports.md#monthly-storage-fees-publication-latency) |
@@ -33,20 +34,27 @@ marketplace is in the `amazon-shared` skill.
 ## Navigation
 
 Open report pages by direct URL with `new_tab(url)` — it is faster and
-doesn't depend on which UI generation the account has. Use the menus only
-to discover a page whose URL you don't know or that 404s:
+doesn't depend on which UI generation the account has. A `new_tab()` tab
+starts in the background, where Custom Analytics tiles never load —
+`cdp('Page.bringToFront')` first ([custom-analytics.md](references/custom-analytics.md#before-reading-a-tile)).
+Use the menus only to discover a page whose URL you don't know or that
+404s:
 
-- **New Seller Central (NGS):** the drawer `div#ngstrim-nav-menu`, opened
-  by `button[aria-label="Menu"]`, holds plain anchors with real hrefs —
-  read the href and `new_tab()` it.
-- **Classic UI:** the `navigation-hamburger-menu` web component (its
-  `[role=button]` is inside its shadow root). Categories reveal their
-  submenu on **`mouseover`** — dispatch
-  `new MouseEvent('mouseover', {bubbles: true})` on the category (its
-  `aria-expanded` flips to true); clicking the category navigates away
-  instead. Then click the submenu item.
+- **New Seller Central (NGS):** the home page's top-right **All reports** /
+  「所有报告」 button lists every report page as a plain anchor (Custom
+  analytics, Business reports, inventory, order, returns, payments, tax…).
+  The drawer, `div#ngstrim-nav-menu`, opens from
+  `button.ngstrim-nav-menu-trigger` (its `aria-label` is localized —
+  "Menu" / 「菜单」 — so don't select by it). Read an anchor's href and
+  `new_tab()` it.
+- **Classic UI:** the `navigation-hamburger-menu` web component. Its
+  sections and links live in its shadow root — read the Reports
+  section's hrefs from there and `new_tab()` them.
 
-The `amazon-shared` skill has the full menu recipes.
+The `amazon-shared` skill has the full menu recipes. Menus differ by
+marketplace (a US account lists B2B and Global Store reports a MENA one
+lacks) and the favorites row is per user, so look for a link rather than
+expect a fixed menu.
 
 ## Reuse before you request
 

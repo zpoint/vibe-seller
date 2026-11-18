@@ -64,7 +64,8 @@ Append these to any base URL above:
 | Inventory (Manage All Inventory) | `/myinventory/inventory` |
 | Inventory — FBA view | `/amazonsell/fba-inventory` |
 | Pricing Dashboard | `/pricing/dashboard` |
-| Business Reports | `/business-reports` |
+| Custom Analytics (sales & traffic dashboards) | `/custom-analytics` |
+| Business Reports (retiring end of 2026) | `/business-reports` |
 | Fulfilment / FBA reports | `/reportcentral/WelcomePage` |
 | Custom (listing) reports | `/listing/reports` |
 | Tax Document Library | `/tax/seller-fee-invoices` |
@@ -84,7 +85,11 @@ These paths render under BOTH UI generations (New Seller Central and
 classic) — the New Seller Central trim (`ngstrim-*` chrome) wraps the
 same page bodies. Verified live 2026-10-31 on `sellercentral.amazon.sa`.
 `/business-analytics` (seen in older docs) is not the current path —
-use `/business-reports`.
+use `/business-reports`. Business Reports itself carries Amazon's
+"retiring by the end of the year" banner (seen 2026-11-18); its
+replacement is `/custom-analytics`. On a US account the menu links the
+payments report repository as `/manage/finance/reports`;
+`/payments/reports-repository` still opens it there too.
 
 ## How to Determine the Correct URL
 
