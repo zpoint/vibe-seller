@@ -15,7 +15,9 @@ import logging
 import time
 
 from app.browser.adapters.yuehulian_dom import (
+    CLICK_NEXT_PAGE_JS,
     LOGIN_HASH_JS,
+    NAV_TO_STORE_LIST_JS,
     SCRAPE_STORES_JS,
     click_open_js,
     is_logged_in_hash,
@@ -72,25 +74,41 @@ class RealYuehulianClient(InjectClient):
 
     async def list_stores(self) -> list[StoreRef]:
         async with self._inspector() as insp:
-            route = await insp.eval_in_renderer(LOGIN_HASH_JS)
-            if not is_logged_in_hash(route):
-                raise LoginRequired()
-            rows = await self._scrape_stores_until_ready(insp)
-        return parse_store_list_json(json.dumps(rows))
+            await self._ensure_store_list(insp)
+            stores: list[StoreRef] = []
+            seen: set[str] = set()
+            async for page in self._each_page(insp):
+                added = 0
+                for s in page:
+                    if s.name not in seen:
+                        seen.add(s.name)
+                        stores.append(s)
+                        added += 1
+                if stores and added == 0:
+                    break  # a repeated page → stuck pager, stop
+        return stores
 
-    async def _scrape_stores_until_ready(
+    async def _ensure_store_list(self, insp: InspectorSession) -> None:
+        """Confirm login and switch the client to the store-list VIEW.
+
+        A logged-in client can sit on a NON-list view (#/personal-center, a
+        store env, ...) where the el-table is not mounted — so a scrape
+        there finds zero rows and a store wrongly reads as absent (empty
+        enumerate / StoreNotFound), even right after the user logs in. The
+        hash can't tell us (it stays '#/index' under the tags-view shell),
+        so always click the store-list menu item.
+        """
+        route = await insp.eval_in_renderer(LOGIN_HASH_JS)
+        if not is_logged_in_hash(route):
+            raise LoginRequired()
+        await insp.eval_in_renderer(NAV_TO_STORE_LIST_JS)
+
+    async def _scrape_page_rows(
         self, insp: InspectorSession, *, attempts: int = 15, delay: float = 1.0
     ) -> list:
-        """Scrape the store table, waiting for its rows to render.
-
-        The client's el-table fetches and renders its rows asynchronously
-        after the page mounts, so on a freshly started / just-logged-in
-        client the first scrape can see zero rows and wrongly look like an
-        empty login ("no visible stores"). Poll until rows parse,
-        re-confirming login each round (the session may still be
-        restoring); a genuinely empty login returns ``[]`` after the
-        budget. Returns the raw rows (parsing is the caller's job).
-        """
+        """Poll the CURRENT page's el-table until its rows render (they load
+        async). Re-confirms login each round; returns raw rows ([] if the
+        page is genuinely empty after the budget)."""
         rows: list = []
         for i in range(attempts):
             route = await insp.eval_in_renderer(LOGIN_HASH_JS)
@@ -103,14 +121,30 @@ class RealYuehulianClient(InjectClient):
                 await asyncio.sleep(delay)
         return rows
 
+    async def _each_page(self, insp: InspectorSession, *, max_pages: int = 50):
+        """Yield parsed stores for each pagination page, advancing via the
+        Next button. The el-table shows one page at a time, so this is how
+        enumerate sees every store and open finds a store on page 2/3.
+        Assumes the caller already switched to the store-list view."""
+        for _ in range(max_pages):
+            rows = await self._scrape_page_rows(insp)
+            yield parse_store_list_json(json.dumps(rows))
+            nxt = await insp.eval_in_renderer(CLICK_NEXT_PAGE_JS)
+            if nxt != 'OK':
+                return
+            await asyncio.sleep(1.5)  # let the next page re-render
+
     async def open_store(self, ref: str) -> OpenedStore:
         async with self._inspector() as insp:
-            route = await insp.eval_in_renderer(LOGIN_HASH_JS)
-            if not is_logged_in_hash(route):
-                raise LoginRequired()
-            rows = await self._scrape_stores_until_ready(insp)
-            names = {s.name for s in parse_store_list_json(json.dumps(rows))}
-            if ref not in names:
+            await self._ensure_store_list(insp)
+            # Page through until the store's row is on the current page (it
+            # may live on page 2/3), then click Open there.
+            found = False
+            async for page in self._each_page(insp):
+                if ref in {s.name for s in page}:
+                    found = True
+                    break
+            if not found:
                 raise StoreNotFound(ref)
 
             await insp.install_spawn_hook()

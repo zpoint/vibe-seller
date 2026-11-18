@@ -20,10 +20,27 @@ class BrowserSessionInfo:
 # ziniao-specific and is gated on the exact backend, not this set.
 ANTIDETECT_BACKENDS = frozenset({'ziniao', 'yuehulian'})
 
+# Agent-facing display name per anti-detect backend. The browser-routing
+# prompt must name the ACTUAL product so the agent never calls a yuehulian
+# store "Ziniao" (observed: it reported a yuehulian store's failure as a
+# 紫鸟 error). Keep bilingual so it reads right in EN prompts and ZH tasks.
+ANTIDETECT_DISPLAY_NAMES = {
+    'ziniao': 'Ziniao (紫鸟)',
+    'yuehulian': 'Yuehulian (悦互联)',
+}
+
 
 def is_antidetect(backend: str) -> bool:
     """True for logged-in IP-isolated per-store browsers (ziniao/yuehulian)."""
     return backend in ANTIDETECT_BACKENDS
+
+
+def antidetect_display_name(backend: str) -> str:
+    """The product name to show the agent for an anti-detect backend, or a
+    neutral fallback so a new backend never leaks the wrong product name."""
+    return ANTIDETECT_DISPLAY_NAMES.get(
+        backend, "the store's anti-detect browser"
+    )
 
 
 class BrowserBackend(ABC):

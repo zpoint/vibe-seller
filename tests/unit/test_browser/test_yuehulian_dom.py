@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 
 from app.browser.adapters.yuehulian_dom import (
+    CLICK_NEXT_PAGE_JS,
+    NAV_TO_STORE_LIST_JS,
     click_open_js,
     is_logged_in_hash,
     parse_store_list,
@@ -88,3 +90,18 @@ def test_click_open_js_twist_injection_is_escaped():
     assert json.dumps('a"; alert(1); //') in js
     assert 'alert(1)' in js  # present, but only inside the JSON string
     assert ')(a";' not in js  # not breaking out of the string literal
+
+
+def test_nav_to_store_list_clicks_menu_not_hash():
+    # The store list is a tags-view tab, NOT identified by the hash (it
+    # stays '#/index' under Personal Center), so nav must CLICK the menu
+    # item (the #/index route link), never just set location.hash.
+    assert '.click()' in NAV_TO_STORE_LIST_JS
+    assert '#/index' in NAV_TO_STORE_LIST_JS
+    assert 'location.hash =' not in NAV_TO_STORE_LIST_JS
+
+
+def test_click_next_page_targets_pagination_next():
+    assert 'el-pagination' in CLICK_NEXT_PAGE_JS
+    assert 'btn-next' in CLICK_NEXT_PAGE_JS
+    assert "'END'" in CLICK_NEXT_PAGE_JS and "'OK'" in CLICK_NEXT_PAGE_JS

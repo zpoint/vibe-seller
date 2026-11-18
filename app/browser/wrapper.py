@@ -23,6 +23,7 @@ import shutil
 import stat
 import textwrap
 
+from app.browser.base import is_antidetect
 from app.browser.bu_binary import resolve_browser_use
 from app.browser.worker_slots import (
     indent_block,
@@ -78,7 +79,7 @@ _BIN_DIR = BROWSER_USE_BIN_DIR
 # so the caller saw an unbounded run of identical transient-looking
 # errors and kept paying for them. v6 escalates to a forced browser
 # recycle and then reports the browser as unrecoverable.
-WRAPPER_FORMAT_VERSION = 6
+WRAPPER_FORMAT_VERSION = 7
 WRAPPER_FORMAT_MARKER = 'vibe-seller-wrapper-format:'
 
 #: Exit code for "this browser cannot be revived from here" — distinct
@@ -212,7 +213,7 @@ def write_browser_use_wrapper(
     # Ziniao aux runs its OWN lazy-started browser (see env_inject), so
     # it must not force the MAIN browser up; chrome aux rides the main
     # proxy and therefore does need it.
-    if backend == 'ziniao':
+    if is_antidetect(backend):
         aux_autostart_arm = (
             f'{slug}-aux)\n'
             f'                ;;  # aux: own browser, started in env step\n'
@@ -273,7 +274,7 @@ def write_browser_use_wrapper(
     # started via the aux/start API, daemon attaches to the returned
     # aux-proxy ws. Chrome aux = a stable extra client on the main
     # proxy. Per-task sessions mirror the 0.12 proxy client id.
-    if backend == 'ziniao':
+    if is_antidetect(backend):
         aux_env_arm = (
             f'{slug}-aux)\n'
             f'            _aux_resp=$(curl -s -X POST \\{auth_header}\n'

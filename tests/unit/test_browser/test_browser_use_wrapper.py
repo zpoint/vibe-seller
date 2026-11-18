@@ -569,3 +569,29 @@ class TestWrapperTmpDirPerSession:
         assert re.search(
             r'^BH_TMP_DIR=.*/test-store-aux$', result.stdout, re.M
         ), result.stdout
+
+
+@pytest.mark.unit
+class TestAntidetectAuxWrapper:
+    """The aux session must be a DEDICATED login-less Chromium (its own
+    /browser/aux/start) for EVERY anti-detect backend — not just ziniao.
+    Regression: a yuehulian store's aux fell through to the main
+    (login-required) /browser/start and failed with 'Log into the client'
+    because the aux special-case was gated on backend == 'ziniao'."""
+
+    def test_yuehulian_aux_uses_dedicated_login_less_start(
+        self, tmp_path: Path
+    ):
+        wrapper = _generate_wrapper(tmp_path, backend='yuehulian')
+        content = wrapper.read_text()
+        assert 'browser/aux/start' in content
+
+    def test_ziniao_aux_uses_dedicated_login_less_start(self, tmp_path: Path):
+        wrapper = _generate_wrapper(tmp_path, backend='ziniao')
+        assert 'browser/aux/start' in wrapper.read_text()
+
+    def test_chrome_aux_rides_main_proxy_not_aux_start(self, tmp_path: Path):
+        # Twist / negative control: a chrome store's aux is a client on the
+        # main proxy, so it must NOT call the dedicated aux-start API.
+        wrapper = _generate_wrapper(tmp_path, backend='chrome')
+        assert 'browser/aux/start' not in wrapper.read_text()

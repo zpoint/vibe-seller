@@ -13,7 +13,9 @@ import pytest
 import app.browser.adapters.yuehulian_client as mod
 from app.browser.adapters.yuehulian_client import RealYuehulianClient
 from app.browser.adapters.yuehulian_dom import (
+    CLICK_NEXT_PAGE_JS,
     LOGIN_HASH_JS,
+    NAV_TO_STORE_LIST_JS,
     SCRAPE_STORES_JS,
 )
 from app.browser.inject.errors import (
@@ -70,9 +72,13 @@ class _FakeInspector:
     async def eval_in_renderer(self, js, **kw):
         if js == LOGIN_HASH_JS:
             return '#/index' if self.logged_in else '#/login'
+        if js == NAV_TO_STORE_LIST_JS:
+            return 'OK'
+        if js == CLICK_NEXT_PAGE_JS:
+            return 'END'  # single page by default
         if js == SCRAPE_STORES_JS:
             return self.rows
-        # otherwise it's the click JS
+        # otherwise it's the click-open JS
         if self.click.startswith('OK') and self.udd is not None:
             self._spawns.append({'udd': self.udd, 'ts': 1})
         return self.click
@@ -103,6 +109,30 @@ class _SlowTableInspector(_FakeInspector):
             if self.scrape_calls <= self._empty_rounds:
                 return []  # table not rendered yet
             return self.rows
+        return await super().eval_in_renderer(js, **kw)
+
+
+class _PaginatedInspector(_FakeInspector):
+    """Serves one page of store rows at a time; CLICK_NEXT advances to the
+    next page until the last (then 'END'), NAV resets to page 1 — models the
+    el-table pagination so enumerate/open must page through."""
+
+    def __init__(self, *, pages, **kw):
+        super().__init__(**kw)
+        self._pages = pages
+        self._page = 0
+
+    async def eval_in_renderer(self, js, **kw):
+        if js == NAV_TO_STORE_LIST_JS:
+            self._page = 0
+            return 'OK'
+        if js == CLICK_NEXT_PAGE_JS:
+            if self._page < len(self._pages) - 1:
+                self._page += 1
+                return 'OK'
+            return 'END'
+        if js == SCRAPE_STORES_JS:
+            return self._pages[self._page]
         return await super().eval_in_renderer(js, **kw)
 
 
@@ -197,6 +227,47 @@ async def test_list_stores_twist_empty_login_returns_empty_not_hang():
         stores = await RealYuehulianClient({}).list_stores()
     assert stores == []
     assert insp.scrape_calls == 15  # the attempts budget, then gives up
+
+
+async def test_list_stores_collects_across_pages():
+    # Enumerate must page through the el-table (user runs 5/page with >5
+    # stores) — not just return page 1. Negative control: pre-pagination it
+    # returned only the first page.
+    p1 = ['1\n\t\npage1-a\n\t\nMX', '2\n\t\npage1-b\n\t\nMX']
+    p2 = ['3\n\t\npage2-c\n\t\nMX']
+    insp = _PaginatedInspector(pages=[p1, p2])
+    a, b, c = _patched(_FakeProc(), insp)
+    with a, b, c:
+        stores = await RealYuehulianClient({}).list_stores()
+    assert [s.name for s in stores] == ['page1-a', 'page1-b', 'page2-c']
+
+
+async def test_list_stores_single_page_terminates():
+    # Twist: one page (CLICK_NEXT → 'END') → just that page, no hang.
+    insp = _FakeInspector(rows=['1\n\t\nonly-one\n\t\nMX'])
+    a, b, c = _patched(_FakeProc(), insp)
+    with a, b, c:
+        stores = await RealYuehulianClient({}).list_stores()
+    assert [s.name for s in stores] == ['only-one']
+
+
+async def test_open_store_finds_store_on_page_two():
+    # A store on page 2/3 must still be openable — open pages through until
+    # the row is present, then clicks Open there.
+    p1 = ['1\n\t\npage1-a\n\t\nMX']
+    p2 = ['2\n\t\ntarget\n\t\nMX']
+    insp = _PaginatedInspector(pages=[p1, p2], udd='C:\\udd\\z')
+    opened = await _open(_FakeProc(port=9555), insp, ref='target')
+    assert opened.cdp_port == 9555
+
+
+async def test_open_store_absent_across_all_pages_is_not_found():
+    # Twist: a store on no page → StoreNotFound after exhausting pages.
+    p1 = ['1\n\t\npage1-a\n\t\nMX']
+    p2 = ['2\n\t\npage2-b\n\t\nMX']
+    insp = _PaginatedInspector(pages=[p1, p2])
+    with pytest.raises(StoreNotFound):
+        await _open(_FakeProc(), insp, ref='ghost')
 
 
 async def test_ensure_running_launches_when_down():

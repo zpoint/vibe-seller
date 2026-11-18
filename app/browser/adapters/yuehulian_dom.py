@@ -31,6 +31,28 @@ SCRAPE_STORES_JS = (
 # screen is a different route. Read through the renderer.
 LOGIN_HASH_JS = 'location.hash'
 
+# Show the store-list VIEW by CLICKING its sidebar menu item. A logged-in
+# client can sit on another view (Personal Center, a store env, ...) where
+# the el-table is not mounted, so a scrape finds zero rows and wrongly reads
+# as "no stores" / StoreNotFound. The hash is NOT reliable here: the app is
+# a tags-view (tab) shell whose hash stays '#/index' even while Personal
+# Center is the active tab (verified live) — so setting the hash does
+# nothing; the menu click switches the tab and mounts the list. Target the
+# store-list route link (href='#/index') first — language-independent — and
+# fall back to the menu item by its known labels. Returns 'OK' / 'NOTFOUND'.
+NAV_TO_STORE_LIST_JS = (
+    '(function(){'
+    'var link=document.querySelector(\'.el-menu a[href="#/index"]\')'
+    '||document.querySelector(\'a[href="#/index"]\');'
+    "if(link){link.click();return 'OK';}"
+    "var labels=['店铺列表','Shop List','Store List'];"
+    "var it=Array.from(document.querySelectorAll('li.el-menu-item')).find("
+    "function(e){return labels.indexOf((e.textContent||'').trim())>=0;});"
+    "if(it){it.click();return 'OK';}"
+    "return 'NOTFOUND';"
+    '})()'
+)
+
 
 def click_open_js(store_name: str) -> str:
     """JS that clicks the Open action on the row matching ``store_name``.
@@ -73,6 +95,22 @@ def click_open_js(store_name: str) -> str:
         "btn.click();return 'OK:'+idx;"
         '})(' + name + ')'
     )
+
+
+# Click the store-list pagination's Next button when it is enabled. The
+# el-table shows one page at a time (the user runs 5/page with >5 stores),
+# so enumerate must page through to list every store and open must page to
+# find a store on page 2/3. Returns 'OK' (advanced), 'END' (last page) or
+# 'NONEXT' (no pager — single page).
+CLICK_NEXT_PAGE_JS = (
+    '(function(){'
+    "var b=document.querySelector('.el-pagination button.btn-next')"
+    "||document.querySelector('.el-pagination .btn-next');"
+    "if(!b)return 'NONEXT';"
+    "if(b.disabled||b.classList.contains('is-disabled'))return 'END';"
+    "b.click();return 'OK';"
+    '})()'
+)
 
 
 def is_logged_in_hash(route_hash: str | None) -> bool:
