@@ -15,7 +15,7 @@ description: 跨境卖家的 AI 自动化框架——本地部署，AI 通过 CD
 </p>
 
 <p align="center">
-  <a href="#加入社区"><img alt="企业微信群" src="https://img.shields.io/badge/%E4%BC%81%E4%B8%9A%E5%BE%AE%E4%BF%A1%E7%BE%A4-%E6%89%AB%E7%A0%81%E5%8A%A0%E5%85%A5-07C160?logo=wechat&logoColor=white" /></a>
+  <a href="#加入社区"><img alt="微信群" src="https://img.shields.io/badge/%E5%BE%AE%E4%BF%A1%E7%BE%A4-%E6%89%AB%E7%A0%81%E5%8A%A0%E5%85%A5-07C160?logo=wechat&logoColor=white" /></a>
   <a href="https://join.slack.com/t/vibeseller/shared_invite/zt-4fjzkwkqs-L0pM6VS7~_2WsPCxTeLbew"><img alt="Slack" src="https://img.shields.io/badge/Slack-%E5%8A%A0%E5%85%A5-4A154B?logo=slack&logoColor=white" /></a>
 </p>
 
@@ -138,7 +138,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 | **使用示例** | [全部示例](examples.md) · [每天把重要邮件发到企业微信](example-email-wecom.md) · [分析广告 ACOS 并执行优化](example-ads-acos.md) · [每周巡检 Listing](example-listing-check.md) · [每月导出销售报表](example-daily-report.md) · [用 Codex 导出紫鸟店铺财务数据进行分析](example-mcp.md) |
 | **使用指南** | [店铺与浏览器](stores.md) · [任务](using-tasks.md) · [定时任务](schedules.md) · [知识库与 Skill](knowledge.md) |
 | **常见问题** | [紫鸟：开通与常见报错](ziniao.md) · [费用与模型选择](faq-cost.md) · [登录与账号](faq-login.md) · [部署与数据](faq-data.md) · [全部问题](faq.md) |
-| **加入社区** | [加入社区与问题反馈](community.md)：企业微信群、Slack，以及怎么反馈问题、提建议 |
+| **加入社区** | [加入社区与问题反馈](community.md)：微信群、Slack，以及怎么反馈问题、提建议 |
 | **开发者文档（英文）** | [开发者指南](dev-guide.md) · [任务内核](tasks.md) · [浏览器内核](browser.md) · [子系统](subsystems.md) · [外部 Agent（MCP API）](agents.md) · [Windows + WSL2 部署](windows-setup.md) · [macOS 常驻服务](macos-setup.md) |
 
 架构设计见 [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md)，各子系统的深入说明都在 [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) 里。
@@ -184,8 +184,8 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 
 ## 加入社区
 
-用微信扫码加入用户交流群（个人微信可直接扫，无需安装企业微信）：
+用微信扫码加入用户交流群：
 
-<img alt="Vibe Seller 企业微信用户群" src="images/wecom_group_qr.png" width="200" />
+<img alt="Vibe Seller 微信用户群" src="images/wecom_group_qr.png" width="200" />
 
 海外用户也可以加入 [Slack](https://join.slack.com/t/vibeseller/shared_invite/zt-4fjzkwkqs-L0pM6VS7~_2WsPCxTeLbew)。遇到问题或有建议，见 [加入社区与问题反馈](community.md)。
