@@ -1,6 +1,7 @@
 """OAuth2 router for Dida365 / TickTick integration."""
 
 import asyncio
+import html
 import logging
 import secrets
 import time
@@ -243,6 +244,26 @@ async def authorize(
     }
 
 
+def _page(
+    heading: str, *paragraphs: str, status_code: int = 200, close: bool = False
+) -> HTMLResponse:
+    """A page of the OAuth callback, every piece of text escaped.
+
+    The callback takes no auth and is served on the app's own origin, so
+    anything it shows that came from outside (the ``error`` query
+    parameter, the token endpoint's error text) is attacker-controlled:
+    unescaped, it runs as script with the visitor's session. All pages
+    go through here so no branch can interpolate raw text.
+    """
+    body = ''.join(f'<p>{html.escape(p)}</p>' for p in paragraphs)
+    script = '<script>window.close()</script>' if close else ''
+    return HTMLResponse(
+        f'<html><body><h2>{html.escape(heading)}</h2>{body}{script}'
+        '</body></html>',
+        status_code=status_code,
+    )
+
+
 @router.get('/callback', response_class=HTMLResponse)
 async def oauth_callback(
     request: Request,
@@ -252,32 +273,26 @@ async def oauth_callback(
 ):
     """OAuth2 callback — browser redirect, no auth."""
     if error:
-        return HTMLResponse(
-            '<html><body>'
-            '<h2>Authorization Failed</h2>'
-            f'<p>Error: {error}</p>'
-            '<p>You can close this window.</p>'
-            '</body></html>',
+        return _page(
+            'Authorization Failed',
+            f'Error: {error}',
+            'You can close this window.',
             status_code=400,
         )
 
     if not code or not state:
-        return HTMLResponse(
-            '<html><body>'
-            '<h2>Invalid Request</h2>'
-            '<p>Missing code or state parameter.</p>'
-            '</body></html>',
+        return _page(
+            'Invalid Request',
+            'Missing code or state parameter.',
             status_code=400,
         )
 
     # Validate state (single-use) and retrieve stored redirect_uri
     _prune_expired_states()
     if state not in _pending_states:
-        return HTMLResponse(
-            '<html><body>'
-            '<h2>Invalid or Expired State</h2>'
-            '<p>Please try connecting again.</p>'
-            '</body></html>',
+        return _page(
+            'Invalid or Expired State',
+            'Please try connecting again.',
             status_code=400,
         )
     state_data = _pending_states.pop(state)
@@ -285,11 +300,9 @@ async def oauth_callback(
 
     config = load_backend_config('dida365')
     if not config.get('client_id'):
-        return HTMLResponse(
-            '<html><body>'
-            '<h2>Configuration Error</h2>'
-            '<p>Client credentials not found.</p>'
-            '</body></html>',
+        return _page(
+            'Configuration Error',
+            'Client credentials not found.',
             status_code=500,
         )
 
@@ -297,11 +310,9 @@ async def oauth_callback(
     try:
         client_secret = decrypt_password(config['client_secret_enc'])
     except Exception:
-        return HTMLResponse(
-            '<html><body>'
-            '<h2>Configuration Error</h2>'
-            '<p>Failed to decrypt client secret.</p>'
-            '</body></html>',
+        return _page(
+            'Configuration Error',
+            'Failed to decrypt client secret.',
             status_code=500,
         )
 
@@ -323,12 +334,10 @@ async def oauth_callback(
             tokens = resp.json()
     except Exception as e:
         logger.error('Dida365 token exchange failed: %s', e)
-        return HTMLResponse(
-            '<html><body>'
-            '<h2>Token Exchange Failed</h2>'
-            f'<p>{e}</p>'
-            '<p>You can close this window.</p>'
-            '</body></html>',
+        return _page(
+            'Token Exchange Failed',
+            str(e),
+            'You can close this window.',
             status_code=500,
         )
 
@@ -342,13 +351,10 @@ async def oauth_callback(
     # Register MCP server
     _register_ticktick_mcp(config)
 
-    return HTMLResponse(
-        '<html><body>'
-        '<h2>Connected Successfully!</h2>'
-        '<p>You can close this window and return to '
-        'Vibe Seller.</p>'
-        '<script>window.close()</script>'
-        '</body></html>'
+    return _page(
+        'Connected Successfully!',
+        'You can close this window and return to Vibe Seller.',
+        close=True,
     )
 
 
