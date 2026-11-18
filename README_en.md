@@ -248,7 +248,7 @@ written for AI agents and reads cleanly as a contributor guide.
 ## Community
 
 - **Slack** — [join the VibeSeller workspace](https://join.slack.com/t/vibeseller/shared_invite/zt-4fjzkwkqs-L0pM6VS7~_2WsPCxTeLbew)
-- **WeChat** — scan to join the user group (works from a personal WeChat account; no WeCom install needed):
+- **WeChat** — scan to join the user group:
 
 <img alt="Vibe Seller WeChat user group" src="docs/images/wecom_group_qr.png" width="200" />
 

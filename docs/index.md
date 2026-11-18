@@ -184,7 +184,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 
 ## 加入社区
 
-用微信扫码加入用户交流群（个人微信可直接扫，无需安装企业微信）：
+用微信扫码加入用户交流群：
 
 <img alt="Vibe Seller 企业微信用户群" src="images/wecom_group_qr.png" width="200" />
 
