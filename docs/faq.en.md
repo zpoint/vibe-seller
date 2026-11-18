@@ -1,10 +1,17 @@
 ---
-description: FAQ index — Ziniao setup and errors, cost and model choice, login and accounts, deployment and data. Links to every question.
+description: FAQ index — about Vibe Seller, Ziniao setup and errors, cost and model choice, login and accounts, deployment and data. Links to every question.
 ---
 
 # FAQ
 
 The questions live on topic pages, each one listed in the left navigation. This page is the index — follow a link straight to the answer.
+
+## About Vibe Seller
+
+See [About Vibe Seller](faq-about.en.md):
+
+- [How is it different from Amazon's SP-API?](faq-about.en.md#how-is-it-different-from-amazons-sp-api)
+- [Which platforms are supported?](index.en.md#platforms) Any platform you can open in a browser, in China or abroad.
 
 ## Ziniao
 
