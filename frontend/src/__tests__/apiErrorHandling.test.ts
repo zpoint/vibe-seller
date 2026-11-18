@@ -123,18 +123,19 @@ describe('storeCreateError', () => {
   const t = (key: string, opts?: Record<string, unknown>) =>
     opts ? `${key}:${JSON.stringify(opts)}` : key
 
-  it('maps a 409 to the name-taken message (create conflict is always name)', () => {
-    const e = Object.assign(new Error('A store with this name already exists'), {
-      status: 409,
-    })
-    expect(storeCreateError(e, t)).toBe('settings.storeNameTaken')
+  it('surfaces the 409 detail verbatim (names the colliding store, not a generic message)', () => {
+    const detail =
+      "Name collides with existing store 'other-shop': both reduce to " +
+      "the same folder name 'shop'. Choose a different name."
+    const e = Object.assign(new Error(detail), { status: 409 })
+    expect(storeCreateError(e, t)).toBe(
+      `settings.createStoreFailed:${JSON.stringify({ msg: detail })}`
+    )
   })
 
-  it('twist: a non-409 shows the backend detail, NOT the name-taken message', () => {
+  it('shows the backend detail for a non-409 error too', () => {
     const e = Object.assign(new Error('boom'), { status: 500 })
-    const out = storeCreateError(e, t)
-    expect(out).toBe('settings.createStoreFailed:{"msg":"boom"}')
-    expect(out).not.toContain('storeNameTaken')
+    expect(storeCreateError(e, t)).toBe('settings.createStoreFailed:{"msg":"boom"}')
   })
 
   it('tolerates a non-Error / missing message', () => {

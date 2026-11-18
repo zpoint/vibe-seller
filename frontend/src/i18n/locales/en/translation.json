@@ -414,7 +414,6 @@
     "yuehulianClientNotRunning": "Couldn't start the 悦互联 client — open it manually (or check it's installed), then Load stores again.",
     "yuehulianNoStores": "No stores visible for this login.",
     "yuehulianLoadFailed": "Couldn't load stores — check the client and try again.",
-    "storeNameTaken": "That store name is already taken — pick another.",
     "createStoreFailed": "Couldn't create store: {{msg}}",
     "ziniaoLoading": "Loading store profiles...",
     "ziniaoConnectError": "Ziniao is not running or not in WebDriver mode.",

@@ -77,10 +77,34 @@ async def _refuse_taken_slug(
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    'A store with this name already exists: '
-                    f'{other_name!r} already uses the folder name {slug!r}'
+                    f'Name collides with existing store {other_name!r}: '
+                    f'both reduce to the same folder name {slug!r} '
+                    '(names are slugified to ASCII for on-disk paths). '
+                    'Choose a different name.'
                 ),
             )
+
+
+def _store_managed_dirs(slug: str):
+    """Every on-disk dir keyed by a store's slug — the one list that
+    create-purge and delete share (workspace, bin wrapper, browser
+    profiles + the aux profile)."""
+    return [
+        workspace_manager.root / 'stores' / slug,
+        VIBE_SELLER_DIR / 'bin' / slug,
+        VIBE_SELLER_DIR / 'browser_profiles' / slug,
+        VIBE_SELLER_DIR / 'browser_profiles' / f'{slug}-aux',
+    ]
+
+
+def _purge_store_dirs(slug: str) -> None:
+    """Remove every slug-keyed dir (best-effort). Pure filesystem — hand
+    to a thread. Used to wipe an orphaned folder before a same-name store
+    is (re)created so it never inherits a deleted store's workspace/notes
+    (even across a different backend), and by delete when delete_files."""
+    for d in _store_managed_dirs(slug):
+        if d.exists():
+            shutil.rmtree(d, ignore_errors=True)
 
 
 @router.get('', response_model=list[StoreResponse])
@@ -149,6 +173,13 @@ async def create_store(
     # Create store directory + seed metadata.json + profile files
     try:
         slug = _store_slug(data.name, store.id)
+        # A new store always starts fresh. The slug passed the live-conflict
+        # check above, so any dir still on disk is an ORPHAN left by a
+        # deleted same-slug store — wipe it (workspace/notes/wrapper/
+        # profiles) before seeding so the new store never inherits the old
+        # one's data, even across a different backend, and regardless of
+        # whether the delete removed files. See _purge_store_dirs.
+        await asyncio.to_thread(_purge_store_dirs, slug)
         store_dir = workspace_manager.root / 'stores' / slug
         store_dir.mkdir(parents=True, exist_ok=True)
         meta_file = store_dir / 'metadata.json'
@@ -373,21 +404,11 @@ async def delete_store(
         },
     )
 
-    # Delete files if requested (non-blocking)
+    # Delete files if requested (non-blocking). One helper removes every
+    # slug-keyed dir (workspace, bin wrapper, browser profiles + aux) for
+    # all backends — the per-backend branches here used to miss bin/<slug>/.
     if delete_files:
-        store_dir = workspace_manager.root / 'stores' / slug
-        if store_dir.exists():
-            await asyncio.to_thread(shutil.rmtree, store_dir)
-
-        if store.browser_backend == 'chrome':
-            profile_dir = VIBE_SELLER_DIR / 'browser_profiles' / slug
-            if profile_dir.exists():
-                await asyncio.to_thread(shutil.rmtree, profile_dir)
-
-        if store.browser_backend == 'ziniao':
-            aux_dir = VIBE_SELLER_DIR / 'browser_profiles' / f'{slug}-aux'
-            if aux_dir.exists():
-                await asyncio.to_thread(shutil.rmtree, aux_dir)
+        await asyncio.to_thread(_purge_store_dirs, slug)
 
     return {'ok': True}
 

@@ -102,6 +102,56 @@ class TestStoreCrud:
         assert r.status_code == 200
         assert r.json()['id'] != sid
 
+    async def test_slug_collision_409_names_the_existing_store(
+        self, admin_client
+    ):
+        """The 409 detail must NAME the colliding store + the shared folder
+        slug, so 'my distinct name isn't taken, why 409?' is answerable:
+        distinct display names can reduce to the same on-disk slug
+        ('My Shop' and 'my_shop' both -> 'my-shop'). A generic 'name taken'
+        hid this."""
+        await admin_client.post('/api/stores', json={'name': 'My Shop'})
+        r = await admin_client.post('/api/stores', json={'name': 'my_shop'})
+        assert r.status_code == 409
+        detail = r.json()['detail']
+        assert 'My Shop' in detail  # names the existing colliding store
+        assert 'my-shop' in detail  # names the shared folder slug
+
+    async def test_recreate_same_name_starts_fresh(
+        self, admin_client, mock_workspace
+    ):
+        """Delete + recreate a same-name store (even a DIFFERENT backend)
+        must start with a FRESH workspace — never inherit the deleted
+        store's files — regardless of whether delete removed them. The
+        wipe-on-create invariant. Negative control: pre-fix, create reused
+        the orphaned dir (mkdir exist_ok=True) so the sentinel survived."""
+        r = await admin_client.post('/api/stores', json={'name': 'Fresh Start'})
+        sid = r.json()['id']
+        store_dir = mock_workspace.root / 'stores' / 'fresh-start'
+        store_dir.mkdir(parents=True, exist_ok=True)
+        sentinel = store_dir / 'stale-sentinel.txt'
+        sentinel.write_text('leaked data from the deleted store')
+
+        # Default delete keeps files on disk (delete_files defaults False),
+        # so the folder lingers — exactly the leak scenario.
+        r = await admin_client.delete(f'/api/stores/{sid}')
+        assert r.status_code == 200
+        assert sentinel.exists()
+
+        # Recreate the same name as a DIFFERENT backend.
+        r = await admin_client.post(
+            '/api/stores',
+            json={
+                'name': 'Fresh Start',
+                'browser_backend': 'ziniao',
+                'ziniao_account_id': 'acc',
+                'browser_oauth': 'oauth',
+            },
+        )
+        assert r.status_code == 200
+        # Wipe-on-create removed the deleted store's data.
+        assert not sentinel.exists()
+
     async def test_list_sorted_by_activity(
         self, admin_client, install_fake_agent
     ):
