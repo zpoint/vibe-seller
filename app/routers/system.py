@@ -10,7 +10,6 @@ import subprocess
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-import httpx
 
 from app import auto_update, pip_update, telemetry
 from app.ai.claude_backend_manager import agent_manager
@@ -26,7 +25,10 @@ from app.update_check import (
     fetch_latest_pypi_version,
     fetch_nightly_upgrade,
     fetch_release_notes,
+    github_releases_source,
     is_newer,
+    pypi_json_source,
+    release_client,
 )
 
 router = APIRouter(prefix='/api/system', tags=['system'])
@@ -109,20 +111,23 @@ async def _compute_update_check() -> dict:
     if channel == 'dev':
         return {'dev': True}
 
-    async with httpx.AsyncClient() as client:
+    # One client per host: a proxy that reaches PyPI but not GitHub must
+    # not be traded for a path that reaches neither.
+    async with await release_client(pypi_json_source()) as client:
         # Stable keeps PyPI's info.version, which never names a
         # pre-release — so a stable install can't be offered a nightly.
         if channel == 'stable':
             latest = await fetch_latest_pypi_version(client)
         else:
             latest = await fetch_nightly_upgrade(client, current)
-        if not latest or not is_newer(latest, current):
-            return {
-                'dev': False,
-                'update_available': False,
-                'current_version': current,
-                'channel': channel,
-            }
+    if not latest or not is_newer(latest, current):
+        return {
+            'dev': False,
+            'update_available': False,
+            'current_version': current,
+            'channel': channel,
+        }
+    async with await release_client(github_releases_source()) as client:
         releases = await fetch_release_notes(client, current)
         # Reconcile the two sources: `latest` is PyPI (what `vibe-seller
         # upgrade` / pip actually installs), but the notes come from
@@ -261,7 +266,7 @@ async def release_notes(
     empty lists rather than an error.
     """
     target = until or APP_VERSION
-    async with httpx.AsyncClient() as client:
+    async with await release_client(github_releases_source()) as client:
         releases = await fetch_release_notes(client, since)
         releases = [r for r in releases if not is_newer(r['version'], target)]
     merged = merged_notes(releases)

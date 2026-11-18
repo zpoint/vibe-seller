@@ -8,6 +8,7 @@ that does not (the child gets no proxy var at all).
 """
 
 import asyncio
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -15,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app import claude_cli_install, cli, system_proxy
+from app import claude_cli_install, cli, pip_update, system_proxy, uv_tool
 from app.platform import venv_bin_dir, venv_python
 from app.workspace import skills_sync, venv_bootstrap
 
@@ -157,3 +158,95 @@ def test_upgrade_of_the_claude_cli_through_npm(network, monkeypatch):
     assert seen['cmd'][0] == 'npm'
     _assert_env(seen['env'], network)
     assert [u for u, _ in network] == [system_proxy.NPM]
+
+
+# -- updates ------------------------------------------------------------
+
+
+@pytest.fixture
+def uv_tool_install(monkeypatch):
+    """A uv-tool install of 1.0.0 whose uv and base python exist."""
+    monkeypatch.setattr(pip_update.shutil, 'which', lambda name: '/usr/bin/uv')
+    monkeypatch.setattr(pip_update, 'prefetch_python', lambda: '/usr/bin/py')
+    monkeypatch.setattr(pip_update, 'is_windows_bundle', lambda: False)
+    monkeypatch.setattr(pip_update, 'get_version', lambda: '1.0.0')
+    monkeypatch.setattr(
+        pip_update.upgrade_restart, 'installed_version', lambda: '1.0.0'
+    )
+
+
+@pytest.mark.parametrize(
+    'step',
+    [
+        lambda: pip_update.warm('9.9.9'),
+        lambda: pip_update.pre_install_browser('9.9.9'),
+        pip_update.keep_rollback_warm,
+    ],
+    ids=['the release', 'its browser', 'the rollback copy'],
+)
+def test_the_update_prefetch_asks_about_the_index(
+    network, monkeypatch, uv_tool_install, step
+):
+    seen = _capture_run(monkeypatch, pip_update)
+    step()
+    assert seen['cmd'][:3] == ['/usr/bin/uv', 'tool', 'run']
+    _assert_env(seen['env'], network)
+    assert [u for u, _ in network] == [system_proxy.PYPI]
+
+
+def test_the_offline_check_asks_no_network(monkeypatch, uv_tool_install):
+    """``--offline`` reads nothing from the network: no probe, and the
+    env as it is."""
+    monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:7890')
+    monkeypatch.setattr(pip_update, 'find_links', lambda: [])
+    monkeypatch.setattr(
+        system_proxy, 'reaches', lambda u, p: pytest.fail('probed')
+    )
+    seen = _capture_run(monkeypatch, pip_update)
+    assert pip_update.offline_apply_proven('9.9.9') is None
+    assert '--offline' in seen['cmd']
+    assert seen['env'] is None
+
+
+def test_the_apply_asks_about_the_index(network, monkeypatch, tmp_path):
+    """``vibe-seller upgrade --version``, what the apply helper runs."""
+    monkeypatch.setattr(uv_tool.shutil, 'which', lambda name: '/usr/bin/uv')
+    monkeypatch.setattr(uv_tool, 'receipt_path', lambda: tmp_path / 'r.toml')
+    seen = _capture_run(monkeypatch, uv_tool)
+    assert uv_tool.install_exactly('9.9.9') == 0
+    assert seen['cmd'][-1] == 'vibe-seller==9.9.9'
+    _assert_env(seen['env'], network)
+    assert [u for u, _ in network] == [system_proxy.PYPI]
+
+
+def test_a_plain_upgrade_asks_about_the_index(network, monkeypatch):
+    monkeypatch.setattr(cli.shutil, 'which', lambda name: '/usr/bin/uv')
+    monkeypatch.setattr(cli, '_resolve_version', lambda: '1.0.0')
+    seen = _capture_run(monkeypatch, cli)
+    assert (
+        cli._upgrade_package(cli._build_parser().parse_args(['upgrade'])) == 0
+    )
+    assert seen['cmd'] == ['uv', 'tool', 'upgrade', 'vibe-seller']
+    _assert_env(seen['env'], network)
+    assert [u for u, _ in network] == [system_proxy.PYPI]
+
+
+def test_the_pypi_release_list_takes_the_decided_path(network, monkeypatch):
+    """``upgrade --nightly`` reads every release from PyPI in-process."""
+    opened = []
+
+    class _Opener:
+        def open(self, req, timeout):
+            opened.append(req)
+            return io.BytesIO(b'{"releases": {"9.9.9": [{}]}}')
+
+    monkeypatch.setattr(
+        system_proxy.urllib.request, 'build_opener', lambda *h: _Opener()
+    )
+    monkeypatch.setattr(
+        system_proxy.urllib.request,
+        'urlopen',
+        lambda req, timeout: _Opener().open(req, timeout),
+    )
+    assert cli._pypi_versions() == ['9.9.9']
+    assert [u for u, _ in network] == [cli._PYPI_JSON_URL]

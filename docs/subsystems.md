@@ -760,6 +760,18 @@ admin clicks "重启并更新" in the UI.
   no `--prerelease allow` — same rule as `app/cli.py`). Progress is
   indeterminate there; the proof of a warm cache is an offline rerun
   (`UV_OFFLINE=1`, `tests/releases/test_auto_update.sh` step 5).
+- **Every hop takes a network path that works** (`app/system_proxy.py`):
+  the version check and release notes (httpx, `update_check.release_client`),
+  the uv prefetch (`pip_update._run`), the apply (`uv_tool.index_env`,
+  also `vibe-seller upgrade`) and the Windows release check + installer
+  download (`system_proxy.urlopen`). Each asks first whether the
+  exported proxy, then the OS proxy, reaches the host; the first that
+  does is used, none → direct. uv on its own never sees the OS proxy a
+  CN user switches on, and every client used to die on a stale
+  `HTTPS_PROXY`. The `--offline` dry run probes nothing.
+  `tests/workflow/test_wf_update_network.py` drives each hop over a
+  local HTTPS origin and a counting CONNECT proxy, for every network
+  shape.
 - **Mock hooks for tests/CI**: `VIBE_SELLER_PYPI_JSON_URL` and
   `VIBE_SELLER_GITHUB_RELEASES_URL` (URL *or* local path) point the
   version check and the release-notes fetch at local fixtures — the

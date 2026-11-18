@@ -23,8 +23,14 @@ themselves:
 Use the checked one for a download whose targets you know; a yes is
 cached for a minute (a no for seconds), so the next download in a
 burst does not pay for the probes again. ``decide_download_env`` also
-says what was decided, for an error message that tells the truth. A proxy that is not http(s) (``socks5://``)
-cannot be probed with urllib and is trusted as set.
+says what was decided, for an error message that tells the truth. A
+proxy that is not http(s) (``socks5://``) cannot be probed with urllib
+and is trusted as set.
+
+A download made in-process (urllib, httpx) has the same two failures
+the other way round: it does follow the OS proxy, but never asks whether
+it, or an exported one, works. ``Decision.client_proxies`` is the same
+answer for such a client, and ``urlopen`` applies it.
 """
 
 import asyncio
@@ -234,6 +240,12 @@ class Decision:
     proxy: str | None = None  # the proxy the download takes, if any
     # Proxies tried and passed over, each with the hosts it missed.
     failed: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    # The same decision for an in-process client (urllib, httpx), as a
+    # ``{'http': ..., 'https': ...}`` map; ``{}`` is direct. None when
+    # the client's own reading of the env already lands on it (the
+    # exported proxy won, or there was nothing to decide) — so a run
+    # with no proxy anywhere is exactly what it was before.
+    client_proxies: dict[str, str] | None = None
 
     @property
     def dropped(self) -> bool:
@@ -264,9 +276,14 @@ def decide_download_env(
     one as set, the OS one as ``HTTPS_PROXY``/``HTTP_PROXY`` (with any
     other proxy var removed). A stale export therefore no longer hides
     a working system proxy. None works: the env with every proxy var
-    removed, so the download goes direct. No proxy anywhere: the env
-    as is.
+    removed, so the download goes direct. No proxy anywhere, or no
+    http(s) target (a ``file://`` source in a test): the env as is.
     """
+    targets = tuple(
+        t for t in targets if urlsplit(t).scheme in ('http', 'https')
+    )
+    if not targets:
+        return Decision(dict(os.environ))
     exported = _env_proxy()
     candidates = [p for p in (exported, _system_proxy()) if p]
     failed: list[tuple[str, tuple[str, ...]]] = []
@@ -280,10 +297,12 @@ def decide_download_env(
             if blocked:
                 failed.append((proxy, blocked))
                 continue
+        client: dict[str, str] | None = None
         if proxy == exported:
             env = download_env()
         else:
             env = {**_direct_env(), 'HTTPS_PROXY': proxy, 'HTTP_PROXY': proxy}
+            client = {'http': proxy, 'https': proxy}
         if failed:
             logger.warning(
                 'Proxy %s does not reach %s — using %s',
@@ -291,7 +310,7 @@ def decide_download_env(
                 ', '.join(failed[0][1]),
                 redact_proxy_url(proxy),
             )
-        return Decision(env, proxy, tuple(failed))
+        return Decision(env, proxy, tuple(failed), client)
     if not failed:
         return Decision(dict(os.environ))
     logger.warning(
@@ -299,7 +318,25 @@ def decide_download_env(
         ', '.join(failed[-1][1]),
         ', '.join(redact_proxy_url(p) for p, _ in failed),
     )
-    return Decision(_direct_env(), None, tuple(failed))
+    return Decision(_direct_env(), None, tuple(failed), {})
+
+
+def urlopen(request: str | urllib.request.Request, timeout: float):
+    """``urllib.request.urlopen`` over the network path
+    ``decide_download_env`` picks for the request's host.
+
+    The plain ``urlopen`` reads the env first and the OS proxy only when
+    the env has none, and never asks whether either works: a stale
+    ``HTTPS_PROXY`` sinks the request, and so does a system proxy that
+    cannot reach the host. When there is nothing to correct this IS
+    the plain ``urlopen`` (same opener, same handlers).
+    """
+    url = request if isinstance(request, str) else request.full_url
+    proxies = decide_download_env((url,)).client_proxies
+    if proxies is None:
+        return urllib.request.urlopen(request, timeout=timeout)  # noqa: S310
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler(proxies))
+    return opener.open(request, timeout=timeout)
 
 
 def checked_download_env(

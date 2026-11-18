@@ -31,6 +31,7 @@ from app.release_channel import (
     channel_of,
     is_newer as is_newer,
 )
+from app.system_proxy import decide_download_env_async
 
 REPO = 'zpoint/vibe-seller'
 PYPI_JSON_URL = 'https://pypi.org/pypi/vibe-seller/json'
@@ -74,6 +75,36 @@ def pypi_json_source() -> str:
     as ``VIBE_SELLER_RELEASES_URL`` for the Windows installer source);
     the override may be a URL or a plain local path."""
     return Options.PYPI_JSON_URL.get().strip() or PYPI_JSON_URL
+
+
+def github_releases_source() -> str:
+    """Where the GitHub releases list is read from (URL or local path;
+    ``VIBE_SELLER_GITHUB_RELEASES_URL`` is the mock hook)."""
+    return Options.GITHUB_RELEASES_URL.get().strip() or GITHUB_RELEASES_URL
+
+
+async def release_client(*sources: str) -> httpx.AsyncClient:
+    """An ``httpx.AsyncClient`` on the network path that reaches *sources*.
+
+    httpx on its own takes the exported proxy, else the OS one, and
+    never asks whether it works — so a stale ``HTTPS_PROXY`` hid every
+    release from a machine whose system proxy was fine, and a proxy
+    that cannot reach PyPI hid them from one whose direct network could.
+    The path is decided the way downloads decide it
+    (``app/system_proxy.decide_download_env``); with nothing to correct
+    the client is the plain one.
+    """
+    proxies = (await decide_download_env_async(sources)).client_proxies
+    if proxies is None:
+        return httpx.AsyncClient()
+    if not proxies:
+        # Direct: our own transport under the keys httpx files the env
+        # proxies under ('all://' would lose to the more specific
+        # 'https://'), so it replaces them. A transport still reads the
+        # env for its TLS settings (``SSL_CERT_FILE``).
+        direct = httpx.AsyncHTTPTransport()
+        return httpx.AsyncClient(mounts={'http://': direct, 'https://': direct})
+    return httpx.AsyncClient(proxy=proxies['https'])
 
 
 def _local_path(src: str) -> str | None:
@@ -142,7 +173,7 @@ async def _fetch_releases_json(client: httpx.AsyncClient) -> list:
     """The GitHub releases list, from the URL or local path in
     ``VIBE_SELLER_GITHUB_RELEASES_URL`` (mock hook, like the PyPI
     source above)."""
-    src = Options.GITHUB_RELEASES_URL.get().strip() or GITHUB_RELEASES_URL
+    src = github_releases_source()
     path = _local_path(src)
     if path is not None:
         text = await asyncio.to_thread(Path(path).read_text, encoding='utf-8')

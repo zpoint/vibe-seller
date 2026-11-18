@@ -22,6 +22,8 @@ import shutil
 import subprocess
 import sys
 
+from app.system_proxy import checked_download_env, pypi_target
+
 logger = logging.getLogger(__name__)
 
 #: uv's own record of what a tool env was installed from.
@@ -31,6 +33,16 @@ RECEIPT_NAME = 'uv-receipt.toml'
 def has_uv() -> bool:
     """Is uv on PATH — i.e. is this a `uv tool install` layout at all?"""
     return bool(shutil.which('uv'))
+
+
+def index_env() -> dict[str, str]:
+    """``env=`` for a uv/pip install from the package index.
+
+    uv and pip read only the ``*_proxy`` env vars — never the OS proxy —
+    and do not ask whether an exported one still works. This hands them
+    a proxy that reaches the index, or none (``app/system_proxy.py``).
+    """
+    return checked_download_env((pypi_target(),))
 
 
 def reinstall_argv(spec: str) -> list[str]:
@@ -121,7 +133,7 @@ def install_exactly(version: str) -> int:
     spec = f'vibe-seller=={version}'
     cmd = reinstall_argv(spec) if has_uv() else pip_install_argv(spec)
     print(f'==> {" ".join(cmd)}')
-    rc = subprocess.run(cmd).returncode  # noqa: S603
+    rc = subprocess.run(cmd, env=index_env()).returncode  # noqa: S603
     if rc != 0:
         return rc
     unpin_receipt()

@@ -67,7 +67,12 @@ from app import (
 from app.env_options import Options
 from app.release_channel import channel_of, is_newer
 from app.telemetry_events import UpdateStage
-from app.update_check import fetch_latest_pypi_version, fetch_nightly_upgrade
+from app.update_check import (
+    fetch_latest_pypi_version,
+    fetch_nightly_upgrade,
+    pypi_json_source,
+    release_client,
+)
 from app.version import get_version
 
 logger = logging.getLogger(__name__)
@@ -352,7 +357,7 @@ async def _cycle_unix() -> None:
     Always the pip path: there is no bundled runtime to change, and
     the target came from PyPI, so it exists there."""
     started = time.monotonic()
-    async with httpx.AsyncClient() as client:
+    async with await release_client(pypi_json_source()) as client:
         target = await _pypi_target(client)
     if not target:
         _mark_idle()
