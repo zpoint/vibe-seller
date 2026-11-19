@@ -19,6 +19,7 @@ from app import (
 )
 from app.ai.profiles import profile_kind_for_id, profile_telemetry
 from app.database import async_session
+from app.models.schedule_constants import SYSTEM_CATALOG_SYNC_ID
 from app.models.task import Task, close_pause, open_pause, paused_total
 from app.models.task_message import TaskMessage
 from app.telemetry_events import TaskSource, TelemetryEvent
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 _SKILL_FILE_RE = re.compile(r'(?:^|[/\s])skills/([^/\s]+)/SKILL\.md')
 _SKILL_NAME_RE = re.compile(r'[^\s/\\]{1,64}')
+_GWS_COMMAND_RE = re.compile(r'(?:^|[\s;&|(`])gws\s+[a-z+]')
 
 
 def skill_names(tool: str, tool_input: dict) -> list[str]:
@@ -50,7 +52,17 @@ def skill_names(tool: str, tool_input: dict) -> list[str]:
     ]
 
 
-async def _skills_used_in_task(db, task_id: str) -> list[str]:
+def integration_names(tool: str, tool_input: dict) -> list[str]:
+    if tool.startswith('mcp__ticktick__'):
+        return ['ticktick']
+    command = str(tool_input.get('command') or '')
+    if tool == 'Bash' and _GWS_COMMAND_RE.search(command):
+        return ['gws']
+    return []
+
+
+async def _tool_uses_in_task(db, task_id: str) -> tuple[list[str], list[str]]:
+    """Skills and integrations the task's tool calls used."""
     try:
         result = await db.execute(
             select(TaskMessage.content).where(
@@ -60,8 +72,9 @@ async def _skills_used_in_task(db, task_id: str) -> list[str]:
         )
         contents = result.scalars().all()
     except Exception:
-        return []
+        return [], []
     skills: set[str] = set()
+    integrations: set[str] = set()
     for content in contents:
         if not isinstance(content, str):
             continue
@@ -74,7 +87,8 @@ async def _skills_used_in_task(db, task_id: str) -> list[str]:
         except (ValueError, TypeError, AttributeError):
             continue
         skills.update(skill_names(tool, tool_input))
-    return sorted(skills)[:20]
+        integrations.update(integration_names(tool, tool_input))
+    return sorted(skills)[:20], sorted(integrations)
 
 
 async def _tool_use_count(db, task_id: str) -> int:
@@ -104,6 +118,10 @@ async def _followup_count(db, task_id: str) -> int:
         return 0
 
 
+def _is_catalog(task: Task) -> bool:
+    return task.schedule_id == SYSTEM_CATALOG_SYNC_ID
+
+
 def send_task_created(
     task: Task,
     *,
@@ -119,6 +137,7 @@ def send_task_created(
         'is_store_task': task.store_id is not None,
         'plan_mode': bool(task.plan_mode),
         'schedule_id': task.schedule_id,
+        'is_catalog': _is_catalog(task),
         'has_parent': task.parent_task_id is not None,
         'description_length_bucket': telemetry.length_bucket(
             len(task.description or '')
@@ -140,6 +159,7 @@ def send_task_started(task: Task) -> None:
             'is_store_task': task.store_id is not None,
             'plan_mode': bool(task.plan_mode),
             'is_scheduled': task.schedule_id is not None,
+            'is_catalog': _is_catalog(task),
             'has_parent': task.parent_task_id is not None,
             **profile_telemetry(task.ai_profile_id),
         },
@@ -186,6 +206,7 @@ def _outcome_props(task: Task) -> dict:
         'is_store_task': task.store_id is not None,
         'was_planned': bool(task.plan_mode),
         'is_scheduled': task.schedule_id is not None,
+        'is_catalog': _is_catalog(task),
         **profile_telemetry(task.ai_profile_id),
         'followup_count': 0,
         'retry_count': task.retry_count or 0,
@@ -196,11 +217,14 @@ def _outcome_props(task: Task) -> dict:
 
 async def send_task_completed(task: Task) -> None:
     skills_used: list[str] = []
+    integrations_used: list[str] = []
     tool_count = 0
     followups = 0
     try:
         async with async_session() as db:
-            skills_used = await _skills_used_in_task(db, task.id)
+            skills_used, integrations_used = await _tool_uses_in_task(
+                db, task.id
+            )
             tool_count = await _tool_use_count(db, task.id)
             followups = await _followup_count(db, task.id)
     except Exception:
@@ -209,6 +233,7 @@ async def send_task_completed(task: Task) -> None:
     props.update({
         'tool_use_count': tool_count,
         'skills_used': skills_used,
+        'integrations_used': integrations_used,
         'followup_count': followups,
     })
     telemetry.send(TelemetryEvent.TASK_COMPLETED, props)
@@ -216,10 +241,13 @@ async def send_task_completed(task: Task) -> None:
 
 async def send_task_failed(task: Task, *, phase: str, category: str) -> None:
     skills_used: list[str] = []
+    integrations_used: list[str] = []
     followups = 0
     try:
         async with async_session() as db:
-            skills_used = await _skills_used_in_task(db, task.id)
+            skills_used, integrations_used = await _tool_uses_in_task(
+                db, task.id
+            )
             followups = await _followup_count(db, task.id)
     except Exception:
         pass
@@ -228,6 +256,7 @@ async def send_task_failed(task: Task, *, phase: str, category: str) -> None:
         'phase': phase,
         'error_category': (getattr(task, 'error_category', None) or category),
         'skills_used': skills_used,
+        'integrations_used': integrations_used,
         'followup_count': followups,
     })
     telemetry.send(TelemetryEvent.TASK_FAILED, props)
@@ -240,6 +269,7 @@ def send_task_cancelled(task: Task, *, status_at: str | None = None) -> None:
             'task_id': task.id,
             'status_at_cancel': status_at or task.status,
             'source': task.source or TaskSource.OTHER,
+            'is_catalog': _is_catalog(task),
             'via': via_for_task(task),
             **profile_telemetry(task.ai_profile_id),
             **_usage_props(task),
@@ -255,6 +285,7 @@ def send_task_resumed(
         {
             'task_id': task.id,
             'is_store_task': task.store_id is not None,
+            'is_catalog': _is_catalog(task),
             'wait_duration_bucket': telemetry.duration_bucket(wait_secs),
             'wake_reason': wake_reason,
             'ai_profile_kind': profile_kind_for_id(task.ai_profile_id),

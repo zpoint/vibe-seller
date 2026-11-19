@@ -454,3 +454,55 @@ class TestWatermarkFloorAuthority:
         known = miss.json()['other_known_keys']
         assert '_email_watermark_floor' not in known
         assert 'email_watermark' in known
+
+
+class TestEmailReadTelemetry:
+    """Each read of a store's mail (info or the scheduled sweep) is one
+    ``email_read``; a store with no mailbox linked reads nothing."""
+
+    @pytest.fixture
+    def events(self, monkeypatch):
+        sent: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            'app.telemetry.send',
+            lambda e, p=None: sent.append((e, dict(p or {}))),
+        )
+        return sent
+
+    async def test_info_and_sweep_are_reads(
+        self,
+        admin_client,
+        override_async_session,
+        admin_user,
+        email_env,
+        events,
+    ):
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            email_env['schedule_id'],
+            email_env['store_id'],
+        )
+        r = await admin_client.get(
+            f'/api/email-accounts/info-by-store/{email_env["store_id"]}'
+        )
+        assert r.status_code == 200
+        r = await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        assert r.status_code == 200
+
+        reads = [
+            (p['source'], p['provider_kinds'])
+            for e, p in events
+            if e == 'email_read'
+        ]
+        assert reads == [('info', ['other']), ('new_emails', ['other'])]
+
+    async def test_store_without_mailbox_is_not_a_read(
+        self, admin_client, events
+    ):
+        store = await admin_client.post('/api/stores', json={'name': 'No Mail'})
+        r = await admin_client.get(
+            f'/api/email-accounts/info-by-store/{store.json()["id"]}'
+        )
+        assert r.status_code == 200
+        assert not [e for e, _ in events if e == 'email_read']

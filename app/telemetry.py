@@ -12,6 +12,7 @@ import uuid
 
 from posthog import Posthog
 
+from app.channels.email_discovery import KNOWN_IMAP_SERVERS
 from app.config import DATA_DIR
 from app.release_channel import channel_of
 
@@ -370,26 +371,11 @@ def tz_continent_bucket(iana: str | None) -> str:
     return 'other'
 
 
-_EMAIL_DOMAIN_KIND = {
-    'gmail.com': 'gmail',
-    'googlemail.com': 'gmail',
-    'outlook.com': 'outlook',
-    'hotmail.com': 'outlook',
-    'live.com': 'outlook',
-    'msn.com': 'outlook',
-    'icloud.com': 'icloud',
-    'me.com': 'icloud',
-    'yahoo.com': 'yahoo',
-    'yahoo.co.jp': 'yahoo',
-    'ymail.com': 'yahoo',
-}
-
-
 def email_provider_kind(email: str | None) -> str:
     if not email or '@' not in email:
         return 'other'
     domain = email.rsplit('@', 1)[1].lower().strip()
-    return _EMAIL_DOMAIN_KIND.get(domain, 'other')
+    return domain if domain in KNOWN_IMAP_SERVERS else 'other'
 
 
 def shutdown() -> None:

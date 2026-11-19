@@ -6,6 +6,7 @@ renames are atomic and a grep for "EventName" finds every emit.
 """
 
 import enum
+import re
 
 
 class TelemetryEvent:
@@ -64,6 +65,7 @@ class TelemetryEvent:
 
     CHAT_BOT_ADDED = 'chat_bot_added'
     CHAT_BOT_REMOVED = 'chat_bot_removed'
+    CHAT_BOT_MESSAGE_SENT = 'chat_bot_message_sent'
     IMAGE_GENERATED = 'image_generated'
     WORKSPACE_ASSISTANT_MESSAGE = 'workspace_assistant_message'
 
@@ -86,6 +88,7 @@ class TelemetryEvent:
     SCHEDULE_FIRE_SKIPPED = 'schedule_fire_skipped'
     EMAIL_SEND_PERMISSION_CHANGED = 'email_send_permission_changed'
     EMAIL_SENT = 'email_sent'
+    EMAIL_READ = 'email_read'
     IMAGE_REQUEST_RESOLVED = 'image_request_resolved'
     UPGRADE_RESTARTED = 'upgrade_restarted'
     UPDATE_DOWNLOADED = 'update_downloaded'
@@ -176,18 +179,16 @@ class McpErrorCategory:
 
 
 class McpClientName:
-    """Known MCP client names; anything else buckets to ``other``."""
+    """The client's self-reported ``clientInfo.name``, normalised."""
 
-    KNOWN = {'claude': 'claude-code', 'cursor': 'cursor', 'codex': 'codex'}
     OTHER = 'other'
+    MAX_CHARS = 40
+    _UNSAFE = re.compile(r'[^a-z0-9._-]+')
 
     @classmethod
     def bucket(cls, raw: str | None) -> str:
-        name = (raw or '').strip().lower()
-        for needle, bucket in cls.KNOWN.items():
-            if needle in name:
-                return bucket
-        return cls.OTHER
+        name = cls._UNSAFE.sub('-', (raw or '').strip().lower()).strip('-')
+        return name[: cls.MAX_CHARS] or cls.OTHER
 
 
 class TaskFailurePhase:

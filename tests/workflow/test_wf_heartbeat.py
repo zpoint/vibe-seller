@@ -15,6 +15,7 @@ import pytest
 from app.ai.profiles import ProfileManager
 from app.models.app_settings import AppSettings
 from app.models.email_account import EmailAccount
+from app.models.schedule import Schedule
 from app.scheduler.heartbeat import send_install_heartbeat
 from app.sync import state as sync_state
 from app.sync.scheduler import sync_scheduler
@@ -24,9 +25,11 @@ pytestmark = pytest.mark.workflow
 EXPECTED = {
     'store_count': int,
     'active_schedule_count': int,
+    'user_schedule_count': int,
     'user_count': int,
     'ai_profile_count': int,
     'email_account_count': int,
+    'email_provider_counts': dict,
     'chat_bot_count': int,
     'tasks_last_24h': int,
     'ads_calls_last_24h': int,
@@ -156,6 +159,64 @@ class TestHeartbeatHealth:
         beat = next(p for e, p in events if e == 'install_heartbeat')
         assert beat['email_send_disabled_count'] == 2
         assert beat['sync_failed_jobs'] == ['job-a']
+
+
+class TestHeartbeatEmailProviders:
+    async def test_mailboxes_counted_by_provider_domain_only(
+        self, override_async_session, isolated_profiles, monkeypatch
+    ):
+        events, person = _capture(monkeypatch)
+        boxes = [
+            ('a@163.com', 'imap.163.com'),
+            ('b@163.com', 'imap.163.com'),
+            ('c@qq.com', 'imap.qq.com'),
+            ('ops@acme-trade.example', 'imap.exmail.qq.com'),
+        ]
+        async with override_async_session() as db:
+            for email, host in boxes:
+                db.add(
+                    EmailAccount(
+                        email=email,
+                        encrypted_password='x',
+                        imap_host=host,
+                        created_by='u-1',
+                    )
+                )
+            await db.commit()
+        await send_install_heartbeat()
+        beat = next(p for e, p in events if e == 'install_heartbeat')
+        assert beat['email_provider_counts'] == {
+            '163.com': 2,
+            'qq.com': 1,
+            'other': 1,
+        }
+        blob = json.dumps({'events': events, 'person': person}, default=str)
+        assert 'acme' not in blob
+
+
+class TestHeartbeatUserSchedules:
+    async def test_system_schedule_is_not_a_user_schedule(
+        self, override_async_session, isolated_profiles, monkeypatch
+    ):
+        events, _person = _capture(monkeypatch)
+        async with override_async_session() as db:
+            for sid, system in (('_catalog_sync', True), ('s-user-1', False)):
+                db.add(
+                    Schedule(
+                        id=sid,
+                        title=sid,
+                        schedule_type='days',
+                        schedule_time='09:00',
+                        interval_value=1,
+                        is_system=system,
+                        created_by='u-1',
+                    )
+                )
+            await db.commit()
+        await send_install_heartbeat()
+        beat = next(p for e, p in events if e == 'install_heartbeat')
+        assert beat['active_schedule_count'] == 2
+        assert beat['user_schedule_count'] == 1
 
 
 class TestHeartbeatNoLeaks:

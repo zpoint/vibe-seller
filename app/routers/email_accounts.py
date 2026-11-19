@@ -37,6 +37,7 @@ from app.schemas.email_account import (
     StoreEmailLinkResponse,
 )
 from app.telemetry_events import TelemetryEvent
+from app.telemetry_via import current_via
 from app.text_utils import SafeStr
 from app.utils.crypto import decrypt_password, encrypt_password
 
@@ -554,6 +555,17 @@ async def email_info_by_store(
             # mailbox (the server refuses it otherwise).
             'allow_send': bool(acct.allow_send),
         })
+    if rows:
+        telemetry.send(
+            TelemetryEvent.EMAIL_READ,
+            {
+                'source': 'info',
+                'provider_kinds': sorted({
+                    telemetry.email_provider_kind(a.email) for _link, a in rows
+                }),
+                'via': current_via(),
+            },
+        )
 
     return {
         'store_id': store_id,

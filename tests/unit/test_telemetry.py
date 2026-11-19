@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app import telemetry
+from app.telemetry_events import McpClientName
 
 pytestmark = pytest.mark.unit
 
@@ -101,3 +102,34 @@ def test_runtime_os_reads_the_platform_once(monkeypatch):
     finally:
         telemetry.runtime_os.cache_clear()
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ('email', 'expected'),
+    [
+        ('a@163.com', '163.com'),
+        ('A@QQ.com', 'qq.com'),
+        ('a@gmail.com', 'gmail.com'),
+        ('ops@acme-trade.example', 'other'),
+        ('no-at-sign', 'other'),
+        (None, 'other'),
+    ],
+)
+def test_email_provider_kind(email, expected):
+    assert telemetry.email_provider_kind(email) == expected
+
+
+@pytest.mark.parametrize(
+    ('raw', 'expected'),
+    [
+        ('claude-code', 'claude-code'),
+        ('Cherry Studio', 'cherry-studio'),
+        ('codex-mcp-client', 'codex-mcp-client'),
+        ('  ', 'other'),
+        (None, 'other'),
+        ('x' * 80, 'x' * 40),
+        ('<script>', 'script'),
+    ],
+)
+def test_mcp_client_name(raw, expected):
+    assert McpClientName.bucket(raw) == expected
