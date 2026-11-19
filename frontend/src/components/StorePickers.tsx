@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
 import { SecretReveal } from './SecretReveal'
-import type { ServerPlatform, YuehulianStore, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
+import type { ServerPlatform, Store, YuehulianStore, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 
 interface YuehulianLoginStatus { configured: boolean; team_name: string; subaccount: string }
 
@@ -20,6 +20,7 @@ export function YuehulianSection(props: {
   selectedBrowserOauth: string; setSelectedBrowserOauth: (v: string) => void
   yuehulianStores: YuehulianStore[]; yuehulianError: string
   fetchingYuehulian: boolean; fetchYuehulianStores: () => void
+  stores: Store[]
 }) {
   const { t } = useTranslation()
   const p = props
@@ -44,7 +45,17 @@ export function YuehulianSection(props: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void refresh(true) }, [])
 
-  const openAdd = () => { setEditing(false); setTeam(''); setSub(''); setPw(''); setFormErr(''); setShowForm(true) }
+  // One account per machine: if an account is already configured AND
+  // yuehulian stores exist, adding a different one is blocked — surface it
+  // the moment [+] is clicked (the user shouldn't fill a form only to be
+  // rejected on save). With no stores, [+] opens the form to replace it.
+  const hasYuehulianStores = p.stores.some(s => s.browser_backend === 'yuehulian')
+  const openAdd = () => {
+    if (status?.configured && hasYuehulianStores) {
+      setShowForm(false); setFormErr(t('settings.yuehulianOneAccount')); return
+    }
+    setEditing(false); setTeam(''); setSub(''); setPw(''); setFormErr(''); setShowForm(true)
+  }
   const openEdit = () => { setEditing(true); setTeam(status?.team_name || ''); setSub(status?.subaccount || ''); setPw(''); setFormErr(''); setShowForm(true) }
 
   const save = async () => {
@@ -105,9 +116,9 @@ export function YuehulianSection(props: {
             <button type="button" onClick={save} disabled={busy} className="px-2 py-1 bg-indigo-600 text-white rounded text-xs disabled:opacity-50">{busy ? t('settings.yuehulianLoginSaving') : t('common.save')}</button>
             <button type="button" onClick={() => { setShowForm(false); setFormErr('') }} className="px-2 py-1 bg-gray-200 rounded text-xs">{t('common.cancel')}</button>
           </div>
-          {formErr && <p className="text-[11px] text-red-600">{formErr}</p>}
         </div>
       )}
+      {formErr && <p className="text-[11px] text-red-600">{formErr}</p>}
       {status?.configured && p.fetchingYuehulian && (
         <p className="text-[11px] text-gray-500">{t('settings.yuehulianLoading')}</p>
       )}

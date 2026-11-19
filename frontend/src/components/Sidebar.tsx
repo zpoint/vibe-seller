@@ -257,6 +257,7 @@ export function Sidebar(props: SidebarProps) {
               deleteZiniaoAccount={deleteZiniaoAccount}
               createStore={createStore} setShowCreateStore={setShowCreateStore}
               isAdmin={currentUser?.role === 'admin'}
+              stores={stores}
             />
           )}
           <div className="flex-1 overflow-y-auto">
@@ -337,6 +338,7 @@ function StoreCreationForm(props: {
   fetchingYuehulian: boolean; fetchYuehulianStores: () => void
   createStore: () => void; setShowCreateStore: (v: boolean) => void
   isAdmin: boolean
+  stores: Store[]
 }) {
   const { t } = useTranslation()
   const p = props
