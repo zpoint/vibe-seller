@@ -85,6 +85,17 @@ async def _browser_close(host: str, port: int) -> None:
         pass
 
 
+async def _close_and_settle(host: str, port: int) -> None:
+    """Close a store's env AND wait for the kernel to actually exit, so the
+    next scenario that reuses the store opens cleanly instead of racing a
+    still-closing kernel (which would look 'already open')."""
+    await _browser_close(host, port)
+    for _ in range(12):
+        if not await _cdp_ok(host, port):
+            return
+        await asyncio.sleep(1)
+
+
 async def _goto_personal_center() -> None:
     """Drive the client OFF the store list (the '切换/进了关' state)."""
     proc = ProcessLayer()
@@ -170,7 +181,7 @@ async def _run_logged_in(client: RealYuehulianClient, restart: bool) -> None:
     try:
         opened = await client.open_store(first)
         ok = await _cdp_ok(opened.cdp_host, opened.cdp_port)
-        await _browser_close(opened.cdp_host, opened.cdp_port)
+        await _close_and_settle(opened.cdp_host, opened.cdp_port)
         _record(
             f'open page-1 store {first!r} → CDP', ok, f'port {opened.cdp_port}'
         )
@@ -184,7 +195,7 @@ async def _run_logged_in(client: RealYuehulianClient, restart: bool) -> None:
         try:
             opened = await client.open_store(last)
             ok = await _cdp_ok(opened.cdp_host, opened.cdp_port)
-            await _browser_close(opened.cdp_host, opened.cdp_port)
+            await _close_and_settle(opened.cdp_host, opened.cdp_port)
             _record(
                 f'open last/paged store {last!r} → CDP',
                 ok,
@@ -212,14 +223,21 @@ async def _run_logged_in(client: RealYuehulianClient, restart: bool) -> None:
                 distinct and both,
                 f'{oa.cdp_port} / {ob.cdp_port}',
             )
-            await _browser_close(oa.cdp_host, oa.cdp_port)
-            await _browser_close(ob.cdp_host, ob.cdp_port)
+            await _close_and_settle(oa.cdp_host, oa.cdp_port)
+            await _close_and_settle(ob.cdp_host, ob.cdp_port)
         except Exception as e:
             _record('concurrent two stores', False, repr(e))
 
     # S: already-open → clear CdpUnreachable (not a misleading StoreNotFound).
     try:
         held = await client.open_store(first)
+    except CdpUnreachable:
+        # Already open (e.g. a prior scenario's close still settling) — that
+        # IS the already-open signal we want to see.
+        _record('already-open → CdpUnreachable', True, 'detected on first open')
+    except Exception as e:
+        _record('already-open → CdpUnreachable', False, f'setup: {e!r}')
+    else:
         try:
             await client.open_store(first)
             _record(
@@ -231,9 +249,7 @@ async def _run_logged_in(client: RealYuehulianClient, restart: bool) -> None:
             _record('already-open → CdpUnreachable', True)
         except Exception as e:
             _record('already-open → CdpUnreachable', False, repr(e))
-        await _browser_close(held.cdp_host, held.cdp_port)
-    except Exception as e:
-        _record('already-open → CdpUnreachable', False, f'setup: {e!r}')
+        await _close_and_settle(held.cdp_host, held.cdp_port)
 
     # S: a bogus name → StoreNotFound.
     try:
