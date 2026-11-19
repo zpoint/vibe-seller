@@ -4,6 +4,7 @@ to capture calls (telemetry is disabled under pytest)."""
 import ast
 import asyncio
 from datetime import UTC, datetime, timedelta
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -19,14 +20,18 @@ from app.models.task import (
     open_pause,
     paused_total,
 )
+from app.models.task_message import TaskMessage
 from app.scheduler.heartbeat import heartbeat_trigger
 from app.telemetry_tasks import (
     accumulate_run_usage,
+    integration_names,
     send_question_answered,
     send_task_cancelled,
     send_task_completed,
     send_task_created,
     send_task_failed,
+    send_task_resumed,
+    send_task_started,
     skill_names,
 )
 from app.telemetry_via import unattributed
@@ -339,3 +344,63 @@ async def test_scheduler_jobs_never_run_in_a_request_channel(task_env):
 )
 def test_skill_names(tool, tool_input, expected):
     assert skill_names(tool, tool_input) == expected
+
+
+# ── integrations_used names the integrations a task called ──
+
+
+@pytest.mark.parametrize(
+    ('tool', 'tool_input', 'expected'),
+    [
+        ('mcp__ticktick__create_task', {'title': 'x'}, ['ticktick']),
+        ('Bash', {'command': 'gws sheets +read --id x'}, ['gws']),
+        ('Bash', {'command': 'cd /w && gws drive +upload --file a'}, ['gws']),
+        ('Bash', {'command': 'ls ~/.config/gws'}, []),
+        ('Bash', {'command': 'echo gwsx sheets'}, []),
+        ('Read', {'file_path': '/w/.claude/skills/gws/SKILL.md'}, []),
+        ('mcp__vibe-seller__vibe_seller_email_info', {}, []),
+    ],
+)
+def test_integration_names(tool, tool_input, expected):
+    assert integration_names(tool, tool_input) == expected
+
+
+async def test_outcome_events_carry_integrations_used(task_env):
+    maker, task, calls = task_env
+    rows = [
+        {'tool': 'mcp__ticktick__list_tasks', 'input': {}},
+        {'tool': 'Bash', 'input': {'command': 'gws gmail +triage'}},
+        {'tool': 'Bash', 'input': {'command': 'ls'}},
+    ]
+    async with maker() as db:
+        for row in rows:
+            db.add(
+                TaskMessage(
+                    task_id=task.id, role='tool_use', content=json.dumps(row)
+                )
+            )
+        await db.commit()
+    task.status = 'completed'
+    await send_task_completed(task)
+    await send_task_failed(task, phase='running', category='cli_error')
+    by_name = dict(calls)
+    for name in ('task_completed', 'task_failed'):
+        assert by_name[name]['integrations_used'] == ['gws', 'ticktick'], name
+
+
+async def test_catalog_sync_task_events_are_marked(task_env):
+    _maker, task, calls = task_env
+    task.schedule_id = '_catalog_sync'
+    send_task_created(task)
+    send_task_started(task)
+    task.status = 'completed'
+    await send_task_completed(task)
+    await send_task_failed(task, phase='running', category='cli_error')
+    send_task_cancelled(task, status_at='running')
+    send_task_resumed(task, wait_secs=5, wake_reason='timer')
+    assert len(calls) == 6
+    assert all(props['is_catalog'] is True for _, props in calls)
+    calls.clear()
+    task.schedule_id = 's-user-1'
+    send_task_started(task)
+    assert calls[0][1]['is_catalog'] is False

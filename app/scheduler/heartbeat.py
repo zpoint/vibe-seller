@@ -101,12 +101,26 @@ async def send_install_heartbeat() -> None:
                     )
                 )
             ).scalar() or 0
+            user_schedule_count = (
+                await db.execute(
+                    select(func.count(Schedule.id)).where(
+                        Schedule.is_active.is_(True),
+                        Schedule.is_system.is_not(True),
+                    )
+                )
+            ).scalar() or 0
             user_count = (
                 await db.execute(select(func.count(User.id)))
             ).scalar() or 0
             email_count = (
                 await db.execute(select(func.count(EmailAccount.id)))
             ).scalar() or 0
+            email_provider_counts: dict[str, int] = {}
+            for (email,) in await db.execute(select(EmailAccount.email)):
+                kind = telemetry.email_provider_kind(email)
+                email_provider_counts[kind] = (
+                    email_provider_counts.get(kind, 0) + 1
+                )
             email_send_disabled_count = (
                 await db.execute(
                     select(func.count(EmailAccount.id)).where(
@@ -190,9 +204,11 @@ async def send_install_heartbeat() -> None:
     payload = {
         'store_count': store_count,
         'active_schedule_count': schedule_count,
+        'user_schedule_count': user_schedule_count,
         'user_count': user_count,
         'ai_profile_count': _ai_profile_count(),
         'email_account_count': email_count,
+        'email_provider_counts': email_provider_counts,
         'chat_bot_count': chat_bot_count,
         'tasks_last_24h': tasks_last_24h,
         'ads_calls_last_24h': api_calls_last_24h(),

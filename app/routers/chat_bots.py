@@ -44,6 +44,7 @@ from app.schemas.chat_bot import (
     ChatBotUpdate,
 )
 from app.telemetry_events import TelemetryEvent
+from app.telemetry_via import current_via
 
 logger = logging.getLogger(__name__)
 
@@ -492,6 +493,7 @@ async def send_chat_message(
         msgtype=data.msgtype,
         keyword=bot.keyword,
     )
+    _send_telemetry(bot, data.msgtype, ok)
     return {'ok': ok, 'message': err or 'Message sent'}
 
 
@@ -532,4 +534,17 @@ async def send_chat_file(
     safe_path = _resolve_safe_file(raw)
 
     ok, err = await send_file_webhook(bot.webhook_url, str(safe_path))
+    _send_telemetry(bot, 'file', ok)
     return {'ok': ok, 'message': err or 'File sent'}
+
+
+def _send_telemetry(bot: ChatBot, kind: str, ok: bool) -> None:
+    telemetry.send(
+        TelemetryEvent.CHAT_BOT_MESSAGE_SENT,
+        {
+            'platform': bot.platform,
+            'kind': kind,
+            'outcome': 'ok' if ok else 'error',
+            'via': current_via(),
+        },
+    )

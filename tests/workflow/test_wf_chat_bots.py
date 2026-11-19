@@ -1294,6 +1294,73 @@ class TestChatBotSendFile:
         assert '20 MB' in body['message']
 
 
+class TestSendTelemetry:
+    """Every real post (text or file) is one ``chat_bot_message_sent``
+    naming the platform; the /test button is setup, not usage."""
+
+    @pytest.fixture
+    def events(self, monkeypatch):
+        sent: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            'app.telemetry.send',
+            lambda e, p=None: sent.append((e, dict(p or {}))),
+        )
+        return sent
+
+    async def test_sends_are_counted_per_platform(
+        self, admin_client, monkeypatch, events
+    ):
+        async def _fake_send(
+            platform, url, secret, content, msgtype='text', keyword=None
+        ):
+            return platform != 'feishu', ''
+
+        async def _fake_send_file(url, path):
+            return True, ''
+
+        monkeypatch.setattr(
+            'app.routers.chat_bots.base.send_message', _fake_send
+        )
+        monkeypatch.setattr(
+            'app.routers.chat_bots.send_file_webhook', _fake_send_file
+        )
+        wecom_bot = (
+            await admin_client.post(
+                '/api/chat-bots', json=create_body('W', WECOM_URL)
+            )
+        ).json()
+        feishu_bot = (
+            await admin_client.post(
+                '/api/chat-bots', json=create_body('F', FEISHU_URL)
+            )
+        ).json()
+
+        await admin_client.post(f'/api/chat-bots/{wecom_bot["id"]}/test')
+        await admin_client.post(
+            f'/api/chat-bots/{wecom_bot["id"]}/send',
+            json={'content': '# hi', 'msgtype': 'markdown'},
+        )
+        await admin_client.post(
+            f'/api/chat-bots/{wecom_bot["id"]}/send-file',
+            json={'path': '/tmp/vibe-test-receipt.pdf'},
+        )
+        await admin_client.post(
+            f'/api/chat-bots/{feishu_bot["id"]}/send',
+            json={'content': 'hi'},
+        )
+
+        sent = [
+            (p['platform'], p['kind'], p['outcome'])
+            for e, p in events
+            if e == 'chat_bot_message_sent'
+        ]
+        assert sent == [
+            ('wecom', 'markdown', 'ok'),
+            ('wecom', 'file', 'ok'),
+            ('feishu', 'text', 'error'),
+        ]
+
+
 class TestWecomFileNotifierGuards:
     """wecom.send_file_webhook pre-network validation (no API call)."""
 

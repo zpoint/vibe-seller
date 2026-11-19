@@ -19,6 +19,10 @@ The full base URL, its scheme, port, path, any key embedded in it, the
 model, and the API key are never sent; a bare IP or `localhost` is
 reported as `local`.
 
+The same goes for the name an MCP client reports about itself when it
+connects (e.g. `claude-code`): it is sent lowercased and cut to 40
+characters, so the maintainers can see which agents drive vibe-seller.
+
 ## Opt out
 
 Pick whichever fits:

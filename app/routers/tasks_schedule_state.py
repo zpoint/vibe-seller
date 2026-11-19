@@ -18,6 +18,7 @@ from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import telemetry
 from app.auth import get_current_user
 from app.database import get_db
 from app.email.db import get_new_emails_since, init_email_db
@@ -28,6 +29,8 @@ from app.models.schedule_state import NO_STORE_SCOPE, ScheduleState
 from app.models.store_email_link import StoreEmailLink
 from app.models.task import Task
 from app.models.user import User
+from app.telemetry_events import TelemetryEvent
+from app.telemetry_via import current_via
 from app.text_utils import SANITIZE_SURROGATES
 
 # Canonical cursor key for the scheduled email sweep. Kept in sync
@@ -584,6 +587,17 @@ async def get_new_emails(
     )
     await db.execute(floor_stmt)
     await db.commit()
+    if link_rows:
+        telemetry.send(
+            TelemetryEvent.EMAIL_READ,
+            {
+                'source': 'new_emails',
+                'provider_kinds': sorted({
+                    telemetry.email_provider_kind(a.email) for a in link_rows
+                }),
+                'via': current_via(),
+            },
+        )
 
     return {
         'key': _EMAIL_WATERMARK_KEY,
