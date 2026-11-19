@@ -6,7 +6,10 @@ from app.text_utils import SafeStr
 class TaskCreate(BaseModel):
     store_id: str | None = None
     parent_task_id: str | None = None
-    title: SafeStr
+    # Optional: a blank title is derived from the description and then
+    # upgraded by the AI (app/task_title.py) — the create dialog is a
+    # single prompt box. One of title / description is required.
+    title: SafeStr | None = None
     description: SafeStr | None = None
     platform: str | None = None
     country: str | None = None

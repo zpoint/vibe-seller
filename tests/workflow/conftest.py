@@ -51,6 +51,7 @@ ASYNC_SESSION_MODULES = [
     'app.routers.tasks',
     'app.routers.vision',
     'app.task_runner',
+    'app.task_title',
     'app.task_finalize',
     'app.task_runner_auto',
     'app.task_runner_context',

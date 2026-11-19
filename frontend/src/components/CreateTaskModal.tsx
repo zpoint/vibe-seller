@@ -48,13 +48,14 @@ interface CreateTaskModalProps {
   storeName: string | undefined
   selectedStore: Store | null
   onClose: () => void
+  /** One prompt box: `title` is always '' and the server derives it
+   *  from `description` (app/task_title.py). */
   onSubmit: (title: string, description: string, files: PendingFile[], platform?: string, country?: string) => Promise<void>
 }
 
 export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClose, onSubmit }: CreateTaskModalProps) {
   const { t } = useTranslation()
-  const [modalTitle, setModalTitle] = useState('')
-  const [modalDescription, setModalDescription] = useState('')
+  const [modalPrompt, setModalPrompt] = useState('')
   const [modalFiles, setModalFiles] = useState<PendingFile[]>([])
   const [modalCreating, setModalCreating] = useState(false)
   const [selectedPlatform, setSelectedPlatform] = useState('')
@@ -65,7 +66,6 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
    *  to tell a rejected file from a dead drop zone. */
   const [rejected, setRejected] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const titleInputRef = useRef<HTMLInputElement>(null)
 
   const addFiles = useCallback((files: FileList | File[]) => {
     const newPending: PendingFile[] = []
@@ -146,10 +146,10 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
   }
 
   const handleSubmit = async () => {
-    if (!modalTitle.trim() || modalCreating) return
+    if (!modalPrompt.trim() || modalCreating) return
     setModalCreating(true)
     try {
-      await onSubmit(modalTitle.trim(), modalDescription.trim(), modalFiles, selectedPlatform || undefined, selectedCountry || undefined)
+      await onSubmit('', modalPrompt.trim(), modalFiles, selectedPlatform || undefined, selectedCountry || undefined)
       handleClose()
     } finally {
       setModalCreating(false)
@@ -174,29 +174,26 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
         </div>
         <div className="px-6 py-4 space-y-4">
           <div>
-            <label htmlFor="task-title" className="block text-sm font-medium text-gray-700 mb-1">{t('tasks.titleLabel')}</label>
-            <input
-              id="task-title"
-              ref={titleInputRef}
-              value={modalTitle}
-              onChange={e => setModalTitle(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Escape') handleClose() }}
+            <label htmlFor="task-prompt" className="sr-only">{t('tasks.promptLabel')}</label>
+            <textarea
+              id="task-prompt"
+              value={modalPrompt}
+              onChange={e => setModalPrompt(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') handleClose()
+                // Enter is a newline (prompts are multi-line);
+                // Ctrl/Cmd+Enter submits, as in chat-style agents.
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  void handleSubmit()
+                }
+              }}
               placeholder={showAllTasks ? 'e.g. Process billing files' : 'e.g. Navigate to google.com'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              rows={6}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-y min-h-[8rem]"
               autoFocus
             />
-          </div>
-          <div>
-            <label htmlFor="task-desc" className="block text-sm font-medium text-gray-700 mb-1">{t('common.description')} <span className="text-gray-400 font-normal">({t('common.optional')})</span></label>
-            <textarea
-              id="task-desc"
-              value={modalDescription}
-              onChange={e => setModalDescription(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Escape') handleClose() }}
-              placeholder={t('tasks.descriptionPlaceholder')}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-            />
+            <p className="text-xs text-gray-400 mt-1">{t('tasks.promptHint')}</p>
           </div>
           {selectedStore && selectedStore.platform_countries && Object.keys(selectedStore.platform_countries).length > 0 && (
             <div className="flex gap-3">
@@ -292,7 +289,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!modalTitle.trim() || modalCreating}
+            disabled={!modalPrompt.trim() || modalCreating}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {modalCreating ? t('common.loading') : showAllTasks ? t('common.create') : 'Create & Run'}

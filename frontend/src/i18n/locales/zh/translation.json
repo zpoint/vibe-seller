@@ -84,6 +84,8 @@
     "titleLabel": "标题",
     "titlePlaceholder": "请输入任务标题",
     "descriptionPlaceholder": "请输入任务描述",
+    "promptLabel": "任务描述",
+    "promptHint": "标题会自动生成。Ctrl/⌘+Enter 提交。",
     "store": "店铺",
     "noStore": "无店铺",
     "filterByStore": "按店铺筛选",

@@ -84,6 +84,8 @@
     "titleLabel": "Title",
     "titlePlaceholder": "Enter task title",
     "descriptionPlaceholder": "Enter task description",
+    "promptLabel": "Task description",
+    "promptHint": "The title is generated automatically. Ctrl/⌘+Enter to submit.",
     "store": "Store",
     "noStore": "No Store",
     "filterByStore": "Filter by store",

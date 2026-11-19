@@ -126,8 +126,8 @@ describe('New Task dialog: pasting an image', () => {
     Object.defineProperty(ev, 'clipboardData', {
       value: { items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }] },
     })
-    fireEvent(screen.getByLabelText(/title/i), ev)
-    // Swallowing this would stop the user typing a title by pasting.
+    fireEvent(screen.getByLabelText(/description/i), ev)
+    // Swallowing this would stop the user pasting their prompt text.
     expect(ev.defaultPrevented).toBe(false)
   })
 
@@ -221,7 +221,7 @@ describe('New Task dialog: what actually gets uploaded', () => {
     const nameless = new File([new Uint8Array(8)], '', { type: 'image/png' })
     fireEvent(document.body, clipboardEvent([nameless]))
 
-    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'T' } })
+    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'T' } })
     fireEvent.click(screen.getByRole('button', { name: /create/i }))
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
 
@@ -237,7 +237,7 @@ describe('New Task dialog: what actually gets uploaded', () => {
     const onSubmit = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {})
     renderModal({ onSubmit })
     fireEvent(document.body, clipboardEvent([pngFile('report.png')]))
-    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'T' } })
+    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'T' } })
     fireEvent.click(screen.getByRole('button', { name: /create/i }))
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
     const pending = onSubmit.mock.calls[0][2] as Array<{ file: File }>

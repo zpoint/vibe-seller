@@ -138,20 +138,6 @@ def require(args: dict, key: str) -> str:
     return value.strip()
 
 
-def derive_title(description: str) -> str:
-    """A task-list label derived from the task instruction.
-
-    The REST contract requires a title, but an external agent thinks
-    in instructions, not labels — so the title is optional here and
-    falls back to the first line of the description.
-    """
-    for line in description.splitlines():
-        stripped = line.strip().lstrip('#').strip()
-        if stripped:
-            return stripped[:100]
-    return description.strip()[:100]
-
-
 def stored_pending_question(task: Task | None) -> dict | None:
     """The pending question parked on a WAITING task, if any.
 
