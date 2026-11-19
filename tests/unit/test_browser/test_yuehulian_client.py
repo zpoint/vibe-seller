@@ -155,6 +155,25 @@ class _LoginInspector(_FakeInspector):
         return await super().eval_in_renderer(js, **kw)
 
 
+class _NotReadyInspector(_FakeInspector):
+    """Renderer has no BrowserWindow for the first ``not_ready_rounds``
+    probes (a freshly launched client still creating its window), then it
+    responds — models the cold-start gap between the MAIN process appearing
+    and the renderer being driveable."""
+
+    def __init__(self, *, not_ready_rounds, **kw):
+        super().__init__(**kw)
+        self._not_ready = not_ready_rounds
+        self.probe_calls = 0
+
+    async def eval_in_renderer(self, js, **kw):
+        if js == LOGIN_HASH_JS:
+            self.probe_calls += 1
+            if self.probe_calls <= self._not_ready:
+                raise RuntimeError('getAllWindows()[0] is undefined')
+        return await super().eval_in_renderer(js, **kw)
+
+
 def _patched(proc, insp):
     return (
         mock.patch.object(mod, 'ProcessLayer', return_value=proc),
@@ -349,3 +368,19 @@ async def test_ensure_running_twist_launch_fails_is_client_not_running():
     p1, p2, p3 = _patched(proc, _FakeInspector())
     with p1, p2, p3, pytest.raises(ClientNotRunning):
         await RealYuehulianClient({}).ensure_running()
+
+
+async def test_ensure_running_waits_for_renderer_ready_after_launch():
+    """Cold start: ensure_running must not return until the renderer can run
+    JS. The MAIN process appears at once but the BrowserWindow is created a
+    few seconds later; returning early let open_store race a window-less
+    renderer — the 'main browser start failed' the user hit on a client they
+    had just exited. The probe must retry past the not-ready rounds."""
+    proc = _FakeProc(running=False, launch_ok=True)
+    insp = _NotReadyInspector(not_ready_rounds=3)
+    p1, p2, p3 = _patched(proc, insp)
+    with p1, p2, p3:
+        await RealYuehulianClient({}).ensure_running()
+    # 3 not-ready probes + 1 that succeeds = the renderer was polled, not
+    # assumed ready from main_pid alone (pre-fix: 0 renderer probes).
+    assert insp.probe_calls >= 4

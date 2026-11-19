@@ -58,8 +58,46 @@ class RealYuehulianClient(InjectClient):
         for _ in range(30):
             await asyncio.sleep(1.0)
             if await asyncio.to_thread(self._proc.main_pid):
+                # The MAIN process existing is NOT readiness: a freshly
+                # launched client takes several more seconds to create its
+                # BrowserWindow and load the app. Returning here let the
+                # caller open an inspector against a window-less renderer
+                # (getAllWindows()[0] is undefined), which failed open_store
+                # on a cold start — it only worked when the client was
+                # already up. Block until the renderer can actually run JS.
+                await self._await_ready()
                 return
         raise ClientNotRunning('client did not come up after launch')
+
+    async def _await_ready(self, *, timeout: float = 90.0) -> None:
+        """Wait until the client's renderer can run JS (a BrowserWindow
+        exists and executeJavaScript resolves).
+
+        Polls a trivial renderer probe, retrying the inspector open too —
+        the main process may not be debuggable the instant it appears. The
+        caller can then drive login / store-list / open_store against a
+        ready client instead of racing a half-loaded one.
+        """
+        deadline = time.monotonic() + timeout
+        last = ''
+        while time.monotonic() < deadline:
+            try:
+                async with self._inspector() as insp:
+                    while time.monotonic() < deadline:
+                        try:
+                            await insp.eval_in_renderer(
+                                LOGIN_HASH_JS, timeout=8.0
+                            )
+                            return
+                        except Exception as e:  # renderer window not up yet
+                            last = str(e)
+                            await asyncio.sleep(1.0)
+            except Exception as e:  # inspector not openable yet
+                last = str(e)
+                await asyncio.sleep(1.0)
+        raise ClientNotRunning(
+            f'client launched but its renderer never became ready: {last[:200]}'
+        )
 
     @asynccontextmanager
     async def _inspector(self):
