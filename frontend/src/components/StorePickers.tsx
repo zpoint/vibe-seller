@@ -5,6 +5,7 @@
  */
 import { useTranslation } from 'react-i18next'
 import { SecretReveal } from './SecretReveal'
+import { YuehulianLoginPanel } from './settings/YuehulianLoginPanel'
 import type { ServerPlatform, YuehulianStore, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 
 // ─── Yuehulian store picker (Windows; no account) ────
@@ -25,6 +26,9 @@ export function YuehulianSection(props: {
   })()
   return (
     <div className="mb-2 space-y-2">
+      {/* The machine's one 悦互联 team-login — configured here (like the
+          ziniao add-account), used to auto-sign-in before loading stores. */}
+      <YuehulianLoginPanel />
       <button
         type="button"
         onClick={p.fetchYuehulianStores}

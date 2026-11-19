@@ -6,7 +6,6 @@ import { ChatBotSection } from '../ChatBotSection'
 import { ApiTokensPanel } from './ApiTokensPanel'
 import { Dida365Panel } from './Dida365Panel'
 import { AmazonAdsPanel } from './AmazonAdsPanel'
-import { YuehulianLoginPanel } from './YuehulianLoginPanel'
 
 interface GwsStatusDetail {
   auth_method?: string
@@ -90,7 +89,6 @@ export function IntegrationsPanel({
           TickTick. */}
       <AmazonAdsPanel />
       <ApiTokensPanel authRequired={authRequired} />
-      <YuehulianLoginPanel />
       <ChatBotSection isAdmin={isAdmin} />
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <h3 className="font-semibold mb-1">{t('integrations.gws.title')}</h3>
