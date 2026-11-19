@@ -12,7 +12,10 @@ from datetime import UTC, datetime
 import json
 import logging
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.ai.claude_backend_utils import parse_wait_condition
+from app.attachment_markdown import opening_message_content
 from app.database import async_session
 from app.models.task import Task
 from app.task_outcome import apply_outcome, resolve_outcome
@@ -21,7 +24,30 @@ logger = logging.getLogger(__name__)
 
 
 class _PersistMixin:
-    """Deliverable persistence — the streaming-prose result fallback."""
+    """Opening-prompt, session-id and deliverable persistence."""
+
+    async def _persist_opening_prompt(self):
+        """Save the opening prompt as the task's first user message.
+
+        The transcript form carries the task's create-time attachments as
+        ``![name](url)`` thumbnails (``app/attachment_markdown.py``) —
+        the same encoding a chat message uses; the agent gets their paths
+        in system_extra instead. Persisting the bare prompt left a pasted
+        image out of the opening bubble entirely.
+
+        Best-effort like ``_emit_message`` itself: a DB error looking the
+        attachments up costs the thumbnails, never the launch.
+        """
+        try:
+            content = await opening_message_content(self.task_id, self.prompt)
+        except SQLAlchemyError:
+            logger.warning(
+                'Task %s: attachment lookup for the opening message failed',
+                self.task_id[:8],
+                exc_info=True,
+            )
+            content = self.prompt
+        await self._emit_message('user', content)
 
     async def _persist_session_id(self, session_id: str):
         """Write task.session_id from the init event.

@@ -61,6 +61,10 @@ ASYNC_SESSION_MODULES = [
     'app.routers.email_accounts',
     'app.ai.claude_backend',
     'app.ai.claude_backend_manager',
+    # _emit_message (the transcript writer) and the opening message's
+    # attachment lookup.
+    'app.ai.claude_backend_stream',
+    'app.attachment_markdown',
     'app.workspace.knowledge_sync',
     'app.workspace.skills_sync',
     'app.scheduler.task_queue',

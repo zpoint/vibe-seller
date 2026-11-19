@@ -344,6 +344,52 @@ describe('F5: Task start card', () => {
     expect(card!.querySelector('.border-t')).not.toBeInTheDocument()
   })
 
+  // The opening message carries the files attached at create time as
+  // markdown images (app/attachment_markdown.py). A pasted screenshot
+  // must show as a thumbnail in BOTH opening shapes — never as raw
+  // markdown, and never dropped.
+  it('shows create-time attachments on the plan-mode start card', () => {
+    const items: ConversationItem[] = [
+      makeConversationItem('user_message', {
+        message: {
+          role: 'user',
+          content:
+            'Design an execution plan for this task: Find the order\n\nDetails: 16 units\n![shot.png](/api/attachments/file/att-1)',
+        },
+      }),
+    ]
+
+    const { container } = renderConversationStream({ items })
+
+    const card = container.querySelector('[data-testid="task-start-card"]')
+    expect(card).toBeInTheDocument()
+    const img = screen.getByRole('img', { name: 'shot.png' })
+    expect(card).toContainElement(img)
+    expect(img).toHaveAttribute('src', '/api/attachments/file/att-1')
+    fireEvent.click(screen.getByText('Find the order'))
+    expect(screen.getByText('16 units')).toBeInTheDocument()
+    expect(container.textContent).not.toContain('![')
+  })
+
+  it('shows create-time attachments on an auto-mode opening bubble', () => {
+    const items: ConversationItem[] = [
+      makeConversationItem('user_message', {
+        message: {
+          role: 'user',
+          content: 'Find the 16-unit order\n![shot.png](/api/attachments/file/att-1)',
+        },
+      }),
+    ]
+
+    const { container } = renderConversationStream({ items })
+
+    expect(screen.getByText('Find the 16-unit order')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'shot.png' })).toHaveAttribute(
+      'src', '/api/attachments/file/att-1',
+    )
+    expect(container.textContent).not.toContain('![')
+  })
+
   it('renders non-matching user_message as normal bubble', () => {
     const items: ConversationItem[] = [
       makeConversationItem('user_message', {

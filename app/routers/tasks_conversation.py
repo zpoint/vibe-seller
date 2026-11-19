@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import question_cards, telemetry, vision
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID
+from app.attachment_markdown import with_attachments
 from app.auth import get_current_user
 from app.browser.manager import browser_manager
 from app.database import get_db
@@ -164,13 +165,12 @@ async def send_task_message(
     display_content = content
     agent_content = content
     if attachments:
-        img_md = '\n'.join(
-            f'![{a["filename"]}]({a["url"]})' for a in attachments
-        )
         file_lines = '\n'.join(
             f'Attached file: {a["abs_path"]}' for a in attachments
         )
-        display_content = f'{content}\n{img_md}'.strip() if content else img_md
+        display_content = with_attachments(
+            content, [(a['filename'], a['url']) for a in attachments]
+        )
         agent_content = (
             f'{content}\n{file_lines}'.strip() if content else file_lines
         )
