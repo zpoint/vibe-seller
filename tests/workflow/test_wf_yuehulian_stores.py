@@ -13,10 +13,17 @@ import pytest
 from app.browser.inject.client import StoreRef
 from app.browser.inject.errors import ClientNotRunning, LoginRequired
 from app.models.app_settings import AppSettings
+from app.models.store import Store
 import app.routers.tasks as tasks_mod
 from app.utils.crypto import decrypt_password
 
 pytestmark = pytest.mark.workflow
+
+
+async def _add_yuehulian_store(name='yhl-store'):
+    async with tasks_mod.async_session() as db:
+        db.add(Store(name=name, browser_backend='yuehulian'))
+        await db.commit()
 
 
 def _fake_client(*, logged_in=True, stores=None, raise_cnr=False):
@@ -120,6 +127,71 @@ async def test_save_credentials_requires_all_fields(admin_client):
         json={'team_name': 't', 'subaccount': '', 'password': 'p'},
     )
     assert r.status_code == 400
+
+
+async def test_change_account_blocked_when_stores_exist(admin_client):
+    """One account per machine: switching to a DIFFERENT team/sub-account
+    while yuehulian stores exist is refused with the one_account status."""
+    await admin_client.post(
+        '/api/yuehulian/credentials',
+        json={'team_name': 'acme', 'subaccount': 'sub-01', 'password': 'pw'},
+    )
+    await _add_yuehulian_store()
+    r = await admin_client.post(
+        '/api/yuehulian/credentials',
+        json={'team_name': 'other', 'subaccount': 'sub-02', 'password': 'pw'},
+    )
+    assert r.status_code == 400
+    assert json.loads(r.json()['detail'])['status'] == 'one_account'
+    # The stored login is unchanged — the switch did not take.
+    d = (await admin_client.get('/api/yuehulian/credentials')).json()
+    assert d['team_name'] == 'acme' and d['subaccount'] == 'sub-01'
+
+
+async def test_edit_same_account_allowed_with_stores(admin_client):
+    """Negative control for the guard: editing the SAME account (e.g. a new
+    password) is allowed even when stores exist — only a *different* account
+    is blocked."""
+    await admin_client.post(
+        '/api/yuehulian/credentials',
+        json={'team_name': 'acme', 'subaccount': 'sub-01', 'password': 'pw1'},
+    )
+    await _add_yuehulian_store()
+    r = await admin_client.post(
+        '/api/yuehulian/credentials',
+        json={'team_name': 'acme', 'subaccount': 'sub-01', 'password': 'pw2'},
+    )
+    assert r.status_code == 200
+    async with tasks_mod.async_session() as db:
+        row = await db.get(AppSettings, 'yuehulian_password')
+    assert decrypt_password(row.value) == 'pw2'  # password change took
+
+
+async def test_change_account_allowed_when_no_stores(admin_client):
+    """Negative control: with no yuehulian stores bound, switching to a
+    different account is allowed (the "delete all stores, then add" path)."""
+    await admin_client.post(
+        '/api/yuehulian/credentials',
+        json={'team_name': 'acme', 'subaccount': 'sub-01', 'password': 'pw'},
+    )
+    r = await admin_client.post(
+        '/api/yuehulian/credentials',
+        json={'team_name': 'other', 'subaccount': 'sub-02', 'password': 'pw'},
+    )
+    assert r.status_code == 200
+    d = (await admin_client.get('/api/yuehulian/credentials')).json()
+    assert d['team_name'] == 'other' and d['subaccount'] == 'sub-02'
+
+
+async def test_delete_credentials_clears_login(admin_client):
+    await admin_client.post(
+        '/api/yuehulian/credentials',
+        json={'team_name': 'acme', 'subaccount': 'sub-01', 'password': 'pw'},
+    )
+    r = await admin_client.delete('/api/yuehulian/credentials')
+    assert r.status_code == 200
+    d = (await admin_client.get('/api/yuehulian/credentials')).json()
+    assert d['configured'] is False
 
 
 async def test_enumerate_passes_decrypted_creds_to_client(admin_client):

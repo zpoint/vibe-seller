@@ -60,6 +60,19 @@ async def save_credentials(
     await db.commit()
 
 
+async def clear_credentials(db: AsyncSession) -> None:
+    """Remove the machine's team-login credentials (the [×] delete button).
+
+    Leaves any bound yuehulian stores in place; they simply report
+    ``login_required`` until a login is configured again.
+    """
+    for key in (TEAM_KEY, ACCT_KEY, PW_KEY):
+        row = await db.get(AppSettings, key)
+        if row:
+            await db.delete(row)
+    await db.commit()
+
+
 async def credentials_status(db: AsyncSession) -> dict:
     """Whether team-login is configured + the non-secret fields (never the
     password)."""

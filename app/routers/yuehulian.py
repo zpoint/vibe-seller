@@ -14,6 +14,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
@@ -22,6 +23,7 @@ from app.browser.adapters.yuehulian_client import RealYuehulianClient
 from app.browser.inject.errors import ClientNotRunning, LoginRequired
 from app.browser.ziniao_utils import get_platform
 from app.database import get_db
+from app.models.store import Store
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -47,13 +49,33 @@ async def get_yuehulian_credentials(
     return await yuehulian_creds.credentials_status(db)
 
 
+async def _yuehulian_store_count(db: AsyncSession) -> int:
+    return (
+        await db.execute(
+            select(func.count(Store.id)).where(
+                Store.browser_backend == 'yuehulian'
+            )
+        )
+    ).scalar() or 0
+
+
 @router.post('/credentials')
 async def save_yuehulian_credentials(
     data: YuehulianCredentials,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Store the one machine login's team credentials (password encrypted)."""
+    """Store the one machine login's team credentials (password encrypted).
+
+    悦互联 supports **one account per machine**: every bound yuehulian store
+    belongs to the single logged-in account, so switching accounts would
+    orphan them. Editing the current account (e.g. a new password) is fine,
+    but changing to a *different* team/sub-account while yuehulian stores
+    exist is refused with a structured ``one_account`` status — the UI tells
+    the user to delete all yuehulian stores first, then add again. This is
+    the whole of the "account conflict" story: with only one account ever,
+    there is no mixed-account runtime case to adjudicate.
+    """
     if not (
         data.team_name.strip() and data.subaccount.strip() and data.password
     ):
@@ -61,9 +83,34 @@ async def save_yuehulian_credentials(
             status_code=400,
             detail='team_name, subaccount and password are all required',
         )
+    status = await yuehulian_creds.credentials_status(db)
+    changing_account = status['configured'] and (
+        status['team_name'] != data.team_name.strip()
+        or status['subaccount'] != data.subaccount.strip()
+    )
+    if changing_account and await _yuehulian_store_count(db) > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=json.dumps({'status': 'one_account'}),
+        )
     await yuehulian_creds.save_credentials(
         db, data.team_name, data.subaccount, data.password
     )
+    return {'ok': True}
+
+
+@router.delete('/credentials')
+async def delete_yuehulian_credentials(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Clear the machine's team-login (the [×] button).
+
+    Leaves any bound stores in place — they report ``login_required`` until
+    a login is configured again. Clearing the login is how the user frees
+    the single account slot to add a different one (after deleting the old
+    account's stores)."""
+    await yuehulian_creds.clear_credentials(db)
     return {'ok': True}
 
 

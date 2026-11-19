@@ -1,14 +1,21 @@
 /**
  * Store backend pickers extracted from Sidebar (keeps files under the
  * line limit): the Ziniao account + profile picker and the Yuehulian
- * store dropdown. Rendered by StoreCreationForm in Sidebar.
+ * account + store picker. Rendered by StoreCreationForm in Sidebar.
  */
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { api } from '../api'
 import { SecretReveal } from './SecretReveal'
-import { YuehulianLoginPanel } from './settings/YuehulianLoginPanel'
 import type { ServerPlatform, YuehulianStore, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 
-// ─── Yuehulian store picker (Windows; no account) ────
+interface YuehulianLoginStatus { configured: boolean; team_name: string; subaccount: string }
+
+// ─── Yuehulian account + store picker (Windows; one account per machine) ──
+// Mirrors the ziniao account UX (select/add/edit/delete + load stores),
+// with the single difference the user asked for: 悦互联 allows only ONE
+// account per machine, so adding a *different* account while yuehulian
+// stores exist is refused (delete those stores first, then add again).
 export function YuehulianSection(props: {
   selectedBrowserOauth: string; setSelectedBrowserOauth: (v: string) => void
   yuehulianStores: YuehulianStore[]; yuehulianError: string
@@ -16,25 +23,94 @@ export function YuehulianSection(props: {
 }) {
   const { t } = useTranslation()
   const p = props
+  const [status, setStatus] = useState<YuehulianLoginStatus | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [team, setTeam] = useState('')
+  const [sub, setSub] = useState('')
+  const [pw, setPw] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [formErr, setFormErr] = useState('')
+
+  const refresh = async (thenFetch = false) => {
+    try {
+      const s = (await api.get('/api/yuehulian/credentials')) as YuehulianLoginStatus
+      setStatus(s)
+      if (thenFetch && s.configured) p.fetchYuehulianStores()
+    } catch { /* unsupported / not configured — leave null */ }
+  }
+  // Auto-load stores when an account is configured — same as ziniao fetching
+  // profiles on account-select; no separate "Load" button.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void refresh(true) }, [])
+
+  const openAdd = () => { setEditing(false); setTeam(''); setSub(''); setPw(''); setFormErr(''); setShowForm(true) }
+  const openEdit = () => { setEditing(true); setTeam(status?.team_name || ''); setSub(status?.subaccount || ''); setPw(''); setFormErr(''); setShowForm(true) }
+
+  const save = async () => {
+    if (!team.trim() || !sub.trim() || !pw) { setFormErr(t('settings.yuehulianLoginAllRequired')); return }
+    setBusy(true); setFormErr('')
+    try {
+      await api.post('/api/yuehulian/credentials', { team_name: team, subaccount: sub, password: pw })
+      setShowForm(false); setPw(''); await refresh(true)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      let code = ''
+      try { const d = JSON.parse(msg); if (d?.status) code = d.status } catch { /* non-JSON */ }
+      setFormErr(code === 'one_account' ? t('settings.yuehulianOneAccount') : msg)
+    } finally { setBusy(false) }
+  }
+
+  const del = async () => {
+    if (!confirm(t('settings.yuehulianDeleteAccountConfirm'))) return
+    setBusy(true); setFormErr('')
+    try { await api.del('/api/yuehulian/credentials'); setShowForm(false); await refresh() }
+    catch (e) { setFormErr(e instanceof Error ? e.message : String(e)) }
+    finally { setBusy(false) }
+  }
+
   const statusHint = (() => {
     if (!p.yuehulianError) return ''
-    const status = p.yuehulianError.replace('yuehulian:', '')
-    if (status === 'login_required') return t('settings.yuehulianLoginRequired')
-    if (status === 'client_not_running') return t('settings.yuehulianClientNotRunning')
-    if (status === 'no_stores') return t('settings.yuehulianNoStores')
+    const s = p.yuehulianError.replace('yuehulian:', '')
+    if (s === 'login_required') return t('settings.yuehulianLoginRequired')
+    if (s === 'client_not_running') return t('settings.yuehulianClientNotRunning')
+    if (s === 'no_stores') return t('settings.yuehulianNoStores')
     return t('settings.yuehulianLoadFailed')
   })()
+
+  const btn = 'flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm rounded border border-gray-300'
   return (
     <div className="mb-2 space-y-2">
-      {/* The machine's one 悦互联 team-login — configured here (like the
-          ziniao add-account), used to auto-sign-in before loading stores. */}
-      <YuehulianLoginPanel />
-      <button
-        type="button"
-        onClick={p.fetchYuehulianStores}
-        disabled={p.fetchingYuehulian}
-        className="px-2 py-1 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-50"
-      >{p.fetchingYuehulian ? t('settings.yuehulianLoading') : t('settings.yuehulianLoadStores')}</button>
+      {!showForm && (
+        <div className="flex items-center gap-1">
+          <div className="min-w-0 flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs bg-gray-50 truncate">
+            {status?.configured ? `${status.team_name} / ${status.subaccount}` : t('settings.yuehulianNoAccount')}
+          </div>
+          {status?.configured && (
+            <>
+              <button type="button" onClick={openEdit} title={t('common.edit')} className={`${btn} text-gray-500 hover:bg-gray-100`}>&#9998;</button>
+              <button type="button" onClick={del} disabled={busy} title={t('common.delete')} className={`${btn} text-red-500 hover:bg-red-50 disabled:opacity-50`}>&times;</button>
+            </>
+          )}
+          <button type="button" onClick={openAdd} title={t('settings.yuehulianAddAccount')} className={`${btn} text-indigo-600 hover:bg-indigo-50`}>+</button>
+        </div>
+      )}
+      {showForm && (
+        <div className="space-y-1 p-2 bg-gray-50 rounded border border-gray-200">
+          <p className="text-xs font-medium text-gray-600 mb-1">{editing ? t('settings.yuehulianEditAccount') : t('settings.yuehulianAddAccount')}</p>
+          <input value={team} onChange={e => setTeam(e.target.value)} placeholder={t('settings.yuehulianTeamName')} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
+          <input value={sub} onChange={e => setSub(e.target.value)} placeholder={t('settings.yuehulianSubaccount')} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
+          <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder={editing ? t('settings.yuehulianPasswordUnchanged') : t('settings.yuehulianPassword')} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
+          <div className="flex gap-1">
+            <button type="button" onClick={save} disabled={busy} className="px-2 py-1 bg-indigo-600 text-white rounded text-xs disabled:opacity-50">{busy ? t('settings.yuehulianLoginSaving') : t('common.save')}</button>
+            <button type="button" onClick={() => { setShowForm(false); setFormErr('') }} className="px-2 py-1 bg-gray-200 rounded text-xs">{t('common.cancel')}</button>
+          </div>
+          {formErr && <p className="text-[11px] text-red-600">{formErr}</p>}
+        </div>
+      )}
+      {status?.configured && p.fetchingYuehulian && (
+        <p className="text-[11px] text-gray-500">{t('settings.yuehulianLoading')}</p>
+      )}
       {p.yuehulianStores.length > 0 && (
         <select
           value={p.selectedBrowserOauth}
@@ -49,7 +125,17 @@ export function YuehulianSection(props: {
           ))}
         </select>
       )}
-      {statusHint && <p className="text-[11px] text-red-600">{statusHint}</p>}
+      {statusHint && (
+        <div className="flex items-center gap-2">
+          <p className="text-[11px] text-red-600">{statusHint}</p>
+          <button
+            type="button"
+            onClick={p.fetchYuehulianStores}
+            disabled={p.fetchingYuehulian}
+            className="text-[11px] text-indigo-600 hover:underline disabled:opacity-50"
+          >{t('common.refresh')}</button>
+        </div>
+      )}
     </div>
   )
 }

@@ -564,7 +564,12 @@
     "visionKeyMissing": "Not configured",
     "visionKeyPlaceholder": "kie.ai API key",
     "visionAdminOnly": "Only an admin can set the Vision API key.",
-    "visionSaved": "Saved."
+    "visionSaved": "Saved.",
+    "yuehulianNoAccount": "No account configured",
+    "yuehulianAddAccount": "Add account",
+    "yuehulianEditAccount": "Edit account",
+    "yuehulianDeleteAccountConfirm": "Remove this 悦互联 login? Bound stores stay but will not run until a login is configured again.",
+    "yuehulianOneAccount": "悦互联 supports only one account per machine. Delete all 悦互联 stores in Settings, then add the new account."
   },
   "integrations": {
     "gws": {

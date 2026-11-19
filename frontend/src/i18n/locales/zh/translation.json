@@ -566,7 +566,12 @@
     "visionKeyMissing": "未配置",
     "visionKeyPlaceholder": "kie.ai API 密钥",
     "visionAdminOnly": "仅管理员可设置视觉 API 密钥。",
-    "visionSaved": "已保存。"
+    "visionSaved": "已保存。",
+    "yuehulianNoAccount": "未配置账号",
+    "yuehulianAddAccount": "添加账号",
+    "yuehulianEditAccount": "编辑账号",
+    "yuehulianDeleteAccountConfirm": "删除该悦互联登录？已绑定的店铺会保留，但在重新配置登录前无法运行。",
+    "yuehulianOneAccount": "悦互联一台机器只支持一个账号，请先在设置页面删除所有悦互联店铺，再添加新账号。"
   },
   "integrations": {
     "gws": {
