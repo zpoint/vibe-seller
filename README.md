@@ -65,7 +65,7 @@ flowchart LR
 
 - **开箱即用，无需引导**——亚马逊（全站点）、Noon 等平台内置 Skill，覆盖卖家真正需要的操作：报表与对账单导出、Listing 上架与更新、广告调优。创建任务后，系统自动打开浏览器（紫鸟或普通 Chrome），AI 直接上手操作，通常一次就能完成，不需要逐步引导。
 - **原生紫鸟支持**——通过 CDP 直接控制紫鸟，不是用 Playwright 驱动裸 Chrome，也不是按界面坐标点击，因此风控风险低、运行稳定。
-- **不挑浏览器**——除紫鸟外，普通 Chrome 同样是一等公民，可以按店铺分别选择。
+- **不挑浏览器**——紫鸟、悦互联、普通 Chrome 都是一等公民，可以按店铺分别选择，各自的下载、配置与选型见 [浏览器](https://docs.vibe-sellers.com/browsers/)。
 - **模型可自由切换**——底层使用 Claude Code CLI，凡是兼容 Anthropic 协议的供应商都能接入：Claude、DeepSeek、Kimi、MiniMax、智谱 GLM、通义千问。在设置里切换即可，不需要改代码；API Key 由你自己充值。
 - **没有 SaaS 绑定**——代码在你机器上，数据在你硬盘里，不需要注册账号。
 - **可审计**——每一步操作、每条 Prompt、每张截图都有日志，可以回放，出了问题能追溯原因。
@@ -130,10 +130,11 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 | | |
 |---|---|
 | **入门** | [安装](https://docs.vibe-sellers.com/install/) · [快速开始](https://docs.vibe-sellers.com/quickstart/) · [配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/) · [核心概念](https://docs.vibe-sellers.com/concepts/) |
+| **浏览器** | [浏览器总览](https://docs.vibe-sellers.com/browsers/) · [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/) · [悦互联：配置指南](https://docs.vibe-sellers.com/yuehulian/) |
 | **集成** | [集成总览](https://docs.vibe-sellers.com/integrations/) · [MCP 接入](https://docs.vibe-sellers.com/mcp/) · [广告 API 绑定](https://docs.vibe-sellers.com/ads-api/) · [邮件](https://docs.vibe-sellers.com/email/) · [群机器人](https://docs.vibe-sellers.com/chat-bots/) · [滴答清单 / TickTick](https://docs.vibe-sellers.com/ticktick/) · [Google Workspace](https://docs.vibe-sellers.com/google-workspace/) |
 | **使用示例** | [全部示例](https://docs.vibe-sellers.com/examples/) · [每天把重要邮件发到企业微信](https://docs.vibe-sellers.com/example-email-wecom/) · [分析广告 ACOS 并执行优化](https://docs.vibe-sellers.com/example-ads-acos/) · [每周巡检 Listing](https://docs.vibe-sellers.com/example-listing-check/) · [每月导出销售报表](https://docs.vibe-sellers.com/example-daily-report/) · [用 Codex 导出紫鸟店铺财务数据进行分析](https://docs.vibe-sellers.com/example-mcp/) |
 | **使用指南** | [店铺与浏览器](https://docs.vibe-sellers.com/stores/) · [任务](https://docs.vibe-sellers.com/using-tasks/) · [定时任务](https://docs.vibe-sellers.com/schedules/) · [知识库与 Skill](https://docs.vibe-sellers.com/knowledge/) |
-| **常见问题** | [了解 Vibe Seller](https://docs.vibe-sellers.com/faq-about/) · [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/) · [费用与模型选择](https://docs.vibe-sellers.com/faq-cost/) · [登录与账号](https://docs.vibe-sellers.com/faq-login/) · [部署与数据](https://docs.vibe-sellers.com/faq-data/) · [全部问题](https://docs.vibe-sellers.com/faq/) |
+| **常见问题** | [了解 Vibe Seller](https://docs.vibe-sellers.com/faq-about/) · [费用与模型选择](https://docs.vibe-sellers.com/faq-cost/) · [登录与账号](https://docs.vibe-sellers.com/faq-login/) · [部署与数据](https://docs.vibe-sellers.com/faq-data/) · [全部问题](https://docs.vibe-sellers.com/faq/) |
 | **加入社区** | [加入社区与问题反馈](https://docs.vibe-sellers.com/community/)：微信群、Slack，以及怎么反馈问题、提建议 |
 | **开发者文档（英文）** | [开发者指南](https://docs.vibe-sellers.com/dev-guide/) · [任务内核](https://docs.vibe-sellers.com/tasks/) · [浏览器内核](https://docs.vibe-sellers.com/browser/) · [子系统](https://docs.vibe-sellers.com/subsystems/) · [外部 Agent（MCP API）](https://docs.vibe-sellers.com/agents/) · [Windows + WSL2 部署](https://docs.vibe-sellers.com/windows-setup/) · [macOS 常驻服务](https://docs.vibe-sellers.com/macos-setup/) |
 

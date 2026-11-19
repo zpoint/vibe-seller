@@ -68,7 +68,7 @@ In the sidebar (Tasks view) click **+ New Store**, give it a **Store Name**, cho
 
     The setup steps, the fields to fill in and where credentials are stored: [Ziniao: Setup & Common Errors](ziniao.en.md).
 
-The store name is just your own label. One store equals one logged-in browser plus one memory — stores never share data with each other. What each backend can and can't do: [Which browser backend](stores.en.md#which-browser-backend).
+The store name is just your own label. One store equals one logged-in browser plus one memory — stores never share data with each other. What each backend can and can't do: [Which browser backend](browsers.en.md#which-browser-backend).
 
 ![New store form](images/setup_store_en.png)
 

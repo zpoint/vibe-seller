@@ -42,66 +42,15 @@ Then hit "**Create**". From here on, the store's browser opens by itself when th
 - **Delete** warns: "This will permanently delete store *<your store's name>*. Tasks and events will be preserved but unlinked from this store." The "**Also delete local files**" checkbox is off by default: tick it and the store's knowledge files and its browser profile directory go too, which is where its logins live.
 - While the store still has tasks running, rename and delete are both refused — the error bar shows the backend's English text ("Cannot rename store with active tasks" / "Cannot delete store with active tasks"), which isn't localized. Let the tasks finish or stop them first.
 
-## Supported browsers
+## Choosing a browser
 
-Three browser backends are supported (plus a Windows-native Chrome set up
-only at deployment). Download and team-account registration go through each
-vendor's own site:
+Which browsers are supported, each one's official download + team account,
+how to choose, and the "store browser + auxiliary browser" design are all
+collected in the [Browsers](browsers.en.md) chapter:
 
-| Backend | What it is | Good for | Platforms | Site / download | Create a team account | Setup guide |
-|---|---|---|---|---|---|---|
-| Chrome | The system's own Chrome / Chromium (launched by Playwright) | Running a single store yourself; public-web work | macOS / Linux / WSLg | Built in, no install | — | "Creating a store" above |
-| Ziniao | Third-party anti-detect browser (developer / WebDriver mode, driven over CDP) | One team managing many accounts; strict risk control | macOS / Linux / Windows | [ziniao.com](https://www.ziniao.com) · [download](https://www.ziniao.com/download) | Register an enterprise account → BOSS enables developer mode on the [Open Platform](https://open.ziniao.com/docSupport?docId=99) and ticks WebDriver login for the sub-account | [Ziniao setup](ziniao.en.md) |
-| Yuehulian | Chinese anti-detect e-commerce browser (Node inspector + CDP) | One team managing many accounts (Windows) | Windows only (incl. WSL-on-Windows) | [kj.chinafic.com](https://kj.chinafic.com/) · client download on the site | Register an enterprise account → create sub-accounts and grant store permissions in the console (team login = team name + sub-account + password) | [Yuehulian setup](yuehulian.en.md) |
-
-> Windows also has a fourth backend, `winchrome` (set at deployment, not a
-> choice in the store form) — see the end of "Which browser backend?".
-
-## Which browser backend?
-
-| | Ziniao (Browser Backend) | Yuehulian (Browser Backend) | Chrome |
-|---|---|---|---|
-| What it is | A third-party anti-detect fingerprint browser; driven over CDP through its developer (WebDriver) mode | A Chinese anti-detect e-commerce browser; no local API, driven via a Node inspector + CDP | The system's own Chrome / Chromium, launched by Playwright with a profile dedicated to this store |
-| Good for | One team managing many accounts that must not share fingerprints; strict risk control | One team managing many accounts (Windows) | Running a single store yourself, no extra software; public-web work |
-| What you need | A Ziniao enterprise account whose BOSS enabled developer mode | A Yuehulian team account (team + sub-account + password) | Nothing extra; on a headless Linux box you need a virtual display such as Xvfb |
-| Where logins live | Inside Ziniao's own profile — Vibe Seller only opens and drives it | Inside the Yuehulian client (Vibe Seller auto-signs-in) | In this store's own Chrome profile directory, kept across tasks |
-| Several stores at once | A machine can connect to only one Ziniao account at a time | One Yuehulian account per machine (stricter: a second account can't even be added) | No such limit |
-| Platforms | macOS / Linux / Windows; Windows via WSL needs a one-line `.bat` launcher (see [Ziniao: Setup & Common Errors](ziniao.en.md)) | Windows only (incl. WSL-on-Windows) | macOS / Linux / WSLg; under a Windows service, use native Windows Chrome instead (next paragraph) |
-
-Yuehulian is an anti-detect browser like Ziniao, but it ships no local
-API, so Vibe Seller drives it via a Node inspector + CDP, and it is
-**Windows-only**; a machine keeps a single Yuehulian account and
-auto-signs-in when the session expires. Download, team-account creation,
-binding and errors: [Yuehulian: Setup Guide](yuehulian.en.md).
-
-**Windows has another backend, `winchrome`.** A Vibe Seller running as a systemd service inside WSL2 can't put a Chrome window on screen, so it can drive **native Windows Chrome** instead — launched through Task Scheduler, window visible, so a human can finish a login. It isn't a choice in the store form; you set it up at deployment time. See the "Browser automation — native Windows Chrome (`winchrome` backend)" section of the [Windows setup guide](windows-setup.md).
-
-## Ziniao stores: two browsers working together
-
-A Ziniao store's tasks have two browsers, each with its own job:
-
-| | Ziniao browser (main) | Chrome auxiliary browser |
-|---|---|---|
-| Used for | The seller center: listings, inventory, reports, ads | Everything outside the seller center: carrier tracking, overseas sites, search engines, supplier sites, public product pages |
-| Strength | Fingerprint and IP isolation, holds the store's login — the safest way into the seller center | No restrictions; opens any site |
-| Limits | Only some sites open; many overseas and logistics sites are blocked | Not signed in to the seller account, and **never** used for seller-center work |
-
-Ziniao protects the store account but blocks a lot; Chrome covers exactly the
-sites Ziniao can't open, so the two complement each other. For example, a task
-that "checks the delivery status of recent orders" reads the orders from the
-seller center in Ziniao and looks up the tracking on the carrier's site in
-Chrome, then puts both into one report.
-
-All of this is automatic: the auxiliary browser starts the first time it's
-needed, there's one per store (never shared between stores), and cookies for
-public sites survive across tasks. The AI decides which URL goes to which
-browser; you don't choose. To pin certain URLs to one browser, write rules in
-`browser-routing.md` in the store's folder — they take precedence over the
-defaults.
-
-A Chrome store is plain Chrome with none of these limits, so it uses a single
-browser. A Yuehulian store works exactly like a Ziniao one here — it also
-gets a Chrome auxiliary browser.
+- [Supported browsers](browsers.en.md#supported-browsers)
+- [Which browser backend?](browsers.en.md#which-browser-backend)
+- [Store browser and auxiliary browser](browsers.en.md#store-browser-and-auxiliary-browser)
 
 ## Logins stick around
 
@@ -109,7 +58,7 @@ A store's browser isn't a fresh incognito window every task:
 
 - **Chrome stores** each have a persistent profile: cookies, localStorage and sessions carry across tasks. The first time the AI reaches a seller center that throws a slider or SMS check at you, you log in once by hand in that browser window; after that the AI works with the session already in place.
 - **Ziniao stores** keep their logins in the Ziniao profile itself — Vibe Seller asks Ziniao to open that profile, so the one-time manual login happens in Ziniao.
-- A Ziniao store's Chrome auxiliary browser keeps its own persistent profile too — see the previous section.
+- A Ziniao / Yuehulian store's Chrome auxiliary browser keeps its own persistent profile too — see [Store browser and auxiliary browser](browsers.en.md#store-browser-and-auxiliary-browser).
 
 ## Running several stores at once
 

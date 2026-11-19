@@ -69,7 +69,7 @@ flowchart LR
 
 - **开箱即用，无需引导**——亚马逊（全站点）、Noon 等平台内置 Skill，覆盖卖家真正需要的操作：报表与对账单导出、Listing 上架与更新、广告调优。创建任务后，系统自动打开浏览器（紫鸟或普通 Chrome），AI 直接上手操作，通常一次就能完成，不需要逐步引导。
 - **原生紫鸟支持**——通过 CDP 直接控制紫鸟，不是用 Playwright 驱动裸 Chrome，也不是按界面坐标点击，因此风控风险低、运行稳定。
-- **不挑浏览器**——除紫鸟外，普通 Chrome 同样是一等公民，可以按店铺分别选择。
+- **不挑浏览器**——紫鸟、悦互联、普通 Chrome 都是一等公民，可以按店铺分别选择，各自的下载、配置与选型见 [浏览器](browsers.md)。
 - **模型可自由切换**——底层使用 Claude Code CLI，凡是兼容 Anthropic 协议的供应商都能接入：Claude、DeepSeek、Kimi、MiniMax、智谱 GLM、通义千问。在设置里切换即可，不需要改代码；API Key 由你自己充值。
 - **没有 SaaS 绑定**——代码在你机器上，数据在你硬盘里，不需要注册账号。
 - **可审计**——每一步操作、每条 Prompt、每张截图都有日志，可以回放，出了问题能追溯原因。
@@ -134,10 +134,11 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 | | |
 |---|---|
 | **入门** | [安装](install.md) · [快速开始](quickstart.md) · [配置 AI 模型](llm-keys.md) · [核心概念](concepts.md) |
+| **浏览器** | [浏览器总览](browsers.md) · [紫鸟：开通与常见报错](ziniao.md) · [悦互联：配置指南](yuehulian.md) |
 | **集成** | [集成总览](integrations.md) · [MCP 接入](mcp.md) · [广告 API 绑定](ads-api.md) · [邮件](email.md) · [群机器人](chat-bots.md) · [滴答清单 / TickTick](ticktick.md) · [Google Workspace](google-workspace.md) |
 | **使用示例** | [全部示例](examples.md) · [每天把重要邮件发到企业微信](example-email-wecom.md) · [分析广告 ACOS 并执行优化](example-ads-acos.md) · [每周巡检 Listing](example-listing-check.md) · [每月导出销售报表](example-daily-report.md) · [用 Codex 导出紫鸟店铺财务数据进行分析](example-mcp.md) |
 | **使用指南** | [店铺与浏览器](stores.md) · [任务](using-tasks.md) · [定时任务](schedules.md) · [知识库与 Skill](knowledge.md) |
-| **常见问题** | [了解 Vibe Seller](faq-about.md) · [紫鸟：开通与常见报错](ziniao.md) · [费用与模型选择](faq-cost.md) · [登录与账号](faq-login.md) · [部署与数据](faq-data.md) · [全部问题](faq.md) |
+| **常见问题** | [了解 Vibe Seller](faq-about.md) · [费用与模型选择](faq-cost.md) · [登录与账号](faq-login.md) · [部署与数据](faq-data.md) · [全部问题](faq.md) |
 | **加入社区** | [加入社区与问题反馈](community.md)：微信群、Slack，以及怎么反馈问题、提建议 |
 | **开发者文档（英文）** | [开发者指南](dev-guide.md) · [任务内核](tasks.md) · [浏览器内核](browser.md) · [子系统](subsystems.md) · [外部 Agent（MCP API）](agents.md) · [Windows + WSL2 部署](windows-setup.md) · [macOS 常驻服务](macos-setup.md) |
 
