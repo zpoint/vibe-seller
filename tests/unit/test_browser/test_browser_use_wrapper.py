@@ -595,3 +595,25 @@ class TestAntidetectAuxWrapper:
         # main proxy, so it must NOT call the dedicated aux-start API.
         wrapper = _generate_wrapper(tmp_path, backend='chrome')
         assert 'browser/aux/start' not in wrapper.read_text()
+
+    def test_wrapper_has_no_dead_interpreter_dependency(self, tmp_path: Path):
+        """Regression: the wrapper must never call python3. On native
+        Windows `python3` resolves to the non-functional WindowsApps
+        execution-alias stub (returns nothing), which left the aux ws
+        parse empty and failed every aux start for anti-detect backends
+        (ziniao AND yuehulian). Covers the aux parse (anti-detect) and the
+        CLIENT_ID uuid fallback (all backends)."""
+        for backend in ('chrome', 'ziniao', 'yuehulian'):
+            content = _generate_wrapper(tmp_path, backend=backend).read_text()
+            assert 'python3' not in content, (
+                f'{backend} wrapper still depends on python3 '
+                '(a dead stub on native Windows)'
+            )
+
+    def test_antidetect_aux_parses_ws_with_sed(self, tmp_path: Path):
+        """The anti-detect aux arm extracts the ws endpoint with sed
+        (bundled in git-bash, present on Linux/Mac), not python3."""
+        for backend in ('ziniao', 'yuehulian'):
+            content = _generate_wrapper(tmp_path, backend=backend).read_text()
+            assert 'sed -n' in content
+            assert 'aux browser start failed' in content

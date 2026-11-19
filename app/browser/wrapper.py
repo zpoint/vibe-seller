@@ -79,7 +79,7 @@ _BIN_DIR = BROWSER_USE_BIN_DIR
 # so the caller saw an unbounded run of identical transient-looking
 # errors and kept paying for them. v6 escalates to a forced browser
 # recycle and then reports the browser as unrecoverable.
-WRAPPER_FORMAT_VERSION = 7
+WRAPPER_FORMAT_VERSION = 8
 WRAPPER_FORMAT_MARKER = 'vibe-seller-wrapper-format:'
 
 #: Exit code for "this browser cannot be revived from here" — distinct
@@ -283,10 +283,14 @@ def write_browser_use_wrapper(
             f'              "http://{LOCALHOST}:{port}/api/stores/'
             f'{store_id or "UNKNOWN"}/browser/aux/start" \\\n'
             f'              2>/dev/null) || true\n'
+            # Parse the ``ws`` field with sed, NOT python3: on native
+            # Windows ``python3`` resolves to the non-functional
+            # WindowsApps execution-alias stub (returns nothing), which
+            # left BU_CDP_WS empty and failed every aux start. sed is
+            # bundled in git-bash (/usr/bin/sed) and present on Linux/Mac.
             f'            BU_CDP_WS=$(printf \'%s\' "$_aux_resp" | '
-            f"python3 -c 'import sys,json;"
-            f'print(json.load(sys.stdin).get("ws",""))\' '
-            f'2>/dev/null) || true\n'
+            f'sed -n \'s/.*"ws"[[:space:]]*:[[:space:]]*'
+            f'"\\([^"]*\\)".*/\\1/p\') || true\n'
             f'            if [ -z "${{BU_CDP_WS:-}}" ]; then\n'
             f'              echo "ERROR: aux browser start failed: '
             f'$(printf \'%s\' "$_aux_resp" | head -c 300)" >&2\n'
@@ -313,7 +317,7 @@ def write_browser_use_wrapper(
         export BU_NAME="$SESSION"
         case "$SESSION" in
           {aux_env_arm}{slug}|{slug}-*)
-            CLIENT_ID="${{VIBE_TASK_ID:-$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')}}${{WORKER_SUFFIX}}"
+            CLIENT_ID="${{VIBE_TASK_ID:-$(uuidgen 2>/dev/null || echo t$(date +%s)$$-$RANDOM)}}${{WORKER_SUFFIX}}"
             export BU_CDP_WS="ws://{LOCALHOST}:{proxy_port}/client-${{CLIENT_ID}}"
             ;;
         esac
