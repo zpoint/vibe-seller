@@ -4,6 +4,7 @@
  * directly and keeps App.tsx lean. Extracted from loadTaskById.
  */
 import type { ConversationItem, Task } from '../types'
+import { NOTICE_ROLE, parseNotice } from './notice'
 
 export interface RawMessage {
   role: string
@@ -37,6 +38,9 @@ export function buildConversationItems(
       } catch { /* skip malformed */ }
     } else if (m.role === 'thinking') {
       convItems.push({ id: `hist-think-${convItems.length}`, type: 'thinking', timestamp: ts, thinking: { content: m.content, isStreaming: false } })
+    } else if (m.role === NOTICE_ROLE) {
+      const notice = parseNotice(m.content)
+      if (notice) convItems.push({ id: `hist-notice-${convItems.length}`, type: 'notice', timestamp: ts, notice })
     } else if (m.role === 'generated_image') {
       // A generated image is persisted (role='generated_image', JSON body)
       // so it re-renders inline on reload — image_generated is otherwise a

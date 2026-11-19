@@ -34,6 +34,10 @@ from app.todos import valid_todos
 
 logger = logging.getLogger(__name__)
 
+# ``authentication_failed`` api_retry events tolerated before the run is
+# stopped (see ``_StreamMixin._on_credential_rejected``).
+AUTH_REJECTIONS_BEFORE_STOP = 2
+
 # How long to wait on a single `stdout.readline()` before issuing
 # a stall-reaper heartbeat bump. The model can take minutes to
 # generate a multi-KB tool input on slow providers; we need to
@@ -51,6 +55,44 @@ EMPTY_TURN_CONTINUE = (
 
 class _StreamMixin:
     """Stdout/stderr readers and stream-json event handlers."""
+
+    # Why the run was ended by the backend rather than by the agent —
+    # the task's error when set (``task_finalize`` prefers it over the
+    # CLI's last result, which after an interrupt says nothing useful).
+    _fatal_error: str | None = None
+    _credential_rejections = 0
+
+    def _on_credential_rejected(self):
+        """End the run once the provider has rejected the credential twice.
+
+        The CLI retries a 401 like any transient error — ten backed-off
+        attempts, 3+ minutes of a "running" task with nothing on screen
+        — and then fails anyway: a rejected key does not recover by
+        waiting. The FIRST rejection is let through, because that is
+        when Claude Code refreshes an expired OAuth login (the
+        ``default`` profile) and the retry succeeds; a second one is
+        final.
+        """
+        self._credential_rejections += 1
+        if self._credential_rejections < AUTH_REJECTIONS_BEFORE_STOP:
+            return
+        if self._fatal_error:
+            return
+        self._fatal_error = (
+            f'The AI provider rejected the credentials of profile '
+            f'"{self.profile_id}" (HTTP 401) — stopped instead of '
+            f'retrying. Update the API key in Settings → AI.'
+        )
+        self._is_error_result = True
+        self._error_category = 'auth_failed'
+        logger.warning(
+            'Task %s: provider rejected profile %s credentials %d times '
+            '— stopping the run',
+            self.task_id[:8],
+            self.profile_id,
+            self._credential_rejections,
+        )
+        asyncio.create_task(self.stop())
 
     async def _stream_stderr(self):
         """Read stderr and log it in real-time for debugging."""
@@ -538,6 +580,8 @@ class _StreamMixin:
                     self._error_category = STREAM_ERROR_MAP.get(
                         err_type, err_type
                     )
+                if err_type == 'authentication_failed':
+                    self._on_credential_rejected()
 
         else:
             await self._emit_message(

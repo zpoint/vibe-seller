@@ -52,7 +52,7 @@ _IMAGE_PRODUCE_RE = re.compile(
     r')'
 )
 
-_IMAGE_EXT_RE = re.compile(r'(?i)\.(?:png|jpe?g|webp|bmp|tiff?|gif|avif)\b')
+IMAGE_EXT_RE = re.compile(r'(?i)\.(?:png|jpe?g|webp|bmp|tiff?|gif|avif)\b')
 
 # A write that LANDS in generated_images/: shell redirect, or a
 # file-moving / image-converting command with the directory among its
@@ -168,7 +168,7 @@ def check_image_read_without_vision(
     if tool_name != 'Read' or model_vision is not False:
         return None
     path = (tool_input or {}).get('file_path') or ''
-    if not isinstance(path, str) or not _IMAGE_EXT_RE.search(path):
+    if not isinstance(path, str) or not IMAGE_EXT_RE.search(path):
         return None
     return (
         f'Not read: {path} is an image, and this task runs on '

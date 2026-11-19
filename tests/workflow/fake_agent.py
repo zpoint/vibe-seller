@@ -52,6 +52,9 @@ class FakeAgentScenario:
     post_approval_delay: float = 0.0
     error_result: str | None = None  # agent returns is_error: true
     error_category: str | None = None  # error category for the failure
+    # The backend ended the run itself (e.g. the provider rejected the
+    # credentials) — mirrors AgentSession._fatal_error.
+    fatal_error: str | None = None
     skip_plan: bool = False  # agent skips planning, executes directly
     skip_plan_on_followup: bool = (
         False  # on re-entry (plan exists), write result directly
@@ -126,6 +129,7 @@ class _FakeSession:
         self._plan_saved: bool = False
         self._is_error_result: bool = False
         self._error_category: str | None = None
+        self._fatal_error: str | None = None
         self.running: bool = True
         # Lifecycle events — tests can await these instead of sleeping
         self.started: asyncio.Event = asyncio.Event()
@@ -474,6 +478,7 @@ class FakeAgent(AIAgentBackend):
                 if session:
                     session._is_error_result = True
                     session._error_category = scenario.error_category
+                    session._fatal_error = scenario.fatal_error
             return
 
         # Optional design delay (allows stop-during-design tests)
@@ -494,6 +499,7 @@ class FakeAgent(AIAgentBackend):
             if scenario.error_result and session:
                 session._is_error_result = True
                 session._error_category = scenario.error_category
+                session._fatal_error = scenario.fatal_error
             await self._create_message(task_id, 'result', result_text)
             return
 
@@ -513,6 +519,7 @@ class FakeAgent(AIAgentBackend):
                     if scenario.error_result and session:
                         session._is_error_result = True
                         session._error_category = scenario.error_category
+                        session._fatal_error = scenario.fatal_error
                     await self._create_message(task_id, 'result', result_text)
                     return
 
@@ -651,6 +658,7 @@ class FakeAgent(AIAgentBackend):
             if session:
                 session._is_error_result = True
                 session._error_category = scenario.error_category
+                session._fatal_error = scenario.fatal_error
 
         await self._create_message(task_id, 'result', result_text)
         if scenario.extra_results:
@@ -719,6 +727,7 @@ class FakeAgent(AIAgentBackend):
             if session:
                 session._is_error_result = True
                 session._error_category = scenario.error_category
+                session._fatal_error = scenario.fatal_error
 
         await self._create_message(task_id, 'result', result_text)
         if scenario.extra_results:

@@ -261,6 +261,11 @@ a prompt naming only the change — and states that the rule is platform
 policy, so the agent does not record a local-processing workaround as
 knowledge.
 
+The same blindness applies to images the **user** attaches to a task on
+such a model: the backend says so before the model answers — a `notice`
+under the user's message, and the agent is told not to Read them — see
+[backend.md § Things the backend tells the user itself](backend.md#things-the-backend-tells-the-user-itself).
+
 **Why it is a guard and not just prose.** Task `2fde3b9c` ("keep the
 content, only remove the background") generated the image with the
 tool, then could not *see* the result: the task ran on a text-only
