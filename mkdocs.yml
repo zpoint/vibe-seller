@@ -121,6 +121,7 @@ plugins:
             FAQ: 常见问题
             About Vibe Seller: 了解 Vibe Seller
             "Ziniao: Setup & Common Errors": 紫鸟：开通与常见报错
+            "Yuehulian: Setup Guide": 悦互联：配置指南
             Cost & Model Choice: 费用与模型选择
             Login & Accounts: 登录与账号
             Deployment & Data: 部署与数据
@@ -233,6 +234,7 @@ nav:
       - FAQ:
           - About Vibe Seller: faq-about.md
           - "Ziniao: Setup & Common Errors": ziniao.md
+          - "Yuehulian: Setup Guide": yuehulian.md
           - Cost & Model Choice: faq-cost.md
           - Login & Accounts: faq-login.md
           - Deployment & Data: faq-data.md

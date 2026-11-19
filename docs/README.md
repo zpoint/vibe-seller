@@ -25,7 +25,7 @@ site they are marked as such.
 
 | File | Topics |
 |------|--------|
-| [stores.md](stores.md) / [stores.en.md](stores.en.md) | Stores and browsers: Ziniao, Chrome, per-store isolation |
+| [stores.md](stores.md) / [stores.en.md](stores.en.md) | Stores and browsers: supported-browser directory, Ziniao, Yuehulian, Chrome, per-store isolation |
 | [using-tasks.md](using-tasks.md) / [using-tasks.en.md](using-tasks.en.md) | Creating and running tasks, Auto vs Plan mode, results and logs |
 | [schedules.md](schedules.md) / [schedules.en.md](schedules.en.md) | Scheduled runs, plan-first schedules, cross-run state |
 | [knowledge.md](knowledge.md) / [knowledge.en.md](knowledge.md) | Per-store memory, the knowledge base, skills |
@@ -36,6 +36,7 @@ site they are marked as such.
 |------|--------|
 | [faq-about.md](faq-about.md) / [faq-about.en.md](faq-about.en.md) | How Vibe Seller differs from Amazon's SP-API |
 | [ziniao.md](ziniao.md) / [ziniao.en.md](ziniao.en.md) | Ziniao: developer-mode prerequisites, binding fields, common errors, WSL launcher, credential storage |
+| [yuehulian.md](yuehulian.md) / [yuehulian.en.md](yuehulian.en.md) | Yuehulian: download, team account, binding, one account per machine, auto-login, Windows-only, credential storage |
 | [faq-cost.md](faq-cost.md) / [faq-cost.en.md](faq-cost.en.md) | Cost, which LLM to pick |
 | [faq-login.md](faq-login.md) / [faq-login.en.md](faq-login.en.md) | Login password setup / recovery, no `vibe-seller` command on Windows |
 | [faq-data.md](faq-data.md) / [faq-data.en.md](faq-data.md) | Cloud servers, data privacy, where the agent's memory lives, English-only buttons |
