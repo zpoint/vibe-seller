@@ -270,6 +270,11 @@ RESTORE_RULES: tuple[RestoreRule, ...] = (
         '/api/ziniao-accounts/{account_id}',
         _stored_ziniao_password,
     ),
+    # Yuehulian team-login — the machine's one login password (upsert).
+    # GET /credentials never returns the password (masked or otherwise),
+    # so the UI can't echo it back — a saved value is always a freshly
+    # typed password, never a mask; nothing to restore.
+    _rule({'POST'}, '/api/yuehulian/credentials', _nothing),
     # User management — passwords are stored hashed only, so a mask
     # is never an echo of something we handed out; refusing it keeps
     # the write guard total without inventing a restore.
