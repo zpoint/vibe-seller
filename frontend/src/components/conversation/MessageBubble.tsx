@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import Markdown from 'react-markdown'
 import { REMARK_PLUGINS } from '../../lib/markdownPlugins'
+import { fileBadge, isPreviewImage } from '../../lib/attachmentKind'
 import type { Components } from 'react-markdown'
 
 // Primary agent voice: 16px prose with relaxed leading — the focal
@@ -24,7 +25,8 @@ interface MessageBubbleProps {
 
 // Attachments are encoded into a user message as markdown images
 // (``![filename](url)``) by the /messages endpoint. Parse them out so the
-// bubble shows a thumbnail (or a PDF chip), never the raw path/URL text.
+// bubble shows a thumbnail for an image, or a file chip for any other
+// type (lib/attachmentKind), never the raw path/URL text.
 const ATTACHMENT_RE = /!\[([^\]]*)\]\(([^)]+)\)/g
 
 function parseUserContent(content: string) {
@@ -45,11 +47,12 @@ function MessageBubbleView({ role, content, onOpenVisionSetup }: MessageBubblePr
           {text && <div className="whitespace-pre-wrap">{text}</div>}
           {images.length > 0 && (
             <div className={`flex flex-wrap gap-2 justify-end ${text ? 'mt-2' : ''}`}>
-              {images.map((im, i) => /\.pdf$/i.test(im.alt) || /\.pdf$/i.test(im.url) ? (
+              {images.map((im, i) => !isPreviewImage(im.alt || im.url) ? (
                 <a key={i} href={im.url} target="_blank" rel="noreferrer"
+                  data-testid="message-file-chip"
                   className="flex items-center gap-2 px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">
-                  <span className="flex items-center justify-center w-6 h-6 rounded bg-red-50 text-red-500 text-[9px] font-semibold">PDF</span>
-                  <span className="max-w-[10rem] truncate">{im.alt || 'document.pdf'}</span>
+                  <span className="flex items-center justify-center w-6 h-6 rounded bg-red-50 text-red-500 text-[9px] font-semibold">{fileBadge(im.alt || im.url)}</span>
+                  <span className="max-w-[10rem] truncate">{im.alt || 'file'}</span>
                 </a>
               ) : (
                 <a key={i} href={im.url} target="_blank" rel="noreferrer">

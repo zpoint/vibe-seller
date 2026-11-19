@@ -34,7 +34,6 @@ from fastapi import UploadFile
 from starlette.datastructures import Headers
 
 from app.agent_mcp.support import McpContext, ToolError
-from app.uploads import ALLOWED_UPLOAD_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -319,12 +318,9 @@ def decode_upload(raw: object, *, what: str = 'attachment') -> tuple:
 
     Returns ``(filename, mime_type, bytes)``. The 10 MB cap is checked
     against the DECODED size, with the encoded length as an early-out —
-    a payload past the cap is refused before it is materialised. The
-    type is checked against the SAME allow-list the upload route
-    enforces (``app.uploads``) so a refused attachment is refused
-    BEFORE anything is created around it — a task must not linger
-    PENDING because its second attachment was an .exe the route was
-    always going to reject.
+    a payload past the cap is refused before it is materialised, BEFORE
+    anything is created around it. Any file type is accepted, the same
+    as the upload routes (``app.uploads``).
     """
     if not isinstance(raw, dict):
         raise ToolError(
@@ -338,8 +334,6 @@ def decode_upload(raw: object, *, what: str = 'attachment') -> tuple:
         raise ToolError(f'{what} filename is required')
     if not isinstance(mime_type, str) or not mime_type.strip():
         raise ToolError(f'{what} mime_type is required')
-    if mime_type.strip() not in ALLOWED_UPLOAD_TYPES:
-        raise ToolError(f'File type not allowed: {mime_type.strip()}')
     if not isinstance(encoded, str) or not encoded.strip():
         raise ToolError(f'{what} content_base64 is required')
     if len(encoded) > (MAX_UPLOAD_BYTES // 3 + 4) * 4:

@@ -4,11 +4,8 @@ import type { PendingFile, Store } from '../types'
 import { usePasteFiles } from '../hooks/usePasteFiles'
 import { formatUploadLimit, getMaxUploadSize } from '../uploadLimits'
 import { uuid } from '../uuid'
+import { fileBadge, isPreviewImage } from '../lib/attachmentKind'
 
-/** Kept in sync with the file input's `accept` and the hint text. */
-const ACCEPTED_TYPES = [
-  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf',
-]
 const EXT_BY_TYPE: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -30,7 +27,7 @@ const EXT_BY_TYPE: Record<string, string> = {
  *  the stem. */
 function withFilename(file: File): File {
   if (file.name) return file
-  return new File([file], `pasted.${EXT_BY_TYPE[file.type]}`, {
+  return new File([file], `pasted.${EXT_BY_TYPE[file.type] ?? 'bin'}`, {
     type: file.type,
     lastModified: file.lastModified,
   })
@@ -74,10 +71,6 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
       // A pasted screenshot can arrive nameless; say something about
       // it rather than opening the complaint with an empty string.
       const label = original.name || t('tasks.attachmentClipboardItem')
-      if (!ACCEPTED_TYPES.includes(original.type)) {
-        skipped.push(t('tasks.attachmentUnsupported', { name: label }))
-        continue
-      }
       if (original.size > getMaxUploadSize()) {
         skipped.push(t('tasks.attachmentTooLarge', {
           name: label,
@@ -85,13 +78,14 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
         }))
         continue
       }
-      // Accepted, so the type is one `withFilename` has an extension
-      // for. Name it before staging: `file.name` is what gets uploaded.
+      // Any type is accepted. Name it before staging: `file.name` is
+      // what gets uploaded.
       const file = withFilename(original)
       newPending.push({
         id: uuid(),
         file,
-        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
+        // Only raster images get a thumbnail; the rest show a file chip.
+        preview: isPreviewImage(file.name, file.type) ? URL.createObjectURL(file) : '',
         name: file.name,
       })
     }
@@ -107,7 +101,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
   const removeFile = (id: string) => {
     setModalFiles(prev => {
       const f = prev.find(p => p.id === id)
-      if (f) URL.revokeObjectURL(f.preview)
+      if (f?.preview) URL.revokeObjectURL(f.preview)
       return prev.filter(p => p.id !== id)
     })
   }
@@ -141,7 +135,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
   }
 
   const handleClose = () => {
-    modalFiles.forEach(f => URL.revokeObjectURL(f.preview))
+    modalFiles.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview) })
     onClose()
   }
 
@@ -244,7 +238,6 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"
                 className="hidden"
                 onChange={e => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = '' }}
               />
@@ -263,8 +256,8 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
                     {pf.preview ? (
                       <img src={pf.preview} alt={pf.name} className="w-16 h-16 object-cover rounded-lg border border-gray-200" />
                     ) : (
-                      <div className="w-16 h-16 flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50">
-                        <span className="text-xs text-gray-500">PDF</span>
+                      <div data-testid="attachment-file-chip" className="w-16 h-16 flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50">
+                        <span className="text-xs font-semibold text-gray-500">{fileBadge(pf.name)}</span>
                       </div>
                     )}
                     <button

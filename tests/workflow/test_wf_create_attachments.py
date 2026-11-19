@@ -89,6 +89,41 @@ async def test_attachment_lands_in_agent_workspace(admin_client):
         shutil.rmtree(task_dir, ignore_errors=True)
 
 
+async def test_any_file_type_lands_and_is_served_safely(admin_client):
+    """A spreadsheet attaches like an image: it lands in the agent's cwd
+    with its extension, and both download paths serve it as a file, not
+    a page the browser would render."""
+    store_id = await _store(admin_client)
+    r = await admin_client.post(
+        '/api/tasks',
+        json={'title': 'with sheet', 'store_id': store_id, 'defer_start': True},
+    )
+    tid = r.json()['id']
+    task_dir = _TASKS_DIR / tid
+    xlsx = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    try:
+        up = await admin_client.post(
+            f'/api/attachments/{tid}',
+            files={'file': ('orders.xlsx', b'PK\x03\x04data', xlsx)},
+        )
+        assert up.status_code == 200
+        saved = [p for p in (task_dir / 'uploads').iterdir() if p.is_file()]
+        assert [p.name for p in saved] == ['orders.xlsx']
+
+        for url in (
+            f'/api/attachments/file/{up.json()["id"]}',
+            f'/api/tasks/{tid}/files/uploads/orders.xlsx',
+        ):
+            got = await admin_client.get(url)
+            assert got.status_code == 200, url
+            assert got.content == b'PK\x03\x04data'
+            assert got.headers['content-type'] == 'application/octet-stream'
+            assert got.headers['content-disposition'].startswith('attachment')
+            assert got.headers['x-content-type-options'] == 'nosniff'
+    finally:
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
 async def test_deferred_no_store_task_starts(admin_client):
     """The whole deferred create flow for a task with NO store.
 

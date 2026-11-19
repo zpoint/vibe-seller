@@ -104,13 +104,34 @@ async def test_stage_english_and_chinese_names_are_ascii_safe(admin_client):
         shutil.rmtree(staging, ignore_errors=True)
 
 
-async def test_stage_rejects_disallowed_type(admin_client):
+async def test_stage_accepts_any_type_served_as_a_download(admin_client):
+    """Any file stages, keeps its extension, and is served as a download.
+
+    A staged .html must not render on the app origin (stored XSS), so
+    it comes back as octet-stream + attachment + nosniff; a png is still
+    served inline for the chip thumbnail.
+    """
     tid = str(uuid.uuid4())
     try:
         r = await _stage(
-            admin_client, tid, 'x.sh', data=b'#!/bin/sh', ctype='text/x-sh'
+            admin_client,
+            tid,
+            'page.html',
+            data=b'<script>alert(1)</script>',
+            ctype='text/html',
         )
-        assert r.status_code == 400
+        assert r.status_code == 200
+        assert r.json()['filename'] == 'page.html'
+        got = await admin_client.get(r.json()['url'])
+        assert got.status_code == 200
+        assert got.headers['content-type'] == 'application/octet-stream'
+        assert got.headers['content-disposition'].startswith('attachment')
+        assert got.headers['x-content-type-options'] == 'nosniff'
+
+        r = await _stage(admin_client, tid, 'shot.png')
+        got = await admin_client.get(r.json()['url'])
+        assert got.headers['content-type'] == 'image/png'
+        assert got.headers['content-disposition'].startswith('inline')
     finally:
         shutil.rmtree(_STAGING_DIR / tid, ignore_errors=True)
 

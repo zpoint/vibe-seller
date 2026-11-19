@@ -3,7 +3,6 @@ import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
-from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +11,7 @@ from app.database import get_db
 from app.models.task import Task
 from app.models.task_attachment import TaskAttachment
 from app.models.user import User
-from app.uploads import reject_disallowed_type, save_upload
+from app.uploads import safe_suffix, save_upload, serve_file
 from app.workspace.manager import VIBE_SELLER_DIR
 
 _TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
@@ -31,14 +30,12 @@ async def upload_attachment(
     if not task:
         raise HTTPException(status_code=404, detail='Task not found')
 
-    reject_disallowed_type(file)
-
     attachment_id = str(uuid.uuid4())
     # Write into the TASK WORKSPACE uploads/ (the agent's cwd) so the agent
     # can Read it — data/attachments was a DB blob invisible to the agent,
     # so create-time uploads never reached it (unlike the chat flow, which
     # promotes into uploads/). build_system_extra surfaces these paths.
-    ext = Path(file.filename or 'file').suffix.lower() or '.bin'
+    ext = safe_suffix(file.filename) or '.bin'
     stem = (
         re.sub(r'[^A-Za-z0-9._-]', '_', Path(file.filename or 'upload').stem)
         or 'upload'
@@ -111,8 +108,4 @@ async def download_attachment(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail='File not found on disk')
 
-    return FileResponse(
-        path=str(file_path),
-        filename=attachment.file_name,
-        media_type=attachment.file_type,
-    )
+    return serve_file(file_path, attachment.file_name, attachment.file_type)

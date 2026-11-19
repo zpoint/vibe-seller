@@ -790,7 +790,9 @@ def uploaded_files_note(task: Task) -> str:
             )
             lines.extend(f'    - {t}' for t in tiles)
     return (
-        'The user attached the following file(s) to this task. Read them '
-        'directly (images are visual references / product photos — do NOT '
-        'ask the user to provide them again):\n' + '\n'.join(lines)
+        'The user attached the following file(s) to this task. Open them '
+        'directly (images are visual references / product photos; other '
+        'files — spreadsheets, documents, archives — are inputs to read '
+        'with the right tool). Do NOT ask the user to provide them '
+        'again:\n' + '\n'.join(lines)
     )

@@ -721,8 +721,14 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 ### Upload limits
 
 Every multipart upload route shares one contract, defined in
-`app/uploads.py`: the same MIME allow-list (PNG / JPEG / GIF / WebP /
-PDF) and one ceiling, `MAX_UPLOAD_SIZE` (100MB). It previously lived in
+`app/uploads.py`: **any file type** is accepted (the agent reads it
+from the task workspace) and one ceiling, `MAX_UPLOAD_SIZE` (100MB),
+applies. What is restricted is how an upload is served back:
+`serve_file()` renders only `INLINE_SERVE_TYPES` (PNG / JPEG / GIF /
+WebP / PDF) inline; every other file is `application/octet-stream` +
+`Content-Disposition: attachment` + `nosniff`, so an uploaded `.html` /
+`.svg` cannot run script on the app origin (stored XSS). The UI shows
+a thumbnail only for raster images, a labelled chip for the rest. It previously lived in
 four places — create-task attachments at 10MB, chat staging at 15MB, the
 vision reference image at 15MB, and a hardcoded copy in the browser — so
 the same file was accepted by one box and refused by the next.

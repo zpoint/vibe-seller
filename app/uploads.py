@@ -4,7 +4,7 @@ Split out because this contract lived in three places that had already
 drifted: create-task attachments capped at 10MB
 (``routers/attachments.py``), chat staging at 15MB
 (``routers/tasks_files.py``), and the browser hardcoding a third copy.
-Same allow-list, different ceilings — so the same image was refused in
+Same contract, different ceilings — so the same image was refused in
 the New Task dialog and accepted in the chat box of the task it just
 created. Import from here; do not re-declare.
 
@@ -20,17 +20,23 @@ spend 1GB of RAM to earn a 400. Peak memory here is one chunk.
 """
 
 from pathlib import Path
+import re
 
 from fastapi import HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
-ALLOWED_UPLOAD_TYPES = frozenset({
+# Any file type may be uploaded: the agent reads it from the task
+# workspace, and a spreadsheet or a zip is as useful to it as a photo.
+# What IS restricted is how a file is SERVED back to the browser (see
+# ``serve_file``): only these render inline. Everything else downloads,
+# so an uploaded .html / .svg can never run script on the app origin.
+INLINE_SERVE_TYPES = frozenset({
     'image/png',
     'image/jpeg',
     'image/gif',
     'image/webp',
     'application/pdf',
 })
-ALLOWED_UPLOAD_EXTS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf')
 
 # Product detail images ("详情图") routinely run 10-30MB, which the old
 # 10MB ceiling refused outright. These files are pass-through material:
@@ -52,13 +58,42 @@ def human_size(num_bytes: int) -> str:
     return f'{mb:.0f}MB' if mb >= 1 else f'{num_bytes}B'
 
 
-def reject_disallowed_type(file: UploadFile) -> None:
-    """Refuse a content type outside the allow-list."""
-    if file.content_type not in ALLOWED_UPLOAD_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f'File type not allowed: {file.content_type}',
+def safe_suffix(filename: str | None) -> str:
+    """The file's extension, lowercased and ASCII-only ('' if unusable).
+
+    Kept so the agent (and the OS) can tell a .xlsx from a .csv; anything
+    outside ``[a-z0-9]`` or implausibly long is dropped rather than
+    written into a path.
+    """
+    suffix = Path(filename or '').suffix.lower()
+    if re.fullmatch(r'\.[a-z0-9]{1,16}', suffix):
+        return suffix
+    return ''
+
+
+def serve_file(path: Path, filename: str, media_type: str | None):
+    """A ``FileResponse`` that never lets an upload render as a page.
+
+    Only ``INLINE_SERVE_TYPES`` are served inline with their own type
+    (thumbnails, the PDF viewer). Every other file is served as
+    ``application/octet-stream`` with ``Content-Disposition: attachment``,
+    and ``nosniff`` stops the browser from guessing its way back to HTML.
+    """
+    headers = {'X-Content-Type-Options': 'nosniff'}
+    if media_type in INLINE_SERVE_TYPES:
+        return FileResponse(
+            path=str(path),
+            filename=filename,
+            media_type=media_type,
+            content_disposition_type='inline',
+            headers=headers,
         )
+    return FileResponse(
+        path=str(path),
+        filename=filename,
+        media_type='application/octet-stream',
+        headers=headers,
+    )
 
 
 def declared_body_too_large(content_length: str | None) -> bool:
