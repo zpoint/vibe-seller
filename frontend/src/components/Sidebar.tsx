@@ -405,7 +405,7 @@ function StoreCreationForm(props: {
         {(() => {
           const nameEmpty = !p.newStoreName.trim()
           const ziniaoIncomplete = p.newStoreBackend === 'ziniao' && (!p.selectedZiniaoAccountId || !p.selectedBrowserOauth || p.fetchingBrowsers || !!p.browserFetchError)
-          const yuehulianIncomplete = p.newStoreBackend === 'yuehulian' && !p.selectedBrowserOauth
+          const yuehulianIncomplete = p.newStoreBackend === 'yuehulian' && (!p.selectedBrowserOauth || p.fetchingYuehulian || !!p.yuehulianError)
           const disabled = nameEmpty || ziniaoIncomplete || yuehulianIncomplete
           return <button
             onClick={p.createStore}
