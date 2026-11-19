@@ -238,8 +238,8 @@ async def send_task_message(
             {'task_id': task_id, 'status': TaskStatus.QUEUED},
         )
 
-        if task.store_id:
-            await task_queue_scheduler.submit(task_id, task.store_id)
+        # Store-less tasks too (``None`` lane) — see wake_task.
+        await task_queue_scheduler.submit(task_id, task.store_id)
 
         return {
             **accepted,

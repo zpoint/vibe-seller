@@ -5,7 +5,7 @@ import json
 import logging
 import shutil
 
-from app import ads_routing
+from app import ads_routing, task_owners
 from app.ai.base import AIAgentBackend
 from app.ai.claude_backend import AgentSession
 from app.ai.concurrency import ResizableLimiter
@@ -84,7 +84,10 @@ class ClaudeCodeBackend(AIAgentBackend):
     ) -> bool:
         if task_id in self._sessions and self._sessions[task_id].running:
             return False
-        await self._slots.acquire()
+        # A run waiting for a slot holds its task: the orphan reconciler
+        # must not launch it a second time (``app.task_owners``).
+        with task_owners.holding(task_id):
+            await self._slots.acquire()
         self._launching.add(task_id)
         try:
             # Notify caller that semaphore was acquired (e.g. to
