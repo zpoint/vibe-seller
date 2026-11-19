@@ -15,6 +15,7 @@ from app.browser.adapters.yuehulian_dom import (
     CLICK_NEXT_PAGE_JS,
     NAV_TO_STORE_LIST_JS,
     click_open_js,
+    fill_team_login_js,
     is_logged_in_hash,
     parse_store_list,
     parse_store_list_json,
@@ -105,3 +106,26 @@ def test_click_next_page_targets_pagination_next():
     assert 'el-pagination' in CLICK_NEXT_PAGE_JS
     assert 'btn-next' in CLICK_NEXT_PAGE_JS
     assert "'END'" in CLICK_NEXT_PAGE_JS and "'OK'" in CLICK_NEXT_PAGE_JS
+
+
+def test_fill_team_login_js_drives_the_team_tab_form():
+    js = fill_team_login_js('acme-team', 'sub-01', 'pw')
+    # Selects the 团队登录 tab and matches the three fields by placeholder.
+    assert '团队登录' in js
+    assert '团队名称' in js and '子账号' in js and '密码' in js
+    # Sets v-model via the native setter + input/change (plain .value is
+    # ignored by Element-UI), ticks remember, and submits.
+    assert 'HTMLInputElement.prototype' in js and "'input'" in js
+    assert '记住' in js
+    # Distinct outcomes so a UI change is pinpointed.
+    for tok in ("'OK'", "'NOTAB'", "'NOFIELDS'", "'NOBTN'"):
+        assert tok in js
+    # The supplied values are embedded (JSON-encoded).
+    assert json.dumps('acme-team') in js and json.dumps('sub-01') in js
+
+
+def test_fill_team_login_js_twist_injection_is_escaped():
+    # A quote in the password must be JSON-escaped, never break the string.
+    js = fill_team_login_js('t', 'a', 'p"; alert(1); //')
+    assert json.dumps('p"; alert(1); //') in js
+    assert ',p"; alert' not in js  # not injected raw into the call

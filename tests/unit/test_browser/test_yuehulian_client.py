@@ -136,12 +136,40 @@ class _PaginatedInspector(_FakeInspector):
         return await super().eval_in_renderer(js, **kw)
 
 
+class _LoginInspector(_FakeInspector):
+    """Starts logged OUT; after the team-login form is submitted it reports
+    logged-in iff ``logs_in`` — models auto-login + its failure modes."""
+
+    def __init__(self, *, logs_in=True, form_result='OK', **kw):
+        super().__init__(logged_in=False, **kw)
+        self._logs_in = logs_in
+        self._form_result = form_result
+        self.submitted = False
+
+    async def eval_in_renderer(self, js, **kw):
+        if js == LOGIN_HASH_JS:
+            return '#/index' if (self.submitted and self._logs_in) else ''
+        if '团队登录' in js:  # the fill_team_login_js payload
+            self.submitted = True
+            return self._form_result
+        return await super().eval_in_renderer(js, **kw)
+
+
 def _patched(proc, insp):
     return (
         mock.patch.object(mod, 'ProcessLayer', return_value=proc),
         mock.patch.object(mod, 'InspectorSession', return_value=insp),
         mock.patch.object(mod.asyncio, 'sleep', new=mock.AsyncMock()),
     )
+
+
+_CREDS = {'team': 't', 'account': 'a', 'password': 'p'}
+
+
+async def _ensure_login(insp, **creds):
+    p1, p2, p3 = _patched(_FakeProc(), insp)
+    with p1, p2, p3:
+        await RealYuehulianClient({}).ensure_logged_in(**creds)
 
 
 async def _open(proc, insp, ref='store-a'):
@@ -268,6 +296,40 @@ async def test_open_store_absent_across_all_pages_is_not_found():
     insp = _PaginatedInspector(pages=[p1, p2])
     with pytest.raises(StoreNotFound):
         await _open(_FakeProc(), insp, ref='ghost')
+
+
+async def test_ensure_logged_in_noop_when_already_logged_in():
+    insp = _FakeInspector()  # logged_in=True by default
+    await _ensure_login(insp, **_CREDS)  # returns without touching the form
+
+
+async def test_ensure_logged_in_auto_logs_in_when_logged_out():
+    insp = _LoginInspector(logs_in=True)
+    await _ensure_login(insp, **_CREDS)
+    assert insp.submitted  # drove the team-login form
+
+
+async def test_ensure_logged_in_no_creds_raises_without_touching_form():
+    insp = _LoginInspector()
+    with pytest.raises(LoginRequired):
+        await _ensure_login(insp, team='', account='', password='')
+    assert insp.submitted is False  # no creds → never try the form
+
+
+async def test_ensure_logged_in_form_not_driveable_raises():
+    # Twist: the form could not be driven (UI changed) → LoginRequired.
+    insp = _LoginInspector(form_result='NOFIELDS')
+    with pytest.raises(LoginRequired):
+        await _ensure_login(insp, **_CREDS)
+
+
+async def test_ensure_logged_in_submitted_but_stays_logged_out_raises():
+    # Twist: form submitted OK but login never took (bad creds) → raise, not
+    # a false success.
+    insp = _LoginInspector(logs_in=False, form_result='OK')
+    with pytest.raises(LoginRequired):
+        await _ensure_login(insp, **_CREDS)
+    assert insp.submitted
 
 
 async def test_ensure_running_launches_when_down():

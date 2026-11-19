@@ -20,6 +20,7 @@ from app.browser.adapters.yuehulian_dom import (
     NAV_TO_STORE_LIST_JS,
     SCRAPE_STORES_JS,
     click_open_js,
+    fill_team_login_js,
     is_logged_in_hash,
     parse_store_list_json,
 )
@@ -71,6 +72,43 @@ class RealYuehulianClient(InjectClient):
         async with self._inspector() as insp:
             route = await insp.eval_in_renderer(LOGIN_HASH_JS)
         return is_logged_in_hash(route)
+
+    async def ensure_logged_in(
+        self, *, team: str, account: str, password: str
+    ) -> None:
+        """Auto-login via 团队登录 when the client is logged out.
+
+        No-op if already logged in. With stored team credentials, fill and
+        submit the team-login form so an expired session doesn't strand
+        tasks (the user: "不要再让用户登录了，我们自己登录"). Raises
+        LoginRequired if there are no credentials or the login does not take
+        — so the caller surfaces a clear "log in / fix credentials" signal
+        rather than flailing. The password is only ever in the one eval,
+        never logged.
+        """
+        async with self._inspector() as insp:
+            route = await insp.eval_in_renderer(LOGIN_HASH_JS)
+            if is_logged_in_hash(route):
+                return
+            if not (team and account and password):
+                raise LoginRequired()
+            result = str(
+                await insp.eval_in_renderer(
+                    fill_team_login_js(team, account, password)
+                )
+            )
+            if result != 'OK':
+                raise LoginRequired(
+                    f'team-login form could not be driven: {result}'
+                )
+            for _ in range(30):
+                await asyncio.sleep(1.0)
+                route = await insp.eval_in_renderer(LOGIN_HASH_JS)
+                if is_logged_in_hash(route):
+                    return
+            raise LoginRequired(
+                'team-login submitted but the client stayed logged out'
+            )
 
     async def list_stores(self) -> list[StoreRef]:
         async with self._inspector() as insp:

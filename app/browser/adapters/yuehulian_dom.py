@@ -113,6 +113,51 @@ CLICK_NEXT_PAGE_JS = (
 )
 
 
+def fill_team_login_js(team: str, account: str, password: str) -> str:
+    """JS that drives the client's 团队登录 (team login) form: select the tab,
+    fill team name / sub-account / password, tick remember-password, submit.
+
+    The fields are Element-UI inputs bound by v-model, so a plain
+    ``el.value = x`` is ignored — set the value through the native setter and
+    dispatch ``input``/``change`` so Vue's model updates. Fields are matched
+    by placeholder substring (团队名称 / 子账号 / 密码) so a label tweak doesn't
+    break it; the tab and submit button by their text. Returns 'OK', or
+    'NOTAB' / 'NOFIELDS' / 'NOBTN' naming what was missing (so a UI change is
+    pinpointed). The secret only lives in this one eval — never logged.
+    """
+    return (
+        '(function(team,account,password){'
+        'function setv(el,v){var s=Object.getOwnPropertyDescriptor('
+        "window.HTMLInputElement.prototype,'value').set;s.call(el,v);"
+        "el.dispatchEvent(new Event('input',{bubbles:true}));"
+        "el.dispatchEvent(new Event('change',{bubbles:true}));}"
+        'var tab=Array.from(document.querySelectorAll('
+        "'.el-tabs__item,[role=tab],[class*=tab]')).find(function(e){"
+        "return (e.textContent||'').trim()==='团队登录';});"
+        "if(!tab)return 'NOTAB';tab.click();"
+        "function f(ph){return Array.from(document.querySelectorAll('input'))"
+        '.find(function(i){'
+        "return (i.getAttribute('placeholder')||'').indexOf(ph)>=0;});}"
+        "var t=f('团队名称'),a=f('子账号'),p=f('密码');"
+        "if(!t||!a||!p)return 'NOFIELDS';"
+        'setv(t,team);setv(a,account);setv(p,password);'
+        "var rem=Array.from(document.querySelectorAll('.el-checkbox'))"
+        ".find(function(c){return (c.textContent||'').indexOf('记住')>=0;});"
+        "if(rem){var ri=rem.querySelector('input');"
+        'if(ri&&!ri.checked)rem.click();}'
+        "var btn=Array.from(document.querySelectorAll('button')).find("
+        "function(b){return (b.textContent||'').indexOf('登录')>=0;});"
+        "if(!btn)return 'NOBTN';btn.click();return 'OK';"
+        '})('
+        + json.dumps(team)
+        + ','
+        + json.dumps(account)
+        + ','
+        + json.dumps(password)
+        + ')'
+    )
+
+
 def is_logged_in_hash(route_hash: str | None) -> bool:
     """True when the route hash is the logged-in app, not the login page.
 
