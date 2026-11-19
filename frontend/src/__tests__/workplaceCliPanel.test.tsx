@@ -191,3 +191,61 @@ describe('WorkplaceCliPanel cancel', () => {
     expect(screen.queryByTestId('cli-login-dingtalk')).toBeNull()
   })
 })
+
+describe('WorkplaceCliPanel outcomes', () => {
+  function finished(view: Record<string, unknown>) {
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === '/api/integrations/cli') {
+        return Promise.resolve({
+          integrations: [card(view.key as string, {
+            installed: true, version: '1',
+            login: { state: 'waiting', step: 1, steps: 1 },
+          })],
+        })
+      }
+      return Promise.resolve({
+        url: null, user_code: null, qr: false, message: null,
+        step: 1, steps: 1, hint: null, ...view,
+      })
+    })
+  }
+
+  it('DingTalk without org CLI access: admins, console and the official guide', async () => {
+    finished({
+      key: 'dingtalk', state: 'failed',
+      message: 'device authorization failed: 您暂无 CLI 数据访问权限，请联系管理员开启',
+      notice: 'dingtalk_cli_access', notice_detail: 'Admin A、Admin B',
+      help_url: 'https://open-dev.dingtalk.com/fe/old#/developerSettings',
+    })
+    renderPanel(true)
+    const outcome = await screen.findByTestId('cli-outcome-dingtalk', {}, { timeout: 3000 })
+    expect(outcome.textContent).toContain('CLI Access Management')
+    expect(outcome.textContent).toContain('Admin A、Admin B')
+    expect(screen.getByTestId('cli-help-dingtalk').getAttribute('href'))
+      .toBe('https://open-dev.dingtalk.com/fe/old#/developerSettings')
+    expect(screen.getByTestId('cli-guide-dingtalk').getAttribute('href'))
+      .toContain('github.com/DingTalk-Real-AI/dingtalk-workspace-cli')
+    // The notice speaks for itself; the raw CLI message is not repeated.
+    expect(outcome.textContent).not.toContain('device authorization failed')
+  })
+
+  it('Feishu signed in with withheld scopes: a warning, not a failure', async () => {
+    finished({
+      key: 'feishu', state: 'succeeded',
+      notice: 'feishu_missing_scopes', notice_detail: 'vc:meeting.realtime:read',
+    })
+    renderPanel(true)
+    const outcome = await screen.findByTestId('cli-outcome-feishu', {}, { timeout: 3000 })
+    expect(outcome.className).toContain('text-amber-700')
+    expect(outcome.textContent).toContain('vc:meeting.realtime:read')
+    expect(outcome.textContent).not.toContain(enTranslation.integrations.cli.loginFailed)
+  })
+
+  it('a failure with no notice shows one readable line', async () => {
+    finished({ key: 'wecom', state: 'failed', message: 'QrTimeout: scan timed out' })
+    renderPanel(true)
+    const outcome = await screen.findByTestId('cli-outcome-wecom', {}, { timeout: 3000 })
+    expect(outcome.textContent).toContain(enTranslation.integrations.cli.loginFailed)
+    expect(outcome.textContent).toContain('QrTimeout: scan timed out')
+  })
+})

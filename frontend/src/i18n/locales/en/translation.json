@@ -674,7 +674,17 @@
         "feishu_app": "Open the link below to create the Feishu app this CLI uses (one time).",
         "feishu_auth": "Open the link below and authorize with your Feishu account.",
         "dingtalk_auth": "Open the link below, pick your organization and authorize. If your organization has not enabled CLI access yet, apply there and ask your DingTalk admin to approve."
-      }
+      },
+      "notice": {
+        "feishu_missing_scopes": "Signed in, but your Feishu organization admin has withheld these permissions, so they can't be used yet: {{detail}}. Everything else works; to use them, ask the admin to grant them, then click Sign in again.",
+        "dingtalk_cli_access": "Your DingTalk organization has not enabled CLI data access. The organization's primary admin turns it on in the DingTalk developer console under \"CLI Access Management\"; then click Sign in again."
+      },
+      "orgAdmins": "Primary admins: {{names}}",
+      "helpLink": {
+        "dingtalk_cli_access": "Open the DingTalk developer console",
+        "default": "Open"
+      },
+      "officialGuide": "Official guide"
     }
   },
   "stores": {

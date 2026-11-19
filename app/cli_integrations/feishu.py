@@ -59,12 +59,15 @@ def _parse_device(line: str, view: LoginView) -> None:
         except ValueError:
             event = None
         if isinstance(event, dict):
-            if event.get('event') == 'device_authorization':
+            kind = event.get('event')
+            if kind == 'device_authorization':
                 view.url = event.get('verification_uri_complete') or event.get(
                     'verification_uri'
                 )
                 view.user_code = event.get('user_code')
-            elif event.get('event') == 'authorization_failed':
+            elif kind == 'authorization_complete':
+                _missing_scopes(event, view)
+            elif kind == 'authorization_failed':
                 view.message = event.get('message') or event.get('error')
             _error(stripped, view)
             return
@@ -72,6 +75,22 @@ def _parse_device(line: str, view: LoginView) -> None:
         m = _URL.search(stripped)
         if m:
             view.url = m.group(0)
+
+
+def _missing_scopes(event: dict, view: LoginView) -> None:
+    """Signed in, but the org admin withheld some scopes: lark-cli adds
+    ``warning: {type: missing_scope}`` (and exits non-zero). Everything
+    else works; the page names what does not."""
+    warning = event.get('warning')
+    if not isinstance(warning, dict) or warning.get('type') != 'missing_scope':
+        return
+    missing = event.get('missing')
+    if not (isinstance(missing, list) and missing):
+        hint = str(warning.get('hint', ''))
+        # Scopes contain ':' themselves; the list follows ': '.
+        missing = hint.rsplit(': ', 1)[-1].split() if ': ' in hint else []
+    view.notice = 'feishu_missing_scopes'
+    view.notice_detail = ' '.join(str(m).strip(',') for m in missing) or None
 
 
 def _error(line: str, view: LoginView) -> None:

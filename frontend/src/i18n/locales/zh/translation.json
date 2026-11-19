@@ -676,7 +676,17 @@
         "feishu_app": "打开下面的链接，创建 CLI 使用的飞书应用（只需一次）。",
         "feishu_auth": "打开下面的链接，用飞书账号完成授权。",
         "dingtalk_auth": "打开下面的链接，选择组织并授权。如果组织还没开通 CLI 访问，请在页面上提交申请，并请钉钉管理员审批。"
-      }
+      },
+      "notice": {
+        "feishu_missing_scopes": "已登录，但以下权限被飞书组织管理员限制，暂时不能用：{{detail}}。其他功能不受影响；需要的话请管理员放开后点「重新登录」。",
+        "dingtalk_cli_access": "你的钉钉组织还没有开通 CLI 数据访问。请组织主管理员在钉钉开发者后台的「CLI 访问管理」中开启，然后点「重新登录」。"
+      },
+      "orgAdmins": "组织主管理员：{{names}}",
+      "helpLink": {
+        "dingtalk_cli_access": "打开钉钉开发者后台",
+        "default": "打开"
+      },
+      "officialGuide": "官方开通说明"
     }
   },
   "stores": {

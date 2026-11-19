@@ -46,9 +46,22 @@ _CODE = re.compile(r'(?:授权码|authorization code)\s*[:：]\s*(\S+)', re.I)
 _STABLE = re.compile(r'^\d+\.\d+\.\d+$')
 
 
+# The org has not enabled CLI data access (``cli_not_enabled`` /
+# ``user_forbidden``): the CLI names the org's primary admins and the
+# console page where they turn it on.
+_NO_ACCESS = ('CLI 数据访问权限', 'CLI数据访问权限', 'CLI data access')
+_ADMINS = re.compile(r'(?:组织主管理员|primary admin\w*)\s*[:：]\s*(.+)$', re.I)
+_CONSOLE = re.compile(
+    r'(?:管理员操作入口|admin console)\s*[:：]\s*(https?://\S+)', re.I
+)
+_MESSAGE = re.compile(r'"message"\s*:\s*"(.*)"\s*,?\s*$')
+ADMIN_CONSOLE = 'https://open-dev.dingtalk.com'
+
+
 def _parse_login(line: str, view: LoginView) -> None:
-    """stderr of ``auth login --device``: code, then the link with the
-    code filled in on its own line, then a manual-entry link."""
+    """``auth login --device`` output: code, then the link with the code
+    filled in on its own line, then a manual-entry link — or, when the
+    org has not enabled CLI access, its admins and console link."""
     stripped = line.strip()
     m = _CODE.search(stripped)
     if m:
@@ -60,13 +73,24 @@ def _parse_login(line: str, view: LoginView) -> None:
         if view.url is None:
             view.url = stripped
         return
+    if m := _CONSOLE.search(stripped):
+        view.help_url = m.group(1)
+        return
+    if m := _ADMINS.search(stripped):
+        view.notice_detail = m.group(1).strip()
+        return
+    if any(k in stripped for k in _NO_ACCESS) and stripped.startswith('⚠'):
+        view.notice = 'dingtalk_cli_access'
+        view.help_url = view.help_url or ADMIN_CONSOLE
+        return
     if stripped.startswith('{') and '"error"' in stripped:
         try:
             view.message = json.loads(stripped)['error']['message']
         except (ValueError, KeyError, TypeError):
             view.message = stripped
-    elif 'CLI 数据访问权限' in stripped or 'CLI access' in stripped:
-        view.message = stripped.lstrip('⚠️ ').strip()
+    elif m := _MESSAGE.search(stripped):
+        # The error envelope may be pretty-printed over several lines.
+        view.message = m.group(1)
 
 
 class DingTalk(CliIntegration):

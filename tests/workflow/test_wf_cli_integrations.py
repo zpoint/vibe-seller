@@ -301,3 +301,26 @@ async def test_login_cancel_and_already_signed_in(
 
 async def test_unknown_platform_is_404(admin_client, home):
     assert (await admin_client.post(f'{BASE}/nope/install')).status_code == 404
+
+
+async def test_sign_in_with_withheld_scopes_still_enables(
+    admin_client, platforms, home
+):
+    """lark-cli signs in and exits non-zero when the org admin withheld a
+    scope. Signed in is signed in: the platform gets enabled, and the
+    view carries a readable line, not the CLI's JSON."""
+    fake = platforms['fake-a']
+    fake.login_exit = 3
+    fake.long_line = True
+    fake.sign_in()
+    (fake.state / 'token').unlink()
+    await admin_client.post(f'{BASE}/fake-a/install')
+    r = await admin_client.post(
+        f'{BASE}/fake-a/login', json={'enable_after': True}
+    )
+    assert r.status_code == 200
+    await _wait_login(admin_client, 'fake-a', 'waiting')
+    fake.approve()
+    view = await _wait_login(admin_client, 'fake-a', 'succeeded')
+    assert view['message'] == 'logged in'
+    await _wait_enabled(admin_client, 'fake-a')

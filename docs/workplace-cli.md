@@ -62,11 +62,14 @@ Windows、macOS、Linux 都支持。
 
 **钉钉**——页面显示一个授权链接和验证码。打开链接，选择组织并授权。
 
-!!! warning "钉钉需要组织管理员先开通 CLI 访问"
-    钉钉 CLI 目前处于共创阶段：组织的主管理员需要先在
-    [钉钉开发者后台](https://open-dev.dingtalk.com) →「CLI 访问管理」
-    中开启。没开启时，授权页面会提示你向管理员提交申请，管理员审批
-    后，在设置页点「重新登录」再授权一次即可。
+!!! warning "钉钉需要组织主管理员先开通 CLI 访问"
+    钉钉 CLI 目前处于共创阶段，组织没开通时，授权会失败并提示「您暂无
+    CLI 数据访问权限」，设置页会列出组织主管理员和操作入口。开通方法
+    （[官方说明](https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli/blob/main/README_zh.md#开始使用)）：
+
+    1. 组织**主管理员**登录 [钉钉开发者后台](https://open-dev.dingtalk.com)；
+    2. 进入「CLI 访问管理」，点开启；
+    3. 回到 Vibe Seller 设置页，在钉钉一行点「重新登录」再授权一次。
 
 ## 只开通需要的平台
 
@@ -126,6 +129,13 @@ CLI 互不影响——这样个人账号切换组织时，团队任务不会跟�
   其[数据收集说明](https://github.com/WecomTeam/wecom-cli/blob/main/docs/data-collection.md)），
   官方没有提供关闭开关；
 - 飞书 CLI 的请求会携带 CLI 版本等信息。
+</details>
+
+<details markdown="1"><summary><b>飞书登录后提示「以下权限被飞书组织管理员限制」？</b></summary>
+
+授权已经成功，平台也已启用；只是提示里列出的那几项权限被组织管理员
+限制，用到它们的功能暂时不能用，其余功能不受影响。需要的话，请飞书
+组织管理员在管理后台放开这些权限，再在设置页点「重新登录」。
 </details>
 
 <details markdown="1"><summary><b>停用会删除平台上的数据吗？</b></summary>

@@ -28,6 +28,23 @@ from app.platform import IS_WINDOWS
 logger = logging.getLogger(__name__)
 
 _TAIL_LINES = 20
+_MAX_MESSAGE = 400
+# A CLI may print one long JSON line (lark-cli lists every granted scope).
+_LINE_LIMIT = 1024 * 1024
+
+
+def _summary(lines: list[str], rc: int) -> str:
+    """A readable line from a failed step's output: the last one that is
+    prose, not a piece of a JSON document — never the raw dump."""
+    for line in reversed(lines):
+        text = line.strip()
+        if text and not text.startswith(('{', '}', '[', ']', '"')):
+            return _clip(text)
+    return f'exit code {rc}'
+
+
+def _clip(text: str) -> str:
+    return text if len(text) <= _MAX_MESSAGE else text[: _MAX_MESSAGE - 1] + '…'
 
 
 def _kill_descendants(pid: int) -> None:
@@ -71,6 +88,7 @@ class LoginSession:
         session_dir: Path,
         env: dict[str, str],
         on_done=None,
+        verify=None,
     ) -> None:
         self.integ = integ
         self.binary = binary
@@ -80,6 +98,10 @@ class LoginSession:
         self.view = LoginView(steps=len(steps))
         self.started = time.monotonic()
         self._on_done = on_done
+        # ``await verify()`` → is the CLI signed in now? The outcome of a
+        # login is that, not the last exit code: lark-cli exits non-zero
+        # when it signed in but the org admin withheld some scopes.
+        self._verify = verify
         self._proc: asyncio.subprocess.Process | None = None
         self._qr: Path | None = None
         self._tail: list[str] = []
@@ -110,18 +132,27 @@ class LoginSession:
 
     async def _run(self) -> None:
         try:
+            rc = 0
             for i, step in enumerate(self.steps, 1):
                 self.view.step = i
                 rc = await self._run_step(step)
-                if rc != 0:
-                    self.view.state = 'failed'
-                    self.view.message = self.view.message or (
-                        '\n'.join(self._tail[-5:]) or f'exit code {rc}'
-                    )
+                if rc != 0 and i < len(self.steps):
+                    self._fail(rc)  # a setup step must succeed
                     return
+            signed_in = (
+                await self._verify() if self._verify is not None else rc == 0
+            )
+            if not signed_in:
+                self._fail(rc)
+                return
             self.view.state = 'succeeded'
             self.view.url = self.view.user_code = self.view.hint = None
             self.view.qr = False
+            if rc != 0 and self.view.notice is None:
+                # Signed in, but the CLI said something: keep it visible.
+                self.view.message = self.view.message or _summary(
+                    self._tail, rc
+                )
         except asyncio.CancelledError:
             self.view.state = 'cancelled'
             raise
@@ -134,8 +165,14 @@ class LoginSession:
                 with contextlib.suppress(Exception):
                     await self._on_done(self)
 
+    def _fail(self, rc: int) -> None:
+        self.view.state = 'failed'
+        if self.view.message is None and self.view.notice is None:
+            self.view.message = _summary(self._tail, rc)
+
     async def _run_step(self, step: LoginStep) -> int:
         session = str(self.dir)
+        self._tail = []
         args = [a.replace('{session}', session) for a in step.argv]
         self._qr = self.dir / step.qr_file if step.qr_file else None
         self.view.url = self.view.user_code = None
@@ -154,6 +191,7 @@ class LoginSession:
             stderr=asyncio.subprocess.STDOUT,
             cwd=session,
             env=self.env,
+            limit=_LINE_LIMIT,
             **kwargs,
         )
         self._proc = proc
@@ -181,6 +219,8 @@ class LoginSession:
             # The parser decides when the QR is ready: a CLI may create
             # the file empty and fill it later (wecom-cli does).
             step.parse(line, self.view)
+            if self.view.message is not None:
+                self.view.message = _clip(self.view.message)
             if self.view.url or self.view.user_code or self.view.qr:
                 self.view.state = 'waiting'
         return await proc.wait()
@@ -203,13 +243,16 @@ class LoginManager:
         session_dir: Path,
         env: dict[str, str],
         on_done=None,
+        verify=None,
     ) -> LoginSession:
         """Replace any earlier session of *integ* with a fresh one."""
         old = self._sessions.get(integ.key)
         if old is not None:
             await old.cancel()
         await asyncio.to_thread(_fresh_dir, session_dir)
-        session = LoginSession(integ, binary, steps, session_dir, env, on_done)
+        session = LoginSession(
+            integ, binary, steps, session_dir, env, on_done, verify
+        )
         self._sessions[integ.key] = session
         session.start()
         return session

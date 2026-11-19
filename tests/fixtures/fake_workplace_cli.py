@@ -7,7 +7,10 @@ its state in ``$FAKE_CLI_STATE`` (a directory):
     auth status                   JSON {configured, logged_in, user}
     config init                   prints a setup URL, blocks until approved
     auth login [--qr <png>]       prints a device URL + code (or writes a
-                                  QR PNG), blocks until approved
+                                  QR PNG), blocks until approved; then
+                                  exits $FAKE_CLI_LOGIN_EXIT (0), after a
+                                  very long JSON line if
+                                  $FAKE_CLI_LONG_LINE is set
 
 "Approving" is a file the test drops: ``approve`` (consumed by each
 step) or ``deny`` (the CLI exits 3, like a user who said no).
@@ -81,8 +84,13 @@ if args[:2] == ['auth', 'login']:
     (state / 'login-pid').write_text(str(os.getpid()))
     wait_for_approval()
     (state / 'token').write_text(os.environ.get('FAKE_CLI_USER', 'Alice'))
+    # Like lark-cli when the org admin withheld scopes: signed in, one
+    # long JSON line listing every scope, and a non-zero exit.
+    if os.environ.get('FAKE_CLI_LONG_LINE'):
+        granted = [f'scope{i}:read' for i in range(20000)]
+        say(json.dumps({'event': 'authorization_complete', 'granted': granted}))
     say('logged in')
-    sys.exit(0)
+    sys.exit(int(os.environ.get('FAKE_CLI_LOGIN_EXIT', '0')))
 
 sys.stderr.write(f'unknown command: {args}\n')
 sys.exit(2)

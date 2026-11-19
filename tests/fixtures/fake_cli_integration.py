@@ -92,6 +92,9 @@ class FakeIntegration(CliIntegration):
         self.release = root / f'{key}-release.tar.gz'
         self.skills = root / f'{key}-skills.tar.gz'
         self.bad_checksum = False
+        # Exit code of a login that DID sign in (lark-cli: scopes withheld).
+        self.login_exit = 0
+        self.long_line = False
         self.publish()
 
     def publish(self, version: str | None = None) -> None:
@@ -110,7 +113,14 @@ class FakeIntegration(CliIntegration):
         self.skills.write_bytes(_tar(files))
 
     def env(self, home: Path) -> dict[str, str]:
-        return {'FAKE_CLI_STATE': str(self.state), 'FAKE_CLI_SWITCH': self.key}
+        env = {
+            'FAKE_CLI_STATE': str(self.state),
+            'FAKE_CLI_SWITCH': self.key,
+            'FAKE_CLI_LOGIN_EXIT': str(self.login_exit),
+        }
+        if self.long_line:
+            env['FAKE_CLI_LONG_LINE'] = '1'
+        return env
 
     def latest_version(self) -> str:
         return self.version

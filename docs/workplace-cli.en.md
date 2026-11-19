@@ -74,13 +74,18 @@ and documents need the user identity.
 **DingTalk** — the page shows a link and a code. Open the link, pick the
 organization and authorize.
 
-!!! warning "DingTalk needs your organization admin to enable CLI access"
-    The DingTalk CLI is in its co-creation phase: the organization's
-    primary admin must first enable it in the
-    [DingTalk developer console](https://open-dev.dingtalk.com) → "CLI
-    Access Management". Until then the authorization page offers to send
-    an access request; once the admin approves, click **Sign in again**
-    and authorize once more.
+!!! warning "DingTalk needs your organization's primary admin to enable CLI access"
+    The DingTalk CLI is in its co-creation phase. Until the organization
+    enables it, authorizing fails with "no CLI data access", and the
+    Settings page lists the organization's primary admins and where to
+    act. To enable it
+    ([official guide](https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli#getting-started)):
+
+    1. The organization's **primary admin** signs in to the
+       [DingTalk developer console](https://open-dev.dingtalk.com);
+    2. Opens "CLI Access Management" and turns it on;
+    3. Back in Vibe Seller Settings, click **Sign in again** on the
+       DingTalk row and authorize once more.
 
 ## Enable only what you need
 
@@ -149,6 +154,14 @@ organization never changes what the team's tasks act as.
   [data collection notes](https://github.com/WecomTeam/wecom-cli/blob/main/docs/data-collection.md)),
   and the vendor offers no switch to turn it off;
 - Feishu CLI requests carry the CLI version and similar details.
+</details>
+
+<details markdown="1"><summary><b>Feishu says some permissions were withheld by the organization admin?</b></summary>
+
+The sign-in worked and the platform is enabled; only the permissions
+listed were restricted by your Feishu organization admin, so the features
+that need them won't work yet — everything else does. To use them, ask
+the admin to grant them, then click **Sign in again**.
 </details>
 
 <details markdown="1"><summary><b>Does disabling delete data on the platform?</b></summary>

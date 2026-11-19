@@ -199,3 +199,54 @@ def test_cancel_leaves_reaping_to_the_event_loop(fake, tmp_path, monkeypatch):
     assert session.view.state == 'cancelled'
     assert pid not in reaped, 'the kill path reaped the CLI itself'
     assert not _alive(pid)
+
+
+async def test_signed_in_despite_a_non_zero_exit_is_a_success(fake, tmp_path):
+    """The outcome is the CLI's sign-in state, not its exit code: lark-cli
+    signs in and still exits 3 when the org admin withheld a scope — and
+    first prints one JSON line far past asyncio's 64 KiB line default."""
+    fake.login_exit = 3
+    fake.long_line = True
+    mgr = LoginManager()
+    session = await mgr.start(
+        fake,
+        fake.exe,
+        fake.login_steps(AuthStatus(False, 'not_logged_in')),
+        tmp_path / 'session',
+        {**os.environ, **fake.env(tmp_path)},
+        verify=_signed_in(fake),
+    )
+    await _until(lambda: session.view.user_code)
+    fake.approve()
+    await session.task
+    assert session.view.state == 'succeeded', session.view
+    # Kept as a readable line, never the JSON dump.
+    assert session.view.message == 'logged in'
+
+
+async def test_exit_zero_but_not_signed_in_is_a_failure(fake, tmp_path):
+    mgr = LoginManager()
+    session = await mgr.start(
+        fake,
+        fake.exe,
+        fake.login_steps(AuthStatus(False, 'not_logged_in')),
+        tmp_path / 'session',
+        {**os.environ, **fake.env(tmp_path)},
+        verify=lambda: _false(),
+    )
+    await _until(lambda: session.view.user_code)
+    fake.approve()
+    await session.task
+    assert session.view.state == 'failed'
+    assert session.view.message == 'logged in'  # its last readable line
+
+
+def _signed_in(fake):
+    async def verify() -> bool:
+        return (fake.state / 'token').exists()
+
+    return verify
+
+
+async def _false() -> bool:
+    return False

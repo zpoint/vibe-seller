@@ -95,6 +95,14 @@ class LoginView:
     # The running step's LoginStep.hint — the page's i18n key for what
     # the person has to do (scan in the app, approve in the browser…).
     hint: str | None = None
+    # Something the person must know about the outcome, as the page's
+    # i18n key (a scope the org admin withheld, org CLI access not
+    # enabled…), with its detail (the scopes, the admins' names) and a
+    # link to act on it. Parsers fill these; raw CLI output never is the
+    # page's message.
+    notice: str | None = None
+    notice_detail: str | None = None
+    help_url: str | None = None
 
     def public(self) -> dict:
         return dataclasses.asdict(self)

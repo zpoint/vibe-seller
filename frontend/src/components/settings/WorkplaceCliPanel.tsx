@@ -21,6 +21,19 @@ interface LoginView {
   step: number
   steps: number
   hint: string | null
+  /** What the person must know about the outcome (i18n key), its detail
+   *  and a link to act on it — set by the server's parsers. */
+  notice?: string | null
+  notice_detail?: string | null
+  help_url?: string | null
+}
+
+/** The vendor's own guide for each notice the server can raise. */
+const NOTICE_GUIDES: Record<string, { zh: string; en: string }> = {
+  dingtalk_cli_access: {
+    zh: 'https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli/blob/main/README_zh.md#开始使用',
+    en: 'https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli#getting-started',
+  },
 }
 
 interface CliCard {
@@ -117,12 +130,11 @@ function CliRow({
         timer.current = setTimeout(poll, POLL_MS)
         return
       }
-      if (v.state === 'failed') setError(v.message || t('integrations.cli.loginFailed'))
       await onChanged()
     } catch (e) {
       setError(errText(e))
     }
-  }, [card.key, onChanged, t])
+  }, [card.key, onChanged])
 
   // A login an admin started earlier (another tab, before a reload) is
   // picked up again so its QR / link is not lost.
@@ -311,10 +323,52 @@ function CliRow({
         </div>
       )}
 
-      {login?.state === 'succeeded' && login.message && (
-        <p className="text-xs text-amber-700">{login.message}</p>
+      {login && !loginActive && <LoginOutcome login={login} cardKey={card.key} />}
+      {error && <p className="text-sm text-red-600 break-words">{error}</p>}
+    </div>
+  )
+}
+
+/** How a finished sign-in ended, when there is something to say: a
+ *  failure, or a success with a notice (e.g. scopes the org withheld). */
+function LoginOutcome({ login, cardKey }: { login: LoginView; cardKey: string }) {
+  const { t, i18n } = useTranslation()
+  if (login.state !== 'failed' && login.state !== 'succeeded') return null
+  if (login.state === 'succeeded' && !login.notice && !login.message) return null
+  const failed = login.state === 'failed'
+  const guide = login.notice ? NOTICE_GUIDES[login.notice] : undefined
+  const guideUrl = guide && (i18n.language?.startsWith('zh') ? guide.zh : guide.en)
+  return (
+    <div
+      className={`text-sm space-y-1 break-words ${failed ? 'text-red-600' : 'text-amber-700'}`}
+      data-testid={`cli-outcome-${cardKey}`}
+    >
+      {failed && !login.notice && <p>{t('integrations.cli.loginFailed')}</p>}
+      {login.notice && (
+        <p>{t(`integrations.cli.notice.${login.notice}`, { detail: login.notice_detail ?? '' })}</p>
       )}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {login.notice === 'dingtalk_cli_access' && login.notice_detail && (
+        <p>{t('integrations.cli.orgAdmins', { names: login.notice_detail })}</p>
+      )}
+      {(login.help_url || guideUrl) && (
+        <p className="space-x-3">
+          {login.help_url && (
+            <a href={login.help_url} target="_blank" rel="noreferrer"
+              className="text-indigo-600 hover:underline" data-testid={`cli-help-${cardKey}`}>
+              {t(`integrations.cli.helpLink.${login.notice ?? 'default'}`)}
+            </a>
+          )}
+          {guideUrl && (
+            <a href={guideUrl} target="_blank" rel="noreferrer"
+              className="text-indigo-600 hover:underline" data-testid={`cli-guide-${cardKey}`}>
+              {t('integrations.cli.officialGuide')}
+            </a>
+          )}
+        </p>
+      )}
+      {login.message && !login.notice && (
+        <p className="text-xs text-gray-600">{login.message}</p>
+      )}
     </div>
   )
 }

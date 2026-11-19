@@ -360,20 +360,17 @@ async def start_login(
     auth = await auth_status(integ, h)
     steps = integ.login_steps(auth)
 
+    async def _signed_in() -> bool:
+        return (await auth_status(integ, h)).usable
+
     async def _done(session: LoginSession) -> None:
-        if session.view.state != 'succeeded':
+        if session.view.state != 'succeeded' or not enable_after:
             return
-        after = await auth_status(integ, h)
-        if not after.usable:
-            session.view.state = 'failed'
-            session.view.message = f'still not signed in ({after.reason})'
-            return
-        if enable_after:
-            try:
-                await enable(integ, h)
-            except Exception as e:
-                logger.exception('%s enable after login failed', integ.key)
-                session.view.message = f'signed in, but enabling failed: {e}'
+        try:
+            await enable(integ, h)
+        except Exception as e:
+            logger.exception('%s enable after login failed', integ.key)
+            session.view.message = f'signed in, but enabling failed: {e}'
 
     session = await login_manager.start(
         integ,
@@ -382,5 +379,6 @@ async def start_login(
         paths.tool_dir(integ.key, h) / 'login',
         await asyncio.to_thread(run_env, integ, h),
         on_done=_done,
+        verify=_signed_in,
     )
     return session.view
