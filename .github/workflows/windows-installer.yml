@@ -49,6 +49,8 @@ on:
       - 'app/scheduler/task_queue.py'
       - 'frontend/**'
       - 'tests/releases/**'
+      # The workplace-CLI e2e runs against the installed daemon below.
+      - 'tests/e2e/test_workplace_cli_e2e.py'
       # What an install is made of, and what the bundle fingerprint
       # hashes — either can change the path a release takes.
       - 'uv.lock'
@@ -476,6 +478,10 @@ jobs:
         shell: pwsh
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
+          # The workplace-CLI module tests this daemon directly — it is
+          # this job's alone (that module otherwise starts a server of
+          # its own with start.sh, which Windows does not have).
+          E2E_DEDICATED_SERVER: '1'
           # One provider (single worker), a repo variable like the CI map.
           E2E_PROVIDER_MAP: ${{ vars.E2E_SMOKE_PROVIDER }}
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
@@ -496,14 +502,22 @@ jobs:
             exit 1
           }
           $install = $env:VS_INSTALL
+          # The daemon's home, for the tests that read files it wrote.
+          $env:VIBE_HOME = "$env:USERPROFILE\.vibe-seller"
           # NOTE: the agent runs under the daemon started in the "Start
           # server" step and inherits THAT step's env (bundled bash, no
           # runner git). This PATH only affects the pytest client here.
           $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
                       "$install\git\cmd;$install\git\bin;" +
                       "$install\git\usr\bin;$install\git\mingw64\bin;$env:PATH"
+          # Workplace CLIs on native Windows from the installed app: each
+          # official win32 build downloaded into the daemon's home, every
+          # real sign-in started and cancelled with no CLI process left,
+          # and a real agent finding exactly the enabled CLIs through Git
+          # Bash. (The browser-UI leg of that module runs on Linux.)
           & "$install\.venv\Scripts\python.exe" -m pytest `
             tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage `
+            tests/e2e/test_workplace_cli_e2e.py -k "not ui_connect" `
             --e2e -v --log-cli-level=INFO
 
       - name: Verify the agent venv reused the bundled Python

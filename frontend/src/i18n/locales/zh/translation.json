@@ -650,6 +650,33 @@
       "deleteConfirm": "确认删除机器人“{{name}}”？",
       "nameRequired": "请填写名称",
       "urlRequired": "请填写 Webhook URL"
+    },
+    "cli": {
+      "title": "企业微信 / 飞书 / 钉钉（官方 CLI）",
+      "description": "开通后，agent 可以通过平台的官方 CLI 和官方 skill 直接操作该平台：消息、文档、表格、日程、待办等。每个平台在本机只登录一个账号，团队所有成员的任务都以这个账号的身份操作。agent 只能看到这里已启用的平台。",
+      "notInstalled": "未安装",
+      "notSignedIn": "未登录",
+      "signedInAs": "已登录：{{identity}}",
+      "enabled": "已对 agent 启用",
+      "disabled": "未启用",
+      "connect": "开通",
+      "working": "处理中…",
+      "relogin": "重新登录",
+      "update": "更新",
+      "disable": "停用",
+      "cancel": "取消",
+      "step": "第 {{step}}/{{steps}} 步：",
+      "preparing": "正在启动 CLI…",
+      "userCode": "验证码：",
+      "qrAlt": "登录二维码",
+      "loginFailed": "登录失败",
+      "hint": {
+        "open_url": "打开下面的链接并确认登录。",
+        "scan_wecom": "用企业微信扫描二维码完成接入。",
+        "feishu_app": "打开下面的链接，创建 CLI 使用的飞书应用（只需一次）。",
+        "feishu_auth": "打开下面的链接，用飞书账号完成授权。",
+        "dingtalk_auth": "打开下面的链接，选择组织并授权。如果组织还没开通 CLI 访问，请在页面上提交申请，并请钉钉管理员审批。"
+      }
     }
   },
   "stores": {

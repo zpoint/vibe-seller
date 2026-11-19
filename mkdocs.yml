@@ -135,6 +135,7 @@ plugins:
             Amazon Ads API: 广告 API 绑定
             Email: 邮件
             Chat Bots: 群机器人
+            WeCom / Feishu / DingTalk CLI: 企业微信 / 飞书 / 钉钉 CLI
             MCP Overview: MCP 接入总览
             Chat Bot Overview: 群机器人总览
             # Per-platform pages under 群机器人; the tool names under MCP
@@ -205,6 +206,7 @@ nav:
           - Email: email.md
           - TickTick / Dida365: ticktick.md
           - Google Workspace: google-workspace.md
+          - WeCom / Feishu / DingTalk CLI: workplace-cli.md
           # Sections that expand go last, so the single pages above line up
           # and the submenus don't split them.
           # Each section's overview page is its first child, so the submenu

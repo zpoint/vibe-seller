@@ -34,6 +34,7 @@ import tempfile
 
 from app.workspace import skills_tree
 from app.workspace.manager import VIBE_SELLER_DIR
+from app.workspace.skill_swap import swap_in
 
 logger = logging.getLogger(__name__)
 
@@ -332,40 +333,17 @@ def _stage_and_swap(gen_path: Path, skills_dir: Path, gws_dir: Path) -> None:
     (same filesystem → rename is atomic). Step 3: atomic swap.
     """
     staging = Path(tempfile.mkdtemp(dir=str(skills_dir), prefix='.tmp_gws_'))
-    backup = skills_dir / '.bak_gws'
-    backed_up = False
     try:
         # mkdtemp already created it; copytree needs the
         # destination to not exist, so populate into
         # subdirs that don't yet exist.
         _populate_staging(gen_path, staging)
-
-        # Step 3: atomic swap. Remove stale backup from any prior
-        # interrupted install first.
-        if backup.exists():
-            shutil.rmtree(backup)
-        if gws_dir.exists():
-            gws_dir.rename(backup)
-            backed_up = True
-        staging.rename(gws_dir)
-        # Success — drop the backup.
-        if backup.exists():
-            shutil.rmtree(backup)
-        backed_up = False
     except Exception:
-        # Rollback in reverse order: if we backed up the old
-        # install but the staging rename failed, restore backup
-        # so the system doesn't end up with neither gws/ nor a
-        # recoverable copy.
-        if backed_up and backup.exists() and not gws_dir.exists():
-            try:
-                backup.rename(gws_dir)
-            except Exception:
-                logger.exception('gws install: backup restore failed')
-        # Clean staging if still present
-        if staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(staging, ignore_errors=True)
         raise
+    # Step 3: atomic swap with rollback (shared with the workplace CLI
+    # integrations — app.workspace.skill_swap).
+    swap_in(staging, gws_dir, skills_dir / '.bak_gws')
 
 
 async def install_skills() -> dict:

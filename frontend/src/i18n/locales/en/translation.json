@@ -648,6 +648,33 @@
       "deleteConfirm": "Delete bot \"{{name}}\"?",
       "nameRequired": "Name is required",
       "urlRequired": "Webhook URL is required"
+    },
+    "cli": {
+      "title": "WeCom / Feishu / DingTalk (official CLIs)",
+      "description": "Connect a platform and your agents can work in it through its official CLI and skills — messages, docs, sheets, calendar, to-dos and more. Each platform is signed in once for this Vibe Seller, and every teammate's tasks act as that account. Agents only see the platforms enabled here.",
+      "notInstalled": "Not installed",
+      "notSignedIn": "Not signed in",
+      "signedInAs": "Signed in as {{identity}}",
+      "enabled": "Enabled for agents",
+      "disabled": "Not enabled",
+      "connect": "Connect",
+      "working": "Working…",
+      "relogin": "Sign in again",
+      "update": "Update",
+      "disable": "Disable",
+      "cancel": "Cancel",
+      "step": "Step {{step}}/{{steps}}:",
+      "preparing": "Starting the CLI…",
+      "userCode": "Code:",
+      "qrAlt": "Login QR code",
+      "loginFailed": "Sign-in failed",
+      "hint": {
+        "open_url": "Open the link below and approve the sign-in.",
+        "scan_wecom": "Scan the QR code with the WeCom app to connect.",
+        "feishu_app": "Open the link below to create the Feishu app this CLI uses (one time).",
+        "feishu_auth": "Open the link below and authorize with your Feishu account.",
+        "dingtalk_auth": "Open the link below, pick your organization and authorize. If your organization has not enabled CLI access yet, apply there and ask your DingTalk admin to approve."
+      }
     }
   },
   "stores": {

@@ -352,3 +352,31 @@ Implementation: `app/workspace/gws_integration.py`. Endpoints: `GET /api/setting
 **Uninstall** (`uninstall_skills()`): `shutil.rmtree` on `.claude/skills/gws/`. Idempotent. Sibling skills (browser-use, amazon-invoice, user-created) are untouched.
 
 **Sync safety**: `skills_sync.fetch()` only manages dirs that have a matching source in the bundled skills tree (`app/skills_v2/`) — `gws/` has no package source, so startup sync never deletes it. The `skills_sync.is_gws_installed()` flag (in `sync_meta.json`) is set by the enable endpoint as a hint for future extensions.
+
+### Workplace CLIs (WeCom / Feishu / DingTalk)
+
+Implementation: `app/cli_integrations/` (framework: `manager.py`, `paths.py`, `skills.py`, `login.py`, `download.py`; one module per platform: `wecom.py`, `feishu.py`, `dingtalk.py`). Endpoints under `/api/integrations/cli` (see [api.md](api.md)); UI: `frontend/src/components/settings/WorkplaceCliPanel.tsx`. User doc: [workplace-cli.md](workplace-cli.md).
+
+Unlike `gws`, Vibe Seller **manages the CLI itself** — the Windows installer ships no Node.js, and a CLI the user installs later is invisible to an already-running server (its PATH is a launch-time snapshot). A platform module (`CliIntegration`, `base.py`) only declares: the current version, where the binary for this OS/arch is and how to verify it, where the official skills of that version are, how to read the login state, and the login steps. Everything else is shared.
+
+| | WeCom `wecom-cli` | Feishu `lark-cli` | DingTalk `dws` |
+|---|---|---|---|
+| Binary | npm `@wecom/cli-<plat>` tarball, `dist.integrity` (sha512); npmjs → npmmirror | GitHub release archive → npmmirror binary mirror; `checksums.txt` sha256 | GitHub release asset → Gitee; `checksums.txt` sha256 |
+| Skills | repo `main` (`skills/wecomcli-*`) — the command set is served at run time, the repo has no tags | tag `v<ver>` (`skills/lark-*`); fallback: open.feishu.cn's digest-verified hosted archives | release `dws-skills.zip` (`multi/dingtalk-*`), checksum-verified |
+| Login | `auth init --noninteractive --no-browser --output-qrcode` (QR + scan link, binds a smart bot) | `config init --new` (create the app) then `auth login --recommend --json` (device flow) | `auth login --device --no-browser --recommend` (device code; org admin must enable CLI access) |
+| Status | `auth show` (local) | `auth status` (local; exit 3 = not configured) | `auth status --format json --readonly` (local) |
+| Isolation env | `WECOM_CLI_CONFIG_DIR` | `LARKSUITE_CLI_{CONFIG,DATA,LOG}_DIR` + no update/skills notifier | `DWS_CONFIG_DIR` + `DWS_KEYCHAIN_DIR`, `DWS_NO_UPDATE_CHECK`, `DO_NOT_TRACK`, `DINGTALK_DWS_AGENTCODE`; macOS `DWS_DISABLE_KEYCHAIN` |
+
+**State lives on disk, nowhere else** (`paths.py`): `tools/<key>/install.json` names the current version, `tools/<key>/versions/<version>/` holds that build, `tools/<key>/state/` holds the CLI's config + login (private to this `VIBE_HOME` — never the user's personal CLI login), and `.claude/skills/<key>/` is the umbrella. *Installed* = the manifest's binary exists; *enabled* = installed + umbrella. There is no DB flag.
+
+**One dir per version, never an in-place swap**: a running CLI holds its executable (and `dws` a native library it unpacks next to itself) open, which Windows refuses to rename. An update lands in a new dir and flips the manifest; the previous version is kept (a task started before the update still has it on its PATH, and Linux/macOS would let us delete it from under that task), older ones are pruned.
+
+**Install** (`manager.install`): latest version → candidate URLs (official host, then mirror) fetched through `system_proxy.urlopen` (the proxy/direct path that reaches each host) → checksum → `--version` must succeed here → land + flip manifest. An enabled integration also gets the skills of the new version.
+
+**Login** (`login.py`): each step is one CLI run with stdin closed; a per-platform parser turns output lines into the page's view (`url`, `user_code`, `qr`, `message`, `hint`). One `LoginSession` per platform owns the child process — cancel, timeout, restart and server shutdown kill its whole tree. `enable_after` lets the session enable the platform itself on success, so closing the page mid-login still finishes. The view and the QR are admin-only: whoever scans signs the machine in.
+
+**Enable** (`manager.enable`): refused unless `auth_status` is usable — an agent must never be the one to log in. Fetches the skills of the INSTALLED version, keeps `<prefix><name>` dirs, renames them to `<name>/` under the umbrella, rewrites `../<prefix>x/` relative links to `../x/`, and writes the umbrella `SKILL.md` (rules + catalog). The rules forbid the platform's login / update / skill-install commands (`forbidden_commands`) — the official skills tell an agent to run several of them — and say they override the sub-skills. Staging is `.claude/.sync-staging` (excluded from task copies, swept at boot); the swap is `skill_swap.swap_in`, shared with `gws`.
+
+**Agent reach** (`registry.enabled_bin_dirs` / `enabled_env`, wired in `apply_agent_venv_path`): only ENABLED platforms put their version dir on the agent's PATH (above the inherited PATH, so the managed build beats a personal npm install) and their env switches into the agent's env — enabling one, two or three platforms adds exactly those. Below them and above the inherited PATH sits `tools/_guard/` (`registry.ensure_guard`): an erroring `wecom-cli` / `lark-cli` / `dws`, so a DISABLED platform's name never falls through to a personal install on the machine (which would act as that person's own login) — the same pattern as the browser-use guard. Disable removes only the umbrella; binary and login stay.
+
+Tests: `tests/unit/test_cli_integrations_{core,login}.py`, `tests/workflow/test_wf_cli_integrations.py` (fake platform from `tests/fixtures/fake_cli_integration.py`), `tests/integration/test_cli_integrations_real.py` (the real CLIs, downloaded per OS; CI runs it on Linux, macOS and Windows), `tests/e2e/test_workplace_cli_e2e.py`.
