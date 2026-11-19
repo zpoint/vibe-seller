@@ -22,7 +22,7 @@ Using Ziniao? Read [Ziniao: Setup & Common Errors](ziniao.en.md) first.
 
 Click "**+ New Store**" in the left sidebar of the home page. Type a "**Store Name**" first — nothing checks for duplicates when you create one, but this name is how the sidebar, the store cards and the task lists identify the store, so pick one you can tell apart at a glance. Then choose one of the two options under "**Browser Backend**":
 
-- "**Chrome (Playwright)**" — no extra software needed. To route it through a proxy, tick "**Use proxy**" and fill "**Proxy Server**" (e.g. `http://127.0.0.1:7890`) and "**Proxy Bypass**" (e.g. `.amazon.com,.google.com`); the hint reads "Route browser traffic through a proxy".
+- "**Chrome**" — no extra software needed. To route it through a proxy, tick "**Use proxy**" and fill "**Proxy Server**" (e.g. `http://127.0.0.1:7890`) and "**Proxy Bypass**" (e.g. `.amazon.com,.google.com`); the hint reads "Route browser traffic through a proxy".
 - "**Ziniao (Browser Backend)**" — bind the Ziniao side in the same form: click "**+**" to open "**Add Ziniao Account**", fill "**Company**", "**Username**" and "**Password**" and save. Then select the account under "**Select Ziniao account...**" — the profiles under that account load on their own ("Loading store profiles...") — and pick the one this store should use under "**Select store profile...**". First time with Ziniao? The admin side has to enable it once — see [Ziniao: Setup & Common Errors](ziniao.en.md).
 
 ![New store form](images/setup_store_en.png)
@@ -43,7 +43,7 @@ Then hit "**Create**". From here on, the store's browser opens by itself when th
 
 ## Which browser backend?
 
-| | Ziniao (Browser Backend) | Chrome (Playwright) |
+| | Ziniao (Browser Backend) | Chrome |
 |---|---|---|
 | What it is | A third-party anti-detect fingerprint browser; Vibe Seller drives it over CDP through its developer (WebDriver) mode | The system's own Chrome / Chromium, launched by Playwright with a profile dedicated to this store |
 | Good for | One team managing many accounts that must not share fingerprints; stores on marketplaces with strict risk control | Running a single store yourself, no extra software, no handing the system your Ziniao password; public-web work |

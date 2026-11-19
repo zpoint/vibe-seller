@@ -78,7 +78,7 @@ export function StoreForm({ mode, initialValues, onSubmit, onCancel, ...ziniaoPr
   // Per-backend label — don't show every anti-detect backend as "Ziniao".
   const backendLabel =
     backend === 'chrome'
-      ? 'Chrome (Playwright)'
+      ? 'Chrome'
       : backend === 'yuehulian'
       ? `${t('tasks.yuehulian')} (${t('tasks.browserBackend')})`
       : `${t('tasks.ziniao')} (${t('tasks.browserBackend')})`

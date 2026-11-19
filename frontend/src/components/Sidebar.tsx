@@ -361,7 +361,7 @@ function StoreCreationForm(props: {
         disabled={!p.newStoreName.trim()}
         className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 bg-white ${!p.newStoreName.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
-        <option value="chrome">Chrome (Playwright)</option>
+        <option value="chrome">Chrome</option>
         <option value="ziniao">{t('tasks.ziniao')} ({t('tasks.browserBackend')})</option>
         {(p.serverPlatform === 'windows' || p.serverPlatform === 'wsl') && (
           <option value="yuehulian">{t('tasks.yuehulian')} ({t('tasks.browserBackend')})</option>

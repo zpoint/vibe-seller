@@ -29,4 +29,4 @@ You don't have to go digging for it: the **Knowledge** page in the web UI browse
 
 ## Why are some buttons in English?
 
-Because those few spots aren't translated yet — the Chinese and English UIs show the same English text: **Create & Run** (the submit button when you create a task), **Chrome (Playwright)** (a browser-backend option), **Add account** (the plus next to Ziniao accounts), **Claude Code CLI** (the backend name in Settings). The docs quote them exactly as the app shows them, so seeing English in the Chinese UI doesn't mean you're in the wrong place.
+Because those few spots aren't translated yet — the Chinese and English UIs show the same English text: **Create & Run** (the submit button when you create a task), **Add account** (the plus next to Ziniao accounts), **Claude Code CLI** (the backend name in Settings). The docs quote them exactly as the app shows them, so seeing English in the Chinese UI doesn't mean you're in the wrong place.
