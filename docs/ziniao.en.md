@@ -8,7 +8,7 @@ Ziniao is a third-party anti-detect browser; Vibe Seller drives it over CDP thro
 
 A Ziniao store's tasks also get a Chrome auxiliary browser for the logistics and overseas sites Ziniao can't open — see [Two browsers working together](stores.md#ziniao-stores-two-browsers-working-together).
 
-If you don't use Ziniao, skip all of this: pick "Chrome (Playwright)" as the browser backend in the new-store form.
+If you don't use Ziniao, skip all of this: pick "Chrome" as the browser backend in the new-store form.
 
 ## Prerequisites: developer mode and WebDriver login
 
@@ -39,7 +39,7 @@ Add a Ziniao account with the "+" button in the new-store form (backend "Ziniao"
 
 Same credentials you use to log into Ziniao — Vibe Seller passes them to the developer-mode HTTP API to list your browser profiles and start sessions.
 
-Why the password at all: developer-mode auth is plain account-and-password — no OAuth / token flow exists on the Ziniao side today. If that's a deal-breaker, use plain Chrome instead (new-store form, backend "Chrome (Playwright)").
+Why the password at all: developer-mode auth is plain account-and-password — no OAuth / token flow exists on the Ziniao side today. If that's a deal-breaker, use plain Chrome instead (new-store form, backend "Chrome").
 
 ## "无权限通过 webdriver 登录" when binding a store
 

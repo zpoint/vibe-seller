@@ -21,6 +21,7 @@ from app.ai.stop_gates import (
     ad_coverage,
     listing_upload_gate as upload_verdict,
 )
+from app.browser.adapters.yuehulian import YuehulianBackend
 from app.browser.chrome import ChromeBackend
 from app.browser.winchrome import WinChromeBackend
 from app.browser.ziniao import ZiniaoBackend
@@ -81,3 +82,4 @@ class BuiltinPlugin(Plugin):
         ctx.register_browser_backend('chrome', ChromeBackend)
         ctx.register_browser_backend('winchrome', WinChromeBackend)
         ctx.register_browser_backend('ziniao', ZiniaoBackend)
+        ctx.register_browser_backend('yuehulian', YuehulianBackend)

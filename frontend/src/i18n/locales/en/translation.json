@@ -95,6 +95,7 @@
     "selectBrowser": "Select browser",
     "chrome": "Chrome",
     "ziniao": "Ziniao",
+    "yuehulian": "Yuehulian",
     "steps": "Steps",
     "addStep": "Add Step",
     "stepAction": "Action",
@@ -406,6 +407,18 @@
     "ziniaoUsername": "Username",
     "ziniaoSelectAccount": "Select Ziniao account...",
     "ziniaoSelectProfile": "Select store profile...",
+    "yuehulianSelectStore": "Select a store...",
+    "yuehulianLoading": "Loading...",
+    "yuehulianLoginRequired": "Not logged in — log into the 悦互联 client, then Refresh.",
+    "yuehulianClientNotRunning": "Couldn't start the 悦互联 client — open it manually (or check it's installed), then Refresh.",
+    "yuehulianNoStores": "No stores visible for this login.",
+    "yuehulianLoadFailed": "Couldn't load stores — check the client and try again.",
+    "yuehulianTeamName": "Team name",
+    "yuehulianSubaccount": "Sub-account login",
+    "yuehulianPassword": "Login password",
+    "yuehulianLoginSaving": "Saving...",
+    "yuehulianLoginAllRequired": "Team name, sub-account and password are all required.",
+    "createStoreFailed": "Couldn't create store: {{msg}}",
     "ziniaoLoading": "Loading store profiles...",
     "ziniaoConnectError": "Ziniao is not running or not in WebDriver mode.",
     "ziniaoDownloadLauncher": "Download ziniao_webdriver.bat",
@@ -545,7 +558,10 @@
     "visionKeyMissing": "Not configured",
     "visionKeyPlaceholder": "kie.ai API key",
     "visionAdminOnly": "Only an admin can set the Vision API key.",
-    "visionSaved": "Saved."
+    "visionSaved": "Saved.",
+    "yuehulianNoAccount": "No account configured",
+    "yuehulianAddAccount": "Add account",
+    "yuehulianOneAccount": "悦互联 supports only one account per machine. Delete all 悦互联 stores in Settings, then add the new account."
   },
   "integrations": {
     "gws": {

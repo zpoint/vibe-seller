@@ -399,6 +399,14 @@ WSL **cannot** auto-launch Ziniao because Electron's Node.js V8 rejects unknown 
 
 If Ziniao is already running with the correct port, everything works automatically. The backend only raises errors when Ziniao is unreachable, guiding the user to the launcher script.
 
+## Yuehulian (悦互联) on Windows
+
+Yuehulian is a second supported anti-detect client, joining Ziniao — but **Windows-only** (incl. WSL-on-Windows, driving the Windows side over `127.0.0.1`); it is refused on macOS / pure Linux at runtime (`UnsupportedPlatform`) and hidden in the Store form off-Windows (via `serverPlatform`). Unlike Ziniao it ships **no local HTTP API**, so the `InjectCdpBackend` family drives its Electron client through a Node inspector + renderer DOM and injects `--remote-debugging-port` into the launched kernel (spawn hook → `DevToolsActivePort`), then reuses the same CDPMuxProxy path.
+
+**One login per machine, auto-signed-in.** There is no per-store account. The machine's single team-login is configured in the create-store form (the 悦互联团队登录 section, like ziniao's add-account; stored in `app_settings` with the password encrypted — `adapters/yuehulian_creds.py`), and the backend signs the GUI client in by driving its 团队登录 form (`ensure_logged_in` → `fill_team_login_js`) whenever it is logged out, so an expired session never strands a task. With no stored credentials a logged-out client surfaces `LOGIN_REQUIRED` instead of flailing. `ensure_logged_in` is called by `InjectCdpBackend.start()` (before a task opens a store) and by the enumerate endpoint; `InjectClient` gives it a default no-op, so Ziniao (whose login is injected per store) is unaffected.
+
+**Enumerate / open.** The Store-form dropdown and a task's store-open list/select via `GET /api/yuehulian/stores`. The store list is a tags-view **tab**, not identified by the URL hash, so the backend shows it by **clicking its menu item** (not setting the hash) before scraping, and it is **paginated** — every page is collected for the dropdown, and a store on page 2/3 is still found and opened. The **aux** browser is a login-less Chromium (its own `/browser/aux/start`), like Ziniao's — independent of the team login. Agent-facing prompts name the actual product (悦互联), never "Ziniao" (`antidetect_display_name`). A live smoke (`tests/e2e/yuehulian_live_smoke.py`, not in CI) exercises all of this against the real client. Full mechanism: [browser.md § Yuehulian Backend](browser.md).
+
 ## CDP Proxy Architecture
 
 Each Ziniao store gets a stable CDP multiplexing proxy (`app/browser/cdp_mux_proxy.py`) that listens on `127.0.0.1:{proxy_port}` and connects upstream (WebSocket) to the actual Ziniao `debuggingPort` (which changes on each `startBrowser` call). On WSL, the proxy connects to the Windows gateway IP instead of localhost. The browser-use wrapper's `BU_CDP_WS` env var (0.13; was `--cdp-url`) always points to the stable proxy port with a per-task client ID.

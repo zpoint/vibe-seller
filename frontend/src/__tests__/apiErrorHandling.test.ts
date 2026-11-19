@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { api } from '../api'
+import { api, storeCreateError } from '../api'
 
 const mockFetch = vi.fn()
 global.fetch = mockFetch
@@ -114,5 +114,31 @@ describe('api error handling', () => {
 
       await expect(api.del('/api/test')).rejects.toThrow('unauthorized')
     })
+  })
+})
+
+describe('storeCreateError', () => {
+  // Echoing fake t: returns the key, with interpolation vars appended so a
+  // test can tell the two branches (and their args) apart.
+  const t = (key: string, opts?: Record<string, unknown>) =>
+    opts ? `${key}:${JSON.stringify(opts)}` : key
+
+  it('surfaces the 409 detail verbatim (names the colliding store, not a generic message)', () => {
+    const detail =
+      "Name collides with existing store 'other-shop': both reduce to " +
+      "the same folder name 'shop'. Choose a different name."
+    const e = Object.assign(new Error(detail), { status: 409 })
+    expect(storeCreateError(e, t)).toBe(
+      `settings.createStoreFailed:${JSON.stringify({ msg: detail })}`
+    )
+  })
+
+  it('shows the backend detail for a non-409 error too', () => {
+    const e = Object.assign(new Error('boom'), { status: 500 })
+    expect(storeCreateError(e, t)).toBe('settings.createStoreFailed:{"msg":"boom"}')
+  })
+
+  it('tolerates a non-Error / missing message', () => {
+    expect(storeCreateError({}, t)).toBe('settings.createStoreFailed:{"msg":""}')
   })
 })

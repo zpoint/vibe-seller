@@ -34,6 +34,19 @@ const handleResponse = async (r: Response) => {
   return r.json()
 }
 
+// Friendly message for a failed store-create (POST /api/stores). Shows the
+// backend detail verbatim — a create 409 names the existing store whose
+// folder slug collides (distinct display names can reduce to the same
+// on-disk slug), which a generic "name taken" hid. Pure (no alert) so the
+// UI layer decides how to surface it.
+export function storeCreateError(
+  e: unknown,
+  t: (k: string, o?: Record<string, unknown>) => string,
+): string {
+  const msg = e instanceof Error ? e.message : ''
+  return t('settings.createStoreFailed', { msg })
+}
+
 const jsonInit = (method: string, body?: unknown): RequestInit => ({
   method,
   headers: { 'Content-Type': 'application/json' },

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import ads_routing
+from app.browser.base import antidetect_display_name, is_antidetect
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
@@ -172,7 +173,8 @@ def build_store_context(
 ) -> str:
     slug = _store_slug(store.name, store.id)
     backend = store.browser_backend
-    if backend == 'ziniao':
+    browser_name = antidetect_display_name(backend)
+    if is_antidetect(backend):
         ctx = (
             f"You are working on store '{store.name}'.\n"
             f'Store profile: stores/{slug}/ — read STORE.md, '
@@ -219,7 +221,7 @@ def build_store_context(
             f'and login cookies. Do NOT use WebFetch or curl '
             f'for these — always use browser-use.\n'
             f'{PARALLEL_WORKER_PROMPT}'
-            f'SECURITY: Ziniao provides IP isolation for this '
+            f'SECURITY: {browser_name} provides IP isolation for this '
             f"store. NEVER extract this store's cookies (via a "
             f'browser-use cookies helper, `js("document.cookie")`, '
             f'or any other means) and reuse them with curl, '
@@ -228,13 +230,15 @@ def build_store_context(
             f'trigger platform security alerts. ALL authenticated '
             f'page access MUST go through browser-use.\n'
             f'\n## DUAL BROWSER SYSTEM\n'
-            f'- **Ziniao Browser** (default): '
+            f'- **{browser_name} browser** (default): '
             f'For seller center URLs\n'
             f'- **Chrome Auxiliary**: '
             f'`browser-use --session {slug}-aux` '
             f'(for everything else)\n'
         )
-        ctx += '\n' + DUAL_BROWSER_PROMPT
+        ctx += '\n' + DUAL_BROWSER_PROMPT.replace(
+            '__BROWSER_NAME__', browser_name
+        )
     else:
         ctx = (
             f"You are working on store '{store.name}'.\n"

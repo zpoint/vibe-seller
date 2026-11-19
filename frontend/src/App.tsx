@@ -8,6 +8,7 @@ import { MobileMenuButton } from './components/MobileMenuButton'
 import { useWsFiles } from './hooks/useWsFiles'
 import { useUpdateFlow } from './hooks/useUpdateFlow'
 import { useSessionKeepalive } from './hooks/useSessionKeepalive'
+import { useYuehulian } from './hooks/useYuehulian'
 import { useServerInfo } from './hooks/useServerInfo'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useMobileBackStack } from './hooks/useMobileBackStack'
@@ -25,7 +26,7 @@ import { resolveLanding } from './lib/landing'
 import { registerUserHash, unregisterUserHash } from './lib/telemetry'
 import { useTaskOpener } from './hooks/useTaskOpener'
 import { useTaskActions } from './hooks/useTaskActions'
-import { api, AUTH_EXPIRED_EVENT, uploadTaskAttachment } from './api'
+import { api, AUTH_EXPIRED_EVENT, storeCreateError, uploadTaskAttachment } from './api'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
@@ -94,6 +95,7 @@ export default function App() {
   const [fetchingBrowsers, setFetchingBrowsers] = useState(false)
   const [browserFetchError, setBrowserFetchError] = useState('')
   const [ziniaoRetried, setZiniaoRetried] = useState(false)
+  const { yuehulianStores, yuehulianError, fetchingYuehulian, fetchYuehulianStores, resetYuehulian } = useYuehulian()
   const [showAddAccount, setShowAddAccount] = useState(false)
   const [showAccountPassword, setShowAccountPassword] = useState(false)
   const [editingAccountId, setEditingAccountId] = useState('')
@@ -416,29 +418,27 @@ export default function App() {
     if (selectedZiniaoAccountId === accountId) { setSelectedZiniaoAccountId(''); setZiniaoBrowsers([]); setBrowserFetchError('') }
     await loadZiniaoAccounts()
   }
-  const browserProfilesDeps = {
-    api, browserFetchError, setFetchingBrowsers, setZiniaoBrowsers,
-    setSelectedBrowserOauth, setBrowserFetchError, setZiniaoRetried,
-  }
-  const fetchBrowserProfiles = (accountId: string) =>
-    fetchBrowserProfilesHandler(accountId, browserProfilesDeps)
-  const restartZiniao = (accountId: string) =>
-    restartZiniaoHandler(accountId, browserProfilesDeps)
+  const browserProfilesDeps = { api, browserFetchError, setFetchingBrowsers, setZiniaoBrowsers, setSelectedBrowserOauth, setBrowserFetchError, setZiniaoRetried }
+  const fetchBrowserProfiles = (accountId: string) => fetchBrowserProfilesHandler(accountId, browserProfilesDeps)
+  const restartZiniao = (accountId: string) => restartZiniaoHandler(accountId, browserProfilesDeps)
 
   // ─── Store helpers ─────────────────────────────────
   const createStore = async () => {
     if (!newStoreName.trim()) return
     if (newStoreBackend === 'ziniao' && (!selectedZiniaoAccountId || !selectedBrowserOauth)) { alert(t('settings.ziniaoSelectProfile')); return }
+    if (newStoreBackend === 'yuehulian' && !selectedBrowserOauth) { alert(t('settings.yuehulianSelectStore')); return }
     const body: Record<string, unknown> = { name: newStoreName, browser_backend: newStoreBackend }
     if (newStoreBackend === 'ziniao') { body.ziniao_account_id = selectedZiniaoAccountId; body.browser_oauth = selectedBrowserOauth }
+    if (newStoreBackend === 'yuehulian') { body.browser_oauth = selectedBrowserOauth }
     if (newStoreBackend === 'chrome' && (newStoreProxyServer.trim() || newStoreProxyBypass.trim())) {
       const bc: Record<string, string> = {}
       if (newStoreProxyServer.trim()) bc.proxy_server = newStoreProxyServer.trim()
       if (newStoreProxyBypass.trim()) bc.proxy_bypass = newStoreProxyBypass.trim()
       body.browser_config = bc
     }
-    await api.post('/api/stores', body)
-    setNewStoreName(''); setNewStoreBackend('chrome'); setSelectedZiniaoAccountId(''); setZiniaoBrowsers([]); setSelectedBrowserOauth('')
+    try { await api.post('/api/stores', body) }
+    catch (e) { alert(storeCreateError(e, t)); return }
+    setNewStoreName(''); setNewStoreBackend('chrome'); setSelectedZiniaoAccountId(''); setZiniaoBrowsers([]); setSelectedBrowserOauth(''); resetYuehulian()
     setShowProxy(false); setNewStoreProxyServer(''); setNewStoreProxyBypass(''); setShowCreateStore(false); await loadStores()
   }
 
@@ -635,6 +635,7 @@ export default function App() {
         ziniaoBrowsers={ziniaoBrowsers} selectedBrowserOauth={selectedBrowserOauth} setSelectedBrowserOauth={setSelectedBrowserOauth}
         fetchingBrowsers={fetchingBrowsers} browserFetchError={browserFetchError} setBrowserFetchError={setBrowserFetchError}
         fetchBrowserProfiles={fetchBrowserProfiles} restartZiniao={restartZiniao} ziniaoRetried={ziniaoRetried}
+        yuehulianStores={yuehulianStores} yuehulianError={yuehulianError} fetchingYuehulian={fetchingYuehulian} fetchYuehulianStores={fetchYuehulianStores}
         serverPlatform={serverPlatform} serverVersion={serverVersion} installId={installId}
         updateStatus={updateFlow.status} onOpenUpdate={updateFlow.openModal}
         showAddAccount={showAddAccount} setShowAddAccount={setShowAddAccount}

@@ -206,6 +206,11 @@ export interface ZiniaoBrowserProfile {
   browser_name: string;
   browser_oauth: string;
 }
+export interface YuehulianStore {
+  name: string;
+  platform: string;
+  remote_env: string;
+}
 export interface Profile {
   id: string
   name: string

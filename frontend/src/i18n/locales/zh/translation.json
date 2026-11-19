@@ -95,6 +95,7 @@
     "selectBrowser": "选择浏览器",
     "chrome": "Chrome",
     "ziniao": "紫鸟",
+    "yuehulian": "悦互联",
     "steps": "步骤",
     "addStep": "添加步骤",
     "stepAction": "操作",
@@ -408,6 +409,18 @@
     "ziniaoUsername": "用户名",
     "ziniaoSelectAccount": "选择紫鸟账号...",
     "ziniaoSelectProfile": "选择店铺配置...",
+    "yuehulianSelectStore": "选择店铺...",
+    "yuehulianLoading": "加载中...",
+    "yuehulianLoginRequired": "未登录——请先在悦互联客户端登录，再点「刷新」。",
+    "yuehulianClientNotRunning": "无法自动启动悦互联客户端——请先手动打开（或确认已安装），再点「刷新」。",
+    "yuehulianNoStores": "该登录身份下没有可见店铺。",
+    "yuehulianLoadFailed": "加载店铺失败——请检查客户端后重试。",
+    "yuehulianTeamName": "团队名称",
+    "yuehulianSubaccount": "子账号登录账号",
+    "yuehulianPassword": "登录密码",
+    "yuehulianLoginSaving": "保存中...",
+    "yuehulianLoginAllRequired": "团队名称、子账号和密码均必填。",
+    "createStoreFailed": "创建店铺失败：{{msg}}",
     "ziniaoLoading": "正在加载店铺列表...",
     "ziniaoConnectError": "紫鸟未运行或未处于 WebDriver 模式。",
     "ziniaoDownloadLauncher": "下载 ziniao_webdriver.bat",
@@ -547,7 +560,10 @@
     "visionKeyMissing": "未配置",
     "visionKeyPlaceholder": "kie.ai API 密钥",
     "visionAdminOnly": "仅管理员可设置视觉 API 密钥。",
-    "visionSaved": "已保存。"
+    "visionSaved": "已保存。",
+    "yuehulianNoAccount": "未配置账号",
+    "yuehulianAddAccount": "添加账号",
+    "yuehulianOneAccount": "悦互联一台机器只支持一个账号，请先在设置页面删除所有悦互联店铺，再添加新账号。"
   },
   "integrations": {
     "gws": {

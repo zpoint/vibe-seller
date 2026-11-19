@@ -75,6 +75,14 @@ export function StoreForm({ mode, initialValues, onSubmit, onCancel, ...ziniaoPr
 
   const nameEmpty = !name.trim()
 
+  // Per-backend label — don't show every anti-detect backend as "Ziniao".
+  const backendLabel =
+    backend === 'chrome'
+      ? 'Chrome'
+      : backend === 'yuehulian'
+      ? `${t('tasks.yuehulian')} (${t('tasks.browserBackend')})`
+      : `${t('tasks.ziniao')} (${t('tasks.browserBackend')})`
+
   return (
     <div className="space-y-3">
       <div>
@@ -93,7 +101,7 @@ export function StoreForm({ mode, initialValues, onSubmit, onCancel, ...ziniaoPr
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">{t('tasks.browserBackend')}</label>
           <div className="px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-600">
-            {backend === 'chrome' ? 'Chrome (Playwright)' : `${t('tasks.ziniao')} (${t('tasks.browserBackend')})`}
+            {backendLabel}
             <span className="text-xs text-gray-400 ml-2">({t('stores.immutable')})</span>
           </div>
         </div>
@@ -103,7 +111,7 @@ export function StoreForm({ mode, initialValues, onSubmit, onCancel, ...ziniaoPr
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">{t('tasks.browserBackend')}</label>
           <div className="px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-600">
-            {backend === 'chrome' ? 'Chrome (Playwright)' : `${t('tasks.ziniao')} (${t('tasks.browserBackend')})`}
+            {backendLabel}
           </div>
         </div>
       )}
@@ -142,6 +150,16 @@ export function StoreForm({ mode, initialValues, onSubmit, onCancel, ...ziniaoPr
       {mode === 'edit' && backend === 'ziniao' && initialValues?.browser_oauth && (
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">{t('settings.ziniaoSelectProfile')}</label>
+          <div className="px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-600">
+            {initialValues.browser_oauth}
+            <span className="text-xs text-gray-400 ml-2">({t('stores.immutable')})</span>
+          </div>
+        </div>
+      )}
+
+      {mode === 'edit' && backend === 'yuehulian' && initialValues?.browser_oauth && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t('settings.yuehulianSelectStore')}</label>
           <div className="px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-600">
             {initialValues.browser_oauth}
             <span className="text-xs text-gray-400 ml-2">({t('stores.immutable')})</span>
