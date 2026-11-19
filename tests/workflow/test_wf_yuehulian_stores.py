@@ -11,7 +11,10 @@ from unittest import mock
 import pytest
 
 from app.browser.inject.client import StoreRef
-from app.browser.inject.errors import ClientNotRunning
+from app.browser.inject.errors import ClientNotRunning, LoginRequired
+from app.models.app_settings import AppSettings
+import app.routers.tasks as tasks_mod
+from app.utils.crypto import decrypt_password
 
 pytestmark = pytest.mark.workflow
 
@@ -22,6 +25,11 @@ def _fake_client(*, logged_in=True, stores=None, raise_cnr=False):
         side_effect=ClientNotRunning() if raise_cnr else None
     )
     client.is_logged_in = mock.AsyncMock(return_value=logged_in)
+    # Enumerate auto-logs-in via ensure_logged_in; logged-out with no stored
+    # creds raises LoginRequired (what the router maps to login_required).
+    client.ensure_logged_in = mock.AsyncMock(
+        side_effect=None if logged_in else LoginRequired()
+    )
     client.list_stores = mock.AsyncMock(return_value=stores or [])
     return client
 
@@ -73,3 +81,64 @@ async def test_unsupported_platform_is_rejected(admin_client):
         r = await admin_client.get('/api/yuehulian/stores')
     assert r.status_code == 400
     assert json.loads(r.json()['detail'])['status'] == 'unsupported_platform'
+
+
+async def test_save_and_get_credentials_roundtrip(admin_client):
+    r = await admin_client.post(
+        '/api/yuehulian/credentials',
+        json={
+            'team_name': 'acme-team',
+            'subaccount': 'sub-01',
+            'password': 'secret',
+        },
+    )
+    assert r.status_code == 200
+    d = (await admin_client.get('/api/yuehulian/credentials')).json()
+    assert d['configured'] is True
+    assert d['team_name'] == 'acme-team' and d['subaccount'] == 'sub-01'
+    assert 'password' not in d  # the secret is never returned
+
+
+async def test_credentials_password_stored_encrypted(admin_client):
+    await admin_client.post(
+        '/api/yuehulian/credentials',
+        json={
+            'team_name': 't',
+            'subaccount': 'a',
+            'password': 'plaintext-secret',
+        },
+    )
+    async with tasks_mod.async_session() as db:
+        row = await db.get(AppSettings, 'yuehulian_password')
+    assert row.value != 'plaintext-secret'  # encrypted at rest
+    assert decrypt_password(row.value) == 'plaintext-secret'
+
+
+async def test_save_credentials_requires_all_fields(admin_client):
+    r = await admin_client.post(
+        '/api/yuehulian/credentials',
+        json={'team_name': 't', 'subaccount': '', 'password': 'p'},
+    )
+    assert r.status_code == 400
+
+
+async def test_enumerate_passes_decrypted_creds_to_client(admin_client):
+    await admin_client.post(
+        '/api/yuehulian/credentials',
+        json={'team_name': 'acme', 'subaccount': 'sub', 'password': 'pw'},
+    )
+    fake = _fake_client(stores=[StoreRef('store-a')])
+    with (
+        mock.patch(
+            'app.routers.yuehulian.get_platform', return_value='windows'
+        ),
+        mock.patch(
+            'app.routers.yuehulian.RealYuehulianClient', return_value=fake
+        ) as cls,
+    ):
+        r = await admin_client.get('/api/yuehulian/stores')
+    assert r.status_code == 200
+    cfg = cls.call_args.args[0]
+    assert cfg['yuehulian_team'] == 'acme'
+    assert cfg['yuehulian_account'] == 'sub'
+    assert cfg['yuehulian_password'] == 'pw'  # decrypted for the login eval

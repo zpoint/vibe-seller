@@ -49,6 +49,11 @@ class InjectCdpBackend(BrowserBackend):
         self._client = client
 
         await client.ensure_running()
+        # Auto-login if logged out and credentials are stored (no-op for a
+        # client whose login is managed elsewhere). Raises LoginRequired when
+        # it cannot log in, so a logged-out store fails fast and clearly
+        # instead of the agent flailing against a login wall.
+        await client.ensure_logged_in()
         if not await client.is_logged_in():
             raise LoginRequired()
 

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import create_token
+from app.browser.adapters.yuehulian_creds import inject_yuehulian_config
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
 from app.browser.cdp_probe import cdp_proxy_alive
@@ -446,9 +447,10 @@ class BrowserManager:
         if store.browser_backend == 'yuehulian':
             if store.browser_oauth:
                 browser_config['browser_ref'] = store.browser_oauth
-            row = await db.get(AppSettings, 'yuehulian_client_path')
-            if row and row.value:
-                browser_config['client_path'] = row.value
+            # Client path + the one machine login's team creds (shared by
+            # all yuehulian stores) so a logged-out client can be auto-logged
+            # in instead of failing the task. See yuehulian_creds.
+            await inject_yuehulian_config(browser_config, db)
 
         # Allocate unique proxy port — both backends use CDPMuxProxy.
         # Reuse the DB-persisted port if available.

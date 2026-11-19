@@ -44,6 +44,11 @@ class RealYuehulianClient(InjectClient):
     def __init__(self, browser_config: dict | None = None):
         cfg = browser_config or {}
         self._proc = ProcessLayer(cfg.get('client_path') or None)
+        # Team-login credentials for auto-login (injected by the manager /
+        # the enumerate router from app settings). Empty → no auto-login.
+        self._team = cfg.get('yuehulian_team') or ''
+        self._account = cfg.get('yuehulian_account') or ''
+        self._password = cfg.get('yuehulian_password') or ''
 
     async def ensure_running(self) -> None:
         if await asyncio.to_thread(self._proc.is_running):
@@ -73,28 +78,28 @@ class RealYuehulianClient(InjectClient):
             route = await insp.eval_in_renderer(LOGIN_HASH_JS)
         return is_logged_in_hash(route)
 
-    async def ensure_logged_in(
-        self, *, team: str, account: str, password: str
-    ) -> None:
+    async def ensure_logged_in(self) -> None:
         """Auto-login via 团队登录 when the client is logged out.
 
-        No-op if already logged in. With stored team credentials, fill and
-        submit the team-login form so an expired session doesn't strand
-        tasks (the user: "不要再让用户登录了，我们自己登录"). Raises
-        LoginRequired if there are no credentials or the login does not take
-        — so the caller surfaces a clear "log in / fix credentials" signal
-        rather than flailing. The password is only ever in the one eval,
-        never logged.
+        No-op if already logged in. With stored team credentials (from the
+        config the manager/router injects), fill and submit the team-login
+        form so an expired session doesn't strand tasks (the user: "不要再让
+        用户登录了，我们自己登录"). Raises LoginRequired if there are no
+        credentials or the login does not take — so the caller surfaces a
+        clear "log in / fix credentials" signal rather than flailing. The
+        password is only ever in the one eval, never logged.
         """
         async with self._inspector() as insp:
             route = await insp.eval_in_renderer(LOGIN_HASH_JS)
             if is_logged_in_hash(route):
                 return
-            if not (team and account and password):
+            if not (self._team and self._account and self._password):
                 raise LoginRequired()
             result = str(
                 await insp.eval_in_renderer(
-                    fill_team_login_js(team, account, password)
+                    fill_team_login_js(
+                        self._team, self._account, self._password
+                    )
                 )
             )
             if result != 'OK':

@@ -39,6 +39,18 @@ class InjectClient(ABC):
     async def is_logged_in(self) -> bool:
         """True when a user identity is logged into the GUI."""
 
+    async def ensure_logged_in(self) -> None:
+        """Auto-login if the client is logged out and credentials are stored.
+
+        Default no-op: a client whose login is managed outside this process
+        (e.g. ziniao's per-store credential injection) overrides nothing.
+        A client that can drive its own login form (yuehulian team-login)
+        overrides this to fill + submit it, raising ``LoginRequired`` when
+        it has no credentials or the login does not take. The engine calls
+        it after ``ensure_running`` and before the ``is_logged_in`` gate.
+        """
+        return None
+
     @abstractmethod
     async def list_stores(self) -> list[StoreRef]:
         """Stores visible to the logged-in identity.

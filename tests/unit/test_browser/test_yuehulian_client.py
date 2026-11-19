@@ -163,13 +163,17 @@ def _patched(proc, insp):
     )
 
 
-_CREDS = {'team': 't', 'account': 'a', 'password': 'p'}
+_CREDS = {
+    'yuehulian_team': 't',
+    'yuehulian_account': 'a',
+    'yuehulian_password': 'p',
+}
 
 
-async def _ensure_login(insp, **creds):
+async def _ensure_login(insp, cfg):
     p1, p2, p3 = _patched(_FakeProc(), insp)
     with p1, p2, p3:
-        await RealYuehulianClient({}).ensure_logged_in(**creds)
+        await RealYuehulianClient(cfg).ensure_logged_in()
 
 
 async def _open(proc, insp, ref='store-a'):
@@ -300,19 +304,19 @@ async def test_open_store_absent_across_all_pages_is_not_found():
 
 async def test_ensure_logged_in_noop_when_already_logged_in():
     insp = _FakeInspector()  # logged_in=True by default
-    await _ensure_login(insp, **_CREDS)  # returns without touching the form
+    await _ensure_login(insp, _CREDS)  # returns without touching the form
 
 
 async def test_ensure_logged_in_auto_logs_in_when_logged_out():
     insp = _LoginInspector(logs_in=True)
-    await _ensure_login(insp, **_CREDS)
+    await _ensure_login(insp, _CREDS)
     assert insp.submitted  # drove the team-login form
 
 
 async def test_ensure_logged_in_no_creds_raises_without_touching_form():
     insp = _LoginInspector()
     with pytest.raises(LoginRequired):
-        await _ensure_login(insp, team='', account='', password='')
+        await _ensure_login(insp, {})  # no creds in config
     assert insp.submitted is False  # no creds → never try the form
 
 
@@ -320,7 +324,7 @@ async def test_ensure_logged_in_form_not_driveable_raises():
     # Twist: the form could not be driven (UI changed) → LoginRequired.
     insp = _LoginInspector(form_result='NOFIELDS')
     with pytest.raises(LoginRequired):
-        await _ensure_login(insp, **_CREDS)
+        await _ensure_login(insp, _CREDS)
 
 
 async def test_ensure_logged_in_submitted_but_stays_logged_out_raises():
@@ -328,7 +332,7 @@ async def test_ensure_logged_in_submitted_but_stays_logged_out_raises():
     # a false success.
     insp = _LoginInspector(logs_in=False, form_result='OK')
     with pytest.raises(LoginRequired):
-        await _ensure_login(insp, **_CREDS)
+        await _ensure_login(insp, _CREDS)
     assert insp.submitted
 
 
