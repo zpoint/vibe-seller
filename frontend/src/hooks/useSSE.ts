@@ -4,6 +4,7 @@ import type { Task, AgentMessage, TodoItem, ConversationItem, TaskUsage } from '
 import { TASK_USAGE_FIELDS } from '../types'
 import { uuid } from '../uuid'
 import { patchById } from '../lib/patchById'
+import { NOTICE_ROLE, parseNotice } from '../lib/notice'
 
 /** Finalize any streaming thinking block — set isStreaming to false. */
 function _finalizeThinking(items: ConversationItem[]): ConversationItem[] {
@@ -303,6 +304,16 @@ export function useSSE({
                       result: data.content,
                     }]
                   })
+                }
+              } else if (data.role === NOTICE_ROLE) {
+                const notice = parseNotice(data.content)
+                if (notice && selectedTaskIdRef.current === data.task_id) {
+                  setConversationItems(items => [...items, {
+                    id: `notice-${uuid()}`,
+                    type: 'notice' as const,
+                    timestamp: new Date().toISOString(),
+                    notice,
+                  }])
                 }
               } else if (data.role === 'tool_use') {
                 setAgentMessages(p => [...p, { role: data.role, content: data.content }])

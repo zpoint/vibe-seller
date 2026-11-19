@@ -4,10 +4,12 @@ import type { TaskFileEntry } from './fileTree'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 import { REMARK_PLUGINS } from '../../lib/markdownPlugins'
+import { parseUserContent } from '../../lib/userContent'
 import { api } from '../../api'
 import { PlanCard } from './PlanCard'
 import { TaskStartCard } from './TaskStartCard'
 import { MessageBubble } from './MessageBubble'
+import { NoticeBanner } from './NoticeBanner'
 import { ExecutionSeparator } from './ExecutionSeparator'
 import { ToolCallGroup } from './ToolCallCard'
 import { ThinkingBlock, WorkingIndicator } from './ThinkingBlock'
@@ -276,7 +278,11 @@ export function ConversationStream({
             )
           case 'user_message': {
             if (!taskStartRendered) {
-              const parsed = parseTaskStart(item.message!.content)
+              // The opening message carries the create-time attachments
+              // (app/attachment_markdown.py) — strip them before parsing
+              // the title/details, and show them on the card.
+              const { text, images } = parseUserContent(item.message!.content)
+              const parsed = parseTaskStart(text)
               if (parsed) {
                 taskStartRendered = true
                 return (
@@ -284,6 +290,7 @@ export function ConversationStream({
                     key={item.id}
                     title={parsed.title}
                     description={parsed.description}
+                    images={images}
                   />
                 )
               }
@@ -294,6 +301,8 @@ export function ConversationStream({
             return <MessageBubble key={item.id} role="assistant" content={item.message!.content} onOpenVisionSetup={onOpenVisionSetup} />
           case 'streaming':
             return <MessageBubble key={item.id} role="_streaming" content={item.message!.content} onOpenVisionSetup={onOpenVisionSetup} />
+          case 'notice':
+            return <NoticeBanner key={item.id} notice={item.notice!} />
           case 'execution_separator':
             return <ExecutionSeparator key={item.id} />
           case 'thinking':

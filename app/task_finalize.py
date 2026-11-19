@@ -71,6 +71,15 @@ async def finalize_terminal_state(
         }:
             return
 
+        # A run the backend ended itself (the provider rejected the
+        # credentials, ...) carries its own reason — the CLI's last
+        # result after an interrupt does not. Recorded before the
+        # outcome so it resolves FAILED and every branch keeps it.
+        fatal = getattr(my_session, '_fatal_error', None)
+        if fatal:
+            task.error = fatal
+            task.error_category = getattr(my_session, '_error_category', None)
+
         # Resolve ONCE, before any branch reads result/error. This is
         # the single place that decides what the run produced.
         outcome = resolve_outcome(task)

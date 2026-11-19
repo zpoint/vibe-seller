@@ -135,6 +135,10 @@ def _is_resume_failure(session) -> bool:
     """
     if session is None:
         return False
+    # The backend ended this run for a reason a fresh session would
+    # meet again (e.g. a rejected API key): not a resume failure.
+    if getattr(session, '_fatal_error', None):
+        return False
     proc = getattr(session, '_proc', None)
     if proc is None or proc.returncode is None or proc.returncode == 0:
         return False

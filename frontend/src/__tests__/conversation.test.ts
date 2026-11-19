@@ -26,6 +26,23 @@ describe('buildConversationItems', () => {
     ])
   })
 
+  // A backend notice (app/ai/unseen_images.py) survives a reload as its
+  // own item, right after the message it is about; a malformed or
+  // non-notice body is dropped rather than shown as raw JSON.
+  it('maps notice rows to notice items, dropping malformed ones', () => {
+    const body = JSON.stringify({ kind: 'images_unseen', model: 'text-model', files: ['shot.png'] })
+    const items = buildConversationItems(
+      [
+        { role: 'user', content: 'what is this\n![shot.png](/api/attachments/file/a1)' },
+        { role: 'notice', content: body },
+        { role: 'notice', content: 'not json' },
+      ],
+      task(),
+    )
+    expect(items.map(i => i.type)).toEqual(['user_message', 'notice'])
+    expect(items[1].notice).toEqual({ kind: 'images_unseen', model: 'text-model', files: ['shot.png'] })
+  })
+
   it('every turn keeps its own result, where it was produced', () => {
     // Only the first used to qualify as a result; later ones were demoted
     // to plain assistant messages, so on a multi-turn task each answer

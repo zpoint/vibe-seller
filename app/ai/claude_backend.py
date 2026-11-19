@@ -464,7 +464,7 @@ class AgentSession(
         # duplicated it (fresh-session and dead-session-resume paths
         # both arrive with an empty message_history).
         if self.persist_prompt and not self.message_history:
-            await self._emit_message('user', self.prompt)
+            await self._persist_opening_prompt()
 
         # Build the user prompt, optionally embedding prior
         # conversation history.  Instead of stuffing ALL messages
