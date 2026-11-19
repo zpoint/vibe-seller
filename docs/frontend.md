@@ -33,7 +33,9 @@ src/
     conversation/
       ConversationStream.tsx  # Scrollable conversation timeline with render-time tool call grouping
       PlanCard.tsx            # Plan card with confirm/request-changes buttons, compact superseded style
-      MessageBubble.tsx       # Single agent or user message bubble
+      MessageBubble.tsx       # Single agent or user message bubble (user attachments → AttachmentThumbs)
+      AttachmentThumbs.tsx    # Thumbnails / PDF chips for a user message's `![name](url)` attachments
+      TaskStartCard.tsx       # Plan-mode opening message card (title, collapsible details, create-time attachments)
       ExecutionSeparator.tsx  # Visual divider between plan and execution phases
       ToolCallCard.tsx        # Compact tool call line + ToolCallGroup (grouped consecutive tool calls)
       ThinkingBlock.tsx       # Streaming/collapsed thinking display + WorkingIndicator fallback
@@ -43,6 +45,8 @@ src/
     WorkspaceView.tsx         # File editor + history viewer
     WorkspaceAssistantView.tsx  # Workspace AI chat interface
     SettingsView.tsx          # Stores, general, AI, email, account, integrations tabs (delegates to components/settings/*Panel.tsx)
+  lib/
+    userContent.ts            # parseUserContent: split a stored user message into text + attachments (app/attachment_markdown.py encoding)
   hooks/
     useSSE.ts                 # SSE event listener hook
     useUpdateFlow.ts          # the in-app update UI state (poll + modal + restart)
