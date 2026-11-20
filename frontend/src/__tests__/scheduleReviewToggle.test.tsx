@@ -33,12 +33,23 @@ function renderCreate() {
       <CreateScheduleModal storeId="store-a" onClose={() => {}} onCreated={() => {}} />
     </I18nextProvider>,
   )
-  // The title is the form's only untyped text input.
-  const title = document.querySelector('input:not([type])') as HTMLInputElement
-  fireEvent.change(title, { target: { value: 'Weekly check' } })
+  // One prompt box; the server derives the title from it.
+  const prompt = document.getElementById('schedule-prompt') as HTMLTextAreaElement
+  fireEvent.change(prompt, { target: { value: 'Weekly check' } })
 }
 
 describe('create', () => {
+  it('the hint describes only the current choice and switches with it', () => {
+    renderCreate()
+    const off = 'The AI runs it automatically at each scheduled time.'
+    const on = 'The AI writes a plan first, and it runs only after you approve the plan.'
+    expect(screen.getByText(off)).toBeTruthy()
+    expect(screen.queryByText(on)).toBeNull()
+    fireEvent.click(screen.getByTestId('schedule-review-plan'))
+    expect(screen.getByText(on)).toBeTruthy()
+    expect(screen.queryByText(off)).toBeNull()
+  })
+
   it('is off by default and creates an auto schedule', async () => {
     renderCreate()
     const box = screen.getByTestId('schedule-review-plan') as HTMLInputElement

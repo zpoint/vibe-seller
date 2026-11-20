@@ -930,6 +930,9 @@
     "minuteSuffix": "m",
     "scheduleType": "Schedule Type",
     "description": "Description",
+    "promptLabel": "What should run each time",
+    "promptPlaceholder": "e.g. Every morning, download yesterday's orders and summarize returns",
+    "promptHint": "The title is generated automatically.",
     "editScheduleFor": "Edit Schedule for {{storeName}}",
     "mode": "Mode",
     "fanoutMode": "One task per store",
@@ -943,7 +946,8 @@
     "defaultModeHelp": "Default mode pre-selected when creating a new 'All Stores' schedule.",
     "reviewPlan": {
       "label": "Let me review the plan before it runs",
-      "hint": "Off: it runs your instructions on schedule. On: the AI first writes a plan and waits for your OK before anything runs.",
+      "hintOff": "The AI runs it automatically at each scheduled time.",
+      "hintOn": "The AI writes a plan first, and it runs only after you approve the plan.",
       "turnOnNote": "After saving, it stops running until you approve a plan."
     }
   },

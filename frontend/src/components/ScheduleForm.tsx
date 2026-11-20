@@ -9,8 +9,9 @@ export type ScheduleType =
   | 'monthly'
 
 export interface ScheduleFormState {
-  title: string
-  description: string
+  // What every fire runs (Schedule.description). The title is derived
+  // from it server-side.
+  prompt: string
   scheduleType: ScheduleType
   intervalValue: number
   scheduleTime: string
@@ -24,7 +25,6 @@ export interface ScheduleFormState {
 interface ScheduleFormProps {
   value: ScheduleFormState
   onChange: (next: ScheduleFormState) => void
-  showTitle?: boolean
   // Edit only: the schedule's saved review setting. Turning review on
   // over a saved `false` stops runs until a plan is approved — say so.
   savedReviewPlan?: boolean
@@ -33,7 +33,6 @@ interface ScheduleFormProps {
 export function ScheduleForm({
   value,
   onChange,
-  showTitle = true,
   savedReviewPlan,
 }: ScheduleFormProps) {
   const { t } = useTranslation()
@@ -66,34 +65,27 @@ export function ScheduleForm({
 
   return (
     <div className="px-6 py-4 space-y-4">
-      {showTitle && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            {t('tasks.titleLabel')}
-          </label>
-          <input
-            value={value.title}
-            onChange={e => set('title', e.target.value)}
-            placeholder={t('tasks.titlePlaceholder')}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            autoFocus
-          />
-        </div>
-      )}
+      {/* One prompt box, like the task dialog: the server derives the
+          title from it and the AI upgrades it (app/task_title.py). */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          {t('schedules.description')}{' '}
-          <span className="text-gray-400 font-normal">
-            ({t('common.optional')})
-          </span>
+        <label
+          htmlFor="schedule-prompt"
+          className="block text-sm font-medium text-gray-700 mb-1"
+        >
+          {t('schedules.promptLabel')}
         </label>
         <textarea
-          value={value.description}
-          onChange={e => set('description', e.target.value)}
-          rows={2}
-          placeholder={t('tasks.descriptionPlaceholder')}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          id="schedule-prompt"
+          value={value.prompt}
+          onChange={e => set('prompt', e.target.value)}
+          rows={4}
+          placeholder={t('schedules.promptPlaceholder')}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-y min-h-[6rem] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          autoFocus
         />
+        <p className="text-xs text-gray-400 mt-1">
+          {t('schedules.promptHint')}
+        </p>
       </div>
 
       {/* Interval picker: Every [N] [unit] */}
@@ -240,7 +232,10 @@ export function ScheduleForm({
             {t('schedules.reviewPlan.label')}
           </span>
           <span className="block text-xs text-gray-500 mt-0.5">
-            {t('schedules.reviewPlan.hint')}
+            {/* Describes what the CURRENT choice does, not both. */}
+            {value.reviewPlan
+              ? t('schedules.reviewPlan.hintOn')
+              : t('schedules.reviewPlan.hintOff')}
           </span>
           {savedReviewPlan === false && value.reviewPlan && (
             <span

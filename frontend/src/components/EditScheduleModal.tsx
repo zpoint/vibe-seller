@@ -17,10 +17,16 @@ interface EditScheduleModalProps {
   onUpdated: (schedule: Schedule) => void
 }
 
+/** What the prompt box shows: the description every fire runs, or —
+ *  for a schedule saved with a title only — the title, which is what
+ *  its fires run (`description or task_title`, app/scheduler/cron.py). */
+function promptOf(s: Schedule): string {
+  return s.description || s.title
+}
+
 function fromSchedule(s: Schedule): ScheduleFormState {
   return {
-    title: s.title,
-    description: s.description || '',
+    prompt: promptOf(s),
     scheduleType: s.schedule_type as ScheduleType,
     intervalValue: s.interval_value,
     scheduleTime: s.schedule_time || '09:00',
@@ -52,12 +58,10 @@ export function EditScheduleModal({
   const [fanoutSerial, setFanoutSerial] = useState(!!schedule.fanout_serial)
 
   const handleSubmit = async () => {
-    if (!form.title.trim() || saving) return
+    if (!form.prompt.trim() || saving) return
     setSaving(true)
     try {
       const body: Record<string, unknown> = {
-        title: form.title.trim(),
-        description: form.description.trim() || null,
         schedule_type: form.scheduleType,
         schedule_time: form.scheduleTime,
         interval_value: form.intervalValue,
@@ -68,6 +72,13 @@ export function EditScheduleModal({
               ? form.dayOfMonth
               : null,
         timezone: form.timezone,
+      }
+      // Only a changed prompt is sent, with a blank title so the server
+      // re-derives it; an untouched prompt keeps the title (and, on a
+      // review schedule, the plan).
+      if (form.prompt.trim() !== promptOf(schedule).trim()) {
+        body.description = form.prompt.trim()
+        body.title = ''
       }
       if (fansOut) body.fanout_serial = fanoutSerial
       // Only a changed review setting is sent: switching it is what
@@ -124,7 +135,7 @@ export function EditScheduleModal({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!form.title.trim() || saving}
+            disabled={!form.prompt.trim() || saving}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {saving ? t('common.loading') : t('common.save')}

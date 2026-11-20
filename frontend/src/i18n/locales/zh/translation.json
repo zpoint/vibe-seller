@@ -932,6 +932,9 @@
     "minuteSuffix": "分",
     "scheduleType": "执行频率",
     "description": "描述",
+    "promptLabel": "每次要执行的内容",
+    "promptPlaceholder": "例如：每天早上下载昨天的订单，并汇总退货情况",
+    "promptHint": "标题会自动生成。",
     "editScheduleFor": "编辑 {{storeName}} 的定时任务",
     "mode": "执行模式",
     "fanoutMode": "每个店铺各跑一次",
@@ -945,7 +948,8 @@
     "defaultModeHelp": "新建「全部店铺」类定时任务时默认选中的模式。",
     "reviewPlan": {
       "label": "运行前先让我审核方案",
-      "hint": "关闭：到点直接按你的说明运行。开启：AI 先写好方案，等你同意后才会运行。",
+      "hintOff": "到点后由 AI 自动执行。",
+      "hintOn": "AI 先写好方案，等你审核通过后再执行。",
       "turnOnNote": "保存后会暂停运行，直到你同意一个方案。"
     }
   },

@@ -17,8 +17,7 @@ interface CreateScheduleModalProps {
 
 function initialState(defaultTimezone: string): ScheduleFormState {
   return {
-    title: '',
-    description: '',
+    prompt: '',
     scheduleType: 'days',
     intervalValue: 1,
     scheduleTime: '09:00',
@@ -76,13 +75,14 @@ export function CreateScheduleModal({
   }, [])
 
   const handleSubmit = async () => {
-    if (!form.title.trim() || creating) return
+    if (!form.prompt.trim() || creating) return
     setCreating(true)
     try {
       const body: Record<string, unknown> = {
         store_id: storeId,
-        title: form.title.trim(),
-        description: form.description.trim() || null,
+        // No title: the server derives it from the prompt
+        // (app/task_title.py), as for a task.
+        description: form.prompt.trim(),
         schedule_type: form.scheduleType,
         schedule_time: form.scheduleTime,
         interval_value: form.intervalValue,
@@ -185,7 +185,7 @@ export function CreateScheduleModal({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!form.title.trim() || creating}
+            disabled={!form.prompt.trim() || creating}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {creating ? t('common.loading') : t('common.create')}

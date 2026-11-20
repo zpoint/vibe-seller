@@ -523,6 +523,11 @@ export function useSSE({
             })
           }
         }
+        // A schedule's AI title replacing its placeholder
+        // (app/task_title.py); the reload refreshes list + detail.
+        if (data.type === 'schedule_title') {
+          loadSchedulesRef.current?.()
+        }
         if (data.type === 'schedule_triggered') {
           loadSchedulesRef.current?.()
           loadScheduleTasksRef.current?.()
