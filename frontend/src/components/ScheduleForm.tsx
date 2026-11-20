@@ -232,7 +232,10 @@ export function ScheduleForm({
             {t('schedules.reviewPlan.label')}
           </span>
           <span className="block text-xs text-gray-500 mt-0.5">
-            {t('schedules.reviewPlan.hint')}
+            {/* Describes what the CURRENT choice does, not both. */}
+            {value.reviewPlan
+              ? t('schedules.reviewPlan.hintOn')
+              : t('schedules.reviewPlan.hintOff')}
           </span>
           {savedReviewPlan === false && value.reviewPlan && (
             <span
