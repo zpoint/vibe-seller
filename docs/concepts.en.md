@@ -45,7 +45,7 @@ There are two scopes — the only choice you need to think about up front. Pick 
 
 The app says it itself: "This is the cross-store task list. These tasks have a general web browser for public pages (search, tracking/logistics) plus email and messaging — but not a specific store's backend."
 
-**Auto / Review** — the picker in the task footer: **Auto** means "Skip review, run immediately", **Review** means "Draft a plan, run after approval". Changing it once also saves it as your default (you can set it up front in **Settings → General → Task Defaults → Default Execution Mode**). For anything hard to roll back — bid changes, budget moves, bulk listing changes — review first. After reading the plan, hit **Confirm & Execute**, or **Request Changes** to keep talking.
+**Auto / Review** — the picker in the task footer: **Auto** means "Skip review, run immediately", **Review** means "Draft a plan, run after approval". The switch changes only that task, not your default; what new tasks start in is set in **Settings → General → Task Defaults → Default Execution Mode**. For anything hard to roll back — bid changes, budget moves, bulk listing changes — review first. After reading the plan, hit **Confirm & Execute**, or **Request Changes** to keep talking.
 
 A **parent task and its sub-tasks** form a tree: the parent decides what needs doing and merges the findings, the children do the in-store work. When the parent finishes dispatching it doesn't complete — it parks in **Waiting** until every child has ended, then closes itself with a combined summary of the results. The default shape is one sub-task per store; different country sites of one store are handled inside that same sub-task rather than split up. Deleting a parent deletes the whole tree.
 

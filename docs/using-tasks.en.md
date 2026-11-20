@@ -83,7 +83,7 @@ The **Auto / Review** switch sits in the **task-detail footer**, with a helper
 line ("Skip review, run immediately" / "Draft a plan, run after approval").
 Your default for new tasks is set in **Settings → General → Task Defaults →
 Default Execution Mode**. You can flip the switch after creating a task too;
-the change takes effect from the next run (follow-ups included). An All Stores
+it changes only that task (not your default), from the next run (follow-ups included). An All Stores
 task has no switch — the footer just reads "Review plan first": this kind of
 task always shows you the plan before executing.
 

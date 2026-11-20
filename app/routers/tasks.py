@@ -510,12 +510,16 @@ async def toggle_task_mode(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Toggle plan_mode and update user default."""
+    """Switch THIS task between auto and review-the-plan-first.
+
+    Only the task changes. The user's default execution mode (what new
+    tasks start in) is set in Settings → General, through
+    ``PATCH /api/auth/me/profile`` — switching one task never changes
+    what the next task starts in.
+    """
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail='Task not found')
-
-    user = await db.get(User, current_user.id)
 
     if body.plan_mode is not None:
         # Non-store tasks: reject turning off plan mode
@@ -525,12 +529,8 @@ async def toggle_task_mode(
                 detail='Non-store tasks require plan mode',
             )
         task.plan_mode = body.plan_mode
-        if user:
-            user.plan_mode_default = body.plan_mode
 
     task.updated_at = datetime.now(UTC).isoformat()
-    if user:
-        user.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
     return {
         'ok': True,
