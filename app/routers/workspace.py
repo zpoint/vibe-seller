@@ -31,6 +31,7 @@ from app.schemas.workspace import (
     SkillSaveRequest,
     StoreProfileCreateRequest,
 )
+from app.uploads import INLINE_SERVE_TYPES
 from app.workspace.catalog_validation import (
     canonical_rel,
     catalog_problems,
@@ -72,13 +73,7 @@ async def read_file(
 # app origin (NOT text/html, NOT image/svg+xml) — anything else is a
 # stored-XSS vector via agent/merchant-written workspace files and is
 # served as an attachment instead.
-_INLINE_SAFE_TYPES = {
-    'application/pdf',
-    'image/png',
-    'image/jpeg',
-    'image/gif',
-    'image/webp',
-}
+_INLINE_SAFE_TYPES = INLINE_SERVE_TYPES
 
 
 @router.get('/file/raw')

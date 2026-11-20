@@ -28,8 +28,9 @@ from app.uploads import (
     UploadBodyLimitMiddleware,
     declared_body_too_large,
     human_size,
-    reject_disallowed_type,
+    safe_suffix,
     save_upload,
+    serve_file,
 )
 
 pytestmark = pytest.mark.unit
@@ -105,21 +106,46 @@ async def test_rejects_an_empty_upload(tmp_path: Path):
     assert not dest.exists()
 
 
-def test_rejects_a_type_outside_the_allow_list():
-    with pytest.raises(HTTPException) as exc:
-        reject_disallowed_type(_FakeUpload(b'x', content_type='image/bmp'))
-    assert exc.value.status_code == 400
+@pytest.mark.parametrize(
+    'name,expected',
+    [
+        ('report.XLSX', '.xlsx'),
+        ('data.csv', '.csv'),
+        ('archive.tar.gz', '.gz'),
+        ('noext', ''),
+        ('weird.\u8868\u683c', ''),
+        ('long.' + 'a' * 20, ''),
+        (None, ''),
+    ],
+)
+def test_safe_suffix(name, expected):
+    assert safe_suffix(name) == expected
 
 
-def test_allows_the_listed_types():
-    for ct in (
-        'image/png',
-        'image/jpeg',
-        'image/gif',
-        'image/webp',
-        'application/pdf',
-    ):
-        reject_disallowed_type(_FakeUpload(b'x', content_type=ct))
+@pytest.mark.parametrize(
+    'media_type', ['image/png', 'image/webp', 'application/pdf']
+)
+def test_serve_file_renders_previewable_types_inline(tmp_path, media_type):
+    f = tmp_path / 'f'
+    f.write_bytes(b'x')
+    r = serve_file(f, 'f', media_type)
+    assert r.media_type == media_type
+    assert r.headers['content-disposition'].startswith('inline')
+    assert r.headers['x-content-type-options'] == 'nosniff'
+
+
+@pytest.mark.parametrize(
+    'media_type',
+    ['text/html', 'image/svg+xml', 'application/javascript', None],
+)
+def test_serve_file_downloads_everything_else(tmp_path, media_type):
+    """An uploaded page must never render on the app origin."""
+    f = tmp_path / 'f.html'
+    f.write_bytes(b'<script>alert(1)</script>')
+    r = serve_file(f, 'f.html', media_type)
+    assert r.media_type == 'application/octet-stream'
+    assert r.headers['content-disposition'].startswith('attachment')
+    assert r.headers['x-content-type-options'] == 'nosniff'
 
 
 @pytest.mark.parametrize(

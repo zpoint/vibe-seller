@@ -114,6 +114,14 @@ export function useSSE({
           }
           return
         }
+        // The AI-generated title replacing a placeholder (app/task_title.py).
+        if (data.type === 'task_title') {
+          const patch = (t: Task): Task => ({ ...t, title: data.title })
+          setTasks(prev => patchById(prev, data.task_id, patch))
+          if (setScheduleTasks) setScheduleTasks(prev => patchById(prev, data.task_id, patch))
+          setSelectedTask(prev => (prev && prev.id === data.task_id ? patch(prev) : prev))
+          return
+        }
         if (data.type === 'task_update') {
           const patch: Partial<Task> = { status: data.status, error: data.error }
           if (data.plan !== undefined) patch.plan = data.plan

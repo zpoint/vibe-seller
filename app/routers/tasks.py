@@ -61,6 +61,7 @@ from app.task_states import (
     TaskStatus,
     assert_transition,
 )
+from app.task_title import derive_placeholder, refresh_title
 from app.telemetry_events import TaskSource, TelemetryEvent
 from app.telemetry_tasks import send_plan_verdict, send_task_created
 from app.telemetry_via import current_via, source_of_via
@@ -220,6 +221,18 @@ async def create_task(
         else source_of_via(current_via())
     )
 
+    # The dialog is one prompt box: a blank title is derived from the
+    # description now and upgraded by the AI after commit.
+    title = (data.title or '').strip()
+    description = (data.description or '').strip() or None
+    if not title and not description:
+        raise HTTPException(
+            status_code=422, detail='title or description is required'
+        )
+    auto_title = not title
+    if auto_title:
+        title = derive_placeholder(description)
+
     # Resolve plan_mode
     plan_mode = data.plan_mode
     if data.store_id is None:
@@ -232,8 +245,8 @@ async def create_task(
         parent_task_id=data.parent_task_id,
         schedule_id=data.schedule_id,
         created_by=current_user.id,
-        title=data.title,
-        description=data.description,
+        title=title,
+        description=description,
         platform=data.platform,
         country=data.country,
         status=TaskStatus.PENDING,
@@ -271,6 +284,10 @@ async def create_task(
         user_id=current_user.id,
         created_by_role=current_user.role,
     )
+    # A prompt short enough to BE its title (one short sentence) is
+    # left as typed; only a lossy placeholder is worth a model call.
+    if auto_title and title != ' '.join(description.split()):
+        refresh_title(task.id, title, description, task.ai_profile_id)
 
     # Route through queue for store tasks (enforces
     # platform/country concurrency rules), or launch

@@ -214,4 +214,11 @@ describe('MessageBubble renders attachments as thumbnails, not paths', () => {
     expect(screen.queryByRole('img')).toBeNull()
     expect(screen.getByText('doc.pdf')).toBeInTheDocument()
   })
+  it('renders any other file type as a labelled chip, never an <img>', () => {
+    const content = 'data\n![orders.xlsx](/api/tasks/task-1/files/uploads/orders.xlsx)\n![page.svg](/api/tasks/task-1/files/uploads/page.svg)'
+    render(<MessageBubble role="user" content={content} />)
+    expect(screen.queryByRole('img')).toBeNull()
+    const chips = screen.getAllByTestId('message-file-chip')
+    expect(chips.map(c => c.textContent)).toEqual(['XLSXorders.xlsx', 'SVGpage.svg'])
+  })
 })

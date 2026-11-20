@@ -1,15 +1,14 @@
 import type { StagedAttachment } from '../../types'
+import { fileBadge, isPreviewImage } from '../../lib/attachmentKind'
 
 interface AttachmentChipsProps {
   attachments: StagedAttachment[]
   onRemove: (id: string) => void
 }
 
-const isPdf = (a: StagedAttachment) =>
-  a.contentType === 'application/pdf' || /\.pdf$/i.test(a.filename)
-
 /** Removable preview chips for staged chat attachments, shown above the
- *  send bar. Images render as thumbnails, PDFs as a labelled file chip —
+ *  send bar. Images render as thumbnails, any other file as a chip
+ *  labelled with its extension —
  *  the raw path is never shown. */
 export function AttachmentChips({ attachments, onRemove }: AttachmentChipsProps) {
   if (!attachments.length) return null
@@ -21,16 +20,16 @@ export function AttachmentChips({ attachments, onRemove }: AttachmentChipsProps)
           data-testid="chat-attachment-chip"
           className="relative group flex items-center gap-2 pl-1 pr-2 py-1 bg-gray-50 border border-gray-200 rounded-lg"
         >
-          {isPdf(a) ? (
-            <span className="flex items-center justify-center w-9 h-9 rounded bg-red-50 text-red-500 text-[10px] font-semibold">
-              PDF
-            </span>
-          ) : (
+          {isPreviewImage(a.filename, a.contentType) ? (
             <img
               src={a.url}
               alt={a.filename}
               className="w-9 h-9 rounded object-cover bg-gray-100"
             />
+          ) : (
+            <span className="flex items-center justify-center w-9 h-9 rounded bg-red-50 text-red-500 text-[10px] font-semibold">
+              {fileBadge(a.filename)}
+            </span>
           )}
           <span className="max-w-[10rem] truncate text-xs text-gray-600" title={a.filename}>
             {a.filename}

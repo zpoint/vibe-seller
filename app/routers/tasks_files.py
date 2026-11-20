@@ -28,7 +28,7 @@ from app.models.task import Task
 from app.models.user import User
 from app.task_states import TaskStatus
 from app.text_utils import SafeStr
-from app.uploads import ALLOWED_UPLOAD_EXTS, reject_disallowed_type, save_upload
+from app.uploads import safe_suffix, save_upload, serve_file
 from app.workspace.manager import VIBE_SELLER_DIR
 
 router = APIRouter(prefix='/api/tasks', tags=['tasks'])
@@ -294,11 +294,7 @@ async def download_task_file(
     """Download a file from the task workspace."""
     resolved = _safe_task_file(task_id, filename)
     mime, _ = mimetypes.guess_type(resolved.name)
-    return FileResponse(
-        path=str(resolved),
-        filename=resolved.name,
-        media_type=mime or 'application/octet-stream',
-    )
+    return serve_file(resolved, resolved.name, mime)
 
 
 # Chat attachments stage OUTSIDE the task workspace so the agent's cwd
@@ -334,9 +330,11 @@ def _normalized_upload_name(file: UploadFile) -> str:
     """
     raw = Path(file.filename or 'upload').name
     stem = re.sub(r'[^A-Za-z0-9._-]', '_', Path(raw).stem) or 'upload'
-    ext = Path(raw).suffix.lower()
-    if ext not in ALLOWED_UPLOAD_EXTS:
-        ext = mimetypes.guess_extension(file.content_type or '') or '.bin'
+    ext = (
+        safe_suffix(raw)
+        or mimetypes.guess_extension(file.content_type or '')
+        or '.bin'
+    )
     return f'{stem}{ext}'
 
 
@@ -432,7 +430,6 @@ async def stage_task_file(
     when the user sends a message referencing it (see
     ``promote_staged_attachments``). Returns a preview URL, never a path.
     """
-    reject_disallowed_type(file)
     base = _staging_task_dir(task_id)
     base.mkdir(parents=True, exist_ok=True)
     await asyncio.to_thread(_sweep_stale_staging, base)
@@ -466,11 +463,7 @@ async def get_staged_file(
     if resolved is None:
         raise HTTPException(status_code=404, detail='Attachment not found')
     mime, _ = mimetypes.guess_type(resolved.name)
-    return FileResponse(
-        path=str(resolved),
-        filename=resolved.name,
-        media_type=mime or 'application/octet-stream',
-    )
+    return serve_file(resolved, resolved.name, mime)
 
 
 @router.delete('/{task_id}/staged/{staged_id}')

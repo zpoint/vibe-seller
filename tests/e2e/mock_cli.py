@@ -762,19 +762,25 @@ if __name__ == '__main__':
     # its OWN lifecycle: one process, many turns, exit on stdin EOF —
     # the real CLI never exits after a result with stdin open, and the
     # assistant's running state depends on that, so the mock must
-    # model it. An EXACT match: the assistant also passes --add-dir /
-    # --settings paths that may legitimately contain these words.
-    if '--mode=workspace' in sys.argv:
+    # model it. The mode is read from the EXACT ``--mode=`` value
+    # (ClaudeCodeBackend passes ``--mode={self.mode}``), never from a
+    # substring of any argument: the launch also carries --add-dir /
+    # --settings paths, and a checkout or VIBE_HOME path containing
+    # "auto" once turned every plan-mode task into an execute run.
+    given = next(
+        (
+            a.removeprefix('--mode=')
+            for a in sys.argv
+            if a.startswith('--mode=')
+        ),
+        'plan_then_execute',
+    )
+    if given == 'workspace':
         mode = 'workspace'
-    else:
+    elif given == 'plan_then_execute':
         mode = 'plan_then_execute'
-        for arg in sys.argv:
-            if 'auto' in arg:
-                mode = 'execute'  # auto behaves like execute in mock
-                break
-            if 'execute' in arg and 'plan' not in arg:
-                mode = 'execute'
-                break
+    else:
+        mode = 'execute'  # auto / execute behave alike in the mock
 
     # Peek at the assembled prompt: if it carries the ask marker, run
     # the AskUserQuestion echo flow regardless of mode. Consuming the
