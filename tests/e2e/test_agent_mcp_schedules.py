@@ -19,7 +19,7 @@ import httpx
 import pytest
 
 from tests.e2e.conftest import BASE_URL
-from tests.e2e.e2e_helpers import create_store
+from tests.e2e.e2e_helpers import create_store, run_tag
 from tests.e2e.test_agent_mcp import McpClient, wait_until
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ def mcp(api_token) -> McpClient:
 
 @pytest.fixture(scope='module')
 def store_id(api_client) -> str:
-    return create_store(api_client, 'MCP A1 E2E Store')['id']
+    return create_store(api_client, f'MCP A1 E2E Store {run_tag()}')['id']
 
 
 def _schedule(mcp: McpClient, schedule_id: str) -> dict:

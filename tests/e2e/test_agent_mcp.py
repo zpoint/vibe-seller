@@ -23,7 +23,7 @@ import time
 import pytest
 
 from tests.e2e.conftest import BASE_URL
-from tests.e2e.e2e_helpers import create_store
+from tests.e2e.e2e_helpers import create_store, run_tag
 from tests.e2e.mcp_client import McpClient
 
 logger = logging.getLogger(__name__)
@@ -132,7 +132,7 @@ def store_id(api_client, api_token) -> str:
     A task with no store is always plan mode (the server forces it), so
     an auto-mode task needs a real store to act on.
     """
-    return create_store(api_client, 'MCP E2E Store')['id']
+    return create_store(api_client, f'MCP E2E Store {run_tag()}')['id']
 
 
 def wait_until(

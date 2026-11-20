@@ -30,7 +30,7 @@ import httpx
 import pytest
 
 from tests.e2e.conftest import BASE_URL
-from tests.e2e.e2e_helpers import admin_credentials, create_store
+from tests.e2e.e2e_helpers import admin_credentials, create_store, run_tag
 from tests.e2e.mock_cli import (
     OUTPUT_FILES_MARKER,
     OUTPUT_PNG,
@@ -131,7 +131,7 @@ def bearer(api_token) -> httpx.Client:
 @pytest.fixture(scope='module')
 def store_id(api_client) -> str:
     """A store: an auto-mode task needs one (no-store tasks plan)."""
-    return create_store(api_client, 'MCP Files E2E Store')['id']
+    return create_store(api_client, f'MCP Files E2E Store {run_tag()}')['id']
 
 
 def _completed_task(mcp: McpClient, store_id: str, description: str) -> str:
