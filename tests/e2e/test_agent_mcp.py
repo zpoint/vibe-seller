@@ -23,7 +23,7 @@ import time
 import pytest
 
 from tests.e2e.conftest import BASE_URL
-from tests.e2e.e2e_helpers import create_store
+from tests.e2e.e2e_helpers import create_store, run_tag
 from tests.e2e.mcp_client import McpClient
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ EXPECTED_TOOLS = {
     'create_task',
     'delete_schedule',
     'delete_task',
+    'get_attention',
     'get_pending_questions',
     'get_task',
     'get_task_log',
@@ -66,6 +67,7 @@ EXPECTED_TOOLS = {
     'read_knowledge',
     'retry_task',
     'review_plan',
+    'review_schedule_plan',
     'run_schedule',
     'send_message',
     'stop_task',
@@ -126,13 +128,17 @@ def mcp(api_token) -> McpClient:
 
 
 @pytest.fixture(scope='module')
-def store_id(api_client, api_token) -> str:
+def store_id(api_client, api_token):
     """A store for the auto-mode task.
 
     A task with no store is always plan mode (the server forces it), so
     an auto-mode task needs a real store to act on.
     """
-    return create_store(api_client, 'MCP E2E Store')['id']
+    # A unique name and a delete on teardown: a second run on the same
+    # server must not collide with the first one's store.
+    store = create_store(api_client, f'mcp-e2e-{run_tag()}')
+    yield store['id']
+    api_client.delete(f'{BASE_URL}/api/stores/{store["id"]}')
 
 
 def wait_until(

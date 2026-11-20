@@ -326,8 +326,15 @@ export default function App() {
   const loadStores = async (): Promise<Store[]> => { const f: Store[] = await api.get('/api/stores'); setStores(f); return f }
   const loadProfiles = async () => { try { const data = await api.get('/api/profiles'); setProfiles(data.profiles || []) } catch { setProfiles([]) } }
   const loadUsers = async () => { try { setAllUsers(await api.get('/api/users')) } catch { /* ignore */ } }
+  // The open schedule is refreshed from every reload too: plan events
+  // (proposed / approved / re-planned) reload the list, and the detail
+  // view + plan panel must not keep showing the state from selection.
   const loadSchedules = async () => {
-    try { setSchedules(await api.get('/api/schedules')) } catch { setSchedules([]) }
+    try {
+      const fresh: Schedule[] = await api.get('/api/schedules')
+      setSchedules(fresh)
+      setSelectedSchedule(prev => (prev && fresh.find(x => x.id === prev.id)) || prev)
+    } catch { setSchedules([]) }
   }
   // Loader (called by the route-param effect). The click handler
   // `selectSchedule` below only navigates; the URL change drives this.

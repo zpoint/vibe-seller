@@ -21,13 +21,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import logging
-import sqlite3
 import time
 
 import httpx
 import pytest
 
-from app.config import DATABASE_URL
 from app.email.db import init_email_db, store_emails
 from tests.e2e.conftest import BASE_URL
 import tests.e2e.e2e_helpers as e2e_helpers
@@ -136,14 +134,9 @@ def watermark_env(api_client: httpx.Client):
     sched_resp.raise_for_status()
     schedule = sched_resp.json()
 
-    # User-created schedules are plan-mode (see
-    # docs/subsystems.md#plan-at-creation-lifecycle). Having a live
-    # agent author + approve a plan would double the test runtime, so
-    # we short-circuit: stop the spawned plan-only task, skip the
-    # plan-authoring roundtrip entirely, and seed plan_status='ready'
-    # with a trivial plan text so the fire-gate passes. This keeps
-    # the test focused on the watermark handoff, not the lifecycle.
-    _seed_ready_plan_for_e2e(api_client, schedule['id'])
+    # A new schedule is AUTO (no plan step): /trigger fires its
+    # prompt directly, which is all this watermark test needs.
+    assert schedule['plan_mode'] is False, schedule
 
     # Pause immediately so the APScheduler cron tick does not
     # race with our manual triggers.
@@ -162,73 +155,6 @@ def watermark_env(api_client: httpx.Client):
         api_client.delete(f'{BASE_URL}/api/schedules/{schedule["id"]}')
     except Exception:
         logger.exception('schedule cleanup failed')
-
-
-def _seed_ready_plan_for_e2e(
-    api_client: httpx.Client,
-    schedule_id: str,
-) -> None:
-    """Bypass the plan-at-creation agent roundtrip for e2e tests.
-
-    Reads the planning-task pointer via the HTTP API, stops the
-    planner via HTTP, then writes a trivial plan straight to the
-    SQLite file via raw sqlite3 — the fire-gate only checks
-    ``plan_status=='ready'``, the plan text is not exercised by this
-    test.
-
-    Uses raw sqlite3 (not SQLAlchemy) for two reasons: the test
-    process shares the DB file with the separately-running server
-    but not the engine pool, and pytest-asyncio already owns the
-    current event loop so we can't spin up an async session here.
-
-    Without this, ``/trigger`` returns 409 because the fire-gate
-    refuses schedules whose plan is still being authored.
-    """
-    # DATABASE_URL is like 'sqlite+aiosqlite:///path/to/db'. Strip
-    # the driver prefix to get the file path for raw sqlite3.
-    db_path = DATABASE_URL.split('///', 1)[1]
-
-    # Poll briefly for the planning-task pointer to appear in the DB.
-    # (POST /schedules returns as soon as the row is committed, so
-    # usually it's already there.)
-    planning_task_id: str | None = None
-    for _ in range(100):
-        resp = api_client.get(f'{BASE_URL}/api/schedules/{schedule_id}')
-        if resp.status_code == 200:
-            planning_task_id = resp.json().get('current_planning_task_id')
-            if planning_task_id:
-                break
-        time.sleep(0.05)
-
-    # Stop the agent session via HTTP so we hit the same agent_manager
-    # singleton the server owns. If we skip this, the cancelled
-    # planner can race back and clobber our seeded plan.
-    if planning_task_id:
-        try:
-            api_client.post(
-                f'{BASE_URL}/api/tasks/{planning_task_id}/agent/stop'
-            )
-        except Exception:
-            logger.debug('stop planner raised', exc_info=True)
-
-    # Force-seed plan_status='ready' so the fire-gate lets /trigger
-    # pass. Raw sqlite3 — no SQLAlchemy engine and no event loop.
-    # Using a short-lived connection with IMMEDIATE mode to avoid
-    # collisions with the server's writers.
-    conn = sqlite3.connect(db_path, isolation_level='IMMEDIATE', timeout=10)
-    try:
-        conn.execute(
-            (
-                "UPDATE schedules SET plan = ?, plan_status = 'ready',"
-                ' plan_version = COALESCE(plan_version, 0) + 1,'
-                ' plan_error = NULL, current_planning_task_id = NULL'
-                ' WHERE id = ?'
-            ),
-            ('e2e-test-plan (seeded, fire-gate bypass)', schedule_id),
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _get_watermark(
