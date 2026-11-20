@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import logging
+import os
 import time
 
 import httpx
@@ -70,6 +71,16 @@ TASK_DESCRIPTION = (
 @pytest.fixture(scope='module')
 def watermark_env(api_client: httpx.Client):
     """Provision store + email account + schedule; seed SECRET_1."""
+    # The emails are seeded from THIS process, into the email DB under
+    # this process's VIBE_HOME — which must be the server's. On CI the
+    # server runs on the default home; on a developer machine the
+    # default is their real data, so require it to be named.
+    if not os.environ.get('VIBE_HOME') and not os.environ.get('CI'):
+        pytest.fail(
+            "set VIBE_HOME to the e2e server's home: this test writes "
+            'its email DB directly, and the default home is your real '
+            'data'
+        )
     ts = run_tag()
     store = create_store(
         api_client,
