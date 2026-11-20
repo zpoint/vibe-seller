@@ -330,7 +330,7 @@ Proxies `POST /api/chat-bots/{id}/send`. Formerly `vibe_seller_send_wecom_messag
 
 Some vendors (the official WeCom / Feishu / DingTalk / Google Workspace CLIs) ship their own large pool of SKILL.md files. We do **not** vendor them into `app/skills_v2/` — that would bloat every agent's skill index and pull in externally-copyrighted content. Instead, each is an opt-in integration an admin connects in Settings → Integrations, managed end to end by `app/cli_integrations/` (below).
 
-### Workplace CLIs (WeCom / Feishu / DingTalk)
+### Workplace CLIs (WeCom / Feishu / DingTalk / Google Workspace)
 
 Implementation: `app/cli_integrations/` (framework: `manager.py`, `paths.py`, `skills.py`, `login.py`, `download.py`; one module per platform: `wecom.py`, `feishu.py`, `dingtalk.py`, `gws.py`). Endpoints under `/api/integrations/cli` (see [api.md](api.md)); UI: `frontend/src/components/settings/WorkplaceCliPanel.tsx` (Google Workspace has its own card, `google`, with the same rows). User docs: [workplace-cli.md](workplace-cli.md), [google-workspace.md](google-workspace.md).
 

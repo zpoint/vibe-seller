@@ -88,7 +88,7 @@ and the reveal endpoint below.
 
 ## `cli_integrations.py` — Workplace CLIs (WeCom / Feishu / DingTalk / Google Workspace)
 
-`{key}` ∈ `wecom`, `feishu`, `dingtalk`, `gws`. Design: [workspace.md § Workplace CLIs](workspace.md#workplace-clis-wecom--feishu--dingtalk).
+`{key}` ∈ `wecom`, `feishu`, `dingtalk`, `gws`. Design: [workspace.md § Workplace CLIs](workspace.md#workplace-clis-wecom--feishu--dingtalk--google-workspace).
 
 | Method | Path | Description |
 |--------|------|-------------|
