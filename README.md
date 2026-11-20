@@ -151,7 +151,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 - **群机器人**（企业微信、钉钉、飞书、Slack）——让 AI 把结果、报表、提醒直接发到群里，企业微信还支持发送文件，[接入步骤](https://docs.vibe-sellers.com/chat-bots/)
 - **企业微信 / 飞书 / 钉钉**——用三家的官方程序，AI 直接写文档和表格、发消息、排日程、建待办，扫码或授权就能开通，[开通步骤](https://docs.vibe-sellers.com/workplace-cli/)
 - **滴答清单 / TickTick**——自动创建待办（追单、跟进、定期检查），[接入步骤](https://docs.vibe-sellers.com/ticktick/)
-- **Google Workspace**——Gmail、Drive、Docs、Sheets、Slides、Calendar，支持读取、写入和修改，[接入步骤](https://docs.vibe-sellers.com/google-workspace/)
+- **Google Workspace**——用 Google 官方程序，AI 收发 Gmail、读写表格和文档、上传到云端硬盘、安排日历，点「开通」按步骤登录 Google 即可，[开通步骤](https://docs.vibe-sellers.com/google-workspace/)
 
 一个任务可以同时使用浏览器和这些服务。例如“找出所有店铺滞销的 SKU”可以这样安排：浏览器读取库存 → 生成 Google Sheet 报表 → 把摘要发到企业微信 → 在滴答清单里创建「下周降价」待办。全部集成见 [集成总览](https://docs.vibe-sellers.com/integrations/)。
 

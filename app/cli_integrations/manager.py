@@ -4,6 +4,8 @@ install  download the current release for this OS/arch (official host,
          then mirror, over the network path that reaches it), verify the
          published checksum, prove it runs, land it in its own version
          dir and flip ``install.json`` to it (``paths``)
+setup    store the one-time thing a sign-in needs from the person
+         (Google's sign-in key), for a platform that has one
 login    run the CLI's own login without a terminal (``login``)
 enable   fetch the official skills of the INSTALLED version and swap
          the umbrella into the skills tree — from then on every task
@@ -31,11 +33,13 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from app import system_proxy
 from app.cli_integrations import download, paths, skills
 from app.cli_integrations.base import (
     AuthStatus,
     CliIntegration,
     LoginView,
+    SetupError,
     host_platform,
 )
 from app.cli_integrations.login import LoginSession, login_manager
@@ -78,10 +82,23 @@ def _home(home: Path | None) -> Path:
 # ── running the managed binary ─────────────────────────
 
 
+def _base_env(integ: CliIntegration, *, network: bool) -> dict:
+    """The inherited env, less what would make the CLI act as someone
+    else (``env_unset``); with *network*, over the path that reaches
+    the CLI's ``network_targets`` (blocking: may probe a proxy)."""
+    if network and integ.network_targets:
+        env = system_proxy.checked_download_env(integ.network_targets)
+    else:
+        env = dict(os.environ)
+    for var in integ.env_unset:
+        env.pop(var, None)
+    return env
+
+
 def run_env(integ: CliIntegration, home: Path | None = None) -> dict:
     """Env for the server's own runs (blocking: reads install.json)."""
     h = _home(home)
-    env = {**os.environ, **integ.env(h)}
+    env = {**_base_env(integ, network=True), **integ.env(h)}
     current = paths.bin_dir(integ.key, h)
     if current is not None:
         prepend_to_path(env, current)
@@ -161,6 +178,7 @@ async def status(integ: CliIntegration, home: Path | None = None) -> dict:
     )
     auth = await auth_status(integ, h) if installed else None
     session = login_manager.get(integ.key)
+    notice = await asyncio.to_thread(paths.read_notice, integ.key, h)
     return {
         'key': integ.key,
         'title': integ.title,
@@ -180,6 +198,13 @@ async def status(integ: CliIntegration, home: Path | None = None) -> dict:
             else None
         ),
         'login': session.view.public() if session is not None else None,
+        # The page's form for the one-time setup, and whether the
+        # sign-in waits on it now.
+        'setup': integ.setup,
+        'needs_setup': bool(auth is not None and integ.needs_setup(auth)),
+        # Something the page says about this platform until it is
+        # enabled (``paths.write_notice``).
+        'notice': None if enabled else notice,
     }
 
 
@@ -197,7 +222,7 @@ def _proves_it_runs(exe: Path, integ: CliIntegration, home: Path) -> None:
             encoding='utf-8',
             errors='replace',
             timeout=60,
-            env={**os.environ, **integ.env(home)},
+            env={**_base_env(integ, network=False), **integ.env(home)},
             cwd=str(paths.state_dir(integ.key, home)),
             stdin=subprocess.DEVNULL,
             **_creationflags(),
@@ -415,6 +440,7 @@ async def enable(integ: CliIntegration, home: Path | None = None) -> dict:
         manifest = await asyncio.to_thread(paths.read_manifest, integ.key, h)
         version = (manifest or {}).get('version') or 'unknown'
         subs = await _install_skills(integ, version, h)
+        await asyncio.to_thread(paths.clear_notice, integ.key, h)
         return {'enabled': True, 'version': version, 'skills': subs}
 
 
@@ -425,6 +451,32 @@ async def disable(integ: CliIntegration, home: Path | None = None) -> dict:
         async with skills_tree.hold():
             removed = await asyncio.to_thread(skills.uninstall, integ, h)
         return {'enabled': False, 'removed': removed}
+
+
+# ── setup ──────────────────────────────────────────────
+
+
+async def setup(
+    integ: CliIntegration, payload: str, home: Path | None = None
+) -> dict:
+    """Store what the person provided for the platform's one-time
+    setup (``CliIntegration.setup``). The sign-in starts from the page
+    afterwards, as for any platform."""
+    h = _home(home)
+    if integ.setup is None:
+        raise IntegrationError('unsupported', f'{integ.title} needs no setup')
+    async with _lock(integ.key):
+        if not await asyncio.to_thread(
+            paths.is_installed, integ.key, integ.binary, h
+        ):
+            raise IntegrationError(
+                'not_installed', f'{integ.title} is not installed'
+            )
+        try:
+            await asyncio.to_thread(integ.apply_setup, payload, h)
+        except SetupError as e:
+            raise IntegrationError(e.code, str(e)) from e
+    return {'ok': True}
 
 
 # ── login ──────────────────────────────────────────────
@@ -449,6 +501,10 @@ async def start_login(
             'not_installed', f'{integ.title} is not installed'
         )
     auth = await auth_status(integ, h)
+    if integ.needs_setup(auth):
+        raise IntegrationError(
+            'needs_setup', f'{integ.title} needs its one-time setup first'
+        )
     steps = integ.login_steps(auth)
 
     async def _signed_in() -> bool:
@@ -474,3 +530,17 @@ async def start_login(
         verify=_signed_in,
     )
     return session.view
+
+
+async def paste_back(integ: CliIntegration, address: str) -> None:
+    """Hand the running sign-in the address the person's browser ended
+    on (``LoginStep.paste_back``)."""
+    session = login_manager.get(integ.key)
+    if session is None or not session.active:
+        raise IntegrationError(
+            'no_login', f'no {integ.title} sign-in is waiting'
+        )
+    try:
+        await session.paste_back(address)
+    except ValueError as e:
+        raise IntegrationError('bad_address', str(e)) from e

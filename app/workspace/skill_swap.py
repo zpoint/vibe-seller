@@ -1,7 +1,7 @@
 """Swap a fully built skill dir into place, rolling back on failure.
 
-Shared by the optional integration bundles (``gws_integration``,
-``app.cli_integrations``): each builds its skill tree in a staging dir
+Used by the optional integration bundles (``app.cli_integrations``):
+each builds its skill tree in a staging dir
 first, then calls :func:`swap_in` under the skills-tree lock
 (``app.workspace.skills_tree``) so no task workspace copy ever sees a
 half-built or missing skill.

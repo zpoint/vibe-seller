@@ -280,6 +280,24 @@ class TestUpgradeWaitsForTheServer:
         assert cli._await_servers_upgraded('1.0.0') == 0
         assert 'now running 2.0.0' in capsys.readouterr().out
 
+    def test_a_server_already_restarting_is_still_waited_for(
+        self, monkeypatch, capsys
+    ):
+        """The server's own watcher saw the new install first and was
+        mid-restart when this command looked: its pid is alive, it just
+        doesn't answer yet. The upgrade must wait for it, not report
+        "no server" and return while it is still booting."""
+        self._serve(
+            monkeypatch,
+            None,  # already restarting at the first look
+            None,
+            {'version': '2.0.0', 'pending_version': None},
+        )
+        assert cli._await_servers_upgraded('1.0.0') == 0
+        out = capsys.readouterr().out
+        assert 'restart onto 2.0.0' in out
+        assert 'now running 2.0.0' in out
+
     def test_a_server_that_never_picks_it_up_fails_the_upgrade(
         self, monkeypatch, capsys
     ):

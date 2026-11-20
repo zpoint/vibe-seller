@@ -10,7 +10,13 @@ platform; a platform module only answers these questions:
   ``skills_archive_urls`` + ``layout``;
 - whether the installed CLI is usable and as whom —
   ``auth_status`` (it runs the managed binary through *run*);
-- how a login is driven without a terminal — ``login_steps``.
+- how a login is driven without a terminal — ``login_steps``;
+- whether that login first needs something only the person can make
+  (Google's sign-in key) — ``setup`` / ``needs_setup`` /
+  ``apply_setup``;
+- what of the inherited environment would point it at someone else's
+  identity (``env_unset``), and which hosts its own runs must reach
+  (``network_targets``).
 """
 
 from __future__ import annotations
@@ -67,6 +73,12 @@ class SkillLayout:
     root: str
     prefix: str
     exclude: frozenset[str] = frozenset()
+    # Keeps only the sub-skills it accepts (by name, prefix dropped):
+    # a platform whose sign-in covers a few of its services documents
+    # only those. None keeps every one.
+    keep: Callable[[str], bool] | None = dataclasses.field(
+        default=None, compare=False
+    )
 
 
 @dataclasses.dataclass
@@ -121,6 +133,12 @@ class LoginView:
     # Signed in, and what follows the sign-in (enabling the platform) is
     # still running. The outcome is final only once this is False.
     finishing: bool = False
+    # The running step's LoginStep.paste_back: the page offers a box
+    # for the address the browser ended on, for when that browser is
+    # not on this computer. ``callback`` is the local address the CLI
+    # waits on (its parser reads it from the sign-in link).
+    paste_back: bool = False
+    callback: str | None = None
 
     def notice(self, key: str) -> Notice:
         """The notice *key*, added on first use (a CLI prints its parts
@@ -154,6 +172,23 @@ class LoginStep:
     hint: str = 'open_url'
     qr_file: str | None = None
     timeout_s: float = 600.0
+    # The approval comes back to the CLI as a redirect to a local
+    # address (``LoginView.callback``) — reached by itself when the
+    # browser runs on this computer, relayed from a pasted address
+    # (``LoginSession.paste_back``) when it does not.
+    paste_back: bool = False
+
+
+class SetupError(ValueError):
+    """What the person provided for ``apply_setup`` is not usable.
+
+    *code* is the page's sentence (``integrations.cli.error.<code>``)
+    saying what to fix; the message is the technical detail.
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class CliIntegration(ABC):
@@ -170,6 +205,19 @@ class CliIntegration(ABC):
     # skills tell an agent to run several of these).
     forbidden_commands: tuple[str, ...] = ()
     homepage: str = ''
+    # Inherited env vars that would make this CLI act as someone else
+    # (a personal token, another sign-in key): removed from every run,
+    # the server's and the agent's — an empty value is not enough for
+    # every CLI.
+    env_unset: tuple[str, ...] = ()
+    # Hosts the server's own runs (status, sign-in) must reach. Set:
+    # they go over the network path that reaches them
+    # (``system_proxy.checked_download_env``), not whatever the env
+    # happens to hold.
+    network_targets: tuple[str, ...] = ()
+    # A one-time setup the person does before the first sign-in, done
+    # on the page as a form of this kind (its i18n key); None: none.
+    setup: str | None = None
 
     def env(self, home: Path) -> dict[str, str]:
         """Extra env for every run of this CLI — the server's AND the
@@ -197,6 +245,15 @@ class CliIntegration(ABC):
         ``skills_archive_urls`` that downloads."""
         data, _ = download.fetch(self.skills_archive_urls(version))
         return list(download.iter_archive(data))
+
+    def needs_setup(self, status: AuthStatus) -> bool:
+        """The sign-in cannot start before ``apply_setup``."""
+        return False
+
+    def apply_setup(self, payload: str, home: Path) -> None:
+        """Store what the person provided for ``setup`` (blocking).
+        Raises ``SetupError`` when it is not usable."""
+        raise SetupError('unsupported', f'{self.title} needs no setup')
 
     @abstractmethod
     async def auth_status(self, run: Runner) -> AuthStatus:

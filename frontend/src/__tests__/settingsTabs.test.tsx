@@ -101,7 +101,7 @@ describe('Settings tab redesign', () => {
         at('<AmazonAdsPanel'),
         at('<ApiTokensPanel'),
         at('<ChatBotSection'),
-        at("t('integrations.gws.title')"),
+        at('<WorkplaceCliPanel isAdmin={isAdmin} google'),
         at('<Dida365Panel'),
       ]
       for (const i of order) expect(i).toBeGreaterThanOrEqual(0)

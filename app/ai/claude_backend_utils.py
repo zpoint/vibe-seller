@@ -14,8 +14,8 @@ from sqlalchemy import func, select
 
 from app.ai.skill_gate_utils import find_skill_md
 from app.cli_integrations.registry import (
+    apply_enabled_env as apply_enabled_cli_env,
     enabled_bin_dirs,
-    enabled_env as enabled_cli_env,
     ensure_guard as ensure_cli_guard,
 )
 from app.config import WEB_BROWSER_SLUG
@@ -337,7 +337,7 @@ def apply_agent_venv_path(
         prepend_to_path(env, cli_guard)
     for cli_bin in enabled_bin_dirs(vibe_home):
         prepend_to_path(env, cli_bin)
-    env.update(enabled_cli_env(vibe_home))
+    apply_enabled_cli_env(env, vibe_home)
     # 3. server venv (lowest of ours) — browser-use.exe / app fallback.
     if server_bin.is_dir():
         prepend_to_path(env, server_bin)

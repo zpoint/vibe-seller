@@ -1,177 +1,249 @@
 ---
-description: Google Workspace integration — install and sign in to the gws CLI, flip one toggle in Vibe Seller, and AI can work with Sheets, Drive, Gmail, Docs and Calendar.
+description: Let the AI use Google Workspace — click Connect in Vibe Seller, create a Google sign-in key once in Google Cloud, sign in with your Google account, and the AI reads and sends Gmail, edits Sheets and Docs, uploads to Drive and adds Calendar events. Includes the FAQ.
 ---
 
 # Google Workspace
 
-Once enabled, the AI can read and write your Google Sheets, Drive files,
-Gmail, Docs and Calendar while running a task — filling ad data into a
-weekly-report sheet, filing invoices into the right folder, chasing a
-supplier by email, putting a launch schedule on the calendar.
+Once connected, the AI works in your Google account for you: it reads and
+sends Gmail, reads and edits Google Sheets and Docs, uploads files to
+Google Drive and adds Calendar events. You install nothing yourself:
+Vibe Seller downloads Google's official Google Workspace program and
+keeps it on the latest version every day.
 
-Under the hood this uses **gws**, the Google Workspace command-line tool
-that covers every Workspace API with one binary. Vibe Seller packages it
-into skills the AI can use; you install gws, sign in to Google once,
-then flip the toggle in Settings.
+The whole Vibe Seller connects **one** Google account, and every task on
+the team uses it, so **a dedicated work account is best**. Only an admin
+can connect, sign in again or disable it.
 
-Where each integration is configured and how they divide up: see the
-[Integrations overview](integrations.en.md).
+## Connect it
 
-## What you need
+You need a Google account and a Vibe Seller admin account. The first time
+takes about 10 minutes; step 2 is done only once.
 
-- The **gws CLI** (step 1);
-- A Google account that can reach Google Workspace (a plain
-  @gmail.com account works too — you just won't use the
-  organisation-level features);
-- A Google Cloud project — step 2 shows how to create one.
+### 1. Click Connect
 
-## Step 1: Install gws
+Open **Settings → Integrations** in Vibe Seller and click **Connect**
+under "Google Workspace". The first time, Vibe Seller downloads Google's
+official program (about 6 MB), usually in seconds.
 
-Any of these ([official README](https://github.com/googleworkspace/cli)):
+![The Connect button on the Google Workspace row](images/gws_connect_en.png)
 
-- **Prebuilt binary** (recommended): download the package for your OS
-  from [GitHub Releases](https://github.com/googleworkspace/cli/releases),
-  extract it and put `gws` on your PATH;
-- **npm**: `npm install -g @googleworkspace/cli`;
-- **Homebrew** (macOS / Linux): `brew install googleworkspace-cli`.
+### 2. Create your Google sign-in key (once)
 
-Confirm with `gws --version` in a terminal. The Vibe Seller settings
-card shows the detected version too.
+Google needs a sign-in key from your own Google Cloud project before
+anything can sign in to your account. It is free and needs no credit
+card. Settings lists every step, each with an **Open** link to the right
+page in Google Cloud:
 
-## Step 2: Sign in to Google
+![One-time setup: six steps and the "Choose the downloaded file" button](images/gws_setup_en.png)
 
-gws needs OAuth credentials from a Google Cloud project before it can
-touch your data. Two ways to get them:
+Open every link **with the Google account you want to connect**.
 
-**A. With gcloud (fastest)** — in a terminal:
+**2.1 Create a project.** Any name, for example "vibe-seller"; click
+**Create**. Then click the project name at the top left and make sure
+the new project is selected: if you have used Google Cloud before, it
+sometimes stays on an earlier project, and the next steps would change
+that one instead.
 
-```bash
-gws auth setup    # wizard: pick account, create/select project, enable APIs, create OAuth client
-gws auth login    # finish the Google sign-in in your browser
-```
+![New project named vibe-seller; click Create](images/gcp_1_project.png)
 
-**B. Manual, without gcloud**:
+**2.2 Turn on the five Google services** (Gmail, Drive, Sheets, Docs,
+Calendar). Check that the page names your new project, click **Next**,
+then **Enable**, and wait a few seconds for the confirmation.
 
-1. Open the [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-   and create a project;
-2. Configure the OAuth consent screen — app type **External**
-   (Testing mode is fine);
-3. **Add your own Google account under "Test users"** — skip this and
-   login fails with "Access blocked";
-4. Create an OAuth client of type **Desktop app**, download the JSON
-   and save it as `~/.config/gws/client_secret.json`;
-5. Run `gws auth login` and pick the services you need.
+![Confirm the project, click Next](images/gcp_2a_confirm.png)
 
-You are signed in when `gws auth status` says so — and the card's
-"Authentication" row in Vibe Seller turns green ("Logged in").
+![The five services; click Enable](images/gcp_2b_enable.png)
 
-Full docs: [gws CLI README](https://github.com/googleworkspace/cli/blob/main/README.md).
+**2.3 Set up Google Auth Platform.** Click **Get started**, then fill in:
 
-!!! note "'Google hasn't verified this app'?"
-    This appears for apps in Testing mode. Click **Continue** →
-    **Go to … (unsafe)** — it is your own app, so the warning is part
-    of the normal flow. Unverified apps are also limited to ~25 OAuth
-    scopes; if `gws auth login` complains there are too many, select
-    fewer services: `gws auth login -s drive,gmail,sheets`.
+![Google Auth Platform not configured yet; click Get started](images/gcp_3a_getstarted.png)
 
-## Step 3: Enable in Vibe Seller
+- App name: anything, for example "Vibe Seller" (Google shows it when you
+  sign in); User support email: pick your email from the list. Click
+  **Next**.
 
-Open **Settings → Integrations → Google Workspace**:
+    ![App name and user support email](images/gcp_3b_appinfo.png)
 
-1. The card runs two checks first: **gws binary** (shows the version
-   once installed) and **Authentication** ("Logged in" after signing
-   in);
-2. When both pass, click **Enable** on the right of the "Enable" row.
-   The first run takes 20–30 seconds — gws generates documentation for
-   every API and the bundle is installed into your workspace;
-3. "Enabled — 19 sub-skills installed" means you are done.
+- Audience: choose **External**, click **Next**.
 
-![Google Workspace card: checks green, ready to enable](images/gws_card_en.png)
+    ![Audience: External](images/gcp_3c_external.png)
 
-The three states side by side:
+- Contact information: type your email and **press Enter** — it turns
+  into a small tag — then click **Next**.
 
-![Prompt when gws is missing](images/gws_nobinary_en.png)
-*No gws yet: follow the download link in the hint*
+    ![The contact email as a tag after Enter (email blurred)](images/gcp_3d_contact.png)
 
-![Prompt when gws is not signed in](images/gws_nologin_en.png)
-*Installed but not signed in: run `gws auth login` in a terminal*
+- Tick the agreement, click **Continue**, then **Create**.
 
-![Card after enabling](images/gws_enabled_en.png)
-*Enabled: the button becomes "Disable", and you can turn it off any time*
+    ![Tick the agreement, click Continue, then Create](images/gcp_3e_finish.png)
 
-## Verify
+**2.4 Add your account as a test user.** In the left menu open
+**Audience**, find **Test users**, click **Add users**, type the Google
+account you want to connect, **press Enter** and click **Save**. Check
+that the account now shows in the test users list; if it doesn't, it
+wasn't saved — add it again.
 
-1. Back on this card, the hint under the "Enable" row now reads
-   "Agents can invoke the gws umbrella skill." and the button says
-   "Disable";
-2. Try a task: “Summarise the last column of this Google Sheet”
-   (give it the sheet link);
-3. If the AI reads the sheet and gives you the summary, the
-   integration works.
+![Add users under Test users](images/gcp_4a_testusers.png)
 
-## What the AI can do with it
+![Type the account, press Enter, click Save (email blurred)](images/gcp_4b_adduser.png)
 
-Skills are grouped by Google product and loaded on demand:
+**2.5 Create the client and download the key file.** In the left menu
+open **Clients**, click **Create client**, choose **Desktop app** as the
+application type (any name) and click **Create**.
 
-| Product | What it covers |
-|---|---|
-| Sheets | Read/write cells, append rows, update inventory and reports |
-| Drive | Find files, upload invoices and certificates, tidy folders |
-| Gmail | Read and write mail, forward, reply, summarise the unread |
-| Docs | Append text, update listing copy and SOPs |
-| Calendar | Look up the schedule, create launch and promo events |
+![Application type Desktop app; click Create](images/gcp_5b_desktop.png)
 
-Every action runs as the Google account you signed in with, limited to
-the scopes you approved. To take it away, click **Disable** on the card
-— the skills are removed from the workspace.
+In the window that opens, **click Download JSON right away**: once the
+window is closed, Google no longer lets you download that file, and you
+would have to create a new client.
+
+![OAuth client created; click Download JSON (client ID and secret blurred)](images/gcp_5c_download.png)
+
+**2.6 Choose the file.** Back in Vibe Seller, click **Choose the
+downloaded file** and pick the file you just downloaded (its name starts
+with "client_secret").
+
+### 3. Sign in with Google
+
+A Google sign-in link appears in Settings. Click it, and on the page that
+opens:
+
+1. Choose the Google account to connect.
+
+    ![Choose the account (account blurred)](images/gws_google_choose.png)
+
+2. Google says "Google hasn't verified this app": that is the app you
+   created in step 2. Click **Continue**.
+
+    ![Google hasn't verified this app; click Continue](images/gws_google_unverified.png)
+
+3. Click **Continue** again.
+
+    ![Sign in to Vibe Seller; click Continue (account blurred)](images/gws_google_signin.png)
+
+4. Tick **Select all** and click **Continue**. A service left unticked is
+   one the AI can't use.
+
+    ![Tick Select all, click Continue](images/gws_google_scopes.png)
+
+5. Once you see "Success!", close that page.
+
+    ![Signed in](images/gws_google_success.png)
+
+![The sign-in link (red box) and the address box below it (shown here during "Sign in again"; account blurred)](images/gws_signin_en.png)
+
+### 4. Done
+
+Back in Settings, the Google Workspace row shows "Signed in. Finishing the
+setup…", then "Signed in as … · The AI can use it" a few seconds later.
+
+![Signed in; the AI can use it (account blurred)](images/gws_done_en.png)
+
+!!! tip "Opened Vibe Seller from another computer?"
+
+    After you sign in, Google sends the browser back to an address on
+    **the computer that runs Vibe Seller**. If you opened Settings on
+    another computer (your laptop, say), that browser shows "This site
+    can't be reached" after the last **Continue**. That is expected: copy
+    the **whole address** from its address bar (it starts with
+    `http://localhost:`), paste it into the box under the sign-in link and
+    click **Send**. It works exactly as if you had signed in on that
+    computer.
+
+    ![The box for the address](images/gws_paste_en.png)
+
+## Try it
+
+Create a task in any store, for example "Read my Google Doc 'New listing
+plan', check my calendar this week for anything about WIDGET-006, then
+create a Google Doc 'WIDGET-006 launch checklist' listing what to do each
+day, and send me the link." The AI sends you the link to the new Doc when
+it is done:
+
+![The Google Doc the AI created: a day-by-day launch checklist (demo data)](images/gws_demo_doc.png)
+
+## What the AI can do
+
+The AI acts as the Google account you connected, following Google's
+official skills:
+
+- **Gmail**: read mail, sort the inbox, reply, forward, send new mail.
+- **Google Drive**: find, download and upload files, organize folders.
+- **Google Sheets / Docs**: read, create and edit.
+- **Google Calendar**: see events and create new ones.
+
+The AI only sends mail, shares files or changes documents when the task
+asks for it. Other Google services (Chat, Classroom…) are not authorized,
+so the AI cannot use them.
 
 ## FAQ
 
-<details markdown="1"><summary><b>"gws binary" says "Not found"?</b></summary>
+<details markdown="1"><summary><b>Google says "Access blocked"?</b></summary>
 
-gws is not on the PATH. Reinstall it (step 1) and **restart Vibe
-Seller** so it re-checks. On Windows, restarting is needed after
-putting gws.exe on the PATH as well.
+The Google account you signed in with is not a test user of your app, or
+step 2.4 didn't save. In Google Cloud, open **Audience** in the left menu
+and check the account is in the **Test users** list, then click
+**Connect** in Settings (or **Sign in again** if it is connected).
 </details>
 
-<details markdown="1"><summary><b>"Authentication" says "Login required" but I signed in to Google in the browser?</b></summary>
+<details markdown="1"><summary><b>The row says "Sign-in expired"?</b></summary>
 
-gws has its own sign-in: run `gws auth login` in a terminal once —
-a browser Google session doesn't count. The `gws auth login` line
-under the card is there to copy.
+![Sign-in expired; click Sign in again](images/gws_expired_en.png)
+
+The AI can't use Google Workspace until you click **Sign in again** and
+repeat step 3 — about a minute.
+
+The usual cause: the app you created in step 2 is in "Testing", and
+Google ends sign-ins to apps in Testing after 7 days. Removing Vibe
+Seller's access under your Google Account's third-party connections does
+the same.
 </details>
 
-<details markdown="1"><summary><b>Enabling fails with "gws is installed but not authenticated"?</b></summary>
+<details markdown="1"><summary><b>"That key is for a website"?</b></summary>
 
-Finish step 2 (`gws auth login`) first, then click Enable again. The
-toggle only works once gws is installed **and** signed in.
+The client was created as a **Web application**. In Google Cloud, open
+**Clients**, create a new client with application type **Desktop app**,
+download its JSON from the window that opens and choose that file.
 </details>
 
-<details markdown="1"><summary><b>Is enabling slow?</b></summary>
+<details markdown="1"><summary><b>Closed the window before downloading the JSON?</b></summary>
 
-The first run takes 20–30 seconds while gws generates documentation
-for all APIs. After that, enable/disable is quick.
+Google offers the download only in the window shown when the client is
+created. Under **Clients**, create another **Desktop app** client and
+click **Download JSON** in its window this time. You can delete the
+unused client.
 </details>
 
-<details markdown="1"><summary><b>"Access blocked" or 403 during login?</b></summary>
+<details markdown="1"><summary><b>The AI says a Google service is not enabled?</b></summary>
 
-Your OAuth app is in Testing mode and the account is missing from
-Test users. In the Cloud Console, OAuth consent screen →
-**Test users → Add users**, add your address, then run
-`gws auth login` again.
+That service was missed in step 2.2, or the steps after 2.1 went to
+another project. Open the step-2 link in Settings again, check that the
+page names your project and that all five services are enabled; it takes
+a few minutes, and you don't need to sign in again.
 </details>
 
-<details markdown="1"><summary><b>Any limits for a company Google Workspace account?</b></summary>
+<details markdown="1"><summary><b>Use another Google account, or another sign-in key?</b></summary>
 
-Administrators can switch off APIs or restrict third-party apps. If
-some operations fail with permission errors after connecting, ask
-your admin to check the corresponding service in the admin console.
-Personal @gmail.com accounts have no such layer.
+Another account: click **Sign in again** on the Google Workspace row and
+sign in with it (add it as a test user first). Another key: click
+**Change sign-in key**, choose the new file, then sign in once more.
 </details>
 
-<details markdown="1"><summary><b>Is my data still there after disabling?</b></summary>
+<details markdown="1"><summary><b>I installed gws myself and signed in before. Is that still used?</b></summary>
 
-Disabling only removes the skill bundle — your Google data and the
-gws sign-in credentials are untouched. Re-enable whenever you want
-it back.
+The earlier Google Workspace switch in Settings → Integrations used the
+gws tool you installed and signed in to yourself. Now Vibe Seller uses
+its own copy of the official program with its own sign-in. It **never
+reads or changes** your own copy or its sign-in, and the AI no longer
+uses it. If that switch was on before you upgraded, the Google
+Workspace row asks you to connect once more; follow the steps above.
+Your own copy keeps working in your terminal as before.
+</details>
+
+<details markdown="1"><summary><b>Does this computer need to reach Google?</b></summary>
+
+Yes. Downloading the official program, signing in and the AI's use of
+Google services all need the computer running Vibe Seller to reach
+GitHub and Google. If you normally need a proxy for that, turn it on
+first.
 </details>

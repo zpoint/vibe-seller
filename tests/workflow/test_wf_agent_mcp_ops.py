@@ -28,6 +28,7 @@ from unittest import mock
 
 import pytest
 
+from app import config
 from app.models.chat_bot import ChatBot
 from app.models.email_account import EmailAccount
 from app.models.user import User
@@ -606,68 +607,56 @@ class TestAppSettings:
         assert envelope['isError'] is True
         assert 'admin' in envelope['content'][0]['text'].lower()
 
-    async def test_gws_status(self, admin_client, monkeypatch):
-        monkeypatch.setattr(
-            'app.routers.app_settings.gws_integration',
-            SimpleNamespace(
-                check_status=mock.AsyncMock(
-                    return_value={
-                        'binary': True,
-                        'auth': True,
-                        'version': '1.0.0',
-                        'detail': {},
-                    }
-                ),
-                is_installed=lambda: False,
-            ),
-        )
+    async def test_gws_status(self, admin_client, tmp_path, monkeypatch):
+        """Google Workspace's row of Settings → Integrations, read over
+        MCP — nothing downloaded or run for a platform not connected."""
+        monkeypatch.setattr(config, 'VIBE_SELLER_DIR', tmp_path)
         data, _ = await call_tool(
             admin_client, 'app_settings', {'action': 'gws_status'}
         )
-        assert data['binary'] is True
+        assert data['key'] == 'gws'
+        assert data['binary'] == 'gws'
+        assert data['installed'] is False
         assert data['enabled'] is False
+        assert not (tmp_path / 'tools' / 'gws').exists()
 
     async def test_gws_enable_disable(self, admin_client, monkeypatch):
-        marks = []
-        monkeypatch.setattr(
-            'app.routers.app_settings.gws_integration',
-            SimpleNamespace(
-                check_status=mock.AsyncMock(
-                    return_value={'binary': True, 'auth': True}
-                ),
-                install_skills=mock.AsyncMock(
-                    return_value={'installed': True, 'count': 3}
-                ),
-                uninstall_skills=mock.AsyncMock(return_value={'removed': True}),
-                is_installed=lambda: True,
-            ),
-        )
-        monkeypatch.setattr(
-            'app.routers.app_settings.skills_sync',
-            SimpleNamespace(mark_gws_installed=marks.append),
-        )
+        enable = mock.AsyncMock(return_value={'enabled': True, 'skills': []})
+        disable = mock.AsyncMock(return_value={'enabled': False})
+        monkeypatch.setattr('app.cli_integrations.manager.enable', enable)
+        monkeypatch.setattr('app.cli_integrations.manager.disable', disable)
         enabled, _ = await call_tool(
             admin_client, 'app_settings', {'action': 'gws_enable'}
         )
-        assert enabled['ok'] is True
-        assert enabled['count'] == 3
+        assert enabled['enabled'] is True
         disabled, _ = await call_tool(
             admin_client, 'app_settings', {'action': 'gws_disable'}
         )
-        assert disabled['ok'] is True
-        assert marks == [True, False]
+        assert disabled['enabled'] is False
+        assert enable.await_args.args[0].key == 'gws'
+        assert disable.await_args.args[0].key == 'gws'
+
+    async def test_gws_enable_needs_a_connected_google_workspace(
+        self, admin_client, tmp_path, monkeypatch
+    ):
+        """Enabling over MCP never installs or signs in: with nothing
+        connected on the page it says so, and nothing changes."""
+        monkeypatch.setattr(config, 'VIBE_SELLER_DIR', tmp_path)
+        _, envelope = await call_tool(
+            admin_client, 'app_settings', {'action': 'gws_enable'}
+        )
+        assert envelope['isError'] is True
+        assert 'not_installed' in envelope['content'][0]['text']
+        assert not (tmp_path / '.claude' / 'skills' / 'gws').exists()
 
     async def test_gws_enable_is_admin_only(self, member_client, monkeypatch):
-        install = mock.AsyncMock()
-        monkeypatch.setattr(
-            'app.routers.app_settings.gws_integration.install_skills',
-            install,
-        )
+        enable = mock.AsyncMock()
+        monkeypatch.setattr('app.cli_integrations.manager.enable', enable)
         _, envelope = await call_tool(
             member_client, 'app_settings', {'action': 'gws_enable'}
         )
         assert envelope['isError'] is True
-        install.assert_not_awaited()
+        enable.assert_not_awaited()
 
     async def test_vision_get_update(self, admin_client, monkeypatch):
         saved = {}

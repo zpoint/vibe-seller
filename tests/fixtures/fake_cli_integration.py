@@ -23,6 +23,7 @@ from app.cli_integrations.base import (
     CliIntegration,
     LoginStep,
     LoginView,
+    SetupError,
     SkillLayout,
 )
 
@@ -69,6 +70,16 @@ def _parse_qr(line: str, view: LoginView) -> None:
         view.qr = True
 
 
+def _parse_listen(line: str, view: LoginView) -> None:
+    """gws-shaped: a link whose ``redirect_uri`` is the local port."""
+    for word in line.split():
+        if word.startswith('https://'):
+            view.url = word
+            view.callback = word.split('redirect_uri=')[1].split('&')[0]
+    if line.startswith('error[') and ']:' in line:
+        view.message = line.split(']:', 1)[1].strip()
+
+
 def _parse_device(line: str, view: LoginView) -> None:
     for word in line.split():
         if word.startswith('https://'):
@@ -84,8 +95,24 @@ class FakeIntegration(CliIntegration):
     )
     forbidden_commands = ('config init', 'auth login')
 
-    def __init__(self, key: str, root: Path, *, qr: bool = False) -> None:
+    def __init__(
+        self,
+        key: str,
+        root: Path,
+        *,
+        qr: bool = False,
+        listen: bool = False,
+        setup: bool = False,
+    ) -> None:
         self.key = key
+        # gws-shaped: the sign-in waits on a localhost redirect
+        # (``paste_back``), and needs a key the person provides first
+        # (``setup``) instead of a ``config init`` step.
+        self.listen = listen
+        # A refusal: exit (gws's proxy flow) or keep waiting (its
+        # default flow).
+        self.refusal_waits = False
+        self.setup = 'fake_key' if setup else None
         self.title = f'Fake {key}'
         self.description = f'Fake platform {key} via fakecli.'
         self.state = root / f'{key}-state'
@@ -130,6 +157,8 @@ class FakeIntegration(CliIntegration):
         }
         if self.long_line:
             env['FAKE_CLI_LONG_LINE'] = '1'
+        if self.refusal_waits:
+            env['FAKE_CLI_REFUSAL'] = 'wait'
         return env
 
     def latest_version(self) -> str:
@@ -162,7 +191,27 @@ class FakeIntegration(CliIntegration):
             return AuthStatus(False, 'not_logged_in')
         return AuthStatus(True, 'logged_in', identity=data['user'])
 
+    def needs_setup(self, status: AuthStatus) -> bool:
+        return self.setup is not None and status.reason == 'not_configured'
+
+    def apply_setup(self, payload: str, home: Path) -> None:
+        if self.setup is None:
+            return super().apply_setup(payload, home)
+        if payload != 'good-key':
+            raise SetupError('fake_key_invalid', f'bad key {payload!r}')
+        self.state.mkdir(parents=True, exist_ok=True)
+        (self.state / 'config').write_text(payload)
+
     def login_steps(self, status: AuthStatus) -> list[LoginStep]:
+        if self.listen:
+            return [
+                LoginStep(
+                    ('auth', 'login', '--listen'),
+                    _parse_listen,
+                    hint='fake_listen',
+                    paste_back=True,
+                )
+            ]
         steps = []
         if status.reason == 'not_configured':
             steps.append(
