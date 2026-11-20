@@ -500,6 +500,8 @@ MOCK_CLI_SCENARIO='{"plan":"## Custom Plan","skip_plan":true}' ...
 
 CI runs this automatically in the `e2e-mock-cli` job (no LLM secrets required).
 
+**Auto titles** (`app/task_title.py`): the mock suite pins the one-box dialogs and the derived placeholder — `test_create_task_dialog.py` (task) and `test_schedule_review_ui.py::TestOneBox` (schedule create + edit). The mock CLI generates no AI title, so the upgrade itself runs only in `test_auto_title_live.py` (real model, `e2e-test` job): a question-shaped prompt must get a short NAME, not the answer, pushed live over SSE; and an every-minute schedule's first CRON fire must carry the AI title that landed after its job was registered (Run Now reads the row in the route, so it would not catch a fire using the registration-time title).
+
 **Question park / decline** (`test_question_park_{mock,live}.py`, `test_question_decline_{mock,live}.py`, journeys in `question_park_flow.py`): each module owns its server (`owned_agent_stack(..., auto_answer=False)` — the default auto-answer would answer the very question under test) with one agent slot. Mock markers: `[[MOCK_ASK_PARK]]` asks and waits with no deadline of its own, and reports the answer a resumed run was handed; `[[MOCK_ASK_ON_EXECUTE]]` asks only in an execute turn (put it in the schedule's description — the execute prompt is the description) and reports a decline. The live modules drive a real model against `fake_seller_shipping.py`, a local two-option shipping page whose access log is the ground truth. `tests/e2e/evidence.py` writes screenshots, task rows, transcripts, the SSE stream and the server log per test under `$E2E_EVIDENCE_DIR` (default `tests/e2e/artifacts/evidence`).
 
 ## Fixtures
