@@ -38,6 +38,7 @@ Each subscriber gets its own `asyncio.Queue`. Events are JSON-serialized with `t
 | `task_usage` | `task_id`, `cost_usd`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `context_tokens`, `context_window`, `usage_model`, `cost_basis`, `num_turns` | `task_usage.py` (one per API-call update; `cost_basis` semantics: [backend.md](backend.md#model-pricing--usage-meter-aimodel_pricingpy)) |
 | `task_questions` | `task_id`, `request_id`, `questions[]` | `claude_backend.py` |
 | `task_question_interrupted` | `task_id`, `request_id` | `claude_backend_manager.py` |
+| `task_question_parked` | `task_id`, `request_id`, `questions[]` | `question_park.py` — the question went unanswered for `VIBE_QUESTION_ANSWER_TIMEOUT_S`, the agent stopped and the task is now WAITING; the question is still answerable (answering resumes the task) |
 | `image_request` | `task_id`, `request_id`, `prompt`, `model`, `models[]`, `reference_images[]`, `output_name`, `kind` | `routers/vision.py` |
 | `image_generating` | `task_id`, `request_id`, `model`, `kind` | `routers/vision.py` |
 | `image_generated` | `task_id`, `request_id`, `path`, `url`, `prompt`, `model`, `kind` | `routers/vision.py` |

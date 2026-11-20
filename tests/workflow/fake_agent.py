@@ -15,6 +15,14 @@ from sqlalchemy import func, select
 
 from app.ai.base import AIAgentBackend
 from app.ai.concurrency import ResizableLimiter
+from app.ai.question_policy import question_policy
+from app.ai.question_wait import (
+    QuestionPark,
+    Verdict,
+    answer_timeout_s,
+    verdict,
+    wait_for_answer,
+)
 from app.ai.stop_gates import recorded_skills
 import app.database as _db
 from app.models.schedule import Schedule
@@ -98,6 +106,34 @@ class FakeAgentScenario:
     # ``submit_answer`` records what the operator answered.  Pair it
     # with ``gate`` to hold the turn open until the answer lands.
     pending_question: dict | None = None
+    # A REAL AskUserQuestion: the fake raises it once, right before it
+    # would write its result, and waits for it exactly as AgentSession
+    # does — the same ``wait_for_answer`` bound
+    # (``VIBE_QUESTION_ANSWER_TIMEOUT_S``) and the same ``verdict``.
+    # Unanswered past the bound it records a ``QuestionPark`` and exits
+    # the way a stopped CLI does (rc != 0, no result), leaving the
+    # WAITING write to the orchestrator. ``{'request_id', 'questions'}``.
+    ask_question: dict | None = None
+    # The result names the answer: ``'Chose: <answer>'``.
+    result_from_answer: bool = False
+    # A run resumed with an answer asks the same question again.
+    ask_again_after_answer: bool = False
+    # Seconds the fake keeps "stopping" after the wait timed out — the
+    # window in which an answer races the park.
+    park_exit_delay: float = 0.0
+
+
+ANSWERED_PREFIX = 'The operator answered your earlier AskUserQuestion:'
+
+
+def answered_in_prompt(prompt: str) -> str | None:
+    """The answer a resumed run was handed, read off its prompt."""
+    if not prompt.startswith(ANSWERED_PREFIX):
+        return None
+    for line in prompt.splitlines()[1:]:
+        if line.startswith('- ') and ' → ' in line:
+            return line.split(' → ', 1)[1].strip()
+    return ''
 
 
 @dataclass
@@ -147,6 +183,13 @@ class _FakeSession:
         self.resume_session_id: str | None = resume_session_id
         self._proc: object | None = None  # filled by _do_work on exit
         self._result_text: str = ''
+        # AskUserQuestion state — the same names AgentSession uses.
+        self._pending_questions: dict[str, dict] = {}
+        self._answer_events: dict[str, asyncio.Event] = {}
+        self._answers: dict[str, dict] = {}
+        self._question_park: QuestionPark | None = None
+        self._stopping: bool = False
+        self.prompt: str = ''
 
     async def approve_plan(self):
         self._plan_approved = True
@@ -261,6 +304,7 @@ class FakeAgent(AIAgentBackend):
         # it sees a real composing agent: alive while work is in
         # flight, returncode set only at exit (finally below).
         session._proc = _SNS(returncode=None)
+        session.prompt = prompt
         self._sessions[task_id] = session
         self._last_mode[task_id] = mode
         self.calls.append(
@@ -320,11 +364,90 @@ class FakeAgent(AIAgentBackend):
         A question is only pending while the task runs — the same
         window the real backend holds it in.
         """
+        session = self._sessions.get(task_id)
+        if session is not None:
+            for data in session._pending_questions.values():
+                return dict(data)
+            park = session._question_park
+            if park is not None and not park.settled.is_set():
+                return {
+                    'request_id': park.request_id,
+                    'questions': park.questions,
+                }
         scenario = self.scenarios.get(task_id, self.default_scenario)
         pending = scenario.pending_question
         if not pending or not self._running.get(task_id):
             return None
         return dict(pending)
+
+    async def wait_question_park_settled(
+        self, task_id: str, request_id: str, timeout_s: float = 60
+    ) -> bool:
+        """Mirror ClaudeCodeBackend.wait_question_park_settled."""
+        session = self._sessions.get(task_id)
+        park = session._question_park if session else None
+        if park is None or park.request_id != request_id:
+            return False
+        try:
+            await asyncio.wait_for(park.settled.wait(), timeout_s)
+        except TimeoutError:
+            return False
+        return True
+
+    async def _ask(self, task_id: str, scenario: FakeAgentScenario):
+        """Raise ``scenario.ask_question`` the way AgentSession does.
+
+        Returns ``(go_on, result_override)``: ``go_on`` False means the
+        run ends here with no result (parked or stopped).
+        """
+        session = self._sessions.get(task_id)
+        if session is None or not scenario.ask_question:
+            return True, None
+        resumed_answer = answered_in_prompt(session.prompt)
+        if resumed_answer is not None and not scenario.ask_again_after_answer:
+            return True, (
+                f'Chose: {resumed_answer}'
+                if scenario.result_from_answer
+                else None
+            )
+        if await question_policy(task_id) == 'decline':
+            # What a real agent does with the decline: decide, finish.
+            return True, f'{scenario.result} (question declined)'
+        rid = scenario.ask_question['request_id']
+        if resumed_answer is not None:
+            rid = f'{rid}-again'
+        questions = scenario.ask_question.get('questions', [])
+        session._pending_questions[rid] = {
+            'request_id': rid,
+            'questions': questions,
+        }
+        evt = session._answer_events[rid] = asyncio.Event()
+        asked_at = datetime.now(UTC)
+        timed_out = not await wait_for_answer(evt, answer_timeout_s())
+        answers = session._answers.pop(rid, None)
+        session._answer_events.pop(rid, None)
+        session._pending_questions.pop(rid, None)
+        outcome = verdict(
+            answered=answers is not None,
+            timed_out=timed_out,
+            stopping=session._stopping or not session.running,
+        )
+        if outcome is Verdict.TIMED_OUT:
+            waited = (datetime.now(UTC) - asked_at).total_seconds()
+            session._question_park = QuestionPark(
+                rid, questions, asked_at, waited
+            )
+            if scenario.park_exit_delay > 0:
+                await _real_sleep(scenario.park_exit_delay)
+            # What a stopped CLI leaves behind.
+            session._is_error_result = True
+            return False, None
+        if outcome is Verdict.STOPPED:
+            return False, None
+        answer = next(iter(answers.values()), '') if answers else ''
+        return True, (
+            f'Chose: {answer}' if scenario.result_from_answer else None
+        )
 
     def is_process_alive(self, task_id: str) -> bool:
         """Mirror ClaudeCodeBackend.is_process_alive (stall reaper)."""
@@ -390,7 +513,8 @@ class FakeAgent(AIAgentBackend):
                 # Mark the (fake) subprocess return code so
                 # `_is_resume_failure` can read it just like it does
                 # off `AgentSession._proc.returncode` in production.
-                rc = 1 if simulate_failure else 0
+                parked = my_session._question_park is not None
+                rc = 1 if simulate_failure else (-2 if parked else 0)
                 my_session._proc = _SNS(returncode=rc)
                 # Real _stream_output sets _is_error_result on any
                 # non-zero exit. Mirror that so the orchestrator's
@@ -640,8 +764,12 @@ class FakeAgent(AIAgentBackend):
         if scenario.execute_delay > 0:
             await _real_sleep(scenario.execute_delay)
 
+        go_on, asked_result = await self._ask(task_id, scenario)
+        if not go_on:
+            return
+
         # Save result
-        result_text = scenario.error_result or scenario.result
+        result_text = asked_result or scenario.error_result or scenario.result
         async with _db.async_session() as db:
             task = await db.get(Task, task_id)
             if not task:
@@ -702,7 +830,13 @@ class FakeAgent(AIAgentBackend):
         if scenario.execute_delay > 0:
             await _real_sleep(scenario.execute_delay)
 
-        if scenario.result_fn is not None:
+        go_on, asked_result = await self._ask(task_id, scenario)
+        if not go_on:
+            return
+
+        if asked_result is not None:
+            result_text = asked_result
+        elif scenario.result_fn is not None:
             if not callable(scenario.result_fn):
                 raise TypeError(
                     'FakeAgentScenario.result_fn must be callable '
@@ -753,6 +887,13 @@ class FakeAgent(AIAgentBackend):
         # tests/workflow/db_calls.py) — wait for the database to be
         # idle, then cancel with no await in between.
         await wait_db_idle()
+        live = self._sessions.get(task_id)
+        if live is not None:
+            # Mirror AgentSession.stop(): a stop ends a question wait
+            # with no answer (verdict STOPPED, nothing parked).
+            live._stopping = True
+            for evt in live._answer_events.values():
+                evt.set()
         t = self._tasks.pop(task_id, None)
         if t and not t.done():
             t.cancel()
@@ -780,6 +921,17 @@ class FakeAgent(AIAgentBackend):
                 message=json.dumps(answers),
             )
         )
+        session = self._sessions.get(task_id)
+        scenario = self.scenarios.get(task_id, self.default_scenario)
+        if scenario.ask_question:
+            # Mirror AgentSession.submit_answer: False once the wait
+            # has decided, or with no live session to take it.
+            evt = session._answer_events.get(request_id) if session else None
+            if evt is None or not session.running:
+                return False
+            session._answers[request_id] = answers
+            evt.set()
+            return True
         return task_id in self._running
 
     async def send_message(self, task_id: str, message: str) -> bool:

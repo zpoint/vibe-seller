@@ -408,6 +408,24 @@ export function useSSE({
             return prev
           })
         }
+        // The question went unanswered and the task parked in WAITING:
+        // the agent's exit (agent_done) cleared the banner, but the
+        // question is still answerable — answering resumes the task.
+        // Re-arm the banner; the question item is already in the list.
+        if (data.type === 'task_question_parked') {
+          if (selectedTaskIdRef.current === data.task_id) {
+            setPendingQuestions({ request_id: data.request_id, questions: data.questions || [] })
+            setConversationItems(items =>
+              items.some(it => it.id === `question-${data.request_id}`)
+                ? items
+                : [...items, {
+                    id: `question-${data.request_id}`,
+                    type: 'question' as const,
+                    timestamp: new Date().toISOString(),
+                    questions: { request_id: data.request_id, questions: data.questions || [] },
+                  }])
+          }
+        }
         // The user sent a chat follow-up instead of answering — retire
         // the question card as "you replied instead" (not "answered"):
         // drop the pending banner and mark the question item interrupted.

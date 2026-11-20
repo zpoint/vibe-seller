@@ -18,11 +18,15 @@ import json
 import logging
 
 from app.ai.claude_backend_manager import agent_manager
-from app.ai.claude_backend_utils import parse_wait_condition
+from app.ai.question_policy import (
+    agent_wait_condition,
+    may_wait_on_a_person,
+)
 from app.ai.task_status_reconcile import should_park_qa_followup
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.task import Task
+from app.question_park import settle_question_park
 from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
 from app.task_runner import (
     check_parent_completion,
@@ -63,6 +67,10 @@ async def finalize_terminal_state(
     """
     async with async_session() as db:
         task = await db.get(Task, task_id)
+        # First, before any guard or error branch: a session stopped to
+        # park on an unanswered question exits non-zero on purpose.
+        if await settle_question_park(db, task, my_session):
+            return
         if agent_manager.get_session(task_id) is not my_session:
             return
         if not task or task.status not in {
@@ -242,7 +250,7 @@ async def finalize_terminal_state(
             return
 
         if not task.wait_condition and task.result:
-            parsed = parse_wait_condition(task.result)
+            parsed = agent_wait_condition(task, task.result)
             if parsed:
                 task.wait_condition = json.dumps(parsed)
                 logger.info(
@@ -310,8 +318,10 @@ async def finalize_terminal_state(
             )
             return
 
-        if has_incomplete_todos(task) and not (
-            task.result and task.result.strip()
+        if (
+            may_wait_on_a_person(task)
+            and has_incomplete_todos(task)
+            and not (task.result and task.result.strip())
         ):
             await mark_waiting_for_input(task, db, task_id)
             return
@@ -347,7 +357,7 @@ async def finalize_terminal_state(
             had_tool_use = getattr(session, '_had_tool_use', False)
             text_parts = getattr(session, '_exec_phase_text_parts', [])
             has_text = any(p.strip() for p in text_parts)
-            if not had_tool_use and has_text:
+            if not had_tool_use and has_text and may_wait_on_a_person(task):
                 logger.info(
                     'Agent %s exited with no tool_use blocks — '
                     'parking in WAITING (text-only response)',
@@ -371,7 +381,9 @@ async def finalize_terminal_state(
             )
             return
 
-        if should_park_qa_followup(session, task.result):
+        if may_wait_on_a_person(task) and should_park_qa_followup(
+            session, task.result
+        ):
             await park_waiting_for_text_only_response(task, db, task_id)
             return
         if await maybe_wait_for_children(task, task_id, db):

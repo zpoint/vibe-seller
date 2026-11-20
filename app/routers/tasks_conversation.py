@@ -30,6 +30,11 @@ from app.models.task_message import TaskMessage
 from app.models.task_step import TaskStep
 from app.models.user import User
 from app.plan_states import PlanStatus
+from app.question_park import (
+    answer_parked_question,
+    pending_payload,
+    record_answer_bubble,
+)
 from app.routers.dida365_oauth import refresh_token_if_needed
 from app.routers.tasks_files import promote_staged_attachments
 from app.scheduler.task_queue import task_queue_scheduler
@@ -526,13 +531,11 @@ async def send_task_message(
 @router.get('/{task_id}/questions/pending')
 async def get_pending_questions(
     task_id: str,
+    db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Get pending question for a task (if agent is waiting)."""
-    data = agent_manager.get_pending_questions(task_id)
-    if not data:
-        return {'pending': False}
-    return {'pending': True, **data}
+    """The question a task waits on: live, being parked, or parked."""
+    return await pending_payload(db, task_id)
 
 
 @router.post('/{task_id}/questions/answer')
@@ -571,17 +574,13 @@ async def answer_question(
         return {'ok': True}
 
     # Path 2: dead session + WAITING task with matching pending question
-    task = await db.get(Task, task_id)
+    # (waits first for a question whose wait just timed out to park).
+    task, cond = await answer_parked_question(db, task_id, request_id)
     if not task:
         raise HTTPException(status_code=404, detail='Task not found')
-    try:
-        cond = json.loads(task.wait_condition or '{}')
-    except (json.JSONDecodeError, TypeError):
-        cond = {}
-    if not isinstance(cond, dict):
-        cond = {}
-    pq = cond.get('pending_question') or {}
-    if task.status == TaskStatus.WAITING and pq.get('request_id') == request_id:
+    if cond is not None:
+        questions = cond['pending_question'].get('questions', [])
+        await record_answer_bubble(db, task_id, questions, answers)
         now = datetime.now(UTC).isoformat()
         cond['answers'] = answers
         cond['answered_at'] = now
@@ -593,14 +592,12 @@ async def answer_question(
             'task_update',
             {'task_id': task_id, 'status': TaskStatus.QUEUED},
         )
-        # Dispatch: store tasks go through the per-store queue
-        # (browser-concurrency gate); no-store tasks launch directly
-        # since there's no browser to serialise on. Mirrors the shape
-        # of `routers.tasks.schedule_or_run`.
-        if task.store_id:
-            await task_queue_scheduler.submit(task_id, task.store_id)
-        else:
-            asyncio.create_task(auto_run_task(task_id, None))
+        # Store tasks go through the per-store queue (its dispatcher
+        # picks the executor); no-store tasks launch directly with the
+        # executor the queue would have picked.
+        store = await db.get(Store, task.store_id) if task.store_id else None
+        launcher = execute_planned_task if task.plan else auto_run_task
+        await schedule_or_run(task_id, store, launcher=launcher)
         return {'ok': True, 'resumed': True}
 
     raise HTTPException(

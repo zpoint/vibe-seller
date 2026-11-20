@@ -52,6 +52,10 @@ class Options(enum.Enum):
     MAX_AGENT_CONCURRENCY = ('MAX_AGENT_CONCURRENCY', '2')
     ANTHROPIC_API_KEY = ('ANTHROPIC_API_KEY', '')
     MAX_REPEAT_TOOL_CALLS = ('VIBE_MAX_REPEAT_TOOL_CALLS', '6')
+    # How long an AskUserQuestion may wait for an answer while its agent
+    # holds a slot. Past it the agent is stopped and the task parks in
+    # WAITING with the question; answering resumes it. 0 = wait forever.
+    QUESTION_ANSWER_TIMEOUT_S = ('VIBE_QUESTION_ANSWER_TIMEOUT_S', '600')
 
     # Turn lifecycle: how long a quiescent CLI process may linger
     # after its turn's result before stdin is closed to end it.

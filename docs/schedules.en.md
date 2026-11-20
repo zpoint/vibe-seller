@@ -143,6 +143,14 @@ maintains this per task type on its own.
   fire — with many stores, mind concurrency and token spend;
 - A schedule whose plan isn't **Ready** (Planning / Plan stale / Plan failed /
   No plan) skips its fires and refuses Run Now;
+- **A fired run never waits for an answer.** Nobody is at the screen when a
+  schedule fires, so the AI is not allowed to stop and ask: it picks the
+  option it would recommend (the safest one when unsure), or skips a step it
+  can't do safely, and lists every question it would have asked under
+  "Open questions" in its result — the run then completes, it does not sit in
+  **Waiting** for your reply. Put decisions you want made a certain way
+  into the schedule's prompt. (Questions while the plan is being written are
+  still asked — you are reviewing it then.)
 - If a fired task is stuck in **Waiting** for your answer when the next fire
   arrives, the scheduler cancels the stale waiting run rather than blocking
   the timetable — the new fire proceeds normally.

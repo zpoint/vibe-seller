@@ -101,24 +101,36 @@ Note: `queued` is used for store-task launches from `pending`/`waiting`/`failed`
 
 ### WAITING with a pending question
 
-When the agent subprocess exits while holding an unanswered `AskUserQuestion`, `AgentSession` snapshots `_pending_questions` into `_last_pending_questions` (both in `stop()` and the stream-finally path in `app/ai/claude_backend_stream.py`), and `auto_run_task` checks that snapshot before the FAILED transition. If a snapshot exists, the task is parked in `WAITING` with a `wait_condition` shaped like:
+**An agent slot is held only by an agent that can make progress.** An agent waiting on an `AskUserQuestion` does no work, but it holds its slot, its process and its browser. So the wait is bounded by `VIBE_QUESTION_ANSWER_TIMEOUT_S` (default 600; `0` waits forever). An answer that arrives in time is delivered in-process, as before. Past the bound, the hook (`_handle_ask_user_question`, using `app/ai/question_wait.py`) records a `QuestionPark` and stops the agent. The orchestrator that owns the session then parks the task in WAITING and frees the slot for whatever is queued.
+
+That orchestrator is `finalize_terminal_state` (auto runs and chat follow-ups), `execute_planned_task` or `execute_woken_task`. Each one calls `settle_question_park` (`app/question_park.py`) first, before any error branch, because a stopped CLI exits non-zero on purpose. It is the one writer of RUNNING/DESIGNING → WAITING for a question. The session never writes status. Observed before the bound existed: a scheduled task's unanswered question held a slot for 31 hours, while the scheduled tasks behind it sat queued.
+
+**Races** are decided in one synchronous block, with no `await`, right after the wait returns. An answer that is present wins, even when the timeout fired in the same tick. After that block, `AgentSession.submit_answer` returns False. The answer route then waits for the park to be written (`wait_question_park_settled`, bounded at 60 s) and takes the parked-answer path below. A user Stop during the wait, or after it timed out, leaves the task FAILED (`stopped_by_user`), and nothing is parked.
+
+An agent that exits by itself while a question is outstanding is also parked. `AgentSession` snapshots `_pending_questions` into `_last_pending_questions` (both in `stop()` and in the stream-finally path in `app/ai/claude_backend_stream.py`), and the finalizer parks on that snapshot. Either way the task gets a `wait_condition` shaped like this:
 
 ```json
 {
-  "reason": "Agent asked a question; awaiting operator input",
+  "reason": "The agent asked a question and paused after waiting 30 s for an answer. Answering resumes the task.",
   "check_strategy": "manual",
   "waiting_since": "...",
   "max_wait_days": 7,
   "pending_question": {
     "request_id": "req-xxx",
     "questions": [{"question": "...", "options": [...]}]
-  }
+  },
+  "parked_reason": "answer_timeout",
+  "parked_at": "...", "asked_at": "...", "waited_s": 30.1
 }
 ```
 
-The operator answers via `POST /api/tasks/{id}/questions/answer` exactly as for a live session. The endpoint (`app/routers/tasks_conversation.py`) has two branches: if the agent is still running it forwards over IPC; if the session is dead and the task is WAITING with a matching `request_id`, it persists the answers into `wait_condition.answers`, flips WAITING → QUEUED, and re-queues. Store tasks go through `task_queue_scheduler`; no-store tasks are launched directly via `auto_run_task`.
+**One source for "is a question pending?"** is `pending_question_for` (`app/question_park.py`). It covers a question that is live in the session, one that is being parked right now, and one parked on the row. `GET /api/tasks/{id}/questions/pending` returns it with `source: live|parked`, and so do the MCP tools. The SPA re-arms the banner on the `task_question_parked` SSE event, which follows the agent's `agent_done`. The question survives a page reload and a server restart, because WAITING rows are left alone by `_recover_from_db`.
 
-On re-dispatch, `auto_run_task` calls `maybe_inject_pending_answers()` which composes a user-turn prefix from `wait_condition.answers` + the stored questions, clears `wait_condition`, and passes `resume=True` so the spawned session runs `claude --resume <task.session_id>` and picks up the transcript. The resumed agent sees the operator's answers as the next user message and continues.
+The operator answers via `POST /api/tasks/{id}/questions/answer`, exactly as for a live session. The endpoint (`app/routers/tasks_conversation.py`) has two branches:
+- **Agent still waiting:** it forwards the answer over IPC.
+- **Task WAITING with a matching `request_id`:** it writes the answer to the transcript as the user's turn, persists it into `wait_condition.answers`, flips WAITING → QUEUED and dispatches through `schedule_or_run`. That uses the store queue when it runs, and otherwise the executor the queue would pick: `execute_planned_task` for a task with a plan, `auto_run_task` otherwise.
+
+On re-dispatch, `auto_run_task` and `execute_planned_task` both call `maybe_inject_pending_answers()`. It composes a user turn from `wait_condition.answers` and the stored questions, and adds a note that the agent was stopped while it waited: its browser session and background commands are gone, so it must re-open the page and carry on rather than start over. The original prompt follows, marked as for reference. The call also clears `wait_condition`. The launch passes `resume=True`, so the spawned session runs `claude --resume <task.session_id>` and picks up the transcript, and it persists no second opening bubble. A rejected `--resume` falls back to a fresh session with the same prompt, which still carries the task, the question and the answer. A resumed run that asks again and times out again parks again; it is not mistaken for a resume failure.
 - Transitions: `running` → `waiting` (agent signals wait OR incomplete todos), `waiting` → `queued` (woken) / `failed` (timeout), `failed` → `queued` (retry)
 - State machine defined in `app/task_states.py` (backend) and `frontend/src/taskStates.ts` (frontend UI config)
 - Backend: `TaskStatus` enum, `TRANSITIONS` table, named groups (`STOPPABLE`, `ACTIVE`, `WAKEABLE`, etc.)
@@ -329,6 +341,7 @@ Recurring tasks use the `Schedule` model + APScheduler with MemoryJobStore. The 
 - **API**: `/api/schedules` CRUD with pause/resume/trigger/replan endpoints. `PUT` requires `plan_version` as an `If-Match` optimistic-lock token (412 on stale); `plan_mode` is immutable after creation (400 on attempted change).
 - **Frontend**: TasksView sub-tabs (One-time / Scheduled), schedule detail panel with plan-status badge, Re-plan button, and stale/failed banner surfacing `plan_error`.
 - **Cron builder**: `build_cron_kwargs()` converts schedule_type + time + day → APScheduler trigger kwargs
+- **A scheduled fire never waits on a person** (`app/ai/question_policy.py`): an `AskUserQuestion` from a task with `schedule_id` set and `is_plan_only` false is answered at once with a deny (`UNATTENDED_QUESTION_DENY`). It tells the agent to decide for itself (the recommended option, the safest when unsure, or skip the step) and to list each question it would have asked under "Open questions" in its result. It is a deny, not a synthetic answer: an invented answer would read as a user decision and would arm the prose-follow-up WAITING park. The plan-authoring run (`is_plan_only`) may still ask, because the user is reviewing it, and B's answer timeout bounds that wait. Transcript `agent_event` `question_declined`; telemetry `agent_question_declined`. **The same rule covers every other way a finished run can wait on a person** (`may_wait_on_a_person`). These are WAITING with `check_strategy: manual`: an agent-signalled `wait-condition` (`agent_wait_condition` drops it), incomplete todos, and a prose question. A scheduled fire completes with its result instead. Observed live: the question was declined, then the agent ended with a wait-condition "waiting for your choice", and the run parked anyway. Waits on outside events (`check_strategy: email`) still park.
 - **Stuck-planning reaper**: `app/scheduler/plan_reaper.py` runs every 5 min, fails schedules stuck in `plan_status='planning'` whose planner task has been idle >30 min. Skips tasks in `waiting` (legitimate user-input wait — handled by `waiting.py` with its 30-day timeout).
 - **SSE**: `schedule_triggered`, `fanout_triggered`, `schedule_skipped`, `schedule_waiting_cancelled`, `schedule_plan_ready`, `schedule_plan_timeout` — see [docs/events.md](events.md#sse-event-types)
 

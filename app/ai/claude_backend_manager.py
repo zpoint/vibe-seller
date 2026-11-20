@@ -348,13 +348,22 @@ class ClaudeCodeBackend(AIAgentBackend):
         return self._sessions.get(task_id)
 
     def get_pending_questions(self, task_id: str) -> dict | None:
-        """Return pending question data if agent is waiting."""
+        """The question this task's session waits on, if any.
+
+        Live in the hook, or timed out and still being parked — that
+        one is still answerable (the answer waits for the park, then
+        resumes the task), and the stall reaper must not reap the few
+        seconds the agent takes to stop.
+        """
         session = self._sessions.get(task_id)
-        if not session or not session._pending_questions:
+        if not session:
             return None
         # Return the first (and typically only) pending question
         for data in session._pending_questions.values():
             return data
+        park = getattr(session, '_question_park', None)
+        if park is not None and not park.settled.is_set():
+            return {'request_id': park.request_id, 'questions': park.questions}
         return None
 
     async def interrupt_pending_question(self, task_id: str) -> str | None:
@@ -453,7 +462,26 @@ class ClaudeCodeBackend(AIAgentBackend):
         session = self._sessions.get(task_id)
         if not session or not session.running:
             return False
-        await session.submit_answer(request_id, answers)
+        return await session.submit_answer(request_id, answers)
+
+    async def wait_question_park_settled(
+        self, task_id: str, request_id: str, timeout_s: float = 60
+    ) -> bool:
+        """Wait until a timed-out question's park is written.
+
+        An answer that arrives after the wait gave up but before the
+        orchestrator committed WAITING waits here, then takes the
+        ordinary parked-answer path. False = nothing to wait for (no
+        such park) or the bound passed.
+        """
+        session = self._sessions.get(task_id)
+        park = getattr(session, '_question_park', None) if session else None
+        if park is None or park.request_id != request_id:
+            return False
+        try:
+            await asyncio.wait_for(park.settled.wait(), timeout_s)
+        except TimeoutError:
+            return False
         return True
 
     async def send_message(self, task_id: str, message: str) -> bool:

@@ -9,7 +9,6 @@ limit. No tool is registered here.
 import asyncio
 from dataclasses import dataclass
 import inspect
-import json
 
 import fastapi.params
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +17,6 @@ from starlette.requests import Request
 from app.agent_mcp.lifecycle import schedule_fired, task_guidance
 from app.browser.wrapper import store_slug
 from app.models.store import Store
-from app.models.task import Task
 from app.models.user import User
 from app.routers import (
     tasks_conversation as conversation_route,
@@ -152,27 +150,6 @@ def derive_title(description: str) -> str:
     return description.strip()[:100]
 
 
-def stored_pending_question(task: Task | None) -> dict | None:
-    """The pending question parked on a WAITING task, if any.
-
-    A live session holds its pending question in memory; when the
-    agent's process dies the question is parked on the task row so a
-    later answer can resume it (see ``app/task_runner``).
-    """
-    if not task or not task.wait_condition:
-        return None
-    try:
-        condition = json.loads(task.wait_condition)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if not isinstance(condition, dict):
-        return None
-    pending = condition.get('pending_question')
-    if isinstance(pending, dict) and pending.get('request_id'):
-        return pending
-    return None
-
-
 async def store_slug_for(ctx: McpContext, store_id: str) -> str:
     """The on-disk slug of a store (its ``stores/<slug>/`` folder)."""
     store = await ctx.db.get(Store, store_id)
@@ -285,18 +262,13 @@ async def pending_question_for(ctx: McpContext, task) -> dict | None:
     live = await call_route(
         conversation_route.get_pending_questions,
         task.id,
+        db=ctx.db,
         _user=ctx.user,
     )
     if live.get('pending'):
         return {
             'request_id': live.get('request_id'),
             'questions': live.get('questions', []),
-        }
-    parked = stored_pending_question(task)
-    if parked:
-        return {
-            'request_id': parked.get('request_id'),
-            'questions': parked.get('questions', []),
         }
     return None
 

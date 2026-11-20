@@ -61,6 +61,8 @@ ASYNC_SESSION_MODULES = [
     'app.routers.email_accounts',
     'app.ai.claude_backend',
     'app.ai.claude_backend_manager',
+    # Whether a run may wait on a person reads the task row.
+    'app.ai.question_policy',
     # _emit_message (the transcript writer) and the opening message's
     # attachment lookup.
     'app.ai.claude_backend_stream',
@@ -304,6 +306,7 @@ def install_fake_agent(fake_agent, monkeypatch):
         'app.routers.tasks_conversation.agent_manager', fake_agent
     )
     monkeypatch.setattr('app.task_finalize.agent_manager', fake_agent)
+    monkeypatch.setattr('app.question_park.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_auto.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_followup.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_exec.agent_manager', fake_agent)

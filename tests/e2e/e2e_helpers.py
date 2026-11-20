@@ -685,12 +685,17 @@ def start_auto_answer(base_url: str) -> Callable[[], None]:
 
 
 @contextmanager
-def point_at_server(base_url: str) -> Generator[str, None, None]:
+def point_at_server(
+    base_url: str, auto_answer: bool = True
+) -> Generator[str, None, None]:
     """Aim the helpers at a server THIS module owns, then hand back.
 
     Refuses the shared server: this exists to move a module OFF it, and
     pointing the target at the shared server would look like ownership
     while racing every other worker.
+
+    ``auto_answer=False`` leaves questions unanswered — for a test about
+    what happens when nobody answers.
     """
     global BASE_URL, DEFAULT_PROFILE_ID
     if _port_of(base_url) == SHARED_PORT:
@@ -707,7 +712,8 @@ def point_at_server(base_url: str) -> Generator[str, None, None]:
             DEFAULT_PROFILE_ID = setup_worker_profile(
                 base_url, provider, worker
             )
-        shutdown = start_auto_answer(base_url)
+        if auto_answer:
+            shutdown = start_auto_answer(base_url)
         yield base_url
     finally:
         if shutdown is not None:

@@ -78,3 +78,6 @@ build/
 
 # local investigation handoff notes (contain live-account data)
 refactor.md
+
+# e2e evidence (screenshots, logs) written by tests/e2e/evidence.py
+tests/e2e/artifacts/

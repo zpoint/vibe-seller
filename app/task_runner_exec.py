@@ -5,8 +5,11 @@ import logging
 from sqlalchemy import select
 
 from app.ai.claude_backend_manager import agent_manager
-from app.ai.claude_backend_utils import parse_wait_condition
 from app.ai.profiles import DEFAULT_PROFILE_ID
+from app.ai.question_policy import (
+    agent_wait_condition,
+    may_wait_on_a_person,
+)
 from app.ai.turn_hold_budget import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
@@ -15,6 +18,7 @@ from app.events.bus import event_bus
 from app.models.store import Store
 from app.models.task import Task
 from app.models.task_message import TaskMessage
+from app.question_park import settle_question_park
 from app.task_finalize import check_parent_after_run
 from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
 from app.task_owners import holds_task
@@ -27,6 +31,7 @@ from app.task_runner import (
     get_store_emails,
     has_incomplete_todos,
     mark_waiting_for_input,
+    maybe_inject_pending_answers,
     maybe_wait_for_children,
 )
 from app.task_session_lifecycle import (
@@ -200,6 +205,9 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 store,
                 header=TaskHeader.EXECUTE,
             )
+            # Resuming a parked question: deliver the operator's answer
+            # (and clear the condition, or the run ends back in WAITING).
+            bundle = await maybe_inject_pending_answers(task_id, bundle)
             await agent_manager.run(
                 task_id,
                 bundle.prompt,
@@ -208,6 +216,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 profile_id=(task.ai_profile_id or DEFAULT_PROFILE_ID),
                 message_history=history,
                 resume=True,
+                persist_prompt=not bundle.answered,
                 store_slug=(
                     _store_slug(store.name, store.id) if store else None
                 ),
@@ -245,6 +254,10 @@ async def execute_planned_task(task_id: str, store: Store | None):
         # on the task.error field.
         async with async_session() as db:
             task = await db.get(Task, task_id)
+            if await settle_question_park(
+                db, task, agent_manager.get_session(task_id)
+            ):
+                return
             if not task or task.status not in {
                 TaskStatus.RUNNING,
                 TaskStatus.DESIGNING,
@@ -297,7 +310,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 apply_outcome(task, outcome)
                 # Fallback parse
                 if not task.wait_condition and task.result:
-                    parsed = parse_wait_condition(task.result)
+                    parsed = agent_wait_condition(task, task.result)
                     if parsed:
                         task.wait_condition = json.dumps(parsed)
 
@@ -361,8 +374,10 @@ async def execute_planned_task(task_id: str, store: Store | None):
                     return
 
                 # Agent exited with incomplete todos → wait (only if no result)
-                if has_incomplete_todos(task) and not (
-                    task.result and task.result.strip()
+                if (
+                    may_wait_on_a_person(task)
+                    and has_incomplete_todos(task)
+                    and not (task.result and task.result.strip())
                 ):
                     await mark_waiting_for_input(
                         task,
@@ -553,6 +568,10 @@ async def execute_woken_task(task_id: str, store: Store | None):
         # on the task.error field.
         async with async_session() as db:
             task = await db.get(Task, task_id)
+            if await settle_question_park(
+                db, task, agent_manager.get_session(task_id)
+            ):
+                return
             if not task or task.status not in {
                 TaskStatus.RUNNING,
                 TaskStatus.DESIGNING,
@@ -579,7 +598,7 @@ async def execute_woken_task(task_id: str, store: Store | None):
                 outcome = resolve_outcome(task)
                 apply_outcome(task, outcome)
                 if not task.wait_condition and task.result:
-                    parsed = parse_wait_condition(task.result)
+                    parsed = agent_wait_condition(task, task.result)
                     if parsed:
                         task.wait_condition = json.dumps(parsed)
 
@@ -644,8 +663,10 @@ async def execute_woken_task(task_id: str, store: Store | None):
                     return
 
                 # Agent exited with incomplete todos → wait (only if no result)
-                if has_incomplete_todos(task) and not (
-                    task.result and task.result.strip()
+                if (
+                    may_wait_on_a_person(task)
+                    and has_incomplete_todos(task)
+                    and not (task.result and task.result.strip())
                 ):
                     await mark_waiting_for_input(
                         task,

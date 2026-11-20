@@ -64,8 +64,8 @@ reaper must not execute that agent on the frozen evidence.
 
 Only RUNNING tasks are in scope. WAITING tasks are handled by the
 waiting checker. DESIGNING tasks (plan-only) are handled by
-``plan_reaper``. An outstanding AskUserQuestion is always skipped
-(the operator may take hours).
+``plan_reaper``. An outstanding AskUserQuestion is skipped: its
+wait is bounded by ``VIBE_QUESTION_ANSWER_TIMEOUT_S`` instead.
 
 See issue #141 for the full discovery context.
 """
@@ -221,12 +221,11 @@ async def reap_stalled_running_tasks() -> None:
         if not stalled:
             return
 
-        # An outstanding AskUserQuestion parks the agent in
-        # ``_answer_events[...].wait()`` with no stream activity, so
-        # ``updated_at`` goes stale even though the subprocess is
-        # healthy. Skip those — the operator could legitimately take
-        # hours to answer. (Same session-manager state machine the
-        # ``/questions/answer`` router relies on.)
+        # A question wait freezes ``updated_at`` (the reader is parked
+        # in the hook) — skip it. It is bounded by
+        # ``VIBE_QUESTION_ANSWER_TIMEOUT_S``: past that the agent stops
+        # itself and the task parks in WAITING (app.question_park), and
+        # the few seconds of that stop are covered here too.
         stalled = [
             t for t in stalled if not agent_manager.get_pending_questions(t.id)
         ]

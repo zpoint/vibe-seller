@@ -14,7 +14,7 @@ import logging
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.ai.claude_backend_utils import parse_wait_condition
+from app.ai.question_policy import agent_wait_condition
 from app.ai.unseen_images import NOTICE_ROLE, images_notice
 from app.attachment_markdown import opening_attachments, with_attachments
 from app.database import async_session
@@ -187,7 +187,7 @@ class _PersistMixin:
                     # exists, so an accepted result or a retained
                     # submission still outranks it.
                     apply_outcome(task, resolve_outcome(task))
-                    wait_cond = parse_wait_condition(result_text)
+                    wait_cond = agent_wait_condition(task, result_text)
                     if wait_cond:
                         task.wait_condition = json.dumps(wait_cond)
                     # Authoritative end-of-stream checkpoint. For
