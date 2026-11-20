@@ -79,6 +79,10 @@ _ACTION_BTN_JS = (
 )
 
 
+# A data row's selection box.
+_BOX_JS = "function box(r){return r.querySelector('.el-checkbox__input');}"
+
+
 def click_open_js(store_name: str) -> str:
     """JS that clicks the Open action on the row matching ``store_name``.
 
@@ -128,20 +132,36 @@ def row_label_js(store_name: str) -> str:
 
 
 def select_only_row_js(store_name: str) -> str:
-    """JS ticking the selection box of ``store_name``'s row ONLY.
+    """JS ticking the selection box of ``store_name``'s row ONLY: every
+    other ticked row is unticked. ``'CLICKED:<idx>'`` / ``'NOTFOUND'``.
 
-    Every other row is unticked first, then the selection is read back:
-    ``'OK:<idx>'`` only when exactly that one row is ticked —
-    ``'NOTFOUND'`` / ``'BADSELECT'`` otherwise. A batch action must never
-    reach another store's env.
+    Element-UI re-renders the boxes asynchronously, so the result must be
+    read back with :func:`selected_only_js` afterwards — a read in the
+    same tick still sees the old state.
     """
     return (
-        '(function(name){' + _ROW_IDX_JS + "if(idx<0)return 'NOTFOUND';"
-        "function box(r){return r.querySelector('.el-checkbox__input');}"
-        'rows.forEach(function(r,i){var b=box(r);if(!b)return;'
+        '(function(name){'
+        + _ROW_IDX_JS
+        + "if(idx<0)return 'NOTFOUND';"
+        + _BOX_JS
+        + 'rows.forEach(function(r,i){var b=box(r);if(!b)return;'
         "var on=b.classList.contains('is-checked');"
         'if(on!==(i===idx))b.click();});'
-        'var on=rows.map(function(r){var b=box(r);'
+        "return 'CLICKED:'+idx;"
+        '})(' + json.dumps(store_name) + ')'
+    )
+
+
+def selected_only_js(store_name: str) -> str:
+    """JS reading the selection back: ``'OK:<idx>'`` only when exactly
+    ``store_name``'s row is ticked, else ``'BADSELECT'`` / ``'NOTFOUND'``.
+    A batch action must never reach another store's env."""
+    return (
+        '(function(name){'
+        + _ROW_IDX_JS
+        + "if(idx<0)return 'NOTFOUND';"
+        + _BOX_JS
+        + 'var on=rows.map(function(r){var b=box(r);'
         "return !!(b&&b.classList.contains('is-checked'));});"
         'var n=on.filter(Boolean).length;'
         "return (n===1&&on[idx])?'OK:'+idx:'BADSELECT';"

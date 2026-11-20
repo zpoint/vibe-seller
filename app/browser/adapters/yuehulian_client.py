@@ -30,6 +30,7 @@ from app.browser.adapters.yuehulian_dom import (
     parse_store_list_json,
     row_label_js,
     select_only_row_js,
+    selected_only_js,
 )
 from app.browser.adapters.yuehulian_win import InspectorSession, ProcessLayer
 from app.browser.inject.client import InjectClient, OpenedStore, StoreRef
@@ -300,6 +301,16 @@ class RealYuehulianClient(InjectClient):
         """
         try:
             picked = str(await insp.eval_in_renderer(select_only_row_js(ref)))
+            if picked.startswith('CLICKED'):
+                # The boxes re-render asynchronously: read the selection
+                # back until it settles on exactly this row.
+                for _ in range(10):
+                    await asyncio.sleep(0.3)
+                    picked = str(
+                        await insp.eval_in_renderer(selected_only_js(ref))
+                    )
+                    if picked.startswith('OK'):
+                        break
             if not picked.startswith('OK'):
                 raise CdpUnreachable(
                     f'could not select store {ref!r} to close it ({picked}); '

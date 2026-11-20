@@ -24,6 +24,7 @@ from app.browser.adapters.yuehulian_dom import (
     parse_store_list_json,
     row_label_js,
     select_only_row_js,
+    selected_only_js,
 )
 
 pytestmark = pytest.mark.unit
@@ -144,13 +145,15 @@ def test_rows_are_matched_by_the_exact_store_name():
         click_open_js('test'),
         row_label_js('test'),
         select_only_row_js('test'),
+        selected_only_js('test'),
     ):
         assert "(td.innerText||'').trim()===name" in js
         assert '.includes(name)' not in js
 
 
-def test_select_only_row_refuses_unless_exactly_that_row_is_ticked():
-    js = select_only_row_js('store-a')
+def test_the_selection_is_checked_to_be_exactly_that_row():
+    assert "'CLICKED:'" in select_only_row_js('store-a')
+    js = selected_only_js('store-a')
     assert "'BADSELECT'" in js and "'NOTFOUND'" in js
     assert 'n===1&&on[idx]' in js
     assert json.dumps('store-a') in js

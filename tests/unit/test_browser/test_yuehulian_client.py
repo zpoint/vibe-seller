@@ -25,6 +25,7 @@ from app.browser.adapters.yuehulian_dom import (
     click_open_js,
     row_label_js,
     select_only_row_js,
+    selected_only_js,
 )
 from app.browser.inject.errors import (
     CdpUnreachable,
@@ -255,17 +256,25 @@ class _StaleEnvInspector(_FakeInspector):
     own batch "close browser" (select row → menu → close → confirm) flips
     the row back to 'Open'."""
 
-    def __init__(self, *, close_item=True, select='OK:0', **kw):
+    def __init__(self, *, close_item=True, settles=('OK:0',), **kw):
         super().__init__(**kw)
         self.stale = True
         self.close_item = close_item
-        self.select = select
+        # What successive read-backs of the selection return (the boxes
+        # re-render asynchronously, so the first reads can lag).
+        self.settles = list(settles)
         self.calls: list[str] = []
 
     async def eval_in_renderer(self, js, **kw):
         if js == select_only_row_js('store-a'):
             self.calls.append('select-only')
-            return self.select
+            return 'CLICKED:0'
+        if js == selected_only_js('store-a'):
+            return (
+                self.settles.pop(0)
+                if len(self.settles) > 1
+                else self.settles[0]
+            )
         if js == OPEN_BATCH_MENU_JS:
             self.calls.append('batch-menu')
             return 'OK'
@@ -326,10 +335,21 @@ async def test_when_the_env_cannot_be_closed_it_is_reported_clearly():
 async def test_a_row_that_cannot_be_ticked_alone_is_never_batch_closed():
     """The batch close acts on every ticked row; if the selection is not
     exactly this store's row, nothing is closed."""
-    insp = _StaleEnvInspector(select='BADSELECT')
+    insp = _StaleEnvInspector(settles=('BADSELECT',))
     with pytest.raises(CdpUnreachable):
         await _open(_FakeProc(), insp)
     assert 'batch-menu' not in insp.calls and 'close' not in insp.calls
+
+
+async def test_the_selection_is_read_back_until_it_settles():
+    """Element-UI ticks the box asynchronously: right after the click the
+    row can still read unticked. Seen live on a client that had just been
+    restarted — the close was refused as BADSELECT. Read it back until it
+    settles, then close."""
+    insp = _StaleEnvInspector(settles=('BADSELECT', 'BADSELECT', 'OK:0'))
+    opened = await _open(_FakeProc(port=9555), insp)
+    assert opened.cdp_port == 9555
+    assert 'close' in insp.calls
 
 
 async def test_one_driver_of_the_client_gui_at_a_time():
