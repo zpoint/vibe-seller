@@ -245,7 +245,7 @@
     "loadingConversation": "Loading the conversation…",
     "error_ziniao_start_timeout": "Ziniao didn't start: it was opened twice and didn't respond within 2 minutes either time. Check that Ziniao opens and signs in when you start it yourself, then retry.",
     "error_ziniao_launch_failed": "Couldn't open Ziniao. Make sure Ziniao is installed, then retry.",
-    "error_ziniao_kill_failed": "Ziniao is open but couldn't be closed (it may be running as administrator). Close Ziniao yourself, then retry.",
+    "error_ziniao_kill_failed": "Ziniao is open but couldn't be closed (it may be running with admin rights). Close Ziniao yourself, then retry.",
     "error_ziniao_port_in_use": "Another program is using Ziniao's port. Close that program or change the port in the Ziniao account, then retry.",
     "error_ziniao_wsl_unreachable": "Ziniao is running on Windows but can't be reached from WSL. Turn on WSL mirrored networking (see the Windows setup guide), then retry.",
     "error_ziniao_account_conflict": "Another Ziniao account is in use on this computer. Stop that account's stores first, then retry."

@@ -258,7 +258,7 @@ start, store setup, MCP. No flag, no prompt.
      never a command-line match. POSIX: SIGKILL the client (it respawns
      kernels and survives SIGTERM), SIGTERM kernels with 3 s grace, then
      clear `Singleton*` in their `--user-data-dir`s (see the runbook
-     below). Survivors (started as administrator) fail fast
+     below). Survivors (started with admin rights) fail fast
      (`kill_failed`); a foreign program on the port fails fast
      (`port_in_use`);
    - launch, then poll until a **120 s deadline**. A refused connection

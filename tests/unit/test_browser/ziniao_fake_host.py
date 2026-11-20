@@ -60,7 +60,7 @@ LEFTOVERS = [
 BYSTANDERS = [
     (
         'python.exe',
-        'C:\\work\\vibe-seller-wt-ziniao\\.venv\\Scripts\\python.exe',
+        'C:\\work\\vibe-seller-ziniao-fix\\.venv\\Scripts\\python.exe',
     ),
     ('node.exe', 'C:\\Program Files\\nodejs\\node.exe'),
     ('chrome.exe', 'C:\\Program Files\\Google\\Chrome\\chrome.exe'),

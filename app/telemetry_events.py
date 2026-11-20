@@ -160,7 +160,7 @@ class BrowserFailureReason:
     # WSL: Windows has a listener on the port that WSL cannot reach.
     WSL_UNREACHABLE = 'wsl_unreachable'
     LAUNCH_FAILED = 'launch_failed'
-    # Ziniao processes survived kill-all (started as administrator?).
+    # Ziniao processes survived kill-all (started with admin rights?).
     KILL_FAILED = 'kill_failed'
     # A non-Ziniao program holds the control port after kill-all.
     PORT_IN_USE = 'port_in_use'

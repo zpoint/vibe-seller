@@ -327,7 +327,7 @@ def kill_all_ziniao(wsl: bool, client_path: str = '') -> KillReport:
     Blocking — call via ``asyncio.to_thread``. Re-lists after each kill
     (the client can respawn a helper while it dies) for up to 10 s;
     whatever is still alive then is a survivor — typically a client
-    started as administrator that this user cannot stop.
+    started with admin rights that this user cannot stop.
     """
     report = KillReport()
     seen: dict[int, ZiniaoProcess] = {}

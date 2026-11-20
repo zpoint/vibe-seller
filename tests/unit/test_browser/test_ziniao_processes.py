@@ -49,7 +49,7 @@ KIT = 'C:\\Users\\u\\AppData\\Roaming\\ziniaobrowser\\env-kit'
         ),
         (
             'Chromium',
-            '/Users/u/Library/Application Support/ziniaobrowser/env-kit/Core/chrome_x/Chromium',
+            '/Volumes/Data/Library/Application Support/ziniaobrowser/env-kit/Core/chrome_x/Chromium',
         ),
         ('ziniaobrowser', '/opt/ziniao/ziniaobrowser'),
         ('superbrowser.exe', None),  # path unreadable: the name decides
@@ -66,9 +66,9 @@ def test_every_ziniao_process_matches(name, exe):
         # Not ours, even with "ziniao" somewhere in the path.
         (
             'python.exe',
-            'C:\\work\\vibe-seller-wt-ziniao\\.venv\\Scripts\\python.exe',
+            'C:\\work\\vibe-seller-ziniao-fix\\.venv\\Scripts\\python.exe',
         ),
-        ('python3', '/home/u/codes/vibe-seller-wt-ziniao/.venv/bin/python3'),
+        ('python3', '/opt/src/vibe-seller-ziniao-fix/.venv/bin/python3'),
         ('node.exe', 'C:\\Program Files\\nodejs\\node.exe'),
         (
             'chrome.exe',

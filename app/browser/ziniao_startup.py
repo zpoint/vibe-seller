@@ -300,7 +300,7 @@ class _Round:
             raise self._fail(
                 'Ziniao is running but could not be closed '
                 f'({describe(report.survivors)}). It may have been started '
-                'as administrator. Close Ziniao completely by hand, then '
+                'with admin rights. Close Ziniao completely by hand, then '
                 'retry.',
                 BrowserFailureReason.KILL_FAILED,
                 'ziniao_kill_failed',
