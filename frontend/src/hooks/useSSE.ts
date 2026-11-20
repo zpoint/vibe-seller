@@ -586,7 +586,12 @@ export function useSSE({
             setShowOtherInput({})
             // Refresh task state for both success and failure
             api.get(`/api/tasks/${data.task_id}`).then((t: Task) => {
-              setSelectedTask(t)
+              // Only while it is still the open task: the user may have
+              // opened another one while this fetch was in flight, and a
+              // late reply must not swap the header back (observed: the
+              // header showed the finished task over the conversation of
+              // the one just clicked).
+              setSelectedTask(cur => (cur && cur.id === t.id ? t : cur))
               setTasks(p => patchById(p, t.id, () => t))
               if (setScheduleTasks) {
                 setScheduleTasks(p => patchById(p, t.id, () => t))
