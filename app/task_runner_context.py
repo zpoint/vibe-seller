@@ -795,6 +795,6 @@ def uploaded_files_note(task: Task) -> str:
         return agent_note(model, blind)
     return (
         'The user attached the following file(s) to this task. Read them '
-        'directly (images are visual references / product photos — do NOT '
-        'ask the user to provide them again):\n' + '\n'.join(lines)
+        'directly (images are product photos; any other file: open it '
+        'with the right tool). Do NOT ask for them again:\n' + '\n'.join(lines)
     ) + ('\n\n' + agent_note(model, blind) if blind else '')

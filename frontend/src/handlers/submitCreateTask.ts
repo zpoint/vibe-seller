@@ -71,7 +71,8 @@ export async function submitCreateTask(
   // otherwise it starts with no image and asks "where is the image?".
   const task = await deps.api.post('/api/tasks', {
     store_id: deps.storeId,
-    title: input.title,
+    // Blank → the server derives it from the description.
+    title: input.title || null,
     description: input.description || null,
     plan_mode: deps.planMode,
     platform: input.platform || null,

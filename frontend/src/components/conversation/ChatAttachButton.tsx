@@ -21,7 +21,6 @@ export function ChatAttachButton({
         ref={fileInputRef}
         data-testid="chat-file-input"
         type="file"
-        accept="image/*,.pdf"
         multiple
         className="hidden"
         onChange={e => {

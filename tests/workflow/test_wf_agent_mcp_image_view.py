@@ -218,7 +218,8 @@ async def test_bad_added_references_are_refused(admin_client, card):
                     }
                 ]
             },
-            'not allowed',  # the shared upload allow-list, first
+            # Uploads accept any type; a reference must be an image.
+            'not an image',
         ),
         (
             {
@@ -232,7 +233,7 @@ async def test_bad_added_references_are_refused(admin_client, card):
                     }
                 ]
             },
-            'not an image',  # an allowed upload, but not a reference
+            'not an image',  # a valid upload, but not a reference
         ),
     ):
         _, env = await call_tool(

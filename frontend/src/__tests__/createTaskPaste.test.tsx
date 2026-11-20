@@ -126,8 +126,8 @@ describe('New Task dialog: pasting an image', () => {
     Object.defineProperty(ev, 'clipboardData', {
       value: { items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }] },
     })
-    fireEvent(screen.getByLabelText(/title/i), ev)
-    // Swallowing this would stop the user typing a title by pasting.
+    fireEvent(screen.getByLabelText(/description/i), ev)
+    // Swallowing this would stop the user pasting their prompt text.
     expect(ev.defaultPrevented).toBe(false)
   })
 
@@ -150,18 +150,9 @@ describe('New Task dialog: a file the box refuses', () => {
     )
   })
 
-  it('says why an unsupported type was not attached', () => {
+  it('names a nameless clipboard item rather than blaming ""', () => {
     renderModal()
-    const bmp = new File([new Uint8Array(8)], 'old.bmp', { type: 'image/bmp' })
-    fireEvent(document.body, clipboardEvent([bmp]))
-    expect(screen.getByTestId('attachment-rejected')).toHaveTextContent(
-      /old\.bmp.*unsupported/i,
-    )
-  })
-
-  it('names a nameless clipboard image rather than blaming ""', () => {
-    renderModal()
-    const nameless = new File([new Uint8Array(8)], '', { type: 'image/bmp' })
+    const nameless = pngFile('', getMaxUploadSize() + 1)
     fireEvent(document.body, clipboardEvent([nameless]))
     expect(screen.getByTestId('attachment-rejected')).toHaveTextContent(
       /Clipboard item/,
@@ -184,6 +175,32 @@ describe('New Task dialog: a file the box refuses', () => {
     expect(screen.getByTestId('attachment-rejected')).toBeInTheDocument()
     fireEvent(document.body, clipboardEvent([pngFile('fine.png')]))
     expect(screen.queryByTestId('attachment-rejected')).not.toBeInTheDocument()
+  })
+})
+
+describe('New Task dialog: any file type attaches', () => {
+  it('attaches a non-image file as a labelled chip, not a thumbnail', () => {
+    renderModal()
+    const xlsx = new File([new Uint8Array(8)], 'orders.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    fireEvent(document.body, clipboardEvent([xlsx]))
+    expect(screen.queryByTestId('attachment-rejected')).not.toBeInTheDocument()
+    expect(screen.queryByAltText('orders.xlsx')).not.toBeInTheDocument()
+    expect(screen.getByTestId('attachment-file-chip')).toHaveTextContent('XLSX')
+    expect(screen.getByText('orders.xlsx')).toBeInTheDocument()
+  })
+
+  it('submits every attached file, image or not', async () => {
+    const onSubmit = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {})
+    renderModal({ onSubmit })
+    const zip = new File([new Uint8Array(8)], 'bundle.zip', { type: 'application/zip' })
+    fireEvent(document.body, clipboardEvent([pngFile('shot.png'), zip]))
+    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'T' } })
+    fireEvent.click(screen.getByRole('button', { name: /create/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    const sent = onSubmit.mock.calls[0][2] as Array<{ name: string }>
+    expect(sent.map(f => f.name)).toEqual(['shot.png', 'bundle.zip'])
   })
 })
 
@@ -221,7 +238,7 @@ describe('New Task dialog: what actually gets uploaded', () => {
     const nameless = new File([new Uint8Array(8)], '', { type: 'image/png' })
     fireEvent(document.body, clipboardEvent([nameless]))
 
-    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'T' } })
+    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'T' } })
     fireEvent.click(screen.getByRole('button', { name: /create/i }))
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
 
@@ -237,7 +254,7 @@ describe('New Task dialog: what actually gets uploaded', () => {
     const onSubmit = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {})
     renderModal({ onSubmit })
     fireEvent(document.body, clipboardEvent([pngFile('report.png')]))
-    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'T' } })
+    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'T' } })
     fireEvent.click(screen.getByRole('button', { name: /create/i }))
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
     const pending = onSubmit.mock.calls[0][2] as Array<{ file: File }>
@@ -257,7 +274,7 @@ describe('New Task dialog: a file dropped beside the box', () => {
 
   it('attaches a file dropped on the zone exactly once', () => {
     renderModal()
-    const zone = screen.getByText(/drop images here/i).parentElement as HTMLElement
+    const zone = screen.getByText(/drop files here/i).parentElement as HTMLElement
     fireEvent(zone, dragEvent('drop', [pngFile('zone.png')]))
     expect(screen.getAllByAltText('zone.png')).toHaveLength(1)
   })
@@ -274,7 +291,7 @@ describe('New Task dialog: a file dropped beside the box', () => {
 
   it('does not claim a text drag on dragover either', () => {
     renderModal()
-    const zone = screen.getByText(/drop images here/i).parentElement as HTMLElement
+    const zone = screen.getByText(/drop files here/i).parentElement as HTMLElement
     const text = dragEvent('dragover', [], ['text/plain'])
     fireEvent(zone, text)
     expect(text.defaultPrevented).toBe(false)

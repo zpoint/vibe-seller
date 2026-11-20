@@ -294,20 +294,50 @@ class TestAttachments:
         names = {f['name'] for f in listed['data']['files']}
         assert 'uploads/widget.png' in names, names
 
-    def test_disallowed_type_is_refused_before_the_task_exists(
+    def test_bad_attachment_is_refused_before_the_task_exists(
         self, mcp, store_id
     ):
+        # Any file TYPE is accepted now; what is still refused is a
+        # payload that cannot be a file. The refusal must come before
+        # the task is created — no task lingers around it.
+        description = f'Run this {time.time_ns()}.'
+        bad = _attachment('notes.txt', 'text/plain', b'x')
+        bad['content_base64'] = 'not base64!'
         refused = mcp.call_tool(
             'create_task',
-            description='Run this.',
+            description=description,
+            store_id=store_id,
+            plan_mode=False,
+            attachments=[bad],
+        )
+        assert not refused['ok']
+        assert 'not valid base64' in refused['text'], refused['text']
+        listing = mcp.call_tool('list_tasks', store_id=store_id, limit=50)
+        assert listing['ok'], listing['text']
+        assert description not in {
+            t.get('description') or t.get('title')
+            for t in listing['data']['tasks']
+        }
+
+    def test_any_file_type_attaches(self, mcp, store_id):
+        created = mcp.call_tool(
+            'create_task',
+            description='Summarise the attached orders.',
             store_id=store_id,
             plan_mode=False,
             attachments=[
-                _attachment('payload.exe', 'application/x-msdownload', b'MZ...')
+                _attachment(
+                    'orders.csv', 'text/csv', b'sku,qty\nwidget-006,3\n'
+                )
             ],
         )
-        assert not refused['ok']
-        assert 'not allowed' in refused['text'].lower()
+        assert created['ok'], created['text']
+        task_id = created['data']['task_id']
+        waited = wait_for_terminal(mcp, task_id)
+        assert waited['status'] == 'completed', waited
+        listed = mcp.call_tool('task_files', task_id=task_id, action='list')
+        names = {f['name'] for f in listed['data']['files']}
+        assert 'uploads/orders.csv' in names, names
 
     def test_chat_attachment_is_promoted_to_the_live_agent(self, mcp, store_id):
         """send_message with attachments: the mock CLI parks a plan-mode
