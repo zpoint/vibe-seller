@@ -196,6 +196,25 @@ class TestFindPidListeningOnPort:
         finally:
             s.close()
 
+    def test_finds_own_listener_when_the_system_table_is_refused(
+        self, monkeypatch
+    ):
+        """macOS refuses ``psutil.net_connections`` to non-root users —
+        the lookup must still find this user's listener."""
+
+        def refused(kind='inet'):
+            raise plat.psutil.AccessDenied()
+
+        monkeypatch.setattr(plat.psutil, 'net_connections', refused)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(('127.0.0.1', 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+        try:
+            assert plat.find_pid_listening_on_port(port) == os.getpid()
+        finally:
+            s.close()
+
     def test_none_when_nobody_listening(self):
         # Bind to grab a free port, then close so no LISTEN socket remains.
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -4,6 +4,7 @@ These shell out to the real `install.sh` — they pin invariants that
 are only expressible at the script level, not in the Python package.
 """
 
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -131,8 +132,14 @@ def test_print_path_makes_local_uv_resolvable(tmp_path):
     emitted_path = emitted.strip()
     assert emitted_path, 'nothing printed'
     # The decisive assertion: uv is now findable on the emitted PATH,
-    # resolving to the one under the fake HOME's ~/.local/bin.
-    resolved = shutil.which('uv', path=emitted_path)
+    # resolving to the one under the fake HOME's ~/.local/bin. Resolved
+    # over the sandbox's own dirs: install.sh also puts the HOST's
+    # Homebrew bin first on purpose, and a host with a brew uv there
+    # (any Mac developer box) would shadow the one this test planted.
+    sandbox_path = os.pathsep.join(
+        d for d in emitted_path.split(os.pathsep) if d.startswith(str(tmp_path))
+    )
+    resolved = shutil.which('uv', path=sandbox_path)
     assert resolved == str(fake_home / '.local' / 'bin' / 'uv'), (
         f'uv not resolvable on emitted PATH; resolved={resolved!r} '
         f'emitted={emitted_path!r}'
