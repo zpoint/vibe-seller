@@ -1,9 +1,6 @@
 import { useState } from 'react'
 import { api } from '../api'
-import {
-  fetchBrowserProfiles as fetchBrowserProfilesHandler,
-  restartZiniao as restartZiniaoHandler,
-} from '../handlers/fetchBrowserProfiles'
+import { fetchBrowserProfiles as fetchBrowserProfilesHandler } from '../handlers/fetchBrowserProfiles'
 import type { ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 
 const EMPTY_ACCOUNT = { name: '', company: '', username: '', password: '' }
@@ -19,7 +16,7 @@ export function useZiniaoAccounts() {
   const [selectedBrowserOauth, setSelectedBrowserOauth] = useState('')
   const [fetchingBrowsers, setFetchingBrowsers] = useState(false)
   const [browserFetchError, setBrowserFetchError] = useState('')
-  const [ziniaoRetried, setZiniaoRetried] = useState(false)
+  const [ziniaoStartingSecs, setZiniaoStartingSecs] = useState(0)
   const [showAddAccount, setShowAddAccount] = useState(false)
   const [showAccountPassword, setShowAccountPassword] = useState(false)
   const [editingAccountId, setEditingAccountId] = useState('')
@@ -45,17 +42,16 @@ export function useZiniaoAccounts() {
     if (selectedZiniaoAccountId === accountId) { setSelectedZiniaoAccountId(''); setZiniaoBrowsers([]); setBrowserFetchError('') }
     await loadZiniaoAccounts()
   }
-  const browserProfilesDeps = { api, browserFetchError, setFetchingBrowsers, setZiniaoBrowsers, setSelectedBrowserOauth, setBrowserFetchError, setZiniaoRetried }
+  const browserProfilesDeps = { api, setFetchingBrowsers, setZiniaoBrowsers, setSelectedBrowserOauth, setBrowserFetchError, setZiniaoStartingSecs }
   const fetchBrowserProfiles = (accountId: string) => fetchBrowserProfilesHandler(accountId, browserProfilesDeps)
-  const restartZiniao = (accountId: string) => restartZiniaoHandler(accountId, browserProfilesDeps)
 
   return {
     ziniaoAccounts, selectedZiniaoAccountId, setSelectedZiniaoAccountId,
     ziniaoBrowsers, setZiniaoBrowsers, selectedBrowserOauth, setSelectedBrowserOauth,
-    fetchingBrowsers, browserFetchError, setBrowserFetchError, ziniaoRetried,
+    fetchingBrowsers, browserFetchError, setBrowserFetchError, ziniaoStartingSecs,
     showAddAccount, setShowAddAccount, showAccountPassword, setShowAccountPassword,
     editingAccountId, setEditingAccountId, newAccount, setNewAccount,
     loadZiniaoAccounts, createZiniaoAccount, updateZiniaoAccount, deleteZiniaoAccount,
-    fetchBrowserProfiles, restartZiniao,
+    fetchBrowserProfiles,
   }
 }

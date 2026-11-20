@@ -10,7 +10,6 @@ from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.turn_hold_budget import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
-from app.errors import categorize_ziniao_error
 from app.events.bus import event_bus
 from app.models.store import Store
 from app.models.task import Task
@@ -167,33 +166,6 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 # without one.
                 if task.plan is None and task.plan_mode:
                     return
-
-                # Ziniao pre-check before execution
-                if store and store.browser_backend == 'ziniao':
-                    try:
-                        await browser_manager.check_ziniao_reachable(
-                            store,
-                            db,
-                        )
-                    except RuntimeError as exc:
-                        assert_transition(
-                            task.status,
-                            TaskStatus.FAILED,
-                        )
-                        task.status = TaskStatus.FAILED
-                        task.error = str(exc)
-                        task.error_category = categorize_ziniao_error(str(exc))
-                        task.updated_at = datetime.now(UTC).isoformat()
-                        await db.commit()
-                        await event_bus.emit(
-                            'task_update',
-                            {
-                                'task_id': task_id,
-                                'status': TaskStatus.FAILED,
-                                'error': task.error,
-                            },
-                        )
-                        return
 
             bundle = await build_system_extra(
                 task,
@@ -465,33 +437,6 @@ async def execute_woken_task(task_id: str, store: Store | None):
                 .order_by(TaskMessage.seq)
             )
             history = coalesce_history(msgs.scalars().all())
-
-            # Ziniao pre-check before execution
-            if store and store.browser_backend == 'ziniao':
-                try:
-                    await browser_manager.check_ziniao_reachable(
-                        store,
-                        db,
-                    )
-                except RuntimeError as exc:
-                    assert_transition(
-                        task.status,
-                        TaskStatus.FAILED,
-                    )
-                    task.status = TaskStatus.FAILED
-                    task.error = str(exc)
-                    task.error_category = categorize_ziniao_error(str(exc))
-                    task.updated_at = datetime.now(UTC).isoformat()
-                    await db.commit()
-                    await event_bus.emit(
-                        'task_update',
-                        {
-                            'task_id': task_id,
-                            'status': TaskStatus.FAILED,
-                            'error': task.error,
-                        },
-                    )
-                    return
 
             # Preserve wait_condition bookkeeping now; the RUNNING
             # transition itself is deferred to on_start so a wake that

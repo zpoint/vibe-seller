@@ -356,46 +356,37 @@ class TestManageZiniaoAccount:
             {'browser_name': 'Main', 'browser_oauth': 'oauth-1'}
         ]
 
-    async def test_restart_only_in_normal_mode(self, admin_client, monkeypatch):
-        created, _ = await call_tool(
+    async def test_there_is_no_restart_or_force_to_ask_for(self, admin_client):
+        """The user's spec: Ziniao is always relaunched when it is not
+        answering, nobody asks. So an agent has no ``restart`` action and
+        no ``force`` switch to reach for — both are refused as unknown."""
+        r = await rpc(
             admin_client,
-            'manage_ziniao_account',
+            'tools/call',
             {
-                'action': 'create',
-                'company': 'acme',
-                'username': 'ops@acme.example',
-                'password': 'ziniao-pass-1234',
+                'name': 'manage_ziniao_account',
+                'arguments': {'action': 'restart', 'account_id': 'a1'},
             },
         )
-        account_id = created['created']['id']
-        relaunch = mock.AsyncMock(return_value=True)
-        monkeypatch.setattr(
-            'app.routers.ziniao_accounts.get_ziniao_status',
-            mock.AsyncMock(return_value={'status': 'running_normal'}),
-        )
-        monkeypatch.setattr(
-            'app.routers.ziniao_accounts.kill_and_relaunch_ziniao', relaunch
-        )
-        data, _ = await call_tool(
-            admin_client,
-            'manage_ziniao_account',
-            {'action': 'restart', 'account_id': account_id},
-        )
-        assert data['ok'] is True
-        relaunch.assert_awaited_once()
+        error = r.json()['error']
+        assert error['code'] == -32602
+        assert 'restart' in error['message']
 
-        # A WebDriver session is live → the route refuses (409).
-        monkeypatch.setattr(
-            'app.routers.ziniao_accounts.get_ziniao_status',
-            mock.AsyncMock(return_value={'status': 'running_webdriver'}),
-        )
-        _, envelope = await call_tool(
+        r = await rpc(
             admin_client,
-            'manage_ziniao_account',
-            {'action': 'restart', 'account_id': account_id},
+            'tools/call',
+            {
+                'name': 'browser',
+                'arguments': {
+                    'action': 'start_store',
+                    'store_id': 'x',
+                    'force': True,
+                },
+            },
         )
-        assert envelope['isError'] is True
-        assert 'running_normal' in envelope['content'][0]['text']
+        error = r.json()['error']
+        assert error['code'] == -32602
+        assert 'force' in error['message']
 
 
 # ── manage_profile ────────────────────────────────────

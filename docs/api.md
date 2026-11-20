@@ -106,6 +106,7 @@ and the reveal endpoint below.
 | POST | `/api/stores` | Create a store |
 | GET | `/api/stores/{store_id}` | Get store by ID |
 | DELETE | `/api/stores/{store_id}` | Delete a store |
+| POST | `/api/stores/{store_id}/browser/start` | Start (or reuse) the store's browser; the store wrapper calls it lazily. A Ziniao store's client is brought up first — killed and relaunched in WebDriver mode when it is not answering, no flag (old wrappers' `?force=1` is ignored). `503` while Ziniao is still starting or the launch lock is busy (retry), `409` when another Ziniao account is in use. |
 
 ## `tasks.py` — Task Management
 
@@ -688,7 +689,7 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/ziniao/launcher` | Download ziniao_webdriver.bat |
-| POST | `/api/browser/web/start` | Start (or reuse) the store-less orchestrator `web` browser. Lazy-called by the `bin/_web` wrapper on first use; parallels `POST /api/stores/{id}/browser/start`. Accepts `force` for parity (no-op). |
+| POST | `/api/browser/web/start` | Start (or reuse) the store-less orchestrator `web` browser. Lazy-called by the `bin/_web` wrapper on first use; parallels `POST /api/stores/{id}/browser/start`. |
 
 ## `system.py` — Server Runtime Metadata
 
@@ -778,8 +779,7 @@ message (`frontend/src/uploadLimits.ts`).
 | POST | `/api/ziniao-accounts` | Create account |
 | PUT | `/api/ziniao-accounts/{id}` | Update account |
 | DELETE | `/api/ziniao-accounts/{id}` | Delete account |
-| GET | `/api/ziniao-accounts/{id}/browsers` | List browser profiles (returns structured status JSON on error) |
-| POST | `/api/ziniao-accounts/{id}/restart` | Kill + relaunch Ziniao in WebDriver mode (Mac only, requires `running_normal` state) |
+| GET | `/api/ziniao-accounts/{id}/browsers` | List browser profiles. Brings Ziniao up first (kills a normal-mode / leftover client and relaunches it in WebDriver mode). Errors are structured status JSON: `503 {"status":"starting","elapsed_s":N}` while Ziniao is still starting (ask again), `409 account_conflict`, `502 start_failed` / `not_running` (WSL) / `not_installed` (Mac) with `message`. |
 
 ## `ads.py` — Amazon Ads API service
 

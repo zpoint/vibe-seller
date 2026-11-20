@@ -609,7 +609,7 @@ export default function App() {
         ziniaoAccounts={ziniao.ziniaoAccounts} selectedZiniaoAccountId={selectedZiniaoAccountId} setSelectedZiniaoAccountId={setSelectedZiniaoAccountId}
         ziniaoBrowsers={ziniao.ziniaoBrowsers} selectedBrowserOauth={selectedBrowserOauth} setSelectedBrowserOauth={setSelectedBrowserOauth}
         fetchingBrowsers={ziniao.fetchingBrowsers} browserFetchError={ziniao.browserFetchError} setBrowserFetchError={ziniao.setBrowserFetchError}
-        fetchBrowserProfiles={ziniao.fetchBrowserProfiles} restartZiniao={ziniao.restartZiniao} ziniaoRetried={ziniao.ziniaoRetried}
+        fetchBrowserProfiles={ziniao.fetchBrowserProfiles} ziniaoStartingSecs={ziniao.ziniaoStartingSecs}
         yuehulianStores={yuehulianStores} yuehulianError={yuehulianError} fetchingYuehulian={fetchingYuehulian} fetchYuehulianStores={fetchYuehulianStores}
         serverPlatform={serverPlatform} serverVersion={serverVersion} installId={installId}
         updateStatus={updateFlow.status} onOpenUpdate={updateFlow.openModal}
