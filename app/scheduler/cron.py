@@ -242,6 +242,11 @@ async def _run_task_job(
                 country = sched.country
                 schedule_type = sched.schedule_type
                 resolved_profile = await resolve_schedule_profile(sched, db)
+                # The row, not the job kwargs snapshotted at registration:
+                # the AI title lands on the row after the job is added
+                # (app/task_title.py).
+                task_title = sched.title
+                description = sched.description
 
     async with async_session() as db:
         if schedule_id:

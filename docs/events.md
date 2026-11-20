@@ -34,6 +34,7 @@ Each subscriber gets its own `asyncio.Queue`. Events are JSON-serialized with `t
 | `task_created` | `task_id`, `store_id`, `task` (full `TaskResponse`) | `tasks.py` |
 | `task_update` | `task_id`, `status`, `error?` | `tasks.py`, `claude_backend.py` |
 | `task_title` | `task_id`, `title` | `task_title.py` — the AI title replaced the placeholder derived from the description (only if the row still held it; a rename wins) |
+| `schedule_title` | `schedule_id`, `title` | `task_title.py` — the same upgrade for a schedule saved without a title (create, or an edit that changed the prompt) |
 | `task_message` | `task_id`, `role`, `content` | `claude_backend.py` |
 | `task_todos` | `task_id`, `todos[]` | `claude_backend.py` |
 | `task_usage` | `task_id`, `cost_usd`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `context_tokens`, `context_window`, `usage_model`, `cost_basis`, `num_turns` | `task_usage.py` (one per API-call update; `cost_basis` semantics: [backend.md](backend.md#model-pricing--usage-meter-aimodel_pricingpy)) |

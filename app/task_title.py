@@ -1,7 +1,7 @@
 """Automatic task titles: an instant placeholder, then an AI upgrade.
 
-The create dialog takes one prompt box, like a chat. A task created
-without a title gets:
+The create dialogs (task and schedule) take one prompt box, like a
+chat. A task or schedule saved without a title gets:
 
 1. ``derive_placeholder`` — the first sentence of the description,
    collapsed to one line and capped at ``TITLE_MAX_LEN`` characters.
@@ -12,7 +12,7 @@ without a title gets:
    small model, so a third-party provider is used the same way the
    agent uses it) writes a short title, which replaces the placeholder
    only if the row still carries it (compare-and-set), then a
-   ``task_title`` SSE event updates open clients.
+   ``task_title`` / ``schedule_title`` SSE event updates open clients.
 
 Any failure keeps the placeholder — a title is cosmetic and must never
 hold up or fail a task.
@@ -32,6 +32,7 @@ from app.config import VIBE_SELLER_DIR
 from app.database import async_session
 from app.env_options import Options
 from app.events.bus import event_bus
+from app.models.schedule import Schedule
 from app.models.task import Task
 
 logger = logging.getLogger(__name__)
@@ -174,33 +175,71 @@ async def generate_title(text: str, profile_id: str | None) -> str | None:
 
 
 async def _refresh(
-    task_id: str, placeholder: str, text: str, profile_id: str | None
+    model,
+    event: str,
+    key: str,
+    row_id: str,
+    placeholder: str,
+    text: str,
+    profile_id: str | None,
 ) -> None:
     title = await generate_title(text, profile_id)
     if not title or title == placeholder:
         return
     async with async_session() as db:
         result = await db.execute(
-            update(Task)
-            .where(Task.id == task_id, Task.title == placeholder)
+            update(model)
+            .where(model.id == row_id, model.title == placeholder)
             .values(title=title)
         )
         await db.commit()
     if result.rowcount:
-        await event_bus.emit('task_title', {'task_id': task_id, 'title': title})
+        await event_bus.emit(event, {key: row_id, 'title': title})
+
+
+def _schedule_refresh(*args) -> None:
+    async def run() -> None:
+        try:
+            await _refresh(*args)
+        except Exception:
+            logger.exception('Title refresh failed for %s', args[3])
+
+    t = asyncio.get_running_loop().create_task(run())
+    _pending.add(t)
+    t.add_done_callback(_pending.discard)
+
+
+def needs_ai_title(placeholder: str, text: str) -> bool:
+    """A prompt short enough to BE its title is left as typed; only a
+    lossy placeholder is worth a model call."""
+    return placeholder != ' '.join(text.split())
 
 
 def refresh_title(
     task_id: str, placeholder: str, text: str, profile_id: str | None
 ) -> None:
     """Schedule the AI title upgrade for a just-created task."""
+    _schedule_refresh(
+        Task,
+        'task_title',
+        'task_id',
+        task_id,
+        placeholder,
+        text,
+        profile_id,
+    )
 
-    async def run() -> None:
-        try:
-            await _refresh(task_id, placeholder, text, profile_id)
-        except Exception:
-            logger.exception('Title refresh failed for %s', task_id)
 
-    t = asyncio.get_running_loop().create_task(run())
-    _pending.add(t)
-    t.add_done_callback(_pending.discard)
+def refresh_schedule_title(
+    schedule_id: str, placeholder: str, text: str, profile_id: str | None
+) -> None:
+    """The same upgrade for a schedule whose title was left blank."""
+    _schedule_refresh(
+        Schedule,
+        'schedule_title',
+        'schedule_id',
+        schedule_id,
+        placeholder,
+        text,
+        profile_id,
+    )

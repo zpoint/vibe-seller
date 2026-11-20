@@ -40,6 +40,11 @@ from app.routers.schedule_planning import (
     validate_fanout_serial,
     validate_finalize_description,
 )
+from app.routers.schedule_title import (
+    rederive_blank_title,
+    title_and_prompt,
+    upgrade_title,
+)
 from app.scheduler.cron import (
     add_schedule_job_for,
     get_schedule_next_run,
@@ -254,10 +259,14 @@ async def create_schedule(
     )
     validate_fanout_serial(data.fanout_serial, data.store_id, phase_mode)
 
+    title, description, auto_title = title_and_prompt(
+        data.title, data.description
+    )
+
     schedule = Schedule(
         store_id=data.store_id,
-        title=data.title,
-        description=data.description,
+        title=title,
+        description=description,
         platform=platform,
         country=country,
         schedule_type=data.schedule_type,
@@ -305,6 +314,9 @@ async def create_schedule(
             status_code=500,
             detail=f'Schedule created but job failed: {e}',
         )
+
+    if auto_title:
+        await upgrade_title(schedule, db)
 
     # Review schedules: start the planner. The APScheduler job is
     # already registered, but the fire-gate refuses until a plan is
@@ -391,6 +403,9 @@ async def update_schedule(
         # Nullable only so a PUT can leave it out; NULL is not a value
         # the NOT NULL column can hold.
         update_data.pop('fanout_serial')
+
+    # Blank title (the one-box edit dialog): re-derived from the prompt.
+    auto_title = rederive_blank_title(update_data, schedule)
 
     # Detect prompt change BEFORE applying (normalized compare so
     # whitespace-only edits don't spuriously invalidate).
@@ -483,6 +498,8 @@ async def update_schedule(
             {'schedule_id': schedule.id, 'plan_status': schedule.plan_status},
         )
     await db.refresh(schedule)
+    if auto_title:
+        await upgrade_title(schedule, db)
 
     # Recreate APScheduler job with new params
     remove_schedule_job(schedule.id)

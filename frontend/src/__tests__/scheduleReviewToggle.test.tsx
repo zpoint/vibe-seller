@@ -33,9 +33,9 @@ function renderCreate() {
       <CreateScheduleModal storeId="store-a" onClose={() => {}} onCreated={() => {}} />
     </I18nextProvider>,
   )
-  // The title is the form's only untyped text input.
-  const title = document.querySelector('input:not([type])') as HTMLInputElement
-  fireEvent.change(title, { target: { value: 'Weekly check' } })
+  // One prompt box; the server derives the title from it.
+  const prompt = document.getElementById('schedule-prompt') as HTMLTextAreaElement
+  fireEvent.change(prompt, { target: { value: 'Weekly check' } })
 }
 
 describe('create', () => {

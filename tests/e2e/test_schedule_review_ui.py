@@ -95,8 +95,8 @@ class TestCreateForm:
         box = page.get_by_test_id('schedule-review-plan')
         expect(box).to_be_visible()
         expect(box).not_to_be_checked()
-        page.get_by_placeholder('Enter task title').fill('Auto daily check')
-        page.locator('textarea').first.fill('Open the dashboard.')
+        # One prompt box; the title is derived from it.
+        page.locator('#schedule-prompt').fill('Auto daily check.')
         page.get_by_role('button', name='Create').click()
 
         deadline = time.time() + 30
@@ -106,7 +106,8 @@ class TestCreateForm:
                 (
                     s
                     for s in api.get('/api/schedules').json()
-                    if s['title'] == 'Auto daily check'
+                    if s['store_id'] == store_id
+                    and s['description'] == 'Auto daily check.'
                 ),
                 None,
             )
@@ -200,3 +201,58 @@ class TestReviewFlow:
         assert s['plan_feedback'] == 'Also check the ads.'
         assert s['plan_version'] > first['plan_version']
         expect(page.get_by_test_id('plan-approve')).to_be_visible()
+
+
+class TestOneBox:
+    """The schedule dialogs are one prompt box, like the task dialog."""
+
+    FIRST = 'Download yesterday orders for widget-006 every morning.'
+    PROMPT = f'{FIRST} Then summarize the returns by reason.'
+    EDITED = 'Check the coupons for widget-006 and list any that expired.'
+
+    def test_create_and_edit_derive_the_title_from_the_prompt(
+        self, authenticated_page, api
+    ):
+        page = authenticated_page
+        store_id = _store(api, 'UI One Box Store')
+        page.goto(f'{e2e_helpers.BASE_URL}/stores/{store_id}/schedules')
+        page.get_by_role('button', name='New Schedule').first.click()
+        prompt = page.locator('#schedule-prompt')
+        expect(prompt).to_be_visible()
+        expect(page.get_by_placeholder('Enter task title')).to_have_count(0)
+
+        prompt.fill(self.PROMPT)
+        with page.expect_response(
+            lambda r: r.url.endswith('/api/schedules')
+            and r.request.method == 'POST'
+        ) as created:
+            page.get_by_role('button', name='Create').click()
+        assert created.value.ok, created.value.text()
+        sent = created.value.request.post_data_json
+        assert 'title' not in sent, 'the dialog sends no title'
+        assert sent['description'] == self.PROMPT
+        schedule = created.value.json()
+        # Capped first sentence (the mock CLI makes no AI title).
+        assert schedule['title'] == self.FIRST[:49] + '…'
+
+        _open_schedule(page, store_id, schedule['id'])
+        expect(
+            page.get_by_role('heading', name=schedule['title'])
+        ).to_be_visible()
+        page.get_by_role('button', name='Edit').click()
+        prompt = page.locator('#schedule-prompt')
+        expect(prompt).to_have_value(self.PROMPT)
+        prompt.fill(self.EDITED)
+        with page.expect_response(
+            lambda r: r.url.endswith(f'/api/schedules/{schedule["id"]}')
+            and r.request.method == 'PUT'
+        ) as saved:
+            page.get_by_role('button', name='Save').click()
+        assert saved.value.ok, saved.value.text()
+        assert saved.value.request.post_data_json['title'] == ''
+        edited = saved.value.json()
+        assert edited['description'] == self.EDITED
+        assert edited['title'] == self.EDITED[:49] + '…'
+        expect(
+            page.get_by_role('heading', name=edited['title'])
+        ).to_be_visible()

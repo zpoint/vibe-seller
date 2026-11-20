@@ -19,7 +19,7 @@ src/
     CreateEventModal.tsx      # Event creation modal
     CreateScheduleModal.tsx   # Schedule creation modal; wraps ScheduleForm, prefills timezone from /api/settings
     EditScheduleModal.tsx     # Schedule edit modal; wraps ScheduleForm, PUTs /api/schedules/:id
-    ScheduleForm.tsx          # Shared controlled form for create/edit (title, cadence, hour/minute selects, timezone)
+    ScheduleForm.tsx          # Shared controlled form for create/edit (one prompt box — the title is derived server-side, cadence, hour/minute selects, timezone)
     TimezoneSelect.tsx        # Native <select> backed by Intl.supportedValuesOf('timeZone') (no hardcoded list)
     QuestionBanner.tsx        # Agent question/answer banner
     ui/

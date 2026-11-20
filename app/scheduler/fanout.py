@@ -165,6 +165,11 @@ async def run_fanout_job(
         schedule_type = sched.schedule_type
         phase_mode_value = sched.phase_mode
         resolved_profile = await resolve_schedule_profile(sched, db)
+        # The row, not the job kwargs snapshotted at registration:
+        # the AI title lands on the row after the job is added
+        # (app/task_title.py).
+        task_title = sched.title
+        description = sched.description
 
     # Get all active stores
     async with async_session() as db:
@@ -331,6 +336,9 @@ async def run_single_job(
         plan_mode, saved_plan, saved_plan_version = fire_plan(sched)
         single_schedule_type = sched.schedule_type
         resolved_profile = await resolve_schedule_profile(sched, db)
+        # The row, not the job kwargs (see run_fanout_job).
+        task_title = sched.title
+        description = sched.description
 
     task_id = str(uuid.uuid4())
 

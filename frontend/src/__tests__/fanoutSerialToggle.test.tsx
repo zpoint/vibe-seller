@@ -50,7 +50,7 @@ describe('create', () => {
         onCreated={vi.fn()}
       />,
     )
-    fireEvent.change(screen.getByPlaceholderText('Enter task title'), {
+    fireEvent.change(screen.getByLabelText('What should run each time'), {
       target: { value: 'Monthly download' },
     })
   }

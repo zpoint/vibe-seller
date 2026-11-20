@@ -2,7 +2,10 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ScheduleCreate(BaseModel):
-    title: str
+    # Optional: the create dialog is one prompt box. A blank title is
+    # derived from the description and upgraded by the AI
+    # (app/task_title.py), the same as a task's.
+    title: str | None = None
     description: str | None = None
     store_id: str | None = None
     schedule_type: str  # 'minutes'|'hours'|'days'|'weekly'|'monthly'
@@ -34,6 +37,9 @@ class ScheduleUpdate(BaseModel):
     # phase_mode/store_id surfaces as a 422 instead of a silent drop.
     model_config = ConfigDict(extra='forbid')
 
+    # Omitted keeps the title; blank ('') re-derives it from the
+    # (edited) description — what the one-box edit dialog sends when
+    # the prompt changed.
     title: str | None = None
     description: str | None = None
     schedule_type: str | None = None
