@@ -60,32 +60,30 @@ def open_store(page: Page, store_name: str) -> None:
     expect(page.locator('h2', has_text=store_name)).to_be_visible(timeout=10000)
 
 
-def create_task_in_ui(
-    page: Page, title: str, description: str | None = None
-) -> None:
+def create_task_in_ui(page: Page, prompt: str) -> dict:
+    """Type *prompt* into the New Task dialog's one box and submit.
+
+    The dialog has no title field: the server derives the title (and
+    may later replace it with an AI-written one), so tasks are tracked
+    by the id the create call returns, never by a title.
+    """
     page.get_by_role('button', name='+ New Task').click()
-    page.get_by_placeholder('e.g. Navigate to google.com').fill(title)
-    if description:
-        page.get_by_placeholder('Enter task description').fill(description)
-    page.get_by_role('button', name='Create & Run').click()
-    expect(page.locator('h2', has_text=title)).to_be_visible(timeout=10000)
+    page.get_by_placeholder('e.g. Navigate to google.com').fill(prompt)
+    with page.expect_response(
+        lambda r: r.url.endswith('/api/tasks') and r.request.method == 'POST'
+    ) as created:
+        page.get_by_role('button', name='Create & Run').click()
+    assert created.value.ok, created.value.text()
+    return created.value.json()
 
 
-def task_id_by_title(api, base_url, store_id, title) -> str:
-    deadline = time.time() + 20
-    while time.time() < deadline:
-        tasks = api.get(
-            f'{base_url}/api/tasks', params={'store_id': store_id}
-        ).json()
-        items = tasks if isinstance(tasks, list) else tasks.get('items', [])
-        for t in items:
-            if t.get('title') == title:
-                return t['id']
-        time.sleep(0.5)
-    raise AssertionError(f'task {title!r} not found')
+def current_title(api, base_url, task_id) -> str:
+    return api.get(f'{base_url}/api/tasks/{task_id}').json()['title']
 
 
-def select_task(page: Page, title: str) -> None:
+def select_task(page: Page, api, base_url, task_id: str) -> None:
+    """Open the task by clicking its row — found by its title right now."""
+    title = current_title(api, base_url, task_id)
     page.locator('button', has_text=title).first.click()
     expect(page.locator('h2', has_text=title)).to_be_visible(timeout=10000)
 
@@ -104,10 +102,8 @@ def run_park_flow(
     ev: Evidence,
     store_name: str,
     store_id: str,
-    a_title: str,
-    a_description: str | None,
-    b_title: str,
-    b_description: str | None,
+    a_prompt: str,
+    b_prompt: str,
     timeout_s: float,
     b_budget_s: float,
     a_budget_s: float,
@@ -120,8 +116,7 @@ def run_park_flow(
     try:
         # 1. Task A asks the question; it shows in the UI.
         open_store(page, store_name)
-        create_task_in_ui(page, a_title, a_description)
-        a = ids['A'] = task_id_by_title(api, base_url, store_id, a_title)
+        a = ids['A'] = create_task_in_ui(page, a_prompt)['id']
         ev.mark('created', task='A', id=a)
         _, _ = poll(
             api,
@@ -145,14 +140,13 @@ def run_park_flow(
         assert row_a['status'] == 'running', row_a
 
         # 2. Task B is created while A holds the only slot: it queues.
-        create_task_in_ui(page, b_title, b_description)
-        b = ids['B'] = task_id_by_title(api, base_url, store_id, b_title)
+        b = ids['B'] = create_task_in_ui(page, b_prompt)['id']
         ev.mark('created', task='B', id=b)
         time.sleep(min(10.0, timeout_s / 3))
         b_now = api.get(f'{base_url}/api/tasks/{b}').json()
         a_now = api.get(f'{base_url}/api/tasks/{a}').json()
         ev.mark('step2', a=a_now['status'], b=b_now['status'])
-        select_task(page, b_title)
+        select_task(page, api, base_url, b)
         ev.shot(page, '02-b-queued-a-waiting-for-answer')
         ev.task_row(b, 'B-02-queued')
         assert a_now['status'] == 'running', a_now['status']
@@ -172,7 +166,7 @@ def run_park_flow(
         parked_after = time.time() - asked_at
         ev.mark('a_parked', after_s=round(parked_after, 1), seen=a_seen)
         assert parked_after >= timeout_s - 2, parked_after
-        select_task(page, a_title)
+        select_task(page, api, base_url, a)
         expect(banner(page)).to_be_visible(timeout=20000)
         ev.shot(page, '03-a-parked-question-still-shown')
         row_a = ev.task_row(a, 'A-03-parked')
@@ -190,7 +184,7 @@ def run_park_flow(
         )
         assert b_done['status'] == 'completed', b_done
         check_b_result(b_done['result'] or '')
-        select_task(page, b_title)
+        select_task(page, api, base_url, b)
         ev.shot(page, '04-b-completed')
         ev.task_row(b, 'B-04-completed')
         b_running = [
@@ -228,7 +222,7 @@ def run_park_flow(
 
         # 5. Reload: the parked question is served from the row.
         open_store(page, store_name)
-        select_task(page, a_title)
+        select_task(page, api, base_url, a)
         expect(banner(page)).to_be_visible(timeout=20000)
         ev.shot(page, '05-a-reloaded-question-shown')
         assert pending(api, base_url, a)['source'] == 'parked'
@@ -259,7 +253,7 @@ def run_park_flow(
         )
         assert a_done['status'] == 'completed', a_done
         check_a_result(a_done['result'] or '')
-        select_task(page, a_title)
+        select_task(page, api, base_url, a)
         ev.shot(page, '07-a-completed-result')
         ev.task_row(a, 'A-07-completed')
         ev.messages(api, base_url, a, 'A')
