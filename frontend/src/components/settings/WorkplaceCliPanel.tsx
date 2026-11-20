@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 
-/** Settings → Integrations: the official WeCom / Feishu / DingTalk CLIs.
+/** Settings → Integrations: the official WeCom / Feishu / DingTalk CLIs,
+ *  and Google Workspace's (its own card, same rows).
  *  (Shown to users as "WeCom / Feishu / DingTalk" — the
  *  page never says CLI; see integrations.cli in the locales.)
  *
@@ -33,6 +34,11 @@ interface LoginView {
   /** Signed in, and the server is still enabling the platform: the
    *  outcome is not final yet, so the page keeps polling. */
   finishing?: boolean
+  /** The approval comes back as a redirect to ``callback`` (a port on
+   *  the server's computer): a browser elsewhere cannot reach it, so the
+   *  page takes the address it ended on and the server relays it. */
+  paste_back?: boolean
+  callback?: string | null
 }
 
 interface Notice {
@@ -61,6 +67,29 @@ interface CliCard {
   enabled: boolean
   auth: { usable: boolean; reason: string; identity: string | null } | null
   login: Partial<LoginView> | null
+  /** The one-time setup a sign-in needs (its form), and whether the
+   *  sign-in waits on it now. */
+  setup?: string | null
+  needs_setup?: boolean
+  /** Said on the row until the platform is enabled (i18n key). */
+  notice?: string | null
+}
+
+/** Where each step of Google's one-time setup is done (Google Cloud
+ *  console). The steps' text is ``integrations.cli.setup.google_client.steps``. */
+const GOOGLE_APIS = [
+  'gmail.googleapis.com', 'drive.googleapis.com', 'sheets.googleapis.com',
+  'docs.googleapis.com', 'calendar-json.googleapis.com',
+].join(',')
+const SETUP_LINKS: Record<string, (string | null)[]> = {
+  google_client: [
+    'https://console.cloud.google.com/projectcreate',
+    `https://console.cloud.google.com/flows/enableapi?apiid=${GOOGLE_APIS}`,
+    'https://console.cloud.google.com/auth/overview',
+    'https://console.cloud.google.com/auth/audience',
+    'https://console.cloud.google.com/auth/clients',
+    null,
+  ],
 }
 
 const BASE = '/api/integrations/cli'
@@ -85,6 +114,8 @@ function errView(e: unknown, fallback = 'unexpected'): CliError {
 const ERROR_CODES = new Set([
   'not_installed', 'not_signed_in', 'in_use', 'does_not_run',
   'unsupported', 'download_failed', 'unexpected', 'load',
+  'needs_setup', 'google_client_web', 'google_client_invalid',
+  'bad_address', 'no_login',
 ])
 
 /** The sentence for *err*, plus its technical text under "Details". */
@@ -109,7 +140,17 @@ function Details({ text }: { text: string }) {
   )
 }
 
-export function WorkplaceCliPanel({ isAdmin = false }: { isAdmin?: boolean }) {
+/** The platforms of one card: the workplace ones, or Google Workspace. */
+const GOOGLE_KEYS = ['gws']
+
+export function WorkplaceCliPanel({
+  isAdmin = false,
+  google = false,
+}: {
+  isAdmin?: boolean
+  /** The Google Workspace card instead of the WeCom / Feishu / DingTalk one. */
+  google?: boolean
+}) {
   const { t } = useTranslation()
   const [cards, setCards] = useState<CliCard[]>([])
   const [loading, setLoading] = useState(true)
@@ -118,21 +159,26 @@ export function WorkplaceCliPanel({ isAdmin = false }: { isAdmin?: boolean }) {
   const refresh = useCallback(async () => {
     try {
       const r = (await api.get(BASE)) as { integrations?: CliCard[] }
-      setCards(Array.isArray(r?.integrations) ? r.integrations : [])
+      const all = Array.isArray(r?.integrations) ? r.integrations : []
+      setCards(all.filter((c) => GOOGLE_KEYS.includes(c.key) === google))
       setError(null)
     } catch (e) {
       setError(errView(e, 'load'))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [google])
 
   useEffect(() => { refresh() }, [refresh])
 
+  const group = google ? 'integrations.gws' : 'integrations.cli'
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4" data-testid="cli-card">
-      <h3 className="font-semibold mb-1">{t('integrations.cli.title')}</h3>
-      <p className="text-xs text-gray-500 mb-3">{t('integrations.cli.description')}</p>
+    <div
+      className="bg-white rounded-lg border border-gray-200 p-4"
+      data-testid={google ? 'gws-card' : 'cli-card'}
+    >
+      <h3 className="font-semibold mb-1">{t(`${group}.title`)}</h3>
+      <p className="text-xs text-gray-500 mb-3">{t(`${group}.description`)}</p>
       {loading ? (
         <p className="text-sm text-gray-500">{t('common.loading')}</p>
       ) : (
@@ -161,6 +207,9 @@ function CliRow({
   const [error, setError] = useState<CliError | null>(null)
   const [login, setLogin] = useState<LoginView | null>(null)
   const [qrTick, setQrTick] = useState(0)
+  // The one-time setup form is open (Connect found it missing, or the
+  // admin chose to replace what was set up).
+  const [setupOpen, setSetupOpen] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Bumped by every start / cancel: a poll answered after that belongs
   // to a login the person already moved on from, and must not reopen
@@ -230,7 +279,26 @@ function CliRow({
         return
       }
       await onChanged()
+      // A platform with a one-time setup (Google's sign-in key): the
+      // sign-in can only start once it is done — ask the fresh row.
+      if (card.setup && (await freshCard(card.key))?.needs_setup) {
+        setSetupOpen(true)
+        return
+      }
       await startLogin()
+    })
+
+  const submitSetup = (payload: string) =>
+    run('setup', async () => {
+      await api.post(`${BASE}/${card.key}/setup`, { payload })
+      setSetupOpen(false)
+      await onChanged()
+      await startLogin()
+    })
+
+  const pasteBack = (address: string) =>
+    run('paste', async () => {
+      await api.post(`${BASE}/${card.key}/login/paste`, { address })
     })
 
   const relogin = () => run('login', startLogin)
@@ -272,18 +340,38 @@ function CliRow({
                 {' · '}
                 {signedIn
                   ? t('integrations.cli.signedInAs', { identity: card.auth?.identity || '✓' })
-                  : t('integrations.cli.notSignedIn')}
+                  : card.auth?.reason === 'expired'
+                    ? t('integrations.cli.signInExpired')
+                    : t('integrations.cli.notSignedIn')}
               </>
             )}
             {' · '}
-            <span className={card.enabled ? 'text-green-700' : ''}>
-              {card.enabled ? t('integrations.cli.enabled') : t('integrations.cli.disabled')}
-            </span>
+            {card.enabled && card.installed && card.auth && !signedIn ? (
+              // Enabled, but the sign-in stopped working (expired,
+              // revoked): the AI's calls fail until someone signs in.
+              <span className="text-amber-700" data-testid={`cli-needs-signin-${card.key}`}>
+                {t('integrations.cli.enabledNeedsSignIn')}
+              </span>
+            ) : (
+              <span className={card.enabled ? 'text-green-700' : ''}>
+                {card.enabled ? t('integrations.cli.enabled') : t('integrations.cli.disabled')}
+              </span>
+            )}
           </p>
         </div>
         {isAdmin && (
           <div className="flex gap-2 shrink-0">
-            {!card.enabled && !loginActive && (
+            {card.setup && card.installed && !card.needs_setup && !loginActive && !setupOpen && (
+              <button
+                onClick={() => setSetupOpen(true)}
+                disabled={!!busy}
+                data-testid={`cli-setup-open-${card.key}`}
+                className="px-3 py-1.5 text-sm rounded bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:opacity-40"
+              >
+                {t(`integrations.cli.setup.${card.setup}.replace`)}
+              </button>
+            )}
+            {!card.enabled && !loginActive && !setupOpen && (
               <button
                 onClick={connect}
                 disabled={!!busy}
@@ -316,6 +404,22 @@ function CliRow({
           </div>
         )}
       </div>
+
+      {card.notice && !card.enabled && (
+        <p className="text-sm text-amber-700" data-testid={`cli-row-notice-${card.key}`}>
+          {t(`integrations.cli.rowNotice.${card.notice}`)}
+        </p>
+      )}
+
+      {setupOpen && card.setup && !loginActive && (
+        <SetupForm
+          kind={card.setup}
+          cardKey={card.key}
+          busy={busy === 'setup'}
+          onSubmit={submitSetup}
+          onCancel={() => { setSetupOpen(false); setError(null) }}
+        />
+      )}
 
       {loginActive && (
         <div className="p-3 bg-white rounded border border-indigo-200 space-y-2" data-testid={`cli-login-${card.key}`}>
@@ -352,8 +456,16 @@ function CliRow({
               className="block text-sm text-indigo-600 hover:underline break-all"
               data-testid={`cli-login-url-${card.key}`}
             >
-              {login.url}
+              {shortLink(login.url)}
             </a>
+          )}
+          {login.paste_back && login.callback && (
+            <PasteBack
+              cardKey={card.key}
+              callback={login.callback}
+              busy={busy === 'paste'}
+              onSubmit={pasteBack}
+            />
           )}
           {login.user_code && (
             <p className="text-sm">
@@ -384,6 +496,144 @@ function CliRow({
         <LoginOutcome login={login} cardKey={card.key} retryButton={retryButton} />
       )}
       {error && <ErrorLine err={error} name={name} />}
+    </div>
+  )
+}
+
+/** A link as the page prints it: whole when short; a long one (Google's
+ *  sign-in link runs to hundreds of characters) as its site and "…". */
+function shortLink(url: string): string {
+  if (url.length <= 120) return url
+  try {
+    return `${new URL(url).origin}/…`
+  } catch {
+    return `${url.slice(0, 117)}…`
+  }
+}
+
+/** The row as the server has it now (after an install, before the
+ *  parent's refresh has reached this row's props). */
+async function freshCard(key: string): Promise<CliCard | undefined> {
+  const r = (await api.get(BASE)) as { integrations?: CliCard[] }
+  return (r?.integrations ?? []).find((c) => c.key === key)
+}
+
+/** The one-time setup of *kind*: what to do where, then the file the
+ *  person made (Google: the downloaded sign-in key). */
+function SetupForm({
+  kind,
+  cardKey,
+  busy,
+  onSubmit,
+  onCancel,
+}: {
+  kind: string
+  cardKey: string
+  busy: boolean
+  onSubmit: (payload: string) => void
+  onCancel: () => void
+}) {
+  const { t } = useTranslation()
+  const [fileError, setFileError] = useState(false)
+  const steps = t(`integrations.cli.setup.${kind}.steps`, { returnObjects: true }) as string[]
+  const links = SETUP_LINKS[kind] ?? []
+  const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setFileError(false)
+    try {
+      onSubmit(await readText(file))
+    } catch {
+      setFileError(true)
+    }
+  }
+  return (
+    <div className="p-3 bg-white rounded border border-indigo-200 space-y-2" data-testid={`cli-setup-${cardKey}`}>
+      <p className="text-sm font-medium">{t(`integrations.cli.setup.${kind}.title`)}</p>
+      <p className="text-xs text-gray-600">{t(`integrations.cli.setup.${kind}.intro`)}</p>
+      <ol className="list-decimal pl-5 space-y-1 text-sm" data-testid={`cli-setup-steps-${cardKey}`}>
+        {Array.isArray(steps) && steps.map((s, i) => (
+          <li key={i}>
+            {s}
+            {links[i] && (
+              <>
+                {' '}
+                <a href={links[i]!} target="_blank" rel="noreferrer"
+                  className="text-indigo-600 hover:underline whitespace-nowrap">
+                  {t('integrations.cli.setup.open')}
+                </a>
+              </>
+            )}
+          </li>
+        ))}
+      </ol>
+      <div className="flex items-center gap-3">
+        <label className={`px-3 py-1.5 text-sm rounded font-medium bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer ${busy ? 'opacity-40 pointer-events-none' : ''}`}>
+          {busy ? t('integrations.cli.working') : t(`integrations.cli.setup.${kind}.choose`)}
+          <input
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={pick}
+            data-testid={`cli-setup-file-${cardKey}`}
+          />
+        </label>
+        <button onClick={onCancel} className="text-xs text-gray-600 hover:underline"
+          data-testid={`cli-setup-cancel-${cardKey}`}>
+          {t('integrations.cli.cancel')}
+        </button>
+      </div>
+      {fileError && <p className="text-sm text-red-600">{t('integrations.cli.setup.unreadable')}</p>}
+    </div>
+  )
+}
+
+function readText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(file)
+  })
+}
+
+/** For a browser that is not on the server's computer: the approval
+ *  lands on an address only that computer can open. The person pastes
+ *  it here and the server hands it on. */
+function PasteBack({
+  cardKey,
+  callback,
+  busy,
+  onSubmit,
+}: {
+  cardKey: string
+  callback: string
+  busy: boolean
+  onSubmit: (address: string) => void
+}) {
+  const { t } = useTranslation()
+  const [address, setAddress] = useState('')
+  return (
+    <div className="space-y-1 pt-1 border-t border-gray-100" data-testid={`cli-paste-${cardKey}`}>
+      <p className="text-xs text-gray-600">{t('integrations.cli.pasteBack.hint', { address: callback })}</p>
+      <div className="flex gap-2">
+        <input
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder={`${callback}/?…`}
+          className="flex-1 min-w-0 px-2 py-1 text-sm border rounded font-mono"
+          data-testid={`cli-paste-input-${cardKey}`}
+        />
+        <button
+          onClick={() => onSubmit(address)}
+          disabled={busy || !address.trim()}
+          className="px-3 py-1 text-sm rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40"
+          data-testid={`cli-paste-submit-${cardKey}`}
+        >
+          {t('integrations.cli.pasteBack.submit')}
+        </button>
+      </div>
     </div>
   )
 }

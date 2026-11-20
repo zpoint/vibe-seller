@@ -34,8 +34,8 @@ i18nTestInstance.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 })
 
-/** The Google Workspace card has no testid, so find it through its
- *  title and walk up to the card that contains it. */
+/** Find the Google Workspace card through its title and walk up to
+ *  the card that contains it. */
 function googleWorkspaceCard(): HTMLElement {
   const heading = screen.getByRole('heading', {
     name: enTranslation.integrations.gws.title,
@@ -57,14 +57,8 @@ describe('IntegrationsPanel order', () => {
     vi.clearAllMocks()
     mockApiTokens.list.mockResolvedValue([])
     mockApi.get.mockImplementation((url: string) => {
-      if (url === '/api/settings/google-workspace/status') {
-        return Promise.resolve({
-          binary: false,
-          auth: false,
-          version: null,
-          enabled: false,
-          installed: false,
-        })
+      if (url === '/api/integrations/cli') {
+        return Promise.resolve({ integrations: [] })
       }
       return Promise.resolve([])
     })

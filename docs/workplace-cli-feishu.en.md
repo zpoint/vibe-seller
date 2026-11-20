@@ -39,10 +39,31 @@ Two steps; the first is needed only once.
 The AI picks the identity as the official skills describe; you don't
 choose.
 
-**Messages**: messaging someone as you needs the app's "send messages
-as user" permission (`im:message.send_as_user`). In our test it was not
-granted, so the AI sent the message as the Feishu app, into the app's
-chat with you.
+**Messages**: whether the AI can message people as you depends on the
+Feishu app's "send messages as user" permission
+(`im:message.send_as_user`):
+
+- **Granted**: the AI sends messages as you; people see you as the
+  sender.
+- **Not granted**: the AI cannot send as you. It sends as the Feishu
+  app (bot) instead, into the app's chat with you.
+
+To let the AI message people as you, the Feishu app's admin turns it on:
+
+1. Open the [Feishu developer console](https://open.feishu.cn/app) and
+   open the app created in step 1.
+2. Under 开发配置 → 权限管理 (Development → Permissions), click 开通权限
+   (Add permissions), switch to the user-identity permissions, search for
+   `im:message.send_as_user`, tick it and click 确认开通权限 (Confirm).
+3. This permission needs review: under 应用发布 → 版本管理与发布 (App
+   release → Version management), click 创建版本 (Create version), save,
+   then 申请线上发布 (Submit for release), and wait for your Feishu
+   organization's admin to approve.
+4. Once approved, click **Sign in again** on the Feishu row in Vibe
+   Seller's Settings.
+
+Feishu's official guide: [Apply for API permissions](https://open.feishu.cn/document/server-docs/application-scope/introduction)
+(in Chinese).
 
 ## FAQ
 

@@ -18,6 +18,7 @@ from app.api_token_scope import ApiTokenScopeMiddleware
 from app.browser import chromium_engine
 from app.browser.manager import browser_manager
 from app.channels import wecom_channel as wecom_channel  # registers channel
+from app.cli_integrations import gws_legacy
 from app.cli_integrations.login import login_manager as cli_login_manager
 from app.config import (
     BACKEND_PORT,
@@ -202,6 +203,10 @@ async def lifespan(app: FastAPI):
     # leave a staging dir behind for the next task workspace to pick up.
     skills_sync.sweep_staging()
     knowledge_sync.sweep_staging()
+    # The earlier Google Workspace switch (a personal gws) is retired
+    # before any task copies the skills tree.
+    async with async_session() as db:
+        await gws_legacy.migrate(db)
     # Sync built-in knowledge + skills from package (local, no network).
     # Skill dep installs are deferred to a background task — cold pip
     # installs must not delay /api/health past CI/user boot windows.

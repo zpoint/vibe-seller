@@ -22,19 +22,12 @@ from app.scheduler.task_cleanup import (
 from app.telemetry_events import TelemetryEvent
 from app.uploads import MAX_UPLOAD_SIZE
 from app.utils.timezone import get_server_timezone
-from app.workspace import gws_integration
-from app.workspace.skills_sync import skills_sync
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/api/settings', tags=['settings'])
 
 # Keys that can be read/written via the generic GET/PUT /api/settings.
-# `google_workspace_enabled` is intentionally NOT here — flipping it
-# via plain PUT would leave the DB flag out of sync with the actual
-# filesystem (e.g., flag=true but .claude/skills/gws/ missing). It's
-# managed exclusively via the dedicated enable/disable endpoints
-# below, which run the full install/uninstall pipeline.
 ALLOWED_KEYS = {
     'auth_required',
     'browser_headless',
@@ -247,120 +240,3 @@ async def update_settings(
             pass
 
     return {'ok': True}
-
-
-# ── Google Workspace integration ───────────────────────
-
-
-async def _read_gws_enabled(db: AsyncSession) -> bool:
-    """Read google_workspace_enabled from AppSettings (default false)."""
-    row = await db.get(AppSettings, 'google_workspace_enabled')
-    return bool(row and row.value == 'true')
-
-
-async def _write_gws_enabled(db: AsyncSession, enabled: bool) -> None:
-    """Persist google_workspace_enabled flag."""
-    value = 'true' if enabled else 'false'
-    row = await db.get(AppSettings, 'google_workspace_enabled')
-    if row:
-        row.value = value
-    else:
-        db.add(AppSettings(key='google_workspace_enabled', value=value))
-    await db.commit()
-
-
-@router.get('/google-workspace/status')
-async def gws_status(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Report prereqs (gws binary + auth) and current enabled flag.
-
-    Requires auth: shells out to `gws --version` + `gws auth status`,
-    which are cheap but spawn subprocesses — we don't want anonymous
-    callers able to trigger that when `auth_required=true`. When auth
-    is off, `get_current_user` returns the default admin so the UI
-    still works out of the box. Any authenticated role is fine — the
-    response doesn't leak secrets.
-    """
-    status = await gws_integration.check_status()
-    enabled = await _read_gws_enabled(db)
-    return {
-        'binary': status['binary'],
-        'auth': status['auth'],
-        'auth_reason': status.get('auth_reason'),
-        'version': status['version'],
-        'detail': status.get('detail', {}),
-        'enabled': enabled,
-        'installed': gws_integration.is_installed(),
-    }
-
-
-@router.post('/google-workspace/enable')
-async def gws_enable(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Validate prereqs, install skills, set flag. Admin only."""
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail='Admin access required')
-
-    status = await gws_integration.check_status()
-    if not status['binary']:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                'gws binary not found on PATH. Install from '
-                'https://github.com/googleworkspace/cli/releases'
-            ),
-        )
-    if not status['auth']:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                'gws is installed but not authenticated. '
-                "Run 'gws auth login' in a terminal."
-            ),
-        )
-
-    try:
-        result = await gws_integration.install_skills()
-    except Exception as e:
-        logger.exception('gws install failed')
-        raise HTTPException(
-            status_code=500, detail=f'gws install failed: {e}'
-        ) from e
-
-    skills_sync.mark_gws_installed(True)
-    await _write_gws_enabled(db, True)
-    telemetry.send(
-        TelemetryEvent.INTEGRATION_GWS_ENABLED,
-        {
-            'success': bool(result.get('installed', True)),
-            'skill_count_bucket': telemetry.count_bucket(
-                int(result.get('count') or 0)
-            ),
-        },
-    )
-    return {
-        'ok': True,
-        'installed': result.get('installed', True),
-        'count': result.get('count', 0),
-        'subskills': result.get('subskills', []),
-    }
-
-
-@router.post('/google-workspace/disable')
-async def gws_disable(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Remove gws/ umbrella and clear flag. Admin only. Idempotent."""
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail='Admin access required')
-
-    result = await gws_integration.uninstall_skills()
-    skills_sync.mark_gws_installed(False)
-    await _write_gws_enabled(db, False)
-    telemetry.send(TelemetryEvent.INTEGRATION_GWS_DISABLED, {})
-    return {'ok': True, 'removed': result.get('removed', False)}

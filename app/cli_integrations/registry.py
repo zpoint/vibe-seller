@@ -14,6 +14,7 @@ from pathlib import Path
 from app.cli_integrations.base import CliIntegration
 from app.cli_integrations.dingtalk import DingTalk
 from app.cli_integrations.feishu import Feishu
+from app.cli_integrations.gws import GoogleWorkspace
 from app.cli_integrations.paths import (
     bin_dir,
     is_enabled,
@@ -25,7 +26,7 @@ from app.cli_integrations.wecom import WeCom
 logger = logging.getLogger(__name__)
 
 INTEGRATIONS: dict[str, CliIntegration] = {
-    i.key: i for i in (WeCom(), Feishu(), DingTalk())
+    i.key: i for i in (WeCom(), Feishu(), DingTalk(), GoogleWorkspace())
 }
 
 
@@ -53,13 +54,16 @@ def enabled_bin_dirs(home: Path | None = None) -> list[Path]:
     return [d for d in dirs if d is not None]
 
 
-def enabled_env(home: Path | None = None) -> dict[str, str]:
-    """The CLI switches (``CliIntegration.env``) of the enabled ones."""
+def apply_enabled_env(env: dict[str, str], home: Path | None = None) -> None:
+    """Give *env* (an agent's) what the enabled CLIs need: their
+    switches (``CliIntegration.env``), with the inherited vars that
+    would make one act as someone else (``env_unset``) taken out.
+    Blocking (reads each ``install.json``)."""
     h = home or vibe_home()
-    env: dict[str, str] = {}
     for i in enabled(h):
+        for var in i.env_unset:
+            env.pop(var, None)
         env.update(i.env(h))
-    return env
 
 
 _GUARD_HEADER = '# Auto-generated workplace-CLI guard (vibe-seller)'

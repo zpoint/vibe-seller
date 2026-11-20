@@ -624,7 +624,8 @@ def _await_servers_upgraded(before: str) -> int:
     Returns 1 if a server that can restart itself never picked the
     upgrade up — the one outcome where the upgrade did not take effect.
     """
-    servers = [p for p in _server_ports() if _probe_version(p) is not None]
+    # Live pid files, not "answering now": a self-restart keeps its PID.
+    servers = _server_ports()
     if not servers:
         return 0
     target = _new_cli_version()

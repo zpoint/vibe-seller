@@ -369,9 +369,11 @@ class SkillsSyncManager(SkillMirrorMixin):
     # ── Inventory (.sync_meta.json) ─────────────────────
 
     # NOTE: this file holds INVENTORY only — which skill dirs this
-    # manager put on disk (``synced_skills``), whether the optional gws
-    # bundle is installed (``gws_installed``) and which requirements.txt
-    # hashes are already pip-installed (``installed_deps``). Schedule
+    # manager put on disk (``synced_skills``) and which requirements.txt
+    # hashes are already pip-installed (``installed_deps``); a
+    # ``gws_installed`` key older releases wrote is no longer read
+    # (Google Workspace is a managed platform now,
+    # ``app.cli_integrations.gws``). Schedule
     # state (last sync, upstream commit, ...) lives in the ``sync_state``
     # table; see app/sync/state.py.
 
@@ -404,23 +406,6 @@ class SkillsSyncManager(SkillMirrorMixin):
         cannot interleave.
         """
         update_json_file(self._sync_meta_path, mutate)
-
-    # ── Google Workspace bundle flag ────────────────────
-
-    def is_gws_installed(self) -> bool:
-        """Return True if the gws umbrella has been installed."""
-        return bool(self._read_sync_meta().get('gws_installed', False))
-
-    def mark_gws_installed(self, installed: bool) -> None:
-        """Record whether the gws umbrella is installed."""
-
-        def _mark(meta: dict) -> None:
-            if installed:
-                meta['gws_installed'] = True
-            else:
-                meta.pop('gws_installed', None)
-
-        self._update_sync_meta(_mark)
 
     def get_synced_skills(self) -> set[str]:
         """Return set of skill names synced by this manager."""

@@ -44,6 +44,7 @@ from app.agent_mcp.support import (
     call_route,
     require,
 )
+from app.cli_integrations import manager as cli_manager
 from app.models.ziniao_account import ZiniaoAccount
 from app.routers import (
     app_settings as settings_route,
@@ -462,6 +463,23 @@ async def manage_profile(ctx: McpContext, args: dict) -> dict:
     return redact(result)
 
 
+async def _gws(ctx: McpContext, action: str) -> dict:
+    """Google Workspace's row of Settings → Integrations (the managed
+    ``gws``, ``app.cli_integrations``). The sign-in is not offered: it
+    happens in a browser, on the page."""
+    integ = cli_manager.get('gws')
+    if action == 'gws_status':
+        return await cli_manager.status(integ)
+    if ctx.user.role != 'admin':
+        raise ToolError('Admin access required')
+    try:
+        if action == 'gws_enable':
+            return await cli_manager.enable(integ)
+        return await cli_manager.disable(integ)
+    except cli_manager.IntegrationError as e:
+        raise ToolError(f'{e.code}: {e}') from e
+
+
 _SETTINGS_ACTIONS = (
     'get',
     'update',
@@ -481,8 +499,10 @@ _SETTINGS_ACTIONS = (
     'update (admin only; the update re-reads every value you sent '
     'so you see what actually landed — the route normalizes and '
     'clamps), gws_status, gws_enable, gws_disable (Google '
-    'Workspace; enable/disable are admin only and run the '
-    'install/uninstall pipeline), vision_get, vision_update '
+    'Workspace, as its row in Settings → Integrations shows it; '
+    'enable/disable are admin only, and enable needs Google '
+    'Workspace connected and signed in on that page first — the '
+    'sign-in itself is page-only), vision_get, vision_update '
     '(admin only; the kie.ai key is write-only and comes back only '
     'masked).',
     action_schema(
@@ -548,23 +568,8 @@ async def app_settings(ctx: McpContext, args: dict) -> dict:
             'values': {key: after.get(key) for key in body},
         })
 
-    if action == 'gws_status':
-        result = await call_route(
-            settings_route.gws_status, db=ctx.db, current_user=ctx.user
-        )
-        return redact(result)
-
-    if action == 'gws_enable':
-        result = await call_route(
-            settings_route.gws_enable, db=ctx.db, current_user=ctx.user
-        )
-        return redact(result)
-
-    if action == 'gws_disable':
-        result = await call_route(
-            settings_route.gws_disable, db=ctx.db, current_user=ctx.user
-        )
-        return redact(result)
+    if action in ('gws_status', 'gws_enable', 'gws_disable'):
+        return redact(await _gws(ctx, action))
 
     if action == 'vision_get':
         result = await call_route(

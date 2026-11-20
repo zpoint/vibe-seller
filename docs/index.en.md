@@ -210,7 +210,7 @@ no code:
 - **Group chat bots** (WeCom / DingTalk / Feishu / Slack) — have the AI post results, reports and reminders straight into a group; WeCom bots can send files too. [Setup guide](chat-bots.en.md)
 - **WeCom / Feishu / DingTalk** — with each vendor's official program, the AI writes docs and sheets, sends messages, schedules events and creates to-dos; connect by scanning or authorizing. [Setup guide](workplace-cli.en.md)
 - **TickTick / Dida365** — auto-create todos (follow-ups, order tracking, periodic checks). [Setup guide](ticktick.en.md)
-- **Google Workspace** — Gmail, Drive, Docs, Sheets, Slides, Calendar — read, write, edit. [Setup guide](google-workspace.en.md)
+- **Google Workspace** — with Google's official program, the AI reads and sends Gmail, edits Sheets and Docs, uploads to Drive and schedules Calendar events; click Connect and sign in with Google. [Setup guide](google-workspace.en.md)
 
 A single task can mix browser + service calls. e.g. *“Find all
 slow-moving SKUs across stores”* → browser pulls inventory →

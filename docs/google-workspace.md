@@ -1,164 +1,230 @@
 ---
-description: Google Workspace 接入：安装 gws 命令行工具并登录 Google 账号，在 Vibe Seller 里一键启用，AI 即可操作 Sheets、Drive、Gmail、Docs 和日历。
+description: 让 AI 使用 Google Workspace：在 Vibe Seller 里点「开通」，按步骤在 Google Cloud 创建一次登录密钥，再用 Google 账号登录，AI 就能收发 Gmail、读写 Google 表格和文档、上传到云端硬盘、安排日历。包括常见问题。
 ---
 
 # Google Workspace
 
-启用后，AI 执行任务时可以直接读写你的 Google 表格、云盘文件、
-Gmail、文档和日历——例如把广告数据填进周报表格、把发票归档到
-指定文件夹、给供应商发送跟进邮件、把上新排期写进日历。
+开通后，AI 直接用你的 Google 账号做事：收发 Gmail、读写 Google 表格
+和文档、把文件上传到 Google 云端硬盘、在日历里安排日程。不用自己安装
+任何东西：Vibe Seller 会下载 Google 官方的 Google Workspace 程序，
+每天自动更新到最新版本。
 
-底层使用 Google Workspace 官方命令行工具 **gws**（一个命令覆盖
-全部 Workspace API）。Vibe Seller 负责把它整理成 AI 能用的技能；
-你要做的是装好 gws、登录一次 Google 账号，然后在设置里点击「启用」。
+整台 Vibe Seller 只连接**一个** Google 账号，团队里所有人的任务都用
+它做事，所以**建议用专门的工作账号**。开通、重新登录、停用只有管理员
+能操作。
 
-各集成分别配在哪里、彼此怎么分工，见[集成总览](integrations.md)。
+## 开通步骤
 
-## 接入前准备
+需要：一个 Google 账号，以及 Vibe Seller 的管理员账号。第一次大约
+10 分钟，其中第 2 步只需要做一次。
 
-- **gws 命令行工具**（见下面第一步）；
-- 一个能访问 Google Workspace 的 Google 账号（普通 @gmail.com
-  账号也可以，只是部分企业功能用不了）；
-- 一个 Google Cloud 项目——没有的话第二步会引导你创建。
+### 1. 点「开通」
 
-## 第一步：安装 gws
+打开 Vibe Seller「设置 → 集成」，在「Google Workspace」里点「开通」。
+第一次会先下载 Google 的官方程序（约 6 MB），一般几秒钟。
 
-任选一种方式（[官方 README](https://github.com/googleworkspace/cli)）：
+![Google Workspace 一行的「开通」按钮](images/gws_connect_zh.png)
 
-- **下载预编译二进制**（推荐）：到
-  [GitHub Releases](https://github.com/googleworkspace/cli/releases)
-  下载对应系统的包，解压后把 `gws` 放进 PATH；
-- **npm**：`npm install -g @googleworkspace/cli`；
-- **Homebrew**（macOS / Linux）：`brew install googleworkspace-cli`。
+### 2. 创建你的 Google 登录密钥（只做一次）
 
-安装完成后在终端运行 `gws --version` 确认可用。Vibe Seller 的设置卡片
-也会显示检测到的版本号。
+Google 要求先在你自己的 Google Cloud 项目里创建一个登录密钥，才能
+登录你的账号。免费，不需要绑定信用卡。设置页上列出了每一步，每一步
+后面都有「打开」链接，直接跳到 Google Cloud 里对应的页面：
 
-## 第二步：登录 Google 账号
+![一次性设置：六个小步骤和「选择下载的文件」按钮](images/gws_setup_zh.png)
 
-gws 需要一个 Google Cloud 项目的 OAuth 凭据才能访问你的数据。
-两种做法：
+下面每个链接都请**用要连接的 Google 账号**打开。Google Cloud 的界面
+可能是中文也可能是英文，下面写成「中文（English）」。
 
-**A. 有 gcloud（最省事）**——在终端运行：
+**2.1 新建项目。** 名字随意，例如“vibe-seller”，点「创建（Create）」。
+建好后点页面左上角的项目名，确认选中的是这个新项目：如果你以前用过
+Google Cloud，它有时会停在之前的项目上，后面几步就会改到别的项目里。
 
-```bash
-gws auth setup    # 向导：选账号、建/选项目、开 API、建 OAuth 客户端
-gws auth login    # 在浏览器里完成 Google 登录授权
-```
+![新建项目，名称填 vibe-seller，点「Create」](images/gcp_1_project.png)
 
-**B. 不装 gcloud，手动创建**：
+**2.2 开启 5 项 Google 服务**（Gmail、云端硬盘、表格、文档、日历）。
+先确认页面上写的是刚建的项目，点「下一步（Next）」，再点
+「启用（Enable）」，等几秒提示启用成功。
 
-1. 打开 [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-   创建一个项目；
-2. 配置 OAuth 同意屏幕：类型选 **External**（Testing 模式即可）；
-3. 在 **Test users** 里**加上你自己的 Google 账号**——漏了这一步
-   登录时会报 "Access blocked"；
-4. 创建一个 OAuth 客户端：类型选 **Desktop app**，下载 JSON 保存为
-   `~/.config/gws/client_secret.json`；
-5. 在终端运行 `gws auth login`，按提示勾选需要的服务完成授权。
+![确认项目后点「Next」](images/gcp_2a_confirm.png)
 
-登录成功的标志是 `gws auth status` 显示已登录。Vibe Seller 设置
-卡片里的「认证」一栏也会变成绿色的「已登录」。
+![要启用的 5 项服务，点「Enable」](images/gcp_2b_enable.png)
 
-官方文档：[gws CLI README](https://github.com/googleworkspace/cli/blob/main/README.md)。
+**2.3 设置「Google Auth Platform」。** 打开后点「开始（Get started）」，
+按顺序填：
 
-!!! note "「Google 尚未验证此应用」？"
-    Testing 模式的应用都会出现这个提示，点击 **继续**（高级）→
-    **转到...（不安全）** 即可；这是你自己的应用，出现「风险自负」
-    类的提示属于正常流程。另外，未验证应用的授权范围上限约 25 个，
-    如果 `gws auth login` 报 scope 太多，改用
-    `gws auth login -s drive,gmail,sheets` 只勾选需要的服务。
+![Google Auth Platform 还没设置，点「Get started」](images/gcp_3a_getstarted.png)
 
-## 第三步：在 Vibe Seller 里启用
+- 应用名称：随意，例如“Vibe Seller”（登录时 Google 会显示这个名字）；
+  用户支持邮箱：从下拉框里选你的邮箱。点「下一步（Next）」。
 
-打开「设置 → 集成 → Google Workspace」：
+    ![填应用名称，选用户支持邮箱](images/gcp_3b_appinfo.png)
 
-1. 卡片会先显示两项检查：**gws 可执行文件**（安装后显示版本号）
-   和 **认证**（登录后显示「已登录」）；
-2. 两项都通过后，点击「启用」一行右侧的 **启用** 按钮。第一次
-   需要 20–30 秒——gws 要为所有 API 生成文档，生成完自动装入工作区；
-3. 看到「已启用 — 已安装 19 个子技能」就完成了。
+- 目标对象：选「外部（External）」，点「下一步（Next）」。
 
-![Google Workspace 卡片：检查通过，等待启用](images/gws_card_zh.png)
+    ![目标对象选「External」](images/gcp_3c_external.png)
 
-三态对照：
+- 联系邮箱：输入你的邮箱后**按回车**，邮箱变成一个小标签才算填好，
+  再点「下一步（Next）」。
 
-![未安装 gws 时的提示](images/gws_nobinary_zh.png)
-*还没装 gws：点击提示里的链接去下载*
+    ![联系邮箱按回车后变成小标签（邮箱已打码）](images/gcp_3d_contact.png)
 
-![已装未登录时的提示](images/gws_nologin_zh.png)
-*已安装但没登录：按提示在终端运行 `gws auth login`*
+- 勾选同意条款，点「继续（Continue）」，最后点「创建（Create）」。
 
-![启用后的卡片](images/gws_enabled_zh.png)
-*启用后：按钮变为「禁用」，随时可以关闭*
+    ![勾选同意条款，点「Continue」，再点「Create」](images/gcp_3e_finish.png)
 
-## 验证
+**2.4 把你的账号加为测试用户。** 在左侧「目标对象」页找到「测试用户」，
+点「Add users」（中文界面也显示英文），输入要连接的 Google 账号后
+**按回车**，点「保存（Save）」。保存后确认这个账号出现在测试用户列表
+里：没出现说明没保存上，再加一次。
 
-1. 回到这块设置：「启用」一行下面的提示变为「智能体可调用 gws
-   统一技能。」，按钮也变成了「禁用」；
-2. 创建一个任务试试：“把这张 Google 表格的最后一列汇总一下”
-   （附上表格链接）；
-3. AI 能读出表格内容并给出汇总，就说明接入成功了。
+![测试用户下的「Add users」](images/gcp_4a_testusers.png)
 
-## 接入后 AI 能做什么
+![输入账号按回车，点「Save」（邮箱已打码）](images/gcp_4b_adduser.png)
 
-技能按 Google 的产品分组，任务里 AI 按需取用：
+**2.5 创建客户端并下载密钥文件。** 在左侧「客户端」页点「创建客户端
+（Create client）」，应用类型选「桌面应用（Desktop app）」，名字随意，
+点「创建（Create）」。
 
-| 产品 | 能做的事 |
-|---|---|
-| 表格 Sheets | 读写单元格、追加行、更新库存和报表 |
-| 云盘 Drive | 查找文件、上传发票和资质、整理文件夹 |
-| Gmail | 读写邮件、转发、回复、汇总未读 |
-| 文档 Docs | 追加文字、更新 listing 文案和 SOP |
-| 日历 Calendar | 查询日程、创建上新和促销日程 |
+![应用类型选「Desktop app」，点「Create」](images/gcp_5b_desktop.png)
 
-这些操作都以你登录的 Google 账号身份进行，权限范围就是你在
-授权时勾选的那些。不想让 AI 继续使用，随时在设置卡片点击 **禁用**——
-技能会从工作区移除。
+弹出的窗口里**马上点「下载 JSON（Download JSON）」**：关掉这个窗口后，
+Google 不再允许下载这个文件，只能重新创建一个客户端。
+
+![客户端已创建，点「Download JSON」（客户端 ID 和密钥已打码）](images/gcp_5c_download.png)
+
+**2.6 选择文件。** 回到 Vibe Seller，点「选择下载的文件」，选刚才下载
+的文件（文件名以“client_secret”开头）。
+
+### 3. 用 Google 账号登录
+
+选好文件后，设置页上出现一个 Google 登录链接。点它，在打开的页面里：
+
+1. 选择要连接的 Google 账号。
+
+    ![选择要连接的账号（账号已打码）](images/gws_google_choose.png)
+
+2. Google 提示「Google 尚未验证此应用（Google hasn't verified this app）」：
+   这是你在第 2 步自己创建的应用，点「继续（Continue）」。
+
+    ![「Google hasn't verified this app」，点「Continue」](images/gws_google_unverified.png)
+
+3. 再点一次「继续（Continue）」。
+
+    ![登录 Vibe Seller，点「Continue」（账号已打码）](images/gws_google_signin.png)
+
+4. 勾选「全选（Select all）」，点「继续（Continue）」。没勾选的服务，
+   AI 用不了。
+
+    ![勾选「Select all」，点「Continue」](images/gws_google_scopes.png)
+
+5. 看到「Success!」就可以关掉这个页面。
+
+    ![登录成功](images/gws_google_success.png)
+
+![登录链接（红框）和下面的网址粘贴框（图为「重新登录」时的样子，账号已打码）](images/gws_signin_zh.png)
+
+### 4. 开通好了
+
+回到设置页，Google Workspace 那一行先显示「登录成功，正在开通，请稍候…」，
+几秒后变成「已登录 · AI 可以使用」，就开通好了。
+
+![已登录，AI 可以使用（账号已打码）](images/gws_done_zh.png)
+
+!!! tip "在另一台电脑上打开 Vibe Seller？"
+
+    Google 登录完成后，会把浏览器带回**运行 Vibe Seller 的那台电脑**
+    上的一个本机网址。如果你是在另一台电脑（比如自己的笔记本）上打开
+    的设置页，点完最后一个「继续」后，浏览器会显示「无法访问此网站」，
+    这是正常的：把浏览器地址栏里的**整个网址**（以 `http://localhost:`
+    开头）复制下来，粘贴到登录链接下面的框里，点「提交」，就和在那台
+    电脑上登录一样。
+
+    ![粘贴网址的输入框](images/gws_paste_zh.png)
+
+## 开通后试一下
+
+在任意店铺里新建任务，比如「读一下我 Google 文档里的「新品上架计划」，
+再看看我日历上这周和 WIDGET-006 有关的安排。然后新建一个 Google 文档
+「WIDGET-006 上架清单」，按日期列出每天要做的事，把链接发给我。」
+AI 做完会把新文档的链接发给你，打开就是它整理好的清单：
+
+![AI 新建的 Google 文档：按日期整理的上架清单（演示数据）](images/gws_demo_doc.png)
+
+## AI 能做什么
+
+AI 以你连接的 Google 账号做事，按 Google 官方技能的说明工作：
+
+- **Gmail**：读邮件、整理收件箱、回复、转发、发新邮件。
+- **Google 云端硬盘**：查找、下载、上传文件，整理文件夹。
+- **Google 表格 / 文档**：读取、新建、修改。
+- **Google 日历**：查看日程、新建日程。
+
+AI 只在任务要求时发邮件、分享文件或修改文档。其他 Google 服务（Chat、
+Classroom 等）没有授权，AI 用不了。
 
 ## 常见问题
 
-<details markdown="1"><summary><b>「gws 可执行文件」显示「未找到」？</b></summary>
+<details markdown="1"><summary><b>Google 提示「已拦截访问权限（Access blocked）」？</b></summary>
 
-gws 不在 PATH 里。按第一步重新安装，然后**重启 Vibe Seller**
-（让它重新检测）。Windows 上把 gws.exe 放进 PATH 后同样需要重启。
+你登录的 Google 账号还不是这个应用的测试用户，或者 2.4 步没保存上。
+回到 Google Cloud 左侧「目标对象」页，确认这个账号在「测试用户」列表
+里，再在设置页点「开通」（已开通的点「重新登录」）。
 </details>
 
-<details markdown="1"><summary><b>「认证」显示「需要登录」，但我在浏览器登录过 Google？</b></summary>
+<details markdown="1"><summary><b>那一行显示「登录已失效」？</b></summary>
 
-gws 的登录是独立的——需要在终端里运行 `gws auth login` 完成一次
-授权，浏览器里的 Google 登录状态不算数。卡片下方显示的
-`gws auth login` 就是复制到终端里运行的。
+![登录已失效，点「重新登录」](images/gws_expired_zh.png)
+
+AI 暂时用不了 Google Workspace，点「重新登录」，按第 3 步再登录一次
+就好，大约一分钟。
+
+常见原因：你在第 2 步创建的应用处于「测试」状态，Google 对测试状态的
+应用，登录 7 天后会自动失效。另外，在 Google 账号的「第三方关联」里
+删掉了 Vibe Seller 的访问权限，也会这样。
 </details>
 
-<details markdown="1"><summary><b>点「启用」报错 gws is installed but not authenticated？</b></summary>
+<details markdown="1"><summary><b>选文件时提示「这个密钥是给网站用的」？</b></summary>
 
-先完成第二步的登录（`gws auth login`），再回来点击启用。启用
-开关只有在 gws 装好**且**登录之后才可以点击。
+创建客户端时应用类型选成了「Web 应用」。在 Google Cloud 左侧「客户端」
+页重新创建一个应用类型为「桌面应用」的客户端，在弹出的窗口里下载 JSON，
+再选这个文件。
 </details>
 
-<details markdown="1"><summary><b>启用要多久？会不会很慢？</b></summary>
+<details markdown="1"><summary><b>关掉了窗口，没来得及下载 JSON？</b></summary>
 
-第一次 20–30 秒——gws 在为所有 API 生成文档。之后的启用、禁用
-都很快。
+Google 只在创建客户端时的那个窗口里提供下载。在左侧「客户端」页再
+创建一个「桌面应用」客户端，这次在窗口里点「下载 JSON」。没用的那个
+客户端可以删掉。
 </details>
 
-<details markdown="1"><summary><b>登录时报 "Access blocked" 或 403？</b></summary>
+<details markdown="1"><summary><b>AI 说某个 Google 服务没有开启？</b></summary>
 
-OAuth 应用处于 Testing 模式，而你的账号没有加入 Test users。回到
-Cloud Console 的 OAuth 同意屏幕 → **Test users → Add users**
-加上自己的邮箱，重新运行 `gws auth login`。
+2.2 步漏开了这项服务，或者 2.1 步之后改到了别的项目。打开设置页里第 2
+步的链接，确认页面上是你的项目、5 项服务都已启用；一般几分钟后生效，
+不需要重新登录。
 </details>
 
-<details markdown="1"><summary><b>公司 Google Workspace 账号有什么限制？</b></summary>
+<details markdown="1"><summary><b>想换一个 Google 账号或换一个登录密钥？</b></summary>
 
-管理员可以关闭部分 API 或限制第三方应用访问。如果授权后
-某些操作报权限错误，请管理员在管理控制台检查对应的
-服务开关。个人 @gmail.com 账号没有这个层级的管控。
+换账号：在 Google Workspace 那一行点「重新登录」，用另一个账号登录
+（这个账号也要先加为测试用户）。换密钥：点「更换登录密钥」，选新下载
+的文件，再登录一次。
 </details>
 
-<details markdown="1"><summary><b>禁用后数据还在吗？</b></summary>
+<details markdown="1"><summary><b>以前自己在电脑上装过 gws 并登录过，还有用吗？</b></summary>
 
-禁用只移除技能包，不会改动你的 Google 数据，也不会删除 gws 的登录
-凭据。想再使用时随时重新启用。
+以前「设置 → 集成」里的 Google Workspace 开关，用的是你自己在电脑上
+安装和登录的 gws 工具。现在 Vibe Seller 用自己下载的官方程序和自己
+的登录，**不会读取或改动**你自己装的那一份和它的登录，AI 也不再使用
+它。升级后，如果之前开着那个开关，Google Workspace 那一行会提示你
+重新开通一次，按上面的步骤操作即可。你自己装的那份照常可以在终端里
+使用。
+</details>
+
+<details markdown="1"><summary><b>电脑需要能访问 Google 吗？</b></summary>
+
+需要。下载官方程序、登录和 AI 使用 Google 服务，都要运行 Vibe Seller
+的电脑能访问 GitHub 和 Google。平时需要代理才能访问的话，请先打开
+代理。
 </details>
