@@ -1,5 +1,7 @@
 """Tests for stores router."""
 
+import asyncio
+import inspect
 import json
 from unittest import mock
 import uuid
@@ -9,11 +11,16 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.browser.launch_guards import BrowserBusyError
-from app.browser.ziniao_utils import ZiniaoNormalModeError
 from app.models.store import Store
 from app.models.user import User
 from app.models.ziniao_account import ZiniaoAccount
 from app.utils.crypto import encrypt_password
+from tests.unit.test_browser.ziniao_fake_host import (
+    MAIN_EXE,
+    NORMAL_MODE,
+    FakeZiniaoHost,
+    installed,
+)
 
 
 class TestStoresRouter:
@@ -136,13 +143,13 @@ class TestStoresRouter:
         assert response.status_code == 401
 
 
-class TestBrowserStartForce:
-    """POST /api/stores/{id}/browser/start with optional ?force=1.
+class TestBrowserStart:
+    """POST /api/stores/{id}/browser/start — Ziniao always comes up.
 
-    Covers the agent-side opt-in recovery when Ziniao is sitting in
-    normal (non-WebDriver) mode. Default behavior (no force) must
-    keep the original 500 so the UI's Force Restart button stays the
-    sole entry point for the kill-and-relaunch path.
+    The user's spec: "all cases mean force=true" — every automatic path
+    relaunches Ziniao instead of erroring, and the ``force`` switch is
+    gone. A Ziniao found in normal mode is killed and relaunched in
+    WebDriver mode by the browser start itself.
     """
 
     async def _make_ziniao_store(self, async_db_session: AsyncSession) -> Store:
@@ -153,6 +160,7 @@ class TestBrowserStartForce:
             username='u',
             encrypted_password=encrypt_password('p'),
             socket_port=16851,
+            client_path=MAIN_EXE,
         )
         async_db_session.add(account)
         store = Store(
@@ -168,23 +176,54 @@ class TestBrowserStartForce:
         await async_db_session.commit()
         return store
 
+    def test_the_route_has_no_force_switch(self):
+        from app.routers.stores import start_browser  # noqa: PLC0415
+
+        assert 'force' not in inspect.signature(start_browser).parameters
+
     @pytest.mark.asyncio
-    async def test_force_false_propagates_normal_mode_error(
+    async def test_normal_mode_is_relaunched_with_no_flag(
         self,
         authenticated_client: AsyncClient,
         async_db_session: AsyncSession,
     ):
-        """Without ?force, ZiniaoNormalModeError still becomes 500."""
+        """Ziniao opened by hand: the plain start kills it, relaunches it in
+        WebDriver mode and starts the store — 200, no error, no prompt."""
         store = await self._make_ziniao_store(async_db_session)
-        with mock.patch(
-            'app.routers.stores.browser_manager.start_session',
-            side_effect=ZiniaoNormalModeError('normal mode'),
+        host = FakeZiniaoHost(api='down', procs=NORMAL_MODE)
+        with (
+            installed(host),
+            mock.patch(
+                'app.browser.manager.BrowserManager._start_session_locked',
+                new=mock.AsyncMock(return_value=None),
+            ),
         ):
             response = await authenticated_client.post(
                 f'/api/stores/{store.id}/browser/start'
             )
-        assert response.status_code == 500
-        assert 'normal mode' in response.json()['detail']
+        assert response.status_code == 200, response.text
+        assert len(host.launches) == 1
+        assert sorted(n for n, _ in host.killed) == sorted(
+            n for n, _ in NORMAL_MODE
+        )
+
+    @pytest.mark.asyncio
+    async def test_an_old_wrapper_sending_force_still_works(
+        self,
+        authenticated_client: AsyncClient,
+        async_db_session: AsyncSession,
+    ):
+        """Wrappers written before this change send ``?force=1``; the
+        parameter is gone and ignored, the start still succeeds."""
+        store = await self._make_ziniao_store(async_db_session)
+        with mock.patch(
+            'app.routers.stores.browser_manager.start_session',
+            new=mock.AsyncMock(return_value=None),
+        ):
+            response = await authenticated_client.post(
+                f'/api/stores/{store.id}/browser/start?force=1'
+            )
+        assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_a_busy_launch_lock_is_503_not_a_hang(
@@ -217,79 +256,134 @@ class TestBrowserStartForce:
         assert 'held by start_session(other)' in response.json()['detail']
 
     @pytest.mark.asyncio
-    async def test_a_busy_lock_is_503_with_force_too(
+    async def test_a_busy_lock_is_503_and_starts_nothing_else(
         self,
         authenticated_client: AsyncClient,
         async_db_session: AsyncSession,
     ):
-        """`force=1` is for normal mode; a busy lock is not that.
-
-        Falling into the force branch would kill and relaunch Ziniao
-        because somebody else was mid-launch — which is the storm the
-        relaunch budget exists to stop.
-        """
+        """A busy lock is not normal mode: one 503, no second start that
+        could relaunch Ziniao because somebody else was mid-launch — the
+        storm the relaunch budget exists to stop."""
         store = await self._make_ziniao_store(async_db_session)
-        relaunch = mock.AsyncMock(return_value=True)
-        with (
-            mock.patch(
-                'app.routers.stores.browser_manager.start_session',
-                side_effect=BrowserBusyError('busy: held by peer'),
-            ),
-            mock.patch('app.routers.stores.kill_and_relaunch_ziniao', relaunch),
+        start = mock.AsyncMock(side_effect=BrowserBusyError('busy: peer'))
+        with mock.patch(
+            'app.routers.stores.browser_manager.start_session', start
         ):
             response = await authenticated_client.post(
                 f'/api/stores/{store.id}/browser/start?force=1'
             )
         assert response.status_code == 503
-        relaunch.assert_not_awaited()
+        assert start.await_count == 1
 
     @pytest.mark.asyncio
-    async def test_force_true_relaunches_and_retries(
+    async def test_ziniao_still_starting_is_503(
         self,
         authenticated_client: AsyncClient,
         async_db_session: AsyncSession,
     ):
-        """force=1: kill_and_relaunch then start_session succeeds."""
-        store = await self._make_ziniao_store(async_db_session)
-        start_session = mock.AsyncMock(
-            side_effect=[ZiniaoNormalModeError('normal'), None]
+        from app.browser.ziniao_startup import (  # noqa: PLC0415
+            ZiniaoStartingError,
         )
-        relaunch = mock.AsyncMock(return_value=True)
-        with (
-            mock.patch(
-                'app.routers.stores.browser_manager.start_session',
-                start_session,
-            ),
-            mock.patch('app.routers.stores.kill_and_relaunch_ziniao', relaunch),
+
+        store = await self._make_ziniao_store(async_db_session)
+        with mock.patch(
+            'app.routers.stores.browser_manager.start_session',
+            side_effect=ZiniaoStartingError('Ziniao is starting (61s)', 61),
         ):
             response = await authenticated_client.post(
-                f'/api/stores/{store.id}/browser/start?force=1'
+                f'/api/stores/{store.id}/browser/start'
             )
-        assert response.status_code == 200
-        assert response.json() == {'ok': True}
-        relaunch.assert_awaited_once()
-        assert start_session.await_count == 2
+        assert response.status_code == 503
+        assert 'starting' in response.json()['detail']
 
     @pytest.mark.asyncio
-    async def test_force_true_relaunch_failure_returns_502(
+    async def test_another_account_in_use_is_409(
         self,
         authenticated_client: AsyncClient,
         async_db_session: AsyncSession,
     ):
-        """force=1: 502 when kill_and_relaunch raises RuntimeError."""
+        from app.browser.ziniao_startup import (  # noqa: PLC0415
+            ZiniaoAccountConflictError,
+        )
+
         store = await self._make_ziniao_store(async_db_session)
-        with (
-            mock.patch(
-                'app.routers.stores.browser_manager.start_session',
-                side_effect=ZiniaoNormalModeError('normal'),
-            ),
-            mock.patch(
-                'app.routers.stores.kill_and_relaunch_ziniao',
-                side_effect=RuntimeError('relaunch boom'),
+        with mock.patch(
+            'app.routers.stores.browser_manager.start_session',
+            side_effect=ZiniaoAccountConflictError('another account'),
+        ):
+            response = await authenticated_client.post(
+                f'/api/stores/{store.id}/browser/start'
+            )
+        assert response.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_a_failed_ziniao_start_is_500_with_the_reason(
+        self,
+        authenticated_client: AsyncClient,
+        async_db_session: AsyncSession,
+    ):
+        from app.browser.ziniao_startup import (  # noqa: PLC0415
+            ZiniaoStartError,
+        )
+
+        store = await self._make_ziniao_store(async_db_session)
+        with mock.patch(
+            'app.routers.stores.browser_manager.start_session',
+            side_effect=ZiniaoStartError(
+                'Ziniao did not start: opened 2 times',
+                'startup_timeout',
             ),
         ):
             response = await authenticated_client.post(
-                f'/api/stores/{store.id}/browser/start?force=1'
+                f'/api/stores/{store.id}/browser/start'
             )
-        assert response.status_code == 502
-        assert 'relaunch boom' in response.json()['detail']
+        assert response.status_code == 500
+        assert 'opened 2 times' in response.json()['detail']
+
+    @pytest.mark.asyncio
+    async def test_simultaneous_starts_share_one_kill_and_one_launch(
+        self,
+        authenticated_client: AsyncClient,
+        async_db_session: AsyncSession,
+    ):
+        """Three Ziniao stores' tasks reach the browser at the same moment
+        while Ziniao sits in normal mode: ONE kill-all and ONE launch, and
+        every start succeeds. A second kill-all would kill the first one's
+        freshly launched client."""
+        first = await self._make_ziniao_store(async_db_session)
+        account_id = first.ziniao_account_id
+        stores = [first]
+        for name in ('Z Store 2', 'Z Store 3'):
+            store = Store(
+                id=str(uuid.uuid4()),
+                name=name,
+                browser_backend='ziniao',
+                browser_config='{}',
+                ziniao_account_id=account_id,
+                platforms='["amazon"]',
+                countries='["US"]',
+            )
+            async_db_session.add(store)
+            stores.append(store)
+        await async_db_session.commit()
+        host = FakeZiniaoHost(api='down', procs=NORMAL_MODE)
+        with (
+            installed(host),
+            mock.patch(
+                'app.browser.manager.BrowserManager._start_session_locked',
+                new=mock.AsyncMock(return_value=None),
+            ),
+        ):
+            responses = await asyncio.gather(
+                *(
+                    authenticated_client.post(
+                        f'/api/stores/{s.id}/browser/start'
+                    )
+                    for s in stores
+                )
+            )
+        assert [r.status_code for r in responses] == [200, 200, 200]
+        assert len(host.launches) == 1
+        assert sorted(n for n, _ in host.killed) == sorted(
+            n for n, _ in NORMAL_MODE
+        )

@@ -301,6 +301,7 @@ Configurable via `FakeAgentScenario` (fields: `plan`, `result`, `todos`, `should
 
 - `tool_calls` — list of `{'tool': 'Read', 'input': {...}}` dicts; persisted as `tool_use` role messages before plan
 - `thinking_text` — string persisted as `thinking` role message before plan
+- `ask_question` — a REAL `AskUserQuestion` (`{'request_id', 'questions'}`), raised right before the result and waited on with the product's own bounded wait (`app.ai.question_wait`): answered → result (`result_from_answer` makes it `Chose: <answer>`); unanswered past `VIBE_QUESTION_ANSWER_TIMEOUT_S` → a `QuestionPark` and a stopped-CLI exit, leaving the WAITING write to the orchestrator; a scheduled fire → declined (`app.ai.question_policy`), result suffixed ` (question declined)`. `ask_again_after_answer`, `park_exit_delay` cover the second-question and answer-vs-park races. Note `wait_for_task(...)` also returns on FAILED — assert the status you waited for.
 
 **Critical rule**: Don't mock away critical pipelines (like `_auto_run_task`) — use FakeAgent instead.
 
@@ -498,6 +499,8 @@ MOCK_CLI_SCENARIO='{"plan":"## Custom Plan","skip_plan":true}' ...
 ```
 
 CI runs this automatically in the `e2e-mock-cli` job (no LLM secrets required).
+
+**Question park / decline** (`test_question_park_{mock,live}.py`, `test_question_decline_{mock,live}.py`, journeys in `question_park_flow.py`): each module owns its server (`owned_agent_stack(..., auto_answer=False)` — the default auto-answer would answer the very question under test) with one agent slot. Mock markers: `[[MOCK_ASK_PARK]]` asks and waits with no deadline of its own, and reports the answer a resumed run was handed; `[[MOCK_ASK_ON_EXECUTE]]` asks only in an execute turn (put it in the schedule's description — the execute prompt is the description) and reports a decline. The live modules drive a real model against `fake_seller_shipping.py`, a local two-option shipping page whose access log is the ground truth. `tests/e2e/evidence.py` writes screenshots, task rows, transcripts, the SSE stream and the server log per test under `$E2E_EVIDENCE_DIR` (default `tests/e2e/artifacts/evidence`).
 
 ## Fixtures
 

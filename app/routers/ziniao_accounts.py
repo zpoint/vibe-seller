@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 import json
 import logging
@@ -9,28 +10,48 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
 from app.auth import get_current_user
-from app.browser.ziniao_utils import (
-    ZiniaoNormalModeError,
+from app.browser.manager import browser_manager
+from app.browser.ziniao_startup import (
+    ZiniaoAccountConflictError,
+    ZiniaoStartError,
+    ZiniaoStartingError,
     ensure_ziniao_running,
-    get_ziniao_status,
-    kill_and_relaunch_ziniao,
-    try_connect_ziniao,
 )
+from app.browser.ziniao_utils import is_ziniao_installed_mac, try_connect_ziniao
 from app.database import get_db
 from app.models.user import User
 from app.models.ziniao_account import ZiniaoAccount
+from app.platform import IS_MAC
 from app.schemas.ziniao_account import (
     ZiniaoAccountCreate,
     ZiniaoAccountResponse,
     ZiniaoAccountUpdate,
     ZiniaoBrowserProfile,
 )
-from app.telemetry_events import TelemetryEvent
+from app.telemetry_events import BrowserFailureReason, TelemetryEvent
 from app.utils.crypto import decrypt_password, encrypt_password
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/api/ziniao-accounts', tags=['ziniao-accounts'])
+
+# How long one store-setup request waits on a Ziniao startup before
+# answering 503 "starting" (the page then asks again). Well inside any
+# proxy idle limit and the page's own request deadline.
+_SETUP_WAIT_S = 45.0
+
+
+async def _failure_status(e: ZiniaoStartError) -> str:
+    """The structured status the store-setup page renders."""
+    if e.reason == BrowserFailureReason.WSL_NOT_RUNNING:
+        return 'not_running'  # the page offers the .bat on WSL
+    if (
+        IS_MAC
+        and e.reason == BrowserFailureReason.LAUNCH_FAILED
+        and not await asyncio.to_thread(is_ziniao_installed_mac)
+    ):
+        return 'not_installed'
+    return 'start_failed'
 
 
 def _decrypt_or_400(encrypted: str) -> str:
@@ -139,7 +160,9 @@ async def list_browsers(
     _user: User = Depends(get_current_user),
 ):
     """Fetch browser profiles from Ziniao API using account credentials.
-    Auto-launches Ziniao client if not running.
+
+    Launches Ziniao in WebDriver mode first when it is not answering
+    (killing a normal-mode or leftover client) — no prompt.
     """
     account = await db.get(ZiniaoAccount, account_id)
     if not account:
@@ -152,29 +175,49 @@ async def list_browsers(
     }
     client_path = account.client_path or 'ziniao'
 
-    # Ensure ziniao is running, launch if needed
+    # Bring Ziniao up — killed and relaunched in WebDriver mode when it is
+    # not answering; the user is never asked. The page polls: past
+    # _SETUP_WAIT_S this answers 503 "starting" and the next request
+    # joins the same startup. A click is a user retry, so a recent
+    # startup failure does not hold it back (retry_failed).
     try:
-        await ensure_ziniao_running(account.socket_port, client_path, user_info)
-    except ZiniaoNormalModeError:
-        # Structured status for frontend (Mac normal mode)
-        status = await get_ziniao_status(account.socket_port, user_info)
+        browser_manager.refuse_other_ziniao_account(
+            account.id, f'Ziniao account "{account.name}"'
+        )
+        await db.commit()  # don't hold a pooled connection while waiting
+        await ensure_ziniao_running(
+            account.socket_port,
+            client_path,
+            user_info,
+            wait_s=_SETUP_WAIT_S,
+            live=browser_manager.has_live_ziniao(),
+            retry_failed=True,
+        )
+    except ZiniaoStartingError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=json.dumps({
+                'status': 'starting',
+                'elapsed_s': round(e.elapsed_s),
+            }),
+        ) from e
+    except ZiniaoAccountConflictError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=json.dumps(
+                {'status': 'account_conflict', 'message': str(e)},
+                ensure_ascii=False,
+            ),
+        ) from e
+    except ZiniaoStartError as e:
+        logger.error('Ziniao start failed: %s', e)
         raise HTTPException(
             status_code=502,
-            detail=json.dumps(status),
-        )
-    except RuntimeError as e:
-        logger.error('Ziniao ensure_running failed: %s', e)
-        # Try structured status; fall back to raw message
-        try:
-            status = await get_ziniao_status(account.socket_port, user_info)
-            raise HTTPException(
-                status_code=502,
-                detail=json.dumps(status),
-            )
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(status_code=502, detail=str(e))
+            detail=json.dumps(
+                {'status': await _failure_status(e), 'message': str(e)},
+                ensure_ascii=False,
+            ),
+        ) from e
 
     # Fetch browser list
     data = {
@@ -250,55 +293,3 @@ async def list_browsers(
         )
         for b in browsers
     ]
-
-
-@router.post('/{account_id}/restart')
-async def restart_ziniao(
-    account_id: str,
-    db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
-):
-    """Kill Ziniao and relaunch in WebDriver mode.
-
-    Mac / native Windows: kills and relaunches automatically.
-    WSL: kills only (user must relaunch via .bat script).
-
-    Safe because this is only callable from the Force Restart /
-    Force Kill button, which appears only after the user tried
-    closing Ziniao manually and Refresh still detected normal
-    mode (so no active CDP sessions exist).
-    """
-    account = await db.get(ZiniaoAccount, account_id)
-    if not account:
-        raise HTTPException(
-            status_code=404,
-            detail='Ziniao account not found',
-        )
-
-    user_info = {
-        'company': account.company,
-        'username': account.username,
-        'password': _decrypt_or_400(account.encrypted_password),
-    }
-    client_path = account.client_path or 'ziniao'
-
-    # Safety check: only allow restart when in normal mode.
-    # Prevents killing an active WebDriver session.
-    status = await get_ziniao_status(account.socket_port, user_info)
-    if status['status'] != 'running_normal':
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f'Cannot restart: Ziniao is in '
-                f'"{status["status"]}" state, not '
-                f'"running_normal"'
-            ),
-        )
-
-    try:
-        await kill_and_relaunch_ziniao(
-            account.socket_port, client_path, user_info
-        )
-        return {'ok': True}
-    except RuntimeError as e:
-        raise HTTPException(status_code=502, detail=str(e))

@@ -29,6 +29,7 @@ from app.ai.claude_isolation import (
     setting_sources_flags,
     uses_user_settings,
 )
+from app.ai.compaction import build_history_prompt, dump_history_file
 from app.ai.launch_artifacts import build_launch_artifacts
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
 from app.auth import create_token
@@ -414,24 +415,17 @@ class WorkspaceAgentSession(AgentSession):
             cwd=str(ws_dir) if ws_dir.exists() else None,
         )
 
-        messages = []
-        for msg in self.message_history:
-            if msg.get('role') in ('user', 'assistant'):
-                messages.append({
-                    'role': msg['role'],
-                    'content': msg['content'],
-                })
-        messages.append({
-            'role': 'user',
-            'content': self.prompt,
+        # ONE user message: the earlier conversation folded in as
+        # context, then the prompt. Each stream-json ``user`` line is a
+        # TURN to the CLI — writing the history line by line (as this
+        # did) made a fresh session re-answer every old message first,
+        # and the caller collected an old turn's reply as the answer to
+        # the new one. Same shape as a task's restart (AgentSession).
+        prompt = await asyncio.to_thread(self._prompt_with_history)
+        delivered = await self._send_stdin({
+            'type': 'user',
+            'message': {'role': 'user', 'content': prompt},
         })
-
-        delivered = False
-        for msg in messages:
-            delivered = await self._send_stdin({
-                'type': 'user',
-                'message': msg,
-            })
         # The prompt (the last message) reached a live pipe: the
         # assistant is BUSY with its first turn from here until that
         # turn's result. A dead pipe leaves busy False — the stream
@@ -440,6 +434,23 @@ class WorkspaceAgentSession(AgentSession):
 
         self._stderr_task = asyncio.create_task(self._stream_stderr())
         self._task = asyncio.create_task(self._stream_output())
+
+    def _prompt_with_history(self) -> str:
+        """The first turn's text: prior messages as context + prompt.
+
+        Blocking (writes the history file) — run it in a thread.
+        """
+        history = [
+            {'role': m['role'], 'content': m['content']}
+            for m in self.message_history
+            if m.get('role') in ('user', 'assistant')
+        ]
+        if not history:
+            return self.prompt
+        context = build_history_prompt(
+            history, dump_history_file(self.task_id, history)
+        )
+        return f'{context}\n\n---\n\n{self.prompt}'
 
 
 class WorkspaceAssistantManager:

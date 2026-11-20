@@ -139,6 +139,10 @@ def _is_resume_failure(session) -> bool:
     # meet again (e.g. a rejected API key): not a resume failure.
     if getattr(session, '_fatal_error', None):
         return False
+    # Stopped on purpose to park on an unanswered question: the
+    # orchestrator parks it; starting it over would lose its place.
+    if getattr(session, '_question_park', None) is not None:
+        return False
     proc = getattr(session, '_proc', None)
     if proc is None or proc.returncode is None or proc.returncode == 0:
         return False

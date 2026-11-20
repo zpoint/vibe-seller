@@ -31,6 +31,7 @@ from tests.e2e.e2e_helpers import (
     get_messages,
     login,
     poll_task_status,
+    run_tag,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ def api() -> httpx.Client:
 
 @pytest.fixture(scope='module')
 def store_id(api) -> str:
-    return create_store(api, 'Turn Lifecycle Mock Store')['id']
+    return create_store(api, f'Turn Lifecycle Mock Store {run_tag()}')['id']
 
 
 def _events(msgs: list[dict], needle: str) -> list[dict]:

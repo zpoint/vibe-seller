@@ -11,7 +11,6 @@ and passed in through the browser_config dict from BrowserManager.
 import asyncio
 import json
 import logging
-from pathlib import Path
 import uuid
 
 import aiohttp
@@ -19,8 +18,8 @@ import aiohttp
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.cdp_mux_proxy import CDPMuxProxy
 from app.browser.downloads import prepare_download_dir
+from app.browser.ziniao_processes import clear_singleton_locks
 from app.browser.ziniao_utils import (
-    ensure_ziniao_running,
     is_wsl,
     try_connect_ziniao,
     ziniao_host,
@@ -65,28 +64,6 @@ async def update_ziniao_core(socket_port: int, user_info: dict) -> None:
             await asyncio.sleep(2)
 
 
-def _clear_singleton_locks(userdata_dir: str | None) -> None:
-    """Remove stale Chrome Singleton* files from a store's user-data dir.
-
-    A crash or SIGKILL leaves ``SingletonLock``/``SingletonSocket``/
-    ``SingletonCookie`` behind; the next Chrome launch then comes up without
-    binding its remote-debugging port (the "stale launch"). Safe only when
-    no Chrome is using the dir — callers invoke this after stopBrowser.
-    Best-effort: never raises. See docs/ziniao-concurrency.md.
-    """
-    if not userdata_dir:
-        return
-    try:
-        base = Path(userdata_dir)
-        for name in ('SingletonLock', 'SingletonSocket', 'SingletonCookie'):
-            f = base / name
-            if f.exists() or f.is_symlink():
-                f.unlink(missing_ok=True)
-                logger.info('Cleared stale Chrome %s in %s', name, base.name)
-    except Exception as e:
-        logger.debug('Singleton-lock cleanup skipped (%s)', e)
-
-
 class ZiniaoBackend(BrowserBackend):
     """Start/stop ziniao browser profiles and connect via CDP."""
 
@@ -105,7 +82,6 @@ class ZiniaoBackend(BrowserBackend):
         username = browser_config.get('username', '')
         password = browser_config.get('password', '')
         socket_port = int(browser_config.get('socket_port', 16851))
-        client_path = browser_config.get('client_path', 'ziniao')
         browser_oauth = browser_config.get('browser_oauth', '')
         proxy_port = int(browser_config.get('proxy_port', 9222))
 
@@ -115,8 +91,11 @@ class ZiniaoBackend(BrowserBackend):
             'password': password,
         }
 
-        # Ensure ziniao is running, launch if needed
-        await ensure_ziniao_running(socket_port, client_path, user_info)
+        # The client is already up: BrowserManager.start_session runs
+        # ensure_ziniao_running BEFORE taking the global launch lock, so a
+        # client (re)start — up to minutes — never runs in here and never
+        # starves other stores. If it died since, startBrowser fails for
+        # this store only and the next start brings it back.
 
         # Download all browser kernels once (before opening any store) so a
         # per-store startBrowser never blocks on a kernel download. Mirrors
@@ -254,7 +233,8 @@ class ZiniaoBackend(BrowserBackend):
                     f'{MAX_ZINIAO_ATTEMPTS} startBrowser attempts. This '
                     f'store failed to launch; other stores are unaffected. '
                     f'Retry the task — if it persists, the Ziniao client may '
-                    f'need a manual restart (Settings → Ziniao).'
+                    f'need a restart: close it completely and the next '
+                    f'start relaunches it.'
                 )
             # Per-store recovery: close THIS env and let the loop retry
             # startBrowser. Deliberately no shared-client restart — that
@@ -265,7 +245,7 @@ class ZiniaoBackend(BrowserBackend):
             # files in this store's user-data dir, so Chrome comes up without
             # binding its debug port. stopBrowser closed the env, so it's now
             # safe to clear them before retrying. See docs/ziniao-concurrency.md.
-            _clear_singleton_locks(result.get('userData'))
+            clear_singleton_locks(result.get('userData'))
         # cdp_port / target_host now point at a reachable browser.
 
         # Stable per-store download directory so every browser-use

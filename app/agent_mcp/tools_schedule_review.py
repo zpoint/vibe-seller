@@ -30,14 +30,13 @@ from app.agent_mcp.support import (
     ToolError,
     call_route,
     require,
-    stored_pending_question,
     trim,
 )
 from app.agent_mcp.tools_schedules import schedule_summary
-from app.ai.claude_backend_manager import agent_manager
 from app.models.schedule import Schedule
 from app.models.task import Task
 from app.plan_states import PlanStatus
+from app.question_park import pending_question_for
 from app.routers import (
     schedule_review as review_route,
     schedules as schedules_route,
@@ -57,10 +56,9 @@ _QUESTION_STATUSES = (
 
 
 def _has_question(task: Task) -> bool:
-    return bool(
-        agent_manager.get_pending_questions(task.id)
-        or stored_pending_question(task)
-    )
+    # One source with the pending-question route: live, being parked,
+    # or parked on the row (and not yet answered).
+    return pending_question_for(task.id, task) is not None
 
 
 @tool(

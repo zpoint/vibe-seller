@@ -106,6 +106,7 @@ and the reveal endpoint below.
 | POST | `/api/stores` | Create a store |
 | GET | `/api/stores/{store_id}` | Get store by ID |
 | DELETE | `/api/stores/{store_id}` | Delete a store |
+| POST | `/api/stores/{store_id}/browser/start` | Start (or reuse) the store's browser; the store wrapper calls it lazily. A Ziniao store's client is brought up first — killed and relaunched in WebDriver mode when it is not answering, no flag (old wrappers' `?force=1` is ignored). `503` while Ziniao is still starting or the launch lock is busy (retry), `409` when another Ziniao account is in use. |
 
 ## `tasks.py` — Task Management
 
@@ -123,7 +124,8 @@ and the reveal endpoint below.
 | POST | `/api/tasks/{task_id}/design` | Start design agent |
 | POST | `/api/tasks/{task_id}/execute-plan` | Execute planned task (plan mode only) |
 | PATCH | `/api/tasks/{task_id}/review-plan` | Body `{plan_mode}`. Switch THIS task between auto and review-the-plan-first (the task-detail footer switch). Never changes the user's default (`plan_mode_default`, set via `PATCH /api/auth/me/profile`). 400 when turning plan mode off on a no-store task. |
-| POST | `/api/tasks/{task_id}/questions/answer` | Answer agent question (batch) |
+| GET | `/api/tasks/{task_id}/questions/pending` | The question the task waits on: live in the session, being parked, or parked on a WAITING row (`source: live\|parked`); `{pending: false}` otherwise |
+| POST | `/api/tasks/{task_id}/questions/answer` | Answer agent question (batch). Live session → delivered in-process (`{ok: true}`); parked question → written as the user's turn, task re-queued and resumed (`{ok: true, resumed: true}`); an answer that races a timed-out wait waits for the park first |
 | POST | `/api/tasks/{task_id}/result` | Record task result summary (agent-only via MCP `vibe_seller_set_task_result`). Does NOT transition status; `_auto_run_task` handles that. |
 | POST | `/api/tasks/{task_id}/error` | Record unrecoverable task error (agent-only via MCP `vibe_seller_set_task_error`). Does NOT transition status; `_auto_run_task` sees `task.error` during cleanup and transitions to FAILED. |
 | POST | `/api/tasks/{task_id}/ad-declaration` | Declare what THIS PHASE of an ad task is for, before any browser work (agent-only via MCP `vibe_seller_declare_ad_task`). Body: `{kind, scope}` where kind ∈ audit/change/create/execute/investigate — `change` is a change the USER named ("lower widget-006 to 1.00"): no coverage, no store-rule judgement on that row, still confirmed; a request to change bids you pick is a one-campaign `audit`. There is no `edit`. `scope` = `{combos[], campaigns[], products[]}`; **absent `combos` means every marketplace the store sells on**. Append-only, one row per declaration. Like every check, one round: within a turn, narrowing at the same kind or correcting `investigate` → `audit` is always accepted (`ad_declaration.supersedes`); any other re-declaration is answered 409 once, and the same call again is recorded as declared. `execute` normally follows a user reply to a declared `audit` or `change` (this task's or its parent's); without one it is 409 once, and on a second call the frozen changes are posted to the conversation marked as not confirmed by the user. On accept, mirrored to `AD_TASK.json` in the task workspace for the stop gates (the row stays authoritative). |
@@ -689,7 +691,7 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/ziniao/launcher` | Download ziniao_webdriver.bat |
-| POST | `/api/browser/web/start` | Start (or reuse) the store-less orchestrator `web` browser. Lazy-called by the `bin/_web` wrapper on first use; parallels `POST /api/stores/{id}/browser/start`. Accepts `force` for parity (no-op). |
+| POST | `/api/browser/web/start` | Start (or reuse) the store-less orchestrator `web` browser. Lazy-called by the `bin/_web` wrapper on first use; parallels `POST /api/stores/{id}/browser/start`. |
 
 ## `system.py` — Server Runtime Metadata
 
@@ -779,8 +781,7 @@ message (`frontend/src/uploadLimits.ts`).
 | POST | `/api/ziniao-accounts` | Create account |
 | PUT | `/api/ziniao-accounts/{id}` | Update account |
 | DELETE | `/api/ziniao-accounts/{id}` | Delete account |
-| GET | `/api/ziniao-accounts/{id}/browsers` | List browser profiles (returns structured status JSON on error) |
-| POST | `/api/ziniao-accounts/{id}/restart` | Kill + relaunch Ziniao in WebDriver mode (Mac only, requires `running_normal` state) |
+| GET | `/api/ziniao-accounts/{id}/browsers` | List browser profiles. Brings Ziniao up first (kills a normal-mode / leftover client and relaunches it in WebDriver mode). Errors are structured status JSON: `503 {"status":"starting","elapsed_s":N}` while Ziniao is still starting (ask again), `409 account_conflict`, `502 start_failed` / `not_running` (WSL) / `not_installed` (Mac) with `message`. |
 
 ## `ads.py` — Amazon Ads API service
 

@@ -118,6 +118,11 @@ questions answered, click **Submit Answers**. You can also ignore the options
 marked "You replied instead — not answered", and the agent reads your message
 and continues — it doesn't stay stuck.
 
+If nobody answers within 10 minutes, the task pauses: it shows **Waiting**
+with the question still on screen, and stops holding an agent slot, so other
+tasks keep running. Answer whenever you're back — the task picks up where it
+asked.
+
 ![A task waiting for you: the question card with its option chips, and the waiting card with reason and max wait](images/using-tasks-app-question_en.png)
 
 ## Messaging a running task

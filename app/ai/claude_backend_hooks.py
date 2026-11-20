@@ -28,6 +28,14 @@ from app.ai.image_guards import (
     check_image_read_without_vision,
 )
 from app.ai.profiles import ProfileManager, model_sees_images
+from app.ai.question_policy import UNATTENDED_QUESTION_DENY, question_policy
+from app.ai.question_wait import (
+    QuestionPark,
+    Verdict,
+    answer_timeout_s,
+    verdict,
+    wait_for_answer,
+)
 from app.ai.skill_gate_utils import find_skill_md, unloaded_skill_read_hint
 from app.ai.stop_gates import record_skill_load
 from app.ai.tool_call_guards import tool_call_deny
@@ -40,6 +48,7 @@ from app.task_states import TaskStatus
 from app.telemetry_tasks import (
     send_question_answered,
     send_question_asked,
+    send_question_declined,
 )
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -642,7 +651,16 @@ class _HookMixin:
     async def _handle_ask_user_question(
         self, request_id: str, tool_input: dict
     ):
-        """Handle AskUserQuestion — emit to frontend, wait."""
+        """Handle AskUserQuestion — emit to frontend, wait (bounded).
+
+        The wait is bounded by ``VIBE_QUESTION_ANSWER_TIMEOUT_S``: an
+        unanswered question records a ``QuestionPark`` and stops the
+        agent, and the orchestrator parks the task in WAITING so the
+        slot is free (``app.ai.question_wait``, ``app.question_park``).
+        """
+        if await self._question_policy() == 'decline':
+            await self._decline_unattended_question(request_id)
+            return
         questions = tool_input.get('questions', [])
         # Mark that this session engaged in interactive Q&A — scopes the
         # finalize-time "prose follow-up → WAITING" check so single-turn
@@ -652,7 +670,7 @@ class _HookMixin:
             'request_id': request_id,
             'questions': questions,
         }
-        self._answer_events[request_id] = asyncio.Event()
+        evt = self._answer_events[request_id] = asyncio.Event()
         await event_bus.emit(
             'task_questions',
             {
@@ -662,18 +680,84 @@ class _HookMixin:
             },
         )
         asked_at = await send_question_asked(self.task_id)
-        await self._answer_events[request_id].wait()
-        await send_question_answered(self.task_id, asked_at, request_id)
-        answers = self._answers.pop(request_id, {})
+        timed_out = not await wait_for_answer(evt, answer_timeout_s())
+        # Decision block — no await until the verdict is recorded, so
+        # an answer and the timeout can never both win.
+        answers = self._answers.pop(request_id, None)
         self._answer_events.pop(request_id, None)
         self._pending_questions.pop(request_id, None)
+        outcome = verdict(
+            answered=answers is not None,
+            timed_out=timed_out,
+            stopping=self._stopping or not self.running,
+        )
+        if outcome is Verdict.TIMED_OUT:
+            waited = (datetime.now(UTC) - asked_at).total_seconds()
+            self._question_park = QuestionPark(
+                request_id, questions, asked_at, waited
+            )
+            await self._park_unanswered_question(waited)
+            return
+        if outcome is Verdict.STOPPED:
+            return
+        await send_question_answered(self.task_id, asked_at, request_id)
         # A fresh answer opens a new sub-turn: the agent must take a
         # real action (or explicitly set a result) to be considered
         # done. Until then, another prose reply means it's still asking.
         self._tool_use_since_answer = False
-        if not self.running or self._stopping:
-            return
         # Expand the UI free-text sentinel into per-question answers (#211).
         answers = expand_free_text_answers(answers, questions)
         updated_input = {**tool_input, 'answers': answers}
         await self._send_control_response(request_id, 'allow', updated_input)
+
+    async def _question_policy(self) -> str:
+        """``decline`` for a scheduled run (``app.ai.question_policy``)."""
+        return await question_policy(self.task_id)
+
+    async def _decline_unattended_question(self, request_id: str) -> None:
+        """Answer a scheduled run's question with a decline, at once.
+
+        A deny, not a forged answer: an invented answer would read as a
+        decision the user made, and would arm the "asked, then replied
+        in prose → WAITING" park. The deny is the truth — the tool did
+        not run — and its message is the instruction.
+        """
+        logger.info(
+            'Task %s: AskUserQuestion declined — scheduled run, nobody to '
+            'answer',
+            self.task_id[:8],
+        )
+        await self._send_control_response(
+            request_id, 'deny', message=UNATTENDED_QUESTION_DENY
+        )
+        await self._emit_message(
+            'agent_event',
+            json.dumps({'event': 'question_declined', 'reason': 'unattended'}),
+        )
+        send_question_declined(self.task_id, 'unattended')
+
+    async def _park_unanswered_question(self, waited_s: float) -> None:
+        """Stop the agent so the orchestrator can park the task.
+
+        No control response is sent: the stop is what a user's Stop
+        produces, and ``--resume`` continues from it with the answer
+        delivered as the next user turn. ``stop()`` runs as its own
+        task — this handler runs inside ``self._task``, which ``stop()``
+        waits on.
+        """
+        logger.warning(
+            'Task %s: AskUserQuestion %s unanswered for %.0fs — stopping '
+            'the agent to park the task',
+            self.task_id[:8],
+            self._question_park.request_id,
+            waited_s,
+        )
+        await self._emit_message(
+            'agent_event',
+            json.dumps({
+                'event': 'question_parked',
+                'reason': 'answer_timeout',
+                'waited_s': round(waited_s, 1),
+            }),
+        )
+        asyncio.create_task(self.stop())

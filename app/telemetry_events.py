@@ -28,6 +28,8 @@ class TelemetryEvent:
 
     AGENT_QUESTION_ASKED = 'agent_question_asked'
     AGENT_QUESTION_ANSWERED = 'agent_question_answered'
+    AGENT_QUESTION_PARKED = 'agent_question_parked'
+    AGENT_QUESTION_DECLINED = 'agent_question_declined'
 
     # User-action events (the plan/message/schedule verdicts mirror
     # the frontend event names of the same actions; server rows carry
@@ -150,14 +152,52 @@ class BrowserFailureReason:
     """Reasons a browser-session attempt gave up — keeps cardinality
     bounded. Used as ``error_category`` on
     ``TelemetryEvent.BROWSER_SESSION_FAILED``.
+
+    Final outcomes only: a client found in normal mode (or on another
+    port, or hung) is relaunched, so that is a *prior state* of a start,
+    not a failure — see ``ZiniaoPriorState``.
     """
 
     WSL_NOT_RUNNING = 'wsl_not_running'
-    WSL_WRONG_PORT = 'wsl_wrong_port'
-    NORMAL_MODE = 'normal_mode'
-    WRONG_PORT = 'wrong_port'
+    # WSL: Windows has a listener on the port that WSL cannot reach.
+    WSL_UNREACHABLE = 'wsl_unreachable'
     LAUNCH_FAILED = 'launch_failed'
+    # Ziniao processes survived kill-all (started with admin rights?).
+    KILL_FAILED = 'kill_failed'
+    # A non-Ziniao program holds the control port after kill-all.
+    PORT_IN_USE = 'port_in_use'
+    # Another process on the machine held the Ziniao startup lock for the
+    # whole wait (another server starting Ziniao).
+    OTHER_PROCESS_STARTING = 'other_process_starting'
+    # A startup round hit its hard cap and was stopped (never left
+    # holding the lock).
+    ROUND_STUCK = 'round_stuck'
     STARTUP_TIMEOUT = 'startup_timeout'
+
+
+class ZiniaoPriorState:
+    """What a Ziniao startup round found before it killed and launched —
+    ``prior_state`` on the Ziniao ``browser_session_started`` /
+    ``browser_session_failed`` of that round."""
+
+    NOT_RUNNING = 'not_running'
+    # Stray Ziniao processes, but no main client.
+    LEFTOVERS = 'leftovers'
+    # Main client running, API not listening on our port: opened by hand
+    # (normal mode) or in WebDriver mode on another port.
+    NORMAL_MODE = 'normal_mode'
+    # API accepted the connection but did not answer (hung).
+    UNRESPONSIVE = 'unresponsive'
+
+
+class ZiniaoPollFailure:
+    """Why the last readiness poll of a Ziniao start failed —
+    ``last_poll_error`` on ``browser_session_failed``."""
+
+    REFUSED = 'refused'
+    CONNECT_TIMEOUT = 'connect_timeout'
+    READ_TIMEOUT = 'read_timeout'
+    BAD_RESPONSE = 'bad_response'
 
 
 class McpToolOutcome:

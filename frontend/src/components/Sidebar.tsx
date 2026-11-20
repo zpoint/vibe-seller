@@ -53,8 +53,7 @@ interface SidebarProps {
   browserFetchError: string
   setBrowserFetchError: (v: string) => void
   fetchBrowserProfiles: (accountId: string) => void
-  restartZiniao: (accountId: string) => void
-  ziniaoRetried: boolean
+  ziniaoStartingSecs: number
   // Yuehulian (Windows only): stores from /api/yuehulian/stores
   yuehulianStores: YuehulianStore[]
   yuehulianError: string
@@ -110,7 +109,7 @@ export function Sidebar(props: SidebarProps) {
     ziniaoAccounts, selectedZiniaoAccountId, setSelectedZiniaoAccountId,
     ziniaoBrowsers, selectedBrowserOauth, setSelectedBrowserOauth,
     fetchingBrowsers, browserFetchError, setBrowserFetchError,
-    fetchBrowserProfiles, restartZiniao, ziniaoRetried,
+    fetchBrowserProfiles, ziniaoStartingSecs,
     yuehulianStores, yuehulianError, fetchingYuehulian, fetchYuehulianStores,
     serverPlatform, serverVersion, installId,
     updateStatus, onOpenUpdate,
@@ -245,7 +244,7 @@ export function Sidebar(props: SidebarProps) {
               selectedBrowserOauth={selectedBrowserOauth} setSelectedBrowserOauth={setSelectedBrowserOauth}
               fetchingBrowsers={fetchingBrowsers} browserFetchError={browserFetchError}
               setBrowserFetchError={setBrowserFetchError}
-              fetchBrowserProfiles={fetchBrowserProfiles} restartZiniao={restartZiniao} ziniaoRetried={ziniaoRetried}
+              fetchBrowserProfiles={fetchBrowserProfiles} ziniaoStartingSecs={ziniaoStartingSecs}
               yuehulianStores={yuehulianStores} yuehulianError={yuehulianError}
               fetchingYuehulian={fetchingYuehulian} fetchYuehulianStores={fetchYuehulianStores}
               serverPlatform={serverPlatform}
@@ -325,8 +324,7 @@ function StoreCreationForm(props: {
   fetchingBrowsers: boolean; browserFetchError: string
   setBrowserFetchError: (v: string) => void
   fetchBrowserProfiles: (accountId: string) => void
-  restartZiniao: (accountId: string) => void
-  ziniaoRetried: boolean; serverPlatform: ServerPlatform | null
+  ziniaoStartingSecs: number; serverPlatform: ServerPlatform | null
   showAddAccount: boolean; setShowAddAccount: (v: boolean) => void
   showAccountPassword: boolean; setShowAccountPassword: React.Dispatch<React.SetStateAction<boolean>>
   editingAccountId: string; setEditingAccountId: (v: string) => void

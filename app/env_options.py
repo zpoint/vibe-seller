@@ -52,6 +52,10 @@ class Options(enum.Enum):
     MAX_AGENT_CONCURRENCY = ('MAX_AGENT_CONCURRENCY', '2')
     ANTHROPIC_API_KEY = ('ANTHROPIC_API_KEY', '')
     MAX_REPEAT_TOOL_CALLS = ('VIBE_MAX_REPEAT_TOOL_CALLS', '6')
+    # How long an AskUserQuestion may wait for an answer while its agent
+    # holds a slot. Past it the agent is stopped and the task parks in
+    # WAITING with the question; answering resumes it. 0 = wait forever.
+    QUESTION_ANSWER_TIMEOUT_S = ('VIBE_QUESTION_ANSWER_TIMEOUT_S', '600')
 
     # Turn lifecycle: how long a quiescent CLI process may linger
     # after its turn's result before stdin is closed to end it.
@@ -120,6 +124,15 @@ class Options(enum.Enum):
     # shorter than BROWSER_START_TIMEOUT_S so a peer's legitimate launch
     # is reported as "busy, retry" rather than waited out.
     BROWSER_LOCK_WAIT_S = ('VIBE_BROWSER_LOCK_WAIT_S', '60')
+
+    # After a Ziniao start that timed out (two 120 s launches), automatic
+    # callers get that failure back at once for this long instead of
+    # starting another kill-and-launch round each — a fan-out or a
+    # retrying agent would otherwise kill and relaunch the client over
+    # and over (and close the Ziniao a user just opened by hand to fix a
+    # login prompt). Store setup (a user clicking) is not held back.
+    # 0 = no cooldown. See app/browser/ziniao_startup.py.
+    ZINIAO_START_COOLDOWN_S = ('VIBE_ZINIAO_START_COOLDOWN_S', '180')
 
     # Sync
     KNOWLEDGE_REPO_URL = ('KNOWLEDGE_REPO_URL', '')

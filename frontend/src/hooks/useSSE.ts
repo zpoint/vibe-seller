@@ -413,6 +413,24 @@ export function useSSE({
             return prev
           })
         }
+        // The question went unanswered and the task parked in WAITING:
+        // the agent's exit (agent_done) cleared the banner, but the
+        // question is still answerable — answering resumes the task.
+        // Re-arm the banner; the question item is already in the list.
+        if (data.type === 'task_question_parked') {
+          if (selectedTaskIdRef.current === data.task_id) {
+            setPendingQuestions({ request_id: data.request_id, questions: data.questions || [] })
+            setConversationItems(items =>
+              items.some(it => it.id === `question-${data.request_id}`)
+                ? items
+                : [...items, {
+                    id: `question-${data.request_id}`,
+                    type: 'question' as const,
+                    timestamp: new Date().toISOString(),
+                    questions: { request_id: data.request_id, questions: data.questions || [] },
+                  }])
+          }
+        }
         // The user sent a chat follow-up instead of answering — retire
         // the question card as "you replied instead" (not "answered"):
         // drop the pending banner and mark the question item interrupted.
@@ -577,7 +595,12 @@ export function useSSE({
             setShowOtherInput({})
             // Refresh task state for both success and failure
             api.get(`/api/tasks/${data.task_id}`).then((t: Task) => {
-              setSelectedTask(t)
+              // Only while it is still the open task: the user may have
+              // opened another one while this fetch was in flight, and a
+              // late reply must not swap the header back (observed: the
+              // header showed the finished task over the conversation of
+              // the one just clicked).
+              setSelectedTask(cur => (cur && cur.id === t.id ? t : cur))
               setTasks(p => patchById(p, t.id, () => t))
               if (setScheduleTasks) {
                 setScheduleTasks(p => patchById(p, t.id, () => t))

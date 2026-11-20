@@ -767,9 +767,8 @@ safe. A mask when NOTHING is stored is an error: send the real secret
 or omit the field.
 
 **They act as the token's owner.** Anything the web UI would ask a
-confirmation dialog for (delete a store, disconnect an integration,
-force-restart Ziniao) deserves the same pause: check with your user
-first.
+confirmation dialog for (delete a store, disconnect an integration)
+deserves the same pause: check with your user first.
 
 ## manage_store
 
@@ -812,11 +811,17 @@ healthy running session and never kills a running task's browser.
 | --- | --- | --- |
 | `action` | string | Required. `start_store`, `start_aux`, `start_web` or `ziniao_launcher`. |
 | `store_id` | string | The store, for `start_store`/`start_aux`. |
-| `force` | bool | `start_store` only: kill-and-relaunch Ziniao in WebDriver mode when it sits in normal mode. Ask your user first. |
 
 **Returns.** `ok` (plus the aux endpoint for `start_aux`), or a
 `download_url` for `ziniao_launcher` — that URL is for a HUMAN to
 open on the Windows machine; you cannot run the .bat.
+
+For a Ziniao store, `start_store` first makes sure the Ziniao client
+answers in WebDriver mode. If it does not — closed, opened by hand in
+normal mode, or left over from a crash — the server closes every Ziniao
+window (including ones your user has open) and relaunches it; there is
+nothing to confirm and no switch to set. An error saying Ziniao is still
+starting means just that: call again in a minute.
 
 This does NOT let you drive the browser. There is no click, navigate
 or screenshot here — starting a session just makes one ready for the
@@ -831,8 +836,8 @@ Ziniao) and list their browser profiles.
 
 | Name | Type | Notes |
 | --- | --- | --- |
-| `action` | string | Required. `list`, `create`, `update`, `delete`, `browsers` or `restart`. |
-| `account_id` | string | The account, for `update`/`delete`/`browsers`/`restart`. |
+| `action` | string | Required. `list`, `create`, `update`, `delete` or `browsers`. |
+| `account_id` | string | The account, for `update`/`delete`/`browsers`. |
 | `name` | string | Display name; blank falls back to the company (as the UI does). |
 | `company` | string | Ziniao tenant; required for `create`. |
 | `username` | string | Login username; required for `create`. |
@@ -842,10 +847,10 @@ Ziniao) and list their browser profiles.
 
 **Returns.** Account rows (no password field exists on them),
 `browsers` → the profile list (`browser_name` + `browser_oauth`,
-needed when creating a ziniao store), `restart` → `ok`.
+needed when creating a ziniao store).
 
-`restart` only works while Ziniao sits in normal mode — it refuses
-(409) rather than kill an active WebDriver session.
+`browsers` brings Ziniao up the same way `browser(start_store)` does:
+relaunched in WebDriver mode when it is not answering.
 
 ## manage_profile
 
