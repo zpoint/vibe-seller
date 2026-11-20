@@ -7,6 +7,7 @@ import { StoresPanel } from '../components/settings/StoresPanel'
 import { EmailAccountsPanel } from '../components/settings/EmailAccountsPanel'
 import { IntegrationsPanel } from '../components/settings/IntegrationsPanel'
 import { VisionPanel } from '../components/settings/VisionPanel'
+import { SETTINGS_TABS } from '../lib/route'
 import type { AuthUser, Profile, EmailAccount, Store } from '../types'
 
 export type SettingsTab =
@@ -69,12 +70,11 @@ export function SettingsView({
   loadUsers,
 }: SettingsViewProps) {
   const { t } = useTranslation()
-  const tabs: SettingsTab[] = ['aiAgent', 'integrations', 'email', 'general', 'account', 'stores']
   return (
     <div className="flex-1 flex flex-col bg-gray-50 p-4 sm:p-6 overflow-y-auto">
       <h2 className="text-lg font-bold mb-4">{t('settings.title')}</h2>
       <div className="flex flex-wrap gap-x-2 gap-y-1 mb-4 border-b border-gray-200">
-        {tabs.map(tab => (
+        {SETTINGS_TABS.map(tab => (
           <button
             key={tab}
             data-testid={`settings-tab-${tab}`}

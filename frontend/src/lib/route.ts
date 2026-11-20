@@ -28,6 +28,18 @@ export function slugToSettingsTab(slug: string): SettingsTab {
   return (SLUG_TO_TAB[slug] || slug) as SettingsTab
 }
 
+// The settings tabs in display order. The first one is where a bare
+// /settings lands, so reordering the tabs moves the default with them.
+export const SETTINGS_TABS: readonly SettingsTab[] = [
+  'aiAgent',
+  'integrations',
+  'email',
+  'general',
+  'account',
+  'stores',
+]
+export const DEFAULT_SETTINGS_SLUG = settingsTabToSlug(SETTINGS_TABS[0])
+
 export interface NavState {
   appView: AppView
   settingsTab: SettingsTab
@@ -72,7 +84,8 @@ export function parseNav(pathname: string): NavState {
     : pathname.startsWith('/settings')
       ? 'settings'
       : 'tasks'
-  const tabSlug = pathname.match(/^\/settings\/([^/]+)/)?.[1] || 'stores'
+  const tabSlug =
+    pathname.match(/^\/settings\/([^/]+)/)?.[1] || DEFAULT_SETTINGS_SLUG
   return {
     appView,
     settingsTab: slugToSettingsTab(tabSlug),

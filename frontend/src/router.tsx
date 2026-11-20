@@ -31,6 +31,7 @@ import {
   redirect,
 } from '@tanstack/react-router'
 import App from './App'
+import { DEFAULT_SETTINGS_SLUG } from './lib/route'
 
 const rootRoute = createRootRoute({ component: App })
 
@@ -91,7 +92,10 @@ const settingsIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'settings',
   beforeLoad: () => {
-    throw redirect({ to: '/settings/$tab', params: { tab: 'stores' } })
+    throw redirect({
+      to: '/settings/$tab',
+      params: { tab: DEFAULT_SETTINGS_SLUG },
+    })
   },
 })
 const settingsTabRoute = createRoute({
