@@ -666,7 +666,8 @@
       "loginFailed": "The sign-in didn't finish. Click {{button}} to try again.",
       "loginError": {
         "timeout": "The sign-in took too long and was cancelled. Click {{button}} to start over.",
-        "enable_failed": "Signed in, but the AI can't use it yet. Click {{button}} to try again."
+        "enable_failed": "Signed in, but the AI can't use it yet. Click {{button}} to try again.",
+        "denied": "The Google sign-in was refused or cancelled. Click {{button}} to start over."
       },
       "hint": {
         "open_url": "Open the link below and confirm the sign-in.",

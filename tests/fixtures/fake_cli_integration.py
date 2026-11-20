@@ -109,6 +109,9 @@ class FakeIntegration(CliIntegration):
         # (``paste_back``), and needs a key the person provides first
         # (``setup``) instead of a ``config init`` step.
         self.listen = listen
+        # A refusal: exit (gws's proxy flow) or keep waiting (its
+        # default flow).
+        self.refusal_waits = False
         self.setup = 'fake_key' if setup else None
         self.title = f'Fake {key}'
         self.description = f'Fake platform {key} via fakecli.'
@@ -154,6 +157,8 @@ class FakeIntegration(CliIntegration):
         }
         if self.long_line:
             env['FAKE_CLI_LONG_LINE'] = '1'
+        if self.refusal_waits:
+            env['FAKE_CLI_REFUSAL'] = 'wait'
         return env
 
     def latest_version(self) -> str:

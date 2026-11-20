@@ -334,15 +334,30 @@ async def test_a_pasted_address_reaches_the_cli_and_signs_in(
     assert session.view.callback is None
 
 
-async def test_a_refusal_pasted_back_ends_the_sign_in_as_failed(
-    listening, tmp_path
+@pytest.mark.parametrize('waits', [False, True], ids=['cli-exits', 'cli-waits'])
+async def test_a_refusal_pasted_back_ends_the_sign_in_as_denied(
+    listening, tmp_path, waits
 ):
+    """The person said no. Whether the CLI exits on that (gws's proxy
+    flow) or answers "no code" and keeps waiting (its default flow),
+    the sign-in ends now, as ``denied``, with no CLI left running —
+    never a 15-minute wait for a redirect that will not come."""
+    listening.refusal_waits = waits
     mgr = LoginManager()
     session = await _waiting_for_redirect(mgr, listening, tmp_path)
+    pid = int((listening.state / 'login-pid').read_text())
     await session.paste_back(f'{session.view.callback}/?error=access_denied')
-    await session.task
-    assert session.view.state == 'failed'
-    assert session.view.message == 'OAuth flow failed: access_denied'
+    assert session.task.done()
+    v = session.view
+    assert (v.state, v.error) == ('failed', 'denied')
+    assert 'access_denied' in v.message
+    assert v.url is None and v.callback is None and not v.paste_back
+    assert (listening.state / 'callback').read_text() == (
+        '/?error=access_denied'
+    )
+    assert not psutil.pid_exists(pid) or psutil.Process(pid).status() == (
+        psutil.STATUS_ZOMBIE
+    )
 
 
 @pytest.mark.parametrize(

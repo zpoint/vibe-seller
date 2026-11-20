@@ -15,7 +15,11 @@ its state in ``$FAKE_CLI_STATE`` (a directory):
                                   redirect_uri is a localhost port it
                                   listens on; the one request it gets
                                   signs in (``code=``) or refuses
-                                  (closing it unanswered, as gws does)
+                                  (closing it unanswered, as gws's
+                                  proxy flow does; with
+                                  $FAKE_CLI_REFUSAL=wait it answers 400
+                                  and keeps waiting, as its default
+                                  flow does)
 
 Every run, like ``dws``, unpacks a runtime file (``RUNTIME``) next to
 the executable — what Windows then holds open while it scans it.
@@ -100,14 +104,22 @@ if args[:3] == ['auth', 'login', '--listen']:
         '  https://accounts.fake.example/o/auth?scope=a%20b&'
         f'redirect_uri=http://localhost:{port}&response_type=code'
     )
-    try:
-        conn, _ = srv.accept()
-    except TimeoutError:
-        say('authorization expired')
-        sys.exit(4)
-    request = conn.makefile('rb').readline().decode()
-    (state / 'callback').write_text(request.split(' ')[1])
-    if 'code=' not in request:
+    while True:
+        try:
+            conn, _ = srv.accept()
+        except TimeoutError:
+            say('authorization expired')
+            sys.exit(4)
+        request = conn.makefile('rb').readline().decode()
+        (state / 'callback').write_text(request.split(' ')[1])
+        if 'code=' in request:
+            break
+        if os.environ.get('FAKE_CLI_REFUSAL') == 'wait':
+            # gws's default (yup-oauth2) flow: "no code", and it keeps
+            # waiting for a redirect that never comes.
+            conn.sendall(b'HTTP/1.1 400 Bad Request\r\n\r\nNo code in URL')
+            conn.close()
+            continue
         # gws's proxy-aware flow: no code -> error, no answer at all.
         conn.close()
         say('error[auth]: OAuth flow failed: access_denied')

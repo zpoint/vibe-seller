@@ -668,7 +668,8 @@
       "loginFailed": "登录没有完成，请点「{{button}}」再试一次。",
       "loginError": {
         "timeout": "等了太久还没完成登录，已经自动取消。请点「{{button}}」重新开始。",
-        "enable_failed": "已经登录，但 AI 还不能使用。请点「{{button}}」再试一次。"
+        "enable_failed": "已经登录，但 AI 还不能使用。请点「{{button}}」再试一次。",
+        "denied": "Google 登录被拒绝或取消了。请点「{{button}}」重新开始。"
       },
       "hint": {
         "open_url": "打开下面的链接，确认登录。",

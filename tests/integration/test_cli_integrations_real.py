@@ -201,8 +201,8 @@ async def test_real_gws_sign_in_starts_waits_locally_and_ends_cleanly(
     # The person said no in a browser on another computer: the refusal
     # pasted back reaches gws, and the sign-in ends — no hang.
     await manager.paste_back(integ, f'{view.callback}/?error=access_denied')
-    await asyncio.wait_for(session.task, 60)
-    assert session.view.state == 'failed'
+    assert session.task.done()
+    assert (session.view.state, session.view.error) == ('failed', 'denied')
     assert not (await manager.auth_status(integ, home)).usable
     exe = paths.binary_path('gws', 'gws', home)
     assert _cli_procs(exe) == []

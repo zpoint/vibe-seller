@@ -111,6 +111,9 @@ class LoginSession:
         self._proc: asyncio.subprocess.Process | None = None
         self._qr: Path | None = None
         self._tail: list[str] = []
+        # The refusal the person sent back (``paste_back`` with
+        # ``error=``): the sign-in is over, whatever the CLI does next.
+        self._refused: str | None = None
         self.task: asyncio.Task | None = None
 
     @property
@@ -147,9 +150,21 @@ class LoginSession:
         hands it on exactly as the browser would have. Only that one
         local port, and only an address carrying the approval (or the
         refusal) is ever sent.
+
+        A refusal ends the sign-in HERE, as ``denied``: CLIs differ in
+        what they do with one (gws's default flow answers "no code"
+        and keeps waiting for a redirect that will never come), and the
+        person's answer must not depend on that.
         """
         target = self._relay_target(address)
+        query = parse_qs(urlsplit(target).query)
+        if 'code' not in query:
+            self._refused = query['error'][0]
         await asyncio.to_thread(_relay, target)
+        if self._refused is not None and self.active:
+            self.task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self.task
 
     def _relay_target(self, address: str) -> str:
         if not (self.view.paste_back and self.view.callback):
@@ -201,7 +216,10 @@ class LoginSession:
                     self._tail, rc
                 )
         except asyncio.CancelledError:
-            self.view.state = 'cancelled'
+            if self._refused is not None:
+                self._deny()
+            else:
+                self.view.state = 'cancelled'
             raise
         except Exception as e:  # never leave the page spinning
             logger.exception('%s login failed', self.integ.key)
@@ -216,9 +234,20 @@ class LoginSession:
                 self.view.finishing = False
 
     def _fail(self, rc: int) -> None:
+        if self._refused is not None:
+            self._deny()
+            return
         self.view.state = 'failed'
         if self.view.message is None and not self.view.notices:
             self.view.message = _summary(self._tail, rc)
+
+    def _deny(self) -> None:
+        """The person said no in the browser (``paste_back``)."""
+        self.view.state = 'failed'
+        self.view.error = 'denied'
+        self.view.message = f'the sign-in was refused: {self._refused}'
+        self.view.url = self.view.user_code = self.view.callback = None
+        self.view.qr = self.view.paste_back = False
 
     async def _run_step(self, step: LoginStep) -> int:
         session = str(self.dir)
