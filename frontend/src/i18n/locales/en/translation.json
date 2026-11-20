@@ -858,7 +858,6 @@
     "modeLocked": "Mode and store are fixed at creation.",
     "defaultMode": "Default Mode",
     "defaultModeHelp": "Default mode pre-selected when creating a new 'All Stores' schedule.",
-    "reviewChip": "Review",
     "reviewPlan": {
       "label": "Let me review the plan before it runs",
       "hint": "Off: it runs your instructions on schedule. On: the AI first writes a plan and waits for your OK before anything runs.",

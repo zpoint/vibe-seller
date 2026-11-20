@@ -860,7 +860,6 @@
     "modeLocked": "模式与店铺绑定在创建时固定，无法修改。",
     "defaultMode": "默认模式",
     "defaultModeHelp": "新建「全部店铺」类定时任务时默认选中的模式。",
-    "reviewChip": "需审核",
     "reviewPlan": {
       "label": "运行前先让我审核方案",
       "hint": "关闭：到点直接按你的说明运行。开启：AI 先写好方案，等你同意后才会运行。",

@@ -72,11 +72,6 @@ export function ScheduleDetailView({
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">{schedule.title}</h2>
           <div className="flex items-center gap-2">
-            {needsPlan && (
-              <span className="px-2 py-1 text-xs rounded-full font-medium bg-sky-100 text-sky-800">
-                {t('schedules.reviewChip')}
-              </span>
-            )}
             {needsPlan && schedule.plan_status === 'pending_approval' && (
               <span className="px-2 py-1 text-xs rounded-full font-medium bg-amber-200 text-amber-900">
                 {t('schedules.planStatus.pending_approval')}
