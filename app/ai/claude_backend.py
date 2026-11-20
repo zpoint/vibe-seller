@@ -158,6 +158,7 @@ class AgentSession(
         # because the SDK's Stop-hook payload exposes only the literal
         # last message. Reset by each session.start().
         self._exec_phase_text_parts: list[str] = []
+        self._last_assistant_text = ''  # see _handle_event, planning result
         # Control protocol state for AskUserQuestion
         self._pending_questions: dict[
             str, dict

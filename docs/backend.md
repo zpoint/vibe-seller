@@ -18,7 +18,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `schemas/` | Pydantic request/response schemas |
 | `routers/` | FastAPI route handlers (API endpoints) |
 | `browser/` | Pluggable browser backends + session management |
-| `ai/` | AI agent abstraction (Claude Code CLI backend); provider-preset catalog (`provider_presets.py`) and its auto-sync from `main` (`provider_presets_sync.py`, cache `~/.vibe-seller/cache/provider_presets.json`, env `PROVIDER_PRESETS_URL`; see [Auto-synced preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy)); per-model token prices + context windows for the usage meter (`model_pricing.py`, generated `model_pricing_snapshot.py`, `model_pricing_sync.py`) and the per-call meter itself (`usage_meter.py`; see [Model pricing & usage meter](#model-pricing--usage-meter-aimodel_pricingpy)) |
+| `ai/` | AI agent abstraction (Claude Code CLI backend); provider-preset catalog (`provider_presets.py`) and its auto-sync from `main` (`provider_presets_sync.py`, cache `~/.vibe-seller/cache/provider_presets.json`, env `PROVIDER_PRESETS_URL`; see [Auto-synced preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy)); per-model token prices + context windows for the usage meter (`model_pricing.py`, generated `model_pricing_snapshot.py`, `model_pricing_sync.py`) and the per-call meter itself (`usage_meter.py`; see [Model pricing & usage meter](#model-pricing--usage-meter-aimodel_pricingpy)); the "is any AI set up?" check behind the set-up-AI prompt (`ai_readiness.py`; see [AI setup check](#ai-setup-check-aiai_readinesspy)) |
 | `vision.py` / `vision_catalog.py` / `vision_catalog_sync.py` / `vision_models.py` | Image generation via kie.ai: config + client + confirm registry (`vision.py`); the curated model catalog as literal data (`vision_models.py`); the served catalog — validation + served state (`vision_catalog.py`) and the network steps of its `vision_catalog` sync job (`vision_catalog_sync.py`) — catalog from `main` (literal parse + schema validation), live per-tier prices from kie.ai's public pricing table, availability via `GET /api/v1/models` (deny-list), cache `~/.vibe-seller/cache/vision_catalog.json`, env `VISION_CATALOG_URL`; runs only with a kie.ai key. See [vision.md § Kept current](vision.md#kept-current-by-the-vision_catalog-sync-job) |
 | `executor/` | Legacy browser task runner (deprecated — browser automation now via browser-use CLI) |
 | `events/` | SSE event bus for real-time streaming |
@@ -205,6 +205,29 @@ The dead-proxy check (`agent_proxy`) only counts the user settings file's proxy 
 - `tests/unit/test_claude_config_isolation.py` — flag/settings composition per profile kind for the task and assistant launches, `CLAUDE_CONFIG_DIR`, the global-config path rule, malformed/missing `.claude.json`, the global-MCP toggle.
 - `tests/workflow/test_wf_profile_config_isolation.py` — a non-default profile is created, made default and runs while a cc-switch `settings.json` exists.
 - `tests/integration/test_claude_cli_config_isolation.py` — the real CLI against a fake Anthropic endpoint: which endpoint/model each profile kind reaches, that no user `CLAUDE.md` / rule / `~/CLAUDE.md` reaches the provider while the workspace `CLAUDE.md` does, and the global-MCP toggle.
+
+## AI setup check (`ai/ai_readiness.py`)
+
+Decides whether the UI asks a user to set up AI before creating a task
+(`GET /api/profiles/readiness` → `{ready}`). One system-wide answer,
+**not set up by default**. It becomes set up when:
+
+- **the startup job** (`ai_setup_check`, a one-shot job registered by
+  `start_scheduler`, see [subsystems.md § System Scheduler Jobs](subsystems.md#system-scheduler-jobs))
+  ran `claude auth status --json` once, with the `default` profile's
+  spawn env, and got `loggedIn: true`. Any way the CLI accepts counts
+  (claude.ai login, an API key/token, a provider `env` in
+  `settings.json` as cc-switch writes it, Bedrock/Vertex). The JSON is
+  the verdict, not the exit code (it exits 1 when logged out); a
+  missing CLI, a timeout (10 s, the process is killed) or unparseable
+  output count as not logged in; or
+- **any profile other than `default` exists** (read on each request, so
+  adding a model counts at once, without a restart).
+
+Under `MOCK_CLI` it is always set up. A Claude Code login made after
+the server started counts only after a restart (or once a model is
+added). It checks that a setup is configured, not that it works: a
+wrong key still counts. Task creation is not checked.
 
 ## Profile Endpoint Validation (`ai/profile_validation.py`)
 

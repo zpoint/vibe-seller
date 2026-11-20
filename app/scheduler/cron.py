@@ -14,6 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
 
+from app.ai.ai_readiness import register_ai_setup_check
 from app.ai.profiles import resolve_schedule_profile
 from app.browser.idle_sweep import sweep_idle_browsers
 from app.config import DEFAULT_USER_ID
@@ -68,6 +69,7 @@ def start_scheduler():
     _register_finalize_reaper()
     _register_task_cleanup()
     register_install_heartbeat(scheduler)
+    register_ai_setup_check(scheduler)
 
 
 def _register_waiting_checker():
