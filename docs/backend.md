@@ -28,7 +28,8 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `mcp_server.py` / `mcp_tool_schemas.py` | The IN-TASK stdio MCP (never exposed as a server-side endpoint — CLAUDE.md): tools proxy loopback REST calls with the session token. `--tools name,name` restricts a session to the allowlist — enforced twice (`tools/list` intersection AND dispatch refusal) and needing no task id in that mode; the workspace assistant is launched with exactly the three skill tools. See [workspace.md § Workspace AI Assistant](workspace.md#workspace-ai-assistant) |
 | `skill_uploads.py` / `skill_install.py` / `skill_pack.py` / `skill_fetch.py` | The ONE archive→skill pipeline. `skill_uploads`: presigned uploads + staging + strict extraction (regular files only, case/Unicode-normalization collision refusal, caps). `skill_install`: `import_staged` + `install_stream` + `describe_refusal` — the composition and the shared mint→stage→install sequence every archive DOOR calls (hosted `manage_skill`, the in-task import routes, URL imports), and the single (status, message) refusal mapping the doors only convert the type of. Split out of `skill_uploads` to keep each module under the size gate; import direction one-way: skill_install → skill_uploads. `skill_pack`: the packer half run in the in-task MCP process (local directory → tar.gz; `SKILL.md` at root required, symlink escape refused, caps pre-checked — the server never reads a caller-named path). `skill_fetch`: the URL source, server-side (http(s) only, public addresses — loopback only under `VIBE_ALLOW_LOOPBACK_WEBHOOKS`; per-hop redirect re-guard; streamed caps + timeouts; recursive GitHub tree walk with a loud refusal on unexpanded directories; archive sniffing by magic bytes). See [workspace.md § Skills System](workspace.md#skills-system) |
 | `notifiers/` | Chat bot webhook senders (WeCom / DingTalk / Feishu / Slack) — `base.py` holds the `PLATFORMS` registry + `detect_platform` (platform is derived from the URL host, never client-supplied); one module per platform; never echoes the webhook URL in errors |
-| `scheduler/` | Task scheduling (cron, fan-out, concurrent per-store queue) |
+| `scheduler/` | Task scheduling (cron, fan-out, concurrent per-store queue; `queue_reconciler.py` re-queues orphaned `queued` rows every minute) |
+| `task_owners.py` | In-process registry of launch holders: `@holds_task` on the three launchers and `holding(task_id)` around the agent-slot wait in `agent_manager.run`. `is_held()` lets `scheduler/queue_reconciler.py` and `TaskQueueScheduler.adopt_orphan` tell an orphaned `queued` row from a task that is merely waiting its turn. |
 | `workspace/` | Workspace management (~/.vibe-seller/) |
 | `knowledge/` | Project knowledge files (synced to workspace) |
 | `skills/` | Built-in skills (synced to workspace) |
@@ -40,6 +41,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `api_token_secrets.py` | The REST side of the write-only-secret contract for API-token callers: one ASGI middleware that masks secret-classified fields in JSON responses and restores masked echoes on write routes (`RESTORE_RULES`). See [api.md § API tokens](api.md#personal-api-tokens). |
 | `interactive_only.py` | Routes only a person at the web UI may call (today: `PUT /api/email-accounts/{id}/send-permission`). `INTERACTIVE_ONLY_ROUTES` + `InteractiveOnlyMiddleware`, registered in `main.py` next to the API-token scope middleware, refuse every machine credential (any `Authorization` header, a `vst_` cookie, the `ai_bot` cookie JWT). Agent-proof only while login is on. See [api.md § Email accounts](api.md). |
 | `uploads.py` | One definition of how uploads are taken and served: any type accepted, `serve_file()` (inline only for `INLINE_SERVE_TYPES`, else a nosniff download), `safe_suffix()`, `MAX_UPLOAD_SIZE` (100MB), the streaming `save_upload()` writer, and `UploadBodyLimitMiddleware`. Every multipart route imports from here — the limit used to live in four places and had already drifted. See [Upload limits](api.md#upload-limits). |
+| `attachment_markdown.py` | The ONE encoding for a user's attachments inside a transcript user message: `![name](url)` per file after the text, which the UI's `MessageBubble` / `TaskStartCard` render as thumbnails (an image) or an extension chip (any other file, `lib/attachmentKind`). Shared by chat sends (`POST /api/tasks/{id}/messages`, promoted staged files) and a task's opening message: `opening_attachments()` supplies the task's create-time `task_attachments` when the agent backend persists the opening prompt at launch (`_PersistMixin._persist_opening_prompt`, best-effort — a lookup error saves the bare prompt). Only the first user message carries them; when the run's model cannot see images a `notice` follows it (`ai/unseen_images.py`). The agent gets the files' absolute paths separately (`uploaded_files_note` / `Attached file:` lines). |
 | `text_utils.py` | Surrogate-safe text: `SafeStr` (request fields), `SafeText` (DB columns), `sanitize_text` (file writes). Agent text can carry a lone surrogate that no UTF-8 encode accepts — see [Lone surrogates](#lone-surrogates-in-agent-text). |
 | `platform.py` | Cross-platform abstractions (Windows/macOS/Linux) — psutil-based process management (`kill_process`, `find_processes_by_pattern`, `reap_task_agents`, `collect_agent_descendants`), venv path helpers (`Scripts/` vs `bin/`, `venv_python`, `venv_executable`), `prepend_to_path` (uses `os.pathsep`), `safe_chmod` (no-op on Windows). Centralises every platform difference so the rest of the code stays platform-agnostic. See [Cross-platform support](subsystems.md#cross-platform-support-native-windows). |
 | `claude_cli_install.py` | Makes sure the project-local Claude Code CLI (`<VIBE_HOME>/node_modules/.bin/claude`) actually runs after npm installs it: newer npm skips the package's `postinstall` (`install.cjs`, which puts the native binary in place) yet exits 0, so `finish()` runs that step when `claude --version` fails and reports a CLI that still does not run instead of passing it. Used by `vibe-seller upgrade`; `install.sh` applies the same rule. |
@@ -152,6 +154,33 @@ Composing `SafeStr` with `StringConstraints` has one trap:
 constraint. Wrap the constrained type instead —
 `Annotated[Annotated[str, StringConstraints(...)], SANITIZE_SURROGATES]`
 (see `routers/tasks_schedule_state.py`).
+
+## Things the backend tells the user itself
+
+Two failures the backend can see before the model answers, so it says so
+instead of leaving a "running" task with nothing on screen:
+
+- **A rejected API key** (`_StreamMixin._on_credential_rejected`,
+  `ai/claude_backend_stream.py`). The CLI retries a 401 like any transient
+  error — ten backed-off `system/api_retry` attempts, 3+ minutes — and then
+  fails anyway. The second `authentication_failed` retry ends the run (the
+  first is let through: that is when Claude Code refreshes an expired OAuth
+  login on the `default` profile). The session records `_fatal_error` (a
+  reason naming the profile) + `error_category='auth_failed'`;
+  `finalize_terminal_state` writes it before resolving the outcome, so the
+  task fails with that reason (the UI banner is `tasks.error_auth_failed`),
+  and `_is_resume_failure` never relaunches such a run fresh into the same
+  401.
+- **Images the model cannot see** (`ai/unseen_images.py`). When the run's
+  model is labelled text-only in the catalog (`profiles.model_sees_images`
+  is `False`), attached images are announced with a `notice` transcript row
+  (`{"kind": "images_unseen", "model", "files"}`, rendered by the UI's
+  `NoticeBanner` in the user's language) right after the user's message —
+  at launch for create-time attachments (`_persist_opening_prompt`), at send
+  time for chat attachments (`POST /api/tasks/{id}/messages`). The agent is
+  told the same and not to Read those images (`uploaded_files_note`, the
+  chat `Attached image (...)` line), instead of being sent into a Read that
+  `image_guards` refuses. An unknown model restricts nothing.
 
 ## Agent Config Isolation (`ai/claude_isolation.py`)
 

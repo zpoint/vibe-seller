@@ -175,6 +175,8 @@
     "ziniaoWslWrongPort": "Ziniao is running on Windows but not listening on the expected port. Please close Ziniao and re-launch it using the ziniao_webdriver.bat script.",
     "ziniaoWslCannotLaunch": "WSL cannot launch Ziniao automatically.\nPlease download and run the launcher script on Windows:\n  1. Download the .bat file below\n  2. Double-click ziniao_webdriver.bat on Windows\n  3. Wait for \"ready\" message, then retry",
     "error_rate_limit": "API rate limit reached. Please wait a moment and retry.",
+    "noticeImagesUnseen": "{{model}} can't see images, so {{files}} won't be read. To have the image understood, switch to a model that can see images in the selector below and send it again.",
+    "noticeThisModel": "This model",
     "error_auth_failed": "API authentication failed. Check your API key in Settings.",
     "error_billing_error": "Account billing issue. Check your Anthropic account.",
     "error_overloaded": "API is overloaded. Please try again later.",

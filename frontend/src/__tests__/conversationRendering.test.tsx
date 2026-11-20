@@ -299,6 +299,28 @@ describe('F4: Edge cases', () => {
   })
 })
 
+describe('Backend notices', () => {
+  it('renders an images_unseen notice naming the model and files', () => {
+    const items: ConversationItem[] = [
+      makeConversationItem('notice', {
+        notice: { kind: 'images_unseen', model: 'text-model', files: ['shot.png'] },
+      }),
+    ]
+    renderConversationStream({ items })
+    const banner = screen.getByTestId('notice-images-unseen')
+    expect(banner).toHaveTextContent('text-model')
+    expect(banner).toHaveTextContent('shot.png')
+  })
+
+  it('renders nothing for an unknown notice kind', () => {
+    const items: ConversationItem[] = [
+      makeConversationItem('notice', { notice: { kind: 'from-the-future' } }),
+    ]
+    const { container } = renderConversationStream({ items })
+    expect(container.querySelector('[role="status"]')).toBeNull()
+  })
+})
+
 describe('F5: Task start card', () => {
   it('renders matching first user_message as TaskStartCard', () => {
     const items: ConversationItem[] = [
@@ -342,6 +364,52 @@ describe('F5: Task start card', () => {
     const card = container.querySelector('[data-testid="task-start-card"]')
     expect(card).toBeInTheDocument()
     expect(card!.querySelector('.border-t')).not.toBeInTheDocument()
+  })
+
+  // The opening message carries the files attached at create time as
+  // markdown images (app/attachment_markdown.py). A pasted screenshot
+  // must show as a thumbnail in BOTH opening shapes — never as raw
+  // markdown, and never dropped.
+  it('shows create-time attachments on the plan-mode start card', () => {
+    const items: ConversationItem[] = [
+      makeConversationItem('user_message', {
+        message: {
+          role: 'user',
+          content:
+            'Design an execution plan for this task: Find the order\n\nDetails: 10 units\n![shot.png](/api/attachments/file/att-1)',
+        },
+      }),
+    ]
+
+    const { container } = renderConversationStream({ items })
+
+    const card = container.querySelector('[data-testid="task-start-card"]')
+    expect(card).toBeInTheDocument()
+    const img = screen.getByRole('img', { name: 'shot.png' })
+    expect(card).toContainElement(img)
+    expect(img).toHaveAttribute('src', '/api/attachments/file/att-1')
+    fireEvent.click(screen.getByText('Find the order'))
+    expect(screen.getByText('10 units')).toBeInTheDocument()
+    expect(container.textContent).not.toContain('![')
+  })
+
+  it('shows create-time attachments on an auto-mode opening bubble', () => {
+    const items: ConversationItem[] = [
+      makeConversationItem('user_message', {
+        message: {
+          role: 'user',
+          content: 'Find the 10-unit order\n![shot.png](/api/attachments/file/att-1)',
+        },
+      }),
+    ]
+
+    const { container } = renderConversationStream({ items })
+
+    expect(screen.getByText('Find the 10-unit order')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'shot.png' })).toHaveAttribute(
+      'src', '/api/attachments/file/att-1',
+    )
+    expect(container.textContent).not.toContain('![')
   })
 
   it('renders non-matching user_message as normal bubble', () => {

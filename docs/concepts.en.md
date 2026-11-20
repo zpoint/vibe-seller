@@ -27,7 +27,7 @@ One store = one logged-in browser + one memory. The login is either a Ziniao bro
 
 An agent works inside its own store's browser and never borrows another store's login, and writes that clearly belong to another store get rejected — so Store A's hard-won experience doesn't leak into Store B's notes. Three stores can run at the same time without interfering.
 
-Choosing between the two backends: [Which browser backend](stores.en.md#which-browser-backend); which credentials Ziniao needs and where they live: [Ziniao: Setup & Common Errors](ziniao.en.md); how parallel stores are arranged: [Running several stores at once](stores.en.md#running-several-stores-at-once).
+Choosing between the two backends: [Which browser backend](browsers.en.md#which-browser-backend); which credentials Ziniao needs and where they live: [Ziniao: Setup & Common Errors](ziniao.en.md); how parallel stores are arranged: [Running several stores at once](stores.en.md#running-several-stores-at-once).
 
 ## Task
 

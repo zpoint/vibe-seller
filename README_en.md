@@ -3,7 +3,7 @@
 <h1 align="center">Vibe Seller</h1>
 
 <p align="center">
-  <b>AI automation framework for cross-border sellers (supports Amazon, Noon, Mercado Libre, Qianniu and more; Ziniao, Chrome and other browsers). Freely connect any LLM.</b><br/>
+  <b>AI automation framework for cross-border sellers (supports Amazon, Noon, Mercado Libre, Qianniu and more; Ziniao, Yuehulian, Chrome and other browsers). Freely connect any LLM.</b><br/>
   Runs on macOS, Linux, or Windows (native installer). Local-first — code on your machine, data on your disk. Works with Claude, DeepSeek, GLM, Qwen, Kimi, MiniMax — any Anthropic-compatible provider.
 </p>
 
@@ -87,8 +87,9 @@ scratch.
   first try, no step-by-step guidance needed.
 - **Native Ziniao control.** CDP, not Playwright on vanilla Chrome,
   not UI-coordinate clicks. Lower risk-control risk, more stable.
-- **Multi-browser by design.** Plain Chrome is a first-class backend
-  alongside Ziniao — pick per store.
+- **Multi-browser by design.** Ziniao, Yuehulian and plain Chrome are
+  all first-class backends — pick per store. Downloads, setup and how to
+  choose: [Browsers](https://docs.vibe-sellers.com/en/browsers/).
 - **Multi-LLM by design.** Built on top of the Claude Code CLI, so
   any Anthropic-compatible provider works — Claude, DeepSeek, Kimi,
   MiniMax, GLM, Qwen. Switch in Settings, no code changes. Your key,
@@ -180,10 +181,11 @@ description to copy, the settings screenshots and the finished result — see
 | | |
 |---|---|
 | **Getting started** | [Installation](https://docs.vibe-sellers.com/en/install/) · [Quickstart](https://docs.vibe-sellers.com/en/quickstart/) · [Configure AI Models](https://docs.vibe-sellers.com/en/llm-keys/) · [Core Concepts](https://docs.vibe-sellers.com/en/concepts/) |
+| **Browsers** | [Browsers Overview](https://docs.vibe-sellers.com/en/browsers/) · [Ziniao: Setup & Common Errors](https://docs.vibe-sellers.com/en/ziniao/) · [Yuehulian: Setup Guide](https://docs.vibe-sellers.com/en/yuehulian/) |
 | **Integrations** | [Overview](https://docs.vibe-sellers.com/en/integrations/) · [MCP setup](https://docs.vibe-sellers.com/en/mcp/) · [Amazon Ads API](https://docs.vibe-sellers.com/en/ads-api/) · [Email](https://docs.vibe-sellers.com/en/email/) · [Chat bots](https://docs.vibe-sellers.com/en/chat-bots/) · [TickTick / Dida365](https://docs.vibe-sellers.com/en/ticktick/) · [Google Workspace](https://docs.vibe-sellers.com/en/google-workspace/) |
 | **Examples** | [All Examples](https://docs.vibe-sellers.com/en/examples/) · [Daily email digest to WeCom](https://docs.vibe-sellers.com/en/example-email-wecom/) · [Analyse ad ACOS and apply fixes](https://docs.vibe-sellers.com/en/example-ads-acos/) · [Weekly listing check](https://docs.vibe-sellers.com/en/example-listing-check/) · [Monthly sales report](https://docs.vibe-sellers.com/en/example-daily-report/) · [Export a Ziniao store's finances with Codex](https://docs.vibe-sellers.com/en/example-mcp/) |
 | **User guide** | [Stores & Browsers](https://docs.vibe-sellers.com/en/stores/) · [Tasks](https://docs.vibe-sellers.com/en/using-tasks/) · [Schedules](https://docs.vibe-sellers.com/en/schedules/) · [Knowledge & Skills](https://docs.vibe-sellers.com/en/knowledge/) |
-| **FAQ** | [About Vibe Seller](https://docs.vibe-sellers.com/en/faq-about/) · [Ziniao: Setup & Common Errors](https://docs.vibe-sellers.com/en/ziniao/) · [Cost & Model Choice](https://docs.vibe-sellers.com/en/faq-cost/) · [Login & Accounts](https://docs.vibe-sellers.com/en/faq-login/) · [Deployment & Data](https://docs.vibe-sellers.com/en/faq-data/) · [All Questions](https://docs.vibe-sellers.com/en/faq/) |
+| **FAQ** | [About Vibe Seller](https://docs.vibe-sellers.com/en/faq-about/) · [Cost & Model Choice](https://docs.vibe-sellers.com/en/faq-cost/) · [Login & Accounts](https://docs.vibe-sellers.com/en/faq-login/) · [Deployment & Data](https://docs.vibe-sellers.com/en/faq-data/) · [All Questions](https://docs.vibe-sellers.com/en/faq/) |
 | **Community** | [Community & Feedback](https://docs.vibe-sellers.com/en/community/): the WeChat group, Slack, and how to report a problem or suggest a feature |
 | **Developer (English)** | [Developer Guide](https://docs.vibe-sellers.com/en/dev-guide/) · [Task Internals](https://docs.vibe-sellers.com/en/tasks/) · [Browser Internals](https://docs.vibe-sellers.com/en/browser/) · [Subsystems](https://docs.vibe-sellers.com/en/subsystems/) · [External Agents (MCP API)](https://docs.vibe-sellers.com/en/agents/) · [Windows + WSL2 service](https://docs.vibe-sellers.com/en/windows-setup/) · [macOS service](https://docs.vibe-sellers.com/en/macos-setup/) |
 

@@ -31,6 +31,7 @@ from app.scheduler.fanout import (
 from app.scheduler.finalize_reaper import reap_finalized_batches
 from app.scheduler.heartbeat import register_install_heartbeat
 from app.scheduler.plan_reaper import reap_stuck_planning_tasks
+from app.scheduler.queue_reconciler import register_queue_reconciler
 from app.scheduler.stall_reaper import reap_stalled_running_tasks
 from app.scheduler.task_cleanup import cleanup_old_tasks
 from app.scheduler.task_queue import task_queue_scheduler
@@ -62,6 +63,7 @@ def start_scheduler():
     _register_waiting_checker()
     _register_plan_reaper()
     _register_stall_reaper()
+    register_queue_reconciler(scheduler)
     _register_idle_browser_sweeper()
     _register_finalize_reaper()
     _register_task_cleanup()

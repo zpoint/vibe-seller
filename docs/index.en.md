@@ -5,7 +5,7 @@ description: AI automation framework for cross-border sellers — locally deploy
 <h1 align="center">Vibe Seller</h1>
 
 <p align="center">
-  <b>AI automation framework for cross-border sellers (supports Amazon, Noon, Mercado Libre, Qianniu and more; Ziniao, Chrome and other browsers). Freely connect any LLM.</b><br/>
+  <b>AI automation framework for cross-border sellers (supports Amazon, Noon, Mercado Libre, Qianniu and more; Ziniao, Yuehulian, Chrome and other browsers). Freely connect any LLM.</b><br/>
   Runs on macOS, Linux, or Windows (native installer). Local-first — code on your machine, data on your disk. Works with Claude, DeepSeek, GLM, Qwen, Kimi, MiniMax — any Anthropic-compatible provider.
 </p>
 
@@ -91,8 +91,9 @@ scratch.
   first try, no step-by-step guidance needed.
 - **Native Ziniao control.** CDP, not Playwright on vanilla Chrome,
   not UI-coordinate clicks. Lower risk-control risk, more stable.
-- **Multi-browser by design.** Plain Chrome is a first-class backend
-  alongside Ziniao — pick per store.
+- **Multi-browser by design.** Ziniao, Yuehulian and plain Chrome are
+  all first-class backends — pick per store. Downloads, setup and how to
+  choose: [Browsers](browsers.en.md).
 - **Multi-LLM by design.** Built on top of the Claude Code CLI, so
   any Anthropic-compatible provider works — Claude, DeepSeek, Kimi,
   MiniMax, GLM, Qwen. Switch in Settings, no code changes. Your key,
@@ -184,10 +185,11 @@ description to copy, the settings screenshots and the finished result — see
 | | |
 |---|---|
 | **Getting started** | [Installation](install.en.md) · [Quickstart](quickstart.en.md) · [Configure AI Models](llm-keys.en.md) · [Core Concepts](concepts.en.md) |
+| **Browsers** | [Browsers Overview](browsers.en.md) · [Ziniao: Setup & Common Errors](ziniao.en.md) · [Yuehulian: Setup Guide](yuehulian.en.md) |
 | **Integrations** | [Overview](integrations.en.md) · [MCP setup](mcp.en.md) · [Amazon Ads API](ads-api.en.md) · [Email](email.en.md) · [Chat bots](chat-bots.en.md) · [TickTick / Dida365](ticktick.en.md) · [Google Workspace](google-workspace.en.md) |
 | **Examples** | [All Examples](examples.en.md) · [Daily email digest to WeCom](example-email-wecom.en.md) · [Analyse ad ACOS and apply fixes](example-ads-acos.en.md) · [Weekly listing check](example-listing-check.en.md) · [Monthly sales report](example-daily-report.en.md) · [Export a Ziniao store's finances with Codex](example-mcp.en.md) |
 | **User guide** | [Stores & Browsers](stores.en.md) · [Tasks](using-tasks.en.md) · [Schedules](schedules.en.md) · [Knowledge & Skills](knowledge.en.md) |
-| **FAQ** | [About Vibe Seller](faq-about.en.md) · [Ziniao: Setup & Common Errors](ziniao.en.md) · [Cost & Model Choice](faq-cost.en.md) · [Login & Accounts](faq-login.en.md) · [Deployment & Data](faq-data.en.md) · [All Questions](faq.en.md) |
+| **FAQ** | [About Vibe Seller](faq-about.en.md) · [Cost & Model Choice](faq-cost.en.md) · [Login & Accounts](faq-login.en.md) · [Deployment & Data](faq-data.en.md) · [All Questions](faq.en.md) |
 | **Community** | [Community & Feedback](community.en.md): the WeChat group, Slack, and how to report a problem or suggest a feature |
 | **Developer (English)** | [Developer Guide](dev-guide.md) · [Task Internals](tasks.md) · [Browser Internals](browser.md) · [Subsystems](subsystems.md) · [External Agents (MCP API)](agents.md) · [Windows + WSL2 service](windows-setup.md) · [macOS service](macos-setup.md) |
 

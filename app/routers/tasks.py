@@ -786,7 +786,9 @@ async def wake_task(
         {'task_id': task_id, 'status': TaskStatus.QUEUED},
     )
 
-    if task.store_id:
-        await task_queue_scheduler.submit(task_id, task.store_id)
+    # Every woken task goes to the queue — store-less ones too, on the
+    # ``None`` lane (``_dispatch`` resumes it via execute_woken_task).
+    # Gating this on store_id wrote QUEUED with nothing to start it.
+    await task_queue_scheduler.submit(task_id, task.store_id)
 
     return {'ok': True, 'task_id': task_id, 'status': 'queued'}

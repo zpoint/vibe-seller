@@ -12,12 +12,14 @@ Windows-illegal-character names so the same code path is safe on macOS,
 Linux, and Windows.
 """
 
+import json
 from pathlib import Path
 import shutil
 import uuid
 
 import pytest
 
+import app.ai.unseen_images as ui
 from app.workspace.manager import VIBE_SELLER_DIR
 from tests.workflow.conftest import wait_for_task
 
@@ -254,3 +256,33 @@ class TestPromoteOnSend:
             json={'content': '   '},
         )
         assert r.status_code == 400
+
+
+async def test_chat_image_on_a_text_only_model_gets_a_notice(
+    admin_client, install_fake_agent, monkeypatch
+):
+    """A chat image sent to a text-only model: the user's bubble is
+    followed by a ``notice`` before the agent answers, and the agent is
+    told not to Read the image instead of "Attached file:"."""
+    monkeypatch.setattr(ui, 'profile_model', lambda pid: 'text-model')
+    monkeypatch.setattr(ui, 'model_sees_images', lambda m: False)
+    tid = await _create_store_task(admin_client)
+    await wait_for_task(admin_client, tid)
+    install_fake_agent._running[tid] = True
+    staged = (await _stage(admin_client, tid, 'photo.png')).json()
+
+    r = await admin_client.post(
+        f'/api/tasks/{tid}/messages',
+        json={'content': 'what is this', 'attachment_ids': [staged['id']]},
+    )
+    assert r.status_code == 200
+
+    msgs = (await admin_client.get(f'/api/tasks/{tid}/messages')).json()
+    user_idx = max(i for i, m in enumerate(msgs) if m['role'] == 'user')
+    assert msgs[user_idx + 1]['role'] == 'notice'
+    assert json.loads(msgs[user_idx + 1]['content'])['files'] == ['photo.png']
+
+    sent = install_fake_agent.get_calls(task_id=tid, action='send_message')
+    assert 'cannot see images' in sent[0].message
+    assert 'Attached file:' not in sent[0].message
+    shutil.rmtree(_TASKS_DIR / tid, ignore_errors=True)

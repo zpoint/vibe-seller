@@ -253,12 +253,19 @@ export type ConversationItemType =
   | 'plan' | 'user_message' | 'agent_message'
   | 'streaming' | 'question' | 'execution_separator'
   | 'result' | 'tool_call' | 'thinking'
-  | 'image_request' | 'generated_image'
+  | 'image_request' | 'generated_image' | 'notice'
 
 export interface PlanVersion {
   version: number
   content: string
   isCurrent: boolean
+}
+
+/** A backend-authored transcript notice (role `notice`, JSON body). */
+export interface TaskNotice {
+  kind: string
+  model?: string | null
+  files?: string[]
 }
 
 export interface ConversationItem {
@@ -274,6 +281,7 @@ export interface ConversationItem {
   result?: string
   toolCall?: { tool: string; input?: Record<string, unknown> }
   thinking?: { content: string; isStreaming: boolean }
+  notice?: TaskNotice
   imageRequest?: {
     requestId: string
     prompt: string

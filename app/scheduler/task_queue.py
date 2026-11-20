@@ -22,6 +22,7 @@ import logging
 
 from sqlalchemy import select
 
+from app import task_owners
 from app.browser.manager import browser_manager
 from app.database import async_session
 from app.events.bus import event_bus
@@ -169,6 +170,33 @@ class TaskQueueScheduler:
                 )
 
         self._tick_event.set()
+
+    def _holds_locked(self, task_id: str) -> bool:
+        """True if a lane has ``task_id`` queued or dispatched.
+
+        Caller holds ``self._lock``.
+        """
+        return any(task_id in q for q in self._queues.values()) or any(
+            task_id in r for r in self._running_tasks.values()
+        )
+
+    async def adopt_orphan(self, task_id: str, store_id: str | None) -> bool:
+        """Put an orphaned task back in its lane, as a restart would.
+
+        The same move ``_recover_from_db`` makes for every QUEUED row at
+        boot — append to the lane and let ``_dispatch`` pick the
+        launcher from the row — made for one row while the server runs.
+        Re-checked under the lock against the lanes AND the launch
+        holders (``app.task_owners``), so a task that is waiting its
+        turn anywhere is never launched twice. Returns True when the
+        task was adopted.
+        """
+        async with self._lock:
+            if self._holds_locked(task_id) or task_owners.is_held(task_id):
+                return False
+            self._queues.setdefault(store_id, []).append(task_id)
+        self._tick_event.set()
+        return True
 
     async def cancel(self, task_id: str, store_id: str | None):
         """Remove a task from the queue (if still queued)."""
@@ -426,7 +454,7 @@ class TaskQueueScheduler:
         """Run the full plan-then-execute pipeline."""
         try:
             async with async_session() as db:
-                store = await db.get(Store, store_id)
+                store = await db.get(Store, store_id) if store_id else None
             await auto_run_task(task_id, store)
         except Exception:
             logger.exception('Task %s execution error', task_id)
@@ -439,7 +467,7 @@ class TaskQueueScheduler:
         """Execute a task that already has a plan."""
         try:
             async with async_session() as db:
-                store = await db.get(Store, store_id)
+                store = await db.get(Store, store_id) if store_id else None
             await execute_planned_task(task_id, store)
         except Exception:
             logger.exception('Planned task %s execution error', task_id)
@@ -452,7 +480,7 @@ class TaskQueueScheduler:
         """Execute a woken waiting task."""
         try:
             async with async_session() as db:
-                store = await db.get(Store, store_id)
+                store = await db.get(Store, store_id) if store_id else None
             await execute_woken_task(task_id, store)
         except Exception:
             logger.exception('Woken task %s execution error', task_id)

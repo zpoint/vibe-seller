@@ -175,6 +175,8 @@
     "ziniaoWslWrongPort": "紫鸟已在 Windows 上运行，但未监听预期端口。请关闭紫鸟，然后使用 ziniao_webdriver.bat 脚本重新启动。",
     "ziniaoWslCannotLaunch": "WSL 无法自动启动紫鸟。\n请在 Windows 上下载并运行启动脚本：\n  1. 下载下方 .bat 文件\n  2. 在 Windows 上双击 ziniao_webdriver.bat\n  3. 等待显示 ready 后重试",
     "error_rate_limit": "API 请求频率超限，请稍等后重试。",
+    "noticeImagesUnseen": "{{model}} 不能识别图片，{{files}} 不会被读取。如需识别图片内容，请在下方切换到支持图片的模型后重新发送。",
+    "noticeThisModel": "当前模型",
     "error_auth_failed": "API 认证失败，请在设置中检查密钥。",
     "error_billing_error": "账户计费问题，请检查 Anthropic 账户。",
     "error_overloaded": "API 当前过载，请稍后再试。",

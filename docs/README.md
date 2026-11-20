@@ -21,11 +21,19 @@ site they are marked as such.
 | [llm-keys.md](llm-keys.md) / [llm-keys.en.md](llm-keys.en.md) | Getting an API key from each provider, pay-as-you-go vs plans |
 | [concepts.md](concepts.md) / [concepts.en.md](concepts.en.md) | Store, task (two scopes), schedule, knowledge & skills, integrations, AI profiles |
 
+## Browsers
+
+| File | Topics |
+|------|--------|
+| [browsers.md](browsers.md) / [browsers.en.md](browsers.en.md) | Supported-browser directory (official download + team-account URLs), how to choose, the store-browser + auxiliary-browser design |
+| [ziniao.md](ziniao.md) / [ziniao.en.md](ziniao.en.md) | Ziniao: developer-mode prerequisites, binding fields, common errors, WSL launcher, credential storage |
+| [yuehulian.md](yuehulian.md) / [yuehulian.en.md](yuehulian.en.md) | Yuehulian: download, team account, binding, one account per machine, auto-login, Windows-only, credential storage |
+
 ## User guide
 
 | File | Topics |
 |------|--------|
-| [stores.md](stores.md) / [stores.en.md](stores.en.md) | Stores and browsers: Ziniao, Chrome, per-store isolation |
+| [stores.md](stores.md) / [stores.en.md](stores.en.md) | Stores: creating, editing, login persistence, per-store isolation (browser choice lives under Browsers) |
 | [using-tasks.md](using-tasks.md) / [using-tasks.en.md](using-tasks.en.md) | Creating and running tasks, Auto vs Plan mode, results and logs |
 | [schedules.md](schedules.md) / [schedules.en.md](schedules.en.md) | Scheduled runs, plan-first schedules, cross-run state |
 | [knowledge.md](knowledge.md) / [knowledge.en.md](knowledge.md) | Per-store memory, the knowledge base, skills |
@@ -35,7 +43,6 @@ site they are marked as such.
 | File | Topics |
 |------|--------|
 | [faq-about.md](faq-about.md) / [faq-about.en.md](faq-about.en.md) | How Vibe Seller differs from Amazon's SP-API |
-| [ziniao.md](ziniao.md) / [ziniao.en.md](ziniao.en.md) | Ziniao: developer-mode prerequisites, binding fields, common errors, WSL launcher, credential storage |
 | [faq-cost.md](faq-cost.md) / [faq-cost.en.md](faq-cost.en.md) | Cost, which LLM to pick |
 | [faq-login.md](faq-login.md) / [faq-login.en.md](faq-login.en.md) | Login password setup / recovery, no `vibe-seller` command on Windows |
 | [faq-data.md](faq-data.md) / [faq-data.en.md](faq-data.md) | Cloud servers, data privacy, where the agent's memory lives, English-only buttons |

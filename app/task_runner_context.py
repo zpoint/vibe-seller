@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import ads_routing
+from app.ai.unseen_images import agent_note, profile_model, unseen_images
 from app.browser.base import antidetect_display_name, is_antidetect
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
 from app.browser.manager import store_slug as _store_slug
@@ -774,8 +775,9 @@ def uploaded_files_note(task: Task) -> str:
         files = sorted(str(p) for p in up.iterdir() if p.is_file())
     except OSError:
         return ''
-    if not files:
-        return ''
+    model = profile_model(getattr(task, 'ai_profile_id', None))
+    blind = unseen_images(model, files)  # told apart, never to be Read
+    files = [p for p in files if p not in blind]
     lines = []
     for p in files:
         lines.append(f'- {p}')
@@ -789,10 +791,10 @@ def uploaded_files_note(task: Task) -> str:
                 f'them):'
             )
             lines.extend(f'    - {t}' for t in tiles)
+    if not lines:
+        return agent_note(model, blind)
     return (
-        'The user attached the following file(s) to this task. Open them '
-        'directly (images are visual references / product photos; other '
-        'files — spreadsheets, documents, archives — are inputs to read '
-        'with the right tool). Do NOT ask the user to provide them '
-        'again:\n' + '\n'.join(lines)
-    )
+        'The user attached the following file(s) to this task. Read them '
+        'directly (images are product photos; any other file: open it '
+        'with the right tool). Do NOT ask for them again:\n' + '\n'.join(lines)
+    ) + ('\n\n' + agent_note(model, blind) if blind else '')

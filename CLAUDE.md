@@ -52,6 +52,21 @@ Test/demo/e2e servers on a side port: stop with
 connected to the port — e.g. a local proxy relaying to it — and reaps
 every instance's agents machine-wide).
 
+Start every test/demo/e2e server with its own `VIBE_HOME` and the
+outside-call switches CI's e2e server uses (`.github/workflows/ci.yml`),
+so the run reaches no real downstream service:
+
+```bash
+VIBE_HOME=~/.vibe-seller-e2e VIBE_SELLER_TELEMETRY=0 \
+VIBE_EXTERNAL_SYNC=off VIBE_GITHUB_MAIN_SYNC=off \
+VIBE_ADS_SERVICE_URL=http://127.0.0.1:7791 ./start.sh 7799
+```
+
+`VIBE_ADS_SERVICE_URL` is the one most often forgotten. Without it, the
+first ads action registers a real installation with the live ads
+service. The ads e2e serve their stand-in on that port themselves. For a
+manual run, start one with `python -m tests.e2e.fake_ads_service`.
+
 ## Code Style
 
 Google Python style enforced via pre-commit + ruff:

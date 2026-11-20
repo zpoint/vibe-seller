@@ -15,14 +15,18 @@ no-store path is now covered, as is the retry that used to delete the
 attachments it left behind.
 """
 
+import json
 import shutil
 
 import pytest
 
+from app.ai.claude_backend import AgentSession
+import app.ai.unseen_images as ui
 from app.uploads import MAX_UPLOAD_SIZE
 from app.workspace.manager import VIBE_SELLER_DIR
 
 from .conftest import wait_for_task
+from .fake_agent import FakeAgentScenario
 
 pytestmark = pytest.mark.workflow
 
@@ -284,3 +288,139 @@ async def test_an_upload_past_the_cap_is_refused_and_leaves_nothing(
         assert leftovers == [], f'partial file left behind: {leftovers}'
     finally:
         shutil.rmtree(task_dir, ignore_errors=True)
+
+
+async def test_opening_message_shows_create_time_attachments(admin_client):
+    """The task's opening bubble shows the image pasted at create time.
+
+    The agent was told about a create-time image (system_extra lists its
+    path), but the opening transcript message was persisted as the bare
+    prompt — so the user's own bubble showed only the title and the
+    pasted image was nowhere in the conversation. The opening message now
+    carries the task's attachments in the chat encoding
+    (``![name](url)``) the bubble renders as thumbnails, and the URL must
+    actually serve the file.
+    """
+    store_id = await _store(admin_client)
+    r = await admin_client.post(
+        '/api/tasks',
+        json={
+            'title': 'find the 10-unit order',
+            'store_id': store_id,
+            'defer_start': True,
+        },
+    )
+    tid = r.json()['id']
+    task_dir = _TASKS_DIR / tid
+    try:
+        up = await admin_client.post(
+            f'/api/attachments/{tid}',
+            files={'file': ('shot [1].png', _PNG, 'image/png')},
+        )
+        assert up.status_code == 200
+        att_id = up.json()['id']
+
+        # The launch-time persist the real backend does for an initial run.
+        await AgentSession(
+            tid, 'find the 10-unit order'
+        )._persist_opening_prompt()
+
+        msgs = (await admin_client.get(f'/api/tasks/{tid}/messages')).json()
+        users = [m for m in msgs if m['role'] == 'user']
+        assert len(users) == 1
+        url = f'/api/attachments/file/{att_id}'
+        # Brackets in the name would end the alt text early.
+        assert users[0]['content'] == (
+            f'find the 10-unit order\n![shot 1.png]({url})'
+        ), users[0]['content']
+        img = await admin_client.get(url)
+        assert img.status_code == 200
+        assert img.content == _PNG
+
+        # A later re-persisted prompt (e.g. a fresh session with no
+        # history) is not the opening message: no repeated thumbnails.
+        await AgentSession(
+            tid, 'find the 10-unit order'
+        )._persist_opening_prompt()
+        msgs = (await admin_client.get(f'/api/tasks/{tid}/messages')).json()
+        users = [m for m in msgs if m['role'] == 'user']
+        assert users[1]['content'] == 'find the 10-unit order'
+    finally:
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
+@pytest.mark.parametrize(
+    ('model', 'sees', 'notice'),
+    [('text-model', False, True), ('vision-model', True, False)],
+)
+async def test_unseen_image_notice_follows_the_opening_message(
+    admin_client, monkeypatch, model, sees, notice
+):
+    """On a text-only model the user is told, before the model answers,
+    that the pasted image will not be read — a ``notice`` right after
+    the opening message. A model that can see images gets none."""
+    monkeypatch.setattr(ui, 'model_sees_images', lambda m: sees)
+    monkeypatch.setattr(
+        AgentSession, '_model_capabilities', lambda self: (model, sees)
+    )
+    store_id = await _store(admin_client)
+    r = await admin_client.post(
+        '/api/tasks',
+        json={
+            'title': 'what is in the image',
+            'store_id': store_id,
+            'defer_start': True,
+        },
+    )
+    tid = r.json()['id']
+    try:
+        await admin_client.post(
+            f'/api/attachments/{tid}',
+            files={'file': ('shot.png', _PNG, 'image/png')},
+        )
+        await AgentSession(
+            tid, 'what is in the image'
+        )._persist_opening_prompt()
+
+        msgs = (await admin_client.get(f'/api/tasks/{tid}/messages')).json()
+        roles = [m['role'] for m in msgs]
+        if not notice:
+            assert roles == ['user']
+            return
+        assert roles == ['user', 'notice']
+        assert json.loads(msgs[1]['content']) == {
+            'kind': 'images_unseen',
+            'model': model,
+            'files': ['shot.png'],
+        }
+    finally:
+        shutil.rmtree(_TASKS_DIR / tid, ignore_errors=True)
+
+
+async def test_a_run_the_backend_ended_fails_with_its_reason(
+    admin_client, install_fake_agent
+):
+    """When the backend stops a run itself (a rejected API key), the task
+    fails with the backend's reason and category — not with whatever the
+    CLI printed after the interrupt."""
+    reason = (
+        'The AI provider rejected the credentials of profile "p" '
+        '(HTTP 401) — stopped instead of retrying.'
+    )
+    install_fake_agent.default_scenario = FakeAgentScenario(
+        error_result='[Request interrupted by user]',
+        error_category='auth_failed',
+        fatal_error=reason,
+    )
+    store_id = await _store(admin_client)
+    r = await admin_client.post(
+        '/api/tasks', json={'title': 'any', 'store_id': store_id}
+    )
+    tid = r.json()['id']
+    try:
+        got = await wait_for_task(admin_client, tid, target='failed')
+        assert got['status'] == 'failed'
+        assert got['error'] == reason
+        assert got['error_category'] == 'auth_failed'
+    finally:
+        shutil.rmtree(_TASKS_DIR / tid, ignore_errors=True)

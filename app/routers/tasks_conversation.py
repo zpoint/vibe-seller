@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import question_cards, telemetry, vision
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID
+from app.ai.unseen_images import chat_attachment_lines, record_notice
+from app.attachment_markdown import with_attachments
 from app.auth import get_current_user
 from app.browser.manager import browser_manager
 from app.database import get_db
@@ -161,16 +163,14 @@ async def send_task_message(
         if attachment_ids
         else []
     )
-    display_content = content
-    agent_content = content
+    display_content = agent_content = content
+    file_lines, notice = await asyncio.to_thread(
+        chat_attachment_lines, requested_profile_id, attachments
+    )
     if attachments:
-        img_md = '\n'.join(
-            f'![{a["filename"]}]({a["url"]})' for a in attachments
+        display_content = with_attachments(
+            content, [(a['filename'], a['url']) for a in attachments]
         )
-        file_lines = '\n'.join(
-            f'Attached file: {a["abs_path"]}' for a in attachments
-        )
-        display_content = f'{content}\n{img_md}'.strip() if content else img_md
         agent_content = (
             f'{content}\n{file_lines}'.strip() if content else file_lines
         )
@@ -204,6 +204,8 @@ async def send_task_message(
             'content': display_content,
         },
     )
+    if notice:  # images the model cannot see — said before it answers
+        await record_notice(task_id, notice)
 
     # Everything below delivers to the AGENT — use the path-bearing
     # content so promoted attachments reach it (send_message stdin, wake
@@ -236,8 +238,8 @@ async def send_task_message(
             {'task_id': task_id, 'status': TaskStatus.QUEUED},
         )
 
-        if task.store_id:
-            await task_queue_scheduler.submit(task_id, task.store_id)
+        # Store-less tasks too (``None`` lane) — see wake_task.
+        await task_queue_scheduler.submit(task_id, task.store_id)
 
         return {
             **accepted,

@@ -1,12 +1,16 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { UserAttachment } from '../../lib/userContent'
+import { AttachmentThumbs } from './AttachmentThumbs'
 
 interface TaskStartCardProps {
   title: string
   description?: string
+  /** Files attached when the task was created. */
+  images?: UserAttachment[]
 }
 
-export function TaskStartCard({ title, description }: TaskStartCardProps) {
+export function TaskStartCard({ title, description, images = [] }: TaskStartCardProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
 
@@ -43,6 +47,7 @@ export function TaskStartCard({ title, description }: TaskStartCardProps) {
           </div>
         </>
       )}
+      <AttachmentThumbs images={images} className="px-4 pb-3" />
     </div>
   )
 }
