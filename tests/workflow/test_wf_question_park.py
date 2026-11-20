@@ -11,6 +11,7 @@ agent exits like a stopped CLI and the orchestrator parks the task in
 WAITING; answering resumes it to COMPLETED.
 """
 
+import asyncio
 import json
 import logging
 
@@ -186,8 +187,22 @@ async def test_parked_question_frees_the_slot_for_a_queued_task(
     admin_client, install_fake_agent, monkeypatch
 ):
     fake = install_fake_agent
-    # Long enough to see B queued behind A's live question.
-    monkeypatch.setenv('VIBE_QUESTION_ANSWER_TIMEOUT_S', '1.0')
+    # The test decides when the bound passes — not the wall clock: on a
+    # loaded runner a 1 s bound ran out before B was even looked at.
+    # Same verdict path, the "timed out" just arrives on cue.
+    time_is_up = asyncio.Event()
+
+    async def wait_until_told(evt, _timeout_s):
+        answered = asyncio.create_task(evt.wait())
+        up = asyncio.create_task(time_is_up.wait())
+        await asyncio.wait({answered, up}, return_when=asyncio.FIRST_COMPLETED)
+        for t in (answered, up):
+            t.cancel()
+        return evt.is_set()
+
+    monkeypatch.setattr(
+        'tests.workflow.fake_agent.wait_for_answer', wait_until_told
+    )
     r = await admin_client.put(
         '/api/settings', json={'max_agent_concurrency': '1'}
     )
@@ -199,10 +214,12 @@ async def test_parked_question_frees_the_slot_for_a_queued_task(
         admin_client, fake, store_id, 'B works', FakeAgentScenario(result='B')
     )
     await real_sleep(0.3)
+    # A waits on its answer and holds the only slot: B cannot start.
     assert (await _task(admin_client, a))['status'] == 'running'
     assert (await _task(admin_client, b))['status'] in ('pending', 'queued')
     assert not fake.is_running(b)
 
+    time_is_up.set()
     await _wait_status(admin_client, a, 'waiting')
     done_b = await _wait_status(admin_client, b, 'completed')
     assert done_b['status'] == 'completed'
@@ -255,13 +272,14 @@ async def test_answer_during_parking_window_resumes(
     admin_client, install_fake_agent
 ):
     fake = install_fake_agent
+    stopping = asyncio.Event()
     store_id = await _store(admin_client)
     task_id = await _create(
         admin_client,
         fake,
         store_id,
         'Ask',
-        _asking(park_exit_delay=0.5),
+        _asking(park_exit_gate=stopping),
     )
 
     async def parking():
@@ -270,7 +288,13 @@ async def test_answer_during_parking_window_resumes(
 
     await _until(parking)
     assert (await _pending(admin_client, task_id))['pending'] is True
-    r = await _answer(admin_client, task_id)
+    # The answer lands while the agent is still stopping; the route
+    # waits for the park, which the agent finishes once released.
+    answering = asyncio.create_task(_answer(admin_client, task_id))
+    await real_sleep(0.2)
+    assert not answering.done()
+    stopping.set()
+    r = await answering
     assert r.status_code == 200, r.text
     assert r.json() == {'ok': True, 'resumed': True}
     done = await _wait_status(admin_client, task_id, 'completed')
@@ -392,13 +416,16 @@ async def test_stall_reaper_skips_task_being_parked(
     admin_client, install_fake_agent, override_async_session
 ):
     fake = install_fake_agent
+    # The agent stays "stopping" until the reaper has looked — a fixed
+    # delay ran out first on a loaded runner.
+    stopping = asyncio.Event()
     store_id = await _store(admin_client)
     task_id = await _create(
         admin_client,
         fake,
         store_id,
         'Ask',
-        _asking(park_exit_delay=1.0),
+        _asking(park_exit_gate=stopping),
     )
 
     async def parking():
@@ -413,6 +440,7 @@ async def test_stall_reaper_skips_task_being_parked(
         await db.commit()
     await reap_stalled_running_tasks()
     assert (await _task(admin_client, task_id))['status'] == 'running'
+    stopping.set()
     await _wait_status(admin_client, task_id, 'waiting')
 
 

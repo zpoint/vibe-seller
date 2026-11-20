@@ -120,6 +120,8 @@ class FakeAgentScenario:
     # Seconds the fake keeps "stopping" after the wait timed out — the
     # window in which an answer races the park.
     park_exit_delay: float = 0.0
+    # Or hold the "stopping" window open until the test sets this.
+    park_exit_gate: asyncio.Event | None = None
 
 
 ANSWERED_PREFIX = 'The operator answered your earlier AskUserQuestion:'
@@ -438,6 +440,8 @@ class FakeAgent(AIAgentBackend):
             )
             if scenario.park_exit_delay > 0:
                 await _real_sleep(scenario.park_exit_delay)
+            if scenario.park_exit_gate is not None:
+                await scenario.park_exit_gate.wait()
             # What a stopped CLI leaves behind.
             session._is_error_result = True
             return False, None
