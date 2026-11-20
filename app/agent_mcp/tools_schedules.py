@@ -571,7 +571,12 @@ async def run_schedule(ctx: McpContext, args: dict) -> dict:
         db=ctx.db,
         _user=ctx.user,
     )
-    if task_id is None:
+    if task_id is None and mode == 'single':
+        note = (
+            'One task (not tied to a store) is being created in the '
+            'background; find it with list_tasks.'
+        )
+    elif task_id is None:
         note = (
             'One task per active store is being created; find them '
             'with list_tasks.'

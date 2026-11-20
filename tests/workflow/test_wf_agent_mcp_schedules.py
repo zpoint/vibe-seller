@@ -253,6 +253,28 @@ class TestCreateAuto:
         ]
         assert 'PAUSED' in created['note']
 
+    async def test_all_stores_single_run_names_one_task(
+        self, admin_client, install_fake_agent
+    ):
+        created, _ = await call_tool(
+            admin_client,
+            'create_schedule',
+            {
+                'title': 'One no-store task',
+                'description': 'Look something up on the public web.',
+                'schedule_type': 'days',
+                'schedule_time': '08:00',
+                'phase_mode': 'single',
+            },
+        )
+        run, is_error = await call_tool(
+            admin_client, 'run_schedule', {'schedule_id': created['id']}
+        )
+        assert not is_error, run
+        assert run['mode'] == 'single'
+        assert 'not tied to a store' in run['note']
+        assert 'per active store' not in run['note']
+
 
 class TestReviewFlow:
     async def test_blank_agent_review_loop(
