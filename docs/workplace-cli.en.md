@@ -34,6 +34,10 @@ WeCom (a fake back office with demo data; waits are sped up):
 
 ![Demo: the AI reads the store's sales, writes a WeCom document and sends it to you (sped up)](images/workplace_demo_en.gif)
 
+Open the link the AI sends you in WeCom, and this is the document it made:
+
+![The document the AI made, opened in WeCom: overview, per-SKU table and key points (demo data, in Chinese)](images/workplace_demo_doc.png)
+
 ## Connect
 
 Only Vibe Seller **admins** can connect, sign in again and disable.

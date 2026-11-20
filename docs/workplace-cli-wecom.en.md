@@ -32,6 +32,12 @@ both register) and a Vibe Seller admin account.
 4. Back in Settings, the WeCom row shows "Signed in. Finishing the
    setup…", then "The AI can use it" a few seconds later. Done.
 
+## Try it
+
+In any store, create a task such as "Check the store's units and revenue per SKU for the last 7 days, put them in a table in a new WeCom document, and send me the link on WeCom." When the AI is done, the link arrives in your WeCom; open it to see the document it made:
+
+![The document the AI made, opened in WeCom (demo data, in Chinese)](images/workplace_demo_doc.png)
+
 ## What the bot can do
 
 Every action the AI takes is done by this bot, on behalf of the person

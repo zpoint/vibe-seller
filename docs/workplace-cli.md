@@ -30,6 +30,10 @@ Windows、macOS、Linux 都支持。
 
 ![演示：AI 读店铺后台的销售数据，写进企业微信文档并发给你（已加速）](images/workplace_demo_zh.gif)
 
+在企业微信里打开 AI 发来的链接，就是它建好的文档：
+
+![企业微信里打开 AI 建好的文档：整体概览、各 SKU 明细和要点观察（演示数据）](images/workplace_demo_doc.png)
+
 ## 开通
 
 只有 Vibe Seller 的**管理员**能开通、重新登录和停用。
