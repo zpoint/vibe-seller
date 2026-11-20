@@ -1,6 +1,6 @@
 /**
  * Contract tests for the Settings tab shape after the redesign:
- *   - tabs: stores, general, aiAgent, email, account, integrations
+ *   - tabs: aiAgent, integrations, email, general, account, stores
  *   - tab_security renamed to tab_account (login settings + users)
  *   - tab_channels renamed to tab_email (email accounts)
  *   - new tab_general for cross-cutting defaults (task retention,
@@ -14,6 +14,7 @@ import fs from 'fs'
 import path from 'path'
 import enTranslation from '../i18n/locales/en/translation.json'
 import zhTranslation from '../i18n/locales/zh/translation.json'
+import { SETTINGS_TABS } from '../lib/route'
 
 const settingsSource = fs.readFileSync(
   path.resolve(__dirname, '../views/SettingsView.tsx'),
@@ -74,18 +75,17 @@ describe('Settings tab redesign', () => {
 
   describe('SettingsView source', () => {
     it('tab list contains new tabs and excludes legacy ones', () => {
-      const match = settingsSource.match(
-        /SettingsTab\[\]\s*=\s*\[([^\]]*)\]/,
-      )
-      expect(match, 'tab array not found').toBeTruthy()
-      const tabList = match![1]
-      expect(tabList).toMatch(/['"]general['"]/)
-      expect(tabList).toMatch(/['"]account['"]/)
-      expect(tabList).toMatch(/['"]email['"]/)
-      expect(tabList).not.toMatch(/['"]apiTokens['"]/)
-      expect(tabList).not.toMatch(/['"]security['"]/)
-      expect(tabList).not.toMatch(/['"]channels['"]/)
-      expect(tabList).not.toMatch(/['"]eventSync['"]/)
+      // The view renders the shared list (lib/route owns the order, so
+      // the default tab follows it).
+      expect(settingsSource).toMatch(/SETTINGS_TABS\.map\(/)
+      const tabList: readonly string[] = SETTINGS_TABS
+      expect(tabList).toContain('general')
+      expect(tabList).toContain('account')
+      expect(tabList).toContain('email')
+      expect(tabList).not.toContain('apiTokens')
+      expect(tabList).not.toContain('security')
+      expect(tabList).not.toContain('channels')
+      expect(tabList).not.toContain('eventSync')
     })
 
     it('does not branch on legacy tab keys', () => {

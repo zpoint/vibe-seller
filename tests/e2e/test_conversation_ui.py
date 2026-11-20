@@ -133,7 +133,7 @@ class TestConversationStreamUI:
         self._select_task_in_browser(page, title)
 
         # Verify tool calls appear in conversation
-        page.wait_for_selector('text=/tool call/', timeout=15000)
+        page.wait_for_selector(r'text=/\d+ actions?/', timeout=15000)
 
     def test_thinking_visible_after_completion(self, authenticated_page):
         """Thinking blocks appear in conversation stream."""
@@ -244,13 +244,13 @@ class TestConversationStreamUI:
 
         # Load task
         self._select_task_in_browser(page, title)
-        page.wait_for_selector('text=/tool call/', timeout=10000)
+        page.wait_for_selector(r'text=/\d+ actions?/', timeout=10000)
 
         # Refresh again
         self._select_task_in_browser(page, title)
 
         # Verify conversation survives refresh
-        page.wait_for_selector('text=/tool call/', timeout=10000)
+        page.wait_for_selector(r'text=/\d+ actions?/', timeout=10000)
         expect(page.locator('text=/Step one/').first).to_be_visible(
             timeout=5000
         )
