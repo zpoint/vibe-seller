@@ -343,13 +343,18 @@ async def test_login_cancel_and_already_signed_in(
     assert (await admin_client.get(f'{BASE}/fake-a/login')).json()['state'] == (
         'cancelled'
     )
-    # Already signed in: "login" has nothing to run, and enable_after
-    # still finishes the job.
+    # Already signed in: "Sign in again" still runs a real sign-in (it
+    # used to "succeed" at once with nothing run, so the button did
+    # nothing), and enable_after finishes the job with the new one.
     fake.sign_in()
     r = await admin_client.post(
         f'{BASE}/fake-a/login', json={'enable_after': True}
     )
     assert r.status_code == 200
+    view = await _wait_login(admin_client, 'fake-a', 'waiting')
+    assert view['user_code'] == 'WXYZ-1234'
+    fake.approve()
+    await _wait_login(admin_client, 'fake-a', 'succeeded')
     await _wait_enabled(admin_client, 'fake-a')
 
 

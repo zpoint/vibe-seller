@@ -32,12 +32,8 @@ interface GwsStatus {
 
 export function IntegrationsPanel({
   isAdmin = false,
-  authRequired = true,
 }: {
   isAdmin?: boolean
-  /** Passed through to ApiTokensPanel — whether the server requires a
-   *  login (it says so instead of pretending keys are required). */
-  authRequired?: boolean
 }) {
   const { t } = useTranslation()
   const [status, setStatus] = useState<GwsStatus | null>(null)
@@ -89,7 +85,7 @@ export function IntegrationsPanel({
       {/* Order: ads service, API keys, chat bots, workplace CLIs,
           Google Workspace, TickTick. */}
       <AmazonAdsPanel />
-      <ApiTokensPanel authRequired={authRequired} />
+      <ApiTokensPanel />
       <ChatBotSection isAdmin={isAdmin} />
       <WorkplaceCliPanel isAdmin={isAdmin} />
       <div className="bg-white rounded-lg border border-gray-200 p-4">

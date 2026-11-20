@@ -239,7 +239,7 @@ export function SettingsView({
           <VisionPanel isAdmin={currentUser?.role === 'admin'} />
         </div>
       ) : settingsTab === 'integrations' ? (
-        <IntegrationsPanel isAdmin={currentUser?.role === 'admin'} authRequired={authRequired} />
+        <IntegrationsPanel isAdmin={currentUser?.role === 'admin'} />
       ) : null}
 
     </div>

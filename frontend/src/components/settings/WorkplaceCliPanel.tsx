@@ -30,6 +30,9 @@ interface LoginView {
   /** Why the sign-in ended badly when no notice explains it: the
    *  runner's ``timeout`` or ``enable_failed`` (i18n key). */
   error?: string | null
+  /** Signed in, and the server is still enabling the platform: the
+   *  outcome is not final yet, so the page keeps polling. */
+  finishing?: boolean
 }
 
 interface Notice {
@@ -40,9 +43,11 @@ interface Notice {
 
 /** The vendor's own guide for each notice the server can raise. */
 const NOTICE_GUIDES: Record<string, { zh: string; en: string }> = {
+  // DingTalk's own permission guide (Chinese only): where 「CLI设置」
+  // is and which channel Vibe Seller falls under.
   dingtalk_cli_access: {
-    zh: 'https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli/blob/main/README_zh.md#开始使用',
-    en: 'https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli#getting-started',
+    zh: 'https://open.dingtalk.com/document/development/dws-permission-management-guide',
+    en: 'https://open.dingtalk.com/document/development/dws-permission-management-guide',
   },
 }
 
@@ -175,7 +180,7 @@ function CliRow({
       if (mine !== generation.current) return
       setLogin(v)
       if (v.qr) setQrTick((n) => n + 1)
-      if (v.state === 'starting' || v.state === 'waiting') {
+      if (inProgress(v)) {
         timer.current = setTimeout(poll, POLL_MS)
         return
       }
@@ -189,11 +194,10 @@ function CliRow({
   // picked up again so its QR / link is not lost.
   useEffect(() => {
     if (!isAdmin) return
-    const s = card.login?.state
-    if ((s === 'starting' || s === 'waiting') && !timer.current) {
+    if (card.login && inProgress(card.login) && !timer.current) {
       timer.current = setTimeout(poll, 0)
     }
-  }, [card.login?.state, isAdmin, poll])
+  }, [card.login, isAdmin, poll])
 
   const run = async (what: string, fn: () => Promise<void>) => {
     setBusy(what)
@@ -246,16 +250,13 @@ function CliRow({
       await onChanged()
     })
 
-  const loginActive = login && (login.state === 'starting' || login.state === 'waiting')
+  const loginActive = login && inProgress(login)
   const signedIn = !!card.auth?.usable
   const name = t(`integrations.cli.platform.${card.key}`, { defaultValue: card.title })
-  // The button on screen once a sign-in ended: "Sign in again" for a
-  // platform that is signed in or enabled, otherwise "Connect".
-  const retryButton = t(
-    card.installed && (signedIn || card.enabled)
-      ? 'integrations.cli.relogin'
-      : 'integrations.cli.connect',
-  )
+  // The button on screen once a sign-in ended: "Sign in again" on an
+  // enabled platform, otherwise "Connect" (the only one a stopped or
+  // never-enabled row shows).
+  const retryButton = t(card.enabled ? 'integrations.cli.relogin' : 'integrations.cli.connect')
 
   return (
     <div className="p-3 bg-gray-50 rounded-lg space-y-2" data-testid={`cli-row-${card.key}`}>
@@ -292,7 +293,7 @@ function CliRow({
                 {busy === 'connect' ? t('integrations.cli.working') : t('integrations.cli.connect')}
               </button>
             )}
-            {card.installed && !loginActive && (signedIn || card.enabled) && (
+            {card.enabled && !loginActive && (
               <button
                 onClick={relogin}
                 disabled={!!busy}
@@ -318,6 +319,12 @@ function CliRow({
 
       {loginActive && (
         <div className="p-3 bg-white rounded border border-indigo-200 space-y-2" data-testid={`cli-login-${card.key}`}>
+          {login.finishing ? (
+            <p className="text-sm" data-testid={`cli-finishing-${card.key}`}>
+              {t('integrations.cli.finishing')}
+            </p>
+          ) : (
+          <>
           <p className="text-sm">
             {login.steps > 1 && (
               <span className="text-gray-500 mr-1">
@@ -363,6 +370,8 @@ function CliRow({
           >
             {t('integrations.cli.cancel')}
           </button>
+          </>
+          )}
         </div>
       )}
 
@@ -377,6 +386,13 @@ function CliRow({
       {error && <ErrorLine err={error} name={name} />}
     </div>
   )
+}
+
+/** Still running: the CLI's sign-in, or what follows it once signed in
+ *  (enabling the platform). Its outcome is not final until this is
+ *  false. */
+function inProgress(v: Pick<Partial<LoginView>, 'state' | 'finishing'>): boolean {
+  return v.state === 'starting' || v.state === 'waiting' || !!v.finishing
 }
 
 /** How a finished sign-in ended, when there is something to say: a
@@ -432,6 +448,11 @@ function NoticeBlock({ notice, cardKey, button }: { notice: Notice; cardKey: str
   const { t, i18n } = useTranslation()
   const guide = NOTICE_GUIDES[notice.key]
   const guideUrl = guide && (i18n.language?.startsWith('zh') ? guide.zh : guide.en)
+  // What the person (often someone else: an admin) does, step by step.
+  const stepsKey = `integrations.cli.noticeSteps.${notice.key}`
+  const steps = i18n.exists(stepsKey)
+    ? (t(stepsKey, { returnObjects: true, button }) as string[])
+    : []
   return (
     <div className="space-y-1" data-testid={`cli-notice-${cardKey}-${notice.key}`}>
       <p>
@@ -442,6 +463,11 @@ function NoticeBlock({ notice, cardKey, button }: { notice: Notice; cardKey: str
       </p>
       {notice.key === 'dingtalk_cli_access' && notice.detail && (
         <p>{t('integrations.cli.orgAdmins', { names: notice.detail })}</p>
+      )}
+      {steps.length > 0 && (
+        <ol className="list-decimal pl-5 space-y-0.5" data-testid={`cli-notice-steps-${cardKey}`}>
+          {steps.map((s, i) => <li key={i}>{s}</li>)}
+        </ol>
       )}
       {(notice.url || guideUrl) && (
         <p className="space-x-3">

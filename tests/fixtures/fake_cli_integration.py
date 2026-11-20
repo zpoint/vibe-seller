@@ -163,8 +163,6 @@ class FakeIntegration(CliIntegration):
         return AuthStatus(True, 'logged_in', identity=data['user'])
 
     def login_steps(self, status: AuthStatus) -> list[LoginStep]:
-        if status.usable:
-            return []
         steps = []
         if status.reason == 'not_configured':
             steps.append(

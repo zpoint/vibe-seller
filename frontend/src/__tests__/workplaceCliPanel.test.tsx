@@ -219,6 +219,58 @@ describe('WorkplaceCliPanel cancel', () => {
   })
 })
 
+describe('WorkplaceCliPanel after the sign-in', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('a stopped platform shows only Connect, even while signed in', async () => {
+    mockApi.get.mockResolvedValue({
+      integrations: [card('wecom', {
+        installed: true, version: '1.3.4', enabled: false,
+        auth: { usable: true, reason: 'logged_in', identity: 'Bot' },
+      })],
+    })
+    renderPanel(true)
+    expect(await screen.findByTestId('cli-connect-wecom')).toBeTruthy()
+    expect(screen.queryByTestId('cli-relogin-wecom')).toBeNull()
+    expect(screen.queryByTestId('cli-disable-wecom')).toBeNull()
+  })
+
+  it('keeps polling while the server enables, then shows the enabled row', async () => {
+    // Signed in, and the server is still fetching the skills: the page
+    // used to stop at "signed in, AI can't use it" with Connect shown.
+    let polls = 0
+    let enabled = false
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === '/api/integrations/cli') {
+        return Promise.resolve({
+          integrations: [card('dingtalk', {
+            installed: true, version: '1', enabled,
+            auth: { usable: true, reason: 'logged_in', identity: 'Alice' },
+            login: { state: 'succeeded', finishing: !enabled, step: 1, steps: 1 },
+          })],
+        })
+      }
+      polls += 1
+      if (polls > 1) enabled = true
+      return Promise.resolve({
+        state: 'succeeded', finishing: !enabled, url: null, user_code: null,
+        qr: false, message: null, step: 1, steps: 1, hint: null,
+      })
+    })
+    renderPanel(true)
+    expect(await screen.findByTestId('cli-finishing-dingtalk', {}, { timeout: 3000 }))
+      .toBeTruthy()
+    expect(screen.getByTestId('cli-finishing-dingtalk').textContent).toBe(cli.finishing)
+    expect(screen.queryByTestId('cli-cancel-dingtalk')).toBeNull()
+    expect(screen.queryByTestId('cli-connect-dingtalk')).toBeNull()
+    expect(await screen.findByTestId('cli-disable-dingtalk', {}, { timeout: 5000 }))
+      .toBeTruthy()
+    expect(screen.queryByTestId('cli-finishing-dingtalk')).toBeNull()
+  })
+})
+
 describe('WorkplaceCliPanel outcomes', () => {
   function finished(view: Record<string, unknown>) {
     mockApi.get.mockImplementation((url: string) => {
@@ -248,12 +300,17 @@ describe('WorkplaceCliPanel outcomes', () => {
     })
     renderPanel(true)
     const outcome = await screen.findByTestId('cli-outcome-dingtalk', {}, { timeout: 3000 })
-    expect(outcome.textContent).toContain('CLI 访问管理')  // DingTalk's own menu name
+    // DingTalk's own menu names (renamed since: 「CLI设置」, not 「CLI 访问管理」)
+    // and the switch Vibe Seller needs, as steps an admin can follow.
+    const steps = screen.getByTestId('cli-notice-steps-dingtalk')
+    expect(steps.querySelectorAll('li').length).toBe(cli.noticeSteps.dingtalk_cli_access.length)
+    expect(steps.textContent).toContain('CLI设置')
+    expect(steps.textContent).toContain('其他渠道')
     expect(outcome.textContent).toContain('Admin A、Admin B')
     expect(screen.getByTestId('cli-help-dingtalk').getAttribute('href'))
       .toBe('https://open-dev.dingtalk.com/fe/old#/developerSettings')
     expect(screen.getByTestId('cli-guide-dingtalk').getAttribute('href'))
-      .toContain('github.com/DingTalk-Real-AI/dingtalk-workspace-cli')
+      .toBe('https://open.dingtalk.com/document/development/dws-permission-management-guide')
     // The notice speaks for itself; the raw CLI message is not repeated.
     expect(outcome.textContent).not.toContain('device authorization failed')
   })

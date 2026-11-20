@@ -50,12 +50,19 @@ _STABLE = re.compile(r'^\d+\.\d+\.\d+$')
 # ``user_forbidden``): the CLI names the org's primary admins and the
 # console page where they turn it on.
 _NO_ACCESS = ('CLI 数据访问权限', 'CLI数据访问权限', 'CLI data access')
-_ADMINS = re.compile(r'(?:组织主管理员|primary admin\w*)\s*[:：]\s*(.+)$', re.I)
+# The CLI speaks Chinese, or English when ``DWS_LANG`` / ``LANG`` start
+# with ``en`` (a server's locale): its own two labels for each line.
+_ADMINS = re.compile(
+    r'(?:组织主管理员|Organization super admins?)\s*[:：]\s*(.+)$', re.I
+)
 _CONSOLE = re.compile(
-    r'(?:管理员操作入口|admin console)\s*[:：]\s*(https?://\S+)', re.I
+    r'(?:管理员操作入口|Admin settings)\s*[:：]\s*(https?://\S+)', re.I
 )
 _MESSAGE = re.compile(r'"message"\s*:\s*"(.*)"\s*,?\s*$')
-ADMIN_CONSOLE = 'https://open-dev.dingtalk.com'
+# Where the CLI itself sends the admin (``GetDeveloperSettingsURL``):
+# 「更多」→「基本信息」→「CLI设置」, whose 「其他渠道」 switch is the
+# one Vibe Seller needs.
+ADMIN_CONSOLE = 'https://open-dev.dingtalk.com/fe/old#/developerSettings'
 # The page's notice for an org whose CLI access is not enabled.
 NO_ACCESS = 'dingtalk_cli_access'
 
@@ -222,8 +229,6 @@ class DingTalk(CliIntegration):
         return AuthStatus(False, 'not_logged_in')
 
     def login_steps(self, status: AuthStatus) -> list[LoginStep]:
-        if status.usable:
-            return []
         return [
             LoginStep(
                 (

@@ -126,8 +126,6 @@ class WeCom(CliIntegration):
         return AuthStatus(False, 'error', detail={'error': out[-300:]})
 
     def login_steps(self, status: AuthStatus) -> list[LoginStep]:
-        if status.usable:
-            return []
         # The QR path must sit under the working dir (the CLI sandboxes
         # file paths) — the runner's cwd is the session dir.
         return [

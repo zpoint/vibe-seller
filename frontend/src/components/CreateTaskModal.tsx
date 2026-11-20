@@ -181,7 +181,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
               value={modalTitle}
               onChange={e => setModalTitle(e.target.value)}
               onKeyDown={e => { if (e.key === 'Escape') handleClose() }}
-              placeholder={showAllTasks ? 'e.g. Process billing files' : 'e.g. Navigate to google.com'}
+              placeholder={showAllTasks ? t('tasks.titleExampleAll') : t('tasks.titleExampleStore')}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               autoFocus
             />
@@ -295,7 +295,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
             disabled={!modalTitle.trim() || modalCreating}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {modalCreating ? t('common.loading') : showAllTasks ? t('common.create') : 'Create & Run'}
+            {modalCreating ? t('common.loading') : showAllTasks ? t('common.create') : t('tasks.createAndRun')}
           </button>
         </div>
       </div>

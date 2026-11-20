@@ -91,6 +91,37 @@ async def _record(done, session):
     done.append(session.view.state)
 
 
+async def test_outcome_is_not_final_until_on_done_finished(fake, tmp_path):
+    """``on_done`` enables the platform after the sign-in, which takes
+    seconds. A page that read the row in that window saw "signed in,
+    AI can't use it" and stopped polling, so the view says it is still
+    finishing until ``on_done`` returned."""
+    mgr = LoginManager()
+    session = await mgr.start(
+        fake,
+        fake.exe,
+        fake.login_steps(AuthStatus(False, 'not_logged_in')),
+        tmp_path / 'session',
+        {**os.environ, **fake.env(tmp_path)},
+    )
+    release = asyncio.Event()
+    seen = []
+
+    async def enable(s):
+        seen.append((s.view.state, s.view.finishing))
+        await release.wait()
+
+    session._on_done = enable
+    await _until(lambda: session.view.user_code)
+    fake.approve()
+    await _until(lambda: seen)
+    assert seen == [('succeeded', True)]
+    assert session.view.public()['finishing'] is True
+    release.set()
+    await session.task
+    assert session.view.finishing is False
+
+
 async def test_qr_login_publishes_the_image(fake, tmp_path):
     fake.qr = True
     mgr = LoginManager()

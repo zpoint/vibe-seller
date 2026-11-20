@@ -83,6 +83,9 @@
     "taskDetails": "任务详情",
     "titleLabel": "标题",
     "titlePlaceholder": "请输入任务标题",
+    "createAndRun": "创建并运行",
+    "titleExampleStore": "例如：看一下过去 7 天各 SKU 的销量",
+    "titleExampleAll": "例如：整理账单文件",
     "descriptionPlaceholder": "请输入任务描述",
     "store": "店铺",
     "noStore": "无店铺",
@@ -243,7 +246,9 @@
     "tryAgain": "重试",
     "actionFailed": "操作未完成：{{error}}",
     "actionTimeout": "服务器未及时响应，操作可能没有生效。请刷新查看任务的当前状态。",
-    "loadingConversation": "正在加载对话…"
+    "loadingConversation": "正在加载对话…",
+    "generatedFiles": "生成的文件",
+    "downloadZip": "全部下载（ZIP）"
   },
   "events": {
     "title": "事件",
@@ -673,6 +678,7 @@
       "cancel": "取消",
       "step": "第 {{step}}/{{steps}} 步：",
       "preparing": "正在准备登录…",
+      "finishing": "登录成功，正在开通，请稍候…",
       "userCode": "验证码：",
       "qrAlt": "登录二维码",
       "loginFailed": "登录没有完成，请点「{{button}}」再试一次。",
@@ -685,20 +691,29 @@
         "scan_wecom": "用企业微信 App 扫描下面的二维码，按提示创建一个智能机器人（二维码 5 分钟内有效）。之后 AI 会以这个机器人的身份使用企业微信。",
         "feishu_app": "打开下面的链接，按提示创建一个飞书应用。只需要做一次，AI 通过它连接飞书。",
         "feishu_auth": "打开下面的链接，用你的飞书账号确认授权。",
-        "dingtalk_auth": "打开下面的链接，选择你的组织并确认授权。如果页面提示组织还没开启访问权限，点「立即申请」通知管理员，等管理员审批通过后，回来再点「开通」。"
+        "dingtalk_auth": "打开下面的链接，选择你的组织并确认授权。如果钉钉提示你还没有权限，要组织管理员先在钉钉后台放行，这里会显示具体步骤。"
       },
       "notice": {
         "feishu_missing_scopes": "已经连接好了。不过飞书管理员限制了下面这些权限，用到它们的功能暂时不能用：{{detail}}。其他功能不受影响。如果需要这些功能，请飞书管理员放开这些权限，然后回来点「{{button}}」。",
         "feishu_no_refresh_token": "已经连接好了，但这次登录不能自动续期：用你的飞书账号做的操作到 {{detail}} 就会失效，之后需要重新登录；以飞书应用身份做的操作不受影响。要让登录一直有效，请飞书应用的管理员打开下面的链接，在「安全设置」里开启「刷新 user_access_token」，创建并发布新版本，然后回来点「{{button}}」。",
-        "dingtalk_cli_access": "钉钉提示你还没有 CLI 数据访问权限，需要管理员开启。两种办法任选一种：请组织主管理员打开钉钉开发者平台，在「CLI 访问管理」里开启；或者再点一次「{{button}}」，在钉钉授权页面点「立即申请」，等管理员审批。开启或审批通过后，回来再点「{{button}}」。"
+        "dingtalk_cli_access": "钉钉还没有允许 Vibe Seller 使用你们组织的数据。这要钉钉组织的管理员在钉钉开发者后台打开，再点「{{button}}」解决不了。请管理员按下面的步骤操作："
+      },
+      "noticeSteps": {
+        "dingtalk_cli_access": [
+          "用钉钉扫码登录，打开下面的「钉钉开发者后台 · CLI设置」链接（在后台里的位置：导航栏「更多」→「基本信息」→ 左侧「CLI设置」）。",
+          "确认「DWS CLI管理」右上角的开关是「已开启」。",
+          "在「Agent管理」里，打开「其他渠道」这一行的开关。Vibe Seller 属于「其他渠道」，钉钉默认把它关着。",
+          "如果这一行的「生效范围」不是「全员可用」，点「设置」，把用来授权的钉钉账号加进去。",
+          "钉钉的设置要几分钟才生效。之后回到这里点「{{button}}」，重新授权。"
+        ]
       },
       "orgAdmins": "组织主管理员：{{names}}",
       "helpLink": {
-        "dingtalk_cli_access": "打开钉钉开发者平台",
+        "dingtalk_cli_access": "打开钉钉开发者后台 · CLI设置",
         "feishu_no_refresh_token": "打开飞书应用的安全设置",
         "default": "打开链接"
       },
-      "officialGuide": "钉钉官方开通说明",
+      "officialGuide": "钉钉官方权限说明",
       "error": {
         "not_installed": "{{name}}还没开通，请点「开通」。",
         "not_signed_in": "{{name}}还没登录，请点「开通」，按提示登录。",
@@ -1032,7 +1047,6 @@
   "apiTokens": {
     "title": "API Key",
     "description": "用 API Key 可以让其他 AI 工具（Claude Code、Codex、WorkBuddy、Qoder 等）连接 Vibe Seller，帮你创建和跟进任务。它和你本人有一样的权限，请妥善保管。",
-    "authNotRequiredNote": "这台服务器当前不要求登录，所以连接时并不需要 API Key。API Key 仍然可用 —— 现在创建一个，之后开启登录也能继续用。",
     "newToken": "新建 API Key",
     "createToken": "创建 API Key",
     "name": "名称",

@@ -259,8 +259,6 @@ class Feishu(CliIntegration):
         return AuthStatus(False, reason, detail=detail)
 
     def login_steps(self, status: AuthStatus) -> list[LoginStep]:
-        if status.usable:
-            return []
         steps = []
         if status.reason == 'not_configured':
             steps.append(

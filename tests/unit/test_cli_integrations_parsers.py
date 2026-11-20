@@ -191,9 +191,36 @@ def test_dingtalk_org_without_cli_access_names_admins_and_console():
 
 
 def test_dingtalk_org_level_denial_still_points_at_the_console():
+    # The page the CLI names itself, not the platform's home page: the
+    # admin has to find 「CLI设置」 there, and its menu was renamed.
     view = _feed(dingtalk, ['', '⚠️  该组织尚未开启CLI数据访问权限', ''])
     assert _notices(view) == {
-        'dingtalk_cli_access': (None, 'https://open-dev.dingtalk.com')
+        'dingtalk_cli_access': (
+            None,
+            'https://open-dev.dingtalk.com/fe/old#/developerSettings',
+        )
+    }
+
+
+def test_dingtalk_english_output_names_admins_and_console():
+    # dws prints English when LANG starts with ``en`` (its own catalog):
+    # the admins and the console link must not be lost then.
+    view = _feed(
+        dingtalk,
+        [
+            '⚠️  You do not yet have CLI data access permission',
+            '   This organization has not authorized you to access personal'
+            ' data via CLI.',
+            '   Organization super admins: Admin A、Admin B',
+            '   Admin settings: https://open-dev.dingtalk.com/fe/old'
+            '#/developerSettings',
+        ],
+    )
+    assert _notices(view) == {
+        'dingtalk_cli_access': (
+            'Admin A、Admin B',
+            'https://open-dev.dingtalk.com/fe/old#/developerSettings',
+        )
     }
 
 
@@ -224,3 +251,14 @@ def test_wecom_scan_link_then_qr_saved():
         view,
     )
     assert view.message.startswith('QrTimeout')
+
+
+def test_signed_in_platforms_still_sign_in_again():
+    """A signed-in platform's "Sign in again" runs the CLI's sign-in;
+    it used to get no steps and "succeed" with nothing run. Feishu keeps
+    its app: only the user sign-in is repeated."""
+    signed_in = AuthStatus(True, 'logged_in')
+    for integ in (WeCom(), Feishu(), DingTalk()):
+        steps = integ.login_steps(signed_in)
+        assert len(steps) == 1, integ.key
+        assert steps[0].argv[:2] in (('auth', 'init'), ('auth', 'login'))

@@ -145,6 +145,12 @@ class LoginSession:
             if not signed_in:
                 self._fail(rc)
                 return
+            # Signed in, but the session is not over: ``on_done`` still
+            # enables the platform (fetching its skills takes seconds).
+            # The page polls until ``finishing`` drops; reading the row
+            # in between would show "signed in, AI can't use it" and
+            # stop there.
+            self.view.finishing = self._on_done is not None
             self.view.state = 'succeeded'
             self.view.url = self.view.user_code = self.view.hint = None
             self.view.qr = False
@@ -161,9 +167,12 @@ class LoginSession:
             self.view.state = 'failed'
             self.view.message = str(e)
         finally:
-            if self._on_done is not None:
-                with contextlib.suppress(Exception):
-                    await self._on_done(self)
+            try:
+                if self._on_done is not None:
+                    with contextlib.suppress(Exception):
+                        await self._on_done(self)
+            finally:
+                self.view.finishing = False
 
     def _fail(self, rc: int) -> None:
         self.view.state = 'failed'

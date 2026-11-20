@@ -118,6 +118,9 @@ class LoginView:
     # the sign-in (``enable_failed``) — the page's i18n key, with what to
     # do next; ``message`` keeps the technical line.
     error: str | None = None
+    # Signed in, and what follows the sign-in (enabling the platform) is
+    # still running. The outcome is final only once this is False.
+    finishing: bool = False
 
     def notice(self, key: str) -> Notice:
         """The notice *key*, added on first use (a CLI prints its parts
@@ -201,4 +204,10 @@ class CliIntegration(ABC):
 
     @abstractmethod
     def login_steps(self, status: AuthStatus) -> list[LoginStep]:
-        """The steps that take *status* to a usable login."""
+        """The steps of a sign-in that starts from *status*.
+
+        Signed in already is no exception: "Sign in again" (another
+        account, or a fresh sign-in) runs exactly these, and every one
+        of the official CLIs signs in again when asked. Only what the
+        status says is set up already (Feishu's app) is skipped.
+        """
