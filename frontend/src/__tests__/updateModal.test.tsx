@@ -126,11 +126,10 @@ describe('update modal — ready, installer path', () => {
     expect(
       screen.getByText('需要在运行 Vibe Seller 的电脑上操作。')
     ).toBeTruthy()
-    // What the click really costs: the runtime is reinstalled with it.
+    // What the click really costs: a few minutes before it is back.
     expect(
       screen.getByText(
-        '当前 v0.1.0。这次更新包含随包的运行环境，点「重启并更新」会重新安装它' +
-          '（约 700 MB，需要 2–5 分钟），装完自动启动，页面会自动刷新。'
+        '当前 v0.1.0。点「重启并更新」后需要等几分钟，更新完会自动打开，页面会自动刷新。'
       )
     ).toBeTruthy()
     expect(screen.getByText('重启并更新')).toBeTruthy()
@@ -148,7 +147,7 @@ describe('update modal — ready, installer path', () => {
     renderModal('zh', { isAdmin: false })
     expect(
       screen.getByText(
-        '当前 v0.1.0。这次更新包含随包的运行环境，需要管理员点「重启并更新」后生效。'
+        '当前 v0.1.0。需要管理员点「重启并更新」后生效。'
       )
     ).toBeTruthy()
     expect(screen.getByText('知道了')).toBeTruthy()
@@ -492,8 +491,8 @@ describe('update modal — the release that was put back', () => {
   it('zh admin: says nothing will happen by itself, and that a click is a retry', () => {
     renderModal('zh', { status: refused(), check: baseCheck({ platform: 'linux' }) })
     const sub = screen.getByText((content) => content.includes('不会再自动重试'))
-    expect(sub.textContent).toContain('点「立即更新」是主动再试一次')
-    expect(sub.textContent).toContain('下一个新版本仍会照常自动更新')
+    expect(sub.textContent).toContain('可以点「立即更新」手动再试')
+    expect(sub.textContent).toContain('下一个新版本仍会自动更新')
     expect(screen.getByText('立即更新')).toBeTruthy()
     // The idle promise must be gone: this is the sentence an admin
     // reads to work out why nothing happened overnight.
@@ -503,7 +502,7 @@ describe('update modal — the release that was put back', () => {
   it('en admin: the same, in English', () => {
     renderModal('en', { status: refused() })
     expect(
-      screen.getByText((content) => content.includes('will not be retried automatically'))
+      screen.getByText((content) => content.includes("won't retry on its own"))
     ).toBeTruthy()
   })
 

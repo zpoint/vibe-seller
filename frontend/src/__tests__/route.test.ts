@@ -103,7 +103,7 @@ describe('settings slug ↔ tab id', () => {
     expect(parseNav('/settings/email').settingsTab).toBe('email')
     expect(settingsTabToSlug('integrations')).toBe('integrations')
   })
-  it('defaults to the stores tab', () => {
-    expect(parseNav('/settings').settingsTab).toBe('stores')
+  it('defaults to the first tab, AI', () => {
+    expect(parseNav('/settings').settingsTab).toBe('aiAgent')
   })
 })
