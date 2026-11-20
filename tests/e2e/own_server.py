@@ -103,7 +103,12 @@ AGENT_SERVER_ENV = {
 
 
 @contextmanager
-def owned_agent_stack(tmp_path_factory, name: str, env: dict | None = None):
+def owned_agent_stack(
+    tmp_path_factory,
+    name: str,
+    env: dict | None = None,
+    auto_answer: bool = True,
+):
     """One server this MODULE owns, with every helper pointed at it.
 
     The whole owned-stack ritual in one place, because a test that
@@ -131,7 +136,9 @@ def owned_agent_stack(tmp_path_factory, name: str, env: dict | None = None):
     )
     server.start()
     try:
-        with e2e_helpers.point_at_server(server.base_url):
+        with e2e_helpers.point_at_server(
+            server.base_url, auto_answer=auto_answer
+        ):
             yield server
     finally:
         server.stop()

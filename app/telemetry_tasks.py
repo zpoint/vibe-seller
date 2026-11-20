@@ -322,6 +322,25 @@ async def send_question_answered(
     )
 
 
+async def send_question_parked(task_id: str, asked_at) -> None:
+    """A question nobody answered in time: close the question pause
+    (the task is no longer running) and record how long it waited."""
+    waited = max(0, int((datetime.now(UTC) - asked_at).total_seconds()))
+    await _pause_row(task_id, close_pause)
+    telemetry.send(
+        TelemetryEvent.AGENT_QUESTION_PARKED,
+        {'task_id': task_id, 'waited_seconds': waited},
+    )
+
+
+def send_question_declined(task_id: str, reason: str) -> None:
+    """A question the server answered with a decline (nobody to ask)."""
+    telemetry.send(
+        TelemetryEvent.AGENT_QUESTION_DECLINED,
+        {'task_id': task_id, 'reason': reason},
+    )
+
+
 def send_message_submitted(task_id: str) -> None:
     """A user message sent to a task — both surfaces (the web UI and
     the hosted MCP ``send_message``) land here."""

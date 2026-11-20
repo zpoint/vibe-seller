@@ -64,6 +64,8 @@ ASYNC_SESSION_MODULES = [
     'app.routers.email_accounts',
     'app.ai.claude_backend',
     'app.ai.claude_backend_manager',
+    # Whether a run may wait on a person reads the task row.
+    'app.ai.question_policy',
     # _emit_message (the transcript writer) and the opening message's
     # attachment lookup.
     'app.ai.claude_backend_stream',
@@ -307,6 +309,7 @@ def install_fake_agent(fake_agent, monkeypatch):
         'app.routers.tasks_conversation.agent_manager', fake_agent
     )
     monkeypatch.setattr('app.task_finalize.agent_manager', fake_agent)
+    monkeypatch.setattr('app.question_park.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_auto.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_followup.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_exec.agent_manager', fake_agent)
@@ -316,18 +319,8 @@ def install_fake_agent(fake_agent, monkeypatch):
     # does — its alive/deferral decision reads session state
     # (is_process_alive / get_session) off the manager.
     monkeypatch.setattr('app.scheduler.stall_reaper.agent_manager', fake_agent)
-    # get_attention reads live pending questions off the manager.
-    # Tolerates its absence (negative controls run on older code).
-    try:
-        monkeypatch.setattr(
-            'app.agent_mcp.tools_schedule_review.agent_manager', fake_agent
-        )
-        # GET /attention reads planners' pending questions the same way.
-        monkeypatch.setattr(
-            'app.routers.schedule_review.agent_manager', fake_agent
-        )
-    except ImportError:
-        pass
+    # get_attention and GET /attention read planners' pending questions
+    # through app.question_park (patched above) — the one source.
     # Likewise the orphan reconciler: a live session means "running".
     # Tolerates its absence, like ASYNC_SESSION_MODULES, so its
     # regression test can be run against pre-reconciler code.

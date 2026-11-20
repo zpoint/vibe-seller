@@ -489,6 +489,7 @@ silently dropped.
 | `VIBE_TURN_LINGER_S` | `60` | Soft-linger window (s) when async work (subagents or background shell commands) was launched this process. `0` = close at the result event (legacy behavior) |
 | `VIBE_TURN_LINGER_QUIET_S` | `5` | Soft-linger window (s) for processes with no async work |
 | `VIBE_TURN_HARD_IDLE_S` | `600` | Close after this much total stream silence regardless of holds. `0` = disabled |
+| `VIBE_QUESTION_ANSWER_TIMEOUT_S` | `600` | How long an `AskUserQuestion` waits for an answer while its agent holds a slot. Past it the agent is stopped and the task parks in WAITING with the question; answering resumes it ([tasks.md](tasks.md#waiting-with-a-pending-question)). `0` = wait forever |
 
 Browser lifecycle (see docs/browser.md § Browser Lifecycle):
 

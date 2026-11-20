@@ -259,7 +259,9 @@ jobs:
           tests/e2e/test_schedule_review_ui.py
           tests/e2e/test_agent_mcp_files.py
           tests/e2e/test_agent_mcp_ops.py
-          tests/e2e/test_agent_mcp_workspace.py --e2e -v
+          tests/e2e/test_agent_mcp_workspace.py
+          tests/e2e/test_question_park_mock.py
+          tests/e2e/test_question_decline_mock.py --e2e -v
           --log-cli-level=INFO
 
       - name: Stop mock CLI server
@@ -271,7 +273,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: mock-cli-server-logs
-          path: logs/*.log
+          path: |
+            logs/*.log
+            tests/e2e/artifacts/evidence/
           retention-days: 14
 
   integration-test:

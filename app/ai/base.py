@@ -95,6 +95,15 @@ class AIAgentBackend(ABC):
         """Check if an agent is currently running for a task."""
         ...
 
+    async def wait_question_park_settled(
+        self, task_id: str, request_id: str, timeout_s: float = 60
+    ) -> bool:
+        """Wait for a timed-out question's WAITING park to be written.
+
+        Backends that never park a question have nothing to wait for.
+        """
+        return False
+
     def is_process_alive(self, task_id: str) -> bool:
         """True while the task's agent worker has not exited.
 

@@ -23,7 +23,8 @@ stdin only when the turn is provably quiescent:
   async subagents were launched this process — late notifications and
   NESTED subagent spawns are invisible to tracking and need the
   grace), AND
-- never while an AskUserQuestion is pending (operator can take hours)
+- never while an AskUserQuestion is pending (that wait has its own
+  bound, ``VIBE_QUESTION_ANSWER_TIMEOUT_S``)
   or a plan approval is parked (planning phase).
 
 Backstops, both strictly safer than the old design:
@@ -240,6 +241,14 @@ class _TurnLifecycleMixin(_TurnHoldMixin):
         be an error in one and cleanup in the other.
         """
         if return_code == 0:
+            return
+        if getattr(self, '_question_park', None) is not None:
+            # Stopped on purpose: the question went unanswered and the
+            # task parks in WAITING (app.question_park) — not an error.
+            await self._emit_message(
+                'system',
+                'Agent paused — waiting for the answer to its question',
+            )
             return
         if self._reap_counts_as_error(return_code):
             self._is_error_result = True

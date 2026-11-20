@@ -68,6 +68,10 @@ class PromptBundle:
     prompt: str
     system_extra: str
     mode: str
+    # True when ``maybe_inject_pending_answers`` put the operator's
+    # answers into ``prompt``: the launch then persists no opening
+    # bubble (the answer route already wrote the answer as one).
+    answered: bool = False
 
 
 def _format_header(
@@ -436,6 +440,17 @@ async def mark_waiting_for_input(task: Task, db: AsyncSession, task_id: str):
     )
 
 
+# The resumed agent was stopped while it waited: its process, browser
+# daemon and background commands are gone even though --resume brings
+# its conversation back.
+RESUME_AFTER_STOP_NOTE = (
+    'You were stopped while waiting for this answer, so your browser '
+    'session and any background commands from before are gone. Do not '
+    'start the task over: re-open the page you were on, check its '
+    'current state, and carry on from the step where you asked.'
+)
+
+
 def format_answered_questions_prefix(
     questions: list[dict], answers: dict
 ) -> str:
@@ -463,6 +478,7 @@ def format_answered_questions_prefix(
         for key, value in answers.items():
             if key not in q_texts and value:
                 lines.append(f'- {value}')
+        lines.append(RESUME_AFTER_STOP_NOTE)
         lines.append('Please continue the task using those answers.')
         return '\n'.join(lines)
     except Exception:
@@ -501,10 +517,22 @@ async def maybe_inject_pending_answers(
         task.wait_condition = None
         task.updated_at = datetime.now(UTC).isoformat()
         await db.commit()
+    logger.info(
+        'Task %s resuming after answer to %s',
+        task_id[:8],
+        pq.get('request_id'),
+    )
+    # The original prompt stays: a fresh session (a rejected --resume
+    # falls back to one with this same prompt) must still know the
+    # task, the question and the answer.
     return PromptBundle(
-        prompt=f'{prefix}\n\n{bundle.prompt}',
+        prompt=(
+            f'{prefix}\n\n--- Original task, already in progress '
+            f'(for reference) ---\n{bundle.prompt}'
+        ),
         system_extra=bundle.system_extra,
         mode=bundle.mode,
+        answered=True,
     )
 
 
@@ -545,6 +573,9 @@ async def park_waiting_for_pending_question(
     db: AsyncSession,
     task_id: str,
     pending: dict,
+    *,
+    reason: str = 'Agent asked a question; awaiting operator input',
+    extra: dict | None = None,
 ):
     """Park a task in WAITING with an outstanding AskUserQuestion.
 
@@ -561,7 +592,7 @@ async def park_waiting_for_pending_question(
     questions = pending[req_id].get('questions', [])
     now = datetime.now(UTC).isoformat()
     task.wait_condition = json.dumps({
-        'reason': 'Agent asked a question; awaiting operator input',
+        'reason': reason,
         'check_strategy': 'manual',
         'waiting_since': now,
         'last_checked_at': now,
@@ -570,6 +601,7 @@ async def park_waiting_for_pending_question(
             'request_id': req_id,
             'questions': questions,
         },
+        **(extra or {}),
     })
     assert_transition(task.status, TaskStatus.WAITING)
     task.status = TaskStatus.WAITING

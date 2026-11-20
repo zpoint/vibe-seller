@@ -12,6 +12,7 @@ import asyncio
 import os
 from pathlib import Path
 import re
+import subprocess
 import time
 
 import pytest
@@ -32,7 +33,9 @@ echo "$HTTPS_PROXY" > "$FAKE_LOG/git-proxy"
 echo "$GIT_HTTP_LOW_SPEED_LIMIT/$GIT_HTTP_LOW_SPEED_TIME" > "$FAKE_LOG/git-low-speed"
 case "$FAKE_GIT" in
   hang)
-    sleep 300 &
+    # The helper first: the install's timeout runs from git's spawn,
+    # and on a loaded machine the shell may not get much further.
+    sleep "$FAKE_HELPER_SECONDS" &
     echo $! > "$FAKE_LOG/grandchild-pid"
     mkdir -p "$dest/.git"
     wait ;;
@@ -73,6 +76,11 @@ def fake(monkeypatch, tmp_path):
         script.chmod(0o755)
     monkeypatch.setenv('PATH', f'{bin_dir}{os.pathsep}/bin{os.pathsep}/usr/bin')
     monkeypatch.setenv('FAKE_LOG', str(log))
+    # A sleep length no other process has: the helper's own name in
+    # the process table, whether or not it wrote its pid in time.
+    monkeypatch.setenv(
+        'FAKE_HELPER_SECONDS', f'300.{os.getpid()}{time.time_ns() % 10**6}'
+    )
     monkeypatch.setattr(inst, 'TICKTICK_MCP_DIR', tmp_path / 'ticktick-mcp')
     for var in system_proxy.PROXY_VARS:
         monkeypatch.delenv(var, raising=False)
@@ -89,6 +97,19 @@ def _pid_gone(pid: int) -> bool:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _no_process_with(token: str) -> bool:
+    """No process whose command line carries *token* (polled 5 s)."""
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        found = subprocess.run(
+            ['pgrep', '-f', token], capture_output=True, text=True
+        )
+        if found.returncode == 1:
             return True
         time.sleep(0.05)
     return False
@@ -111,9 +132,13 @@ async def test_stalled_clone_fails_with_a_reason_and_leaves_nothing(
     # The half-made directory must not pass for an install next time.
     assert not inst.TICKTICK_MCP_DIR.exists()
     assert not inst.ticktick_mcp_installed()
-    # git's own helper process dies with it, not just git.
-    grandchild = int((fake / 'grandchild-pid').read_text())
-    assert _pid_gone(grandchild)
+    # git's own helper process dies with it, not just git. The pid
+    # file is there unless git was killed before it got that far — on
+    # a loaded machine it can be — and either way no helper survives.
+    pid_file = fake / 'grandchild-pid'
+    if pid_file.exists():
+        assert _pid_gone(int(pid_file.read_text()))
+    assert _no_process_with(os.environ['FAKE_HELPER_SECONDS'])
 
 
 async def test_failed_clone_reports_git_output(fake, monkeypatch):

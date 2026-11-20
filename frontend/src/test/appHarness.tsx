@@ -40,8 +40,18 @@ export interface BootOptions {
   guideSeen?: boolean
 }
 
-/** A long task: ~1000 transcript entries and a large markdown report. */
-export function longTranscript(n = 1000): { role: string; content: string }[] {
+// The report table's rows. A table this size is enough to render the
+// result card as a table; the 2000 rows it used to have cost ~1.3 s of
+// every boot in jsdom (1.7 s → 0.46 s), and the suites that use this
+// assert render COUNTS, which no table size changes — under a full
+// parallel run that boot alone crossed the 5 s test timeout.
+export const REPORT_ROWS = 20
+
+/** A long task: ~1000 transcript entries and a markdown report table. */
+export function longTranscript(
+  n = 1000,
+  reportRows = REPORT_ROWS,
+): { role: string; content: string }[] {
   const out: { role: string; content: string }[] = [
     { role: 'user', content: 'Review the example store listings' },
   ]
@@ -50,7 +60,7 @@ export function longTranscript(n = 1000): { role: string; content: string }[] {
     else if (i % 3 === 1) out.push({ role: 'assistant', content: `Checked item **widget-${i}**` })
     else out.push({ role: 'thinking', content: `Considering widget-${i}` })
   }
-  out.push({ role: 'result', content: '# Report\n\n' + '| sku | note |\n|---|---|\n' + '| WIDGET-001 | ok |\n'.repeat(2000) })
+  out.push({ role: 'result', content: '# Report\n\n' + '| sku | note |\n|---|---|\n' + '| WIDGET-001 | ok |\n'.repeat(reportRows) })
   return out
 }
 
