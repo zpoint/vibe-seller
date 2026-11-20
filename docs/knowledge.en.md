@@ -100,7 +100,7 @@ tuning, listings, report exports, FBA inbound, invoices, image studio), Noon,
 Qianniu (Taobao / Tmall), review collection, browser automation, and more —
 that's why tasks work out of the box. Built-ins **sync from the official
 repo daily** by default (toggle: **Settings → General → Skills → Auto-sync
-skills from the official repo**; off pins the local copy, and you can still
+official skills**; off pins the local copy, and you can still
 hit **Sync built-in skills** in the panel manually).
 
 **My Skills** splits into **Custom** (created by you or the assistant) and

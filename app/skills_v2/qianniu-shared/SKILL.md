@@ -97,8 +97,8 @@ reports beyond what the task needs — it is store-identifying data.
 Window visibility belongs to the backend, not to you: don't pass
 `--headed`/`--headless` or close and reopen the browser to change it. The
 `chrome` backend is visible when the host has a display. If the human
-can't see the window, ask them to turn off "Run browsers in headless mode"
-in Settings and restart the store's browser, then retry the login.
+can't see the window, ask them to turn off "Run browsers in the background"
+(中文界面：「后台运行浏览器」) in Settings and restart the store's browser, then retry the login.
 
 ## 4. Promo / 公告 / 安全提示 popups — close on sight
 
