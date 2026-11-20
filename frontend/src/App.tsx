@@ -33,11 +33,8 @@ import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedu
 import { submitCreateTask as submitCreateTaskHandler } from './handlers/submitCreateTask'
 import { fetchBrowserProfiles as fetchBrowserProfilesHandler, restartZiniao as restartZiniaoHandler } from './handlers/fetchBrowserProfiles'
 import { sendChatMessage as sendChatMessageHandler } from './handlers/sendChatMessage'
-import type {
-  Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile,
-  WsStructured, ZiniaoAccount, ZiniaoBrowserProfile,
-  AppView, PendingFile, Schedule, EmailAccount, ConversationItem, StagedAttachment,
-} from './types'
+import { useAiSetupGate } from './hooks/useAiSetupGate'
+import type { Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, WsStructured, ZiniaoAccount, ZiniaoBrowserProfile, AppView, PendingFile, Schedule, EmailAccount, ConversationItem, StagedAttachment } from './types'
 
 export default function App() {
   const { t } = useTranslation()
@@ -101,6 +98,7 @@ export default function App() {
   const [editingAccountId, setEditingAccountId] = useState('')
   const [newAccount, setNewAccount] = useState({ name: '', company: '', username: '', password: '' })
   const [showCreateTask, setShowCreateTask] = useState(false)
+  const aiGate = useAiSetupGate()
 
   // Agent state
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([])
@@ -670,7 +668,7 @@ export default function App() {
           chatAttachments={chatAttachments} setChatAttachments={setChatAttachments} debugMode={debugMode} setDebugMode={setDebugMode}
           profiles={profiles} selectedProfileId={selectedProfileId} setSelectedProfileId={setSelectedProfileId}
           currentUser={currentUser} showAllTasks={showAllScope}
-          openCreateModal={() => setShowCreateTask(true)} selectTask={selectTask}
+          openCreateModal={() => aiGate.guardOpen(() => setShowCreateTask(true))} selectTask={selectTask}
           stopAgent={stopAgent} retryTask={retryTask} continueTask={continueTask} deleteTask={deleteTask}
           selectAnswer={selectAnswer} toggleOtherInput={toggleOtherInput}
           setOtherAnswer={setOtherAnswer} submitAllAnswers={submitAllAnswers} submitImageDecision={submitImageDecision} sendChatMessage={sendChatMessage}
@@ -679,7 +677,7 @@ export default function App() {
           questionBannerRef={questionBannerRef}
           taskSubTab={taskSubTab} setTaskSubTab={setTaskSubTab}
           schedules={schedules} selectedSchedule={selectedSchedule} scheduleTasks={scheduleTasks}
-          showCreateSchedule={showCreateSchedule} setShowCreateSchedule={setShowCreateSchedule}
+          showCreateSchedule={showCreateSchedule} setShowCreateSchedule={v => (v ? aiGate.guardOpen(() => setShowCreateSchedule(true)) : setShowCreateSchedule(false))}
           selectSchedule={selectSchedule} deleteSchedule={deleteSchedule}
           toggleSchedulePause={toggleSchedulePause} triggerSchedule={triggerSchedule}
           replanSchedule={replanSchedule}
@@ -754,13 +752,8 @@ export default function App() {
       )}
 
       {/* Modals */}
-      {showCreateTask && (
-        <CreateTaskModal
-          showAllTasks={showAllTasks} storeName={selectedStore?.name}
-          selectedStore={selectedStore}
-          onClose={() => setShowCreateTask(false)} onSubmit={submitCreateTask}
-        />
-      )}
+      {showCreateTask && <CreateTaskModal showAllTasks={showAllTasks} storeName={selectedStore?.name} selectedStore={selectedStore} onClose={() => setShowCreateTask(false)} onSubmit={submitCreateTask} />}
+      {aiGate.prompt}
       {showCreateSchedule && (
         <CreateScheduleModal
           storeId={selectedStore?.id || null}

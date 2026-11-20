@@ -13,6 +13,12 @@ export const FrontendEvent = {
   GUIDE_SHOWN: 'guide_shown',
   GUIDE_CLOSED: 'guide_closed',
   GUIDE_LANGUAGE_SWITCHED: 'guide_language_switched',
+  AI_SETUP_PROMPT_SHOWN: 'ai_setup_prompt_shown',
+  AI_SETUP_PROMPT_CHOICE: 'ai_setup_prompt_choice',
+  AI_SETUP_GUIDE_SHOWN: 'ai_setup_guide_shown',
+  AI_SETUP_GUIDE_CLOSED: 'ai_setup_guide_closed',
+  AI_SETUP_GUIDE_DOCS_OPENED: 'ai_setup_guide_docs_opened',
+  AI_SETUP_COMPLETED: 'ai_setup_completed',
 } as const
 
 export type FrontendEventName =
