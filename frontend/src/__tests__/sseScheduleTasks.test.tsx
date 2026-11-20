@@ -126,7 +126,10 @@ describe('SSE schedule plan-lifecycle events reload schedules', () => {
   // and SchedulePlanPanel would stay stale after the plan committed
   // because useSSE ignored these events entirely.
   it.each([
+    'schedule_plan_pending_approval',
     'schedule_plan_ready',
+    'schedule_plan_changed',
+    'schedule_plan_failed',
     'schedule_plan_timeout',
     'schedule_plan_stale',
   ])('calls loadSchedules on %s', (eventType) => {

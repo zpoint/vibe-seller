@@ -41,6 +41,7 @@ from app.task_runner_context import (
     ticktick_context,
 )
 from app.task_states import TaskStatus, assert_transition
+from app.task_title import is_derived_from
 from app.todos import parse_stored
 
 logger = logging.getLogger(__name__)
@@ -80,17 +81,21 @@ def _format_header(
     """
     desc = task.description or task.title
 
-    if header == TaskHeader.DESIGN:
-        prompt = 'Design an execution plan for this task: ' + task.title
+    # A title cut from the description's opening adds nothing; send
+    # the description alone (app/task_title.py).
+    if is_derived_from(task.title, task.description):
+        instruction = task.description
+    else:
+        instruction = task.title
         if task.description:
-            prompt += f'\n\nDetails: {task.description}'
+            instruction += f'\n\nDetails: {task.description}'
+
+    if header == TaskHeader.DESIGN:
+        prompt = 'Design an execution plan for this task: ' + instruction
         return prompt, 'plan_then_execute', ''
 
     if header == TaskHeader.AUTO:
-        prompt = task.title
-        if task.description:
-            prompt += f'\n\nDetails: {task.description}'
-        return prompt, 'auto', ''
+        return instruction, 'auto', ''
 
     if header == TaskHeader.EXECUTE:
         mode = 'auto' if not task.plan_mode else 'execute'
@@ -263,15 +268,16 @@ async def build_system_extra(
             '- **You MUST call ExitPlanMode with your plan text.**'
             ' Not calling ExitPlanMode — even if the task seems'
             ' trivial, or you think "nothing to plan" — is a'
-            ' failure. The plan cannot be frozen onto the schedule'
-            ' without it, and the schedule will stay stuck in'
-            ' `planning` state until a human intervenes. There is'
+            ' failure. The plan cannot reach the schedule'
+            " owner's review without it, and the schedule never"
+            ' fires until a human intervenes. There is'
             ' always something to write: even a one-paragraph plan'
             ' is better than no plan.\n'
             + scope_abstraction
             + '- Do NOT execute the task now — after ExitPlanMode the'
-            ' session terminates and the plan is frozen onto the'
-            ' schedule. Each future fire re-injects per-store'
+            ' session terminates and the plan goes to the schedule'
+            ' owner for approval; nothing runs until they approve it.'
+            ' Once approved, each fire re-injects per-store'
             ' context and runs the plan against that store.\n'
             '- **Ask clarifying questions early with AskUserQuestion.**'
             ' The user is present right now; this is the one chance'
@@ -354,6 +360,19 @@ async def build_system_extra(
                 ' per store, do not call it.'
             )
         parts.append(plan_only_block)
+        feedback = schedule.plan_feedback if schedule is not None else None
+        if feedback and feedback.strip():
+            # A revision round: the owner read the last proposal and
+            # asked for changes. Both travel verbatim.
+            parts.append(
+                'The schedule owner reviewed your previous plan and asked'
+                ' for changes. Revise the plan to address every point,'
+                ' then call ExitPlanMode with the complete revised plan.'
+                '\n\n### Previous plan\n\n'
+                + (schedule.proposed_plan or schedule.plan or '(none)')
+                + '\n\n### Requested changes\n\n'
+                + feedback.strip()
+            )
 
     # Task-derived context (plan text) + caller context
     if header_extra:

@@ -415,6 +415,7 @@ export function TasksView({
             toggleSchedulePause={toggleSchedulePause}
             triggerSchedule={triggerSchedule}
             replanSchedule={replanSchedule}
+            onScheduleUpdated={onScheduleUpdated}
             setEditingSchedule={setEditingSchedule}
             deleteSchedule={deleteSchedule}
             getScheduleBadge={getScheduleBadge}

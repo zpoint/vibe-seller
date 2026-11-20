@@ -18,7 +18,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `schemas/` | Pydantic request/response schemas |
 | `routers/` | FastAPI route handlers (API endpoints) |
 | `browser/` | Pluggable browser backends + session management |
-| `ai/` | AI agent abstraction (Claude Code CLI backend); provider-preset catalog (`provider_presets.py`) and its auto-sync from `main` (`provider_presets_sync.py`, cache `~/.vibe-seller/cache/provider_presets.json`, env `PROVIDER_PRESETS_URL`; see [Auto-synced preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy)); per-model token prices + context windows for the usage meter (`model_pricing.py`, generated `model_pricing_snapshot.py`, `model_pricing_sync.py`) and the per-call meter itself (`usage_meter.py`; see [Model pricing & usage meter](#model-pricing--usage-meter-aimodel_pricingpy)) |
+| `ai/` | AI agent abstraction (Claude Code CLI backend); provider-preset catalog (`provider_presets.py`) and its auto-sync from `main` (`provider_presets_sync.py`, cache `~/.vibe-seller/cache/provider_presets.json`, env `PROVIDER_PRESETS_URL`; see [Auto-synced preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy)); per-model token prices + context windows for the usage meter (`model_pricing.py`, generated `model_pricing_snapshot.py`, `model_pricing_sync.py`) and the per-call meter itself (`usage_meter.py`; see [Model pricing & usage meter](#model-pricing--usage-meter-aimodel_pricingpy)); the "is any AI set up?" check behind the set-up-AI prompt (`ai_readiness.py`; see [AI setup check](#ai-setup-check-aiai_readinesspy)) |
 | `vision.py` / `vision_catalog.py` / `vision_catalog_sync.py` / `vision_models.py` | Image generation via kie.ai: config + client + confirm registry (`vision.py`); the curated model catalog as literal data (`vision_models.py`); the served catalog — validation + served state (`vision_catalog.py`) and the network steps of its `vision_catalog` sync job (`vision_catalog_sync.py`) — catalog from `main` (literal parse + schema validation), live per-tier prices from kie.ai's public pricing table, availability via `GET /api/v1/models` (deny-list), cache `~/.vibe-seller/cache/vision_catalog.json`, env `VISION_CATALOG_URL`; runs only with a kie.ai key. See [vision.md § Kept current](vision.md#kept-current-by-the-vision_catalog-sync-job) |
 | `executor/` | Legacy browser task runner (deprecated — browser automation now via browser-use CLI) |
 | `events/` | SSE event bus for real-time streaming |
@@ -40,8 +40,8 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `api_tokens.py` | Personal API tokens (`vst_…`): generation, SHA-256 hashing, expiry/revocation rules. Rows live in `api_tokens`; the plaintext is returned exactly once, at mint. |
 | `api_token_secrets.py` | The REST side of the write-only-secret contract for API-token callers: one ASGI middleware that masks secret-classified fields in JSON responses and restores masked echoes on write routes (`RESTORE_RULES`). See [api.md § API tokens](api.md#personal-api-tokens). |
 | `interactive_only.py` | Routes only a person at the web UI may call (today: `PUT /api/email-accounts/{id}/send-permission`). `INTERACTIVE_ONLY_ROUTES` + `InteractiveOnlyMiddleware`, registered in `main.py` next to the API-token scope middleware, refuse every machine credential (any `Authorization` header, a `vst_` cookie, the `ai_bot` cookie JWT). Agent-proof only while login is on. See [api.md § Email accounts](api.md). |
-| `uploads.py` | One definition of what may be uploaded and how big: MIME allow-list, extensions, `MAX_UPLOAD_SIZE` (100MB), the streaming `save_upload()` writer, and `UploadBodyLimitMiddleware`. Every multipart route imports from here — the limit used to live in four places and had already drifted. See [Upload limits](api.md#upload-limits). |
-| `attachment_markdown.py` | The ONE encoding for a user's attachments inside a transcript user message: `![name](url)` per file after the text, which the UI's `MessageBubble` / `TaskStartCard` render as thumbnails (PDF → chip). Shared by chat sends (`POST /api/tasks/{id}/messages`, promoted staged files) and a task's opening message: `opening_attachments()` supplies the task's create-time `task_attachments` when the agent backend persists the opening prompt at launch (`_PersistMixin._persist_opening_prompt`, best-effort — a lookup error saves the bare prompt). Only the first user message carries them; when the run's model cannot see images a `notice` follows it (`ai/unseen_images.py`). The agent gets the files' absolute paths separately (`uploaded_files_note` / `Attached file:` lines). |
+| `uploads.py` | One definition of how uploads are taken and served: any type accepted, `serve_file()` (inline only for `INLINE_SERVE_TYPES`, else a nosniff download), `safe_suffix()`, `MAX_UPLOAD_SIZE` (100MB), the streaming `save_upload()` writer, and `UploadBodyLimitMiddleware`. Every multipart route imports from here — the limit used to live in four places and had already drifted. See [Upload limits](api.md#upload-limits). |
+| `attachment_markdown.py` | The ONE encoding for a user's attachments inside a transcript user message: `![name](url)` per file after the text, which the UI's `MessageBubble` / `TaskStartCard` render as thumbnails (an image) or an extension chip (any other file, `lib/attachmentKind`). Shared by chat sends (`POST /api/tasks/{id}/messages`, promoted staged files) and a task's opening message: `opening_attachments()` supplies the task's create-time `task_attachments` when the agent backend persists the opening prompt at launch (`_PersistMixin._persist_opening_prompt`, best-effort — a lookup error saves the bare prompt). Only the first user message carries them; when the run's model cannot see images a `notice` follows it (`ai/unseen_images.py`). The agent gets the files' absolute paths separately (`uploaded_files_note` / `Attached file:` lines). |
 | `text_utils.py` | Surrogate-safe text: `SafeStr` (request fields), `SafeText` (DB columns), `sanitize_text` (file writes). Agent text can carry a lone surrogate that no UTF-8 encode accepts — see [Lone surrogates](#lone-surrogates-in-agent-text). |
 | `platform.py` | Cross-platform abstractions (Windows/macOS/Linux) — psutil-based process management (`kill_process`, `find_processes_by_pattern`, `reap_task_agents`, `collect_agent_descendants`), venv path helpers (`Scripts/` vs `bin/`, `venv_python`, `venv_executable`), `prepend_to_path` (uses `os.pathsep`), `safe_chmod` (no-op on Windows). Centralises every platform difference so the rest of the code stays platform-agnostic. See [Cross-platform support](subsystems.md#cross-platform-support-native-windows). |
 | `claude_cli_install.py` | Makes sure the project-local Claude Code CLI (`<VIBE_HOME>/node_modules/.bin/claude`) actually runs after npm installs it: newer npm skips the package's `postinstall` (`install.cjs`, which puts the native binary in place) yet exits 0, so `finish()` runs that step when `claude --version` fails and reports a CLI that still does not run instead of passing it. Used by `vibe-seller upgrade`; `install.sh` applies the same rule. |
@@ -205,6 +205,29 @@ The dead-proxy check (`agent_proxy`) only counts the user settings file's proxy 
 - `tests/unit/test_claude_config_isolation.py` — flag/settings composition per profile kind for the task and assistant launches, `CLAUDE_CONFIG_DIR`, the global-config path rule, malformed/missing `.claude.json`, the global-MCP toggle.
 - `tests/workflow/test_wf_profile_config_isolation.py` — a non-default profile is created, made default and runs while a cc-switch `settings.json` exists.
 - `tests/integration/test_claude_cli_config_isolation.py` — the real CLI against a fake Anthropic endpoint: which endpoint/model each profile kind reaches, that no user `CLAUDE.md` / rule / `~/CLAUDE.md` reaches the provider while the workspace `CLAUDE.md` does, and the global-MCP toggle.
+
+## AI setup check (`ai/ai_readiness.py`)
+
+Decides whether the UI asks a user to set up AI before creating a task
+(`GET /api/profiles/readiness` → `{ready}`). One system-wide answer,
+**not set up by default**. It becomes set up when:
+
+- **the startup job** (`ai_setup_check`, a one-shot job registered by
+  `start_scheduler`, see [subsystems.md § System Scheduler Jobs](subsystems.md#system-scheduler-jobs))
+  ran `claude auth status --json` once, with the `default` profile's
+  spawn env, and got `loggedIn: true`. Any way the CLI accepts counts
+  (claude.ai login, an API key/token, a provider `env` in
+  `settings.json` as cc-switch writes it, Bedrock/Vertex). The JSON is
+  the verdict, not the exit code (it exits 1 when logged out); a
+  missing CLI, a timeout (10 s, the process is killed) or unparseable
+  output count as not logged in; or
+- **any profile other than `default` exists** (read on each request, so
+  adding a model counts at once, without a restart).
+
+Under `MOCK_CLI` it is always set up. A Claude Code login made after
+the server started counts only after a restart (or once a model is
+added). It checks that a setup is configured, not that it works: a
+wrong key still counts. Task creation is not checked.
 
 ## Profile Endpoint Validation (`ai/profile_validation.py`)
 

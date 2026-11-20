@@ -43,13 +43,13 @@ offered it.
 A plan-only task (one authoring a schedule's plan) reads
 differently at the two statuses that matter:
 
-- `planned` — Plan ready — this task only authors its schedule's plan: approving (review_plan) freezes the plan onto the schedule and nothing executes. An unreviewed planned task holds one of the server's agent slots — approve, reject or stop it, never abandon one. A message REJECTS the plan and re-plans with the text as feedback.
-- `completed` — Done — it authored its schedule's plan; nothing was executed. send_message revises it; retry_task re-authors from scratch.
+- `planned` — Momentary: this task only writes its schedule's plan, which is being handed to the schedule for the owner's approval. The decision is on the schedule (get_attention, then review_schedule_plan). If it stays here, it holds one of the server's agent slots — never abandon one: review_plan hands the plan over, stop_task frees the slot.
+- `completed` — Done — it wrote its schedule's plan; nothing was executed. The plan now waits for approval on the schedule (review_schedule_plan); asking for changes there starts a new planning run.
 
 A task FIRED by its schedule (schedule_id set) runs the
 frozen plan without a review:
 
-- `planned` — Auto-executing the frozen plan from its schedule — it starts on its own; wait_task follows it. The plan was accepted when the schedule was armed, so review_plan is not offered — and rejecting or messaging the task would discard that plan and re-plan with automatic approval. Do not.
+- `planned` — Running its schedule's APPROVED plan — it starts on its own; wait_task follows it. The plan was approved on the schedule, so review_plan is not offered — rejecting or messaging the task would throw that approved plan away. Do not.
 
 ### Schedule plan statuses
 
@@ -58,14 +58,18 @@ status.
 
 | Plan status | Meaning | Fires? | Next tools |
 | --- | --- | --- | --- |
-| `none` | No plan lifecycle (system schedule) — fires its prompt as-is. | yes | `run_schedule` |
-| `planning` | A plan-only task is authoring the plan; the schedule cannot fire until the plan is frozen, and the plan is then accepted automatically. Pause the schedule now (update_schedule paused=true) if your user has not seen the plan. | no (plan gate) | `update_schedule, wait_task, get_task` |
-| `ready` | Plan written and accepted automatically — the schedule WILL fire on its cron (unless it is paused). Show the plan to your user; pause or replan it if they object. | yes | `run_schedule` |
-| `stale` | The prompt changed after the plan was frozen; the stored plan no longer matches. Re-plan; it cannot fire. | no (plan gate) | `update_schedule` |
-| `failed` | The planning task failed; re-plan to try again. It cannot fire. | no (plan gate) | `update_schedule` |
+| `none` | Auto schedule (no plan review) — every fire runs its prompt directly, on its cron unless paused. | yes | `run_schedule` |
+| `planning` | Plan review is on: a plan-only task is writing the plan (wait_task on plan_task_id follows it). It cannot fire until a human approves a plan; if an earlier plan was approved, that one keeps firing meanwhile. | no (plan gate) | `wait_task, get_task` |
+| `pending_approval` | The plan is written and WAITS FOR APPROVAL (proposed_plan); it cannot fire until approved. Show the plan to your user, then review_schedule_plan approves it or sends it back with their requested changes. The server never approves on its own and the wait never expires. | no (plan gate) | `review_schedule_plan` |
+| `ready` | Plan approved by a human — the schedule WILL fire it on its cron (unless it is paused). review_schedule_plan with feedback revises it; the approved plan keeps firing meanwhile. | yes | `run_schedule` |
+| `stale` | Legacy: the prompt changed after the plan was written. Re-plan (update_schedule replan=true); it cannot fire. | no (plan gate) | `update_schedule` |
+| `failed` | The planning run failed or its agent died (plan_error says why); re-plan to try again (update_schedule replan=true). It cannot fire unless an earlier plan was approved, which keeps firing. | no (plan gate) | `update_schedule` |
 
-A paused schedule resumes (`update_schedule`) once the plan
-gate is open — resuming mid-`planning` is refused.
+Review rows assume no earlier approved plan; a schedule that
+has one keeps firing it while a revision is planned, waits
+for approval or fails. A paused schedule resumes
+(`update_schedule`) once it can fire — resuming a review
+schedule with no approved plan is refused.
 
 <!-- lifecycle:end -->
 
@@ -193,58 +197,58 @@ The user asks for the same report every Monday.
 create_schedule(
   title="Monday ad report",
   description="Pull last week's campaign report and summarise the movers.",
-  schedule_type="weekly",
-  paused=true)                   → created PAUSED: plan_status: planning,
-                                    fires: false, plan_task_id: …
+  schedule_type="weekly", schedule_day=1, schedule_time="08:00")
+                                 → AUTO: plan_status: none, fires: true,
+                                    next_run: next Monday 08:00
 ```
 
-**Pass `paused: true` unless your user already told you to go ahead.** A
-schedule's plan is accepted by the server without anyone reading it, so
-pausing is what keeps it a checkpoint. The plan is still being written,
-so the schedule could not have fired anyway — pausing at creation
-closes that window completely.
+Tell the user it runs every Monday at 08:00 and what it will do. If they
+want to see one run now:
 
 ```
-wait_task(task_id=plan_task_id)   → the plan-only task completes on its own;
-                                    the plan it wrote is frozen onto the
-                                    schedule: plan_status=ready — still
-                                    paused, so fires is still false
+run_schedule(schedule_id=…)       → task_id — follow it with wait_task
 ```
 
-The schedule result carries the plan text in `plan`. **Show it to the
-user** and get their go-ahead — this is the checkpoint; nobody else will
-make it for you.
+The user wants to read the plan before anything runs:
 
 ```
-update_schedule(schedule_id=…, paused=false)
-                                 → fires: true — armed, and only now
+create_schedule(…, review_plan=true)
+                                 → plan_status: planning, fires: false,
+                                    plan_task_id: …
+wait_task(task_id=plan_task_id)   → completes on its own; the schedule is
+                                    plan_status: pending_approval
+get_attention()                   → schedule_plan_approvals[0] carries
+                                    proposed_plan and plan_version
 ```
 
-Nothing ran in any of this — the schedule is now ARMED. Say that to the
-user: every Monday's fire copies the frozen plan and runs straight
-through, with no second planning stop.
+**Show the plan to the user** and get their decision — this is the
+checkpoint; the server never approves on its own and the wait never
+expires.
 
-If they object instead, do NOT resume: change the prompt
-(`update_schedule` with a new `description` → the plan goes `stale` and
-the schedule stops firing), re-plan it (`replan: true` → a new
-plan_task_id; show that plan too), or `delete_schedule` it. A schedule
-that is paused and stale is not armed — nothing runs.
+```
+review_schedule_plan(schedule_id=…, approve=true, plan_version=…)
+                                 → plan_status: ready, fires: true
+# or, with their changes:
+review_schedule_plan(schedule_id=…, approve=false,
+                     feedback="Only campaigns over 50/day")
+                                 → plan_status: planning (a new plan is
+                                    written, then pending_approval again)
+```
 
-Then the prompt changes later:
+Then the prompt of the review schedule changes later:
 
 ```
 update_schedule(schedule_id=…, description="…the new prompt…")
-                                 → plan_status: stale — it will NOT fire
+                                 → plan_status: planning — the approved
+                                   plan is dropped; it will NOT fire
 run_schedule(schedule_id=…)       → refused, with the reason
-update_schedule(schedule_id=…, replan=true)
-                                 → a new plan_task_id; when it completes
-                                   the schedule is ready again
+… wait_task, show, review_schedule_plan(approve=true) → ready again
 ```
 
-A not-ready schedule is never "scheduled". `run_schedule` while stale is
-refused with the route's reason — relay that reason, do not paper over
-it. Every schedule result carries `fires` — the answer to "will this
-run?" — and `next_actions`.
+A schedule with `fires: false` is never "scheduled". `run_schedule`
+without an approved plan is refused with the route's reason — relay
+that reason, do not paper over it. Every schedule result carries
+`fires` — the answer to "will this run?" — and `next_actions`.
 
 ## Flow 7 — reporting the result
 

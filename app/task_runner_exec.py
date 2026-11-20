@@ -92,7 +92,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
         # + Task DESIGNING/PLANNED → COMPLETED + sends control deny.
         # We must NOT also force the task to RUNNING here — that
         # races the hook's status write and, when it wins, hides the
-        # approved plan from `_commit_plan_only_approval`'s guard
+        # approved plan from `_commit_plan_proposal`'s guard
         # (which expects PLANNED/DESIGNING/QUEUED). Load the flag
         # before approving so we branch correctly.
         async with async_session() as db_pre:

@@ -30,6 +30,7 @@ from sqlalchemy.pool import StaticPool
 # import is only for its side effect on Base.metadata.
 from app import models  # noqa: F401
 from app.auth import create_token
+from app.config import AI_BOT_ROLE, AI_BOT_USER_ID
 from app.database import get_db
 from app.main import app
 from app.models.app_settings import AppSettings
@@ -51,6 +52,7 @@ ASYNC_SESSION_MODULES = [
     'app.routers.tasks',
     'app.routers.vision',
     'app.task_runner',
+    'app.task_title',
     'app.task_finalize',
     'app.task_runner_auto',
     'app.task_runner_context',
@@ -58,6 +60,7 @@ ASYNC_SESSION_MODULES = [
     'app.task_session_lifecycle',
     'app.routers.schedules',
     'app.routers.schedule_planning',
+    'app.schedule_plan_review',
     'app.routers.email_accounts',
     'app.ai.claude_backend',
     'app.ai.claude_backend_manager',
@@ -313,6 +316,18 @@ def install_fake_agent(fake_agent, monkeypatch):
     # does — its alive/deferral decision reads session state
     # (is_process_alive / get_session) off the manager.
     monkeypatch.setattr('app.scheduler.stall_reaper.agent_manager', fake_agent)
+    # get_attention reads live pending questions off the manager.
+    # Tolerates its absence (negative controls run on older code).
+    try:
+        monkeypatch.setattr(
+            'app.agent_mcp.tools_schedule_review.agent_manager', fake_agent
+        )
+        # GET /attention reads planners' pending questions the same way.
+        monkeypatch.setattr(
+            'app.routers.schedule_review.agent_manager', fake_agent
+        )
+    except ImportError:
+        pass
     # Likewise the orphan reconciler: a live session means "running".
     # Tolerates its absence, like ASYNC_SESSION_MODULES, so its
     # regression test can be run against pre-reconciler code.
@@ -840,6 +855,40 @@ async def member_client(
 ) -> AsyncGenerator[AsyncClient, None]:
     """Authenticated member client with ALL workflow mocks."""
     token = create_token(member_user.id, 'member')
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport, base_url='http://test'
+    ) as client:
+        client.cookies.set('auth_token', token)
+        yield client
+
+
+@pytest_asyncio.fixture
+async def ai_bot_client(
+    override_async_session,
+    admin_client,
+) -> AsyncGenerator[AsyncClient, None]:
+    """A client holding the in-task agent's credential (the ai_bot JWT).
+
+    Every credential a task agent holds resolves to this user; routes
+    that only the owner may call refuse it. Depends on admin_client
+    so the workflow mocks are installed.
+    """
+    async with override_async_session() as db:
+        if await db.get(User, AI_BOT_USER_ID) is None:
+            db.add(
+                User(
+                    id=AI_BOT_USER_ID,
+                    username='ai_bot',
+                    email='ai@vibe-seller.local',
+                    password_hash='disabled',
+                    role=AI_BOT_ROLE,
+                    is_active=True,
+                    created_at=datetime.now(UTC).isoformat(),
+                )
+            )
+            await db.commit()
+    token = create_token(AI_BOT_USER_ID, AI_BOT_ROLE)
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url='http://test'

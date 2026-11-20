@@ -84,9 +84,11 @@
     "titleLabel": "Title",
     "titlePlaceholder": "Enter task title",
     "createAndRun": "Create & Run",
-    "titleExampleStore": "e.g. Navigate to google.com",
-    "titleExampleAll": "e.g. Process billing files",
     "descriptionPlaceholder": "Enter task description",
+    "promptLabel": "Task description",
+    "promptHint": "The title is generated automatically. Ctrl/⌘+Enter to submit.",
+    "promptPlaceholderAll": "e.g. Process billing files",
+    "promptPlaceholderStore": "e.g. Navigate to google.com",
     "store": "Store",
     "noStore": "No Store",
     "filterByStore": "Filter by store",
@@ -229,12 +231,11 @@
     "planFeedbackPlaceholder": "Suggest changes...",
     "wakeMessagePlaceholder": "Send a message to resume...",
     "followupPlaceholder": "Send a follow-up message...",
-    "attachImage": "Attach image/file",
+    "attachImage": "Attach file",
     "attachedImage": "Image",
     "attachmentsLabel": "Attachments",
-    "attachmentsHint": "Drop images here, paste (Ctrl+V), or click to browse",
-    "attachmentsTypes": "PNG, JPEG, GIF, WebP, PDF up to {{size}}",
-    "attachmentUnsupported": "{{name}}: unsupported file type, not attached",
+    "attachmentsHint": "Drop files here, paste (Ctrl+V), or click to browse",
+    "attachmentsTypes": "Any file type, up to {{size}} each — images show a preview",
     "attachmentTooLarge": "{{name}}: larger than {{size}}, not attached",
     "attachmentClipboardItem": "Clipboard item",
     "startFailed": "Task created, but it could not be started. Its attachments may not have uploaded — open the task and retry.",
@@ -856,7 +857,8 @@
       "stale": "Plan stale",
       "failed": "Plan failed",
       "ready": "Ready",
-      "none": "No plan"
+      "none": "No plan",
+      "pending_approval": "Needs your approval"
     },
     "planError": "Planning error",
     "plan": {
@@ -871,10 +873,11 @@
       "waitingForApproval": "Planning task is awaiting your approval.",
       "explainer": {
         "ready": "Plan approved — every run follows it.",
-        "planning": "The AI is writing the plan. Open the planning task to review and approve it.",
+        "planning": "The AI is writing the plan. You'll be asked to approve it here (and in the banner at the top).",
         "stale": "The task description changed, so the old plan is no longer used. Re-plan before the next run.",
-        "failed": "The planner failed. Re-plan to try again.",
-        "none": "No plan has been authored yet. Start planning to create one."
+        "failed": "Writing the plan didn't work. Try again.",
+        "none": "No plan has been authored yet. Start planning to create one.",
+        "pending_approval": "The AI wrote this plan. Nothing runs until you approve it. Approval never expires."
       },
       "fanoutSerial": "Stores run one at a time, in order, so they never share the browser at the same moment.",
       "finalize": {
@@ -885,6 +888,25 @@
         "heading": "Planning history ({{count}})",
         "empty": "No prior planning attempts.",
         "attempt": "v{{n}} · {{status}} · {{when}}"
+      },
+      "waitingPill": "Waiting for your approval",
+      "approve": "Approve",
+      "requestChanges": "Request changes",
+      "feedbackPlaceholder": "What should change in the plan?",
+      "send": "Send",
+      "tryAgain": "Try again",
+      "proposedHeading": "New plan",
+      "approvedHeading": "Approved plan",
+      "approvedKeepsRunning": "The approved plan keeps running until you approve the new one.",
+      "yourFeedback": "Changes you asked for:",
+      "failure": {
+        "planner_died": "The AI writing the plan stopped before it finished. Click \"Try again\" to write it again.",
+        "server_restart": "Vibe Seller restarted while the plan was being written, so it was not finished. Click \"Try again\" to write it again.",
+        "stopped": "Writing the plan was stopped. Click \"Try again\" if you want a new one.",
+        "no_plan": "The AI finished without writing a plan. Click \"Try again\".",
+        "start_failed": "Writing the plan could not start. Click \"Try again\"; if it still fails, check the model and API key in Settings → AI.",
+        "other": "Something went wrong while writing the plan. Click \"Try again\".",
+        "detail": "Details: "
       }
     },
     "nextRun": "Next Run",
@@ -920,7 +942,12 @@
     "fanoutSerialDescription": "Start each store only after the one before it has finished, so stores never share the browser at the same moment. Use it for work that drives the same marketplace portal in every store.",
     "modeLocked": "Mode and store are fixed at creation.",
     "defaultMode": "Default Mode",
-    "defaultModeHelp": "Default mode pre-selected when creating a new 'All Stores' schedule."
+    "defaultModeHelp": "Default mode pre-selected when creating a new 'All Stores' schedule.",
+    "reviewPlan": {
+      "label": "Let me review the plan before it runs",
+      "hint": "Off: it runs your instructions on schedule. On: the AI first writes a plan and waits for your OK before anything runs.",
+      "turnOnNote": "After saving, it stops running until you approve a plan."
+    }
   },
   "waiting": {
     "reason": "Waiting Reason",
@@ -1160,5 +1187,29 @@
     "upgradeNotes": "Upgrade notes",
     "expandRest": "Show {{count}} more",
     "viewFullChangelog": "View the full changelog on GitHub"
+  },
+  "planApprovalBanner": {
+    "message_one": "{{count}} scheduled task has a plan waiting for your approval",
+    "message_other": "{{count}} scheduled tasks have a plan waiting for your approval",
+    "action": "Review",
+    "question_one": "The AI has a question about {{count}} scheduled task's plan",
+    "question_other": "The AI has questions about {{count}} scheduled tasks' plans",
+    "answer": "Answer"
+  },
+  "aiSetup": {
+    "prompt": {
+      "title": "Set up AI first",
+      "body": "Tasks are carried out by AI. This computer has no AI set up yet, so a task created now could not run.",
+      "time": "It takes a few minutes, once: get an API key from an AI provider and paste it into Vibe Seller.",
+      "gotIt": "Got it",
+      "docs": "Read the setup guide",
+      "goToSettings": "Set up AI"
+    },
+    "guide": {
+      "title": "Click here to add an AI model",
+      "body": "Pick a provider (DeepSeek is a good first choice), paste its API key and click \"Create\". That's it.",
+      "docs": "No API key yet? See how to get one",
+      "gotIt": "Got it"
+    }
   }
 }

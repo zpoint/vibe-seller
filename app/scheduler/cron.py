@@ -14,6 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
 
+from app.ai.ai_readiness import register_ai_setup_check
 from app.ai.profiles import resolve_schedule_profile
 from app.browser.idle_sweep import sweep_idle_browsers
 from app.config import DEFAULT_USER_ID
@@ -22,7 +23,7 @@ from app.events.bus import event_bus
 from app.models.schedule import Schedule
 from app.models.schedule_constants import PhaseMode
 from app.models.task import Task
-from app.plan_states import PlanStatus
+from app.plan_states import fire_plan, schedule_fires
 from app.scheduler.fanout import (
     _cancel_prior_waiting,
     run_fanout_job,
@@ -68,6 +69,7 @@ def start_scheduler():
     _register_finalize_reaper()
     _register_task_cleanup()
     register_install_heartbeat(scheduler)
+    register_ai_setup_check(scheduler)
 
 
 def _register_waiting_checker():
@@ -185,17 +187,8 @@ def stop_scheduler():
 
 
 def _schedule_can_fire(sched: Schedule) -> bool:
-    """Return True if this schedule is eligible to fire now.
-
-    Plan-mode schedules require ``plan_status=READY``. System
-    schedules (``is_system=True``) and plan_mode=False schedules
-    are always eligible.
-    """
-    if sched.is_system:
-        return True
-    if not sched.plan_mode:
-        return True
-    return sched.plan_status == PlanStatus.READY.value
+    """The fire gate — one rule, :func:`app.plan_states.schedule_fires`."""
+    return schedule_fires(sched)
 
 
 async def _run_task_job(
@@ -244,8 +237,7 @@ async def _run_task_job(
                     )
                     send_fire_skipped(schedule_id, sched.plan_status)
                     return
-                saved_plan = sched.plan
-                saved_plan_version = sched.plan_version
+                plan_mode, saved_plan, saved_plan_version = fire_plan(sched)
                 platform = sched.platform
                 country = sched.country
                 schedule_type = sched.schedule_type

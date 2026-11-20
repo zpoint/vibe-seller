@@ -85,10 +85,10 @@ store and read the same mail several times.
 
 ![The New Schedule form: description, every day 09:00, mode set to Single](images/example-email-schedule_en.png)
 
-Click **Create**. The AI drafts an execution plan right away: the list shows
-**Planning** first, then **Ready** when the plan is written — you don't approve
-this step. From then on it runs that plan every day at 09:00, see
-[The plan is authored once, at creation](schedules.md#the-plan-is-authored-once-at-creation).
+Click **Create**. From then on it runs these instructions every day at 09:00 —
+nothing to confirm. To read and approve a plan first, tick **Let me review the
+plan before it runs** — see
+[Review the plan first](schedules.md#review-the-plan-first-optional).
 
 ## What you get after it runs
 

@@ -290,6 +290,7 @@ jobs:
           tests/e2e/test_turn_lifecycle_mock.py
           tests/e2e/test_agent_mcp.py
           tests/e2e/test_agent_mcp_schedules.py
+          tests/e2e/test_schedule_review_ui.py
           tests/e2e/test_agent_mcp_files.py
           tests/e2e/test_agent_mcp_ops.py
           tests/e2e/test_agent_mcp_workspace.py --e2e -v

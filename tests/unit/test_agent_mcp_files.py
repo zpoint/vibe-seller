@@ -156,13 +156,13 @@ class TestDecodeUpload:
         with pytest.raises(ToolError, match='10 MB'):
             mcp_files.decode_upload(entry)
 
-    def test_disallowed_type_is_refused_up_front(self):
-        """The upload routes' own allow-list, checked BEFORE anything
-        is created around the attachment."""
+    def test_any_type_is_accepted(self):
+        """Any file type attaches, the same as the upload routes."""
         entry = self._ok()
-        entry['mime_type'] = 'application/x-msdownload'
-        with pytest.raises(ToolError, match='not allowed'):
-            mcp_files.decode_upload(entry)
+        entry['mime_type'] = 'application/zip'
+        entry['filename'] = 'bundle.zip'
+        name, mime, _ = mcp_files.decode_upload(entry)
+        assert (name, mime) == ('bundle.zip', 'application/zip')
 
     def test_empty_payload_is_refused(self):
         """An empty upload is caught by the required-string check —

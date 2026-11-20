@@ -33,10 +33,9 @@ from app.ai.stop_gates import record_skill_load
 from app.ai.tool_call_guards import tool_call_deny
 from app.database import async_session
 from app.events.bus import event_bus
-from app.models.schedule import Schedule
 from app.models.task import Task
-from app.plan_states import freeze_schedule_plan
 from app.question_answers import expand_free_text_answers
+from app.schedule_plan_review import record_plan_proposal
 from app.task_states import TaskStatus
 from app.telemetry_tasks import (
     send_question_answered,
@@ -510,11 +509,13 @@ class _HookMixin:
         and transition task status to RUNNING.
 
         For plan-only tasks owned by a Schedule (``is_plan_only=True``),
-        the flow is different: the approved plan is persisted to the
-        owning Schedule (``plan_status='ready'``, ``plan_version += 1``),
-        the task terminates at COMPLETED (no execution), and the agent
-        receives a ``deny`` control response so it halts rather than
-        entering bypass mode.
+        the flow is different: the plan is recorded on the owning
+        Schedule as a PROPOSAL awaiting the owner's approval
+        (``plan_status='pending_approval'``), the task terminates at
+        COMPLETED (no execution, slot freed), and the agent receives a
+        ``deny`` control response so it halts rather than entering
+        bypass mode. Nothing here approves the plan — see
+        ``app/plan_states.py``.
         """
         self._executing = True
 
@@ -538,7 +539,7 @@ class _HookMixin:
             )
 
         if is_plan_only and schedule_id:
-            await self._commit_plan_only_approval(
+            await self._commit_plan_proposal(
                 request_id=request_id,
                 schedule_id=schedule_id,
                 plan_text=latest_plan_text or '',
@@ -586,78 +587,41 @@ class _HookMixin:
             ],
         )
 
-    async def _commit_plan_only_approval(
+    async def _commit_plan_proposal(
         self,
         *,
         request_id: str,
         schedule_id: str,
         plan_text: str,
     ):
-        """Commit an approved plan-only Task.
+        """Hand a plan-only Task's plan to the schedule owner for review.
 
-        Runs in a single DB transaction so a crash between the Task
-        terminal write and the Schedule plan write cannot leave a
-        half-applied state. Transitions the Task to COMPLETED, writes
-        ``Schedule.plan``, bumps ``plan_version``, sets ``plan_status``
-        to ``'ready'``, clears ``current_planning_task_id`` and
-        ``plan_error``.  Then responds ``deny`` to the ExitPlanMode
-        control request so the agent halts instead of entering bypass
-        mode.
+        The DB side is :func:`app.schedule_plan_review.record_plan_proposal`
+        (one transaction; only the schedule's CURRENT planner proposes;
+        the approved ``plan`` is untouched).
+
+        Then ``deny`` the ExitPlanMode request and stop the session, so
+        the agent process exits and its slot is released: waiting for
+        the owner costs nothing and never expires.
         """
-        committed = False
+        proposed = False
         try:
-            async with async_session() as db:
-                task = await db.get(Task, self.task_id)
-                sched = await db.get(Schedule, schedule_id)
-                if not task or not sched:
-                    logger.error(
-                        'Plan-only approval: task or schedule missing'
-                        ' (task=%s schedule=%s)',
-                        self.task_id,
-                        schedule_id,
-                    )
-                else:
-                    # PLANNED → COMPLETED (added to state machine for
-                    # this exact flow). Guard on status to tolerate a
-                    # concurrent external transition.
-                    if task.status in (
-                        TaskStatus.PLANNED,
-                        TaskStatus.DESIGNING,
-                        TaskStatus.QUEUED,
-                    ):
-                        now = datetime.now(UTC).isoformat()
-                        task.status = TaskStatus.COMPLETED
-                        task.completed_at = now
-                        task.updated_at = now
-                        freeze_schedule_plan(sched, plan_text, now)
-                        await db.commit()
-                        committed = True
-                        await event_bus.emit(
-                            'task_update',
-                            {
-                                'task_id': self.task_id,
-                                'status': TaskStatus.COMPLETED,
-                            },
-                        )
-                        await event_bus.emit(
-                            'schedule_plan_ready',
-                            {
-                                'schedule_id': schedule_id,
-                                'plan_version': sched.plan_version,
-                            },
-                        )
+            proposed = await record_plan_proposal(
+                self.task_id, schedule_id, plan_text
+            )
         except Exception:
             logger.exception(
-                'Plan-only approval commit failed for task %s',
+                'Plan proposal commit failed for task %s',
                 self.task_id,
             )
 
-        # Respond to the agent. Deny regardless of commit outcome —
-        # we do NOT want the plan-only agent to enter execution.
+        # Respond to the agent. Deny regardless of the outcome — a
+        # plan-only agent must never enter execution.
         reason = (
-            'Plan accepted and saved to the schedule.'
-            if committed
-            else 'Plan approval failed to persist; task will be retried.'
+            "Plan saved for the schedule owner's review. Your work is "
+            'done — stop here.'
+            if proposed
+            else 'This planning run is no longer current; stop here.'
         )
         await self._send_control_response(
             request_id,

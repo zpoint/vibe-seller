@@ -191,6 +191,33 @@ otherwise cover every UI test in a fresh browser context);
 `test_onboarding_guide.py` pins the whole key story across two
 contexts.
 
+## Set-up-AI prompt
+
+While no AI is set up (`GET /api/profiles/readiness` → `{ready: false}`,
+see [backend.md § AI setup check](backend.md#ai-setup-check-aiai_readinesspy)),
+creating a task first asks the user to set one up.
+
+- **`hooks/useAiSetupGate.tsx`** (owned by `App.tsx`): `guardOpen(open)`
+  wraps every New Task and New Schedule button. It asks the server on
+  each click and shows `components/AiSetupPrompt.tsx` instead of the
+  form when not set up. When the request fails, the form opens: the
+  prompt never blocks on our own error. The prompt offers *Got it*,
+  the setup docs (`aiDocsUrl` in `lib/aiSetup.ts`, by UI language) in a
+  new tab, or *Set up AI*, which requests the guide and navigates to
+  Settings → AI.
+- **`hooks/useAiSetupGuide.ts` + `components/AiSetupGuide.tsx`** (on the
+  AI tab, `SettingsView`): the page dims around the Add Model button
+  (`[data-tour="add-model"]`, four dim rects as in the first-run guide;
+  the button stays clickable through the hole) with a short "click
+  here" note. It opens when the prompt sent the user here, or on a
+  first visit while not set up. Clicking the button, *Got it* or Esc
+  closes it and writes `vibe-seller-ai-guide-seen` (guarded storage,
+  `lib/guideStorage.ts`, shared with the first-run guide). It closes
+  by itself once AI is set up, re-asking whenever the default model or
+  the model list changes.
+- `lib/aiSetup.ts` also holds the small store for "the prompt sent the
+  user to the guide".
+
 ## Internationalization
 
 Translations stored in `src/i18n/locales/`:
@@ -229,7 +256,7 @@ text goes in `groupLabel`. The frontend keeps no preset translation table, and
 |-------|---------|
 | `task_created` | Prepend new task to list when its `store_id` matches the active view (or null + All-stores). Deduped by id so the originating tab — which already inserts the task from the POST response — doesn't double-add. |
 | `task_update` | Update task status in list |
-| `task_message` | Route by role: `delta` → streaming bubble, `assistant` → agent message, `tool_use` → tool call card, `thinking`/`thinking_delta` → thinking block, `result` → result card. **Also reconciles status**: a task streaming output can't be `queued`/`pending`, so any of these promotes it to `running` (or `designing` when `plan_mode`) — defensive against a missed/clobbered `task_update(running)` (the `pending→queued→running` race); never disturbs terminal/active states. |
+| `task_message` | Route by role: `delta` → streaming bubble, `assistant` → agent message, `tool_use` → tool call card, `thinking`/`thinking_delta` → thinking block, `result` → result card (every turn's; it replaces the agent message right before it when that is the same text — Claude Code's `result` repeats the turn's last assistant text — via `appendResult` in `lib/conversation.ts`, which the history rebuild uses too, so one answer renders once live and on reload). **Also reconciles status**: a task streaming output can't be `queued`/`pending`, so any of these promotes it to `running` (or `designing` when `plan_mode`) — defensive against a missed/clobbered `task_update(running)` (the `pending→queued→running` race); never disturbs terminal/active states. |
 | `task_todos` | Update todo progress bar |
 | `task_usage` | Patch the usage fields (list, schedule list, open task) — drives the footer's `TaskUsageMeter` (context bar + cost) |
 | `task_questions` | Show question banner |

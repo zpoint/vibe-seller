@@ -84,9 +84,11 @@
     "titleLabel": "标题",
     "titlePlaceholder": "请输入任务标题",
     "createAndRun": "创建并运行",
-    "titleExampleStore": "例如：看一下过去 7 天各 SKU 的销量",
-    "titleExampleAll": "例如：整理账单文件",
     "descriptionPlaceholder": "请输入任务描述",
+    "promptLabel": "任务描述",
+    "promptHint": "标题会自动生成。Ctrl/⌘+Enter 提交。",
+    "promptPlaceholderAll": "例如：处理账单文件",
+    "promptPlaceholderStore": "例如：打开 google.com",
     "store": "店铺",
     "noStore": "无店铺",
     "filterByStore": "按店铺筛选",
@@ -231,12 +233,11 @@
     "planFeedbackPlaceholder": "建议修改...",
     "wakeMessagePlaceholder": "发送消息以恢复任务...",
     "followupPlaceholder": "发送后续消息...",
-    "attachImage": "上传图片/文件",
+    "attachImage": "上传文件",
     "attachedImage": "图片",
     "attachmentsLabel": "附件",
-    "attachmentsHint": "拖入图片、粘贴（Ctrl+V），或点击选择文件",
-    "attachmentsTypes": "支持 PNG、JPEG、GIF、WebP、PDF，单个最大 {{size}}",
-    "attachmentUnsupported": "{{name}}：不支持的文件类型，未添加",
+    "attachmentsHint": "拖入文件、粘贴（Ctrl+V），或点击选择文件",
+    "attachmentsTypes": "支持任意文件类型，单个最大 {{size}}；图片可预览",
     "attachmentTooLarge": "{{name}}：超过 {{size}}，未添加",
     "attachmentClipboardItem": "剪贴板内容",
     "startFailed": "任务已创建，但未能启动。附件可能未上传成功——请打开任务后重试。",
@@ -858,7 +859,8 @@
       "stale": "计划需更新",
       "failed": "规划失败",
       "ready": "就绪",
-      "none": "未规划"
+      "none": "未规划",
+      "pending_approval": "待审批"
     },
     "planError": "规划错误",
     "plan": {
@@ -873,10 +875,11 @@
       "waitingForApproval": "规划任务等待你的审核与批准。",
       "explainer": {
         "ready": "计划已确认，之后每次执行都按这个计划来。",
-        "planning": "AI 正在生成计划。打开规划任务以审核并批准。",
+        "planning": "AI 正在写方案。写好后会请你在这里（以及页面顶部的提示条）审批。",
         "stale": "任务描述改过了，旧计划不再使用，请在下次执行前重新规划。",
-        "failed": "规划失败。请点击重新规划再次尝试。",
-        "none": "尚未生成计划。点击开始规划以创建一个。"
+        "failed": "方案没有写成功，请重新生成。",
+        "none": "尚未生成计划。点击开始规划以创建一个。",
+        "pending_approval": "AI 已写好方案。你同意之前不会运行任何内容。审批没有时限，随时都可以处理。"
       },
       "fanoutSerial": "各店铺按顺序逐个运行，不会同时占用浏览器。",
       "finalize": {
@@ -887,6 +890,25 @@
         "heading": "规划历史 ({{count}})",
         "empty": "没有历史规划尝试。",
         "attempt": "v{{n}} · {{status}} · {{when}}"
+      },
+      "waitingPill": "待你审批",
+      "approve": "同意并启用",
+      "requestChanges": "要求修改",
+      "feedbackPlaceholder": "方案哪里需要修改？",
+      "send": "发送",
+      "tryAgain": "重新生成方案",
+      "proposedHeading": "新方案",
+      "approvedHeading": "已批准的方案",
+      "approvedKeepsRunning": "在你同意新方案之前，仍按已批准的方案运行。",
+      "yourFeedback": "你的修改意见：",
+      "failure": {
+        "planner_died": "写方案的 AI 中途停下了，方案没写完。点「重新生成方案」再写一次。",
+        "server_restart": "Vibe Seller 在写方案时重启了，方案没写完。点「重新生成方案」再写一次。",
+        "stopped": "写方案被停止了。需要的话，点「重新生成方案」再写一次。",
+        "no_plan": "AI 这次没有写出方案。点「重新生成方案」再试一次。",
+        "start_failed": "没能开始写方案。点「重新生成方案」再试一次；还不行的话，到「设置 → AI」检查模型和 API 密钥。",
+        "other": "写方案时出错了。点「重新生成方案」再试一次。",
+        "detail": "详细信息："
       }
     },
     "nextRun": "下次执行",
@@ -922,7 +944,12 @@
     "fanoutSerialDescription": "前一个店铺跑完才开始下一个，各店铺不会同时占用浏览器。适合每个店铺都要登录同一个平台后台的任务。",
     "modeLocked": "模式与店铺绑定在创建时固定，无法修改。",
     "defaultMode": "默认模式",
-    "defaultModeHelp": "新建「全部店铺」类定时任务时默认选中的模式。"
+    "defaultModeHelp": "新建「全部店铺」类定时任务时默认选中的模式。",
+    "reviewPlan": {
+      "label": "运行前先让我审核方案",
+      "hint": "关闭：到点直接按你的说明运行。开启：AI 先写好方案，等你同意后才会运行。",
+      "turnOnNote": "保存后会暂停运行，直到你同意一个方案。"
+    }
   },
   "waiting": {
     "reason": "等待原因",
@@ -1162,5 +1189,29 @@
     "upgradeNotes": "升级须知",
     "expandRest": "展开其余 {{count}} 条",
     "viewFullChangelog": "在 GitHub 查看完整更新日志"
+  },
+  "planApprovalBanner": {
+    "message_one": "{{count}} 个定时任务的方案待你审批",
+    "message_other": "{{count}} 个定时任务的方案待你审批",
+    "action": "去审批",
+    "question_one": "{{count}} 个定时任务的 AI 有问题要问你",
+    "question_other": "{{count}} 个定时任务的 AI 有问题要问你",
+    "answer": "去回答"
+  },
+  "aiSetup": {
+    "prompt": {
+      "title": "先设置 AI，再创建任务",
+      "body": "任务是由 AI 来完成的。这台电脑上还没有可用的 AI，现在创建的任务会无法运行。",
+      "time": "设置一次只要几分钟：到 AI 服务商那里申请一把 API Key，粘贴到 Vibe Seller 里就行。",
+      "gotIt": "知道了",
+      "docs": "查看设置教程",
+      "goToSettings": "去设置 AI"
+    },
+    "guide": {
+      "title": "点这里，添加一个 AI 模型",
+      "body": "在「服务商」里选一家（第一次用推荐 DeepSeek），把它的 API Key 粘贴进来，点「创建」就行。",
+      "docs": "还没有 API Key？看怎么申请",
+      "gotIt": "知道了"
+    }
   }
 }

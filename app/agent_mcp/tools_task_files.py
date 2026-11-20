@@ -13,6 +13,7 @@ contract they follow is documented there. Three tools:
 """
 
 import asyncio
+import mimetypes
 import os
 from urllib.parse import quote
 
@@ -216,7 +217,13 @@ async def task_files(ctx: McpContext, args: dict) -> dict:
             ctx,
             path=path,
             abs_path=response.path,
-            mime_type=response.media_type,
+            # The file's own type, not the served one: the route serves
+            # anything that is not an inline-safe type as octet-stream
+            # (app.uploads.serve_file), which would hide that a .xlsx
+            # is a spreadsheet.
+            mime_type=(
+                mimetypes.guess_type(path)[0] or 'application/octet-stream'
+            ),
             # Percent-encoded like the workspace branch: a filename
             # with '?' or '#' would otherwise truncate the URL at the
             # first delimiter. '/' stays a separator (quote's default

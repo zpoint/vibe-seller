@@ -16,6 +16,7 @@ from app.models.schedule import Schedule
 from app.models.schedule_constants import StalenessCheck
 from app.models.store import Store
 from app.models.task import Task
+from app.plan_states import plan_auto_accepted
 from app.routers.dida365_oauth import refresh_token_if_needed
 from app.store_metadata import sync_store_metadata
 from app.sync import jobs as sync_jobs
@@ -252,18 +253,13 @@ async def auto_run_task(task_id: str, store: Store | None):
             mode=bundle.mode,
             profile_id=task.ai_profile_id or DEFAULT_PROFILE_ID,
             no_store=not store,
-            auto_approve_plan=(
-                # Any schedule-owned task (plan-only authoring OR a
-                # scheduled fire) auto-approves at ExitPlanMode —
-                # the frozen-plan architecture handles review via
-                # the SchedulePlanPanel + Re-plan flow. Nothing
-                # reads the plan's wording here: the fanout
-                # no-sub-tasks rule is enforced on the action, at
-                # POST /api/tasks. Standalone tasks still
-                # honor task.plan_mode (user.plan_mode_default
-                # controls that path at task create time).
-                bool(task.schedule_id) or not task.plan_mode
-            ),
+            # One rule for every launch path: a planner only hands its
+            # plan to the schedule as a proposal, non-plan-mode tasks
+            # have nothing to review, and everything else waits for a
+            # human (see plan_auto_accepted). Nothing reads the plan's
+            # wording here: the fanout no-sub-tasks rule is enforced on
+            # the action, at POST /api/tasks.
+            auto_approve_plan=plan_auto_accepted(task, schedule),
             store_slug=(_store_slug(store.name, store.id) if store else None),
             on_start=_on_start,
             resume=resume_existing_session,

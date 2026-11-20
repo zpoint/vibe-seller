@@ -567,12 +567,17 @@ class TaskQueueScheduler:
             # at PLANNED forever. Only auto-executing SCHEDULED tasks
             # (schedule_id set) qualify; an interactive plan-mode task
             # (schedule_id NULL) is waiting for the user to press Run and
-            # MUST stay PLANNED.
+            # MUST stay PLANNED. A plan-only PLANNER at PLANNED (the
+            # server died between saving its plan and handing it to
+            # the schedule) must NOT be re-queued either: the dispatcher
+            # would EXECUTE the plan it was only meant to write. The
+            # plan reaper turns it into the schedule's proposal.
             planned = await db.execute(
                 select(Task)
                 .where(
                     Task.status == TaskStatus.PLANNED,
                     Task.schedule_id.is_not(None),
+                    Task.is_plan_only.is_not(True),
                 )
                 .order_by(Task.created_at)
             )

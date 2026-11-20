@@ -95,6 +95,27 @@ def _record_plan_status(schedule: Schedule) -> None:
     ))
 
 
+def record_plan_status_change(
+    session, schedule_id: str, before: str | None, after: str
+) -> None:
+    """Record a ``plan_status`` change written by a Core UPDATE.
+
+    The plan-review compare-and-swaps (``app.schedule_plan_review``)
+    bypass the ORM, so ``after_update`` never sees them; they report
+    the transition here instead, on the same commit/rollback rule.
+    """
+    if before == after:
+        return
+    session.info.setdefault('schedule_actions', []).append((
+        'plan_status',
+        {
+            'schedule_id': schedule_id,
+            'from': str(before) if before is not None else None,
+            'to': str(after),
+        },
+    ))
+
+
 @event.listens_for(Schedule, 'after_update')
 def _schedule_updated(_mapper, _connection, schedule) -> None:
     if _watched_changed(schedule):
