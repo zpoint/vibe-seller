@@ -15,6 +15,8 @@ killed only ``ziniao.exe``, capped requests at 10 s, launched once).
 
 import asyncio
 import threading
+import time
+from unittest import mock
 
 import pytest
 
@@ -115,7 +117,7 @@ async def test_two_dead_launches_fail_once_with_the_reason():
     with installed(host), pytest.raises(RuntimeError) as e:
         await ensure()
     assert len(host.launches) == 2
-    assert getattr(e.value, 'task_category', None) == 'ziniao_start_timeout'
+    assert getattr(e.value, 'reason', None) == 'startup_timeout'
     [failed] = _failed(host)
     assert failed['error_category'] == 'startup_timeout'
     assert failed['last_poll_error'] == 'refused'
@@ -166,7 +168,7 @@ async def test_unkillable_processes_fail_fast_without_launching():
     with installed(host), pytest.raises(RuntimeError) as e:
         await ensure()
     assert host.launches == []
-    assert e.value.task_category == 'ziniao_kill_failed'
+    assert getattr(e.value, 'reason', None) == 'kill_failed'
 
 
 async def test_a_foreign_program_on_the_port_fails_fast():
@@ -174,7 +176,7 @@ async def test_a_foreign_program_on_the_port_fails_fast():
     with installed(host), pytest.raises(RuntimeError) as e:
         await ensure()
     assert host.launches == []
-    assert e.value.task_category == 'ziniao_port_in_use'
+    assert getattr(e.value, 'reason', None) == 'port_in_use'
 
 
 async def test_after_a_timeout_automatic_callers_do_not_start_another_round():
@@ -206,7 +208,7 @@ async def test_wsl_kills_normal_mode_and_points_at_the_launcher():
         n for n, _ in NORMAL_MODE
     )
     assert 'ziniao_webdriver.bat' in str(e.value)
-    assert e.value.task_category == 'ziniao_not_running'
+    assert getattr(e.value, 'reason', None) == 'wsl_not_running'
 
 
 async def test_wsl_never_kills_a_listening_client_it_cannot_reach():
@@ -217,7 +219,7 @@ async def test_wsl_never_kills_a_listening_client_it_cannot_reach():
     with installed(host, wsl=True), pytest.raises(RuntimeError) as e:
         await ensure()
     assert host.killed == []
-    assert e.value.task_category == 'ziniao_wsl_unreachable'
+    assert getattr(e.value, 'reason', None) == 'wsl_unreachable'
 
 
 async def test_a_caller_past_its_wait_gets_starting_and_the_round_goes_on():
@@ -241,3 +243,108 @@ async def test_a_caller_past_its_wait_gets_starting_and_the_round_goes_on():
         host.block.set()
         await first
     assert len(host.launches) == 1
+
+
+# ── The machine-wide lock: one restart at a time, never stuck ───────────
+
+
+def _startup():
+    from app.browser import ziniao_startup  # noqa: PLC0415
+
+    return ziniao_startup
+
+
+async def _until_waiting(state_get) -> None:
+    for _ in range(200):
+        await asyncio.sleep(0)
+        st = state_get()
+        if st is not None and st.current is not None:
+            return
+
+
+async def test_another_process_bringing_ziniao_up_is_waited_for_not_killed():
+    """Another server (or the old process of a restart) holds the startup
+    lock and brings Ziniao up: our round waits, looks again, and does not
+    kill the client it just launched."""
+    from app.browser.machine_lock import MachineLock  # noqa: PLC0415
+
+    host = FakeZiniaoHost(api='down', procs=NORMAL_MODE)
+    with installed(host):
+        zs = _startup()
+        other = MachineLock('ziniao-startup', zs._LOCK_DIR)
+        await other.acquire(timeout=1)
+        ours = asyncio.ensure_future(ensure())
+        await _until_waiting(lambda: zs._state)
+        # Real time for our round to reach the lock and start waiting.
+        await asyncio.get_running_loop().run_in_executor(None, time.sleep, 0.6)
+        assert not ours.done()
+        host.api = 'webdriver'  # the other process's launch came up
+        other.release()
+        await asyncio.wait_for(ours, 10)
+    assert host.killed == [] and host.launches == []
+
+
+async def test_a_lock_held_for_the_whole_wait_fails_and_kills_nothing():
+    from app.browser.machine_lock import MachineLock  # noqa: PLC0415
+
+    host = FakeZiniaoHost(api='down', procs=NORMAL_MODE)
+    with installed(host):
+        zs = _startup()
+        other = MachineLock('ziniao-startup', zs._LOCK_DIR)
+        await other.acquire(timeout=1)
+        try:
+            with (
+                mock.patch.object(zs, 'ROUND_CAP_S', 0.5),
+                pytest.raises(RuntimeError) as e,
+            ):
+                await ensure()
+        finally:
+            other.release()
+    assert getattr(e.value, 'reason', None) == 'other_process_starting'
+    assert host.killed == [] and host.launches == []
+
+
+async def test_a_stuck_round_is_stopped_frees_the_lock_and_the_next_start_works():
+    """'不能无限锁住': a round that hangs (here: a launch that never
+    returns) hits the hard cap, gives the lock back, and the next caller
+    starts Ziniao normally."""
+    from app.browser.machine_lock import MachineLock  # noqa: PLC0415
+
+    host = FakeZiniaoHost(api='down', procs=NORMAL_MODE)
+    host.block = threading.Event()
+    with installed(host):
+        zs = _startup()
+        try:
+            with (
+                mock.patch.object(zs, 'ROUND_CAP_S', 0.5),
+                pytest.raises(RuntimeError) as e,
+            ):
+                await ensure()
+            assert getattr(e.value, 'reason', None) == 'round_stuck'
+            probe = MachineLock('ziniao-startup', zs._LOCK_DIR)
+            await probe.acquire(timeout=1)  # free, not held for ever
+            probe.release()
+        finally:
+            host.block.set()
+        await ensure()
+    assert host.api == 'webdriver'
+
+
+async def test_a_client_brought_up_just_before_our_round_is_not_killed():
+    """The race the lock alone leaves open: another process finished its
+    launch and let go just before our round took the lock. We still look
+    first — the probe that sent us here is out of date."""
+    host = FakeZiniaoHost(api='down', procs=NORMAL_MODE)
+    with installed(host):
+        zs = _startup()
+        real_acquire = zs.MachineLock.acquire
+
+        async def acquire_after_other_finished(self, timeout):
+            host.api = 'webdriver'  # came up while we were on our way
+            return await real_acquire(self, timeout)
+
+        with mock.patch.object(
+            zs.MachineLock, 'acquire', acquire_after_other_finished
+        ):
+            await ensure()
+    assert host.killed == [] and host.launches == []

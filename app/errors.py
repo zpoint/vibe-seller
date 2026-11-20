@@ -44,15 +44,6 @@ FALLBACK_PATTERNS = [
 ]
 
 
-def ziniao_error_category(exc: BaseException) -> str | None:
-    """The ``task.error_category`` a Ziniao start failure carries.
-
-    Read from the exception (``ZiniaoStartError.task_category`` and
-    friends), never parsed out of its message.
-    """
-    return getattr(exc, 'task_category', None)
-
-
 def categorize_error_text(text: str) -> str | None:
     """Categorize error from raw text using fallback regex patterns.
 

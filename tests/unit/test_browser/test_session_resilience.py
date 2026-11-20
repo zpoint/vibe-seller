@@ -433,7 +433,7 @@ class TestZiniaoClientBeforeTheLock:
         with installed(host), pytest.raises(RuntimeError) as e:
             await mgr.ensure_ziniao_ready(store, self._db())
         assert 'other-store' in str(e.value)
-        assert e.value.task_category == 'ziniao_account_conflict'
+        assert type(e.value).__name__ == 'ZiniaoAccountConflictError'
         assert host.killed == [] and host.launches == []
 
     @pytest.mark.asyncio

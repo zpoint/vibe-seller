@@ -225,17 +225,18 @@ wrapper's own 90 s curl gives up before the server has said anything at all.
 ## Client startup: always relaunch, kill-all, 120 s deadline (2026-11-20)
 
 **Before:** whether a Ziniao that was not answering got fixed depended on
-who asked. The task pre-check relaunched it (under the global launch
-lock), `POST /browser/start` only with `?force=1`, store setup showed a
-"close Ziniao, Refresh, then Force Restart" panel, and auto-mode tasks
-had no pre-check at all — their agent met the cold client through the
-wrapper's 90 s curl. A launch was one try of 30 × (2 s + ≤10 s request);
+who asked. The execute/wake pre-check relaunched it (under the global
+launch lock) before the agent ran — whether or not the task would ever
+open the browser — `POST /browser/start` only with `?force=1`, and store
+setup showed a "close Ziniao, Refresh, then Force Restart" panel. A launch was one try of 30 × (2 s + ≤10 s request);
 on Windows 72 % of our launches timed out.
 
-**Now there is one behaviour** (`app/browser/ziniao_startup.py`), for
-every caller: every Ziniao-store task before its agent runs
-(`app/task_ziniao_precheck.py` — auto, plan, execute, wake), browser
-start, store setup, MCP. No flag, no prompt.
+**Now there is one behaviour** (`app/browser/ziniao_startup.py`), and it
+runs **only when Ziniao is actually used**: a task's first use of the
+store's browser (the store wrapper's `POST /browser/start`), store setup's
+store list, MCP `browser(start_store)` / `manage_ziniao_account(browsers)`.
+A task that never opens the browser never touches Ziniao — a Ziniao the
+user opened by hand stays open. No flag, no prompt.
 
 1. **Probe** `getBrowserList` (connect ≤5 s, read ≤10 s). Any JSON
    answer — even `-10003` — is WebDriver mode: done. Unchanged fast path.
@@ -244,8 +245,21 @@ start, store setup, MCP. No flag, no prompt.
    launch in progress** → leave it alone: its kernels still serve CDP,
    and killing it would recreate the outage above. On WSL a timeout
    never kills either.
-3. Otherwise a **round** — one per server at a time; concurrent callers
-   join it (a second kill-all would kill the first round's launch):
+3. Otherwise a **round**. Only one runs at a time, and nothing can stay
+   locked for ever:
+   - within a server, concurrent callers **join** the round in flight (a
+     second kill-all would kill the first round's launch);
+   - across processes — two servers of the same user, or the old and the
+     new process of a restart — a machine-wide **OS lock**
+     (`app/browser/machine_lock.py`: `flock` / `msvcrt.locking` on
+     `~/.vibe-seller-ziniao-startup.lock`) lets one round run at a time.
+     The OS drops it when its process exits (crash, `kill -9`, restart),
+     so a lock file left on disk never blocks anyone. Having taken it, a
+     round **looks again** before killing: another process may have just
+     brought Ziniao up;
+   - a round has a hard cap (`ROUND_CAP_S`, 360 s) — whatever hangs
+     inside, it ends (`round_stuck`) and gives the lock back, and the next
+     caller starts afresh;
    - stop **every** Ziniao process (`app/browser/ziniao_processes.py`) —
      Ziniao's own WebDriver doc (`ziniao-open/skill-hub`,
      `ziniao-webdriver-doc`, trap 3): before each launch and before a
@@ -272,8 +286,8 @@ start, store setup, MCP. No flag, no prompt.
      `VIBE_ZINIAO_START_COOLDOWN_S` (180 s) so a fan-out or a retrying
      agent cannot kill-and-relaunch in a loop. Store setup (a click) is
      not held back.
-4. **Who waits how long.** The task pre-check waits for the outcome.
-   `POST /browser/start` runs it **before** the global launch lock (a
+4. **Who waits how long.** `POST /browser/start` runs it **before** the
+   global launch lock (a
    round can take ~4 min and must not starve other stores), and its
    Ziniao wait plus its lock wait share one `VIBE_BROWSER_LOCK_WAIT_S`
    budget, so it answers before the wrapper's 90 s curl: 503 "Ziniao is
@@ -290,8 +304,8 @@ start, store setup, MCP. No flag, no prompt.
    Ziniao process too and waits 120 s); a listener WSL cannot reach is a
    networking error, nothing is killed.
 
-Errors carry their category as data (`ZiniaoStartError.task_category` →
-`task.error_category`), never parsed from text.
+Errors carry their cause as data (`ZiniaoStartError.reason`), never
+parsed from text.
 
 ## Tests
 

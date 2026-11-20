@@ -25,6 +25,8 @@ import asyncio
 import contextlib
 import importlib
 import json
+from pathlib import Path
+import tempfile
 import threading
 from unittest import mock
 
@@ -284,6 +286,11 @@ def installed(host: FakeZiniaoHost, *, wsl: bool = False):
             mock.patch.object(startup, 'is_wsl', lambda: wsl),
             mock.patch.object(startup, 'ziniao_host', lambda: '127.0.0.1'),
             mock.patch.object(startup, '_state', None),
+            # A private machine lock per test: parallel test workers must
+            # not contend on (or leave) the user's real one.
+            mock.patch.object(
+                startup, '_LOCK_DIR', Path(tempfile.mkdtemp(prefix='zlock-'))
+            ),
         ]
     procs_mod = _maybe('app.browser.ziniao_processes')
     if procs_mod is not None:

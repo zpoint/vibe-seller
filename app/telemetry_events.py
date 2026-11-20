@@ -164,6 +164,12 @@ class BrowserFailureReason:
     KILL_FAILED = 'kill_failed'
     # A non-Ziniao program holds the control port after kill-all.
     PORT_IN_USE = 'port_in_use'
+    # Another process on the machine held the Ziniao startup lock for the
+    # whole wait (another server starting Ziniao).
+    OTHER_PROCESS_STARTING = 'other_process_starting'
+    # A startup round hit its hard cap and was stopped (never left
+    # holding the lock).
+    ROUND_STUCK = 'round_stuck'
     STARTUP_TIMEOUT = 'startup_timeout'
 
 

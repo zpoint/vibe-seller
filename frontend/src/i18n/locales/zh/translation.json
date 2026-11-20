@@ -244,13 +244,7 @@
     "tryAgain": "重试",
     "actionFailed": "操作未完成：{{error}}",
     "actionTimeout": "服务器未及时响应，操作可能没有生效。请刷新查看任务的当前状态。",
-    "loadingConversation": "正在加载对话…",
-    "error_ziniao_start_timeout": "紫鸟没能打开：自动打开了两次，每次等了 2 分钟都没有响应。请先自己打开紫鸟，确认能正常登录，然后重试。",
-    "error_ziniao_launch_failed": "打不开紫鸟。请确认已经安装紫鸟，然后重试。",
-    "error_ziniao_kill_failed": "紫鸟开着但关不掉（可能是以管理员身份运行的）。请手动关闭紫鸟，然后重试。",
-    "error_ziniao_port_in_use": "紫鸟的端口被别的程序占用了。请关闭那个程序，或在紫鸟账号里换一个端口，然后重试。",
-    "error_ziniao_wsl_unreachable": "紫鸟在 Windows 上已经打开，但 WSL 连不上它。请开启 WSL 镜像网络（见 Windows 部署指南），然后重试。",
-    "error_ziniao_account_conflict": "这台电脑上正在使用另一个紫鸟账号。请先停止那个账号的店铺，然后重试。"
+    "loadingConversation": "正在加载对话…"
   },
   "events": {
     "title": "事件",

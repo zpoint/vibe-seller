@@ -1,5 +1,6 @@
 """Tests for stores router."""
 
+import asyncio
 import inspect
 import json
 from unittest import mock
@@ -331,7 +332,6 @@ class TestBrowserStart:
             side_effect=ZiniaoStartError(
                 'Ziniao did not start: opened 2 times',
                 'startup_timeout',
-                'ziniao_start_timeout',
             ),
         ):
             response = await authenticated_client.post(
@@ -339,3 +339,51 @@ class TestBrowserStart:
             )
         assert response.status_code == 500
         assert 'opened 2 times' in response.json()['detail']
+
+    @pytest.mark.asyncio
+    async def test_simultaneous_starts_share_one_kill_and_one_launch(
+        self,
+        authenticated_client: AsyncClient,
+        async_db_session: AsyncSession,
+    ):
+        """Three Ziniao stores' tasks reach the browser at the same moment
+        while Ziniao sits in normal mode: ONE kill-all and ONE launch, and
+        every start succeeds. A second kill-all would kill the first one's
+        freshly launched client."""
+        first = await self._make_ziniao_store(async_db_session)
+        account_id = first.ziniao_account_id
+        stores = [first]
+        for name in ('Z Store 2', 'Z Store 3'):
+            store = Store(
+                id=str(uuid.uuid4()),
+                name=name,
+                browser_backend='ziniao',
+                browser_config='{}',
+                ziniao_account_id=account_id,
+                platforms='["amazon"]',
+                countries='["US"]',
+            )
+            async_db_session.add(store)
+            stores.append(store)
+        await async_db_session.commit()
+        host = FakeZiniaoHost(api='down', procs=NORMAL_MODE)
+        with (
+            installed(host),
+            mock.patch(
+                'app.browser.manager.BrowserManager._start_session_locked',
+                new=mock.AsyncMock(return_value=None),
+            ),
+        ):
+            responses = await asyncio.gather(
+                *(
+                    authenticated_client.post(
+                        f'/api/stores/{s.id}/browser/start'
+                    )
+                    for s in stores
+                )
+            )
+        assert [r.status_code for r in responses] == [200, 200, 200]
+        assert len(host.launches) == 1
+        assert sorted(n for n, _ in host.killed) == sorted(
+            n for n, _ in NORMAL_MODE
+        )

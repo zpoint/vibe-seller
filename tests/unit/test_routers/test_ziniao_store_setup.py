@@ -100,7 +100,6 @@ async def test_a_real_start_failure_says_why(
         side_effect=ZiniaoStartError(
             'Ziniao did not start: opened 2 times',
             'startup_timeout',
-            'ziniao_start_timeout',
         ),
     ):
         r = await authenticated_client.get(

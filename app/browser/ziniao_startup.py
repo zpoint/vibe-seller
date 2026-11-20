@@ -31,6 +31,7 @@ import asyncio
 from dataclasses import dataclass
 import json
 import logging
+from pathlib import Path
 import time
 import uuid
 
@@ -39,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
 from app.browser.launch_guards import BrowserBusyError
+from app.browser.machine_lock import MachineLock, MachineLockTimeout
 from app.browser.ziniao_processes import (
     KillReport,
     describe,
@@ -66,6 +68,12 @@ _clock = time.monotonic
 # Per launch attempt. Ziniao's doc asks for >=120 s per request.
 STARTUP_DEADLINE_S = 120.0
 LAUNCH_ATTEMPTS = 2
+# Hard cap on one round (kills, launches, both deadlines) and on waiting
+# for another process's round. Every step inside is bounded already; this
+# is the backstop that guarantees the lock is always given back.
+ROUND_CAP_S = LAUNCH_ATTEMPTS * STARTUP_DEADLINE_S + 120.0
+# Where the machine-wide startup lock lives (None: the user's home).
+_LOCK_DIR: Path | None = None
 _POLL_GAP_S = 2.0
 _CONNECT_S = 5.0
 _CONNECT_S_WSL = 3.0
@@ -84,21 +92,17 @@ WSL_LAUNCH_HINT = (
 class ZiniaoStartError(RuntimeError):
     """Ziniao could not be brought up. Carries why, as data.
 
-    ``reason`` is the ``BrowserFailureReason``; ``task_category`` is the
-    ``task.error_category`` the UI translates — callers read these
-    instead of parsing the message.
+    ``reason`` is the ``BrowserFailureReason`` — callers (store setup's
+    status, telemetry) read it instead of parsing the message.
     """
 
-    def __init__(self, message: str, reason: str, task_category: str):
+    def __init__(self, message: str, reason: str):
         super().__init__(message)
         self.reason = reason
-        self.task_category = task_category
 
 
 class ZiniaoAccountConflictError(RuntimeError):
     """Another Ziniao account owns the (one per machine) client."""
-
-    task_category = 'ziniao_account_conflict'
 
 
 class ZiniaoStartingError(BrowserBusyError):
@@ -272,9 +276,7 @@ class _Round:
         self.killed = 0
         self.prior = ZiniaoPriorState.NOT_RUNNING
 
-    def _fail(
-        self, message: str, reason: str, category: str, **props
-    ) -> ZiniaoStartError:
+    def _fail(self, message: str, reason: str, **props) -> ZiniaoStartError:
         _send(
             TelemetryEvent.BROWSER_SESSION_FAILED,
             {
@@ -286,7 +288,7 @@ class _Round:
                 **props,
             },
         )
-        return ZiniaoStartError(message, reason, category)
+        return ZiniaoStartError(message, reason)
 
     async def _kill_all(self, wsl: bool) -> KillReport:
         report = await asyncio.to_thread(kill_all_ziniao, wsl, self.client_path)
@@ -303,7 +305,6 @@ class _Round:
                 'with admin rights. Close Ziniao completely by hand, then '
                 'retry.',
                 BrowserFailureReason.KILL_FAILED,
-                'ziniao_kill_failed',
                 launch_attempts=0,
             )
         if not wsl:
@@ -315,7 +316,6 @@ class _Round:
                     'Close that program or change the port of this '
                     'Ziniao account, then retry.',
                     BrowserFailureReason.PORT_IN_USE,
-                    'ziniao_port_in_use',
                     launch_attempts=0,
                 )
         return report
@@ -335,7 +335,6 @@ class _Round:
                 f'Ziniao is not answering on port {self.port}. '
                 + WSL_LAUNCH_HINT,
                 BrowserFailureReason.WSL_NOT_RUNNING,
-                'ziniao_not_running',
                 launch_attempts=0,
             ) from e
         if listening:
@@ -344,7 +343,6 @@ class _Round:
                 'but WSL cannot reach it. Turn on WSL mirrored networking '
                 '(see the Windows setup guide), then retry.',
                 BrowserFailureReason.WSL_UNREACHABLE,
-                'ziniao_wsl_unreachable',
                 launch_attempts=0,
             )
         report = await self._kill_all(wsl=True)
@@ -357,9 +355,57 @@ class _Round:
         raise self._fail(
             closed + WSL_LAUNCH_HINT,
             BrowserFailureReason.WSL_NOT_RUNNING,
-            'ziniao_not_running',
             launch_attempts=0,
         )
+
+    async def guarded(self) -> None:
+        """``run`` under the machine-wide lock, with a hard cap.
+
+        The in-process single-flight covers one server; the OS lock covers
+        every process of this user — two servers, or the old and the new
+        process of a restart — so no two rounds ever kill and launch at
+        once. The OS frees it when a holder dies, and the cap guarantees a
+        live holder gives it back: nothing can stay locked for ever.
+        """
+        lock = MachineLock('ziniao-startup', _LOCK_DIR)
+        try:
+            waited = await lock.acquire(timeout=ROUND_CAP_S)
+        except MachineLockTimeout as e:
+            raise self._fail(
+                f'Another Vibe Seller process on this computer (pid '
+                f'{e.holder}) has been starting Ziniao for {e.waited:.0f}s. '
+                'Retry in a minute.',
+                BrowserFailureReason.OTHER_PROCESS_STARTING,
+                launch_attempts=0,
+            ) from None
+        try:
+            if waited or self.first_failure != ZiniaoPollFailure.READ_TIMEOUT:
+                # Look again now that we hold the lock: another process
+                # may have just finished a round of its own (we waited
+                # for it, or it released the lock just before we came
+                # for it) — killing now would kill the client it just
+                # launched. A client already found hung is not re-probed.
+                p = await _probe(
+                    self.port, self.user_info, _CONNECT_S, _PROBE_READ_S
+                )
+                if p.result is not None:
+                    logger.info(
+                        'Ziniao answers now (another process brought it '
+                        'up); not restarting it'
+                    )
+                    return
+            try:
+                await asyncio.wait_for(self.run(), ROUND_CAP_S)
+            except TimeoutError:
+                raise self._fail(
+                    f'Starting Ziniao took longer than {ROUND_CAP_S:.0f}s '
+                    'and was stopped. Retry; if it keeps happening, close '
+                    'Ziniao completely by hand first.',
+                    BrowserFailureReason.ROUND_STUCK,
+                    launch_attempts=LAUNCH_ATTEMPTS,
+                ) from None
+        finally:
+            await asyncio.to_thread(lock.release)
 
     async def run(self) -> None:
         if is_wsl():
@@ -387,7 +433,6 @@ class _Round:
                 raise self._fail(
                     f'Could not open Ziniao: {e}',
                     BrowserFailureReason.LAUNCH_FAILED,
-                    'ziniao_launch_failed',
                     launch_attempts=attempt,
                 ) from e
             ready, polls, last = await _wait_ready(
@@ -430,7 +475,6 @@ class _Round:
             f'({elapsed}s in all; last check: {last}). Check that Ziniao '
             'opens and signs in when you start it by hand, then retry.',
             BrowserFailureReason.STARTUP_TIMEOUT,
-            'ziniao_start_timeout',
             launch_attempts=LAUNCH_ATTEMPTS,
             last_poll_error=last,
         )
@@ -576,13 +620,12 @@ async def ensure_ziniao_running(
                     f'ago; the next automatic try is after '
                     f'{cooldown - ago:.0f}s.)',
                     err.reason,
-                    err.task_category,
                 )
         await _refuse_if_other_account(state, user_info, connect_s)
         if state.current is not rnd:
             continue  # someone started a round while we checked
         rnd = _Round(socket_port, client_path, user_info, p.failure)
-        rnd.task = asyncio.create_task(rnd.run())
+        rnd.task = asyncio.create_task(rnd.guarded())
         rnd.task.add_done_callback(
             lambda t, s=state, r=rnd: _round_done(s, r, t)
         )

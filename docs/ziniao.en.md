@@ -19,7 +19,7 @@ Ziniao runs in exactly one mode at a time:
 
 The two modes share one Ziniao process, so they can't run side by side. Switching requires restarting Ziniao:
 
-- **macOS / native Windows**: Vibe Seller handles the swap itself. Before every task on a Ziniao store, and when store setup loads the store list, if Ziniao isn't answering in developer mode (closed, opened by hand in normal mode, or leftovers from a crash) it closes every Ziniao process and relaunches it with `--run_type=web_driver` — no questions asked. So a Ziniao window you opened yourself gets closed and reopened. It waits up to 2 minutes for Ziniao to answer, and if it doesn't, closes it and tries once more.
+- **macOS / native Windows**: Vibe Seller handles the swap itself. When a task first uses a Ziniao store's browser, and when store setup loads the store list, if Ziniao isn't answering in developer mode (closed, opened by hand in normal mode, or leftovers from a crash) it closes every Ziniao process and relaunches it with `--run_type=web_driver` — no questions asked. So a Ziniao window you opened yourself gets closed and reopened — but only then: a task that never opens the browser leaves it alone. It waits up to 2 minutes for Ziniao to answer, and if it doesn't, closes it and tries once more.
 - **Windows (WSL)**: WSL can't restart a Windows-side app across the VM boundary, so the Windows side runs a one-line `.bat` launcher that does the kill + relaunch (double-click it once). The steps are in [Windows (WSL): getting Ziniao into developer mode](#windows-wsl-getting-ziniao-into-developer-mode-ziniao_webdriverbat) below.
 
 The BOSS (admin) account has to do two one-time things before a sub-account can bind a store:

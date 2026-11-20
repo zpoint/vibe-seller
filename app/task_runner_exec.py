@@ -38,7 +38,6 @@ from app.task_states import (
     assert_transition,
     can_transition,
 )
-from app.task_ziniao_precheck import ensure_ziniao_before_run
 from app.telemetry_tasks import send_task_resumed
 from app.workspace.manager import workspace_manager
 
@@ -167,10 +166,6 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 # without one.
                 if task.plan is None and task.plan_mode:
                     return
-
-            # Ziniao up (killed + relaunched if needed) before the agent.
-            if not await ensure_ziniao_before_run(task_id, store):
-                return
 
             bundle = await build_system_extra(
                 task,
@@ -399,10 +394,6 @@ async def execute_woken_task(task_id: str, store: Store | None):
     """Resume a woken waiting task with trigger context."""
     reset_ledger(task_id)  # new turn — see reset_ledger
     try:
-        # Ziniao up (killed + relaunched if needed) before the agent;
-        # outside the session below so no connection waits on it.
-        if not await ensure_ziniao_before_run(task_id, store):
-            return
         async with async_session() as db:
             task = await db.get(Task, task_id)
             if not task:
