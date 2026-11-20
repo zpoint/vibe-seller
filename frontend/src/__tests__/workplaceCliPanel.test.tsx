@@ -12,6 +12,8 @@ import { I18nextProvider, initReactI18next } from 'react-i18next'
 import i18n from 'i18next'
 import enTranslation from '../i18n/locales/en/translation.json'
 
+const cli = enTranslation.integrations.cli
+
 const mockApi = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -104,7 +106,7 @@ describe('WorkplaceCliPanel', () => {
     expect(screen.queryByTestId('cli-update-feishu')).toBeNull()
     expect(screen.queryByTestId('cli-update-wecom')).toBeNull()
     expect(screen.getByTestId('cli-card').textContent).toContain(
-      'update themselves',
+      'update to the official latest version every day',
     )
   })
 
@@ -239,12 +241,14 @@ describe('WorkplaceCliPanel outcomes', () => {
     finished({
       key: 'dingtalk', state: 'failed',
       message: 'device authorization failed: 您暂无 CLI 数据访问权限，请联系管理员开启',
-      notice: 'dingtalk_cli_access', notice_detail: 'Admin A、Admin B',
-      help_url: 'https://open-dev.dingtalk.com/fe/old#/developerSettings',
+      notices: [{
+        key: 'dingtalk_cli_access', detail: 'Admin A、Admin B',
+        url: 'https://open-dev.dingtalk.com/fe/old#/developerSettings',
+      }],
     })
     renderPanel(true)
     const outcome = await screen.findByTestId('cli-outcome-dingtalk', {}, { timeout: 3000 })
-    expect(outcome.textContent).toContain('CLI Access Management')
+    expect(outcome.textContent).toContain('CLI 访问管理')  // DingTalk's own menu name
     expect(outcome.textContent).toContain('Admin A、Admin B')
     expect(screen.getByTestId('cli-help-dingtalk').getAttribute('href'))
       .toBe('https://open-dev.dingtalk.com/fe/old#/developerSettings')
@@ -257,7 +261,7 @@ describe('WorkplaceCliPanel outcomes', () => {
   it('Feishu signed in with withheld scopes: a warning, not a failure', async () => {
     finished({
       key: 'feishu', state: 'succeeded',
-      notice: 'feishu_missing_scopes', notice_detail: 'vc:meeting.realtime:read',
+      notices: [{ key: 'feishu_missing_scopes', detail: 'vc:meeting.realtime:read', url: null }],
     })
     renderPanel(true)
     const outcome = await screen.findByTestId('cli-outcome-feishu', {}, { timeout: 3000 })
@@ -266,11 +270,116 @@ describe('WorkplaceCliPanel outcomes', () => {
     expect(outcome.textContent).not.toContain(enTranslation.integrations.cli.loginFailed)
   })
 
+  it('Feishu: withheld scopes AND a sign-in that cannot renew, both shown', async () => {
+    finished({
+      key: 'feishu', state: 'succeeded',
+      notices: [
+        { key: 'feishu_missing_scopes', detail: 'vc:meeting.realtime:read', url: null },
+        {
+          key: 'feishu_no_refresh_token', detail: '2026-11-20T14:05:00+08:00',
+          url: 'https://open.feishu.cn/app/cli_x/safe',
+        },
+      ],
+    })
+    renderPanel(true)
+    const outcome = await screen.findByTestId('cli-outcome-feishu', {}, { timeout: 3000 })
+    expect(outcome.className).toContain('text-amber-700')  // signed in: a warning
+    expect(outcome.textContent).toContain('vc:meeting.realtime:read')
+    const expiry = screen.getByTestId('cli-notice-feishu-feishu_no_refresh_token')
+    // The moment, in the reader's own time zone — not the raw ISO text.
+    expect(expiry.textContent).toContain(
+      new Date('2026-11-20T14:05:00+08:00').toLocaleString('en'),
+    )
+    expect(expiry.textContent).not.toContain('2026-11-20T14:05')
+    const link = screen.getByTestId('cli-help-feishu')
+    expect(link.getAttribute('href')).toBe('https://open.feishu.cn/app/cli_x/safe')
+    expect(link.textContent).toBe(cli.helpLink.feishu_no_refresh_token)
+  })
+
   it('a failure with no notice shows one readable line', async () => {
     finished({ key: 'wecom', state: 'failed', message: 'QrTimeout: scan timed out' })
     renderPanel(true)
     const outcome = await screen.findByTestId('cli-outcome-wecom', {}, { timeout: 3000 })
-    expect(outcome.textContent).toContain(enTranslation.integrations.cli.loginFailed)
+    expect(outcome.textContent).toContain(
+      enTranslation.integrations.cli.loginFailed.replace('{{button}}', cli.connect),
+    )
     expect(outcome.textContent).toContain('QrTimeout: scan timed out')
+  })
+
+  it('a sign-in that timed out says so, and which button starts over', async () => {
+    finished({
+      key: 'feishu', state: 'failed', error: 'timeout',
+      message: 'timed out waiting for the approval',
+    })
+    renderPanel(true)
+    const outcome = await screen.findByTestId('cli-outcome-feishu', {}, { timeout: 3000 })
+    expect(outcome.textContent).toContain(
+      cli.loginError.timeout.replace('{{button}}', cli.connect),
+    )
+    // The technical line is kept, folded under Details.
+    expect(outcome.querySelector('details')?.textContent).toContain('timed out waiting')
+  })
+
+  it('signed in but not enabled: red, and Connect retries the enabling', async () => {
+    finished({
+      key: 'feishu', state: 'succeeded', error: 'enable_failed',
+      message: 'signed in, but enabling failed: boom',
+    })
+    renderPanel(true)
+    const outcome = await screen.findByTestId('cli-outcome-feishu', {}, { timeout: 3000 })
+    expect(outcome.className).toContain('text-red-600')
+    expect(outcome.textContent).toContain(
+      cli.loginError.enable_failed.replace('{{button}}', cli.connect),
+    )
+  })
+
+  it('the DingTalk notice names the button that is on screen', async () => {
+    // Never signed in → the row shows Connect, not Sign in again.
+    finished({
+      key: 'dingtalk', state: 'failed',
+      notices: [{ key: 'dingtalk_cli_access', detail: 'Admin A', url: null }],
+    })
+    renderPanel(true)
+    const outcome = await screen.findByTestId('cli-outcome-dingtalk', {}, { timeout: 3000 })
+    expect(screen.getByTestId('cli-connect-dingtalk')).toBeTruthy()
+    expect(screen.queryByTestId('cli-relogin-dingtalk')).toBeNull()
+    expect(outcome.textContent).toContain(`click ${cli.connect}`)
+    expect(outcome.textContent).not.toContain(cli.relogin)
+  })
+})
+
+describe('WorkplaceCliPanel errors', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('a failed download says what to do next and keeps the detail folded', async () => {
+    mockApi.get.mockResolvedValue({ integrations: [card('wecom')] })
+    mockApi.post.mockRejectedValue(Object.assign(new Error('x'), {
+      detail: { code: 'download_failed', message: 'WeCom install: https://registry.npmjs.org/… timed out' },
+    }))
+    renderPanel(true)
+    fireEvent.click(await screen.findByTestId('cli-connect-wecom'))
+    const err = await screen.findByTestId('cli-error')
+    expect(err.textContent).toContain(cli.error.download_failed)
+    expect(err.querySelector('details')?.textContent).toContain('registry.npmjs.org')
+  })
+
+  it('an error the page has no sentence for still says what to do', async () => {
+    mockApi.get.mockResolvedValue({ integrations: [card('wecom')] })
+    mockApi.post.mockRejectedValue(new Error('Request failed with status 502'))
+    renderPanel(true)
+    fireEvent.click(await screen.findByTestId('cli-connect-wecom'))
+    const err = await screen.findByTestId('cli-error')
+    expect(err.textContent).toContain(cli.error.unexpected)
+    expect(err.textContent).toContain('status 502')
+  })
+
+  it('platform names come from the translations, not the server', async () => {
+    mockApi.get.mockResolvedValue({ integrations: [card('wecom')] })
+    renderPanel(false)
+    const row = await screen.findByTestId('cli-row-wecom')
+    expect(row.textContent).toContain(cli.platform.wecom)
+    expect(row.textContent).not.toContain('WECOM')
   })
 })

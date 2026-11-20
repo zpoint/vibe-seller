@@ -32,6 +32,10 @@ def _feed(parse, lines: list[str]) -> LoginView:
     return view
 
 
+def _notices(view: LoginView) -> dict:
+    return {n.key: (n.detail, n.url) for n in view.notices}
+
+
 def _feishu_lines(complete: dict) -> list[str]:
     return [
         json.dumps(
@@ -65,8 +69,9 @@ def test_feishu_signed_in_with_scopes_the_org_withheld():
     view = _feed(feishu_auth, _feishu_lines(complete))
     assert view.url.endswith('&user_code=ABCD-1234')
     assert view.user_code == 'ABCD-1234'
-    assert view.notice == 'feishu_missing_scopes'
-    assert view.notice_detail == 'vc:meeting.realtime:read'
+    assert _notices(view) == {
+        'feishu_missing_scopes': ('vc:meeting.realtime:read', None)
+    }
     assert view.message is None  # no raw JSON as the page's message
 
 
@@ -79,7 +84,7 @@ def test_feishu_missing_scopes_read_from_the_hint_when_no_list():
         },
     }
     view = _feed(feishu_auth, _feishu_lines(complete))
-    assert view.notice_detail == 'a:read b:write'
+    assert _notices(view) == {'feishu_missing_scopes': ('a:read b:write', None)}
 
 
 def test_feishu_clean_sign_in_has_no_notice():
@@ -87,7 +92,58 @@ def test_feishu_clean_sign_in_has_no_notice():
         feishu_auth,
         _feishu_lines({'event': 'authorization_complete', 'granted': []}),
     )
-    assert view.notice is None and view.message is None
+    assert view.notices == [] and view.message is None
+
+
+# lark-cli 1.0.100 cmd/auth/login_result.go: a login whose app has not
+# turned on "Refresh user_access_token" gets no refresh token.
+NO_REFRESH = {
+    'refresh_token_issued': False,
+    'expires_at': '2026-11-20T14:05:00+08:00',
+    'no_refresh_token': {
+        'message': 'this login received no refresh_token: ...',
+        'cause': 'the app has not enabled "Refresh user_access_token" ...',
+        'fix': '处理：在开发者后台的「安全设置」中开启「刷新 user_access_token」……',
+        'settings_url': 'https://open.feishu.cn/app/cli_x/safe',
+    },
+}
+
+
+def test_feishu_sign_in_that_cannot_renew_says_until_when():
+    view = _feed(
+        feishu_auth,
+        _feishu_lines({'event': 'authorization_complete', **NO_REFRESH}),
+    )
+    assert _notices(view) == {
+        'feishu_no_refresh_token': (
+            '2026-11-20T14:05:00+08:00',
+            'https://open.feishu.cn/app/cli_x/safe',
+        )
+    }
+
+
+def test_feishu_renewing_sign_in_has_no_expiry_notice():
+    complete = {
+        'event': 'authorization_complete',
+        'refresh_token_issued': True,
+        'expires_at': '2026-11-20T14:05:00+08:00',
+    }
+    view = _feed(feishu_auth, _feishu_lines(complete))
+    assert view.notices == []
+
+
+def test_feishu_withheld_scopes_and_no_renewal_are_both_shown():
+    complete = {
+        'event': 'authorization_complete',
+        'missing': ['vc:meeting.realtime:read'],
+        'warning': {'type': 'missing_scope', 'hint': 'restricted'},
+        **NO_REFRESH,
+    }
+    view = _feed(feishu_auth, _feishu_lines(complete))
+    assert set(_notices(view)) == {
+        'feishu_missing_scopes',
+        'feishu_no_refresh_token',
+    }
 
 
 DINGTALK_NO_ACCESS = [
@@ -123,11 +179,12 @@ def test_dingtalk_org_without_cli_access_names_admins_and_console():
     view = _feed(dingtalk, DINGTALK_NO_ACCESS)
     assert view.user_code == 'WXYZ-1234'
     assert view.url.endswith('user_code=WXYZ-1234')  # the filled-in link
-    assert view.notice == 'dingtalk_cli_access'
-    assert view.notice_detail == '张三、李四'
-    assert view.help_url == (
-        'https://open-dev.dingtalk.com/fe/old#/developerSettings'
-    )
+    assert _notices(view) == {
+        'dingtalk_cli_access': (
+            '张三、李四',
+            'https://open-dev.dingtalk.com/fe/old#/developerSettings',
+        )
+    }
     assert view.message == (
         'device authorization failed: 您暂无 CLI 数据访问权限，请联系管理员开启'
     )
@@ -135,8 +192,9 @@ def test_dingtalk_org_without_cli_access_names_admins_and_console():
 
 def test_dingtalk_org_level_denial_still_points_at_the_console():
     view = _feed(dingtalk, ['', '⚠️  该组织尚未开启CLI数据访问权限', ''])
-    assert view.notice == 'dingtalk_cli_access'
-    assert view.help_url == 'https://open-dev.dingtalk.com'
+    assert _notices(view) == {
+        'dingtalk_cli_access': (None, 'https://open-dev.dingtalk.com')
+    }
 
 
 def test_dingtalk_restarted_flow_replaces_code_and_link():

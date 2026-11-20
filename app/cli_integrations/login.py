@@ -148,7 +148,7 @@ class LoginSession:
             self.view.state = 'succeeded'
             self.view.url = self.view.user_code = self.view.hint = None
             self.view.qr = False
-            if rc != 0 and self.view.notice is None:
+            if rc != 0 and not self.view.notices:
                 # Signed in, but the CLI said something: keep it visible.
                 self.view.message = self.view.message or _summary(
                     self._tail, rc
@@ -167,7 +167,7 @@ class LoginSession:
 
     def _fail(self, rc: int) -> None:
         self.view.state = 'failed'
-        if self.view.message is None and self.view.notice is None:
+        if self.view.message is None and not self.view.notices:
             self.view.message = _summary(self._tail, rc)
 
     async def _run_step(self, step: LoginStep) -> int:
@@ -200,6 +200,7 @@ class LoginSession:
                 self._pump(proc, step), step.timeout_s
             )
         except TimeoutError:
+            self.view.error = 'timeout'
             self.view.message = 'timed out waiting for the approval'
             return 124
         finally:

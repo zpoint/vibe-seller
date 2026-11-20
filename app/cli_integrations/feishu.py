@@ -67,6 +67,7 @@ def _parse_device(line: str, view: LoginView) -> None:
                 view.user_code = event.get('user_code')
             elif kind == 'authorization_complete':
                 _missing_scopes(event, view)
+                _no_refresh_token(event, view)
             elif kind == 'authorization_failed':
                 view.message = event.get('message') or event.get('error')
             _error(stripped, view)
@@ -89,8 +90,24 @@ def _missing_scopes(event: dict, view: LoginView) -> None:
         hint = str(warning.get('hint', ''))
         # Scopes contain ':' themselves; the list follows ': '.
         missing = hint.rsplit(': ', 1)[-1].split() if ': ' in hint else []
-    view.notice = 'feishu_missing_scopes'
-    view.notice_detail = ' '.join(str(m).strip(',') for m in missing) or None
+    view.notice('feishu_missing_scopes').detail = (
+        ' '.join(str(m).strip(',') for m in missing) or None
+    )
+
+
+def _no_refresh_token(event: dict, view: LoginView) -> None:
+    """Signed in, but Feishu issued no refresh token: the app has not
+    turned on "Refresh user_access_token" in its security settings (or
+    not published a version since). The user identity then expires at
+    ``expires_at`` (about 2 h) and cannot renew — the page says when,
+    and links the setting (lark-cli's ``settings_url``)."""
+    if event.get('refresh_token_issued') is not False:
+        return
+    info = event.get('no_refresh_token')
+    info = info if isinstance(info, dict) else {}
+    notice = view.notice('feishu_no_refresh_token')
+    notice.detail = str(event.get('expires_at') or '') or None
+    notice.url = str(info.get('settings_url') or '') or None
 
 
 def _error(line: str, view: LoginView) -> None:

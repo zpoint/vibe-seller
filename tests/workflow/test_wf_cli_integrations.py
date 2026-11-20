@@ -116,7 +116,8 @@ async def test_connect_journey_device_code(admin_client, platforms, home):
     # to log in.
     r = await admin_client.post(f'{BASE}/fake-a/enable')
     assert r.status_code == 400
-    assert 'not signed in' in r.json()['detail']
+    assert r.json()['detail']['code'] == 'not_signed_in'
+    assert 'not signed in' in r.json()['detail']['message']
 
     r = await admin_client.post(
         f'{BASE}/fake-a/login', json={'enable_after': True}
@@ -276,7 +277,8 @@ async def test_tampered_download_is_never_installed(
     fake.bad_checksum = True
     r = await admin_client.post(f'{BASE}/fake-a/install')
     assert r.status_code == 502
-    assert 'sha256' in r.json()['detail']
+    assert r.json()['detail']['code'] == 'download_failed'
+    assert 'sha256' in r.json()['detail']['message']
     assert paths.read_manifest('fake-a', home) is None
     assert not paths.versions_dir('fake-a', home).exists()
     assert not paths.is_installed('fake-a', 'fakecli', home)
@@ -321,7 +323,9 @@ async def test_a_build_that_does_not_run_leaves_nothing_behind(
     await admin_client.post(f'{BASE}/fake-a/install')
     fake.publish_broken('2.0.0')
     r = await admin_client.post(f'{BASE}/fake-a/install')
-    assert r.status_code == 400 and 'exited 9' in r.json()['detail']
+    assert r.status_code == 400
+    assert r.json()['detail']['code'] == 'does_not_run'
+    assert 'exited 9' in r.json()['detail']['message']
     assert paths.read_manifest('fake-a', home)['version'] == '1.2.3'
     versions = paths.versions_dir('fake-a', home)
     assert sorted(p.name for p in versions.iterdir()) == ['1.2.3']

@@ -51,7 +51,16 @@ _locks: dict[str, asyncio.Lock] = {}
 
 
 class IntegrationError(RuntimeError):
-    """A precondition the page should show verbatim (HTTP 400)."""
+    """A refused or failed operation (HTTP 400).
+
+    *code* is what the page shows — its own sentence, saying what to
+    click next (``integrations.cli.error.<code>``); the message is the
+    technical detail, shown folded away.
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def _lock(key: str) -> asyncio.Lock:
@@ -194,11 +203,14 @@ def _proves_it_runs(exe: Path, integ: CliIntegration, home: Path) -> None:
             **_creationflags(),
         )
     except (OSError, subprocess.SubprocessError) as e:
-        raise IntegrationError(f'{integ.binary} does not run here: {e}') from e
+        raise IntegrationError(
+            'does_not_run', f'{integ.binary} does not run here: {e}'
+        ) from e
     if done.returncode != 0:
         raise IntegrationError(
+            'does_not_run',
             f'{integ.binary} --version exited {done.returncode}: '
-            f'{(done.stderr or done.stdout).strip()[:300]}'
+            f'{(done.stderr or done.stdout).strip()[:300]}',
         )
 
 
@@ -231,8 +243,9 @@ def _place(target: Path, exe: Path, body: bytes, sha: str) -> bool:
             shutil.rmtree(target)
         except OSError as e:
             raise IntegrationError(
+                'in_use',
                 f'{target.name} is in use by a running task; retry when it '
-                f'finishes ({e})'
+                f'finishes ({e})',
             ) from e
     target.mkdir(parents=True)
     try:
@@ -267,7 +280,7 @@ def _install_blocking(
     try:
         asset = integ.binary_asset(version, plat)
     except ValueError as e:
-        raise IntegrationError(str(e)) from e
+        raise IntegrationError('unsupported', str(e)) from e
     data, url = download.fetch(asset.urls, verify=asset.verify)
     body = download.archive_member(data, asset.member)
     sha = hashlib.sha256(body).hexdigest()
@@ -390,11 +403,14 @@ async def enable(integ: CliIntegration, home: Path | None = None) -> dict:
         if not await asyncio.to_thread(
             paths.is_installed, integ.key, integ.binary, h
         ):
-            raise IntegrationError(f'{integ.title} is not installed')
+            raise IntegrationError(
+                'not_installed', f'{integ.title} is not installed'
+            )
         auth = await auth_status(integ, h)
         if not auth.usable:
             raise IntegrationError(
-                f'{integ.title} is not signed in ({auth.reason})'
+                'not_signed_in',
+                f'{integ.title} is not signed in ({auth.reason})',
             )
         manifest = await asyncio.to_thread(paths.read_manifest, integ.key, h)
         version = (manifest or {}).get('version') or 'unknown'
@@ -429,7 +445,9 @@ async def start_login(
     h = _home(home)
     exe = await asyncio.to_thread(paths.binary_path, integ.key, integ.binary, h)
     if exe is None or not await asyncio.to_thread(exe.is_file):
-        raise IntegrationError(f'{integ.title} is not installed')
+        raise IntegrationError(
+            'not_installed', f'{integ.title} is not installed'
+        )
     auth = await auth_status(integ, h)
     steps = integ.login_steps(auth)
 
@@ -443,6 +461,7 @@ async def start_login(
             await enable(integ, h)
         except Exception as e:
             logger.exception('%s enable after login failed', integ.key)
+            session.view.error = 'enable_failed'
             session.view.message = f'signed in, but enabling failed: {e}'
 
     session = await login_manager.start(

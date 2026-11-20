@@ -4,6 +4,8 @@ import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 
 /** Settings → Integrations: the official WeCom / Feishu / DingTalk CLIs.
+ *  (Shown to users as "Let the AI use WeCom / Feishu / DingTalk" — the
+ *  page never says CLI; see integrations.cli in the locales.)
  *
  *  One row per platform. "Connect" downloads the CLI, runs its login
  *  (QR or link — no terminal) and, once signed in, enables it: the
@@ -21,11 +23,19 @@ interface LoginView {
   step: number
   steps: number
   hint: string | null
-  /** What the person must know about the outcome (i18n key), its detail
-   *  and a link to act on it — set by the server's parsers. */
-  notice?: string | null
-  notice_detail?: string | null
-  help_url?: string | null
+  /** What the person must know about the outcome — several can apply
+   *  (scopes withheld AND a sign-in that cannot renew). Set by the
+   *  server's parsers: an i18n key, its detail and a link to act on. */
+  notices?: Notice[]
+  /** Why the sign-in ended badly when no notice explains it: the
+   *  runner's ``timeout`` or ``enable_failed`` (i18n key). */
+  error?: string | null
+}
+
+interface Notice {
+  key: string
+  detail: string | null
+  url: string | null
 }
 
 /** The vendor's own guide for each notice the server can raise. */
@@ -51,15 +61,54 @@ interface CliCard {
 const BASE = '/api/integrations/cli'
 const POLL_MS = 2000
 
-function errText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
+/** A failed request, as the page shows it: the server's ``code`` picks
+ *  a sentence saying what to do next; the raw text is folded away. */
+interface CliError {
+  code: string
+  message: string
+}
+
+function errView(e: unknown, fallback = 'unexpected'): CliError {
+  const detail = (e as { detail?: unknown } | null)?.detail
+  if (detail && typeof detail === 'object' && 'code' in detail) {
+    const d = detail as { code: unknown; message?: unknown }
+    return { code: String(d.code), message: String(d.message ?? '') }
+  }
+  return { code: fallback, message: e instanceof Error ? e.message : String(e) }
+}
+
+const ERROR_CODES = new Set([
+  'not_installed', 'not_signed_in', 'in_use', 'does_not_run',
+  'unsupported', 'download_failed', 'unexpected', 'load',
+])
+
+/** The sentence for *err*, plus its technical text under "Details". */
+function ErrorLine({ err, name }: { err: CliError; name: string }) {
+  const { t } = useTranslation()
+  const code = ERROR_CODES.has(err.code) ? err.code : 'unexpected'
+  return (
+    <div className="text-sm text-red-600 break-words" data-testid="cli-error">
+      <p>{t(`integrations.cli.error.${code}`, { name })}</p>
+      {err.message && <Details text={err.message} />}
+    </div>
+  )
+}
+
+function Details({ text }: { text: string }) {
+  const { t } = useTranslation()
+  return (
+    <details className="text-xs text-gray-500">
+      <summary className="cursor-pointer">{t('integrations.cli.details')}</summary>
+      <p className="mt-1 font-mono break-all">{text}</p>
+    </details>
+  )
 }
 
 export function WorkplaceCliPanel({ isAdmin = false }: { isAdmin?: boolean }) {
   const { t } = useTranslation()
   const [cards, setCards] = useState<CliCard[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<CliError | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -67,7 +116,7 @@ export function WorkplaceCliPanel({ isAdmin = false }: { isAdmin?: boolean }) {
       setCards(Array.isArray(r?.integrations) ? r.integrations : [])
       setError(null)
     } catch (e) {
-      setError(errText(e))
+      setError(errView(e, 'load'))
     } finally {
       setLoading(false)
     }
@@ -86,7 +135,7 @@ export function WorkplaceCliPanel({ isAdmin = false }: { isAdmin?: boolean }) {
           {cards.map((c) => (
             <CliRow key={c.key} card={c} isAdmin={isAdmin} onChanged={refresh} />
           ))}
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <ErrorLine err={{ ...error, code: 'load' }} name="" />}
         </div>
       )}
     </div>
@@ -104,7 +153,7 @@ function CliRow({
 }) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<CliError | null>(null)
   const [login, setLogin] = useState<LoginView | null>(null)
   const [qrTick, setQrTick] = useState(0)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -132,7 +181,7 @@ function CliRow({
       }
       await onChanged()
     } catch (e) {
-      setError(errText(e))
+      setError(errView(e))
     }
   }, [card.key, onChanged])
 
@@ -152,7 +201,7 @@ function CliRow({
     try {
       await fn()
     } catch (e) {
-      setError(errText(e))
+      setError(errView(e))
     } finally {
       setBusy(null)
     }
@@ -199,22 +248,32 @@ function CliRow({
 
   const loginActive = login && (login.state === 'starting' || login.state === 'waiting')
   const signedIn = !!card.auth?.usable
+  const name = t(`integrations.cli.platform.${card.key}`, { defaultValue: card.title })
+  // The button on screen once a sign-in ended: "Sign in again" for a
+  // platform that is signed in or enabled, otherwise "Connect".
+  const retryButton = t(
+    card.installed && (signedIn || card.enabled)
+      ? 'integrations.cli.relogin'
+      : 'integrations.cli.connect',
+  )
 
   return (
     <div className="p-3 bg-gray-50 rounded-lg space-y-2" data-testid={`cli-row-${card.key}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium">{card.title}</p>
+          <p className="text-sm font-medium">{name}</p>
           <p className="text-xs text-gray-500" data-testid={`cli-status-${card.key}`}>
             {card.installed
-              ? `${card.binary} ${card.version ?? ''}`
+              ? t('integrations.cli.version', { version: card.version ?? '' })
               : t('integrations.cli.notInstalled')}
-            {' · '}
-            {signedIn
-              ? t('integrations.cli.signedInAs', { identity: card.auth?.identity || '✓' })
-              : card.installed
-              ? t('integrations.cli.notSignedIn')
-              : ''}
+            {card.installed && (
+              <>
+                {' · '}
+                {signedIn
+                  ? t('integrations.cli.signedInAs', { identity: card.auth?.identity || '✓' })
+                  : t('integrations.cli.notSignedIn')}
+              </>
+            )}
             {' · '}
             <span className={card.enabled ? 'text-green-700' : ''}>
               {card.enabled ? t('integrations.cli.enabled') : t('integrations.cli.disabled')}
@@ -307,39 +366,91 @@ function CliRow({
         </div>
       )}
 
-      {login && !loginActive && <LoginOutcome login={login} cardKey={card.key} />}
-      {error && <p className="text-sm text-red-600 break-words">{error}</p>}
+      {busy === 'connect' && !card.installed && (
+        <p className="text-xs text-gray-500" data-testid={`cli-downloading-${card.key}`}>
+          {t('integrations.cli.downloading')}
+        </p>
+      )}
+      {login && !loginActive && (
+        <LoginOutcome login={login} cardKey={card.key} retryButton={retryButton} />
+      )}
+      {error && <ErrorLine err={error} name={name} />}
     </div>
   )
 }
 
 /** How a finished sign-in ended, when there is something to say: a
  *  failure, or a success with a notice (e.g. scopes the org withheld). */
-function LoginOutcome({ login, cardKey }: { login: LoginView; cardKey: string }) {
-  const { t, i18n } = useTranslation()
+function LoginOutcome({
+  login,
+  cardKey,
+  retryButton,
+}: {
+  login: LoginView
+  cardKey: string
+  retryButton: string
+}) {
+  const { t } = useTranslation()
+  const notices = login.notices ?? []
   if (login.state !== 'failed' && login.state !== 'succeeded') return null
-  if (login.state === 'succeeded' && !login.notice && !login.message) return null
-  const failed = login.state === 'failed'
-  const guide = login.notice ? NOTICE_GUIDES[login.notice] : undefined
-  const guideUrl = guide && (i18n.language?.startsWith('zh') ? guide.zh : guide.en)
+  if (login.state === 'succeeded' && notices.length === 0 && !login.error) return null
+  const failed = login.state === 'failed' || !!login.error
+  // Enabling is what failed after a good sign-in: "Connect" retries it.
+  const button = login.error === 'enable_failed' ? t('integrations.cli.connect') : retryButton
   return (
     <div
-      className={`text-sm space-y-1 break-words ${failed ? 'text-red-600' : 'text-amber-700'}`}
+      className={`text-sm space-y-2 break-words ${failed ? 'text-red-600' : 'text-amber-700'}`}
       data-testid={`cli-outcome-${cardKey}`}
     >
-      {failed && !login.notice && <p>{t('integrations.cli.loginFailed')}</p>}
-      {login.notice && (
-        <p>{t(`integrations.cli.notice.${login.notice}`, { detail: login.notice_detail ?? '' })}</p>
+      {failed && notices.length === 0 && (
+        <p>
+          {login.error
+            ? t(`integrations.cli.loginError.${login.error}`, { button })
+            : t('integrations.cli.loginFailed', { button })}
+        </p>
       )}
-      {login.notice === 'dingtalk_cli_access' && login.notice_detail && (
-        <p>{t('integrations.cli.orgAdmins', { names: login.notice_detail })}</p>
+      {notices.map((n) => (
+        <NoticeBlock key={n.key} notice={n} cardKey={cardKey} button={button} />
+      ))}
+      {failed && login.message && notices.length === 0 && <Details text={login.message} />}
+    </div>
+  )
+}
+
+/** A notice's detail as the page shows it: an expiry is a moment, said
+ *  in the reader's own time zone and language. */
+function noticeDetail(n: Notice, lang: string): string {
+  if (!n.detail) return ''
+  if (n.key === 'feishu_no_refresh_token') {
+    const at = new Date(n.detail)
+    if (!Number.isNaN(at.getTime())) return at.toLocaleString(lang)
+  }
+  return n.detail
+}
+
+function NoticeBlock({ notice, cardKey, button }: { notice: Notice; cardKey: string; button: string }) {
+  const { t, i18n } = useTranslation()
+  const guide = NOTICE_GUIDES[notice.key]
+  const guideUrl = guide && (i18n.language?.startsWith('zh') ? guide.zh : guide.en)
+  return (
+    <div className="space-y-1" data-testid={`cli-notice-${cardKey}-${notice.key}`}>
+      <p>
+        {t(`integrations.cli.notice.${notice.key}`, {
+          detail: noticeDetail(notice, i18n.language),
+          button,
+        })}
+      </p>
+      {notice.key === 'dingtalk_cli_access' && notice.detail && (
+        <p>{t('integrations.cli.orgAdmins', { names: notice.detail })}</p>
       )}
-      {(login.help_url || guideUrl) && (
+      {(notice.url || guideUrl) && (
         <p className="space-x-3">
-          {login.help_url && (
-            <a href={login.help_url} target="_blank" rel="noreferrer"
+          {notice.url && (
+            <a href={notice.url} target="_blank" rel="noreferrer"
               className="text-indigo-600 hover:underline" data-testid={`cli-help-${cardKey}`}>
-              {t(`integrations.cli.helpLink.${login.notice ?? 'default'}`)}
+              {t(`integrations.cli.helpLink.${notice.key}`, {
+                defaultValue: t('integrations.cli.helpLink.default'),
+              })}
             </a>
           )}
           {guideUrl && (
@@ -349,9 +460,6 @@ function LoginOutcome({ login, cardKey }: { login: LoginView; cardKey: string })
             </a>
           )}
         </p>
-      )}
-      {login.message && !login.notice && (
-        <p className="text-xs text-gray-600">{login.message}</p>
       )}
     </div>
   )

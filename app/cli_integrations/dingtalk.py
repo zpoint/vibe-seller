@@ -56,6 +56,8 @@ _CONSOLE = re.compile(
 )
 _MESSAGE = re.compile(r'"message"\s*:\s*"(.*)"\s*,?\s*$')
 ADMIN_CONSOLE = 'https://open-dev.dingtalk.com'
+# The page's notice for an org whose CLI access is not enabled.
+NO_ACCESS = 'dingtalk_cli_access'
 
 
 def _parse_login(line: str, view: LoginView) -> None:
@@ -74,14 +76,14 @@ def _parse_login(line: str, view: LoginView) -> None:
             view.url = stripped
         return
     if m := _CONSOLE.search(stripped):
-        view.help_url = m.group(1)
+        view.notice(NO_ACCESS).url = m.group(1)
         return
     if m := _ADMINS.search(stripped):
-        view.notice_detail = m.group(1).strip()
+        view.notice(NO_ACCESS).detail = m.group(1).strip()
         return
     if any(k in stripped for k in _NO_ACCESS) and stripped.startswith('⚠'):
-        view.notice = 'dingtalk_cli_access'
-        view.help_url = view.help_url or ADMIN_CONSOLE
+        notice = view.notice(NO_ACCESS)
+        notice.url = notice.url or ADMIN_CONSOLE
         return
     if stripped.startswith('{') and '"error"' in stripped:
         try:

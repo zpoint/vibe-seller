@@ -69,7 +69,9 @@ def _guard_script(integ: CliIntegration) -> str:
     return f"""#!/usr/bin/env bash
 {_GUARD_HEADER} — do not edit.
 echo "ERROR: {integ.binary} ({integ.title}) is not enabled for agents on" >&2
-echo "this Vibe Seller. An admin connects it in Settings → Integrations." >&2
+echo "this Vibe Seller. Tell the user, in plain words and without command" >&2
+echo "names: an admin can connect {integ.title} in Settings → Integrations" >&2
+echo "(设置 → 集成) by clicking Connect (开通) on its row." >&2
 echo "Do not install it or run another copy: a copy installed elsewhere" >&2
 echo "would act as someone's personal account, not the team's." >&2
 exit 127

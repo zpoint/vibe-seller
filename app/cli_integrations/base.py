@@ -81,6 +81,21 @@ class AuthStatus:
 
 
 @dataclasses.dataclass
+class Notice:
+    """Something the person must know about how a sign-in ended.
+
+    *key* is the page's i18n key (a scope the org admin withheld, a
+    sign-in that cannot renew itself, org CLI access not enabled…);
+    *detail* fills it (the scopes, the expiry, the admins' names) and
+    *url* is where to act on it.
+    """
+
+    key: str
+    detail: str | None = None
+    url: str | None = None
+
+
+@dataclasses.dataclass
 class LoginView:
     """What the Settings page shows while a login runs."""
 
@@ -95,14 +110,25 @@ class LoginView:
     # The running step's LoginStep.hint — the page's i18n key for what
     # the person has to do (scan in the app, approve in the browser…).
     hint: str | None = None
-    # Something the person must know about the outcome, as the page's
-    # i18n key (a scope the org admin withheld, org CLI access not
-    # enabled…), with its detail (the scopes, the admins' names) and a
-    # link to act on it. Parsers fill these; raw CLI output never is the
-    # page's message.
-    notice: str | None = None
-    notice_detail: str | None = None
-    help_url: str | None = None
+    # What the person must know about the outcome — one sign-in can end
+    # with several (scopes withheld AND no automatic renewal). Parsers
+    # fill these; raw CLI output never is the page's message.
+    notices: list[Notice] = dataclasses.field(default_factory=list)
+    # Why the runner itself ended it (``timeout``) or what failed after
+    # the sign-in (``enable_failed``) — the page's i18n key, with what to
+    # do next; ``message`` keeps the technical line.
+    error: str | None = None
+
+    def notice(self, key: str) -> Notice:
+        """The notice *key*, added on first use (a CLI prints its parts
+        — the warning, the admins, the console link — on separate
+        lines)."""
+        for n in self.notices:
+            if n.key == key:
+                return n
+        n = Notice(key)
+        self.notices.append(n)
+        return n
 
     def public(self) -> dict:
         return dataclasses.asdict(self)

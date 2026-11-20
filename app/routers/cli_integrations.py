@@ -37,12 +37,16 @@ def _integ(key: str) -> CliIntegration:
 
 
 def _fail(e: Exception, what: str) -> HTTPException:
+    """``detail = {code, message}``: the page shows its own sentence for
+    *code* (what to click next) and keeps *message* folded away."""
     if isinstance(e, manager.IntegrationError):
-        return HTTPException(400, str(e))
+        return HTTPException(400, {'code': e.code, 'message': str(e)})
     if isinstance(e, download.DownloadError):
-        return HTTPException(502, f'{what}: {e}')
+        return HTTPException(
+            502, {'code': 'download_failed', 'message': f'{what}: {e}'}
+        )
     logger.exception('%s failed', what)
-    return HTTPException(500, f'{what}: {e}')
+    return HTTPException(500, {'code': 'unexpected', 'message': f'{what}: {e}'})
 
 
 @router.get('')

@@ -144,6 +144,7 @@ async def test_timeout_fails_and_kills(fake, tmp_path, monkeypatch):
     await session.task
     assert session.view.state == 'failed'
     assert 'timed out' in session.view.message
+    assert session.view.error == 'timeout'  # the page's own sentence
     pid = int((fake.state / 'login-pid').read_text())
     await _until(lambda: not _alive(pid))
 
