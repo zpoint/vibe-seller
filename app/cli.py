@@ -624,10 +624,7 @@ def _await_servers_upgraded(before: str) -> int:
     Returns 1 if a server that can restart itself never picked the
     upgrade up — the one outcome where the upgrade did not take effect.
     """
-    # Every server whose pid file names a live process — NOT "answering
-    # right now": one may already be mid-restart (its own watcher can see
-    # the new install before this command finishes its other steps), and
-    # a self-restart keeps its PID. ``_await_one`` waits through that.
+    # Live pid files, not "answering now": a self-restart keeps its PID.
     servers = _server_ports()
     if not servers:
         return 0
