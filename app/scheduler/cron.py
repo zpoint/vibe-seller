@@ -22,7 +22,7 @@ from app.events.bus import event_bus
 from app.models.schedule import Schedule
 from app.models.schedule_constants import PhaseMode
 from app.models.task import Task
-from app.plan_states import PlanStatus
+from app.plan_states import fire_plan, schedule_fires
 from app.scheduler.fanout import (
     _cancel_prior_waiting,
     run_fanout_job,
@@ -185,17 +185,8 @@ def stop_scheduler():
 
 
 def _schedule_can_fire(sched: Schedule) -> bool:
-    """Return True if this schedule is eligible to fire now.
-
-    Plan-mode schedules require ``plan_status=READY``. System
-    schedules (``is_system=True``) and plan_mode=False schedules
-    are always eligible.
-    """
-    if sched.is_system:
-        return True
-    if not sched.plan_mode:
-        return True
-    return sched.plan_status == PlanStatus.READY.value
+    """The fire gate — one rule, :func:`app.plan_states.schedule_fires`."""
+    return schedule_fires(sched)
 
 
 async def _run_task_job(
@@ -244,8 +235,7 @@ async def _run_task_job(
                     )
                     send_fire_skipped(schedule_id, sched.plan_status)
                     return
-                saved_plan = sched.plan
-                saved_plan_version = sched.plan_version
+                plan_mode, saved_plan, saved_plan_version = fire_plan(sched)
                 platform = sched.platform
                 country = sched.country
                 schedule_type = sched.schedule_type

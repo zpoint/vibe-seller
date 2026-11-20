@@ -26,13 +26,17 @@ from app.models.schedule_constants import (
 from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
-from app.plan_states import PlanStatus
+from app.plan_states import PlanStatus, schedule_fires
 from app.routers.schedule_planning import (
     abort_current_planning_task,
+    drop_review_state,
     finalize_pending_abort,
     normalize_prompt,
+    not_firing_detail,
+    refuse_task_agent_review_off,
     schedule_needs_plan,
     spawn_planning_task,
+    spawn_planning_task_or_fail,
     validate_fanout_serial,
     validate_finalize_description,
 )
@@ -56,7 +60,7 @@ from app.schemas.schedule import (
     ScheduleUpdate,
 )
 from app.schemas.task import TaskResponse
-from app.task_states import TaskStatus, can_transition
+from app.task_states import TaskStatus
 from app.utils.timezone import get_server_timezone
 
 logger = logging.getLogger(__name__)
@@ -250,11 +254,6 @@ async def create_schedule(
     )
     validate_fanout_serial(data.fanout_serial, data.store_id, phase_mode)
 
-    # Force plan_mode=True for all user-created schedules — the
-    # plan-at-creation lifecycle is the only UX (system seeds stay
-    # plan_mode=False). See app/plan_states.py.
-    effective_plan_mode = True
-
     schedule = Schedule(
         store_id=data.store_id,
         title=data.title,
@@ -274,8 +273,14 @@ async def create_schedule(
             if (data.finalize_description or '').strip()
             else None
         ),
-        plan_mode=effective_plan_mode,
-        plan_status=PlanStatus.PLANNING.value,
+        # Auto (False) unless the owner asked to review the plan
+        # first. See app/plan_states.py.
+        plan_mode=bool(data.plan_mode),
+        plan_status=(
+            PlanStatus.PLANNING.value
+            if data.plan_mode
+            else PlanStatus.NONE.value
+        ),
         # Inherit the owner's default at fire time, not at creation:
         # store the client value as-is and resolve the owner's CURRENT
         # default live via resolve_schedule_profile() (no snapshot of
@@ -301,31 +306,11 @@ async def create_schedule(
             detail=f'Schedule created but job failed: {e}',
         )
 
-    # Spawn the planning task for plan-mode schedules. The APScheduler
-    # job is already registered, but the fire-gate refuses until the
-    # plan is READY.
+    # Review schedules: start the planner. The APScheduler job is
+    # already registered, but the fire-gate refuses until a plan is
+    # approved (READY).
     if schedule_needs_plan(schedule):
-        try:
-            await spawn_planning_task(schedule, current_user, db)
-        except Exception as e:
-            logger.exception(
-                'Failed to spawn planning task for schedule %s',
-                schedule.id,
-            )
-            # Clean up the orphaned pointer + task left by a partial
-            # spawn so /replan isn't tricked by the idempotency check
-            # into returning a never-started task.
-            if schedule.current_planning_task_id:
-                orphan = await db.get(Task, schedule.current_planning_task_id)
-                if orphan and can_transition(orphan.status, TaskStatus.FAILED):
-                    orphan.status = TaskStatus.FAILED
-                    orphan.error = f'Planning task launch failed: {e}'
-                    orphan.error_category = 'planning_launch_failed'
-                    orphan.updated_at = datetime.now(UTC).isoformat()
-            schedule.current_planning_task_id = None
-            schedule.plan_status = PlanStatus.FAILED.value
-            schedule.plan_error = f'Failed to spawn planning task: {e}'
-            await db.commit()
+        await spawn_planning_task_or_fail(schedule, current_user, db)
 
     return await _enrich_response(schedule)
 
@@ -352,15 +337,16 @@ async def update_schedule(
 ):
     """Update a schedule and recreate its APScheduler job.
 
-    - ``plan_mode`` is immutable after creation; changes are rejected
-      (400). Toggling plan_mode off would bypass the fire-gate in
-      unpredictable ways; instead, delete and recreate the schedule.
+    - ``plan_mode`` switches plan review (see app/plan_states.py):
+      on → a planner starts and the schedule stops firing until a
+      plan is approved; off → plan, proposal and feedback are
+      dropped and fires run the prompt.
     - ``plan_version`` acts as an optimistic-lock token (If-Match
       semantics). When provided, returns 412 on mismatch.
     - A change to ``description`` (the agent prompt, normalized) on
-      a plan-mode schedule invalidates the stored plan: any running
-      planner task is aborted, ``plan_status`` becomes ``stale``, the
-      old plan text is retained for diff display until re-plan.
+      a review schedule invalidates its plan: any running planner is
+      aborted and a fresh one starts (``plan_status=planning``); the
+      schedule fires again once the new plan is approved.
     """
     schedule = await db.get(Schedule, schedule_id)
     if not schedule:
@@ -368,28 +354,22 @@ async def update_schedule(
 
     update_data = data.model_dump(exclude_unset=True)
 
-    # Optimistic lock — client passes the plan_version it last saw.
     client_version = update_data.pop('plan_version', None)
-    if client_version is not None and client_version != schedule.plan_version:
-        raise HTTPException(
-            status_code=412,
-            detail=(
-                f'Stale plan_version: client={client_version} '
-                f'server={schedule.plan_version}'
-            ),
-        )
 
-    # plan_mode is immutable — the plan lifecycle would be bypassed.
+    # Review on/off is applied after the field edits (below).
+    review_change: bool | None = None
     if 'plan_mode' in update_data:
         new_plan_mode = update_data.pop('plan_mode')
-        if new_plan_mode is not None and new_plan_mode != schedule.plan_mode:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    'plan_mode is immutable after schedule creation; '
-                    'delete and recreate the schedule to change it'
-                ),
-            )
+        if new_plan_mode is not None and bool(new_plan_mode) != bool(
+            schedule.plan_mode
+        ):
+            if schedule.is_system:
+                raise HTTPException(
+                    status_code=400,
+                    detail='System schedules have no plan review.',
+                )
+            review_change = bool(new_plan_mode)
+    refuse_task_agent_review_off(current_user, review_change)
 
     if 'schedule_type' in update_data:
         _validate_schedule_type(update_data['schedule_type'])
@@ -420,23 +400,50 @@ async def update_schedule(
         if normalize_prompt(new_desc) != normalize_prompt(schedule.description):
             prompt_changed = True
 
-    # Flip schedule state (plan_status=stale, clear pointer) in the
-    # caller's session. The actual agent stop + Task → FAILED happens
-    # AFTER commit via _finalize_pending_abort to avoid races with
-    # the agent session's concurrent DB writes.
-    if prompt_changed and schedule_needs_plan(schedule):
+    # Optimistic lock — client passes the plan_version it last saw.
+    # Only edits that change the plan (the prompt, review on/off) are
+    # held to it: a title or time edit must not 412 because a planner
+    # proposed a plan while the edit form was open.
+    if (
+        (prompt_changed or review_change is not None)
+        and client_version is not None
+        and client_version != schedule.plan_version
+    ):
+        raise HTTPException(
+            status_code=412,
+            detail=(
+                f'Stale plan_version: client={client_version} '
+                f'server={schedule.plan_version}'
+            ),
+        )
+
+    # Which plan work this edit owes (decided before the fields
+    # apply): a new planner when review turns on, or when a review
+    # schedule's prompt changed; nothing for auto schedules.
+    if review_change is False:
+        await abort_current_planning_task(
+            schedule, db, reason='Plan review switched off.'
+        )
+        drop_review_state(schedule)
+    needs_new_plan = review_change is True or (
+        prompt_changed and schedule_needs_plan(schedule)
+    )
+    if needs_new_plan:
+        # Clear the pointer now; the agent stop + Task → FAILED happen
+        # AFTER commit via finalize_pending_abort to avoid races with
+        # the agent session's concurrent DB writes.
         await abort_current_planning_task(
             schedule,
             db,
             reason='Schedule prompt edited; plan invalidated.',
         )
-        schedule.plan_status = PlanStatus.STALE.value
-        # Clear any prior planning error — stale is about the prompt,
-        # not the planner, and showing the stale error alongside the
-        # new stale-banner is confusing.
+        # The approved plan, a pending proposal and old feedback all
+        # answered the old prompt: none of them may fire or steer the
+        # new one. Nothing fires until the new plan is approved.
+        schedule.plan = None
+        schedule.proposed_plan = None
+        schedule.plan_feedback = None
         schedule.plan_error = None
-        # Keep old plan text so the UI can show a diff until the
-        # user re-plans.
 
     # Arm (or disarm) the finalize step. Only the empty ↔ non-empty
     # TRANSITION moves the stamp: editing the prompt text of a schedule
@@ -456,17 +463,24 @@ async def update_schedule(
         setattr(schedule, key, value)
     schedule.updated_at = datetime.now(UTC).isoformat()
 
-    await db.commit()
-    await finalize_pending_abort(schedule)
+    if review_change is not None:
+        schedule.plan_mode = review_change
 
-    # Notify the frontend so SchedulePlanPanel + the list badge
-    # refresh. Without this the UI keeps showing the old
-    # plan_status until the next full page load. Mirrors the
-    # `schedule_plan_ready` / `schedule_plan_timeout` events.
-    if prompt_changed and schedule.plan_status == PlanStatus.STALE.value:
+    if needs_new_plan:
+        # Commits the edit together with the new planner pointer and
+        # plan_status=planning — one transaction, so neither a fire
+        # nor the plan reaper sees the edited prompt with the old
+        # plan state in between.
+        await spawn_planning_task_or_fail(schedule, current_user, db)
+    else:
+        await db.commit()
+    # After the commit: stop the superseded planner, fail its task.
+    await finalize_pending_abort(schedule)
+    if needs_new_plan or review_change is not None:
+        # Refresh SchedulePlanPanel + the list badge + the banner.
         await event_bus.emit(
-            'schedule_plan_stale',
-            {'schedule_id': schedule.id},
+            'schedule_plan_changed',
+            {'schedule_id': schedule.id, 'plan_status': schedule.plan_status},
         )
     await db.refresh(schedule)
 
@@ -543,19 +557,13 @@ async def resume_schedule(
     if not schedule:
         raise HTTPException(status_code=404, detail='Schedule not found')
 
-    # Fire-gate: plan-mode schedules may not resume unless plan is READY.
-    # Otherwise the APScheduler job would fire and be silently rejected
-    # by the gate in cron/fanout, leaving the user confused.
-    if (
-        schedule_needs_plan(schedule)
-        and schedule.plan_status != PlanStatus.READY.value
-    ):
+    # Fire-gate: a review schedule may not resume without an approved
+    # plan. Otherwise the APScheduler job would fire and be silently
+    # rejected by the gate in cron/fanout, leaving the user confused.
+    if not schedule_fires(schedule):
         raise HTTPException(
             status_code=409,
-            detail=(
-                f'Cannot resume schedule with plan_status='
-                f'{schedule.plan_status!r}. Call /replan first.'
-            ),
+            detail=not_firing_detail(schedule),
         )
 
     schedule.is_active = True
@@ -646,6 +654,8 @@ async def get_schedule_plan(
         plan_status=schedule.plan_status,
         plan_version=schedule.plan_version,
         plan_text=schedule.plan,
+        proposed_plan=schedule.proposed_plan,
+        plan_feedback=schedule.plan_feedback,
         plan_error=schedule.plan_error,
         current_planning_task_id=schedule.current_planning_task_id,
         planning_task_history=history,
@@ -670,18 +680,12 @@ async def trigger_schedule(
     if not schedule:
         raise HTTPException(status_code=404, detail='Schedule not found')
 
-    # Fire-gate: plan-mode schedules must have a READY plan.
-    # Exempts system/catalog schedules (is_system=True).
-    if (
-        schedule_needs_plan(schedule)
-        and schedule.plan_status != PlanStatus.READY.value
-    ):
+    # Fire-gate: a review schedule fires only an approved plan.
+    # System and auto schedules always fire.
+    if not schedule_fires(schedule):
         raise HTTPException(
             status_code=409,
-            detail=(
-                f'Schedule cannot fire with plan_status='
-                f'{schedule.plan_status!r}. Call /replan first.'
-            ),
+            detail=not_firing_detail(schedule),
         )
 
     # All-stores schedules: route by phase_mode (mirror cron.py)

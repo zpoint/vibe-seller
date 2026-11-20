@@ -1,15 +1,16 @@
-"""Workflow tests for Schedule plan invalidation + /replan.
+"""Workflow tests for review-schedule edits, the review switch and /replan.
 
 Covers:
-- Prompt edit invalidates (plan_status -> stale), old plan retained.
+- A prompt edit drops the approved plan and starts a new planner at once.
 - Whitespace-only description edits do NOT invalidate.
 - Cron/timezone edits do NOT invalidate.
-- plan_mode is immutable (400).
-- Optimistic lock via plan_version (412 on mismatch).
+- plan_mode (review) switches on and off; the in-task agent cannot
+  switch it off.
+- Optimistic lock via plan_version (412 on mismatch) — only for edits
+  that change the plan.
 - /replan idempotent.
 """
 
-import asyncio
 import uuid
 
 import pytest
@@ -20,12 +21,13 @@ from app.events.bus import event_bus
 from app.models.schedule import Schedule
 from app.models.user import User
 from tests.workflow.fake_agent import FakeAgentScenario
+from tests.workflow.schedule_review_helpers import approve_when_proposed
 
 pytestmark = pytest.mark.workflow
 
 
 async def _make_ready_schedule(admin_client, install_fake_agent):
-    """Create a plan-mode schedule, wait for auto-approved plan."""
+    """Create a review schedule and approve its plan (as the UI does)."""
     install_fake_agent.default_scenario = FakeAgentScenario(
         plan='## Plan v1\n1. Step one',
     )
@@ -41,23 +43,20 @@ async def _make_ready_schedule(admin_client, install_fake_agent):
     )
     assert r.status_code == 201
     sched = r.json()
-    # Plan-only auto-approves at ExitPlanMode — no /execute-plan call.
-    for _ in range(60):
-        r = await admin_client.get(f'/api/schedules/{sched["id"]}')
-        if r.json()['plan_status'] == 'ready':
-            return r.json()
-        await asyncio.sleep(0.05)
-    raise AssertionError('Schedule never reached ready state')
+    return await approve_when_proposed(admin_client, sched['id'])
 
 
 class TestInvalidation:
-    async def test_prompt_edit_invalidates(
+    async def test_prompt_edit_drops_plan_and_replans(
         self, admin_client, install_fake_agent
     ):
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            plan='## Plan v2', design_delay=0.5
+        )
         sched = await _make_ready_schedule(admin_client, install_fake_agent)
-        # Subscribe BEFORE the PUT to catch the stale SSE — without
-        # this, the frontend badge + SchedulePlanPanel stay stale
-        # until the next full page load.
+        # Subscribe BEFORE the PUT to catch the SSE — without it, the
+        # frontend badge + SchedulePlanPanel stay stale until the next
+        # full page load.
         q = event_bus.subscribe()
         try:
             r = await admin_client.put(
@@ -69,24 +68,24 @@ class TestInvalidation:
             )
             assert r.status_code == 200, r.text
             body = r.json()
-            assert body['plan_status'] == 'stale'
+            assert body['plan_status'] == 'planning'
+            assert body['current_planning_task_id']
 
-            # Drain the subscriber queue and look for our event.
-            # Queue is bounded-blocking; poll with nowait.
             events = []
             while not q.empty():
                 events.append(q.get_nowait())
             assert any(
-                '"type": "schedule_plan_stale"' in evt and sched['id'] in evt
+                '"type": "schedule_plan_changed"' in evt and sched['id'] in evt
                 for evt in events
             ), (
-                'schedule_plan_stale SSE must fire so the frontend '
+                'schedule_plan_changed SSE must fire so the frontend '
                 f'can refresh. Got events: {events}'
             )
         finally:
             event_bus.unsubscribe(q)
-        # Old plan text retained for diff display.
-        assert body['plan'] == sched['plan']
+        # The approved plan answered the old prompt: it must not fire
+        # for the new one.
+        assert body['plan'] is None
 
     async def test_whitespace_only_prompt_edit_does_not_invalidate(
         self, admin_client, install_fake_agent
@@ -132,8 +131,8 @@ class TestInvalidation:
         assert r.json()['plan_status'] == 'ready'
 
 
-class TestImmutablePlanMode:
-    async def test_plan_mode_change_rejected(
+class TestReviewSwitch:
+    async def test_review_off_drops_the_plan(
         self, admin_client, install_fake_agent
     ):
         sched = await _make_ready_schedule(admin_client, install_fake_agent)
@@ -144,7 +143,38 @@ class TestImmutablePlanMode:
                 'plan_version': sched['plan_version'],
             },
         )
-        assert r.status_code == 400, r.text
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body['plan_mode'] is False
+        assert body['plan_status'] == 'none'
+        assert body['plan'] is None
+        assert body['current_planning_task_id'] is None
+
+    async def test_review_on_starts_a_planner(
+        self, admin_client, install_fake_agent
+    ):
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            plan='## plan', design_delay=0.5
+        )
+        r = await admin_client.post(
+            '/api/schedules',
+            json={
+                'title': 'Auto first',
+                'description': 'd',
+                'schedule_type': 'days',
+                'schedule_time': '09:05',
+            },
+        )
+        sched = r.json()
+        assert sched['plan_status'] == 'none'
+        r = await admin_client.put(
+            f'/api/schedules/{sched["id"]}', json={'plan_mode': True}
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body['plan_mode'] is True
+        assert body['plan_status'] == 'planning'
+        assert body['current_planning_task_id']
 
     async def test_plan_mode_same_value_ok(
         self, admin_client, install_fake_agent
@@ -158,6 +188,21 @@ class TestImmutablePlanMode:
             },
         )
         assert r.status_code == 200
+        assert r.json()['plan_status'] == 'ready'
+
+    async def test_task_agent_cannot_switch_review_off(
+        self, admin_client, ai_bot_client, install_fake_agent
+    ):
+        """The in-task agent's credential resolves to ai_bot: it must not
+        walk around the review it runs under."""
+        sched = await _make_ready_schedule(admin_client, install_fake_agent)
+        r = await ai_bot_client.put(
+            f'/api/schedules/{sched["id"]}', json={'plan_mode': False}
+        )
+        assert r.status_code == 403, r.text
+        after = (await admin_client.get(f'/api/schedules/{sched["id"]}')).json()
+        assert after['plan_mode'] is True
+        assert after['plan_status'] == 'ready'
 
 
 class TestOptimisticLock:
@@ -174,6 +219,18 @@ class TestOptimisticLock:
         )
         assert r.status_code == 412, r.text
 
+    async def test_stale_version_does_not_block_a_title_edit(
+        self, admin_client, install_fake_agent
+    ):
+        """The lock guards the plan, not the title: an edit form opened
+        before a proposal landed must still save a rename."""
+        sched = await _make_ready_schedule(admin_client, install_fake_agent)
+        r = await admin_client.put(
+            f'/api/schedules/{sched["id"]}',
+            json={'title': 'Renamed', 'plan_version': 0},
+        )
+        assert r.status_code == 200, r.text
+
     async def test_missing_plan_version_ok(
         self, admin_client, install_fake_agent
     ):
@@ -187,18 +244,15 @@ class TestOptimisticLock:
 
 
 class TestReplan:
-    async def test_replan_spawns_new_task_from_stale(
+    async def test_replan_spawns_new_task_from_failed(
         self, admin_client, install_fake_agent
     ):
         sched = await _make_ready_schedule(admin_client, install_fake_agent)
-        # Invalidate.
-        await admin_client.put(
-            f'/api/schedules/{sched["id"]}',
-            json={
-                'description': 'Different instruction',
-                'plan_version': sched['plan_version'],
-            },
-        )
+        async with _db.async_session() as db:
+            row = await db.get(Schedule, sched['id'])
+            row.plan_status = 'failed'
+            row.plan_error = 'The planning agent stopped.'
+            await db.commit()
         r = await admin_client.post(f'/api/schedules/{sched["id"]}/replan')
         assert r.status_code == 200, r.text
         body = r.json()
@@ -237,9 +291,7 @@ class TestReplan:
         """System schedules are seeded with plan_mode=False + is_system=True
         and bypass the planning lifecycle entirely. /replan must reject.
 
-        Note: API cannot create a non-plan-mode schedule anymore
-        (server forces plan_mode=True for user-created schedules),
-        so this scenario can only happen for system-seeded rows. We
+        System rows are seeded, never created through the API, so we
         insert one directly in the DB.
         """
         sched_id = str(uuid.uuid4())

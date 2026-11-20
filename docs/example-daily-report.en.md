@@ -46,10 +46,10 @@ always covers the **previous calendar month**, so any of the first few days work
 
 ![The New Schedule form: every 1 month, day 1, 09:30](images/example-report-schedule_en.png)
 
-Click **Create**. The AI drafts the plan right away (export order lines →
-summarise by SKU → post to the group), freezes it on the schedule, and the status
-becomes **Ready**; every later month runs that plan — see
-[The plan is authored once, at creation](schedules.md#the-plan-is-authored-once-at-creation).
+Click **Create**. From then on it runs these instructions on the 1st of every
+month at 09:30 (export order lines → summarise by SKU → post to the group). To
+read the AI's plan before it starts, tick **Let me review the plan before it
+runs** — see [Review the plan first](schedules.md#review-the-plan-first-optional).
 
 You don't restate "last month" each time: on every fire it works out the previous
 calendar month from the date then. Exporting Amazon reports is something the

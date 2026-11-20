@@ -783,7 +783,8 @@
       "stale": "计划需更新",
       "failed": "规划失败",
       "ready": "就绪",
-      "none": "未规划"
+      "none": "未规划",
+      "pending_approval": "待审批"
     },
     "planError": "规划错误",
     "plan": {
@@ -798,10 +799,11 @@
       "waitingForApproval": "规划任务等待你的审核与批准。",
       "explainer": {
         "ready": "计划已确认，之后每次执行都按这个计划来。",
-        "planning": "AI 正在生成计划。打开规划任务以审核并批准。",
+        "planning": "AI 正在写方案。写好后会请你在这里（以及页面顶部的提示条）审批。",
         "stale": "任务描述改过了，旧计划不再使用，请在下次执行前重新规划。",
-        "failed": "规划失败。请点击重新规划再次尝试。",
-        "none": "尚未生成计划。点击开始规划以创建一个。"
+        "failed": "方案没有写成功，请重新生成。",
+        "none": "尚未生成计划。点击开始规划以创建一个。",
+        "pending_approval": "AI 已写好方案。你同意之前不会运行任何内容。审批没有时限，随时都可以处理。"
       },
       "fanoutSerial": "各店铺按顺序逐个运行，不会同时占用浏览器。",
       "finalize": {
@@ -812,7 +814,16 @@
         "heading": "规划历史 ({{count}})",
         "empty": "没有历史规划尝试。",
         "attempt": "v{{n}} · {{status}} · {{when}}"
-      }
+      },
+      "waitingPill": "待你审批",
+      "approve": "同意并启用",
+      "requestChanges": "要求修改",
+      "feedbackPlaceholder": "方案哪里需要修改？",
+      "send": "发送",
+      "tryAgain": "重新生成方案",
+      "proposedHeading": "新方案",
+      "approvedHeading": "已批准的方案",
+      "approvedKeepsRunning": "在你同意新方案之前，仍按已批准的方案运行。"
     },
     "nextRun": "下次执行",
     "runs": "执行记录",
@@ -847,7 +858,13 @@
     "fanoutSerialDescription": "前一个店铺跑完才开始下一个，各店铺不会同时占用浏览器。适合每个店铺都要登录同一个平台后台的任务。",
     "modeLocked": "模式与店铺绑定在创建时固定，无法修改。",
     "defaultMode": "默认模式",
-    "defaultModeHelp": "新建「全部店铺」类定时任务时默认选中的模式。"
+    "defaultModeHelp": "新建「全部店铺」类定时任务时默认选中的模式。",
+    "reviewChip": "需审核",
+    "reviewPlan": {
+      "label": "运行前先让我审核方案",
+      "hint": "关闭：到点直接按你的说明运行。开启：AI 先写好方案，等你同意后才会运行。",
+      "turnOnNote": "保存后会暂停运行，直到你同意一个方案。"
+    }
   },
   "waiting": {
     "reason": "等待原因",
@@ -1088,5 +1105,10 @@
     "upgradeNotes": "升级须知",
     "expandRest": "展开其余 {{count}} 条",
     "viewFullChangelog": "在 GitHub 查看完整更新日志"
+  },
+  "planApprovalBanner": {
+    "message_one": "{{count}} 个定时任务的方案待你审批",
+    "message_other": "{{count}} 个定时任务的方案待你审批",
+    "action": "去审批"
   }
 }

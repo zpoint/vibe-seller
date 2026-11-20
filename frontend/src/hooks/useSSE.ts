@@ -509,13 +509,17 @@ export function useSSE({
           loadTasksRef.current?.()
           loadScheduleTasksRef.current?.()
         }
-        // Plan-lifecycle events: plan committed, aborted, or invalidated.
-        // Without these the left-panel badge (ScheduleList.PlanStatusBadge)
-        // and the SchedulePlanPanel remain stale — the API query that
-        // hydrates `schedules` isn't re-run, so plan_status='planning'
-        // sticks on-screen even after the DB row flipped to 'ready'.
+        // Plan-lifecycle events: a plan proposed (waits for approval),
+        // approved, changed, failed, or invalidated. Without these the
+        // left-panel badge (ScheduleList.PlanStatusBadge), the
+        // SchedulePlanPanel and the top approval banner (which refetches
+        // when `schedules` reloads) remain stale. `schedule_plan_timeout`
+        // is the retired name of `schedule_plan_failed`.
         if (
+          data.type === 'schedule_plan_pending_approval' ||
           data.type === 'schedule_plan_ready' ||
+          data.type === 'schedule_plan_changed' ||
+          data.type === 'schedule_plan_failed' ||
           data.type === 'schedule_plan_timeout' ||
           data.type === 'schedule_plan_stale'
         ) {

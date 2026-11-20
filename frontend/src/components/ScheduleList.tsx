@@ -14,6 +14,7 @@ interface ScheduleListProps {
 }
 
 const PLAN_STATUS_STYLES: Record<string, string> = {
+  pending_approval: 'bg-amber-200 text-amber-900',
   planning: 'bg-yellow-100 text-yellow-800',
   stale: 'bg-orange-100 text-orange-800',
   failed: 'bg-red-100 text-red-700',
@@ -21,14 +22,27 @@ const PLAN_STATUS_STYLES: Record<string, string> = {
 }
 
 function PlanStatusBadge({ schedule, t }: { schedule: Schedule; t: (k: string) => string }) {
+  // Auto schedules (no review) show nothing extra.
   if (!schedule.plan_mode || schedule.is_system) return null
   const s = schedule.plan_status
-  if (s === 'ready') return null
   const cls = PLAN_STATUS_STYLES[s] || 'bg-gray-100 text-gray-600'
   return (
-    <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${cls}`}>
-      {t(`schedules.planStatus.${s}`)}
-    </span>
+    <>
+      <span
+        className="px-1.5 py-0.5 text-[10px] rounded-full font-medium bg-sky-100 text-sky-800"
+        data-testid="schedule-review-chip"
+      >
+        {t('schedules.reviewChip')}
+      </span>
+      {s !== 'ready' && (
+        <span
+          className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${cls}`}
+          data-testid="schedule-plan-status-chip"
+        >
+          {t(`schedules.planStatus.${s}`)}
+        </span>
+      )}
+    </>
   )
 }
 

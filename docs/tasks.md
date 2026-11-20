@@ -330,7 +330,7 @@ Recurring tasks use the `Schedule` model + APScheduler with MemoryJobStore. The 
 - **Frontend**: TasksView sub-tabs (One-time / Scheduled), schedule detail panel with plan-status badge, Re-plan button, and stale/failed banner surfacing `plan_error`.
 - **Cron builder**: `build_cron_kwargs()` converts schedule_type + time + day → APScheduler trigger kwargs
 - **Stuck-planning reaper**: `app/scheduler/plan_reaper.py` runs every 5 min, fails schedules stuck in `plan_status='planning'` whose planner task has been idle >30 min. Skips tasks in `waiting` (legitimate user-input wait — handled by `waiting.py` with its 30-day timeout).
-- **SSE**: `schedule_triggered`, `fanout_triggered`, `schedule_skipped`, `schedule_waiting_cancelled`, `schedule_plan_ready`, `schedule_plan_timeout` — see [docs/events.md](events.md#sse-event-types)
+- **SSE**: `schedule_triggered`, `fanout_triggered`, `schedule_skipped`, `schedule_waiting_cancelled`, `schedule_plan_pending_approval`, `schedule_plan_ready`, `schedule_plan_changed`, `schedule_plan_failed` — see [docs/events.md](events.md#sse-event-types)
 
 ### Cross-run state (watermark / cursor)
 

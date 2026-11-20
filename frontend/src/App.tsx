@@ -9,6 +9,8 @@ import { useWsFiles } from './hooks/useWsFiles'
 import { useUpdateFlow } from './hooks/useUpdateFlow'
 import { useSessionKeepalive } from './hooks/useSessionKeepalive'
 import { useYuehulian } from './hooks/useYuehulian'
+import { useZiniaoAccounts } from './hooks/useZiniaoAccounts'
+import { PlanApprovalBanner } from './components/PlanApprovalBanner'
 import { useServerInfo } from './hooks/useServerInfo'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useMobileBackStack } from './hooks/useMobileBackStack'
@@ -31,11 +33,10 @@ import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSch
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
 import { submitCreateTask as submitCreateTaskHandler } from './handlers/submitCreateTask'
-import { fetchBrowserProfiles as fetchBrowserProfilesHandler, restartZiniao as restartZiniaoHandler } from './handlers/fetchBrowserProfiles'
 import { sendChatMessage as sendChatMessageHandler } from './handlers/sendChatMessage'
 import type {
   Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile,
-  WsStructured, ZiniaoAccount, ZiniaoBrowserProfile,
+  WsStructured,
   AppView, PendingFile, Schedule, EmailAccount, ConversationItem, StagedAttachment,
 } from './types'
 
@@ -87,19 +88,10 @@ export default function App() {
   const [newStoreBackend, setNewStoreBackend] = useState('chrome')
   const [showCreateStore, setShowCreateStore] = useState(false)
 
-  // Ziniao account state
-  const [ziniaoAccounts, setZiniaoAccounts] = useState<ZiniaoAccount[]>([])
-  const [selectedZiniaoAccountId, setSelectedZiniaoAccountId] = useState('')
-  const [ziniaoBrowsers, setZiniaoBrowsers] = useState<ZiniaoBrowserProfile[]>([])
-  const [selectedBrowserOauth, setSelectedBrowserOauth] = useState('')
-  const [fetchingBrowsers, setFetchingBrowsers] = useState(false)
-  const [browserFetchError, setBrowserFetchError] = useState('')
-  const [ziniaoRetried, setZiniaoRetried] = useState(false)
+  // Ziniao account state (hooks/useZiniaoAccounts)
+  const ziniao = useZiniaoAccounts()
+  const { selectedZiniaoAccountId, setSelectedZiniaoAccountId, setZiniaoBrowsers, selectedBrowserOauth, setSelectedBrowserOauth, loadZiniaoAccounts } = ziniao
   const { yuehulianStores, yuehulianError, fetchingYuehulian, fetchYuehulianStores, resetYuehulian } = useYuehulian()
-  const [showAddAccount, setShowAddAccount] = useState(false)
-  const [showAccountPassword, setShowAccountPassword] = useState(false)
-  const [editingAccountId, setEditingAccountId] = useState('')
-  const [newAccount, setNewAccount] = useState({ name: '', company: '', username: '', password: '' })
   const [showCreateTask, setShowCreateTask] = useState(false)
 
   // Agent state
@@ -332,7 +324,6 @@ export default function App() {
 
   // ─── Data loaders ──────────────────────────────────
   const loadStores = async (): Promise<Store[]> => { const f: Store[] = await api.get('/api/stores'); setStores(f); return f }
-  const loadZiniaoAccounts = async () => { try { setZiniaoAccounts(await api.get('/api/ziniao-accounts')) } catch { /* ignore */ } }
   const loadProfiles = async () => { try { const data = await api.get('/api/profiles'); setProfiles(data.profiles || []) } catch { setProfiles([]) } }
   const loadUsers = async () => { try { setAllUsers(await api.get('/api/users')) } catch { /* ignore */ } }
   const loadSchedules = async () => {
@@ -397,30 +388,6 @@ export default function App() {
   }
   const loadWsStructured = async () => { setWsStructured(await api.get('/api/workspace/structured')) }
   const loadSyncMeta = async () => { try { const s = await api.get('/api/sync/status') as { jobs?: Array<Record<string, unknown>>; needs_restart?: boolean }; setWsSyncMeta({ ...(s.jobs?.find(j => j.name === 'knowledge') ?? {}), needs_restart: s.needs_restart }) } catch { /* ignore */ } }
-
-  // ─── Ziniao helpers ────────────────────────────────
-  const createZiniaoAccount = async () => {
-    if (!newAccount.company.trim() || !newAccount.username.trim() || !newAccount.password.trim()) return
-    await api.post('/api/ziniao-accounts', { ...newAccount, name: newAccount.name.trim() || newAccount.company.trim() })
-    setNewAccount({ name: '', company: '', username: '', password: '' }); setShowAddAccount(false); await loadZiniaoAccounts()
-  }
-  const updateZiniaoAccount = async () => {
-    if (!editingAccountId || !newAccount.company.trim() || !newAccount.username.trim()) return
-    const body: Record<string, string> = { company: newAccount.company, username: newAccount.username, name: newAccount.name.trim() || newAccount.company.trim() }
-    if (newAccount.password.trim()) body.password = newAccount.password
-    await api.put(`/api/ziniao-accounts/${editingAccountId}`, body)
-    setNewAccount({ name: '', company: '', username: '', password: '' }); setEditingAccountId(''); setShowAddAccount(false); setBrowserFetchError('')
-    await loadZiniaoAccounts()
-    if (selectedZiniaoAccountId === editingAccountId) fetchBrowserProfiles(editingAccountId)
-  }
-  const deleteZiniaoAccount = async (accountId: string) => {
-    await api.del(`/api/ziniao-accounts/${accountId}`)
-    if (selectedZiniaoAccountId === accountId) { setSelectedZiniaoAccountId(''); setZiniaoBrowsers([]); setBrowserFetchError('') }
-    await loadZiniaoAccounts()
-  }
-  const browserProfilesDeps = { api, browserFetchError, setFetchingBrowsers, setZiniaoBrowsers, setSelectedBrowserOauth, setBrowserFetchError, setZiniaoRetried }
-  const fetchBrowserProfiles = (accountId: string) => fetchBrowserProfilesHandler(accountId, browserProfilesDeps)
-  const restartZiniao = (accountId: string) => restartZiniaoHandler(accountId, browserProfilesDeps)
 
   // ─── Store helpers ─────────────────────────────────
   const createStore = async () => {
@@ -611,7 +578,10 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-dvh bg-gray-100 text-gray-900">
+    <div className="flex flex-col h-dvh bg-gray-100 text-gray-900">
+    {/* Plans waiting for approval — above every view; opens the oldest. */}
+    <PlanApprovalBanner schedules={schedules} onOpen={(a) => navigate(scheduleTarget(a.store_id, a.schedule_id))} />
+    <div className="flex flex-1 min-h-0">
       {/* Mobile drawer scrim — tap to close the slide-in sidebar. */}
       {isMobile && navOpen && (
         <div
@@ -631,18 +601,18 @@ export default function App() {
         showProxy={showProxy} setShowProxy={setShowProxy}
         newStoreProxyServer={newStoreProxyServer} setNewStoreProxyServer={setNewStoreProxyServer}
         newStoreProxyBypass={newStoreProxyBypass} setNewStoreProxyBypass={setNewStoreProxyBypass}
-        ziniaoAccounts={ziniaoAccounts} selectedZiniaoAccountId={selectedZiniaoAccountId} setSelectedZiniaoAccountId={setSelectedZiniaoAccountId}
-        ziniaoBrowsers={ziniaoBrowsers} selectedBrowserOauth={selectedBrowserOauth} setSelectedBrowserOauth={setSelectedBrowserOauth}
-        fetchingBrowsers={fetchingBrowsers} browserFetchError={browserFetchError} setBrowserFetchError={setBrowserFetchError}
-        fetchBrowserProfiles={fetchBrowserProfiles} restartZiniao={restartZiniao} ziniaoRetried={ziniaoRetried}
+        ziniaoAccounts={ziniao.ziniaoAccounts} selectedZiniaoAccountId={selectedZiniaoAccountId} setSelectedZiniaoAccountId={setSelectedZiniaoAccountId}
+        ziniaoBrowsers={ziniao.ziniaoBrowsers} selectedBrowserOauth={selectedBrowserOauth} setSelectedBrowserOauth={setSelectedBrowserOauth}
+        fetchingBrowsers={ziniao.fetchingBrowsers} browserFetchError={ziniao.browserFetchError} setBrowserFetchError={ziniao.setBrowserFetchError}
+        fetchBrowserProfiles={ziniao.fetchBrowserProfiles} restartZiniao={ziniao.restartZiniao} ziniaoRetried={ziniao.ziniaoRetried}
         yuehulianStores={yuehulianStores} yuehulianError={yuehulianError} fetchingYuehulian={fetchingYuehulian} fetchYuehulianStores={fetchYuehulianStores}
         serverPlatform={serverPlatform} serverVersion={serverVersion} installId={installId}
         updateStatus={updateFlow.status} onOpenUpdate={updateFlow.openModal}
-        showAddAccount={showAddAccount} setShowAddAccount={setShowAddAccount}
-        showAccountPassword={showAccountPassword} setShowAccountPassword={setShowAccountPassword}
-        editingAccountId={editingAccountId} setEditingAccountId={setEditingAccountId}
-        newAccount={newAccount} setNewAccount={setNewAccount}
-        createZiniaoAccount={createZiniaoAccount} updateZiniaoAccount={updateZiniaoAccount} deleteZiniaoAccount={deleteZiniaoAccount}
+        showAddAccount={ziniao.showAddAccount} setShowAddAccount={ziniao.setShowAddAccount}
+        showAccountPassword={ziniao.showAccountPassword} setShowAccountPassword={ziniao.setShowAccountPassword}
+        editingAccountId={ziniao.editingAccountId} setEditingAccountId={ziniao.setEditingAccountId}
+        newAccount={ziniao.newAccount} setNewAccount={ziniao.setNewAccount}
+        createZiniaoAccount={ziniao.createZiniaoAccount} updateZiniaoAccount={ziniao.updateZiniaoAccount} deleteZiniaoAccount={ziniao.deleteZiniaoAccount}
         wsStructured={wsStructured} wsSelectedFile={wsSelectedFile}
         wsExpandedStores={wsExpandedStores} wsExpandedSkills={wsExpandedSkills}
         toggleStoreExpanded={toggleStoreExpanded} toggleSkillExpanded={toggleSkillExpanded}
@@ -795,6 +765,7 @@ export default function App() {
         />
       )}
       <UpdateFlow flow={updateFlow} isAdmin={currentUser?.role === 'admin'} />
+    </div>
     </div>
   )
 }

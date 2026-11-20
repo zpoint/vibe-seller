@@ -781,7 +781,8 @@
       "stale": "Plan stale",
       "failed": "Plan failed",
       "ready": "Ready",
-      "none": "No plan"
+      "none": "No plan",
+      "pending_approval": "Needs your approval"
     },
     "planError": "Planning error",
     "plan": {
@@ -796,10 +797,11 @@
       "waitingForApproval": "Planning task is awaiting your approval.",
       "explainer": {
         "ready": "Plan approved — every run follows it.",
-        "planning": "The AI is writing the plan. Open the planning task to review and approve it.",
+        "planning": "The AI is writing the plan. You'll be asked to approve it here (and in the banner at the top).",
         "stale": "The task description changed, so the old plan is no longer used. Re-plan before the next run.",
-        "failed": "The planner failed. Re-plan to try again.",
-        "none": "No plan has been authored yet. Start planning to create one."
+        "failed": "Writing the plan didn't work. Try again.",
+        "none": "No plan has been authored yet. Start planning to create one.",
+        "pending_approval": "The AI wrote this plan. Nothing runs until you approve it. Approval never expires."
       },
       "fanoutSerial": "Stores run one at a time, in order, so they never share the browser at the same moment.",
       "finalize": {
@@ -810,7 +812,16 @@
         "heading": "Planning history ({{count}})",
         "empty": "No prior planning attempts.",
         "attempt": "v{{n}} · {{status}} · {{when}}"
-      }
+      },
+      "waitingPill": "Waiting for your approval",
+      "approve": "Approve",
+      "requestChanges": "Request changes",
+      "feedbackPlaceholder": "What should change in the plan?",
+      "send": "Send",
+      "tryAgain": "Try again",
+      "proposedHeading": "New plan",
+      "approvedHeading": "Approved plan",
+      "approvedKeepsRunning": "The approved plan keeps running until you approve the new one."
     },
     "nextRun": "Next Run",
     "runs": "Runs",
@@ -845,7 +856,13 @@
     "fanoutSerialDescription": "Start each store only after the one before it has finished, so stores never share the browser at the same moment. Use it for work that drives the same marketplace portal in every store.",
     "modeLocked": "Mode and store are fixed at creation.",
     "defaultMode": "Default Mode",
-    "defaultModeHelp": "Default mode pre-selected when creating a new 'All Stores' schedule."
+    "defaultModeHelp": "Default mode pre-selected when creating a new 'All Stores' schedule.",
+    "reviewChip": "Review",
+    "reviewPlan": {
+      "label": "Let me review the plan before it runs",
+      "hint": "Off: it runs your instructions on schedule. On: the AI first writes a plan and waits for your OK before anything runs.",
+      "turnOnNote": "After saving, it stops running until you approve a plan."
+    }
   },
   "waiting": {
     "reason": "Waiting Reason",
@@ -1086,5 +1103,10 @@
     "upgradeNotes": "Upgrade notes",
     "expandRest": "Show {{count}} more",
     "viewFullChangelog": "View the full changelog on GitHub"
+  },
+  "planApprovalBanner": {
+    "message_one": "{{count}} scheduled task has a plan waiting for your approval",
+    "message_other": "{{count}} scheduled tasks have a plan waiting for your approval",
+    "action": "Review"
   }
 }
