@@ -14,6 +14,7 @@ Pins the invariants of the opt-in review design (docs/subsystems.md
 """
 
 import asyncio
+import json
 import uuid
 
 import pytest
@@ -365,3 +366,44 @@ class TestAttention:
         await approve_when_proposed(admin_client, sched_id)
         r = await admin_client.get('/api/schedules/attention')
         assert r.json()['plan_approvals'] == []
+
+
+class TestPlannerQuestions:
+    async def test_attention_lists_a_planner_waiting_on_an_answer(
+        self, admin_client, install_fake_agent
+    ):
+        """A planner that asked the owner a question cannot finish the
+        plan until it is answered — the banner must say so."""
+        sched_id = await _row(plan_mode=True, plan_status='planning')
+        async with _db.async_session() as db:
+            user = (await db.execute(select(User).limit(1))).scalars().first()
+            asking = Task(
+                title='planner',
+                created_by=user.id,
+                schedule_id=sched_id,
+                status='waiting',
+                plan_mode=True,
+                is_plan_only=True,
+                wait_condition=json.dumps({
+                    'pending_question': {
+                        'request_id': 'r1',
+                        'questions': [{'question': 'Which source?'}],
+                    }
+                }),
+            )
+            db.add(asking)
+            await db.flush()
+            row = await db.get(Schedule, sched_id)
+            row.current_planning_task_id = asking.id
+            await db.commit()
+            task_id = asking.id
+        r = await admin_client.get('/api/schedules/attention')
+        assert r.status_code == 200, r.text
+        assert r.json()['planner_questions'] == [
+            {
+                'schedule_id': sched_id,
+                'title': 't',
+                'store_id': None,
+                'task_id': task_id,
+            }
+        ]

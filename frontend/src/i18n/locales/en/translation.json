@@ -1107,6 +1107,9 @@
   "planApprovalBanner": {
     "message_one": "{{count}} scheduled task has a plan waiting for your approval",
     "message_other": "{{count}} scheduled tasks have a plan waiting for your approval",
-    "action": "Review"
+    "action": "Review",
+    "question_one": "The AI has a question about {{count}} scheduled task's plan",
+    "question_other": "The AI has questions about {{count}} scheduled tasks' plans",
+    "answer": "Answer"
   }
 }

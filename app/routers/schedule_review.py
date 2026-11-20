@@ -20,11 +20,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent_mcp.support import stored_pending_question
+from app.ai.claude_backend_manager import agent_manager
 from app.auth import get_current_user
 from app.config import AI_BOT_ROLE
 from app.database import get_db
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
+from app.models.task import Task
 from app.models.user import User
 from app.plan_states import PlanStatus
 from app.routers.schedule_planning import (
@@ -39,6 +42,7 @@ from app.schemas.schedule import (
     PlanApprovalItem,
     PlanApproveRequest,
     PlanChangesRequest,
+    PlannerQuestionItem,
     ScheduleAttentionResponse,
     ScheduleResponse,
 )
@@ -88,7 +92,8 @@ async def schedule_attention(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """What waits for a human: plans awaiting approval (the top banner)."""
+    """What waits for a human (the top banner): plans awaiting approval,
+    and planners waiting on an answer."""
     rows = (
         await db.execute(
             select(Schedule)
@@ -101,6 +106,7 @@ async def schedule_attention(
         )
     ).scalars()
     return ScheduleAttentionResponse(
+        planner_questions=await _planner_questions(db),
         plan_approvals=[
             PlanApprovalItem(
                 schedule_id=s.id,
@@ -110,8 +116,42 @@ async def schedule_attention(
                 proposed_at=s.updated_at,
             )
             for s in rows
-        ]
+        ],
     )
+
+
+async def _planner_questions(db: AsyncSession) -> list[PlannerQuestionItem]:
+    """Planning schedules whose planner is waiting on an answer.
+
+    The plan cannot be written until the owner answers, so this is as
+    much "waiting for you" as a plan awaiting approval — the banner
+    shows both. A live question is held by the agent session; one whose
+    agent was parked lives on the task row.
+    """
+    rows = (
+        await db.execute(
+            select(Schedule).where(
+                Schedule.plan_status == PlanStatus.PLANNING.value,
+                Schedule.current_planning_task_id.is_not(None),
+            )
+        )
+    ).scalars()
+    items = []
+    for sched in rows:
+        task_id = sched.current_planning_task_id
+        task = await db.get(Task, task_id)
+        if agent_manager.get_pending_questions(
+            task_id
+        ) or stored_pending_question(task):
+            items.append(
+                PlannerQuestionItem(
+                    schedule_id=sched.id,
+                    title=sched.title,
+                    store_id=sched.store_id,
+                    task_id=task_id,
+                )
+            )
+    return items
 
 
 @router.post('/{schedule_id}/plan/approve', response_model=ScheduleResponse)

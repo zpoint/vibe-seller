@@ -587,7 +587,7 @@ export default function App() {
   return (
     <div className="flex flex-col h-dvh bg-gray-100 text-gray-900">
     {/* Plans waiting for approval — above every view; opens the oldest. */}
-    <PlanApprovalBanner schedules={schedules} onOpen={(a) => navigate(scheduleTarget(a.store_id, a.schedule_id))} />
+    <PlanApprovalBanner schedules={schedules} onOpen={(a) => navigate(scheduleTarget(a.store_id, a.schedule_id))} onOpenQuestion={(q) => navigate({ to: '/tasks/$taskId', params: { taskId: q.task_id } })} />
     <div className="flex flex-1 min-h-0">
       {/* Mobile drawer scrim — tap to close the slide-in sidebar. */}
       {isMobile && navOpen && (

@@ -321,6 +321,10 @@ def install_fake_agent(fake_agent, monkeypatch):
         monkeypatch.setattr(
             'app.agent_mcp.tools_schedule_review.agent_manager', fake_agent
         )
+        # GET /attention reads planners' pending questions the same way.
+        monkeypatch.setattr(
+            'app.routers.schedule_review.agent_manager', fake_agent
+        )
     except ImportError:
         pass
     # Likewise the orphan reconciler: a live session means "running".

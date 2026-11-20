@@ -368,6 +368,15 @@ export interface PlanApprovalItem {
   proposed_at: string
 }
 
+/** A review schedule whose AI stopped to ask the user something while
+ * writing the plan (GET /api/schedules/attention). */
+export interface PlannerQuestionItem {
+  schedule_id: string
+  title: string
+  store_id: string | null
+  task_id: string
+}
+
 // ─── API tokens (external-agent access) ───────────────
 // A personal access token: an external agent (Claude Code, Codex,
 // WorkBuddy, …) presents it as `Authorization: Bearer vst_…` and acts

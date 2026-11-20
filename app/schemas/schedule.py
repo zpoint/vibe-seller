@@ -154,7 +154,18 @@ class PlanApprovalItem(BaseModel):
     proposed_at: str
 
 
+class PlannerQuestionItem(BaseModel):
+    """A review schedule whose planner stopped to ask the owner something."""
+
+    schedule_id: str
+    title: str
+    store_id: str | None = None
+    task_id: str
+
+
 class ScheduleAttentionResponse(BaseModel):
     """Payload for GET /api/schedules/attention (the top banner)."""
 
     plan_approvals: list[PlanApprovalItem] = []
+    # The plan cannot be written until these are answered.
+    planner_questions: list[PlannerQuestionItem] = []

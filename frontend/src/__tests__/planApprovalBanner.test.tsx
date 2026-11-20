@@ -81,3 +81,32 @@ describe('plan approval banner', () => {
     expect(banner.textContent).toContain('1 scheduled task has a plan waiting')
   })
 })
+
+describe('planner question banner', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('appears when a planner asks and opens its planning task', async () => {
+    window.history.pushState({}, '', '/tasks')
+    let questions: unknown[] = []
+    const { emit, router } = await bootApp({
+      route: (url: string) => {
+        if (url === '/api/schedules/attention') {
+          return { plan_approvals: [], planner_questions: questions }
+        }
+        return routeWith(() => [])(url)
+      },
+    })
+    expect(screen.queryByTestId('planner-question-banner')).toBeNull()
+    questions = [{
+      schedule_id: 'sch-old', title: 'Weekly check', store_id: 'store-a',
+      task_id: 'plan-task-1',
+    }]
+    // A question on any task re-checks what waits for the user.
+    emit({ type: 'task_questions', task_id: 'plan-task-1', request_id: 'r1', questions: [] })
+    const banner = await screen.findByTestId('planner-question-banner')
+    expect(banner.textContent).toContain("The AI has a question about 1 scheduled task's plan")
+    await act(async () => { fireEvent.click(banner) })
+    for (let i = 0; i < 5; i++) await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+    expect(router.state.location.pathname).toBe('/tasks/plan-task-1')
+  })
+})

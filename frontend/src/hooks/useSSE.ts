@@ -5,6 +5,7 @@ import { TASK_USAGE_FIELDS } from '../types'
 import { uuid } from '../uuid'
 import { patchById } from '../lib/patchById'
 import { NOTICE_ROLE, parseNotice } from '../lib/notice'
+import { ATTENTION_EVENT } from './useScheduleAttention'
 
 /** Finalize any streaming thinking block — set isStreaming to false. */
 function _finalizeThinking(items: ConversationItem[]): ConversationItem[] {
@@ -386,6 +387,11 @@ export function useSSE({
             if (prev && prev.id === data.task_id) setTodoItems(data.todos || [])
             return prev
           })
+        }
+        // The top banner counts planners waiting on an answer: a new
+        // question, or a status change (answered, ended), may change it.
+        if (data.type === 'task_questions' || (data.type === 'task_update' && data.status)) {
+          window.dispatchEvent(new Event(ATTENTION_EVENT))
         }
         if (data.type === 'task_questions') {
           setSelectedTask(prev => {

@@ -1109,6 +1109,9 @@
   "planApprovalBanner": {
     "message_one": "{{count}} 个定时任务的方案待你审批",
     "message_other": "{{count}} 个定时任务的方案待你审批",
-    "action": "去审批"
+    "action": "去审批",
+    "question_one": "{{count}} 个定时任务的 AI 有问题要问你",
+    "question_other": "{{count}} 个定时任务的 AI 有问题要问你",
+    "answer": "去回答"
   }
 }
