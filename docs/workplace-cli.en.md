@@ -151,14 +151,3 @@ Yes. Vibe Seller uses its own download with its own sign-in, separate
 from yours. That way, switching organizations on your personal account
 does not change what the team's tasks use.
 </details>
-
-<details markdown="1"><summary><b>Do these official programs report data?</b></summary>
-
-- DingTalk's program reports usage statistics by default; Vibe Seller
-  runs it with the official switch that turns this off;
-- WeCom's program sends caller information with every request (the
-  calling process and more, see its
-  [data collection notes](https://github.com/WecomTeam/wecom-cli/blob/main/docs/data-collection.md));
-  there is no official switch to turn it off;
-- Feishu's program sends its version and similar details with requests.
-</details>

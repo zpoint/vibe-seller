@@ -130,13 +130,3 @@ Vibe Seller 先试官方地址，不通时改用国内镜像，并自动选择�
 要。Vibe Seller 用的是它自己下载的那一份，登录也单独保存，和你个人
 用的互不影响。这样你个人账号切换组织时，团队的任务不会跟着变。
 </details>
-
-<details markdown="1"><summary><b>这些官方程序会上报数据吗？</b></summary>
-
-- 钉钉的程序默认会上报使用统计，Vibe Seller 运行它时已经按官方提供
-  的开关关掉；
-- 企业微信的程序每次请求都会带上调用来源信息（调用的进程等，见它的
-  [数据收集说明](https://github.com/WecomTeam/wecom-cli/blob/main/docs/data-collection.md)），
-  官方没有提供关闭的开关；
-- 飞书的程序请求时会带上程序版本等信息。
-</details>

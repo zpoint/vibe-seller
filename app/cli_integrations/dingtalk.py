@@ -12,7 +12,7 @@ Login    ``auth login --device --no-browser`` — a device code + link the
 
 Every run carries the switches the CLI documents for a managing host:
 its config + key store under ``tools/dingtalk/state`` (``DWS_CONFIG_DIR``
-/ ``DWS_KEYCHAIN_DIR``), no update check, no usage telemetry, and
+/ ``DWS_KEYCHAIN_DIR``), no update check, and
 ``DINGTALK_DWS_AGENTCODE`` so a missing permission comes back as an
 error instead of a browser opening on the server.
 """

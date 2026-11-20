@@ -365,7 +365,7 @@ Unlike `gws`, Vibe Seller **manages the CLI itself** — the Windows installer s
 | Skills | repo `main` (`skills/wecomcli-*`) — the command set is served at run time, the repo has no tags | tag `v<ver>` (`skills/lark-*`); fallback: open.feishu.cn's digest-verified hosted archives | release `dws-skills.zip` (`multi/dingtalk-*`), checksum-verified |
 | Login | `auth init --noninteractive --no-browser --output-qrcode` (QR + scan link, binds a smart bot) | `config init --new` (create the app) then `auth login --recommend --json` (device flow) | `auth login --device --no-browser --recommend` (device code; org admin must enable CLI access) |
 | Status | `auth show` (local) | `auth status` (local; exit 3 = not configured) | `auth status --format json --readonly` (local) |
-| Isolation env | `WECOM_CLI_CONFIG_DIR` | `LARKSUITE_CLI_{CONFIG,DATA,LOG}_DIR` + no update/skills notifier | `DWS_CONFIG_DIR` + `DWS_KEYCHAIN_DIR`, `DWS_NO_UPDATE_CHECK`, `DO_NOT_TRACK`, `DINGTALK_DWS_AGENTCODE`; macOS `DWS_DISABLE_KEYCHAIN` |
+| Isolation env | `WECOM_CLI_CONFIG_DIR` | `LARKSUITE_CLI_{CONFIG,DATA,LOG}_DIR` + no update/skills notifier | `DWS_CONFIG_DIR` + `DWS_KEYCHAIN_DIR`, `DWS_NO_UPDATE_CHECK`, `DINGTALK_DWS_AGENTCODE`; macOS `DWS_DISABLE_KEYCHAIN` |
 
 **State lives on disk, nowhere else** (`paths.py`): `tools/<key>/install.json` names the current version, `tools/<key>/versions/<version>/` holds that build, `tools/<key>/state/` holds the CLI's config + login (private to this `VIBE_HOME` — never the user's personal CLI login), and `.claude/skills/<key>/` is the umbrella. *Installed* = the manifest's binary exists; *enabled* = installed + umbrella. There is no DB flag.
 

@@ -174,7 +174,7 @@ class CliIntegration(ABC):
     def env(self, home: Path) -> dict[str, str]:
         """Extra env for every run of this CLI — the server's AND the
         agent's: where its config + login live (``paths.state_dir``,
-        under *home*), and its update / telemetry switches."""
+        under *home*), and its own switches (e.g. no update check)."""
         return {}
 
     @abstractmethod
