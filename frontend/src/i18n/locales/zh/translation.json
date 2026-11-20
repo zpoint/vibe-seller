@@ -656,7 +656,7 @@
       "urlRequired": "请填写 Webhook URL"
     },
     "cli": {
-      "title": "让 AI 使用企业微信 / 飞书 / 钉钉",
+      "title": "企业微信 / 飞书 / 钉钉",
       "description": "开通后，AI 可以直接在这个平台上帮你做事：发消息、读写文档和表格、安排日程和待办等。每个平台只连接一次，团队里所有人的任务都共用这次连接，建议用专门的工作账号登录。AI 只能使用这里开通了的平台。开通后每天自动更新到官方最新版本，不用手动更新。",
       "platform": {
         "wecom": "企业微信",
@@ -1092,7 +1092,7 @@
     "createdOnce": "请立即复制这个 API Key —— 它只显示这一次，之后无法再查看。",
     "serverAddress": "服务器地址",
     "serverAddressHint": "其他 AI 工具连接这台服务器用的地址，已自动填好；工具装在别的电脑上时请改填。",
-    "loopbackWarning": "这个地址只在本机可用（localhost / 127.0.0.1），其他电脑上的 AI 工具连不上 —— 请改填服务器的局域网或公网地址。",
+    "loopbackWarning": "这个地址只在本机可用（localhost / 127.0.0.1），其他电脑上的 AI 工具连不上。",
     "rawToken": "API Key",
     "rawTokenHint": "作为 Authorization: Bearer 请求头发送。",
     "tabApp": "界面操作",

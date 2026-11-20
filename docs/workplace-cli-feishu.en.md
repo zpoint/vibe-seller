@@ -13,8 +13,7 @@ approvals, contacts. The overview is at
 
 Two steps; the first is needed only once.
 
-1. Open Vibe Seller **Settings → Integrations** and, under **Let the AI
-   use WeCom / Feishu / DingTalk**, click **Connect** on the Feishu row.
+1. Open Vibe Seller **Settings → Integrations** and, under **WeCom / Feishu / DingTalk**, click **Connect** on the Feishu row.
    The first time it downloads Feishu's official program (about 14 MB).
 2. **Step 1 of 2: create a Feishu app.** A link appears; open it, sign
    in to Feishu and follow the prompts to create the app. The AI

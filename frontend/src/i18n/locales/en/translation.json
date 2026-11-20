@@ -654,7 +654,7 @@
       "urlRequired": "Webhook URL is required"
     },
     "cli": {
-      "title": "Let the AI use WeCom / Feishu / DingTalk",
+      "title": "WeCom / Feishu / DingTalk",
       "description": "Once a platform is connected, the AI can work in it for you: send messages, read and edit docs and sheets, manage calendars and to-dos. Each platform is connected once, and every teammate's tasks share that connection, so sign in with a dedicated work account. The AI can only use the platforms connected here. Connected platforms update to the official latest version every day; there is nothing to update by hand.",
       "platform": {
         "wecom": "WeCom",
@@ -1090,7 +1090,7 @@
     "createdOnce": "Copy this API key now — it is shown only once and cannot be retrieved later.",
     "serverAddress": "Server address",
     "serverAddressHint": "The address your AI tools use to reach this server — prefilled; change it if the tool runs on another computer.",
-    "loopbackWarning": "This address only works on this computer (localhost / 127.0.0.1). AI tools on other computers can't reach it — enter the server's LAN or public address instead.",
+    "loopbackWarning": "This address only works on this computer (localhost / 127.0.0.1). AI tools on other computers can't reach it.",
     "rawToken": "API key",
     "rawTokenHint": "Send this as an Authorization: Bearer header.",
     "tabApp": "In the app",

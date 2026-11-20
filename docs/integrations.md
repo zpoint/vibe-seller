@@ -6,7 +6,7 @@ description: 集成总览：Vibe Seller 能连接哪些外部服务、分别在�
 
 Vibe Seller 负责调度和执行任务；进入店铺、读取邮件、发送消息、生成图片等操作，需要通过外部服务完成。这一页回答三个问题：**能接入哪些服务**、**分别在哪里配置**、**按什么思路选择**。
 
-配置入口分三处：「设置 → 集成」（广告、API Key、群机器人、企业微信 / 飞书 / 钉钉 CLI、Google Workspace、滴答清单这六块，按此顺序排列）、「设置 → 邮箱」（独立标签页）、「设置 → AI」（图像生成在该页最下方）。
+配置入口分三处：「设置 → 集成」（广告、API Key、群机器人、企业微信 / 飞书 / 钉钉、Google Workspace、滴答清单这六块，按此顺序排列）、「设置 → 邮箱」（独立标签页）、「设置 → AI」（图像生成在该页最下方）。
 
 ## 能接入哪些服务
 
@@ -16,7 +16,7 @@ Vibe Seller 负责调度和执行任务；进入店铺、读取邮件、发送�
 | **Vibe Seller 广告 API 服务** | 广告读写直连接口，不点网页（仅亚马逊） | 「设置 → 集成 → Vibe Seller 广告 API 服务」，在店铺列表逐个点「授权」 | [广告 API 接入](ads-api.md) |
 | **邮件（IMAP / SMTP）** | 同步收件箱，AI 查信、归类、起草、代发 | 「设置 → 邮箱」→「添加邮箱」 | [邮件接入](email.md) |
 | **群机器人** | 把结果和告警发到群里，发文件仅企业微信 | 「设置 → 集成 → 群机器人」→「添加机器人」 | [群机器人](chat-bots.md) |
-| **企业微信 / 飞书 / 钉钉** | AI 用三家的官方程序写文档和表格、发消息、排日程、建待办 | 「设置 → 集成 → 让 AI 使用企业微信 / 飞书 / 钉钉」→「开通」 | [总览](workplace-cli.md) · [企业微信](workplace-cli-wecom.md) · [飞书](workplace-cli-feishu.md) · [钉钉](workplace-cli-dingtalk.md) |
+| **企业微信 / 飞书 / 钉钉** | AI 用三家的官方程序写文档和表格、发消息、排日程、建待办 | 「设置 → 集成 → 企业微信 / 飞书 / 钉钉」→「开通」 | [总览](workplace-cli.md) · [企业微信](workplace-cli-wecom.md) · [飞书](workplace-cli-feishu.md) · [钉钉](workplace-cli-dingtalk.md) |
 | **滴答清单 / TickTick** | AI 读写你的待办清单 | 「设置 → 集成 → 滴答清单 / TickTick」 | [滴答清单](ticktick.md) |
 | **Google Workspace** | Sheets、Drive、Gmail、Docs、Calendar | 「设置 → 集成 → Google Workspace」→「启用」 | [Google Workspace](google-workspace.md) |
 | **AI 图像生成** | 生成主图、信息图，可按参考图改图 | 「设置 → AI → 视觉（图片生成）」 | 见本页[AI 图像生成](#ai-图像生成) |

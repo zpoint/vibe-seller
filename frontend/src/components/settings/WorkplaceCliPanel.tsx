@@ -4,7 +4,7 @@ import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 
 /** Settings → Integrations: the official WeCom / Feishu / DingTalk CLIs.
- *  (Shown to users as "Let the AI use WeCom / Feishu / DingTalk" — the
+ *  (Shown to users as "WeCom / Feishu / DingTalk" — the
  *  page never says CLI; see integrations.cli in the locales.)
  *
  *  One row per platform. "Connect" downloads the CLI, runs its login

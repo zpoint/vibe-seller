@@ -14,8 +14,7 @@ meetings, creates to-dos and sends you messages. The overview is at
 You need a WeCom account (a company or a team you set up yourself can
 both register) and a Vibe Seller admin account.
 
-1. Open Vibe Seller **Settings → Integrations** and, under **Let the AI
-   use WeCom / Feishu / DingTalk**, click **Connect** on the WeCom row.
+1. Open Vibe Seller **Settings → Integrations** and, under **WeCom / Feishu / DingTalk**, click **Connect** on the WeCom row.
    The first time it downloads WeCom's official program (about 5 MB),
    usually in a few seconds.
 2. A QR code appears. Scan it with the WeCom app (it is valid for 5

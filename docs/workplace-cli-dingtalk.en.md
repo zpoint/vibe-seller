@@ -15,8 +15,7 @@ through [Admin: allow it in the DingTalk console](#admin).
 
 ## Steps
 
-1. Open Vibe Seller **Settings → Integrations** and, under **Let the AI
-   use WeCom / Feishu / DingTalk**, click **Connect** on the DingTalk
+1. Open Vibe Seller **Settings → Integrations** and, under **WeCom / Feishu / DingTalk**, click **Connect** on the DingTalk
    row. The first time it downloads DingTalk's official program (about
    20 MB).
 2. A link and a code appear:

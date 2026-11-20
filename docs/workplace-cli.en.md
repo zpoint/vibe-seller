@@ -42,8 +42,7 @@ Open the link the AI sends you in WeCom, and this is the document it made:
 
 Only Vibe Seller **admins** can connect, sign in again and disable.
 
-1. Open **Settings → Integrations**, find **Let the AI use WeCom /
-   Feishu / DingTalk** and click **Connect** on the platform's row:
+1. Open **Settings → Integrations**, find **WeCom / Feishu / DingTalk** and click **Connect** on the platform's row:
 
     ![Before connecting: one row per platform, each with a Connect button](images/workplace_card_off_en.png)
 
@@ -127,6 +126,18 @@ win over the official text:
   documents only when the task asks for it.
 
 ## FAQ
+
+<details markdown="1"><summary><b>How is a chat bot different from connecting WeCom / Feishu / DingTalk?</b></summary>
+
+|  | Chat bot | Connecting WeCom / Feishu / DingTalk |
+|---|---|---|
+| How you set it up | Paste the group bot's webhook URL — no sign-in, no authorization | An admin scans a QR code or opens a link and authorizes once |
+| What the AI can do | Only post messages to the one group the bot is in (WeCom bots can also send files) | Work fully within the authorized account's permissions: read and write docs, sheets, calendars, to-dos and mail, and send messages |
+| Can it read anything? | No, it only posts | Yes — what the authorized account can see |
+| Good for | Pushing task results, daily reports and reminders into a fixed group | Having the AI actually work on the platform: write docs, tidy sheets, schedule events, message people |
+
+Who it can message directly: see [Who the AI can message](#who-the-ai-can-message). You can use both: for example, the AI writes a document in WeCom, then the chat bot posts its link to your operations group.
+</details>
 
 <details markdown="1"><summary><b>The download failed?</b></summary>
 

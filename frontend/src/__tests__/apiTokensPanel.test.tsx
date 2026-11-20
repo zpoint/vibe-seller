@@ -228,6 +228,19 @@ describe('ApiTokensPanel', () => {
   })
 })
 
+describe('ApiTokenCreatedModal — close', () => {
+  it('the close button at the top right closes it', () => {
+    const onClose = vi.fn()
+    render(
+      <I18nextProvider i18n={i18nTestInstance}>
+        <ApiTokenCreatedModal token="vst_secret" onClose={onClose} />
+      </I18nextProvider>,
+    )
+    fireEvent.click(screen.getByTestId('api-token-created-close'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('ApiTokenCreatedModal — keyboard focus', () => {
   it('takes focus on open and gives it back on close', () => {
     const opener = document.createElement('button')
