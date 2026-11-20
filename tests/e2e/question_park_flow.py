@@ -265,10 +265,9 @@ def run_park_flow(
 
 
 def create_ready_schedule(api, base_url, store_id, title, prompt, ev, timeout):
-    """A store schedule with its plan authored and approved — the real
-    path: create → plan-only run → plan ready. Questions are answered
-    ONLY for that plan-authoring run (someone is reviewing it); the
-    scheduled fire itself is never answered."""
+    """A store schedule that can fire now: an auto schedule (the
+    default since plan review became opt-in), so "Run Now" runs the
+    prompt itself. Returns (schedule, planning task ids) — none here."""
     r = api.post(
         f'{base_url}/api/schedules',
         json={
@@ -278,38 +277,13 @@ def create_ready_schedule(api, base_url, store_id, title, prompt, ev, timeout):
             'schedule_type': 'days',
             'schedule_time': '03:00',
             'timezone': 'UTC',
-            'plan_mode': True,
         },
     )
     assert r.status_code in (200, 201), r.text
     sched = r.json()
+    assert sched.get('plan_mode') is False, sched
     ev.write_json('schedule-created.json', sched)
-    planning_ids: set[str] = set()
-    deadline = time.time() + timeout
-    s: dict = {}
-    while time.time() < deadline:
-        s = api.get(f'{base_url}/api/schedules/{sched["id"]}').json()
-        if s.get('plan_status') == 'ready':
-            ev.write_json('schedule-ready.json', s)
-            return s, planning_ids
-        planning = s.get('current_planning_task_id')
-        if planning:
-            planning_ids.add(planning)
-            q = pending(api, base_url, planning)
-            if q.get('pending'):
-                answers = {
-                    item['question']: (
-                        item.get('options') or [{'label': 'Proceed'}]
-                    )[0]['label']
-                    for item in q['questions']
-                }
-                ev.mark('answered_plan_question', task=planning[:8])
-                api.post(
-                    f'{base_url}/api/tasks/{planning}/questions/answer',
-                    json={'request_id': q['request_id'], 'answers': answers},
-                )
-        time.sleep(1)
-    raise AssertionError(f'schedule plan never became ready: {s}')
+    return sched, set()
 
 
 def run_decline_flow(
@@ -341,7 +315,7 @@ def run_decline_flow(
         page.locator('button', has_text=title).first.click()
         run_now = page.get_by_role('button', name='Run Now')
         expect(run_now).to_be_enabled(timeout=15000)
-        ev.shot(page, '01-schedule-plan-ready')
+        ev.shot(page, '01-schedule-ready-to-run')
         run_now.click()
         ev.mark('run_now_clicked')
 
