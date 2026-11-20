@@ -351,7 +351,7 @@ def decode_uploads(raw: object) -> list[tuple]:
     """Validate a whole ``attachments`` argument (list of uploads).
 
     The per-entry rules come from :func:`decode_upload` (the per-file
-    ceiling, the type allow-list, the base64 shape); the CALL-level
+    ceiling, the base64 shape; any file type); the CALL-level
     caps (count, total decoded bytes) live in
     :func:`attachment_problem` and are enforced at the dispatcher, so
     a tool that forgets this helper is still bounded.
