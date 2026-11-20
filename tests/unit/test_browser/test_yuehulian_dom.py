@@ -12,13 +12,18 @@ from pathlib import Path
 import pytest
 
 from app.browser.adapters.yuehulian_dom import (
+    CLICK_CLOSE_BROWSER_JS,
     CLICK_NEXT_PAGE_JS,
+    CONFIRM_DIALOG_JS,
     NAV_TO_STORE_LIST_JS,
+    OPEN_BATCH_MENU_JS,
     click_open_js,
     fill_team_login_js,
     is_logged_in_hash,
     parse_store_list,
     parse_store_list_json,
+    row_label_js,
+    select_only_row_js,
 )
 
 pytestmark = pytest.mark.unit
@@ -129,3 +134,33 @@ def test_fill_team_login_js_twist_injection_is_escaped():
     js = fill_team_login_js('t', 'a', 'p"; alert(1); //')
     assert json.dumps('p"; alert(1); //') in js
     assert ',p"; alert' not in js  # not injected raw into the call
+
+
+def test_rows_are_matched_by_the_exact_store_name():
+    """'test' must never match 'test-2': the row picked is the one with a
+    cell reading exactly the name — or a click/close lands on another
+    store."""
+    for js in (
+        click_open_js('test'),
+        row_label_js('test'),
+        select_only_row_js('test'),
+    ):
+        assert "(td.innerText||'').trim()===name" in js
+        assert '.includes(name)' not in js
+
+
+def test_select_only_row_refuses_unless_exactly_that_row_is_ticked():
+    js = select_only_row_js('store-a')
+    assert "'BADSELECT'" in js and "'NOTFOUND'" in js
+    assert 'n===1&&on[idx]' in js
+    assert json.dumps('store-a') in js
+
+
+def test_the_close_click_can_only_hit_the_close_browser_item():
+    """The same dropdown holds Delete / 解绑环境 — the match must be on the
+    close label alone."""
+    assert 'close_browser' in CLICK_CLOSE_BROWSER_JS
+    for dangerous in ('Delete', '删除', '解绑', 'Re-random'):
+        assert dangerous not in CLICK_CLOSE_BROWSER_JS
+    assert 'More Batch Operations' in OPEN_BATCH_MENU_JS
+    assert "'CONFIRMED'" in CONFIRM_DIALOG_JS

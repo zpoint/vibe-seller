@@ -62,7 +62,14 @@ GLOBAL_KILL_MARKERS = (
 
 def _client() -> httpx.Client:
     c = httpx.Client(base_url=BASE_URL, timeout=120, trust_env=False)
-    login(c)
+    try:
+        login(c)
+    except httpx.HTTPStatusError:
+        # A local server with sign-in turned off (Settings) needs no
+        # login — and its admin password is the user's own.
+        status = c.get('/api/auth/status').json()
+        if status.get('auth_required') is not False:
+            raise
     return c
 
 

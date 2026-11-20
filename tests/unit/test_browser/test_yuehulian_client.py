@@ -6,6 +6,7 @@ fakes for the process + inspector layers. asyncio.sleep is stubbed so the
 poll loops don't actually wait.
 """
 
+import asyncio
 from unittest import mock
 
 import pytest
@@ -13,10 +14,17 @@ import pytest
 import app.browser.adapters.yuehulian_client as mod
 from app.browser.adapters.yuehulian_client import RealYuehulianClient
 from app.browser.adapters.yuehulian_dom import (
+    CLEAR_SELECTION_JS,
+    CLICK_CLOSE_BROWSER_JS,
     CLICK_NEXT_PAGE_JS,
+    CONFIRM_DIALOG_JS,
     LOGIN_HASH_JS,
     NAV_TO_STORE_LIST_JS,
+    OPEN_BATCH_MENU_JS,
     SCRAPE_STORES_JS,
+    click_open_js,
+    row_label_js,
+    select_only_row_js,
 )
 from app.browser.inject.errors import (
     CdpUnreachable,
@@ -241,20 +249,122 @@ async def test_open_store_no_port_is_cdp_unreachable():
         await _open(_FakeProc(port=None), insp)
 
 
-async def test_open_store_already_open_is_cdp_unreachable_not_not_found():
-    # The store exists but its env is already open ('Opened') — the client
-    # won't spawn a fresh debug-port kernel, so CDP can't attach. Report it
-    # clearly (CdpUnreachable), NOT a misleading StoreNotFound, and still
-    # clean up the spawn hook. The happy path above (click 'OK:0' → spawn →
-    # success) is the negative control for this branch.
-    insp = _FakeInspector(click='ALREADYOPEN:Opened')
+class _StaleEnvInspector(_FakeInspector):
+    """The client lists the store as 'Opened' though nothing of ours runs
+    it — what a restarted client shows for an env it was killed with. Its
+    own batch "close browser" (select row → menu → close → confirm) flips
+    the row back to 'Open'."""
+
+    def __init__(self, *, close_item=True, select='OK:0', **kw):
+        super().__init__(**kw)
+        self.stale = True
+        self.close_item = close_item
+        self.select = select
+        self.calls: list[str] = []
+
+    async def eval_in_renderer(self, js, **kw):
+        if js == select_only_row_js('store-a'):
+            self.calls.append('select-only')
+            return self.select
+        if js == OPEN_BATCH_MENU_JS:
+            self.calls.append('batch-menu')
+            return 'OK'
+        if js == CLICK_CLOSE_BROWSER_JS:
+            self.calls.append('close')
+            return 'CLICKED' if self.close_item else 'NOITEM:Delete|解绑环境'
+        if js == CONFIRM_DIALOG_JS:
+            self.calls.append('confirm')
+            self.stale = False
+            return 'CONFIRMED'
+        if js == row_label_js('store-a'):
+            return 'Opened' if self.stale else 'Open'
+        if js == CLEAR_SELECTION_JS:
+            self.calls.append('clear-selection')
+            return 'OK'
+        if js == click_open_js('store-a'):
+            self.calls.append('click-open')
+            if self.stale:
+                return 'ALREADYOPEN:Opened'
+        return await super().eval_in_renderer(js, **kw)
+
+
+async def test_a_leftover_open_env_is_closed_in_the_client_and_reopened():
+    """The user's requirement: if the 悦互联 client was closed (or crashed)
+    mid-task, the next browser use must bring the browser back by itself.
+    A restarted client still lists the env as 'Opened' — close it there,
+    then open it again with a debug port. Was: CdpUnreachable, forever,
+    until a human closed it."""
+    insp = _StaleEnvInspector(udd='C:\\udd\\x')
+    opened = await _open(_FakeProc(port=9444), insp)
+    assert opened.cdp_port == 9444
+    assert insp.calls == [
+        'click-open',
+        'select-only',
+        'batch-menu',
+        'close',
+        'confirm',
+        'clear-selection',
+        'click-open',
+    ]
+    assert insp.installed and insp.uninstalled
+
+
+async def test_when_the_env_cannot_be_closed_it_is_reported_clearly():
+    """No close action (a client UI change): report it as CdpUnreachable —
+    not a misleading StoreNotFound — leave nothing ticked, and still
+    remove the spawn hook."""
+    insp = _StaleEnvInspector(close_item=False)
     with pytest.raises(CdpUnreachable):
         await _open(_FakeProc(), insp)
-    with pytest.raises(StoreNotFound):
-        # sanity: the two are distinct outcomes, not the same raise
-        insp2 = _FakeInspector(click='NOTFOUND')
-        await _open(_FakeProc(), insp2)
+    assert 'clear-selection' in insp.calls
+    assert insp.calls.count('click-open') == 1
     assert insp.installed and insp.uninstalled
+    with pytest.raises(StoreNotFound):
+        await _open(_FakeProc(), _FakeInspector(click='NOTFOUND'))
+
+
+async def test_a_row_that_cannot_be_ticked_alone_is_never_batch_closed():
+    """The batch close acts on every ticked row; if the selection is not
+    exactly this store's row, nothing is closed."""
+    insp = _StaleEnvInspector(select='BADSELECT')
+    with pytest.raises(CdpUnreachable):
+        await _open(_FakeProc(), insp)
+    assert 'batch-menu' not in insp.calls and 'close' not in insp.calls
+
+
+async def test_one_driver_of_the_client_gui_at_a_time():
+    """Store setup's list and a task's open act on the same client window;
+    their inspector sessions must not interleave."""
+    real_sleep = asyncio.sleep
+    events: list[str] = []
+
+    class _Recording(_FakeInspector):
+        def __init__(self, tag, **kw):
+            super().__init__(**kw)
+            self.tag = tag
+
+        async def open(self, pid):
+            events.append(f'open-{self.tag}')
+            await real_sleep(0.05)
+
+        async def close(self):
+            await real_sleep(0.05)
+            events.append(f'close-{self.tag}')
+
+    a, b = _Recording('list'), _Recording('open', udd='C:\\u')
+    with (
+        mock.patch.object(mod, 'ProcessLayer', return_value=_FakeProc()),
+        mock.patch.object(mod, 'InspectorSession', side_effect=[a, b]),
+        mock.patch.object(mod.asyncio, 'sleep', new=mock.AsyncMock()),
+    ):
+        await asyncio.gather(
+            RealYuehulianClient({}).list_stores(),
+            RealYuehulianClient({}).open_store('store-a'),
+        )
+    assert events in (
+        ['open-list', 'close-list', 'open-open', 'close-open'],
+        ['open-open', 'close-open', 'open-list', 'close-list'],
+    ), events
 
 
 async def test_list_stores_waits_for_the_table_to_render():
