@@ -147,15 +147,18 @@ class TestPlanModeToggle:
         assert r3.status_code == 200
         assert r3.json()['plan_mode'] is False
 
-    async def test_toggle_updates_user_default(
+    async def test_toggle_changes_only_this_task(
         self, admin_client, install_fake_agent
     ):
-        """Toggling plan_mode also updates user's default."""
+        """Switching one task's mode never changes the user's default:
+        the next task still starts in the mode set in Settings."""
         store_r = await admin_client.post(
             '/api/stores', json={'name': 'Default Store'}
         )
         assert store_r.status_code == 200
         store_id = store_r.json()['id']
+        before = (await admin_client.get('/api/auth/me')).json()
+        assert before['plan_mode_default'] is False
 
         r = await admin_client.post(
             '/api/tasks',
@@ -167,34 +170,36 @@ class TestPlanModeToggle:
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id)
 
-        await admin_client.patch(
+        r = await admin_client.patch(
             f'/api/tasks/{task_id}/review-plan',
             json={'plan_mode': True},
         )
+        assert r.status_code == 200
+        assert r.json()['plan_mode'] is True
         me = await admin_client.get('/api/auth/me')
-        assert me.json()['plan_mode_default'] is True
+        assert me.json()['plan_mode_default'] is False
+
+        r2 = await admin_client.post(
+            '/api/tasks',
+            json={'title': 'Next task', 'store_id': store_id},
+        )
+        assert r2.json()['plan_mode'] is False
 
     async def test_user_default_propagates_to_new_task(
         self, admin_client, install_fake_agent
     ):
-        """New store tasks inherit plan_mode from user default."""
+        """New store tasks inherit plan_mode from the user default, which
+        is set in Settings → General (PATCH /api/auth/me/profile)."""
         store_r = await admin_client.post(
             '/api/stores', json={'name': 'Propagate Store'}
         )
         assert store_r.status_code == 200
         store_id = store_r.json()['id']
 
-        r = await admin_client.post(
-            '/api/tasks',
-            json={'title': 'Seed task', 'store_id': store_id},
+        r = await admin_client.patch(
+            '/api/auth/me/profile', json={'plan_mode_default': True}
         )
-        task_id = r.json()['id']
-        await wait_for_task(admin_client, task_id)
-
-        await admin_client.patch(
-            f'/api/tasks/{task_id}/review-plan',
-            json={'plan_mode': True},
-        )
+        assert r.status_code == 200, r.text
 
         r2 = await admin_client.post(
             '/api/tasks',

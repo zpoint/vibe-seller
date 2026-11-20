@@ -100,7 +100,7 @@ Click **Create & Run**. The agent plans the steps, drives the browser itself, an
 - **Auto**: skip review, run immediately
 - **Review**: draft a plan, run after approval
 
-Switching it once also saves it as your default (you can set that up front in **Settings → General → Task Defaults → Default Execution Mode**). For your very first task, **Review** is the friendlier choice: read what the agent plans to do, then hit **Confirm & Execute**.
+The switch changes only that task; what new tasks start in is set in **Settings → General → Task Defaults → Default Execution Mode**. For your very first task, **Review** is the friendlier choice: read what the agent plans to do, then hit **Confirm & Execute**.
 
 A task created under **All Stores** (the last row of the store list, subtitled "No Store") isn't bound to any one store. Those tasks always draft a plan for your approval first — that can't be switched off. They get a generic Chrome with no store logged into it for public web work, and anything that has to open a seller console is split into per-store sub-tasks. The two scopes are explained side by side in [Core Concepts](concepts.md).
 

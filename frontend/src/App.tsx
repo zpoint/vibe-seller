@@ -649,7 +649,7 @@ export default function App() {
           stopAgent={stopAgent} retryTask={retryTask} continueTask={continueTask} deleteTask={deleteTask}
           selectAnswer={selectAnswer} toggleOtherInput={toggleOtherInput}
           setOtherAnswer={setOtherAnswer} submitAllAnswers={submitAllAnswers} submitImageDecision={submitImageDecision} sendChatMessage={sendChatMessage}
-          setSelectedTask={setSelectedTask} setTasks={setTasks} setCurrentUser={setCurrentUser}
+          setSelectedTask={setSelectedTask} setTasks={setTasks}
           setEditingProfile={setEditingProfile} setShowProfileModal={setShowProfileModal}
           questionBannerRef={questionBannerRef}
           taskSubTab={taskSubTab} setTaskSubTab={setTaskSubTab}

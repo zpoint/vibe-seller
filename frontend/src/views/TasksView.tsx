@@ -81,7 +81,6 @@ export interface TasksViewProps {
   sendChatMessage: () => Promise<void> | void
   setSelectedTask: React.Dispatch<React.SetStateAction<Task | null>>
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
-  setCurrentUser: React.Dispatch<React.SetStateAction<AuthUser | null>>
   setEditingProfile: (p: Profile | undefined) => void
   setShowProfileModal: (v: boolean) => void
   questionBannerRef: React.RefObject<HTMLDivElement | null>
@@ -152,7 +151,6 @@ export function TasksView({
   sendChatMessage,
   setSelectedTask,
   setTasks,
-  setCurrentUser,
   setEditingProfile,
   setShowProfileModal,
   questionBannerRef,
@@ -704,7 +702,7 @@ export function TasksView({
                       await api.patch(`/api/tasks/${id}/review-plan`, { plan_mode: newVal })
                       setSelectedTask(prev => prev && prev.id === id ? { ...prev, plan_mode: newVal } : prev)
                       setTasks(prev => prev.map(t2 => t2.id === id ? { ...t2, plan_mode: newVal } : t2))
-                      setCurrentUser(prev => prev ? { ...prev, plan_mode_default: newVal } : prev)
+                      // Only this task: the default lives in Settings → General.
                     })
                   }
                   return selectedTask.store_id ? (

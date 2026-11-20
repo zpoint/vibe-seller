@@ -138,6 +138,7 @@ and the reveal endpoint below.
 | POST | `/api/tasks/{task_id}/agent/stop` | Stop agent |
 | POST | `/api/tasks/{task_id}/design` | Start design agent |
 | POST | `/api/tasks/{task_id}/execute-plan` | Execute planned task (plan mode only) |
+| PATCH | `/api/tasks/{task_id}/review-plan` | Body `{plan_mode}`. Switch THIS task between auto and review-the-plan-first (the task-detail footer switch). Never changes the user's default (`plan_mode_default`, set via `PATCH /api/auth/me/profile`). 400 when turning plan mode off on a no-store task. |
 | GET | `/api/tasks/{task_id}/questions/pending` | The question the task waits on: live in the session, being parked, or parked on a WAITING row (`source: live\|parked`); `{pending: false}` otherwise |
 | POST | `/api/tasks/{task_id}/questions/answer` | Answer agent question (batch). Live session → delivered in-process (`{ok: true}`); parked question → written as the user's turn, task re-queued and resumed (`{ok: true, resumed: true}`); an answer that races a timed-out wait waits for the park first |
 | POST | `/api/tasks/{task_id}/result` | Record task result summary (agent-only via MCP `vibe_seller_set_task_result`). Does NOT transition status; `_auto_run_task` handles that. |

@@ -247,7 +247,6 @@ describe('TasksView Run Now button reflects scheduleTasks', () => {
     deleteTask: vi.fn(),
     submitImageDecision: vi.fn(),
     setTasks: vi.fn(),
-    setCurrentUser: vi.fn(),
     setEditingProfile: vi.fn(),
     setShowProfileModal: vi.fn(),
     taskSubTab: 'scheduled',
