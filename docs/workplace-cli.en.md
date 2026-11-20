@@ -30,10 +30,9 @@ In the demo store, create a task: "Check the store's units and revenue
 per SKU for the last 7 days, put them in a table in a new WeCom
 document, and send me the link on WeCom." The AI reads the store's
 back office, creates the WeCom document and sends the link to your
-WeCom (a fake back office with demo data; waits are sped up; Chinese
-UI):
+WeCom (a fake back office with demo data; waits are sped up):
 
-![Demo: the AI reads the store's sales, writes a WeCom document and sends it to you (sped up)](images/workplace_demo_zh.gif)
+![Demo: the AI reads the store's sales, writes a WeCom document and sends it to you (sped up)](images/workplace_demo_en.gif)
 
 ## Connect
 

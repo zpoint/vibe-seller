@@ -86,3 +86,13 @@ It sends as the account that authorized and finds people by name in
 your organization's contacts. People not in the contacts (for example,
 outside your organization) can't be messaged.
 </details>
+
+<details markdown="1"><summary><b>The AI says it sent the message, but I don't see it in DingTalk?</b></summary>
+
+If the recipient is the account DingTalk was authorized with, the
+message is from you to yourself: it lands in your chat with yourself,
+with no notification and without moving to the top of your chat list.
+Search your own name in DingTalk and open the chat with yourself. For
+the AI to message you like a colleague would, authorize DingTalk with a
+dedicated work account.
+</details>
