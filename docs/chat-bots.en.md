@@ -145,6 +145,18 @@ too if you no longer want it.
 
 ## FAQ
 
+<details markdown="1"><summary><b>How is a chat bot different from connecting WeCom / Feishu / DingTalk?</b></summary>
+
+|  | Chat bot | Connecting WeCom / Feishu / DingTalk |
+|---|---|---|
+| How you set it up | Paste the group bot's webhook URL — no sign-in, no authorization | An admin scans a QR code or opens a link and authorizes once |
+| What the AI can do | Only post messages to the one group the bot is in (WeCom bots can also send files) | Work fully within the authorized account's permissions: read and write docs, sheets, calendars, to-dos and mail, and send messages |
+| Can it read anything? | No, it only posts | Yes — what the authorized account can see |
+| Good for | Pushing task results, daily reports and reminders into a fixed group | Having the AI actually work on the platform: write docs, tidy sheets, schedule events, message people |
+
+To connect, see [WeCom / Feishu / DingTalk](workplace-cli.en.md). You can use both: for example, the AI writes a document in WeCom, then the chat bot posts its link to your operations group.
+</details>
+
 <details markdown="1"><summary><b>What do the test errors mean?</b></summary>
 
 The Test button shows the platform's own reply; the platform's error

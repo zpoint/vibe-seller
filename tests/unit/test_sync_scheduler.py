@@ -142,6 +142,7 @@ async def test_plugin_sync_jobs_are_registered_alongside_core(
         'presets',
         'vision_catalog',
         'model_pricing',
+        'workplace_clis',
         'email',
         'daemon_reaper',
         'plugin_thing',
@@ -619,7 +620,12 @@ async def test_ready_times_out_instead_of_holding_a_launch(sched, state):
 # ── the two switches: only outside sources can be stopped ─────────
 
 GITHUB_MAIN_JOBS = {'skills', 'knowledge', 'presets', 'vision_catalog'}
-EXTERNAL_JOBS = {'model_pricing', 'ads_skill', 'vision_catalog'}
+EXTERNAL_JOBS = {
+    'model_pricing',
+    'ads_skill',
+    'vision_catalog',
+    'workplace_clis',
+}
 SWITCHES = ('VIBE_GITHUB_MAIN_SYNC', 'VIBE_EXTERNAL_SYNC')
 
 

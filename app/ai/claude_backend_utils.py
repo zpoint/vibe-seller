@@ -13,6 +13,11 @@ import uuid
 from sqlalchemy import func, select
 
 from app.ai.skill_gate_utils import find_skill_md
+from app.cli_integrations.registry import (
+    enabled_bin_dirs,
+    enabled_env as enabled_cli_env,
+    ensure_guard as ensure_cli_guard,
+)
 from app.config import WEB_BROWSER_SLUG
 from app.env_options import Options
 from app.models.task_message import TaskMessage
@@ -320,6 +325,19 @@ def apply_agent_venv_path(
     """
     if server_bin is None:
         server_bin = Path(sys.executable).parent
+    # 4. enabled workplace CLIs (app.cli_integrations) — above whatever
+    #    the server inherited, so the managed binary (whose version the
+    #    skill documents) wins over a user's own npm install; only the
+    #    ENABLED ones, so the agent finds exactly the CLIs it has skills
+    #    for. Their switches (e.g. no update checks) ride along.
+    # 4a. their guard first (lower): a DISABLED platform's name errors
+    #     instead of reaching a personal install on the inherited PATH.
+    cli_guard = ensure_cli_guard(vibe_home)
+    if cli_guard is not None:
+        prepend_to_path(env, cli_guard)
+    for cli_bin in enabled_bin_dirs(vibe_home):
+        prepend_to_path(env, cli_bin)
+    env.update(enabled_cli_env(vibe_home))
     # 3. server venv (lowest of ours) — browser-use.exe / app fallback.
     if server_bin.is_dir():
         prepend_to_path(env, server_bin)

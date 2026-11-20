@@ -532,6 +532,9 @@ SINGLETON_SURFACES = {
     'the ads binding of every store row': ('/api/ads/stores/sync',),
     'the shared knowledge tree': ("VIBE_SELLER_DIR / 'knowledge'",),
     'a direct write into app_settings': ('INTO app_settings',),
+    # Enabling one puts a skill into EVERY task workspace and a CLI on
+    # every agent's PATH; its login is one per install.
+    'the workplace CLI integrations': ('/api/integrations/cli',),
 }
 
 OWNERSHIP_TOKENS = ('owned_agent_stack', 'OwnServer(')

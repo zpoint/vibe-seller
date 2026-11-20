@@ -83,6 +83,7 @@
     "taskDetails": "Task Details",
     "titleLabel": "Title",
     "titlePlaceholder": "Enter task title",
+    "createAndRun": "Create & Run",
     "descriptionPlaceholder": "Enter task description",
     "promptLabel": "Task description",
     "promptHint": "The title is generated automatically. Ctrl/⌘+Enter to submit.",
@@ -244,7 +245,9 @@
     "tryAgain": "Try again",
     "actionFailed": "That did not go through: {{error}}",
     "actionTimeout": "The server did not answer in time — the action may not have gone through. Refresh to see the task's current state.",
-    "loadingConversation": "Loading the conversation…"
+    "loadingConversation": "Loading the conversation…",
+    "generatedFiles": "Generated Files",
+    "downloadZip": "Download All (ZIP)"
   },
   "events": {
     "title": "Events",
@@ -649,6 +652,76 @@
       "deleteConfirm": "Delete bot \"{{name}}\"?",
       "nameRequired": "Name is required",
       "urlRequired": "Webhook URL is required"
+    },
+    "cli": {
+      "title": "WeCom / Feishu / DingTalk",
+      "description": "Once a platform is connected, the AI can work in it for you: send messages, read and edit docs and sheets, manage calendars and to-dos. Each platform is connected once, and every teammate's tasks share that connection, so sign in with a dedicated work account. The AI can only use the platforms connected here. Connected platforms update to the official latest version every day; there is nothing to update by hand.",
+      "platform": {
+        "wecom": "WeCom",
+        "feishu": "Feishu (Lark)",
+        "dingtalk": "DingTalk"
+      },
+      "version": "version {{version}}",
+      "notInstalled": "Not connected",
+      "notSignedIn": "Not signed in",
+      "signedInAs": "Signed in as {{identity}}",
+      "enabled": "The AI can use it",
+      "disabled": "The AI can't use it yet",
+      "connect": "Connect",
+      "working": "Working…",
+      "downloading": "Downloading. The first connection can take a few minutes…",
+      "relogin": "Sign in again",
+      "disable": "Disable",
+      "cancel": "Cancel",
+      "step": "Step {{step}}/{{steps}}:",
+      "preparing": "Getting the sign-in ready…",
+      "finishing": "Signed in. Finishing the setup…",
+      "userCode": "Code:",
+      "qrAlt": "Sign-in QR code",
+      "loginFailed": "The sign-in didn't finish. Click {{button}} to try again.",
+      "loginError": {
+        "timeout": "The sign-in took too long and was cancelled. Click {{button}} to start over.",
+        "enable_failed": "Signed in, but the AI can't use it yet. Click {{button}} to try again."
+      },
+      "hint": {
+        "open_url": "Open the link below and confirm the sign-in.",
+        "scan_wecom": "Scan the QR code below with the WeCom app and follow the steps to create a smart bot (the code works for 5 minutes). The AI then uses WeCom as that bot.",
+        "feishu_app": "Open the link below and follow the steps to create a Feishu app. You only do this once; it is how the AI connects to Feishu.",
+        "feishu_auth": "Open the link below and approve with your Feishu account.",
+        "dingtalk_auth": "Open the link below, pick your organization and confirm. If DingTalk says you don't have access yet, an admin of your organization has to allow it first; the steps will show here."
+      },
+      "notice": {
+        "feishu_missing_scopes": "Connected. Your Feishu admin has restricted these permissions, so the features that need them won't work yet: {{detail}}. Nothing else is affected. If you need those features, ask your Feishu admin to allow these permissions, then click {{button}}.",
+        "feishu_no_refresh_token": "Connected, but this sign-in can't renew itself: what the AI does as your Feishu account stops working at {{detail}}, and you will have to sign in again; what it does as the Feishu app is not affected. To keep the sign-in working, ask the admin of the Feishu app to open the link below, turn on \"Refresh user_access_token\" in the app's security settings, create and publish a new version, then click {{button}}.",
+        "dingtalk_cli_access": "DingTalk hasn't allowed Vibe Seller to use your organization's data yet. An admin of your DingTalk organization has to turn it on in the DingTalk developer console; clicking {{button}} again won't fix it. Ask the admin to:"
+      },
+      "noticeSteps": {
+        "dingtalk_cli_access": [
+          "Open the 「CLI设置」 (CLI settings) link below and sign in by scanning with DingTalk. In the console it is under 「更多」 (More) → 「基本信息」 (Basic info) → 「CLI设置」 on the left.",
+          "Check that the switch at the top right of 「DWS CLI管理」 (DWS CLI management) says 「已开启」 (On).",
+          "Under 「Agent管理」 (Agent management), turn on the 「其他渠道」 (Other channels) row. Vibe Seller counts as 「其他渠道」, which DingTalk keeps off by default.",
+          "If that row's 「生效范围」 (Scope) is not 「全员可用」 (Everyone), click 「设置」 (Settings) and add the DingTalk account used to sign in.",
+          "DingTalk takes a few minutes to apply it. Then come back and click {{button}} to sign in again."
+        ]
+      },
+      "orgAdmins": "Primary admins: {{names}}",
+      "helpLink": {
+        "dingtalk_cli_access": "Open DingTalk's 「CLI设置」 page",
+        "feishu_no_refresh_token": "Open the Feishu app's security settings",
+        "default": "Open the link"
+      },
+      "officialGuide": "DingTalk's permission guide (in Chinese)",
+      "error": {
+        "not_installed": "{{name}} isn't connected yet. Click Connect.",
+        "not_signed_in": "{{name}} isn't signed in yet. Click Connect and follow the steps.",
+        "in_use": "{{name}}'s program files are in use (a task may be using them). Try again in a moment.",
+        "does_not_run": "This computer can't run {{name}}'s official program. For WeCom on Windows, install the Microsoft VC++ runtime first (the download link is in the FAQ on the WeCom / Feishu / DingTalk page of the help docs), then click Connect again; otherwise, send the details below to support.",
+        "unsupported": "{{name}} has no official version for this computer's system, so it can't be connected here for now.",
+        "download_failed": "The download didn't work, or the downloaded file failed the official check (such a file is never installed). Check that this computer is online (turn on your proxy first if you use one), then click Connect again.",
+        "unexpected": "That didn't work. Try again in a moment; if it keeps happening, send the details below to support.",
+        "load": "Couldn't load the connection status. Refresh the page."
+      },
+      "details": "Details"
     }
   },
   "stores": {
@@ -997,7 +1070,6 @@
   "apiTokens": {
     "title": "API keys",
     "description": "An API key lets your other AI tools (Claude Code, Codex, WorkBuddy, Qoder, …) connect to Vibe Seller to create and follow tasks for you. It has the same permissions as you, so keep it safe.",
-    "authNotRequiredNote": "This server does not require a login, so an API key is not needed to connect to it. API keys still work — create one now and it keeps working if you turn login on later.",
     "newToken": "New API key",
     "createToken": "Create API key",
     "name": "Name",
@@ -1018,7 +1090,7 @@
     "createdOnce": "Copy this API key now — it is shown only once and cannot be retrieved later.",
     "serverAddress": "Server address",
     "serverAddressHint": "The address your AI tools use to reach this server — prefilled; change it if the tool runs on another computer.",
-    "loopbackWarning": "This address only works on this computer (localhost / 127.0.0.1). AI tools on other computers can't reach it — enter the server's LAN or public address instead.",
+    "loopbackWarning": "This address only works on this computer (localhost / 127.0.0.1). AI tools on other computers can't reach it.",
     "rawToken": "API key",
     "rawTokenHint": "Send this as an Authorization: Bearer header.",
     "tabApp": "In the app",

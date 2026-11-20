@@ -58,6 +58,11 @@ class TelemetryEvent:
 
     INTEGRATION_GWS_ENABLED = 'integration_gws_enabled'
     INTEGRATION_GWS_DISABLED = 'integration_gws_disabled'
+    # Workplace CLIs (app/cli_integrations): props {platform}.
+    INTEGRATION_CLI_INSTALLED = 'integration_cli_installed'
+    INTEGRATION_CLI_LOGIN_STARTED = 'integration_cli_login_started'
+    INTEGRATION_CLI_ENABLED = 'integration_cli_enabled'
+    INTEGRATION_CLI_DISABLED = 'integration_cli_disabled'
 
     ADMIN_USER_CREATED = 'admin_user_created'
     ADMIN_USER_DELETED = 'admin_user_deleted'

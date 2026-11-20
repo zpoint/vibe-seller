@@ -45,10 +45,10 @@ const TOKEN = {
   expires_at: null,
 }
 
-function renderPanel(authRequired = true) {
+function renderPanel() {
   return render(
     <I18nextProvider i18n={i18nTestInstance}>
-      <ApiTokensPanel authRequired={authRequired} />
+      <ApiTokensPanel />
     </I18nextProvider>,
   )
 }
@@ -92,16 +92,6 @@ describe('ApiTokensPanel', () => {
     renderPanel()
     const row = await screen.findByTestId('api-token-row-tok-1')
     expect(row.textContent).toContain('Never')
-  })
-
-  it('shows the no-login note only when the server does not require auth', async () => {
-    const { unmount } = renderPanel(true)
-    await waitFor(() => expect(mockApi.apiTokens.list).toHaveBeenCalled())
-    expect(screen.queryByTestId('api-tokens-auth-off-note')).toBeNull()
-    unmount()
-
-    renderPanel(false)
-    expect(await screen.findByTestId('api-tokens-auth-off-note')).toBeTruthy()
   })
 
   it('mints with a never-expiring default', async () => {
@@ -235,6 +225,19 @@ describe('ApiTokensPanel', () => {
     await waitFor(() =>
       expect(mockApi.apiTokens.revoke).toHaveBeenCalledWith('tok-1'),
     )
+  })
+})
+
+describe('ApiTokenCreatedModal — close', () => {
+  it('the close button at the top right closes it', () => {
+    const onClose = vi.fn()
+    render(
+      <I18nextProvider i18n={i18nTestInstance}>
+        <ApiTokenCreatedModal token="vst_x" onClose={onClose} />
+      </I18nextProvider>,
+    )
+    fireEvent.click(screen.getByTestId('api-token-created-close'))
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
 

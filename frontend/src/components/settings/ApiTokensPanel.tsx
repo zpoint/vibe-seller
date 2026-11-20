@@ -4,13 +4,6 @@ import { apiTokens } from '../../api'
 import type { ApiToken } from '../../types'
 import { ApiTokenCreatedModal } from './ApiTokenCreatedModal'
 
-interface ApiTokensPanelProps {
-  /** Whether the server requires a login. When it doesn't, a token is
-   *  not needed to talk to it — but tokens still work, so the page
-   *  says so instead of pretending they are required. */
-  authRequired: boolean
-}
-
 /** Expiry choices, in days. `null` = never expires. The API's own
  *  default is 90 days when the field is omitted, so the form always
  *  sends it explicitly — and the form's default is "never". */
@@ -35,7 +28,7 @@ const formatDate = (iso: string | null, locale: string): string => {
  *
  *  Self-contained (own fetch/save), rendered as the first card of the
  *  Integrations tab — it is what MCP clients need. */
-export function ApiTokensPanel({ authRequired }: ApiTokensPanelProps) {
+export function ApiTokensPanel() {
   const { t, i18n } = useTranslation()
   const cardRef = useRef<HTMLDivElement>(null)
   const [tokens, setTokens] = useState<ApiToken[]>([])
@@ -126,15 +119,6 @@ export function ApiTokensPanel({ authRequired }: ApiTokensPanelProps) {
           </button>
         </div>
         <p className="text-xs text-gray-500">{t('apiTokens.description')}</p>
-
-        {!authRequired && (
-          <p
-            data-testid="api-tokens-auth-off-note"
-            className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800"
-          >
-            {t('apiTokens.authNotRequiredNote')}
-          </p>
-        )}
 
         {error && (
           <p data-testid="api-tokens-error" className="mt-3 text-xs text-red-600">

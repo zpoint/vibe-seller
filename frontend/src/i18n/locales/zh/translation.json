@@ -83,6 +83,7 @@
     "taskDetails": "任务详情",
     "titleLabel": "标题",
     "titlePlaceholder": "请输入任务标题",
+    "createAndRun": "创建并运行",
     "descriptionPlaceholder": "请输入任务描述",
     "promptLabel": "任务描述",
     "promptHint": "标题会自动生成。Ctrl/⌘+Enter 提交。",
@@ -246,7 +247,9 @@
     "tryAgain": "重试",
     "actionFailed": "操作未完成：{{error}}",
     "actionTimeout": "服务器未及时响应，操作可能没有生效。请刷新查看任务的当前状态。",
-    "loadingConversation": "正在加载对话…"
+    "loadingConversation": "正在加载对话…",
+    "generatedFiles": "生成的文件",
+    "downloadZip": "全部下载（ZIP）"
   },
   "events": {
     "title": "事件",
@@ -651,6 +654,76 @@
       "deleteConfirm": "确认删除机器人“{{name}}”？",
       "nameRequired": "请填写名称",
       "urlRequired": "请填写 Webhook URL"
+    },
+    "cli": {
+      "title": "企业微信 / 飞书 / 钉钉",
+      "description": "开通后，AI 可以直接在这个平台上帮你做事：发消息、读写文档和表格、安排日程和待办等。每个平台只连接一次，团队里所有人的任务都共用这次连接，建议用专门的工作账号登录。AI 只能使用这里开通了的平台。开通后每天自动更新到官方最新版本，不用手动更新。",
+      "platform": {
+        "wecom": "企业微信",
+        "feishu": "飞书",
+        "dingtalk": "钉钉"
+      },
+      "version": "版本 {{version}}",
+      "notInstalled": "未开通",
+      "notSignedIn": "还没登录",
+      "signedInAs": "已登录：{{identity}}",
+      "enabled": "AI 可以使用",
+      "disabled": "AI 还不能使用",
+      "connect": "开通",
+      "working": "处理中…",
+      "downloading": "正在下载，第一次开通可能要等几分钟…",
+      "relogin": "重新登录",
+      "disable": "停用",
+      "cancel": "取消",
+      "step": "第 {{step}}/{{steps}} 步：",
+      "preparing": "正在准备登录…",
+      "finishing": "登录成功，正在开通，请稍候…",
+      "userCode": "验证码：",
+      "qrAlt": "登录二维码",
+      "loginFailed": "登录没有完成，请点「{{button}}」再试一次。",
+      "loginError": {
+        "timeout": "等了太久还没完成登录，已经自动取消。请点「{{button}}」重新开始。",
+        "enable_failed": "已经登录，但 AI 还不能使用。请点「{{button}}」再试一次。"
+      },
+      "hint": {
+        "open_url": "打开下面的链接，确认登录。",
+        "scan_wecom": "用企业微信 App 扫描下面的二维码，按提示创建一个智能机器人（二维码 5 分钟内有效）。之后 AI 会以这个机器人的身份使用企业微信。",
+        "feishu_app": "打开下面的链接，按提示创建一个飞书应用。只需要做一次，AI 通过它连接飞书。",
+        "feishu_auth": "打开下面的链接，用你的飞书账号确认授权。",
+        "dingtalk_auth": "打开下面的链接，选择你的组织并确认授权。如果钉钉提示你还没有权限，要组织管理员先在钉钉后台放行，这里会显示具体步骤。"
+      },
+      "notice": {
+        "feishu_missing_scopes": "已经连接好了。不过飞书管理员限制了下面这些权限，用到它们的功能暂时不能用：{{detail}}。其他功能不受影响。如果需要这些功能，请飞书管理员放开这些权限，然后回来点「{{button}}」。",
+        "feishu_no_refresh_token": "已经连接好了，但这次登录不能自动续期：用你的飞书账号做的操作到 {{detail}} 就会失效，之后需要重新登录；以飞书应用身份做的操作不受影响。要让登录一直有效，请飞书应用的管理员打开下面的链接，在「安全设置」里开启「刷新 user_access_token」，创建并发布新版本，然后回来点「{{button}}」。",
+        "dingtalk_cli_access": "钉钉还没有允许 Vibe Seller 使用你们组织的数据。这要钉钉组织的管理员在钉钉开发者后台打开，再点「{{button}}」解决不了。请管理员按下面的步骤操作："
+      },
+      "noticeSteps": {
+        "dingtalk_cli_access": [
+          "用钉钉扫码登录，打开下面的「钉钉开发者后台 · CLI设置」链接（在后台里的位置：导航栏「更多」→「基本信息」→ 左侧「CLI设置」）。",
+          "确认「DWS CLI管理」右上角的开关是「已开启」。",
+          "在「Agent管理」里，打开「其他渠道」这一行的开关。Vibe Seller 属于「其他渠道」，钉钉默认把它关着。",
+          "如果这一行的「生效范围」不是「全员可用」，点「设置」，把用来授权的钉钉账号加进去。",
+          "钉钉的设置要几分钟才生效。之后回到这里点「{{button}}」，重新授权。"
+        ]
+      },
+      "orgAdmins": "组织主管理员：{{names}}",
+      "helpLink": {
+        "dingtalk_cli_access": "打开钉钉开发者后台 · CLI设置",
+        "feishu_no_refresh_token": "打开飞书应用的安全设置",
+        "default": "打开链接"
+      },
+      "officialGuide": "钉钉官方权限说明",
+      "error": {
+        "not_installed": "{{name}}还没开通，请点「开通」。",
+        "not_signed_in": "{{name}}还没登录，请点「开通」，按提示登录。",
+        "in_use": "{{name}}的程序文件正在被占用（可能有任务正在使用），请稍后再试。",
+        "does_not_run": "这台电脑运行不了{{name}}的官方程序。如果是 Windows 电脑上的企业微信，请先安装微软 VC++ 运行库（下载链接在帮助文档「企业微信 / 飞书 / 钉钉」一页的常见问题里），再点「开通」；其他情况请把下面的详细信息发给技术支持。",
+        "unsupported": "{{name}}官方没有提供适用于这台电脑系统的版本，暂时没法在这台电脑上开通。",
+        "download_failed": "下载没有成功，或者下载到的文件没有通过官方校验（这样的文件不会被安装）。请检查这台电脑能不能上网（平时用代理的话先打开代理），然后再点「开通」。",
+        "unexpected": "没能完成，请稍后再试。如果一直这样，请把下面的详细信息发给技术支持。",
+        "load": "没能读取连接状态，请刷新页面。"
+      },
+      "details": "详细信息"
     }
   },
   "stores": {
@@ -999,7 +1072,6 @@
   "apiTokens": {
     "title": "API Key",
     "description": "用 API Key 可以让其他 AI 工具（Claude Code、Codex、WorkBuddy、Qoder 等）连接 Vibe Seller，帮你创建和跟进任务。它和你本人有一样的权限，请妥善保管。",
-    "authNotRequiredNote": "这台服务器当前不要求登录，所以连接时并不需要 API Key。API Key 仍然可用 —— 现在创建一个，之后开启登录也能继续用。",
     "newToken": "新建 API Key",
     "createToken": "创建 API Key",
     "name": "名称",
@@ -1020,7 +1092,7 @@
     "createdOnce": "请立即复制这个 API Key —— 它只显示这一次，之后无法再查看。",
     "serverAddress": "服务器地址",
     "serverAddressHint": "其他 AI 工具连接这台服务器用的地址，已自动填好；工具装在别的电脑上时请改填。",
-    "loopbackWarning": "这个地址只在本机可用（localhost / 127.0.0.1），其他电脑上的 AI 工具连不上 —— 请改填服务器的局域网或公网地址。",
+    "loopbackWarning": "这个地址只在本机可用（localhost / 127.0.0.1），其他电脑上的 AI 工具连不上。",
     "rawToken": "API Key",
     "rawTokenHint": "作为 Authorization: Bearer 请求头发送。",
     "tabApp": "界面操作",

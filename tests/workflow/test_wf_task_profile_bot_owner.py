@@ -181,7 +181,15 @@ class TestHumanCreatedTaskUnaffected:
 
 
 class TestPlanningTaskUsesResolvedProfile:
-    """spawn_planning_task authored plans on the empty-env profile."""
+    """spawn_planning_task authored plans on the empty-env profile.
+
+    spawn_planning_task also launches the task. With the real agent
+    backend that launch outlived the test: cancelled at teardown, it
+    was still unwinding past the drain's bound, and destroying it closed
+    the shared connection under the engine's drop ("Cannot operate on a
+    closed database" at teardown). The fake agent keeps the launch
+    in-process and cancellable, like every other test in this file.
+    """
 
     async def _schedule(self, db, ai_profile_id, created_by):
         sched = Schedule(
@@ -202,7 +210,11 @@ class TestPlanningTaskUsesResolvedProfile:
         return sched
 
     async def test_unpinned_plan_task_uses_owner_profile(
-        self, override_async_session, mock_workspace, isolated_profiles
+        self,
+        override_async_session,
+        install_fake_agent,
+        mock_workspace,
+        isolated_profiles,
     ):
         async with override_async_session() as db:
             bot, _ = await _seed(db)
@@ -213,7 +225,11 @@ class TestPlanningTaskUsesResolvedProfile:
             assert task.ai_profile_id == THIRD_PARTY
 
     async def test_pinned_plan_task_keeps_its_pin(
-        self, override_async_session, mock_workspace, isolated_profiles
+        self,
+        override_async_session,
+        install_fake_agent,
+        mock_workspace,
+        isolated_profiles,
     ):
         async with override_async_session() as db:
             bot, _ = await _seed(db)

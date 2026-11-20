@@ -18,6 +18,7 @@ from app.api_token_scope import ApiTokenScopeMiddleware
 from app.browser import chromium_engine
 from app.browser.manager import browser_manager
 from app.channels import wecom_channel as wecom_channel  # registers channel
+from app.cli_integrations.login import login_manager as cli_login_manager
 from app.config import (
     BACKEND_PORT,
     CORS_ORIGINS,
@@ -47,6 +48,7 @@ from app.routers.auth import router as auth_router
 from app.routers.browser import router as browser_router
 from app.routers.channels import router as channels_router
 from app.routers.chat_bots import router as chat_bots_router
+from app.routers.cli_integrations import router as cli_integrations_router
 from app.routers.cron import router as cron_router
 from app.routers.dida365_oauth import (
     refresh_token_if_needed as _refresh_dida365_token,
@@ -339,6 +341,8 @@ async def lifespan(app: FastAPI):
                 pass
     # Kills an in-flight `playwright install` child.
     await chromium_engine.stop()
+    # A workplace-CLI login waiting for a scan must not outlive us.
+    await cli_login_manager.shutdown()
     await task_queue_scheduler.stop()
     stop_scheduler()
     # In-flight sync runs are OUR asyncio tasks, not APScheduler's —
@@ -429,6 +433,7 @@ app.include_router(profiles_router)
 app.include_router(dida365_oauth_router)
 app.include_router(ws_assistant_router)
 app.include_router(chat_bots_router)
+app.include_router(cli_integrations_router)
 app.include_router(system_router)
 app.include_router(vision_router)
 # Hosted MCP endpoint for external agents (see app/agent_mcp/). Mounted

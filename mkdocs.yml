@@ -135,8 +135,10 @@ plugins:
             Amazon Ads API: 广告 API 绑定
             Email: 邮件
             Chat Bots: 群机器人
+            WeCom / Feishu / DingTalk: 企业微信 / 飞书 / 钉钉
             MCP Overview: MCP 接入总览
             Chat Bot Overview: 群机器人总览
+            WeCom / Feishu / DingTalk Overview: 企业微信 / 飞书 / 钉钉总览
             # Per-platform pages under 群机器人; the tool names under MCP
             # 接入 (Claude / Codex / …) stay as names in both languages.
             WeCom: 企业微信
@@ -225,6 +227,11 @@ nav:
               - DingTalk: chat-bots-dingtalk.md
               - Feishu / Lark: chat-bots-feishu.md
               - Slack: chat-bots-slack.md
+          - WeCom / Feishu / DingTalk:
+              - WeCom / Feishu / DingTalk Overview: workplace-cli.md
+              - WeCom: workplace-cli-wecom.md
+              - Feishu / Lark: workplace-cli-feishu.md
+              - DingTalk: workplace-cli-dingtalk.md
       - Examples:
           - All Examples: examples.md
           - Daily Email Digest to WeCom: example-email-wecom.md

@@ -285,7 +285,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
             disabled={!modalPrompt.trim() || modalCreating}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {modalCreating ? t('common.loading') : showAllTasks ? t('common.create') : 'Create & Run'}
+            {modalCreating ? t('common.loading') : showAllTasks ? t('common.create') : t('tasks.createAndRun')}
           </button>
         </div>
       </div>

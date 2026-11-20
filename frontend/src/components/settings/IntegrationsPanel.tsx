@@ -6,6 +6,7 @@ import { ChatBotSection } from '../ChatBotSection'
 import { ApiTokensPanel } from './ApiTokensPanel'
 import { Dida365Panel } from './Dida365Panel'
 import { AmazonAdsPanel } from './AmazonAdsPanel'
+import { WorkplaceCliPanel } from './WorkplaceCliPanel'
 
 interface GwsStatusDetail {
   auth_method?: string
@@ -31,12 +32,8 @@ interface GwsStatus {
 
 export function IntegrationsPanel({
   isAdmin = false,
-  authRequired = true,
 }: {
   isAdmin?: boolean
-  /** Passed through to ApiTokensPanel — whether the server requires a
-   *  login (it says so instead of pretending keys are required). */
-  authRequired?: boolean
 }) {
   const { t } = useTranslation()
   const [status, setStatus] = useState<GwsStatus | null>(null)
@@ -85,11 +82,12 @@ export function IntegrationsPanel({
 
   return (
     <div className="space-y-4">
-      {/* Order: ads service, API keys, chat bots, Google Workspace,
-          TickTick. */}
+      {/* Order: ads service, API keys, chat bots, workplace CLIs,
+          Google Workspace, TickTick. */}
       <AmazonAdsPanel />
-      <ApiTokensPanel authRequired={authRequired} />
+      <ApiTokensPanel />
       <ChatBotSection isAdmin={isAdmin} />
+      <WorkplaceCliPanel isAdmin={isAdmin} />
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <h3 className="font-semibold mb-1">{t('integrations.gws.title')}</h3>
         <p className="text-xs text-gray-500 mb-3">{t('integrations.gws.description')}</p>

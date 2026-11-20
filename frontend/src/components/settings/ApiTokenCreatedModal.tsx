@@ -350,12 +350,25 @@ export function ApiTokenCreatedModal({ token, onClose }: Props) {
         data-testid="api-token-created-panel"
         className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-6 shadow-xl outline-none"
       >
-        <h2
-          id="api-token-created-title"
-          className="text-lg font-semibold text-gray-900"
-        >
-          {t('apiTokens.createdTitle')}
-        </h2>
+        {/* Sticky, so the title and the close button stay in view while
+            the long list of tool snippets scrolls under them. */}
+        <div className="sticky -top-6 z-10 -mx-6 -mt-6 flex items-start justify-between gap-3 bg-white px-6 pb-1 pt-6">
+          <h2
+            id="api-token-created-title"
+            className="text-lg font-semibold text-gray-900"
+          >
+            {t('apiTokens.createdTitle')}
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label={t('common.close')}
+            title={t('common.close')}
+            data-testid="api-token-created-close"
+            className="-mr-1 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
         <p className="mt-2 text-sm text-amber-700">{t('apiTokens.createdOnce')}</p>
 
         <div className="mt-4">

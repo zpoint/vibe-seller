@@ -89,6 +89,21 @@ and the reveal endpoint below.
 | POST | `/api/settings/google-workspace/enable` | Admin only. Validates prereqs (400 if gws missing or unauthenticated), runs `gws generate-skills`, installs the 19-skill umbrella at `.claude/skills/gws/`, sets `google_workspace_enabled=true` |
 | POST | `/api/settings/google-workspace/disable` | Admin only. Idempotent. Removes `.claude/skills/gws/` and clears the flag |
 
+## `cli_integrations.py` — Workplace CLIs (WeCom / Feishu / DingTalk)
+
+`{key}` ∈ `wecom`, `feishu`, `dingtalk`. Design: [workspace.md § Workplace CLIs](workspace.md#workplace-clis-wecom--feishu--dingtalk).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/integrations/cli` | Any signed-in user. One card per platform: `{key, title, binary, homepage, installed, version, enabled, auth: {usable, reason, identity, detail} \| null, login: {state, step, steps} \| null}` — a running login's link / code / QR are NOT in the list |
+| POST | `/api/integrations/cli/{key}/install` | Admin only. Download (or update to) the current release for this OS/arch, verify its checksum, prove it runs, flip `tools/{key}/install.json`; an enabled platform also gets the new version's skills. Errors carry `detail = {code, message}`: `code` ∈ `not_installed`, `not_signed_in`, `in_use`, `does_not_run`, `unsupported` (400), `download_failed` (502: download or integrity failure, each candidate URL named in `message`), `unexpected` (500); the page shows its own sentence for the code. The page calls it only to connect a platform: installed platforms are kept current by the daily `workplace_clis` sync job (`POST /api/sync/workplace_clis/run` runs it now) |
+| POST | `/api/integrations/cli/{key}/login` | Admin only. Body `{enable_after?: bool}`. Start (or restart) the CLI's own login; returns the view `{state: starting\|waiting\|succeeded\|failed\|cancelled, finishing, url, user_code, qr, message, step, steps, hint, error, notices}` — `hint` / `error` (`timeout`, `enable_failed`) / each notice's `key` are i18n keys of the page (`integrations.cli.*`); `notices` is `[{key, detail, url}]` (e.g. `feishu_missing_scopes`, `feishu_no_refresh_token`, `dingtalk_cli_access`); `message` is the technical line the page folds under Details. With `enable_after`, the server enables the platform when the login succeeds; `finishing` is true from the sign-in until that is done, and the outcome is final only once it is false. A platform that is signed in already signs in again ("Sign in again") |
+| GET | `/api/integrations/cli/{key}/login` | Admin only. The running login's view (404 when none) |
+| GET | `/api/integrations/cli/{key}/login/qr` | Admin only. The QR PNG once the CLI reported it saved (WeCom); `Cache-Control: no-store` |
+| DELETE | `/api/integrations/cli/{key}/login` | Admin only. Cancel the login (kills the CLI process tree) |
+| POST | `/api/integrations/cli/{key}/enable` | Admin only. 400 unless installed AND signed in. Installs the umbrella skill of the installed version at `.claude/skills/{key}/` — the agent then gets the skill and the CLI on its PATH |
+| POST | `/api/integrations/cli/{key}/disable` | Admin only. Removes the umbrella; binary and login are kept |
+
 ## `users.py` — User Management (admin only)
 
 | Method | Path | Description |
