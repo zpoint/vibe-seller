@@ -821,7 +821,8 @@
       "tryAgain": "Try again",
       "proposedHeading": "New plan",
       "approvedHeading": "Approved plan",
-      "approvedKeepsRunning": "The approved plan keeps running until you approve the new one."
+      "approvedKeepsRunning": "The approved plan keeps running until you approve the new one.",
+      "yourFeedback": "Changes you asked for:"
     },
     "nextRun": "Next Run",
     "runs": "Runs",

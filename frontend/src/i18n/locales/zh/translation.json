@@ -823,7 +823,8 @@
       "tryAgain": "重新生成方案",
       "proposedHeading": "新方案",
       "approvedHeading": "已批准的方案",
-      "approvedKeepsRunning": "在你同意新方案之前，仍按已批准的方案运行。"
+      "approvedKeepsRunning": "在你同意新方案之前，仍按已批准的方案运行。",
+      "yourFeedback": "你的修改意见："
     },
     "nextRun": "下次执行",
     "runs": "执行记录",

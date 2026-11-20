@@ -175,6 +175,7 @@ export function SchedulePlanPanel({
   const revising = !!planText && REVISION_STATES.includes(status)
   const planVersion = plan?.plan_version ?? schedule.plan_version
   const planError = plan?.plan_error ?? schedule.plan_error
+  const planFeedback = plan?.plan_feedback ?? schedule.plan_feedback ?? null
   const planningTaskId =
     plan?.current_planning_task_id ?? schedule.current_planning_task_id
   const history = plan?.planning_task_history ?? []
@@ -275,6 +276,15 @@ export function SchedulePlanPanel({
       {planError && (
         <div className="mx-4 mb-3 px-3 py-2 text-xs font-mono bg-red-50 border border-red-100 text-red-800 rounded break-all">
           {planError}
+        </div>
+      )}
+
+      {/* The changes the user asked for, while the AI revises the plan
+      and while the revision waits — so they can check it was done. */}
+      {planFeedback && (status === 'planning' || status === 'pending_approval') && (
+        <div className="mx-4 mb-3 px-3 py-2 text-xs bg-white/70 border border-amber-200 rounded text-gray-700" data-testid="plan-feedback-shown">
+          <span className="font-medium">{t('schedules.plan.yourFeedback')}</span>{' '}
+          <span className="whitespace-pre-wrap">{planFeedback}</span>
         </div>
       )}
 

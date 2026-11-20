@@ -389,6 +389,14 @@ describe('SchedulePlanPanel', () => {
       expect(screen.queryByTestId('plan-approved-keeps-running')).toBeNull()
     })
 
+    it('shows the changes the user asked for next to the revision', async () => {
+      mockGet.mockResolvedValue({ ...pending, plan_feedback: 'Skip weekends' })
+      renderPanel(sched({ plan_status: 'pending_approval', plan_version: 3 }))
+      const shown = await screen.findByTestId('plan-feedback-shown')
+      expect(shown.textContent).toContain('Changes you asked for:')
+      expect(shown.textContent).toContain('Skip weekends')
+    })
+
     it('Approve posts the plan_version it read and hands back the schedule', async () => {
       mockGet.mockResolvedValue(pending)
       const updated = sched({ plan_status: 'ready', plan_version: 3, plan: 'x' })
