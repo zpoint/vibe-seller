@@ -79,6 +79,7 @@ ASYNC_SESSION_MODULES = [
     'app.scheduler.plan_reaper',
     'app.scheduler.finalize_reaper',
     'app.scheduler.stall_reaper',
+    'app.scheduler.queue_reconciler',
     'app.routers.workspace_assistant',
     'app.browser.daemon_reaper',
     'app.telemetry_tasks',
@@ -266,7 +267,7 @@ async def override_async_session(test_engine, monkeypatch):
     for mod in ASYNC_SESSION_MODULES:
         try:
             monkeypatch.setattr(f'{mod}.async_session', test_maker)
-        except AttributeError:
+        except (AttributeError, ImportError):
             pass  # module might not exist in all installs
 
     async def _test_get_db():
@@ -312,6 +313,15 @@ def install_fake_agent(fake_agent, monkeypatch):
     # does — its alive/deferral decision reads session state
     # (is_process_alive / get_session) off the manager.
     monkeypatch.setattr('app.scheduler.stall_reaper.agent_manager', fake_agent)
+    # Likewise the orphan reconciler: a live session means "running".
+    # Tolerates its absence, like ASYNC_SESSION_MODULES, so its
+    # regression test can be run against pre-reconciler code.
+    try:
+        monkeypatch.setattr(
+            'app.scheduler.queue_reconciler.agent_manager', fake_agent
+        )
+    except ImportError:
+        pass
     return fake_agent
 
 

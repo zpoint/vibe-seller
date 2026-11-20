@@ -24,6 +24,7 @@ from app.task_finalize import (
     check_parent_after_run,
     finalize_terminal_state as _finalize_terminal_state,
 )
+from app.task_owners import holds_task
 from app.task_runner import (
     Mailbox,
     TaskHeader,
@@ -47,6 +48,7 @@ from app.workspace.manager import workspace_manager
 logger = logging.getLogger(__name__)
 
 
+@holds_task
 async def auto_run_task(task_id: str, store: Store | None):
     """Background pipeline: single plan_then_execute session.
 

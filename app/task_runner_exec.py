@@ -17,6 +17,7 @@ from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.task_finalize import check_parent_after_run
 from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
+from app.task_owners import holds_task
 from app.task_runner import (
     Mailbox,
     TaskHeader,
@@ -70,6 +71,7 @@ async def _fail_on_agent_error(db, task, task_id, outcome) -> bool:
     return True
 
 
+@holds_task
 async def execute_planned_task(task_id: str, store: Store | None):
     """Background pipeline for executing a planned task.
 
@@ -415,6 +417,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
         await check_parent_after_run(task_id)
 
 
+@holds_task
 async def execute_woken_task(task_id: str, store: Store | None):
     """Resume a woken waiting task with trigger context."""
     reset_ledger(task_id)  # new turn — see reset_ledger

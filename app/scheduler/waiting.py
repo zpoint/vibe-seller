@@ -201,9 +201,9 @@ async def _wake_task(
         {'task_id': task.id, 'status': TaskStatus.QUEUED},
     )
 
-    # Submit to the task queue so it gets dispatched.
-    if task.store_id:
-        await task_queue_scheduler.submit(task.id, task.store_id)
+    # Submit to the task queue so it gets dispatched — store-less tasks
+    # too, on the ``None`` lane: QUEUED with no submit is an orphan.
+    await task_queue_scheduler.submit(task.id, task.store_id)
 
     logger.info('Woke waiting task %s', task.id)
 
