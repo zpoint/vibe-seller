@@ -12,7 +12,6 @@ explain.
 import pytest
 
 from app.browser.manager import BrowserManager
-from app.browser.ziniao_startup import ZiniaoStartError
 from tests.workflow.conftest import wait_for_task
 
 pytestmark = pytest.mark.workflow
@@ -68,6 +67,8 @@ async def test_an_auto_task_brings_ziniao_up_before_its_agent(
 async def test_a_failed_start_fails_the_task_with_its_category(
     admin_client, install_fake_agent, monkeypatch
 ):
+    from app.browser.ziniao_startup import ZiniaoStartError  # noqa: PLC0415
+
     async def ready(self, store, db, **kw):
         raise ZiniaoStartError(
             'Ziniao did not start: opened 2 times',

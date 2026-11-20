@@ -15,7 +15,6 @@ from httpx import AsyncClient
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.browser.ziniao_startup import ZiniaoStartError, ZiniaoStartingError
 from app.models.ziniao_account import ZiniaoAccount
 from app.utils.crypto import encrypt_password
 from tests.unit.test_browser.ziniao_fake_host import (
@@ -73,6 +72,8 @@ async def test_there_is_no_restart_endpoint(
 async def test_still_starting_answers_starting_for_the_page_to_poll(
     authenticated_client: AsyncClient, async_db_session: AsyncSession
 ):
+    from app.browser.ziniao_startup import ZiniaoStartingError  # noqa: PLC0415
+
     account = await _account(async_db_session)
     with mock.patch(
         'app.routers.ziniao_accounts.ensure_ziniao_running',
@@ -91,6 +92,8 @@ async def test_still_starting_answers_starting_for_the_page_to_poll(
 async def test_a_real_start_failure_says_why(
     authenticated_client: AsyncClient, async_db_session: AsyncSession
 ):
+    from app.browser.ziniao_startup import ZiniaoStartError  # noqa: PLC0415
+
     account = await _account(async_db_session)
     with mock.patch(
         'app.routers.ziniao_accounts.ensure_ziniao_running',
@@ -127,6 +130,8 @@ async def test_on_wsl_the_page_is_sent_to_the_launcher(
 async def test_a_users_refresh_is_not_held_back_by_the_cooldown(
     authenticated_client: AsyncClient, async_db_session: AsyncSession
 ):
+    from app.browser.ziniao_startup import ZiniaoStartingError  # noqa: PLC0415
+
     account = await _account(async_db_session)
     with mock.patch(
         'app.routers.ziniao_accounts.ensure_ziniao_running',

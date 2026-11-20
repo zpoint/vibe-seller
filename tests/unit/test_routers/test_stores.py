@@ -10,11 +10,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.browser.launch_guards import BrowserBusyError
-from app.browser.ziniao_startup import (
-    ZiniaoAccountConflictError,
-    ZiniaoStartError,
-    ZiniaoStartingError,
-)
 from app.models.store import Store
 from app.models.user import User
 from app.models.ziniao_account import ZiniaoAccount
@@ -285,6 +280,10 @@ class TestBrowserStart:
         authenticated_client: AsyncClient,
         async_db_session: AsyncSession,
     ):
+        from app.browser.ziniao_startup import (  # noqa: PLC0415
+            ZiniaoStartingError,
+        )
+
         store = await self._make_ziniao_store(async_db_session)
         with mock.patch(
             'app.routers.stores.browser_manager.start_session',
@@ -302,6 +301,10 @@ class TestBrowserStart:
         authenticated_client: AsyncClient,
         async_db_session: AsyncSession,
     ):
+        from app.browser.ziniao_startup import (  # noqa: PLC0415
+            ZiniaoAccountConflictError,
+        )
+
         store = await self._make_ziniao_store(async_db_session)
         with mock.patch(
             'app.routers.stores.browser_manager.start_session',
@@ -318,6 +321,10 @@ class TestBrowserStart:
         authenticated_client: AsyncClient,
         async_db_session: AsyncSession,
     ):
+        from app.browser.ziniao_startup import (  # noqa: PLC0415
+            ZiniaoStartError,
+        )
+
         store = await self._make_ziniao_store(async_db_session)
         with mock.patch(
             'app.routers.stores.browser_manager.start_session',
