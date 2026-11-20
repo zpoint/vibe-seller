@@ -571,23 +571,7 @@
   "integrations": {
     "gws": {
       "title": "Google Workspace",
-      "description": "让 AI 读写你的 Google 表格、云端硬盘、Gmail、文档和日历。",
-      "enable": "启用",
-      "disable": "禁用",
-      "disabled": "已禁用 Google Workspace。",
-      "enabledMsg": "已启用。",
-      "binary": "gws 工具",
-      "binaryMissing": "未安装",
-      "binaryHelp": "安装 gws 工具：",
-      "auth": "认证",
-      "loggedIn": "已登录",
-      "loginRequired": "需要登录",
-      "account": "账号",
-      "project": "项目",
-      "storage": "凭据存储",
-      "installing": "正在安装，大约需要 20–30 秒…",
-      "installedHint": "AI 现在可以使用 Google Workspace 了。",
-      "notInstalledHint": "打开开关即可启用。"
+      "description": "开通后，AI 可以直接用你的 Google 账号帮你做事：收发 Gmail、读写 Google 表格和文档、上传到 Google 云端硬盘、安排日历。只需连接一次，团队里所有人的任务都共用这个 Google 账号，建议用专门的工作账号。开通后每天自动更新到 Google 官方最新版本。"
     },
     "chat_bot": {
       "title": "群机器人（企业微信 / 钉钉 / 飞书 / Slack）",
@@ -661,7 +645,8 @@
       "platform": {
         "wecom": "企业微信",
         "feishu": "飞书",
-        "dingtalk": "钉钉"
+        "dingtalk": "钉钉",
+        "gws": "Google Workspace"
       },
       "version": "版本 {{version}}",
       "notInstalled": "未开通",
@@ -690,7 +675,8 @@
         "scan_wecom": "用企业微信 App 扫描下面的二维码，按提示创建一个智能机器人（二维码 5 分钟内有效）。之后 AI 会以这个机器人的身份使用企业微信。",
         "feishu_app": "打开下面的链接，按提示创建一个飞书应用。只需要做一次，AI 通过它连接飞书。",
         "feishu_auth": "打开下面的链接，用你的飞书账号确认授权。",
-        "dingtalk_auth": "打开下面的链接，选择你的组织并确认授权。如果钉钉提示你还没有权限，要组织管理员先在钉钉后台放行，这里会显示具体步骤。"
+        "dingtalk_auth": "打开下面的链接，选择你的组织并确认授权。如果钉钉提示你还没有权限，要组织管理员先在钉钉后台放行，这里会显示具体步骤。",
+        "gws_auth": "打开下面的链接，选择要连接的 Google 账号。Google 提示「Google 尚未验证此应用」时，那是你刚才自己创建的应用，点「继续」；再点一次「继续」；然后勾选「全选」，点「继续」。看到「Success!」就可以关掉那个页面。"
       },
       "notice": {
         "feishu_missing_scopes": "已经连接好了。不过飞书管理员限制了下面这些权限，用到它们的功能暂时不能用：{{detail}}。其他功能不受影响。如果需要这些功能，请飞书管理员放开这些权限，然后回来点「{{button}}」。",
@@ -721,9 +707,41 @@
         "unsupported": "{{name}}官方没有提供适用于这台电脑系统的版本，暂时没法在这台电脑上开通。",
         "download_failed": "下载没有成功，或者下载到的文件没有通过官方校验（这样的文件不会被安装）。请检查这台电脑能不能上网（平时用代理的话先打开代理），然后再点「开通」。",
         "unexpected": "没能完成，请稍后再试。如果一直这样，请把下面的详细信息发给技术支持。",
-        "load": "没能读取连接状态，请刷新页面。"
+        "load": "没能读取连接状态，请刷新页面。",
+        "needs_setup": "{{name}}需要先完成一次性设置，请点「开通」，按提示操作。",
+        "google_client_web": "这个密钥是给网站用的。请按第 5 步重新创建一个应用类型为「桌面应用」的客户端，下载后选择那个文件。",
+        "google_client_invalid": "这不是登录密钥文件。请按第 5 步在 Google Cloud 的「客户端」里新建一个「桌面应用」客户端，在弹出的窗口里点「下载 JSON」，然后选择那个文件。",
+        "bad_address": "这不是这次登录的网址。请复制点「允许」后浏览器显示的完整网址（以上面显示的网址开头），再试一次。",
+        "no_login": "现在没有正在等待的登录了，请点「开通」重新开始。"
       },
-      "details": "详细信息"
+      "details": "详细信息",
+      "setup": {
+        "open": "打开",
+        "unreadable": "没能读取这个文件，请重新选择刚才下载的文件。",
+        "google_client": {
+          "title": "第一步（只需做一次）：创建你的 Google 登录密钥",
+          "intro": "Google 要求先在你自己的 Google Cloud 项目里创建一个登录密钥，才能登录你的账号。免费，大约 5 分钟，只需做一次。下面每个链接都请用要连接的 Google 账号打开。",
+          "steps": [
+            "新建一个项目（名字随意，例如“vibe-seller”）。建好后点页面左上角的项目名，确认选中的是这个新项目（Google 有时会停在你之前的项目上）。",
+            "开启 AI 要用的 5 项 Google 服务（Gmail、云端硬盘、表格、文档、日历）：点「下一步」，再点「启用」。",
+            "打开「Google Auth Platform」，点「开始（Get started）」：应用名称随意；用户支持邮箱选你的邮箱；目标对象选「外部（External）」；联系邮箱输入你的邮箱后按回车；勾选同意条款，点「继续（Continue）」，再点「创建（Create）」。",
+            "在左侧「目标对象」页找到「测试用户」，点「Add users」，输入要连接的 Google 账号后按回车，点「保存（Save）」。确认这个账号出现在测试用户列表里。",
+            "在左侧「客户端」页点「创建客户端」，应用类型选「桌面应用」（名字随意），点「创建」。弹出的窗口里马上点「下载 JSON（Download JSON）」：关掉这个窗口后就不能再下载了。",
+            "回到这里，选择刚才下载的文件（文件名以“client_secret”开头）。"
+          ],
+          "choose": "选择下载的文件",
+          "replace": "更换登录密钥"
+        }
+      },
+      "pasteBack": {
+        "hint": "用的是另一台电脑上的浏览器？点「允许」之后，那个浏览器会显示「无法访问此网站」，这是正常的：把它地址栏里的整个网址（以 {{address}} 开头）复制下来，粘贴到这里。",
+        "submit": "提交"
+      },
+      "rowNotice": {
+        "gws_moved": "Google Workspace 现在可以直接在这里开通，不用再自己安装任何东西。之前在这台电脑上自己安装的 Google Workspace 工具保持原样，但 AI 不再使用它。请点「开通」重新连接一次。"
+      },
+      "signInExpired": "登录已失效",
+      "enabledNeedsSignIn": "AI 暂时用不了，请点「重新登录」"
     }
   },
   "stores": {

@@ -211,9 +211,6 @@ See `CLAUDE.md` for Claude Code conventions and workflows. See `DESIGN.md` for t
 | GET | `/api/sync/status` | Every sync job's state |
 | POST | `/api/workspace/skills/sync` | Sync built-in skills (local + remote) |
 | POST | `/api/sync/{name}/run` | Run a sync job now |
-| GET | `/api/settings/google-workspace/status` | Google Workspace bundle prereqs + enabled flag |
-| POST | `/api/settings/google-workspace/enable` | Install the `gws` umbrella skill (admin) |
-| POST | `/api/settings/google-workspace/disable` | Remove the `gws` umbrella skill (admin) |
 | POST | `/api/workspace/skill` | Create a new user skill |
 | POST | `/api/workspace/assistant/message` | Send message to workspace AI assistant |
 | POST | `/api/workspace/assistant/stop` | Stop workspace assistant session |
@@ -303,7 +300,7 @@ curl -N http://localhost:7777/api/sse
 - Structured proxy config for Chrome stores
 - Channel configuration persistence (email IMAP, WeCom)
 - Event sync backends (Dida365, Google Calendar)
-- Settings UI with tabs: Users, Channels (email management), Event Sync, AI Agent, Integrations (Google Workspace toggle)
+- Settings UI with tabs: Users, Channels (email management), Event Sync, AI Agent, Integrations (WeCom / Feishu / DingTalk / Google Workspace connect)
 - Real-time SSE streaming (task status, agent messages, progress, logs)
 - Three-panel UI: store sidebar, task list, agent chat with progress
 - Bilingual i18n support (English/Chinese) with language switcher

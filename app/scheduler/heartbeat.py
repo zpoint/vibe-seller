@@ -7,6 +7,7 @@ exception is a custom provider's user-typed display name and its
 base URL's HOST, see ``app.ai.profiles.custom_profile_labels``).
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 import json
 import logging
@@ -26,10 +27,10 @@ from app.ai.profiles import (
     profile_kind_for_id,
     provider_hosts,
 )
+from app.cli_integrations import paths as cli_paths
 from app.database import async_session
 from app.events_system.syncer import load_backend_config
 from app.models.api_token import ApiToken
-from app.models.app_settings import AppSettings
 from app.models.chat_bot import ChatBot
 from app.models.email_account import EmailAccount
 from app.models.schedule import Schedule
@@ -195,9 +196,8 @@ async def send_install_heartbeat() -> None:
                     )
                 )
             ).scalar() or 0
-            gws_enabled = await db.get(AppSettings, 'google_workspace_enabled')
-            gws_on = bool(gws_enabled and gws_enabled.value == 'true')
         sync_failed_jobs = await sync_scheduler.failed_jobs()
+        gws_on = await asyncio.to_thread(cli_paths.is_enabled, 'gws', 'gws')
     except Exception:
         logger.warning('install_heartbeat counts failed', exc_info=True)
         return

@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import http.client
 import logging
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import time
+import urllib.error
+from urllib.parse import parse_qs, urlsplit
+import urllib.request
 
 import psutil
 
@@ -31,6 +35,8 @@ _TAIL_LINES = 20
 _MAX_MESSAGE = 400
 # A CLI may print one long JSON line (lark-cli lists every granted scope).
 _LINE_LIMIT = 1024 * 1024
+_RELAY_TIMEOUT_S = 60.0
+_LOCAL_HOSTS = ('localhost', '127.0.0.1')
 
 
 def _summary(lines: list[str], rc: int) -> str:
@@ -130,6 +136,40 @@ class LoginSession:
         if self.view.state not in ('succeeded', 'failed'):
             self.view.state = 'cancelled'
 
+    async def paste_back(self, address: str) -> None:
+        """Deliver the address the person's browser ended on to the
+        CLI's local listener (``LoginStep.paste_back``).
+
+        The approval is a redirect to ``LoginView.callback`` — a port
+        on THIS computer. A browser elsewhere (the page opened over the
+        network) lands on its own machine instead and shows "cannot be
+        reached"; its address bar still holds the answer, and this
+        hands it on exactly as the browser would have. Only that one
+        local port, and only an address carrying the approval (or the
+        refusal) is ever sent.
+        """
+        target = self._relay_target(address)
+        await asyncio.to_thread(_relay, target)
+
+    def _relay_target(self, address: str) -> str:
+        if not (self.view.paste_back and self.view.callback):
+            raise ValueError('this sign-in is not waiting for an address')
+        want = urlsplit(self.view.callback)
+        got = urlsplit(address.strip())
+        if got.scheme != 'http' or got.hostname not in _LOCAL_HOSTS:
+            raise ValueError(
+                f'not a local address: {got.scheme}://{got.netloc}'
+            )
+        if got.port != want.port:
+            raise ValueError(
+                f"port {got.port} is not this sign-in's {want.port}"
+            )
+        query = parse_qs(got.query)
+        if 'code' not in query and 'error' not in query:
+            raise ValueError('the address carries no approval')
+        path = got.path or '/'
+        return f'http://127.0.0.1:{want.port}{path}?{got.query}'
+
     async def _run(self) -> None:
         try:
             rc = 0
@@ -153,7 +193,8 @@ class LoginSession:
             self.view.finishing = self._on_done is not None
             self.view.state = 'succeeded'
             self.view.url = self.view.user_code = self.view.hint = None
-            self.view.qr = False
+            self.view.callback = None
+            self.view.qr = self.view.paste_back = False
             if rc != 0 and not self.view.notices:
                 # Signed in, but the CLI said something: keep it visible.
                 self.view.message = self.view.message or _summary(
@@ -184,10 +225,11 @@ class LoginSession:
         self._tail = []
         args = [a.replace('{session}', session) for a in step.argv]
         self._qr = self.dir / step.qr_file if step.qr_file else None
-        self.view.url = self.view.user_code = None
+        self.view.url = self.view.user_code = self.view.callback = None
         self.view.qr = False
         self.view.state = 'starting'
         self.view.hint = step.hint
+        self.view.paste_back = step.paste_back
         kwargs: dict = {}
         if IS_WINDOWS:
             # The server may be a console-less tray app: no window pops.
@@ -278,6 +320,22 @@ class LoginManager:
         """Server shutdown: no login process outlives the server."""
         for session in list(self._sessions.values()):
             await session.cancel()
+
+
+def _relay(url: str) -> None:
+    """GET *url* (a 127.0.0.1 address) directly — never through a
+    proxy, which could not reach this computer's loopback (blocking)."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(url, timeout=_RELAY_TIMEOUT_S) as resp:
+            resp.read()
+    except (urllib.error.HTTPError, http.client.RemoteDisconnected):
+        # The CLI got the address and answered with an error page, or
+        # with nothing (gws's proxy-aware sign-in drops the connection
+        # on a refusal): either way its exit decides the outcome.
+        return
+    except (OSError, urllib.error.URLError) as e:
+        raise ValueError(f'the sign-in is no longer listening: {e}') from e
 
 
 def _fresh_dir(path: Path) -> None:

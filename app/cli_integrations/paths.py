@@ -133,3 +133,30 @@ def is_enabled(key: str, binary: str, home: Path | None = None) -> bool:
     return (skill_dir(key, home) / 'SKILL.md').is_file() and is_installed(
         key, binary, home
     )
+
+
+def notice_path(key: str, home: Path | None = None) -> Path:
+    """A note for the page about *key* (``write_notice``)."""
+    return tool_dir(key, home) / 'notice'
+
+
+def write_notice(key: str, notice: str, home: Path | None = None) -> None:
+    """Make the page say *notice* (its i18n key) on the platform's row
+    until the platform is enabled again — e.g. that an earlier way of
+    connecting it has moved here (blocking)."""
+    path = notice_path(key, home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(notice, encoding='utf-8')
+
+
+def read_notice(key: str, home: Path | None = None) -> str | None:
+    try:
+        return (
+            notice_path(key, home).read_text(encoding='utf-8').strip() or None
+        )
+    except OSError:
+        return None
+
+
+def clear_notice(key: str, home: Path | None = None) -> None:
+    notice_path(key, home).unlink(missing_ok=True)

@@ -1,4 +1,5 @@
-"""Settings → Integrations: workplace CLIs (WeCom / Feishu / DingTalk).
+"""Settings → Integrations: workplace CLIs (WeCom / Feishu / DingTalk /
+Google Workspace).
 
 Reading status is open to any signed-in user; everything that changes
 the machine — download, login, enable, disable — is admin only, and so
@@ -80,6 +81,24 @@ async def install(key: str, _admin: User = Depends(require_admin)):
     return {'ok': True, 'version': manifest['version']}
 
 
+class SetupRequest(BaseModel):
+    # The text of what the person provided (Google: the downloaded
+    # sign-in key file).
+    payload: str
+
+
+@router.post('/{key}/setup')
+async def setup(
+    key: str, body: SetupRequest, _admin: User = Depends(require_admin)
+):
+    """Store the one-time setup a platform's sign-in needs."""
+    integ = _integ(key)
+    try:
+        return await manager.setup(integ, body.payload)
+    except Exception as e:
+        raise _fail(e, f'{integ.title} setup') from e
+
+
 class LoginRequest(BaseModel):
     enable_after: bool = False
 
@@ -122,6 +141,24 @@ async def login_qr(key: str, _admin: User = Depends(require_admin)):
     return FileResponse(
         path, media_type='image/png', headers={'Cache-Control': 'no-store'}
     )
+
+
+class PasteBackRequest(BaseModel):
+    address: str
+
+
+@router.post('/{key}/login/paste')
+async def login_paste_back(
+    key: str, body: PasteBackRequest, _admin: User = Depends(require_admin)
+):
+    """The address the browser ended on, when that browser is not on
+    this computer (``LoginStep.paste_back``)."""
+    integ = _integ(key)
+    try:
+        await manager.paste_back(integ, body.address)
+    except Exception as e:
+        raise _fail(e, f'{integ.title} sign-in') from e
+    return {'ok': True}
 
 
 @router.delete('/{key}/login')

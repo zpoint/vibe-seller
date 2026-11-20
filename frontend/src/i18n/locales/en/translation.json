@@ -569,23 +569,7 @@
   "integrations": {
     "gws": {
       "title": "Google Workspace",
-      "description": "Let the AI read and write your Google Sheets, Drive, Gmail, Docs, and Calendar.",
-      "enable": "Enable",
-      "disable": "Disable",
-      "disabled": "Google Workspace disabled.",
-      "enabledMsg": "Enabled.",
-      "binary": "gws tool",
-      "binaryMissing": "Not installed",
-      "binaryHelp": "Install the gws tool from",
-      "auth": "Authentication",
-      "loggedIn": "Logged in",
-      "loginRequired": "Login required",
-      "account": "Account",
-      "project": "Project",
-      "storage": "Credential storage",
-      "installing": "Installing — this takes about 20–30 seconds…",
-      "installedHint": "The AI can now use Google Workspace.",
-      "notInstalledHint": "Turn on the switch to enable it."
+      "description": "Once connected, the AI can work in your Google account for you: read and send Gmail, read and edit Sheets and Docs, upload to Drive, and add Calendar events. You connect once and every task on the team uses that one Google account, so a dedicated work account is best. It updates itself to Google's latest official version every day."
     },
     "chat_bot": {
       "title": "Chat bots (WeCom / DingTalk / Feishu / Slack)",
@@ -659,7 +643,8 @@
       "platform": {
         "wecom": "WeCom",
         "feishu": "Feishu (Lark)",
-        "dingtalk": "DingTalk"
+        "dingtalk": "DingTalk",
+        "gws": "Google Workspace"
       },
       "version": "version {{version}}",
       "notInstalled": "Not connected",
@@ -688,7 +673,8 @@
         "scan_wecom": "Scan the QR code below with the WeCom app and follow the steps to create a smart bot (the code works for 5 minutes). The AI then uses WeCom as that bot.",
         "feishu_app": "Open the link below and follow the steps to create a Feishu app. You only do this once; it is how the AI connects to Feishu.",
         "feishu_auth": "Open the link below and approve with your Feishu account.",
-        "dingtalk_auth": "Open the link below, pick your organization and confirm. If DingTalk says you don't have access yet, an admin of your organization has to allow it first; the steps will show here."
+        "dingtalk_auth": "Open the link below, pick your organization and confirm. If DingTalk says you don't have access yet, an admin of your organization has to allow it first; the steps will show here.",
+        "gws_auth": "Open the link below and choose the Google account to connect. When Google says “Google hasn't verified this app”, that is the app you just created yourself: click Continue, then Continue again, then tick Select all and click Continue. Once you see “Success!”, you can close that page."
       },
       "notice": {
         "feishu_missing_scopes": "Connected. Your Feishu admin has restricted these permissions, so the features that need them won't work yet: {{detail}}. Nothing else is affected. If you need those features, ask your Feishu admin to allow these permissions, then click {{button}}.",
@@ -719,9 +705,41 @@
         "unsupported": "{{name}} has no official version for this computer's system, so it can't be connected here for now.",
         "download_failed": "The download didn't work, or the downloaded file failed the official check (such a file is never installed). Check that this computer is online (turn on your proxy first if you use one), then click Connect again.",
         "unexpected": "That didn't work. Try again in a moment; if it keeps happening, send the details below to support.",
-        "load": "Couldn't load the connection status. Refresh the page."
+        "load": "Couldn't load the connection status. Refresh the page.",
+        "needs_setup": "{{name}} needs its one-time setup first. Click Connect and follow the steps.",
+        "google_client_web": "That key is for a website. Create one with Application type “Desktop app” (step 5), download it, and choose that file.",
+        "google_client_invalid": "That isn't the sign-in key file. In Google Cloud, under Clients, create a new Desktop app client (step 5), click Download JSON in the window that opens, and choose that file.",
+        "bad_address": "That isn't the address of this sign-in. Copy the whole address the browser shows after you clicked Allow (it starts with the address shown above) and try again.",
+        "no_login": "No sign-in is waiting any more. Click Connect to start again."
       },
-      "details": "Details"
+      "details": "Details",
+      "setup": {
+        "open": "Open",
+        "unreadable": "Couldn't read that file. Choose the file you downloaded again.",
+        "google_client": {
+          "title": "First, a one-time setup: create your Google sign-in key",
+          "intro": "Google needs a sign-in key from your own Google Cloud project before anything can sign in to your account. It is free, takes about 5 minutes, and you only do it once. Open each link with the Google account you want to connect.",
+          "steps": [
+            "Create a project (any name, for example “vibe-seller”). Then click the project name at the top left and make sure the new project is selected (Google sometimes stays on a project you used before).",
+            "Turn on the five Google services the AI uses (Gmail, Drive, Sheets, Docs, Calendar): click Next, then Enable.",
+            "Open Google Auth Platform and click Get started: any app name; pick your email as the user support email; choose External as the audience; type your email as the contact and press Enter; tick the agreement, click Continue, then Create.",
+            "Under Audience, find Test users, click Add users, type the Google account you want to connect, press Enter and click Save. Make sure the account now shows in the test users list.",
+            "Under Clients, click Create client, choose Desktop app as the application type (any name) and click Create. In the window that opens, click Download JSON right away: once that window is closed, the file can no longer be downloaded.",
+            "Come back here and choose the file you just downloaded (its name starts with “client_secret”)."
+          ],
+          "choose": "Choose the downloaded file",
+          "replace": "Change sign-in key"
+        }
+      },
+      "pasteBack": {
+        "hint": "Using a browser on another computer? After you click Allow, that browser shows “This site can't be reached”. That is expected: copy the whole address from its address bar (it starts with {{address}}) and paste it here.",
+        "submit": "Send"
+      },
+      "rowNotice": {
+        "gws_moved": "Google Workspace is now connected right here, with no need to install anything yourself. A Google Workspace tool you installed on this computer before is left as it is, but the AI no longer uses it. Click Connect to connect once more."
+      },
+      "signInExpired": "Sign-in expired",
+      "enabledNeedsSignIn": "The AI can't use it until you click Sign in again"
     }
   },
   "stores": {

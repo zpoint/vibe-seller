@@ -12,8 +12,9 @@ import json
 
 import pytest
 
+from app import config
 from app.ai.profiles import ProfileManager
-from app.models.app_settings import AppSettings
+from app.cli_integrations import paths as cli_paths
 from app.models.email_account import EmailAccount
 from app.models.schedule import Schedule
 from app.scheduler.heartbeat import send_install_heartbeat
@@ -74,6 +75,7 @@ class TestHeartbeatShape:
         override_async_session,
         isolated_profiles,
         monkeypatch,
+        tmp_path,
     ):
         events, person = _capture(monkeypatch)
         r = await admin_client.post(
@@ -99,9 +101,17 @@ class TestHeartbeatShape:
             },
         )
         assert r.status_code == 200
-        async with override_async_session() as db:
-            db.add(AppSettings(key='google_workspace_enabled', value='true'))
-            await db.commit()
+        # Google Workspace connected and enabled (the managed gws: its
+        # install on disk and its umbrella skill).
+        home = tmp_path / 'home'
+        monkeypatch.setattr(config, 'VIBE_SELLER_DIR', home)
+        cli_paths.tool_dir('gws', home).mkdir(parents=True)
+        cli_paths.write_manifest('gws', {'version': '0.22.5'}, home)
+        exe = cli_paths.binary_path('gws', 'gws', home)
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b'')
+        cli_paths.skill_dir('gws', home).mkdir(parents=True)
+        (cli_paths.skill_dir('gws', home) / 'SKILL.md').write_text('x')
 
         await send_install_heartbeat()
         beats = [p for e, p in events if e == 'install_heartbeat']

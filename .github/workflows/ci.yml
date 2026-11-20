@@ -133,6 +133,7 @@ jobs:
           uv run pytest -v
           tests/unit/test_cli_integrations_core.py
           tests/unit/test_cli_integrations_login.py
+          tests/unit/test_cli_integrations_gws.py
           tests/integration/test_cli_integrations_real.py
 
   workflow-test:

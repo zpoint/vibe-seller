@@ -3,7 +3,7 @@
 The platforms ship 15–25 skills each. Flat, they would put every one of
 them into every agent's always-on skill index; under one umbrella the
 index holds one entry per enabled platform and the agent opens the
-sub-skill files it needs (the layout ``gws_integration`` established).
+sub-skill files it needs.
 
     <home>/.claude/skills/<key>/
     ├── SKILL.md            umbrella: rules + catalog (generated)
@@ -50,7 +50,8 @@ def select(
     """``{sub-skill name: {relative path: bytes}}`` from an archive.
 
     Only dirs under ``layout.root`` named ``<prefix><name>`` that hold a
-    ``SKILL.md`` are kept; ``layout.exclude`` drops some by source name.
+    ``SKILL.md`` are kept; ``layout.exclude`` drops some by source name
+    and ``layout.keep`` keeps only the names it accepts.
     """
     entries = list(files)
     top = _strip_top([p for p, _ in entries])
@@ -66,6 +67,8 @@ def select(
         if src in layout.exclude:
             continue
         name = src[len(layout.prefix) :]
+        if layout.keep is not None and not layout.keep(name):
+            continue
         out.setdefault(name, {})[inner] = body
     return {n: f for n, f in out.items() if 'SKILL.md' in f}
 

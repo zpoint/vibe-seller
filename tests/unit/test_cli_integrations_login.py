@@ -282,3 +282,99 @@ def _signed_in(fake):
 
 async def _false() -> bool:
     return False
+
+
+# ── paste-back: the approval arrives as a localhost redirect ──────────
+
+
+@pytest.fixture
+def listening(fake) -> FakeIntegration:
+    """``fake`` signing in the gws way: a link whose redirect is a
+    local port the CLI listens on."""
+    fake.listen = True
+    return fake
+
+
+async def _waiting_for_redirect(mgr, fake, tmp_path):
+    session = await _start(mgr, fake, tmp_path, 'not_logged_in')
+    await _until(lambda: session.view.callback is not None)
+    return session
+
+
+async def test_the_view_offers_paste_back_with_the_local_address(
+    listening, tmp_path
+):
+    mgr = LoginManager()
+    session = await _waiting_for_redirect(mgr, listening, tmp_path)
+    v = session.view
+    assert v.state == 'waiting' and v.paste_back is True
+    assert v.url.startswith('https://accounts.fake.example/o/auth?')
+    assert v.callback.startswith('http://localhost:')
+    await mgr.shutdown()
+
+
+async def test_a_pasted_address_reaches_the_cli_and_signs_in(
+    listening, tmp_path
+):
+    """The browser elsewhere ended on ``http://localhost:<port>/?code=…``
+    (its own machine: "cannot be reached"). Pasted, it reaches the CLI
+    exactly as the redirect would have — and the sign-in finishes."""
+    mgr = LoginManager()
+    session = await _waiting_for_redirect(mgr, listening, tmp_path)
+    address = f'{session.view.callback}/?state=s1&code=4/abc&scope=a%20b'
+
+    await session.paste_back(address)
+    await session.task
+
+    assert session.view.state == 'succeeded'
+    assert (listening.state / 'callback').read_text() == (
+        '/?state=s1&code=4/abc&scope=a%20b'
+    )
+    assert session.view.paste_back is False
+    assert session.view.callback is None
+
+
+async def test_a_refusal_pasted_back_ends_the_sign_in_as_failed(
+    listening, tmp_path
+):
+    mgr = LoginManager()
+    session = await _waiting_for_redirect(mgr, listening, tmp_path)
+    await session.paste_back(f'{session.view.callback}/?error=access_denied')
+    await session.task
+    assert session.view.state == 'failed'
+    assert session.view.message == 'OAuth flow failed: access_denied'
+
+
+@pytest.mark.parametrize(
+    'address',
+    [
+        'https://localhost:{port}/?code=x',  # not what the CLI serves
+        'http://evil.example:{port}/?code=x',  # not this computer
+        'http://localhost:{other}/?code=x',  # another local port
+        'http://localhost:{port}/?state=only',  # no approval in it
+        'not an address',
+    ],
+)
+async def test_only_this_sign_ins_own_redirect_is_relayed(
+    listening, tmp_path, address
+):
+    """Nothing but the redirect the CLI waits for is ever sent: another
+    host or port, or an address without the approval, is refused and
+    the sign-in keeps waiting."""
+    mgr = LoginManager()
+    session = await _waiting_for_redirect(mgr, listening, tmp_path)
+    port = int(session.view.callback.rsplit(':', 1)[1])
+    with pytest.raises(ValueError):
+        await session.paste_back(address.format(port=port, other=port + 1))
+    assert session.active and session.view.state == 'waiting'
+    assert not (listening.state / 'callback').exists()
+    await mgr.shutdown()
+
+
+async def test_paste_back_is_refused_by_a_step_without_it(fake, tmp_path):
+    mgr = LoginManager()
+    session = await _start(mgr, fake, tmp_path, 'not_logged_in')
+    await _until(lambda: session.view.user_code)
+    with pytest.raises(ValueError):
+        await session.paste_back('http://localhost:1/?code=x')
+    await mgr.shutdown()

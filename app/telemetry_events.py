@@ -56,8 +56,6 @@ class TelemetryEvent:
     ZINIAO_ACCOUNT_ADDED = 'ziniao_account_added'
     ZINIAO_ACCOUNT_REMOVED = 'ziniao_account_removed'
 
-    INTEGRATION_GWS_ENABLED = 'integration_gws_enabled'
-    INTEGRATION_GWS_DISABLED = 'integration_gws_disabled'
     # Workplace CLIs (app/cli_integrations): props {platform}.
     INTEGRATION_CLI_INSTALLED = 'integration_cli_installed'
     INTEGRATION_CLI_LOGIN_STARTED = 'integration_cli_login_started'

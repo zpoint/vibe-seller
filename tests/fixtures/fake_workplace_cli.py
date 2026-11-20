@@ -11,6 +11,11 @@ its state in ``$FAKE_CLI_STATE`` (a directory):
                                   exits $FAKE_CLI_LOGIN_EXIT (0), after a
                                   very long JSON line if
                                   $FAKE_CLI_LONG_LINE is set
+    auth login --listen           like gws: prints a sign-in link whose
+                                  redirect_uri is a localhost port it
+                                  listens on; the one request it gets
+                                  signs in (``code=``) or refuses
+                                  (closing it unanswered, as gws does)
 
 Every run, like ``dws``, unpacks a runtime file (``RUNTIME``) next to
 the executable — what Windows then holds open while it scans it.
@@ -79,6 +84,38 @@ if args[:2] == ['config', 'init']:
     wait_for_approval()
     (state / 'config').write_text('app')
     say('configured')
+    sys.exit(0)
+
+if args[:3] == ['auth', 'login', '--listen']:
+    import socket
+
+    srv = socket.socket()
+    srv.bind(('127.0.0.1', 0))
+    srv.listen(1)
+    srv.settimeout(float(os.environ.get('FAKE_CLI_WAIT_S', '30')))
+    port = srv.getsockname()[1]
+    (state / 'login-pid').write_text(str(os.getpid()))
+    say('Open this URL in your browser to authenticate:')
+    say(
+        '  https://accounts.fake.example/o/auth?scope=a%20b&'
+        f'redirect_uri=http://localhost:{port}&response_type=code'
+    )
+    try:
+        conn, _ = srv.accept()
+    except TimeoutError:
+        say('authorization expired')
+        sys.exit(4)
+    request = conn.makefile('rb').readline().decode()
+    (state / 'callback').write_text(request.split(' ')[1])
+    if 'code=' not in request:
+        # gws's proxy-aware flow: no code -> error, no answer at all.
+        conn.close()
+        say('error[auth]: OAuth flow failed: access_denied')
+        sys.exit(2)
+    conn.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok')
+    conn.close()
+    (state / 'token').write_text(os.environ.get('FAKE_CLI_USER', 'Alice'))
+    say('logged in')
     sys.exit(0)
 
 if args[:2] == ['auth', 'login']:
