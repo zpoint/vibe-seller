@@ -66,6 +66,51 @@ class TestImportDispatch:
         assert files['SKILL.md'] == SKILL_MD.encode()
         assert files['data.bin'] == b'\x00\x01\x02'
 
+    async def test_a_dir_in_this_tasks_workspace_is_authored_not_imported(
+        self, tmp_path, monkeypatch
+    ):
+        """A skill the agent built in its own workspace and installed
+        with import_skill (to keep a script's exec bit) is the user's
+        custom skill: no origin, whatever origin_url the agent claims.
+        Seen live: origin_url "local:<task dir>" listed it as imported.
+        """
+        monkeypatch.setattr(mcp, 'VIBE_SELLER_DIR', tmp_path)
+        monkeypatch.setitem(mcp._config, 'task_id', 'task-1')
+        workspace = tmp_path / 'tasks' / 'task-1'
+        workspace.mkdir(parents=True)
+        d = _skill_dir(workspace)
+        with patch(
+            'app.mcp_server.call_api',
+            new_callable=AsyncMock,
+            return_value={'slug': 'import-me'},
+        ) as mock_api:
+            await mcp.handle_tool_call(
+                'vibe_seller_import_skill',
+                {'path': str(d), 'origin_url': f'local:{d}'},
+            )
+        route = mock_api.await_args.args[1]
+        assert 'origin_url=&' in route or route.endswith('origin_url=')
+
+    async def test_a_dir_elsewhere_keeps_its_origin(
+        self, tmp_path, monkeypatch
+    ):
+        """An existing skill elsewhere on the machine is still imported."""
+        monkeypatch.setattr(mcp, 'VIBE_SELLER_DIR', tmp_path / 'home')
+        monkeypatch.setitem(mcp._config, 'task_id', 'task-1')
+        (tmp_path / 'home' / 'tasks' / 'task-1').mkdir(parents=True)
+        d = _skill_dir(tmp_path)
+        with patch(
+            'app.mcp_server.call_api',
+            new_callable=AsyncMock,
+            return_value={'slug': 'import-me'},
+        ) as mock_api:
+            await mcp.handle_tool_call(
+                'vibe_seller_import_skill', {'path': str(d)}
+            )
+        route = mock_api.await_args.args[1]
+        assert 'origin_url=' in route
+        assert 'origin_url=&' not in route and not route.endswith('origin_url=')
+
     async def test_url_posts_import_url_json(self):
         with patch(
             'app.mcp_server.call_api',

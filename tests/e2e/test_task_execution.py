@@ -26,6 +26,7 @@ from tests.e2e.e2e_helpers import (
     POLL_INTERVAL,
     answer_question,
     build_smart_answers,
+    claim_answers,
     create_store,
     create_task,
     get_task,
@@ -375,6 +376,9 @@ class TestAgentQuestionAnswer:
             ),
         )
         task_id = task['id']
+        # The listener below answers this task's questions — it is the
+        # user here; the harness's auto-answer listeners keep off.
+        claim_answers(task_id)
         logger.info(
             'Created question-trigger task %s',
             task_id[:8],

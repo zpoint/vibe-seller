@@ -591,7 +591,9 @@ TOOLS = [
             "derived from SKILL.md's frontmatter name. `origin_url` "
             '(path imports: defaults to the path; URL imports: '
             'defaults to the URL) records provenance so the skill '
-            'lists as imported.\n'
+            'lists as imported. A directory inside your own task '
+            'workspace is a skill written in this task: it installs '
+            "as the user's own (custom) skill, with no origin.\n"
             '\n'
             "Guards are the server's: built-in (maintainer) slugs are "
             'read-only and refused; an EXISTING user skill is refused '
@@ -649,7 +651,8 @@ TOOLS = [
                     'type': 'string',
                     'description': (
                         'Provenance recorded in the skills lockfile '
-                        '(defaults: the path, or the url).'
+                        '(defaults: the path, or the url). Ignored for '
+                        'a directory inside your task workspace.'
                     ),
                 },
             },

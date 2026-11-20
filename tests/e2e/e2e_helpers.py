@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import tempfile
 import threading
 import time
 from urllib.parse import urlparse
@@ -583,6 +584,31 @@ def setup_worker_profile(base_url: str, provider: str, worker: str) -> str:
     return profile_id
 
 
+# ── Who answers a question ─────────────────────────────────────────
+#
+# Every xdist worker runs its own session-wide auto-answer listener on
+# the SHARED server, so a question there is seen by every worker. A
+# question can be answered once: the first answer wins and every other
+# gets 409. That is harmless between the listeners, but a test that
+# answers ITS OWN task's questions (the user's side of a Q&A journey)
+# raced all of them and failed whenever it lost. Such a test claims its
+# task, and the listeners leave claimed tasks to it. Workers are
+# separate processes, so the claim is a file, keyed by the task's UUID.
+# The test claims right after the task is created, before the agent's
+# first model turn can have asked anything.
+_ANSWER_CLAIMS = Path(tempfile.gettempdir()) / 'vibe-e2e-answer-claims'
+
+
+def claim_answers(task_id: str) -> None:
+    """This test answers *task_id*'s questions; listeners keep off."""
+    _ANSWER_CLAIMS.mkdir(parents=True, exist_ok=True)
+    (_ANSWER_CLAIMS / task_id).touch()
+
+
+def answers_claimed(task_id: str) -> bool:
+    return (_ANSWER_CLAIMS / task_id).exists()
+
+
 def _auto_answer_listener(base_url: str, stop: threading.Event) -> None:
     """Answer every pending agent question on the server at *base_url*.
 
@@ -636,18 +662,31 @@ def _auto_answer_listener(base_url: str, stop: threading.Event) -> None:
                         for q in questions
                     ):
                         continue
+                    # A test answers this task itself (claim_answers).
+                    if answers_claimed(task_id):
+                        continue
                     _logger.info(
                         '[%s] SSE auto-answering question %s',
                         task_id[:8],
                         request_id[:8],
                     )
-                    answer_question(
-                        answer_client,
-                        task_id,
-                        request_id,
-                        build_smart_answers(questions),
-                        base_url,
-                    )
+                    try:
+                        answer_question(
+                            answer_client,
+                            task_id,
+                            request_id,
+                            build_smart_answers(questions),
+                            base_url,
+                        )
+                    except httpx.HTTPStatusError as exc:
+                        if exc.response.status_code != 409:
+                            raise
+                        # Another worker's listener answered it first.
+                        _logger.info(
+                            '[%s] question %s already answered',
+                            task_id[:8],
+                            request_id[:8],
+                        )
         except (httpx.ReadError, httpx.ReadTimeout):
             if stop.is_set():
                 break
