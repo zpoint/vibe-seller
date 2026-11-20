@@ -126,11 +126,10 @@ describe('update modal — ready, installer path', () => {
     expect(
       screen.getByText('需要在运行 Vibe Seller 的电脑上操作。')
     ).toBeTruthy()
-    // What the click really costs: a ~700 MB reinstall that takes minutes.
+    // What the click really costs: a few minutes before it is back.
     expect(
       screen.getByText(
-        '当前 v0.1.0。这次更新比较大（约 700 MB），点「重启并更新」后需要' +
-          ' 2–5 分钟，装完会自动打开，页面会自动刷新。'
+        '当前 v0.1.0。点「重启并更新」后需要等几分钟，更新完会自动打开，页面会自动刷新。'
       )
     ).toBeTruthy()
     expect(screen.getByText('重启并更新')).toBeTruthy()
@@ -148,7 +147,7 @@ describe('update modal — ready, installer path', () => {
     renderModal('zh', { isAdmin: false })
     expect(
       screen.getByText(
-        '当前 v0.1.0。这次更新比较大，需要管理员点「重启并更新」后生效。'
+        '当前 v0.1.0。需要管理员点「重启并更新」后生效。'
       )
     ).toBeTruthy()
     expect(screen.getByText('知道了')).toBeTruthy()
