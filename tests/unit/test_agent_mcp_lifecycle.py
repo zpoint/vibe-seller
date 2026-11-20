@@ -69,14 +69,31 @@ def _task(status, *, plan='plan text', is_plan_only=False):
     )
 
 
-def _sched(plan_status, *, plan_mode=True, is_system=False, active=True):
-    return Schedule(
-        plan_status=plan_status.value
+def _sched(
+    plan_status,
+    *,
+    plan_mode=True,
+    is_system=False,
+    active=True,
+    approved_plan=None,
+):
+    """A schedule row. A READY review schedule carries an approved plan
+    (the state the approve route leaves); every other state has none
+    unless *approved_plan* says otherwise (a revision of a working
+    schedule)."""
+    status = (
+        plan_status.value
         if isinstance(plan_status, PlanStatus)
-        else plan_status,
+        else plan_status
+    )
+    if approved_plan is None and status == PlanStatus.READY.value:
+        approved_plan = 'approved plan'
+    return Schedule(
+        plan_status=status,
         plan_mode=plan_mode,
         is_system=is_system,
         is_active=active,
+        plan=approved_plan,
     )
 
 
@@ -247,10 +264,11 @@ def test_fires_matches_the_fire_gate():
     """``fires`` == is_active AND the cron fire gate.
 
     _schedule_can_fire (app/scheduler/cron.py) and
-    trigger_schedule (app/routers/schedules.py): system and
-    non-plan-mode schedules always pass; plan-mode schedules only
-    at ``ready``. A paused schedule fires in no state — reporting
-    ``fires: true`` for one is the "agent said scheduled" bug.
+    trigger_schedule (app/routers/schedules.py): system and auto
+    schedules always pass; a review schedule passes with an approved
+    plan (here: only at ``ready``). A paused schedule fires in no
+    state — reporting ``fires: true`` for one is the "agent said
+    scheduled" bug.
     """
     for plan_status in PlanStatus:
         for plan_mode, is_system in (
@@ -278,8 +296,8 @@ def test_fires_matches_the_fire_gate():
 
 
 def test_run_schedule_named_only_when_the_gate_is_open():
-    # trigger_schedule: 409 'Schedule cannot fire with
-    # plan_status=...' for a plan-mode schedule that is not ready.
+    # trigger_schedule: 409 for a review schedule with no approved
+    # plan.
     for plan_status in PlanStatus:
         for plan_mode in (True, False):
             gate_open = (not plan_mode) or (plan_status is PlanStatus.READY)
@@ -300,32 +318,56 @@ def test_paused_mid_planning_names_no_update():
     assert guidance['next_actions'] == ['wait_task', 'get_task']
 
 
-def test_active_mid_planning_names_the_pause_first():
-    """An ACTIVE schedule mid-planning names update_schedule.
+def test_active_mid_planning_names_no_pause():
+    """Mid-planning, an ACTIVE schedule needs no pause any more.
 
-    The pause variant is ALWAYS accepted (pause_schedule has no
-    gate), and it is the one call that preserves the human
-    checkpoint: the plan freezes on its own, and once it is ready the
-    schedule fires unattended. It is named FIRST so an agent that
-    follows the guidance pauses before the plan freezes, not after.
+    The planner's plan only becomes a PROPOSAL; nothing fires until a
+    human approves it, so pausing first would protect nothing. The
+    guidance is to follow the planner, whether active or paused.
     """
     guidance = plan_guidance(_sched(PlanStatus.PLANNING, active=True))
-    assert guidance['next_actions'] == [
-        'update_schedule',
-        'wait_task',
-        'get_task',
-    ]
+    assert guidance['next_actions'] == ['wait_task', 'get_task']
     assert guidance['fires'] is False
 
 
-def test_planning_meaning_says_to_pause():
-    """The meaning has to name the pause, not just the status."""
+def test_planning_meaning_says_a_human_approves():
+    """The meaning has to say who unblocks it, not just the status."""
     meaning = PLAN_STATUS_MEANINGS[PlanStatus.PLANNING]
-    assert 'pause' in meaning.lower()
-    assert 'automatically' in meaning, (
-        'the plan is accepted by the server — the agent must know'
-    )
+    assert 'approves' in meaning
+    assert 'automatically' not in meaning
     assert 'fire' in meaning
+
+
+def test_pending_approval_names_the_decision_and_never_expires():
+    guidance = plan_guidance(_sched(PlanStatus.PENDING_APPROVAL))
+    assert guidance['next_actions'][0] == 'review_schedule_plan'
+    assert guidance['fires'] is False
+    meaning = guidance['plan_status_meaning']
+    assert 'never expires' in meaning
+    assert 'never approves on its own' in meaning
+
+
+def test_a_revision_keeps_the_approved_plan_firing():
+    """Asking for changes must not silently stop a working schedule:
+    with an approved plan, planning / pending_approval / failed all
+    still fire it (app.plan_states.review_plan_fires)."""
+    for plan_status in (
+        PlanStatus.PLANNING,
+        PlanStatus.PENDING_APPROVAL,
+        PlanStatus.FAILED,
+    ):
+        guidance = plan_guidance(
+            _sched(plan_status, approved_plan='the approved plan')
+        )
+        assert guidance['fires'] is True, plan_status
+        assert 'run_schedule' in guidance['next_actions'], plan_status
+
+
+def test_auto_schedule_fires_its_prompt():
+    guidance = plan_guidance(_sched(PlanStatus.NONE, plan_mode=False))
+    assert guidance['fires'] is True
+    assert guidance['review_plan'] is False
+    assert guidance['next_actions'] == ['run_schedule']
 
 
 def test_not_ready_plan_status_names_replan():
@@ -463,20 +505,16 @@ def test_served_instructions_name_every_status_and_stay_short():
 # ── The two facts an agent must not be able to miss ─────────
 
 
-def test_ready_plan_says_it_was_accepted_automatically():
-    """A schedule's plan is accepted by the SERVER, not by a human.
+def test_ready_plan_says_a_human_approved_it():
+    """A review schedule's plan is approved by a HUMAN, never the server.
 
-    The wording has to say that, because the alternative reading —
-    "the plan is ready, so someone approved it" — is what makes an
-    agent report "scheduled" without ever showing the plan.
+    The wording has to say it fires, and how to revise it.
     """
     meaning = PLAN_STATUS_MEANINGS[PlanStatus.READY]
-    assert 'automatically' in meaning
+    assert 'approved by a human' in meaning
+    assert 'automatically' not in meaning
     assert 'WILL fire' in meaning
-    # The instruction to the agent: show it, and how to object.
-    assert 'show the plan' in meaning.lower()
-    assert 'pause' in meaning
-    assert 'replan' in meaning
+    assert 'review_schedule_plan' in meaning
 
 
 def test_planned_task_says_it_holds_an_agent_slot():
@@ -495,8 +533,8 @@ def test_planned_task_says_it_holds_an_agent_slot():
     assert 'stopped' in meaning
     assert 'never abandon' in meaning.lower()
 
-    # The plan-only variant says it too — a plan-only task that parks
-    # at planned holds a slot exactly the same way.
+    # The plan-only variant says it too — a plan-only task that
+    # stays at planned holds a slot exactly the same way.
     plan_only = task_guidance(
         _task(TaskStatus.PLANNED, is_plan_only=True),
         has_pending_question=False,
@@ -511,15 +549,18 @@ def test_instructions_carry_both_facts():
     meanings."""
     assert 'never abandon' in render_instructions().lower()
     assert 'agent slot' in render_instructions()
-    assert 'accepted automatically' in render_instructions()
-    assert 'show the plan' in render_instructions().lower()
+    # A schedule plan waits for a human, and that wait never expires.
+    assert 'never expires' in render_instructions()
+    assert 'auto by default' in render_instructions()
+    assert 'get_attention' in render_instructions()
 
 
 def test_ready_meaning_survives_into_the_generated_reference():
     """The generated flows.md table is the manual's copy of the
     meanings — the new wording must be in it, not only in code."""
     reference = render_status_reference()
-    assert 'accepted automatically' in reference
+    assert 'approved by a human' in reference
+    assert 'never expires' in reference
     assert 'never abandon' in reference.lower()
     assert 'agent slot' in reference
 
@@ -573,13 +614,12 @@ def test_image_gate_survives_into_instructions_and_reference():
 
 
 def test_schedule_fired_planned_offers_no_review_and_waits():
-    """A schedule-fired task at ``planned`` auto-executes its frozen
-    plan (task_queue._dispatch routes on task.plan): the plan was
-    accepted when the schedule was armed, so review_plan must not be
-    offered — and rejecting it would discard the approved plan and
-    re-plan with AUTO-approval (``_follow_up_auto_approve`` is true
-    for any schedule_id task). The state is pre-execution, so
-    wait_task (which blocks there) IS the guidance.
+    """A schedule-fired task at ``planned`` auto-executes its
+    schedule's approved plan (task_queue._dispatch routes on
+    task.plan): the plan was approved on the schedule, so review_plan
+    must not be offered — rejecting it would throw the approved plan
+    away. The state is pre-execution, so wait_task (which blocks
+    there) IS the guidance.
     """
     task = _task(TaskStatus.PLANNED)
     task.schedule_id = 'sched-1'
@@ -587,7 +627,7 @@ def test_schedule_fired_planned_offers_no_review_and_waits():
     assert 'review_plan' not in guidance['next_actions']
     assert 'wait_task' in guidance['next_actions']
     assert 'schedule' in guidance['status_meaning']
-    assert 'frozen plan' in guidance['status_meaning']
+    assert 'APPROVED plan' in guidance['status_meaning']
 
 
 def test_schedule_fired_variants_only_where_they_differ():
@@ -675,12 +715,11 @@ def test_dead_planner_names_replan_not_wait():
         assert 'ended' in guidance['plan_status_meaning']
 
 
-def test_live_planner_still_names_the_pause_and_wait():
-    # The flag defaults to False — a LIVE planner keeps the
-    # checkpoint guidance (pause first, then follow the planner).
+def test_live_planner_names_the_wait():
+    # The flag defaults to False — a LIVE planner is followed.
     assert plan_guidance(_sched(PlanStatus.PLANNING, active=True))[
         'next_actions'
-    ] == ['update_schedule', 'wait_task', 'get_task']
+    ] == ['wait_task', 'get_task']
 
 
 def test_planned_meaning_warns_a_message_is_a_rejection():

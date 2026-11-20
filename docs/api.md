@@ -115,7 +115,7 @@ and the reveal endpoint below.
 | POST | `/api/tasks` | Create task (auto mode by default; `plan_mode=true` for plan mode; optional `parent_task_id` to create a sub-task — sub-tasks must have a `store_id`). Task provenance (`source`) is derived server-side from the request context (`subtask` when `parent_task_id` is set, else `ui`) — it is not a request field and any body value is ignored. `title` is optional: when blank it is derived from `description` (first sentence, ≤50 chars) and, if that was lossy, replaced in the background by an AI-generated title on the task's own profile (`task_title` SSE event; skipped if the title changed meanwhile) — see `app/task_title.py`. |
 | GET | `/api/tasks/{task_id}` | Get task by ID |
 | DELETE | `/api/tasks/{task_id}` | Cascade-delete a task and its full subtree (children, grandchildren, …). Removes dependent rows (`task_steps`, `task_messages`, `task_attachments`, `task_logs`, `screenshots`), drops the on-disk workspace at `~/.vibe-seller/tasks/{task_id}/`, and best-effort stops any running agent. Refuses with 409 if any task in the subtree is in `designing` / `running` — caller must Stop first. Idempotent: returns `{ok: true}` even when the task does not exist. Cleanup logic lives in `app/task_delete.py` and is shared with the auto-cleanup job. |
-| POST | `/api/tasks/{task_id}/retry` | Retry failed/completed task (clears plan_history, wipes workspace, and deletes the prior run's `ad_task_declarations` + `report_run_declarations` with its messages — a declaration belongs to the run, and a retried run has no files from it). For a schedule-owned plan-mode task with a ready plan, the frozen plan is re-seeded so the retry executes it directly. A plan-only task (`is_plan_only`) is excluded from that re-seed: retrying the planner re-authors the plan instead of executing it. |
+| POST | `/api/tasks/{task_id}/retry` | Retry failed/completed task (clears plan_history, wipes workspace, and deletes the prior run's `ad_task_declarations` + `report_run_declarations` with its messages — a declaration belongs to the run, and a retried run has no files from it). A fired task follows its schedule's CURRENT mode: auto → a plain auto run; review → the approved plan is re-seeded so the retry executes it directly, and with no approved plan the retry is refused (409). A plan-only task (`is_plan_only`) is never re-seeded: retrying it re-attaches it as the schedule's current planner and re-writes the plan (409 if the schedule went auto or a newer planner exists). |
 | POST | `/api/tasks/{task_id}/start` | Queue task via scheduler |
 | GET | `/api/tasks/{task_id}/steps` | Get task steps |
 | POST | `/api/tasks/{task_id}/agent/start` | Start Claude Code agent |
@@ -343,35 +343,25 @@ real email, `manage_chat_bot(test|send)` posts to the group,
 `manage_profile(validate)` spends one tiny real model call, and
 `manage_ticktick(authorize)` returns an OAuth URL only a human can finish.
 
-**Schedule semantics.** A user-created schedule always plans first: a
-plan-only task (`plan_task_id` in the result) authors the plan, and when
-it finishes the plan is frozen onto the schedule (`plan_status=ready`) —
-the planning task executes nothing. Every schedule result carries
-`plan_status`, `plan_status_meaning`, `fires` and `next_actions` (from
-`app/agent_mcp/lifecycle.py`), plus the frozen plan text itself
-(`plan`, `plan_truncated`, `plan_full_text_where`) — the agent has to be
-able to SHOW that plan to its user before the schedule runs it.
-`fires` is **false** unless the plan gate is open *and* the schedule is
-active: a schedule whose plan is not `ready` never fires, and
+**Schedule semantics.** A schedule is AUTO by default: each fire runs
+its prompt, and `create_schedule` creates it active, like the web UI.
+With `review_plan: true` a plan-only task (`plan_task_id`) writes a
+plan and the schedule waits at `plan_status=pending_approval` until
+`review_schedule_plan` approves it (or sends it back with feedback) —
+the server never approves on its own and the wait never expires. Every
+schedule result carries `review_plan`, `plan_status`,
+`plan_status_meaning`, `fires` and `next_actions` (from
+`app/agent_mcp/lifecycle.py`), plus the plan texts (`plan` = approved,
+`proposed_plan` = awaiting approval, `plan_feedback`) — the agent has to
+be able to SHOW the plan to its user before approving it. `fires` is
+**false** unless the fire gate is open *and* the schedule is active: a
+review schedule without an approved plan never fires, and
 `run_schedule` on one is refused with the route's reason verbatim.
 `update_schedule` folds the UI's separate routes into one call: the
-edit applies first, then `replan: true` (spawns a fresh plan-only
-task), then `paused` (→ `/pause` or `/resume`; resuming needs a ready
-plan). Editing the prompt makes the stored plan `stale`.
-
-**A schedule's plan is accepted by the SERVER, not by a human.** The
-plan-only task auto-approves at `ExitPlanMode`, so `plan_status=ready`
-means "the server took the plan the planner wrote", not "someone
-reviewed it". The human checkpoint is made by the agent: pass
-`paused: true` to `create_schedule` (the default `false` is what the
-web UI does) and the tool creates the schedule and pauses it in the
-same call — no REST change, no direct DB write; the REST create path
-has no `is_active` of its own (`ScheduleCreate` carries none, and the
-create route always makes an active schedule), and only `/pause`
-deactivates one. While the plan is still `planning` the fire gate
-refuses the schedule anyway, so pausing at creation leaves no window.
-Then show the plan text and resume it with
-`update_schedule(paused=false)` only with the user's go-ahead.
+edit applies first (incl. `review_plan` on/off), then `replan: true`
+(spawns a fresh plan-only task), then `paused` (→ `/pause` or
+`/resume`). `get_attention` lists everything waiting for a human:
+plans awaiting approval, task questions and task plans awaiting review.
 
 **Task lifecycle guidance.** Every tool result that carries a task —
 `create_task`, `get_task`, `wait_task`, each `list_tasks` item,
@@ -434,15 +424,18 @@ This is NOT `app/mcp_server.py`: that module is the *in-task* stdio MCP
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/schedules?store_id=` | List schedules (filter by store) |
-| POST | `/api/schedules` | Create a recurring schedule. Optional `phase_mode` (`fanout` \| `single`) only honored when `store_id` is null; store-bound schedules always resolve to `single`. When omitted, server uses `AppSettings.default_schedule_phase_mode`, falling back to `fanout`. `two_phase` is system-only and rejected with 400. Optional `fanout_serial` (bool, default false) runs the fanout's stores one at a time (see [All-Stores Scheduling](subsystems.md#all-stores-scheduling)); 400 when set on a store-bound or `single` schedule. When `plan_mode=true`, the response is returned with `plan_status='planning'` and a fresh `is_plan_only` Task is spawned; the schedule is not eligible to fire until the user approves the plan (see [Plan-at-creation lifecycle](subsystems.md#plan-at-creation-lifecycle)). |
+| POST | `/api/schedules` | Create a recurring schedule. Optional `phase_mode` (`fanout` \| `single`) only honored when `store_id` is null; store-bound schedules always resolve to `single`. When omitted, server uses `AppSettings.default_schedule_phase_mode`, falling back to `fanout`. `two_phase` is system-only and rejected with 400. Optional `fanout_serial` (bool, default false) runs the fanout's stores one at a time (see [All-Stores Scheduling](subsystems.md#all-stores-scheduling)); 400 when set on a store-bound or `single` schedule. `plan_mode` (default `false`) = "review the plan before it runs": `false` creates an AUTO schedule (`plan_status='none'`, each fire runs the prompt); `true` returns `plan_status='planning'` with a fresh `is_plan_only` Task, and the schedule is not eligible to fire until the owner approves the plan (see [Plan review lifecycle](subsystems.md#plan-at-creation-lifecycle)). |
 | GET | `/api/schedules/{id}` | Get schedule detail |
-| PUT | `/api/schedules/{id}` | Update schedule. Mutable: `title`, `description`, `schedule_type`, `schedule_time`, `schedule_day`, `interval_value`, `timezone`, `ai_profile_id`, `finalize_description`, `fanout_serial` (400 on a store-bound or `single` schedule; omitted leaves it unchanged). `plan_mode`, `phase_mode`, and `store_id` are immutable (400 / 422 respectively). `plan_version` acts as an `If-Match` optimistic-lock token — stale values return 412. On a plan-mode schedule, a `description` change (normalized whitespace) aborts any in-flight planner and flips `plan_status='stale'`; call `/replan` to author a new plan. |
+| PUT | `/api/schedules/{id}` | Update schedule. Mutable: `title`, `description`, `schedule_type`, `schedule_time`, `schedule_day`, `interval_value`, `timezone`, `ai_profile_id`, `finalize_description`, `fanout_serial` (400 on a store-bound or `single` schedule; omitted leaves it unchanged). `plan_mode` switches plan review: `true` starts a planner (no fires until a plan is approved); `false` drops the plan and fires run the prompt (refused to the in-task `ai_bot` user). `phase_mode` and `store_id` are immutable (422). `plan_version` acts as an `If-Match` optimistic-lock token for edits that change the plan (prompt / review mode) — stale values return 412. On a review schedule, a `description` change (normalized whitespace) aborts any in-flight planner, drops the approved plan and starts a new planner. |
 | DELETE | `/api/schedules/{id}` | Delete schedule. An in-flight planning task is stopped and ended as `failed` (`error='Schedule deleted.'`) through the same abort path the prompt-edit and replan flows use — deleting mid-planning never strands a planner parked at `planned` holding an agent slot. |
 | POST | `/api/schedules/{id}/pause` | Pause schedule |
-| POST | `/api/schedules/{id}/resume` | Resume schedule. Returns 409 if `plan_mode=true` and `plan_status != 'ready'` (gate with the cron fire-gate so APScheduler doesn't fire a blocked schedule). |
+| POST | `/api/schedules/{id}/resume` | Resume schedule. Returns 409 for a review schedule without an approved plan (the cron fire-gate, `plan_states.schedule_fires`). |
 | GET | `/api/schedules/{id}/tasks` | List child tasks for schedule |
-| POST | `/api/schedules/{id}/trigger` | Manually trigger schedule. Returns 409 if `plan_mode=true` and `plan_status != 'ready'`. All-stores schedules route by `phase_mode`: `fanout`/`two_phase` → one task per active store; `single` → one no-store task. Fires a PAUSED schedule too (the pause gates the cron, not the manual trigger — same as the web UI's Run-now button). Store-bound schedules always create one store-scoped task. Before creating a per-store child task, any prior `waiting` task for the same `(schedule, store)` is cancel-forwarded (FAILED with `error_category='superseded_by_next_fire'`) and a `schedule_waiting_cancelled` SSE event is emitted. |
-| POST | `/api/schedules/{id}/replan` | **Idempotent.** Spawn a new `is_plan_only` Task to author the schedule's plan. If a non-terminal planning Task already exists, returns the current response without spawning a duplicate. Returns 400 for non-plan-mode schedules. |
+| POST | `/api/schedules/{id}/trigger` | Manually trigger schedule. Returns 409 for a review schedule without an approved plan. All-stores schedules route by `phase_mode`: `fanout`/`two_phase` → one task per active store; `single` → one no-store task. Fires a PAUSED schedule too (the pause gates the cron, not the manual trigger — same as the web UI's Run-now button). Store-bound schedules always create one store-scoped task. Before creating a per-store child task, any prior `waiting` task for the same `(schedule, store)` is cancel-forwarded (FAILED with `error_category='superseded_by_next_fire'`) and a `schedule_waiting_cancelled` SSE event is emitted. |
+| POST | `/api/schedules/{id}/replan` | **Idempotent.** Spawn a new `is_plan_only` Task to write the schedule's plan (it then waits for approval). If a non-terminal planning Task already exists, returns the current response without spawning a duplicate. Returns 400 for auto schedules. |
+| GET | `/api/schedules/attention` | `{plan_approvals: [{schedule_id, title, store_id, plan_version, proposed_at}], planner_questions: [{schedule_id, title, store_id, task_id}]}` — review schedules whose plan waits for approval, and planners waiting on an answer (drives the top banner). (`schedule_review.py`) |
+| POST | `/api/schedules/{id}/plan/approve` | Body `{plan_version?}`. Approve the pending plan → `plan_status='ready'`. 409 unless `pending_approval`; 412 if the plan changed since `plan_version`; 403 for the in-task `ai_bot` user. Compare-and-swap. (`schedule_review.py`) |
+| POST | `/api/schedules/{id}/plan/request-changes` | Body `{feedback, plan_version?}`. Send the plan back: a new planner revises it with the feedback. Allowed on `pending_approval` or `ready` (an approved plan keeps firing meanwhile). 403 for `ai_bot`. (`schedule_review.py`) |
 
 ### `ScheduleResponse` fields
 
@@ -450,10 +443,11 @@ All endpoints returning a schedule serialize these fields:
 
 | Field | Type | Notes |
 |---|---|---|
-| core CRUD fields | — | `id`, `store_id`, `title`, `description`, `plan`, `schedule_type`, `schedule_time`, `schedule_day`, `interval_value`, `timezone`, `is_active`, `is_system`, `phase_mode`, `plan_mode`, `ai_profile_id`, `created_by`, `created_at`, `updated_at` |
-| `plan_status` | `'none' \| 'planning' \| 'ready' \| 'stale' \| 'failed'` | Lifecycle of the frozen plan — see [`PlanStatus`](subsystems.md#plan-at-creation-lifecycle). |
-| `plan_version` | int | Monotonic counter, bumped on every successful plan commit. Use as `If-Match` when sending PUT. |
+| core CRUD fields | — | `id`, `store_id`, `title`, `description`, `plan` (the approved plan), `proposed_plan` (awaiting approval), `plan_feedback`, `schedule_type`, `schedule_time`, `schedule_day`, `interval_value`, `timezone`, `is_active`, `is_system`, `phase_mode`, `plan_mode`, `ai_profile_id`, `created_by`, `created_at`, `updated_at` |
+| `plan_status` | `'none' \| 'planning' \| 'pending_approval' \| 'ready' \| 'stale' \| 'failed'` | Plan review lifecycle — see [`PlanStatus`](subsystems.md#plan-at-creation-lifecycle). |
+| `plan_version` | int | Monotonic counter, bumped on every proposal and every approval. Use as `If-Match` when sending PUT, and on approve / request-changes. |
 | `plan_error` | string \| null | Last planner failure reason (shown in the UI banner on `failed`). Cleared on successful plan commit or on prompt-edit invalidation. |
+| `plan_error_code` | string \| null | Why the plan failed, as a code the UI translates: `planner_died`, `server_restart`, `stopped`, `no_plan`, `start_failed`, `other` (`app.plan_states.PlanFailure`). Cleared with `plan_error`. |
 | `current_planning_task_id` | string \| null | Task ID currently authoring the plan, if any. |
 | `next_run` | string \| null | Next APScheduler fire time (ISO). |
 | `child_task_count` | int | Count of non-plan-only child tasks. |

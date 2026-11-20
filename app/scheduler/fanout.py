@@ -33,7 +33,7 @@ from app.models.schedule import Schedule
 from app.models.schedule_constants import PhaseMode, StalenessCheck
 from app.models.store import Store
 from app.models.task import Task
-from app.plan_states import PlanStatus
+from app.plan_states import fire_plan, schedule_fires
 from app.prompts import (
     CATALOG_DESC_L2,
     CATALOG_DESC_L3,
@@ -50,17 +50,8 @@ logger = logging.getLogger(__name__)
 
 
 def _schedule_can_fire(sched: Schedule) -> bool:
-    """Plan-mode schedules fire only when plan_status=READY.
-
-    System schedules and plan_mode=False schedules are always
-    eligible. Mirrors ``cron._schedule_can_fire`` — kept local to
-    avoid a cron.py import cycle.
-    """
-    if sched.is_system:
-        return True
-    if not sched.plan_mode:
-        return True
-    return sched.plan_status == PlanStatus.READY.value
+    """The fire gate — one rule, :func:`app.plan_states.schedule_fires`."""
+    return schedule_fires(sched)
 
 
 async def _cancel_prior_waiting(
@@ -168,8 +159,7 @@ async def run_fanout_job(
             )
             send_fire_skipped(schedule_id, sched.plan_status)
             return
-        saved_plan = sched.plan
-        saved_plan_version = sched.plan_version
+        plan_mode, saved_plan, saved_plan_version = fire_plan(sched)
         two_phase = sched.phase_mode == PhaseMode.TWO_PHASE
         is_catalog = sched.staleness_check == StalenessCheck.CATALOG
         schedule_type = sched.schedule_type
@@ -338,8 +328,7 @@ async def run_single_job(
             )
             send_fire_skipped(schedule_id, sched.plan_status)
             return
-        saved_plan = sched.plan
-        saved_plan_version = sched.plan_version
+        plan_mode, saved_plan, saved_plan_version = fire_plan(sched)
         single_schedule_type = sched.schedule_type
         resolved_profile = await resolve_schedule_profile(sched, db)
 
@@ -497,6 +486,7 @@ async def create_manual_trigger_task(schedule: Schedule, created_by, db):
     and report ``task_created`` the way every creation path does.
     """
     await _cancel_prior_waiting(db, schedule.id, schedule.store_id)
+    plan_mode, plan, plan_version = fire_plan(schedule)
     task = Task(
         store_id=schedule.store_id,
         schedule_id=schedule.id,
@@ -506,13 +496,13 @@ async def create_manual_trigger_task(schedule: Schedule, created_by, db):
         platform=schedule.platform,
         country=schedule.country,
         status=TaskStatus.PENDING,
-        plan_mode=schedule.plan_mode,
+        plan_mode=plan_mode,
         source=TaskSource.SCHEDULE,
         ai_profile_id=await resolve_schedule_profile(schedule, db),
     )
-    if schedule.plan:
-        task.plan = schedule.plan
-        task.plan_version = schedule.plan_version
+    if plan:
+        task.plan = plan
+        task.plan_version = plan_version
         task.status = TaskStatus.PLANNED
     db.add(task)
     await db.commit()

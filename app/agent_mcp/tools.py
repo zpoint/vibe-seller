@@ -41,6 +41,8 @@ limit — this file is the assembly point that makes the imports run):
   image-confirm gate ``image_request``.
 * ``tools_schedules.py`` — schedule CRUD + run, every result
   carrying the plan lifecycle (``lifecycle.plan_guidance``).
+* ``tools_schedule_review.py`` — ``get_attention`` (everything waiting
+  for a human) and ``review_schedule_plan`` (approve / request changes).
 * ``tools_workspace.py`` — ``list_stores`` and the read-only
   ``read_knowledge`` (its path validation confines reads to
   ``knowledge/`` and ``stores/`` before anything is resolved).
@@ -62,6 +64,7 @@ from app.agent_mcp import (
     tools_assistant,  # noqa: F401
     tools_comm,  # noqa: F401
     tools_config,  # noqa: F401
+    tools_schedule_review,  # noqa: F401
     tools_schedules,  # noqa: F401
     tools_skills,  # noqa: F401
     tools_stores,  # noqa: F401

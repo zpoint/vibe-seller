@@ -29,13 +29,14 @@ from app.models.task_log import TaskLog
 from app.models.task_message import TaskMessage
 from app.models.task_step import TaskStep
 from app.models.user import User
-from app.plan_states import PlanStatus
+from app.plan_states import plan_auto_accepted
 from app.question_park import (
     answer_parked_question,
     pending_payload,
     record_answer_bubble,
 )
 from app.routers.dida365_oauth import refresh_token_if_needed
+from app.routers.schedule_planning import retry_schedule_plan
 from app.routers.tasks_files import promote_staged_attachments
 from app.scheduler.task_queue import task_queue_scheduler
 from app.task_chat_context import build_chat_context
@@ -82,17 +83,18 @@ FRESH_SESSION_MSG_LIMIT = int(
 router = APIRouter(prefix='/api/tasks', tags=['tasks'])
 
 
-def _follow_up_auto_approve(task: Task) -> bool:
-    """Mirror of the ``auto_approve_plan`` gate from
-    ``task_runner_auto.py``.
+async def _follow_up_auto_approve(task: Task, db: AsyncSession) -> bool:
+    """The ``auto_approve_plan`` gate for follow-up launches.
 
     Follow-up flows bypass ``auto_run_task`` and call
-    ``agent_manager.run()`` directly, so must compute the same gate
-    locally. Without this, a plan-mode task with ``schedule_id`` set
-    would leave ``auto_approve_plan=False`` and wait forever for an
-    approval that never arrives.
+    ``agent_manager.run()`` directly; both use the same rule,
+    :func:`app.plan_states.plan_auto_accepted`, with the task's
+    schedule row.
     """
-    return bool(task.schedule_id) or not task.plan_mode
+    schedule = (
+        await db.get(Schedule, task.schedule_id) if task.schedule_id else None
+    )
+    return plan_auto_accepted(task, schedule)
 
 
 async def get_next_seq(db: AsyncSession, task_id: str) -> int:
@@ -426,7 +428,7 @@ async def send_task_message(
                 system_extra=system_extra,
                 mode='plan_then_execute',
                 profile_id=requested_profile_id,
-                auto_approve_plan=_follow_up_auto_approve(task),
+                auto_approve_plan=await _follow_up_auto_approve(task, db),
                 resume=has_resumable_session,
                 revert_status=TaskStatus.PLANNED,
             )
@@ -484,7 +486,7 @@ async def send_task_message(
                 system_extra=system_extra,
                 mode=follow_up_mode,
                 profile_id=requested_profile_id,
-                auto_approve_plan=_follow_up_auto_approve(task),
+                auto_approve_plan=await _follow_up_auto_approve(task, db),
                 resume=has_resumable_session,
                 revert_status=TaskStatus(prev_status),
                 revert_error=prev_error,
@@ -519,7 +521,7 @@ async def send_task_message(
                 system_extra=system_extra,
                 mode=follow_up_mode,
                 profile_id=requested_profile_id,
-                auto_approve_plan=_follow_up_auto_approve(task),
+                auto_approve_plan=await _follow_up_auto_approve(task, db),
                 resume=has_resumable_session,
                 revert_status=TaskStatus(task.status),
             )
@@ -631,6 +633,9 @@ async def retry_task(
             status_code=400,
             detail=f'Cannot retry task in status {task.status}',
         )
+    # Decide BEFORE anything is wiped: a refusal must leave the task as
+    # it was.
+    reseed = await retry_schedule_plan(task, db)
 
     await db.execute(delete(TaskStep).where(TaskStep.task_id == task_id))
     await db.execute(
@@ -687,36 +692,15 @@ async def retry_task(
     task.paused_seconds = 0
     task.paused_since = None
 
-    # For plan-mode scheduled tasks, re-seed the frozen schedule
-    # plan so retry skips re-planning — mirrors the cron fire path
-    # in app/scheduler/cron.py which sets status=PLANNED with the
-    # saved plan when sched.plan_status=='ready'. Without this,
-    # retry always wipes task.plan and kicks the agent back into
-    # DESIGNING even though the schedule already has a frozen plan.
-    #
-    # Both sides must agree on plan_mode: the cron fire path sets
-    # task.plan_mode=sched.plan_mode, so if they diverge the task was
-    # created by a non-cron path (manual API call) and its recorded
-    # mode wins — we don't flip an auto-mode task into planned
-    # execution just because its schedule is plan-mode.
-    #
-    # PLAN-ONLY tasks (is_plan_only) are excluded: their whole job is
-    # to AUTHOR the schedule's plan, never to execute it. Retrying one
-    # with a re-seeded plan would route it through
-    # execute_planned_task, whose no-live-session branch spawns an
-    # EXECUTE session whenever task.plan is set — "retry" would run
-    # the plan the task was only supposed to write. A retried planner
-    # re-authors instead: plan wiped, PENDING, the default launcher.
-    if task.schedule_id and task.plan_mode and not task.is_plan_only:
-        sched = await db.get(Schedule, task.schedule_id)
-        if (
-            sched
-            and sched.plan_mode
-            and sched.plan_status == PlanStatus.READY.value
-            and sched.plan
-        ):
-            task.plan = sched.plan
-            task.plan_version = sched.plan_version
+    # Scheduled fires follow their schedule's CURRENT mode (see
+    # retry_schedule_plan): auto → a plain auto run; review → re-seed
+    # the approved plan and go straight to PLANNED → execute, matching
+    # the cron fire path.
+    if reseed is not None:
+        task.plan_mode, plan, version = reseed
+        if plan:
+            task.plan = plan
+            task.plan_version = version
             task.status = TaskStatus.PLANNED
 
     task.retry_count = (task.retry_count or 0) + 1

@@ -25,10 +25,9 @@ from app.ai.question_wait import (
 )
 from app.ai.stop_gates import recorded_skills
 import app.database as _db
-from app.models.schedule import Schedule
 from app.models.task import Task
 from app.models.task_message import TaskMessage
-from app.plan_states import freeze_schedule_plan
+from app.schedule_plan_review import record_plan_proposal
 from app.task_outcome import apply_outcome, resolve_outcome
 from app.task_states import TaskStatus
 from tests.workflow.db_calls import wait_db_idle
@@ -698,10 +697,10 @@ class FakeAgent(AIAgentBackend):
         if scenario.should_fail and (scenario.fail_at_phase == 'execute'):
             return
 
-        # Plan-only tasks (owned by a Schedule in plan-at-creation
-        # flow) commit the plan to the Schedule and terminate at
-        # COMPLETED — they never enter RUNNING. Mirrors the real
-        # branch in app/ai/claude_backend_hooks.py._commit_plan_only_approval,
+        # Plan-only tasks (owned by a review Schedule) record their
+        # plan as the Schedule's proposal and terminate at COMPLETED —
+        # they never enter RUNNING. Mirrors the real branch in
+        # app/ai/claude_backend_hooks.py._commit_plan_proposal,
         # INCLUDING the status guard. If something else has already
         # transitioned the task out of {PLANNED, DESIGNING, QUEUED}
         # (e.g., execute_planned_task racing ahead and forcing
@@ -717,30 +716,20 @@ class FakeAgent(AIAgentBackend):
         if scenario.post_approval_delay > 0:
             await _real_sleep(scenario.post_approval_delay)
 
-        # Plan-only commit mirrors the real hook's guard
-        # (``status in {PLANNED, DESIGNING, QUEUED}``) — if the
+        # Plan-only tasks hand their plan to the schedule through the
+        # SAME function the real ExitPlanMode hook calls
+        # (``record_plan_proposal``), status guard included: if the
         # task was force-transitioned to RUNNING by a concurrent
-        # executor, skip the commit. Identical rule to
-        # ``_commit_plan_only_approval`` in production.
+        # executor, nothing is recorded.
         is_plan_only_task = False
         async with _db.async_session() as db:
             task = await db.get(Task, task_id)
             if not task:
                 return
             is_plan_only_task = bool(task.is_plan_only and task.schedule_id)
-            if is_plan_only_task and task.status in (
-                TaskStatus.PLANNED,
-                TaskStatus.DESIGNING,
-                TaskStatus.QUEUED,
-            ):
-                sched = await db.get(Schedule, task.schedule_id)
-                if sched is not None:
-                    now = datetime.now(UTC).isoformat()
-                    task.status = TaskStatus.COMPLETED
-                    task.completed_at = now
-                    task.updated_at = now
-                    freeze_schedule_plan(sched, task.plan, now)
-                    await db.commit()
+            plan_text, schedule_id = task.plan, task.schedule_id
+        if is_plan_only_task:
+            await record_plan_proposal(task_id, schedule_id, plan_text or '')
 
         # Plan-only tasks must NEVER execute — they author a plan
         # and terminate. Return here whether the commit succeeded or

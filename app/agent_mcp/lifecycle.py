@@ -32,7 +32,7 @@ Route guards each derivation cites (verified 2026-11-04):
   ``status != PLANNED`` → 400, and ``plan is None`` → 400. (Approve
   on a plan-only task freezes the plan onto its schedule —
   ``execute_planned_task`` → ``approve_plan`` →
-  ``_commit_plan_only_approval``.) NOT named for a schedule-FIRED
+  ``_commit_plan_proposal``.) NOT named for a schedule-FIRED
   task at ``planned``: its plan is the schedule's frozen one and the
   queue auto-executes it (``task_queue._dispatch``) — a review there
   would discard an already-accepted plan (see
@@ -64,7 +64,7 @@ from pathlib import Path
 
 from app.models.schedule import Schedule
 from app.models.task import Task
-from app.plan_states import PlanStatus
+from app.plan_states import PlanStatus, schedule_fires
 from app.routers.schedule_planning import schedule_needs_plan
 from app.task_states import (
     ACTIVE,
@@ -89,6 +89,8 @@ RETRY_TASK = 'retry_task'
 DELETE_TASK = 'delete_task'
 UPDATE_SCHEDULE = 'update_schedule'
 RUN_SCHEDULE = 'run_schedule'
+REVIEW_SCHEDULE_PLAN = 'review_schedule_plan'
+GET_ATTENTION = 'get_attention'
 
 # Statuses where waiting means something: the task may still move on
 # its own. wait_task returns IMMEDIATELY on planned (needs_operator),
@@ -144,17 +146,18 @@ TASK_STATUS_MEANINGS: dict[TaskStatus, str] = {
 # can present to an operator differ.
 _PLAN_ONLY_MEANINGS: dict[TaskStatus, str] = {
     TaskStatus.PLANNED: (
-        "Plan ready — this task only authors its schedule's plan: "
-        'approving (review_plan) freezes the plan onto the schedule '
-        'and nothing executes. An unreviewed planned task holds one '
-        "of the server's agent slots — approve, reject or stop it, "
-        'never abandon one. A message REJECTS the plan and re-plans '
-        'with the text as feedback.'
+        "Momentary: this task only writes its schedule's plan, which "
+        "is being handed to the schedule for the owner's approval. "
+        'The decision is on the schedule (get_attention, then '
+        'review_schedule_plan). If it stays here, it holds one of the '
+        "server's agent slots — never abandon one: review_plan hands "
+        'the plan over, stop_task frees the slot.'
     ),
     TaskStatus.COMPLETED: (
-        "Done — it authored its schedule's plan; nothing was "
-        'executed. send_message revises it; retry_task re-authors '
-        'from scratch.'
+        "Done — it wrote its schedule's plan; nothing was executed. "
+        'The plan now waits for approval on the schedule '
+        '(review_schedule_plan); asking for changes there starts a '
+        'new planning run.'
     ),
 }
 
@@ -170,11 +173,10 @@ _PLAN_ONLY_MEANINGS: dict[TaskStatus, str] = {
 # for every task with a ``schedule_id``).
 _SCHEDULE_FIRED_MEANINGS: dict[TaskStatus, str] = {
     TaskStatus.PLANNED: (
-        'Auto-executing the frozen plan from its schedule — it starts '
-        'on its own; wait_task follows it. The plan was accepted when '
-        'the schedule was armed, so review_plan is not offered — and '
-        'rejecting or messaging the task would discard that plan and '
-        're-plan with automatic approval. Do not.'
+        "Running its schedule's APPROVED plan — it starts on its own; "
+        'wait_task follows it. The plan was approved on the schedule, '
+        'so review_plan is not offered — rejecting or messaging the '
+        'task would throw that approved plan away. Do not.'
     ),
 }
 
@@ -184,26 +186,36 @@ _SCHEDULE_FIRED_MEANINGS: dict[TaskStatus, str] = {
 # failure this table exists to prevent.
 PLAN_STATUS_MEANINGS: dict[PlanStatus, str] = {
     PlanStatus.NONE: (
-        'No plan lifecycle (system schedule) — fires its prompt as-is.'
+        'Auto schedule (no plan review) — every fire runs its prompt '
+        'directly, on its cron unless paused.'
     ),
     PlanStatus.PLANNING: (
-        'A plan-only task is authoring the plan; the schedule cannot '
-        'fire until the plan is frozen, and the plan is then accepted '
-        'automatically. Pause the schedule now '
-        '(update_schedule paused=true) if your user has not seen the '
-        'plan.'
+        'Plan review is on: a plan-only task is writing the plan '
+        '(wait_task on plan_task_id follows it). It cannot fire until '
+        'a human approves a plan; if an earlier plan was approved, '
+        'that one keeps firing meanwhile.'
+    ),
+    PlanStatus.PENDING_APPROVAL: (
+        'The plan is written and WAITS FOR APPROVAL (proposed_plan); '
+        'it cannot fire until approved. Show the plan to your user, '
+        'then review_schedule_plan approves it or sends it back with '
+        'their requested changes. The server never approves on its '
+        'own and the wait never expires.'
     ),
     PlanStatus.READY: (
-        'Plan written and accepted automatically — the schedule WILL '
-        'fire on its cron (unless it is paused). Show the plan to '
-        'your user; pause or replan it if they object.'
+        'Plan approved by a human — the schedule WILL fire it on its '
+        'cron (unless it is paused). review_schedule_plan with '
+        'feedback revises it; the approved plan keeps firing meanwhile.'
     ),
     PlanStatus.STALE: (
-        'The prompt changed after the plan was frozen; the stored '
-        'plan no longer matches. Re-plan; it cannot fire.'
+        'Legacy: the prompt changed after the plan was written. '
+        'Re-plan (update_schedule replan=true); it cannot fire.'
     ),
     PlanStatus.FAILED: (
-        'The planning task failed; re-plan to try again. It cannot fire.'
+        'The planning run failed or its agent died (plan_error says '
+        'why); re-plan to try again (update_schedule replan=true). It '
+        'cannot fire unless an earlier plan was approved, which keeps '
+        'firing.'
     ),
 }
 
@@ -211,7 +223,8 @@ PLAN_STATUS_MEANINGS: dict[PlanStatus, str] = {
 # hand-edited rows — creation forces ``planning``) means something
 # different from the system-schedule ``none``.
 _NEEDS_PLAN_NONE_MEANING = (
-    'No plan authored yet; re-plan to author one. It cannot fire.'
+    'Plan review is on but no plan has been written yet; re-plan '
+    '(update_schedule replan=true) to write one. It cannot fire.'
 )
 
 # ``planning`` on a schedule whose planning task has already ENDED
@@ -378,84 +391,44 @@ def task_guidance(
     }
 
 
-def _plan_gate_open(plan_status: PlanStatus, needs_plan: bool) -> bool:
-    """May this schedule pass the fire gate right now?
-
-    ``_schedule_can_fire`` (app/scheduler/cron.py) and
-    ``trigger_schedule``: system and non-plan-mode schedules always
-    pass; plan-mode schedules only at ``ready``.
-    """
-    return (not needs_plan) or plan_status == PlanStatus.READY
-
-
 def _plan_next_actions(
     is_active: bool,
     plan_status: PlanStatus,
     needs_plan: bool,
+    gate_open: bool,
     planner_terminal: bool = False,
 ) -> list[str]:
     """The tools that make sense for a schedule in this plan state.
 
-    ``update_schedule`` is named where one of its variants is
-    accepted:
+    ``gate_open`` is :func:`app.plan_states.schedule_fires` for the
+    schedule (the same rule ``trigger_schedule`` / ``resume_schedule``
+    check): run_schedule is named only when it would be accepted.
 
-    * ``paused=true`` — ALWAYS accepted (the pause route has no gate),
-      and for an ACTIVE schedule mid-``planning`` it is the one call
-      that preserves the human checkpoint: the plan is not ready yet,
-      so the schedule cannot fire, and pausing now closes the window
-      before the plan freezes.
-    * ``replan`` — a plan-mode schedule that is not already planning,
-      OR one whose planner has ended (``planner_terminal``): the
-      /replan route's idempotency early-return only covers a
-      NON-terminal planner, so with a dead one replan spawns a fresh
-      task instead of no-op'ing.
-    * ``paused=false`` (resume) — 409 unless the plan gate is open.
-
-    A PAUSED schedule mid-``planning`` therefore names no update:
-    pausing again is a no-op, resume would be refused, replan is an
-    idempotent no-op, and the move is to wait for the planner —
-    UNLESS the planner already ended, when replan is the move and
-    waiting is waiting on nothing.
+    * ``pending_approval`` — ``review_schedule_plan`` leads: a human
+      decision is the only thing that moves it.
+    * ``planning`` — follow the planner (``wait_task`` /
+      ``get_task``); a planner that already ended means re-plan
+      (``update_schedule``) instead — waiting would wait on nothing.
+    * ``failed`` / ``stale`` / a review schedule with no plan —
+      ``update_schedule`` (replan).
+    * gate open — ``run_schedule`` (and, when paused, resume first:
+      run_schedule fires a paused schedule too).
     """
     actions: list[str] = []
-    if plan_status == PlanStatus.PLANNING:
+    if needs_plan and plan_status == PlanStatus.PENDING_APPROVAL:
+        actions.append(REVIEW_SCHEDULE_PLAN)
+    elif needs_plan and plan_status == PlanStatus.PLANNING:
         if planner_terminal:
-            # The planning task is FAILED or stopped but the schedule
-            # row still says `planning` (the reaper reconciles it
-            # within minutes). Nothing will freeze on its own: name
-            # replan, and do NOT point the agent at wait_task —
-            # following a dead planner is exactly the wait that never
-            # ends.
             return [UPDATE_SCHEDULE]
-        if is_active:
-            # Pause it FIRST: the plan freezes on its own, and once
-            # it is ready the schedule fires unattended. Naming this
-            # before wait_task keeps the checkpoint in the guidance
-            # the agent actually follows.
-            actions.append(UPDATE_SCHEDULE)
-        # Follow the planning task (its id rides the schedule
-        # result as plan_task_id). ExitPlanMode auto-approves for
-        # schedule-owned tasks; if one does park at ``planned``,
-        # task-level review_plan freezes it.
         actions += [WAIT_TASK, GET_TASK]
-    if _plan_gate_open(plan_status, needs_plan):
-        if is_active:
-            # trigger_schedule accepts regardless of is_active.
-            actions.append(RUN_SCHEDULE)
-        else:
-            # PAUSED with the gate open: resume leads. run_schedule
-            # would fire the schedule DESPITE the pause (the web UI's
-            # Run-now button is not disabled by it), so naming it
-            # first invites skipping the checkpoint the pause
-            # established — resume is the checkpoint-honouring move.
-            actions.append(UPDATE_SCHEDULE)
-            actions.append(RUN_SCHEDULE)
-    elif plan_status != PlanStatus.PLANNING:
-        # Plan-mode schedule, gate closed, not mid-planning:
-        # stale / failed / never-authored all move through replan.
-        # (Mid-planning nothing is named: resume is 409 and replan
-        # is an idempotent no-op — wait for the planner instead.)
+    elif needs_plan and plan_status != PlanStatus.READY:
         actions.append(UPDATE_SCHEDULE)
+    if gate_open:
+        if not is_active and UPDATE_SCHEDULE not in actions:
+            # PAUSED: resume leads. run_schedule fires a paused
+            # schedule DESPITE the pause.
+            actions.append(UPDATE_SCHEDULE)
+        actions.append(RUN_SCHEDULE)
     return actions
 
 
@@ -498,15 +471,17 @@ def plan_guidance(
         meaning = _DEAD_PLANNER_MEANING
     else:
         meaning = PLAN_STATUS_MEANINGS[plan_status]
+    gate_open = schedule_fires(schedule)
     return {
         'plan_status': plan_status.value,
         'plan_status_meaning': meaning,
-        'fires': bool(schedule.is_active)
-        and _plan_gate_open(plan_status, needs_plan),
+        'review_plan': needs_plan,
+        'fires': bool(schedule.is_active) and gate_open,
         'next_actions': _plan_next_actions(
             bool(schedule.is_active),
             plan_status,
             needs_plan,
+            gate_open,
             planner_terminal=planner_terminal,
         ),
     }
@@ -540,13 +515,12 @@ def render_instructions() -> str:
         'on terminal. failed: retry_task starts over. completed: '
         'send_message continues, retry re-runs. A '
         'planned task holds an agent slot until approved, rejected or '
-        'stopped — never abandon one. Schedule plan lifecycle: none '
-        '(no plan; fires as-is) → planning (a plan-only task authors '
-        'it; wait_task follows) → ready (accepted '
-        'automatically; it WILL fire — show the plan to your user; '
-        'pause/replan if they object) → stale (prompt edited; '
-        're-plan) → failed (planner failed; re-plan). A not-ready '
-        'plan never fires; a paused schedule neither.'
+        'stopped — never abandon one. Schedules are auto by default '
+        '(plan none: fires run the prompt). review_plan=true: planning '
+        '→ pending_approval (waits for a human, never expires; show '
+        'proposed_plan, then review_schedule_plan) → ready (fires); '
+        'failed/stale: re-plan. get_attention lists what waits for a '
+        'human. Only an approved plan fires; a paused schedule never.'
     )
 
 
@@ -635,12 +609,14 @@ def render_status_reference() -> str:
         '| --- | --- | --- | --- |',
     ]
     for plan_status in PlanStatus:
-        # ``none`` renders as the system-schedule shape (no plan
-        # lifecycle); the owes-a-plan variant lives only on
-        # hand-edited rows.
+        # ``none`` renders as the auto-schedule shape (no plan
+        # review). The review rows show a schedule with no earlier
+        # approved plan; one that has one keeps firing it.
         needs_plan = plan_status is not PlanStatus.NONE
-        gate_open = _plan_gate_open(plan_status, needs_plan)
-        actions = ', '.join(_plan_next_actions(True, plan_status, needs_plan))
+        gate_open = (not needs_plan) or plan_status == PlanStatus.READY
+        actions = ', '.join(
+            _plan_next_actions(True, plan_status, needs_plan, gate_open)
+        )
         fires = _plan_fires_note(True, gate_open)
         lines.append(
             f'| `{plan_status.value}` | '
@@ -649,8 +625,11 @@ def render_status_reference() -> str:
         )
     lines += [
         '',
-        'A paused schedule resumes (`update_schedule`) once the plan',
-        'gate is open — resuming mid-`planning` is refused.',
+        'Review rows assume no earlier approved plan; a schedule that',
+        'has one keeps firing it while a revision is planned, waits',
+        'for approval or fails. A paused schedule resumes',
+        '(`update_schedule`) once it can fire — resuming a review',
+        'schedule with no approved plan is refused.',
     ]
     return '\n'.join(lines)
 

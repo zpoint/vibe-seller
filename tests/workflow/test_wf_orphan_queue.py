@@ -179,3 +179,40 @@ class TestOrphanReconciler:
         for task_id in (in_lane, held, fresh, deferred):
             assert _runs(install_fake_agent, task_id) == 0
         assert queue._queues['blocked-lane'] == [in_lane]
+
+
+class TestOrphanPlanner:
+    async def test_pending_planner_nothing_holds_is_started(
+        self, admin_client, install_fake_agent, reconcile
+    ):
+        """A review schedule's planner that nothing launched (its
+        direct-launch coroutine died) is restarted, as a restart would
+        — the plan reaper leaves PENDING planners to this job."""
+        task_id = await _new_task(admin_client)
+        await _set_row(
+            task_id,
+            is_plan_only=True,
+            plan_mode=True,
+            schedule_id='sched-x',
+            updated_at=_LONG_AGO,
+        )
+        assert await reconcile() == 1
+        await wait_for_task(admin_client, task_id, _STARTED)
+
+    async def test_planned_planner_is_never_adopted(
+        self, admin_client, install_fake_agent, reconcile
+    ):
+        """A PLANNED planner holds a written plan: re-queued it would be
+        EXECUTED. Only the plan reaper may turn it into a proposal."""
+        task_id = await _new_task(admin_client)
+        await _set_row(
+            task_id,
+            status=TaskStatus.PLANNED,
+            plan='## written',
+            is_plan_only=True,
+            plan_mode=True,
+            schedule_id='sched-x',
+            updated_at=_LONG_AGO,
+        )
+        assert await reconcile() == 0
+        assert _runs(install_fake_agent, task_id) == 0

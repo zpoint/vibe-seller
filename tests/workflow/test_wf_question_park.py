@@ -21,6 +21,7 @@ from app.scheduler.stall_reaper import reap_stalled_running_tasks
 from app.scheduler.task_queue import TaskQueueScheduler
 from tests.workflow.conftest import real_sleep, wait_for_task
 from tests.workflow.fake_agent import FakeAgentScenario
+from tests.workflow.schedule_review_helpers import approve_when_proposed
 from tests.workflow.test_wf_agent_mcp import call_tool
 
 pytestmark = pytest.mark.workflow
@@ -443,8 +444,10 @@ async def test_followup_session_question_parks(
 # ── C: a scheduled run never waits on a person ─────────────────────
 
 
-async def _ready_schedule(client, fake, store_id):
-    # The plan-authoring run plans; the fake never asks while planning.
+async def _ready_schedule(client, fake, store_id, review=False):
+    """A schedule that can fire now: auto (the default), or a review
+    schedule whose planner's proposal was approved, as the UI does."""
+    # The planner (review only) plans; the fake never asks while planning.
     fake.default_scenario = FakeAgentScenario(plan='## Plan\n1. Ship')
     r = await client.post(
         '/api/schedules',
@@ -454,28 +457,25 @@ async def _ready_schedule(client, fake, store_id):
             'store_id': store_id,
             'schedule_type': 'days',
             'schedule_time': '03:00',
-            'plan_mode': True,
+            'plan_mode': review,
         },
     )
     assert r.status_code == 201, r.text
     sched_id = r.json()['id']
-
-    async def ready():
-        s = (await client.get(f'/api/schedules/{sched_id}')).json()
-        return s.get('plan_status') == 'ready'
-
-    await _until(ready)
+    if review:
+        await approve_when_proposed(client, sched_id)
     return sched_id
 
 
+@pytest.mark.parametrize('review', [False, True], ids=['auto', 'review'])
 async def test_scheduled_fire_never_waits_on_a_question(
-    admin_client, install_fake_agent, monkeypatch, with_queue
+    admin_client, install_fake_agent, monkeypatch, with_queue, review
 ):
     fake = install_fake_agent
     # Only C can let this finish fast: nobody answers, the bound is long.
     monkeypatch.setenv('VIBE_QUESTION_ANSWER_TIMEOUT_S', '60')
     store_id = await _store(admin_client)
-    sched_id = await _ready_schedule(admin_client, fake, store_id)
+    sched_id = await _ready_schedule(admin_client, fake, store_id, review)
     fake.default_scenario = _asking(result='Shipped with Standard')
     r = await admin_client.post(f'/api/schedules/{sched_id}/trigger')
     assert r.status_code == 200, r.text

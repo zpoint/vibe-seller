@@ -56,6 +56,7 @@ from app.routers.email_accounts import router as email_accounts_router
 from app.routers.email_polling import router as email_polling_router
 from app.routers.events import router as events_router
 from app.routers.profiles import router as profiles_router
+from app.routers.schedule_review import router as schedule_review_router
 from app.routers.schedules import router as schedules_router
 from app.routers.screenshots import router as screenshots_router
 from app.routers.secrets import router as secrets_router
@@ -416,6 +417,9 @@ app.include_router(workspace_router)
 app.include_router(skill_uploads_router)
 app.include_router(channels_router)
 app.include_router(cron_router)
+# Before schedules_router: GET /api/schedules/attention must not be
+# captured by GET /api/schedules/{schedule_id}.
+app.include_router(schedule_review_router)
 app.include_router(schedules_router)
 app.include_router(ziniao_accounts_router)
 app.include_router(yuehulian_router)

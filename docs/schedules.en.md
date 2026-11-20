@@ -1,5 +1,5 @@
 ---
-description: "Scheduled tasks: frequency and timezone choices, store schedules vs All-Stores schedules (Fan out / Single), the plan authored once at creation, pause and Run-now, run history, and cross-run memory."
+description: "Scheduled tasks: frequency and timezone choices, store schedules vs All-Stores schedules (Fan out / Single), optional plan review, pause and Run-now, run history, and cross-run memory."
 ---
 
 # Scheduled Tasks
@@ -52,26 +52,34 @@ Fan-out schedules have two optional behaviors:
 
 ![A fan-out schedule with serial runs: the plan panel shows "stores run one at a time" and the finalize step; runs are grouped per store](images/schedules-app-fanout-serial_en.png)
 
-## The plan is authored once, at creation
+## Review the plan first (optional)
 
-**Every** schedule you create in the web app goes through a plan step: right
-after creation the AI drafts the execution plan (the status badge reads
-**Planning**). When the plan is written it is **frozen onto the schedule** —
-every later fire executes that frozen plan directly, no re-planning — and the
-status becomes **Ready**.
+A new schedule is **automatic** by default: when it's due, it runs your
+instructions directly — nothing to confirm.
 
-Two things to know:
+If you'd like to see how the AI plans to do it first, tick **Let me review the
+plan before it runs** when you create it:
 
-- The plan takes effect as soon as it is authored; **there is no approve
-  click**. You can read the frozen plan any time in the schedule's plan panel;
-  if it's wrong, press **Re-plan** and the AI authors a new version;
-- **Editing the schedule description voids the old plan** (status becomes
-  **Plan stale**). Until you press **Re-plan**, the schedule **will not fire**
-  on its timetable, and **Run Now** is disabled too. Changing the title,
-  frequency or timezone does *not* void the plan.
+- Right after creation the AI writes a plan (status **Planning**); when it's
+  done the status becomes **Needs your approval**, and a bar appears at the
+  **very top** of the app: "N scheduled tasks have a plan waiting for your
+  approval → Review". Click it to open the plan.
+- Press **Approve** and the status becomes **Ready**; every later run follows
+  that plan without re-planning. Not right? Press **Request changes**, say what
+  to change, and the AI writes a new version for you to approve.
+- **Approval never expires**: the plan waits for you as long as it takes.
+  Until you approve, the schedule runs nothing.
+- To adjust a plan that's already in use, also press **Request changes** — the
+  **approved plan keeps running** until you approve the new one.
+- **Editing the schedule description** drops the old plan; the AI writes a new
+  one for your approval, and the schedule doesn't run until you approve it.
+  Changing the title, frequency or timezone doesn't affect the plan.
+- If writing the plan fails, the status shows **Plan failed** with the reason;
+  press **Try again**.
 
-A failed plan (**Plan failed**) blocks firing the same way — press Re-plan to
-try again.
+You can switch review on or off any time under **Edit**: switched on, it needs
+an approved plan before it runs again; switched off, the plan is dropped and it
+runs your instructions directly.
 
 ## Frequency and timezone
 
@@ -98,9 +106,9 @@ under **Task Defaults → Default Execution Mode**.)
 The schedule detail page has **Pause / Resume** and **Run Now**:
 
 - Run Now fires once regardless of whether the schedule is paused — for a
-  manual pass before a vacation, or a trial run right after you re-plan. The
-  only precondition is a Ready plan (with a stale plan the button is disabled
-  until you Re-plan);
+  manual pass before a vacation, or a trial run right after you approve a plan.
+  A schedule with plan review needs an approved plan first (otherwise the
+  button is disabled);
 - While one of this schedule's runs is still in progress, Run Now is disabled
   with the tooltip "A task is already running";
 - **Runs** lists the tasks each fire created (the planning task is excluded);
@@ -141,16 +149,16 @@ maintains this per task type on its own.
   schedule into an All-Stores one later — delete it and create it again;
 - A **Fan out** schedule creates a task for **every store on this server** per
   fire — with many stores, mind concurrency and token spend;
-- A schedule whose plan isn't **Ready** (Planning / Plan stale / Plan failed /
-  No plan) skips its fires and refuses Run Now;
+- A schedule with plan review but no approved plan yet skips its fires and
+  refuses Run Now;
 - **A fired run never waits for an answer.** Nobody is at the screen when a
   schedule fires, so the AI is not allowed to stop and ask: it picks the
   option it would recommend (the safest one when unsure), or skips a step it
   can't do safely, and lists every question it would have asked under
   "Open questions" in its result — the run then completes, it does not sit in
   **Waiting** for your reply. Put decisions you want made a certain way
-  into the schedule's prompt. (Questions while the plan is being written are
-  still asked — you are reviewing it then.)
+  into the schedule's prompt. (With plan review on, the AI writing the plan
+  may still ask — you are reviewing it then.)
 - If a fired task is stuck in **Waiting** for your answer when the next fire
   arrives, the scheduler cancels the stale waiting run rather than blocking
   the timetable — the new fire proceeds normally.

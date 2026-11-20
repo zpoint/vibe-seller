@@ -16,6 +16,8 @@ interface Props {
   toggleSchedulePause: (id: string, isActive: boolean) => void
   triggerSchedule: (id: string) => void
   replanSchedule: (id: string) => Promise<void> | void
+  /** Approve / request changes return the updated schedule. */
+  onScheduleUpdated?: (s: Schedule) => void
   setEditingSchedule: (s: Schedule) => void
   deleteSchedule: (id: string) => void
   getScheduleBadge: (s: Schedule) => string
@@ -40,6 +42,7 @@ export function ScheduleDetailView({
   toggleSchedulePause,
   triggerSchedule,
   replanSchedule,
+  onScheduleUpdated,
   setEditingSchedule,
   deleteSchedule,
   getScheduleBadge,
@@ -47,8 +50,15 @@ export function ScheduleDetailView({
 }: Props) {
   const { t } = useTranslation()
 
+  // A review schedule runs while it has an APPROVED plan — also while a
+  // revision is being written, awaits approval, or failed (mirrors the
+  // server's fire rule). A prompt edit clears the approved plan.
   const needsPlan = schedule.plan_mode && !schedule.is_system
-  const notReady = needsPlan && schedule.plan_status !== 'ready'
+  const hasApprovedPlan =
+    !!schedule.plan &&
+    schedule.plan_status !== 'stale' &&
+    schedule.plan_status !== 'none'
+  const notReady = needsPlan && !hasApprovedPlan
   const triggerDisabled = hasProgressingScheduleTask || notReady
   const triggerTitle = notReady
     ? t(`schedules.planStatus.${schedule.plan_status}`)
@@ -62,6 +72,11 @@ export function ScheduleDetailView({
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">{schedule.title}</h2>
           <div className="flex items-center gap-2">
+            {needsPlan && schedule.plan_status === 'pending_approval' && (
+              <span className="px-2 py-1 text-xs rounded-full font-medium bg-amber-200 text-amber-900">
+                {t('schedules.planStatus.pending_approval')}
+              </span>
+            )}
             {schedule.is_system && (
               <span className="px-2 py-1 text-xs rounded-full font-medium bg-indigo-100 text-indigo-700">
                 {t('schedules.system')}
@@ -90,6 +105,7 @@ export function ScheduleDetailView({
           onReplan={async (id) => {
             await replanSchedule(id)
           }}
+          onUpdated={onScheduleUpdated}
         />
 
         <div className="grid grid-cols-2 gap-3 text-sm mb-4">

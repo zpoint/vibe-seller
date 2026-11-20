@@ -535,6 +535,15 @@ class ClaudeCodeBackend(AIAgentBackend):
         session = self._sessions.get(task_id)
         return session.running if session else False
 
+    def is_launching(self, task_id: str) -> bool:
+        """True between ``run()`` accepting the task and its process spawn.
+
+        That window includes the agent-slot wait and the skills
+        dependency wait, which can take minutes on a first boot — a
+        planner in it is alive even though no process exists yet.
+        """
+        return task_id in self._launching
+
     def is_process_alive(self, task_id: str) -> bool:
         """True while the task's agent subprocess has not exited.
 

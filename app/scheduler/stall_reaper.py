@@ -170,6 +170,29 @@ def _staleness(updated_at: str | None, now: datetime) -> timedelta:
         return timedelta.max
 
 
+def agent_cannot_progress(task: Task, now: datetime) -> bool:
+    """This module's death verdict, for callers outside the RUNNING scan.
+
+    The same authority split as the module docstring: an outstanding
+    question never counts; a live, input-capable agent counts only once
+    its silence outlasts :func:`_stream_silence_bound`; anything else
+    once its row is older than ``_STALL_THRESHOLD``. ``plan_reaper``
+    uses it for planners (DESIGNING/PLANNED), so a planner is judged by
+    the same rule as a running task, never by a wall-clock timeout.
+    """
+    stale_for = _staleness(task.updated_at, now)
+    if stale_for < _STALL_THRESHOLD:
+        return False
+    if agent_manager.get_pending_questions(task.id):
+        return False
+    session = agent_manager.get_session(task.id)
+    if agent_manager.is_process_alive(task.id) and getattr(
+        session, 'running', False
+    ):
+        return stale_for >= _stream_silence_bound(task)
+    return True
+
+
 def _stall_error_message(minutes: int) -> str:
     return (
         f'Agent stream stalled — no events for {minutes}+ minutes. '

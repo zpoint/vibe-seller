@@ -25,6 +25,7 @@ from app.models.schedule_constants import (
 )
 from app.models.user import User
 from app.password import hash_password
+from app.schedule_review_migration import migrate_forced_plan_schedules
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,11 @@ def _ensure_added_columns(conn) -> None:
         ('schedules', 'finalize_enabled_at', 'TEXT'),
         ('tasks', 'is_finalize', 'BOOLEAN NOT NULL DEFAULT 0'),
         ('schedules', 'fanout_serial', 'BOOLEAN NOT NULL DEFAULT 0'),
+        # Plan review (app/plan_states.py): a proposal awaiting the
+        # owner's approval, and their requested changes.
+        ('schedules', 'proposed_plan', 'TEXT'),
+        ('schedules', 'plan_feedback', 'TEXT'),
+        ('schedules', 'plan_error_code', 'VARCHAR(32)'),
         # Backfill: these four shipped on the model but were never
         # added here, so any DB created before each one landed is
         # still missing the column. Harmless to re-run; the PRAGMA
@@ -223,6 +229,10 @@ async def init_db():
             )
 
         await session.commit()
+
+    # ── Plan review became opt-in: convert forced-plan schedules once ──
+    async with async_session() as session:
+        await migrate_forced_plan_schedules(session)
 
     # ── Seed system schedules (separate transaction) ──
     async with async_session() as session:

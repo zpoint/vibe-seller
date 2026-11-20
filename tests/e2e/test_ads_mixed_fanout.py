@@ -126,13 +126,25 @@ def _ads_calls(messages: list[dict]) -> list[dict]:
 
 
 def _wait_for_plan(client, schedule_id: str) -> dict:
+    """Wait for the shared plan, then approve it as the user would.
+
+    A review schedule's plan waits for its owner (``pending_approval``);
+    the approval is what makes every store's fire run it.
+    """
     deadline = time.time() + PIPELINE_TIMEOUT
     while time.time() < deadline:
         schedule = client.get(f'{BASE_URL}/api/schedules/{schedule_id}')
         schedule.raise_for_status()
         body = schedule.json()
-        if body['plan_status'] in ('ready', 'failed'):
+        if body['plan_status'] == 'failed':
             return body
+        if body['plan_status'] == 'pending_approval':
+            approved = client.post(
+                f'{BASE_URL}/api/schedules/{schedule_id}/plan/approve',
+                json={'plan_version': body['plan_version']},
+            )
+            approved.raise_for_status()
+            return approved.json()
         time.sleep(POLL_INTERVAL)
     raise TimeoutError(f'schedule {schedule_id[:8]} was never planned')
 
