@@ -149,8 +149,7 @@ export function ZiniaoSection(props: {
   fetchingBrowsers: boolean; browserFetchError: string
   setBrowserFetchError: (v: string) => void
   fetchBrowserProfiles: (accountId: string) => void
-  restartZiniao: (accountId: string) => void
-  ziniaoRetried: boolean; serverPlatform: ServerPlatform | null
+  ziniaoStartingSecs: number; serverPlatform: ServerPlatform | null
   showAddAccount: boolean; setShowAddAccount: (v: boolean) => void
   showAccountPassword: boolean; setShowAccountPassword: React.Dispatch<React.SetStateAction<boolean>>
   editingAccountId: string; setEditingAccountId: (v: string) => void
@@ -219,23 +218,14 @@ export function ZiniaoSection(props: {
           try { if (encoded) message = decodeURIComponent(escape(atob(encoded))) } catch { /* leave empty */ }
           return { status, message }
         })() : null
-        const isMac = p.serverPlatform === 'mac', isWsl = p.serverPlatform === 'wsl', isWindows = p.serverPlatform === 'windows'
+        const isMac = p.serverPlatform === 'mac', isWsl = p.serverPlatform === 'wsl'
         const editSelected = () => { const a = p.ziniaoAccounts.find(x => x.id === p.selectedZiniaoAccountId); if (a) { p.setNewAccount({ name: a.name, company: a.company, username: a.username, password: '' }); p.setEditingAccountId(a.id); p.setShowAddAccount(true) } }
 
         return p.fetchingBrowsers ? (
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-indigo-50 rounded-lg border border-indigo-200">
             <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
             <p className="text-sm font-medium text-indigo-700">{t('settings.ziniaoLoading')}</p>
-          </div>
-        ) : zs?.status === 'running_normal' && (isMac || isWsl || isWindows) ? (
-          // Mac/Windows/WSL: Ziniao running in normal mode
-          <div className="flex flex-col items-center justify-center py-6 px-4 bg-amber-50 rounded-lg border border-amber-200">
-            <p className="text-sm font-medium text-amber-700 mb-2">{p.ziniaoRetried ? t('settings.ziniaoStillRunning') : t('settings.ziniaoRunningNormalMode')}</p>
-            <p className="text-xs text-amber-600 mb-3">{p.ziniaoRetried ? '' : t('settings.ziniaoNormalModeHint')}</p>
-            <div className="flex gap-2">
-              {p.ziniaoRetried && <button onClick={() => p.restartZiniao(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-amber-600 text-white rounded text-xs hover:bg-amber-700">{isWsl ? t('settings.ziniaoForceKill') : t('settings.ziniaoForceRestart')}</button>}
-              <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700">{t('common.refresh')}</button>
-            </div>
+            <p className="text-xs text-indigo-600 mt-1 text-center">{p.ziniaoStartingSecs > 0 ? t('settings.ziniaoStartingFor', { secs: p.ziniaoStartingSecs }) : t('settings.ziniaoLoadingHint')}</p>
           </div>
         ) : zs?.status === 'no_permission' ? (
           // -10003: surface Ziniao's own err if present; otherwise generic
@@ -271,6 +261,14 @@ export function ZiniaoSection(props: {
             <p className="text-sm font-medium text-amber-700 mb-3 break-words text-center">{t('settings.ziniaoNewTerminalLogin')}</p>
             <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-amber-600 text-white rounded text-xs hover:bg-amber-700">{t('common.refresh')}</button>
           </div>
+        ) : (zs?.status === 'start_failed' || zs?.status === 'account_conflict') ? (
+          // Ziniao could not be started (after closing it and trying twice),
+          // or another Ziniao account is in use: say why, offer a retry.
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-sm font-medium text-red-700 mb-2">{zs.status === 'start_failed' ? t('settings.ziniaoStartFailed') : t('settings.ziniaoAccountConflict')}</p>
+            {zs.message && <p className="text-xs text-red-600 mb-3 break-words text-center">{zs.message}</p>}
+            <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
+          </div>
         ) : p.browserFetchError === 'connect_error' || (zs && !['no_profiles'].includes(zs.status)) ? (
           // Fallback connect error. Platform UI keys off serverPlatform.
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
@@ -285,11 +283,6 @@ export function ZiniaoSection(props: {
         ) : p.browserFetchError.startsWith('api_error:') ? (
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
             <p className="text-sm font-medium text-red-700 mb-2">{p.browserFetchError.slice('api_error:'.length)}</p>
-            <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
-          </div>
-        ) : p.browserFetchError.startsWith('restart_failed:') ? (
-          <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
-            <p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoRestartFailed') || 'Failed to restart. Please close Ziniao manually and try again.'}</p>
             <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
           </div>
         ) : p.browserFetchError === 'no_profiles' ? (

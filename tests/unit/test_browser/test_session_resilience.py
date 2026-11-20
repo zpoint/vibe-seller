@@ -20,10 +20,15 @@ from sqlalchemy.ext.asyncio import (
 
 from app.browser.base import BrowserSessionInfo
 from app.browser.manager import BrowserManager
-from app.browser.ziniao_utils import ZiniaoNormalModeError
 from app.models.base import Base
 from app.models.browser_session import BrowserSession
 from app.models.store import Store
+from tests.unit.test_browser.ziniao_fake_host import (
+    MAIN_EXE,
+    NORMAL_MODE,
+    FakeZiniaoHost,
+    installed,
+)
 
 # ── Helpers ──────────────────────────────────────────
 
@@ -373,80 +378,79 @@ class TestCleanupStaleSessions:
 
 
 @pytest.mark.unit
-class TestZiniaoNormalModeRecovery:
-    """Failure point (post-upgrade): a fanout that finds Ziniao in GUI/
-    normal mode must relaunch it into WebDriver mode — once, coordinated —
-    instead of failing the task. See docs/ziniao-concurrency.md."""
+class TestZiniaoClientBeforeTheLock:
+    """The manager brings a Ziniao store's client up itself — normal mode
+    is killed and relaunched, never an error (the user's spec) — and it
+    does so OUTSIDE the global launch lock, so a client start that takes
+    minutes never starves other stores. See docs/ziniao-concurrency.md."""
 
     def _acct(self):
         a = mock.MagicMock()
         a.company, a.username, a.encrypted_password = 'c', 'u', 'enc'
-        a.socket_port, a.client_path = 16851, 'ziniao'
+        a.socket_port, a.client_path = 16851, MAIN_EXE
         return a
 
+    def _db(self):
+        db = mock.AsyncMock()
+        db.get = mock.AsyncMock(return_value=self._acct())
+        return db
+
     @pytest.mark.asyncio
-    async def test_normal_mode_relaunches_webdriver_not_fail(self):
+    async def test_normal_mode_is_relaunched_outside_the_global_lock(self):
         mgr = BrowserManager()
         store = _make_fake_store()
         store.ziniao_account_id = 'acct-1'
-        db = mock.AsyncMock()
-        db.get = mock.AsyncMock(return_value=self._acct())
+        host = FakeZiniaoHost(api='down', procs=NORMAL_MODE)
+        held_during_launch = []
+        launch = host.launch
 
-        calls = {'n': 0}
+        def watch(cmd):
+            held_during_launch.append(mgr._lock.holder)
+            launch(cmd)
 
-        async def fake_ensure(**kw):
-            calls['n'] += 1
-            if calls['n'] <= 2:  # initial + re-check-under-lock still normal
-                raise ZiniaoNormalModeError('normal mode')
-            # 3rd call (after relaunch) succeeds
-
+        host.launch = watch
+        locked = mock.AsyncMock(return_value='session')
         with (
+            installed(host),
             mock.patch(
-                'app.browser.manager.ensure_ziniao_running',
-                side_effect=fake_ensure,
+                'app.browser.ziniao_startup.decrypt_password', return_value='pw'
             ),
-            mock.patch(
-                'app.browser.manager.kill_and_relaunch_ziniao',
-                new=mock.AsyncMock(),
-            ) as kar,
-            mock.patch(
-                'app.browser.manager.decrypt_password', return_value='pw'
-            ),
+            mock.patch.object(mgr, '_start_session_locked', locked),
         ):
-            # Must NOT raise — recovers by relaunching into WebDriver.
-            await mgr.check_ziniao_reachable(store, db)
-
-        kar.assert_awaited_once()
+            assert await mgr.start_session(store, self._db()) == 'session'
+        assert len(host.launches) == 1
+        assert held_during_launch == [None]
+        locked.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_peer_already_relaunched_no_double_kill(self):
+    async def test_another_accounts_live_stores_are_never_killed(self):
         mgr = BrowserManager()
+        mgr._active_ziniao_account_id = 'acct-OTHER'
+        mgr._ziniao_stores = {'s9': 'other-store'}
         store = _make_fake_store()
         store.ziniao_account_id = 'acct-1'
-        db = mock.AsyncMock()
-        db.get = mock.AsyncMock(return_value=self._acct())
+        host = FakeZiniaoHost(api='down', procs=NORMAL_MODE)
+        with installed(host), pytest.raises(RuntimeError) as e:
+            await mgr.ensure_ziniao_ready(store, self._db())
+        assert 'other-store' in str(e.value)
+        assert type(e.value).__name__ == 'ZiniaoAccountConflictError'
+        assert host.killed == [] and host.launches == []
 
-        calls = {'n': 0}
-
-        async def fake_ensure(**kw):
-            calls['n'] += 1
-            if calls['n'] == 1:  # initial: normal; a peer fixes it before lock
-                raise ZiniaoNormalModeError('normal mode')
-            # re-check under lock succeeds → no relaunch needed
-
+    @pytest.mark.asyncio
+    async def test_open_store_browsers_protect_a_slow_client(self):
+        """Store browsers are open on this server: a client that accepts
+        but does not answer is busy, not dead — it is not killed."""
+        mgr = BrowserManager()
+        mgr._active_ziniao_account_id = 'acct-1'
+        mgr._ziniao_stores = {'s9': 'open-store'}
+        store = _make_fake_store()
+        store.ziniao_account_id = 'acct-1'
+        host = FakeZiniaoHost(api='hung', procs=NORMAL_MODE)
         with (
+            installed(host),
             mock.patch(
-                'app.browser.manager.ensure_ziniao_running',
-                side_effect=fake_ensure,
-            ),
-            mock.patch(
-                'app.browser.manager.kill_and_relaunch_ziniao',
-                new=mock.AsyncMock(),
-            ) as kar,
-            mock.patch(
-                'app.browser.manager.decrypt_password', return_value='pw'
+                'app.browser.ziniao_startup.decrypt_password', return_value='pw'
             ),
         ):
-            await mgr.check_ziniao_reachable(store, db)
-
-        kar.assert_not_awaited()  # peer already relaunched — no double kill
+            await mgr.ensure_ziniao_ready(store, self._db())
+        assert host.killed == [] and host.launches == []

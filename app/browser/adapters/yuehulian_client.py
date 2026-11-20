@@ -13,16 +13,24 @@ from contextlib import asynccontextmanager
 import json
 import logging
 import time
+import weakref
 
 from app.browser.adapters.yuehulian_dom import (
+    CLEAR_SELECTION_JS,
+    CLICK_CLOSE_BROWSER_JS,
     CLICK_NEXT_PAGE_JS,
+    CONFIRM_DIALOG_JS,
     LOGIN_HASH_JS,
     NAV_TO_STORE_LIST_JS,
+    OPEN_BATCH_MENU_JS,
     SCRAPE_STORES_JS,
     click_open_js,
     fill_team_login_js,
     is_logged_in_hash,
     parse_store_list_json,
+    row_label_js,
+    select_only_row_js,
+    selected_only_js,
 )
 from app.browser.adapters.yuehulian_win import InspectorSession, ProcessLayer
 from app.browser.inject.client import InjectClient, OpenedStore, StoreRef
@@ -36,6 +44,17 @@ from app.browser.inject.errors import (
 logger = logging.getLogger(__name__)
 
 _LOCALHOST = '127.0.0.1'
+
+_UI_LOCKS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _ui_lock() -> asyncio.Lock:
+    """The lock serialising every drive of the client GUI (per loop)."""
+    loop = asyncio.get_running_loop()
+    lock = _UI_LOCKS.get(loop)
+    if lock is None:
+        lock = _UI_LOCKS[loop] = asyncio.Lock()
+    return lock
 
 
 class RealYuehulianClient(InjectClient):
@@ -101,15 +120,20 @@ class RealYuehulianClient(InjectClient):
 
     @asynccontextmanager
     async def _inspector(self):
-        pid = await asyncio.to_thread(self._proc.main_pid)
-        if not pid:
-            raise ClientNotRunning('no main process to inspect')
-        insp = InspectorSession(self._proc)
-        await insp.open(pid)
-        try:
-            yield insp
-        finally:
-            await insp.close()
+        # One driver of the client's GUI at a time: store setup's list
+        # (switch view, page through) and a task's open/close (select,
+        # click) act on the same window, and interleaved they misread
+        # pages or click a row that has just moved.
+        async with _ui_lock():
+            pid = await asyncio.to_thread(self._proc.main_pid)
+            if not pid:
+                raise ClientNotRunning('no main process to inspect')
+            insp = InspectorSession(self._proc)
+            await insp.open(pid)
+            try:
+                yield insp
+            finally:
+                await insp.close()
 
     async def is_logged_in(self) -> bool:
         async with self._inspector() as insp:
@@ -234,16 +258,31 @@ class RealYuehulianClient(InjectClient):
                 click_ts = time.time()
                 result = str(await insp.eval_in_renderer(click_open_js(ref)))
                 if result.startswith('ALREADYOPEN'):
-                    # The store env is already running — the client won't
-                    # spawn a fresh kernel, and the existing one was not
-                    # launched with a debug port, so CDP can't attach. A
-                    # clean task start/stop closes it (engine Browser.close);
-                    # a leftover from an unclean shutdown must be closed in
-                    # the client. Report that, not a misleading not-found.
-                    raise CdpUnreachable(
-                        f'store {ref!r} is already open in the 悦互联 client '
-                        'without a debug port; close it there and retry'
+                    # The client lists the env as open, but not one we run
+                    # (ours would have answered on its CDP port and never
+                    # got here): a leftover of a client that was closed or
+                    # crashed with the env open — the client keeps calling
+                    # it 'Opened' after a restart — or one a person opened
+                    # by hand. Neither has a debug port. Close it through
+                    # the client's own action and open it again, so a task
+                    # recovers by itself instead of waiting for a human.
+                    logger.info(
+                        '悦互联 lists store %r as already open; closing it '
+                        'in the client and reopening with a debug port',
+                        ref,
                     )
+                    await self._close_env(insp, ref)
+                    before = len(await insp.recorded_spawns())
+                    click_ts = time.time()
+                    result = str(
+                        await insp.eval_in_renderer(click_open_js(ref))
+                    )
+                    if result.startswith('ALREADYOPEN'):
+                        raise CdpUnreachable(
+                            f'store {ref!r} still reads as open in the 悦互联 '
+                            'client after closing it; close it there and '
+                            'retry'
+                        )
                 if not result.startswith('OK'):
                     raise StoreNotFound(ref)
                 udd = await self._await_spawn_udd(insp, before)
@@ -252,6 +291,69 @@ class RealYuehulianClient(InjectClient):
 
         port = await self._await_devtools_port(udd, newer_than=click_ts - 5)
         return OpenedStore(_LOCALHOST, port, udd)
+
+    async def _close_env(self, insp: InspectorSession, ref: str) -> None:
+        """Close ``ref``'s env with the client's own "close browser" batch
+        action: tick ONLY its row, More Batch Operations → close browser →
+        Confirm, then wait for the row to read 'Open'. Raises
+        ``CdpUnreachable`` (the old guidance) when any step is missing, so a
+        client UI change fails loudly instead of acting on the wrong row.
+        """
+        try:
+            picked = str(await insp.eval_in_renderer(select_only_row_js(ref)))
+            if picked.startswith('CLICKED'):
+                # The boxes re-render asynchronously: read the selection
+                # back until it settles on exactly this row.
+                for _ in range(10):
+                    await asyncio.sleep(0.3)
+                    picked = str(
+                        await insp.eval_in_renderer(selected_only_js(ref))
+                    )
+                    if picked.startswith('OK'):
+                        break
+            if not picked.startswith('OK'):
+                raise CdpUnreachable(
+                    f'could not select store {ref!r} to close it ({picked}); '
+                    'close it in the 悦互联 client and retry'
+                )
+            if await insp.eval_in_renderer(OPEN_BATCH_MENU_JS) != 'OK':
+                raise CdpUnreachable(
+                    'the 悦互联 client has no "More Batch Operations" menu; '
+                    f'close store {ref!r} there and retry'
+                )
+            clicked = 'NOITEM'
+            for _ in range(6):  # the dropdown renders on hover, async
+                await asyncio.sleep(0.5)
+                clicked = str(
+                    await insp.eval_in_renderer(CLICK_CLOSE_BROWSER_JS)
+                )
+                if clicked == 'CLICKED':
+                    break
+            if clicked != 'CLICKED':
+                raise CdpUnreachable(
+                    f'no "close browser" action in the 悦互联 client '
+                    f'({clicked[:120]}); close store {ref!r} there and retry'
+                )
+            for _ in range(10):  # the confirm dialog appears async
+                await asyncio.sleep(0.5)
+                if await insp.eval_in_renderer(CONFIRM_DIALOG_JS) == (
+                    'CONFIRMED'
+                ):
+                    break
+            for _ in range(30):
+                await asyncio.sleep(1.0)
+                if await insp.eval_in_renderer(row_label_js(ref)) == 'Open':
+                    logger.info('Closed leftover 悦互联 env %r', ref)
+                    return
+            raise CdpUnreachable(
+                f'store {ref!r} still reads as open after closing it in the '
+                '悦互联 client; close it there and retry'
+            )
+        finally:
+            try:
+                await insp.eval_in_renderer(CLEAR_SELECTION_JS)
+            except Exception as e:  # best-effort tidy-up
+                logger.debug('could not clear the selection: %s', e)
 
     async def close_store(self, ref: str) -> None:
         # Best-effort: the env stays open until the client/user closes it

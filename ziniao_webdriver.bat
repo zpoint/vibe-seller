@@ -56,24 +56,18 @@ goto :fail
 :found_exe
 echo [OK] Found Ziniao at: %ZINIAO_EXE%
 
-:: Step 2: Kill existing Ziniao processes
+:: Step 2: Stop EVERY Ziniao process (main client + kernels + helpers).
+:: Ziniao's WebDriver doc: leftovers keep the port and the profile dirs
+:: and make the launch fail. ziniao.exe alone is not enough: the kernels
+:: (ziniaobrowser.exe / superbrowser.exe) and env-kit helpers survive it.
+:: Never Ziniao's updater/installer. Same rule as the server
+:: (app/browser/ziniao_processes.py).
 echo.
-echo Checking for running Ziniao processes...
-tasklist /FI "IMAGENAME eq ziniao.exe" 2>NUL | find /I "ziniao.exe" >NUL
-if %ERRORLEVEL%==0 (
-    echo Terminating existing Ziniao processes...
-    taskkill /F /IM ziniao.exe >NUL 2>&1
-    if !ERRORLEVEL! NEQ 0 (
-        color 0C
-        echo [ERROR] Failed to terminate Ziniao. Try closing it manually.
-        goto :fail
-    )
-    :: Wait for process to fully exit
-    timeout /t 3 /nobreak >NUL
-    echo [OK] Existing Ziniao processes terminated.
-) else (
-    echo [OK] No existing Ziniao processes found.
-)
+echo Stopping every Ziniao process...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = @(Get-CimInstance Win32_Process | Where-Object { ($_.Name -like 'ziniao*' -or $_.Name -eq 'superbrowser.exe' -or $_.ExecutablePath -match '\\(ziniao|ziniaobrowser|ziniaobrowser-kernel|superbrowsercores)\\') -and $_.ExecutablePath -notmatch 'ziniaobrowser-updater' -and $_.Name -notmatch 'install|uninst|setup|update|_production' }); $p | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Write-Host ('  stopped ' + $p.Count + ' process(es)')"
+:: Give Windows a moment to release the port and profile files.
+timeout /t 3 /nobreak >NUL
+echo [OK] No Ziniao process left running.
 
 :: Step 3: Launch Ziniao in WebDriver mode
 echo.
@@ -98,9 +92,9 @@ echo.
 echo Testing HTTP API on port %PORT%...
 set "RETRIES=0"
 :api_loop
-if !RETRIES! GEQ 12 (
+if !RETRIES! GEQ 24 (
     color 0E
-    echo [WARNING] HTTP API not responding after 60 seconds.
+    echo [WARNING] HTTP API not responding after 120 seconds.
     echo Ziniao is running but the API may need more time.
     echo You can try using it anyway.
     goto :done
@@ -111,7 +105,7 @@ if %ERRORLEVEL%==0 (
     echo [OK] HTTP API is responding on port %PORT%.
     goto :done
 )
-echo   Attempt !RETRIES!/12 - waiting 5s...
+echo   Attempt !RETRIES!/24 - waiting 5s...
 timeout /t 5 /nobreak >NUL
 goto :api_loop
 
