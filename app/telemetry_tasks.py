@@ -177,12 +177,8 @@ def _usage_props(task: Task) -> dict:
         'context_fill_bucket': telemetry.fill_bucket(
             task.context_tokens, task.context_window
         ),
-        'cache_read_tokens_bucket': telemetry.token_bucket(
-            task.cache_read_tokens
-        ),
-        'cache_write_tokens_bucket': telemetry.token_bucket(
-            task.cache_write_tokens
-        ),
+        'cache_read_tokens': task.cache_read_tokens,
+        'cache_write_tokens': task.cache_write_tokens,
     }
 
 

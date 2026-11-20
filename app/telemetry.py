@@ -232,20 +232,6 @@ def count_bucket(n: int) -> str:
     return '100+'
 
 
-def token_bucket(n: int | None) -> str:
-    if not n or n <= 0:
-        return '0'
-    if n < 10_000:
-        return '<10k'
-    if n < 100_000:
-        return '10k-100k'
-    if n < 1_000_000:
-        return '100k-1m'
-    if n < 10_000_000:
-        return '1m-10m'
-    return '10m+'
-
-
 def fill_bucket(used: int | None, total: int | None) -> str:
     if not used or not total or total <= 0:
         return 'unknown'
