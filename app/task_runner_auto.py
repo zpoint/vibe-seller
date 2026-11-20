@@ -40,6 +40,7 @@ from app.task_states import (
     assert_transition,
     can_transition,
 )
+from app.task_ziniao_precheck import ensure_ziniao_before_run
 from app.telemetry_harness import send_cleanup_finished
 from app.workspace.actor import clear_request_actor
 from app.workspace.knowledge_sync import knowledge_sync
@@ -214,6 +215,13 @@ async def auto_run_task(task_id: str, store: Store | None):
         # the AskUserQuestion tool call in its transcript, so the
         # agent just needs the answers delivered as a follow-up turn.
         bundle = await maybe_inject_pending_answers(task_id, bundle)
+
+        # Every Ziniao-store task brings Ziniao up before its agent runs
+        # (killed + relaunched if it is in normal mode, not running or
+        # left over) — even one that may never open the browser — so the
+        # agent's first browser call never meets a cold client.
+        if not await ensure_ziniao_before_run(task_id, store):
+            return
 
         async def _on_start() -> bool:
             """Transition status after concurrency slot acquired."""

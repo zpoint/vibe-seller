@@ -218,6 +218,11 @@ _BROWSER_ACTIONS = (
     'REUSES a healthy running session and never kills a running '
     "task's browser (a full relaunch only happens when the session's "
     "CDP proxy is dead, under the server's relaunch budget). "
+    'For a Ziniao store, start_store first makes sure the Ziniao client '
+    'answers in WebDriver mode: if it does not (closed, opened by hand in '
+    'normal mode, left over), the server closes every Ziniao window and '
+    'relaunches it — including windows your user has open. A 503 means '
+    'it is still starting; call again in a minute. '
     'ziniao_launcher returns the download URL of the Windows '
     'WebDriver launcher script — the URL is for a HUMAN to open on '
     'the Windows machine, not for you.',
@@ -227,16 +232,6 @@ _BROWSER_ACTIONS = (
                 'type': ['string', 'null'],
                 'description': (
                     'The store (required for start_store / start_aux).'
-                ),
-            },
-            'force': {
-                'type': ['boolean', 'null'],
-                'description': (
-                    'start_store only: when Ziniao sits in normal '
-                    '(non-WebDriver) mode, true kills and relaunches '
-                    'the Ziniao client in WebDriver mode, then retries '
-                    "— the UI's Force Restart. Ask your user first; "
-                    'default false keeps the safe error instead.'
                 ),
             },
         },
@@ -251,7 +246,6 @@ async def browser(ctx: McpContext, args: dict) -> dict:
         result = await call_route(
             stores_route.start_browser,
             store_id,
-            force=bool(args.get('force') or False),
             db=ctx.db,
             _user=ctx.user,
         )
@@ -270,7 +264,6 @@ async def browser(ctx: McpContext, args: dict) -> dict:
     if action == 'start_web':
         result = await call_route(
             browser_route.start_web_browser,
-            force=False,
             db=ctx.db,
             _user=ctx.user,
         )

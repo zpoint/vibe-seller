@@ -56,6 +56,8 @@ ASYNC_SESSION_MODULES = [
     'app.task_runner_auto',
     'app.task_runner_context',
     'app.task_runner_exec',
+    # Marks a task FAILED when Ziniao cannot be brought up.
+    'app.task_ziniao_precheck',
     'app.task_session_lifecycle',
     'app.routers.schedules',
     'app.routers.schedule_planning',

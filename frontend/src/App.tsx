@@ -31,7 +31,7 @@ import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSch
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
 import { submitCreateTask as submitCreateTaskHandler } from './handlers/submitCreateTask'
-import { fetchBrowserProfiles as fetchBrowserProfilesHandler, restartZiniao as restartZiniaoHandler } from './handlers/fetchBrowserProfiles'
+import { fetchBrowserProfiles as fetchBrowserProfilesHandler } from './handlers/fetchBrowserProfiles'
 import { sendChatMessage as sendChatMessageHandler } from './handlers/sendChatMessage'
 import type {
   Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile,
@@ -94,7 +94,7 @@ export default function App() {
   const [selectedBrowserOauth, setSelectedBrowserOauth] = useState('')
   const [fetchingBrowsers, setFetchingBrowsers] = useState(false)
   const [browserFetchError, setBrowserFetchError] = useState('')
-  const [ziniaoRetried, setZiniaoRetried] = useState(false)
+  const [ziniaoStartingSecs, setZiniaoStartingSecs] = useState(0)
   const { yuehulianStores, yuehulianError, fetchingYuehulian, fetchYuehulianStores, resetYuehulian } = useYuehulian()
   const [showAddAccount, setShowAddAccount] = useState(false)
   const [showAccountPassword, setShowAccountPassword] = useState(false)
@@ -418,9 +418,8 @@ export default function App() {
     if (selectedZiniaoAccountId === accountId) { setSelectedZiniaoAccountId(''); setZiniaoBrowsers([]); setBrowserFetchError('') }
     await loadZiniaoAccounts()
   }
-  const browserProfilesDeps = { api, browserFetchError, setFetchingBrowsers, setZiniaoBrowsers, setSelectedBrowserOauth, setBrowserFetchError, setZiniaoRetried }
+  const browserProfilesDeps = { api, setFetchingBrowsers, setZiniaoBrowsers, setSelectedBrowserOauth, setBrowserFetchError, setZiniaoStartingSecs }
   const fetchBrowserProfiles = (accountId: string) => fetchBrowserProfilesHandler(accountId, browserProfilesDeps)
-  const restartZiniao = (accountId: string) => restartZiniaoHandler(accountId, browserProfilesDeps)
 
   // ─── Store helpers ─────────────────────────────────
   const createStore = async () => {
@@ -634,7 +633,7 @@ export default function App() {
         ziniaoAccounts={ziniaoAccounts} selectedZiniaoAccountId={selectedZiniaoAccountId} setSelectedZiniaoAccountId={setSelectedZiniaoAccountId}
         ziniaoBrowsers={ziniaoBrowsers} selectedBrowserOauth={selectedBrowserOauth} setSelectedBrowserOauth={setSelectedBrowserOauth}
         fetchingBrowsers={fetchingBrowsers} browserFetchError={browserFetchError} setBrowserFetchError={setBrowserFetchError}
-        fetchBrowserProfiles={fetchBrowserProfiles} restartZiniao={restartZiniao} ziniaoRetried={ziniaoRetried}
+        fetchBrowserProfiles={fetchBrowserProfiles} ziniaoStartingSecs={ziniaoStartingSecs}
         yuehulianStores={yuehulianStores} yuehulianError={yuehulianError} fetchingYuehulian={fetchingYuehulian} fetchYuehulianStores={fetchYuehulianStores}
         serverPlatform={serverPlatform} serverVersion={serverVersion} installId={installId}
         updateStatus={updateFlow.status} onOpenUpdate={updateFlow.openModal}

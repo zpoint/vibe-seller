@@ -44,17 +44,13 @@ FALLBACK_PATTERNS = [
 ]
 
 
-def categorize_ziniao_error(text: str) -> str | None:
-    """Categorize Ziniao-specific error strings."""
-    if not text:
-        return None
-    if 'not running' in text:
-        return 'ziniao_not_running'
-    if 'not listening' in text:
-        return 'ziniao_wrong_port'
-    if 'WSL cannot launch Ziniao' in text:
-        return 'ziniao_cannot_launch'
-    return None
+def ziniao_error_category(exc: BaseException) -> str | None:
+    """The ``task.error_category`` a Ziniao start failure carries.
+
+    Read from the exception (``ZiniaoStartError.task_category`` and
+    friends), never parsed out of its message.
+    """
+    return getattr(exc, 'task_category', None)
 
 
 def categorize_error_text(text: str) -> str | None:

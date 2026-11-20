@@ -216,7 +216,7 @@ curl -sS http://127.0.0.1:7777/api/mcp \
 | `run_schedule` | Fire a schedule now, outside its cron. Refused while its plan is not ready; fires a paused schedule too (get your user's go-ahead first). |
 | `manage_store` | Stores: list/get/create/update/delete, and a store's browser bookmarks (Settings → Stores). |
 | `browser` | Start a browser session a task uses (store main / aux / store-less web); the Ziniao Windows launcher download URL. |
-| `manage_ziniao_account` | Ziniao accounts: CRUD, list their browser profiles, force-restart in WebDriver mode. |
+| `manage_ziniao_account` | Ziniao accounts: CRUD, list their browser profiles (Ziniao is relaunched in WebDriver mode first when it is not answering). |
 | `manage_profile` | AI profiles: CRUD, set the default, validate (one tiny real model call), provider presets. |
 | `app_settings` | Server settings, Google Workspace enable/disable/status, the vision (kie.ai) key. |
 | `manage_email_account` | Email accounts: CRUD, IMAP/SMTP test, real send, sync-now, store links, per-store mail DB info. |
@@ -461,8 +461,9 @@ same REST route the web UI calls, so:
   interactive-only, so no token or agent credential can change it),
   `manage_chat_bot(send|test)` posts to the group,
   `manage_profile(validate)` spends one tiny real model call,
-  `browser(start_store, force=true)` relaunches the Ziniao client. The
-  tool descriptions say so; treat them like the buttons they mirror.
+  `browser(start_store)` on a Ziniao store relaunches the Ziniao client
+  when it is not answering (closing its open windows). The tool
+  descriptions say so; treat them like the buttons they mirror.
 - `manage_ticktick(authorize)` returns an OAuth URL **only a human can
   finish** — hand it to the user and poll `status` until connected.
 

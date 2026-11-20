@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import tempfile
+import time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,10 +29,9 @@ from app.browser.wrapper import (
     wipe_generated_wrappers,
     write_browser_use_wrapper,
 )
-from app.browser.ziniao_utils import (
-    ZiniaoNormalModeError,
-    ensure_ziniao_running,
-    kill_and_relaunch_ziniao,
+from app.browser.ziniao_startup import (
+    ZiniaoAccountConflictError,
+    ensure_ziniao_for_account,
 )
 from app.config import (
     AI_BOT_USER_ID,
@@ -39,6 +39,7 @@ from app.config import (
     WEB_BROWSER_SLUG,
 )
 from app.database import async_session
+from app.env_options import Options
 from app.models.app_settings import AppSettings
 from app.models.browser_session import BrowserSession
 from app.models.store import Store
@@ -317,9 +318,20 @@ class BrowserManager:
     ) -> BrowserSession:
         """Start or reuse a browser session for a store.
 
-        Serialized via lock to prevent wrapper-generation races.
+        Serialized via lock to prevent wrapper-generation races. A Ziniao
+        store's client is brought up first, OUTSIDE the lock: a client
+        (re)start can take minutes and must not hold up every other
+        store's launch. Both waits share one budget
+        (``VIBE_BROWSER_LOCK_WAIT_S``), so the route answers — 503 while
+        Ziniao is still starting — before the wrapper's 90 s curl ends.
         """
-        async with self._lock.hold(f'start_session({store.name})'):
+        budget = Options.BROWSER_LOCK_WAIT_S.get_float()
+        end = time.monotonic() + budget if budget > 0 else None
+        await self.ensure_ziniao_ready(
+            store, db, wait_s=budget if end else None, session_start=True
+        )
+        wait = max(end - time.monotonic(), 1.0) if end else None
+        async with self._lock.hold(f'start_session({store.name})', wait):
             return await self._start_session_locked(store, db)
 
     @staticmethod
@@ -409,24 +421,9 @@ class BrowserManager:
 
         # For ziniao stores with a linked account, inject creds
         if store.browser_backend == 'ziniao' and store.ziniao_account_id:
-            # Only one Ziniao account can be active per machine.
-            # Different profiles (browserOauth) on the SAME
-            # account are fine; different accounts are not.
-            if (
-                self._active_ziniao_account_id is not None
-                and self._active_ziniao_account_id != store.ziniao_account_id
-            ):
-                active = ', '.join(self._ziniao_stores.values())
-                raise RuntimeError(
-                    f'Cannot start browser for store '
-                    f'"{store.name}": Ziniao account '
-                    f'conflict. Store(s) [{active}] are '
-                    f'using a different Ziniao account. '
-                    f'Only one Ziniao account can run at '
-                    f'a time. Please stop the browser '
-                    f'session for [{active}] first.'
-                )
-
+            self.refuse_other_ziniao_account(
+                store.ziniao_account_id, f'store "{store.name}"'
+            )
             account = await db.get(ZiniaoAccount, store.ziniao_account_id)
             if account:
                 browser_config['company'] = account.company
@@ -714,59 +711,51 @@ class BrowserManager:
             info = await backend.start(browser_config)
             self._active_sessions[WEB_BROWSER_SLUG] = info
 
-    async def check_ziniao_reachable(
-        self, store: Store, db: AsyncSession
-    ) -> None:
-        """Pre-check that Ziniao is reachable for a ziniao store.
-
-        Raises RuntimeError with a user-friendly message if Ziniao
-        cannot be reached (WSL fails fast in ~3s; Mac may
-        auto-launch). No-op for non-ziniao stores.
-        """
-        if store.browser_backend != 'ziniao':
-            return
-        if not store.ziniao_account_id:
-            return
-
-        account = await db.get(ZiniaoAccount, store.ziniao_account_id)
-        if not account:
-            raise RuntimeError(
-                f'Ziniao account not found for store "{store.name}".'
+    def refuse_other_ziniao_account(self, account_id: str, who: str) -> None:
+        """Only one Ziniao account can run per machine. Different profiles
+        (browserOauth) on the SAME account are fine; another account's
+        live stores are never killed to make room."""
+        active_id = self._active_ziniao_account_id
+        if active_id is not None and active_id != account_id:
+            active = ', '.join(self._ziniao_stores.values())
+            raise ZiniaoAccountConflictError(
+                f'Cannot start Ziniao for {who}: Ziniao account conflict. '
+                f'Store(s) [{active}] are using a different Ziniao '
+                f'account. Only one Ziniao account can run at a time. '
+                f'Please stop the browser session for [{active}] first.'
             )
 
-        user_info = {
-            'company': account.company,
-            'username': account.username,
-            'password': decrypt_password(account.encrypted_password),
-        }
-        client_path = account.client_path or 'ziniao'
-        kwargs = dict(
-            socket_port=account.socket_port,
-            client_path=client_path,
-            user_info=user_info,
+    def has_live_ziniao(self) -> bool:
+        """Ziniao browsers open, or a launch in progress, on this server —
+        a slow client is then busy, not dead, and is never killed."""
+        return bool(self._ziniao_stores) or self._lock.holder is not None
+
+    async def ensure_ziniao_ready(
+        self,
+        store: Store,
+        db: AsyncSession,
+        *,
+        wait_s: float | None = None,
+        session_start: bool = False,
+    ) -> None:
+        """Bring a Ziniao store's client up in WebDriver mode.
+
+        Kills and relaunches it when it is not answering (normal mode,
+        not running, leftovers) — never asks, never needs a flag. Raises
+        when that fails. No-op for other stores.
+        """
+        if store.browser_backend != 'ziniao' or not store.ziniao_account_id:
+            return
+        who = f'store "{store.name}"'
+        self.refuse_other_ziniao_account(store.ziniao_account_id, who)
+        await ensure_ziniao_for_account(
+            db,
+            store.ziniao_account_id,
+            who,
+            wait_s=wait_s,
+            live=self.has_live_ziniao(),
+            session_start=session_start,
         )
-        try:
-            await ensure_ziniao_running(**kwargs)
-        except ZiniaoNormalModeError:
-            # Ziniao in GUI/normal mode (e.g. just after an upgrade). The
-            # platform needs WebDriver mode — relaunch into it instead of
-            # failing the task. Serialized on the manager lock so a
-            # concurrent fanout does ONE relaunch and peers just re-check
-            # (WSL is kill-only → its relaunch raises, guidance propagates).
-            async with self._lock.hold(f'ziniao-relaunch({store.name})'):
-                try:
-                    await ensure_ziniao_running(**kwargs)
-                    return  # a peer already relaunched into WebDriver
-                except ZiniaoNormalModeError:
-                    pass
-                logger.info(
-                    'Ziniao normal mode for %s — relaunching WebDriver',
-                    store.name,
-                )
-                await kill_and_relaunch_ziniao(
-                    account.socket_port, client_path, user_info
-                )
-            await ensure_ziniao_running(**kwargs)
 
     async def ensure_session(
         self, store: Store, db: AsyncSession

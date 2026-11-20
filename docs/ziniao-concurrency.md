@@ -154,10 +154,12 @@ Implemented in `app/browser/ziniao.py` + `app/browser/ziniao_utils.py`:
    deliberately **fail-open**: only a positive `webdriver === true` is a
    verdict; unreachable, eval error, or no-page-yet all pass, so a probe
    bug can never become a store-wide outage.
-2. **Graceful-first client restart.** `kill_and_relaunch_ziniao` (still
-   used by the *user-initiated* force-restart endpoints) now tries the
-   `exit` action first and only falls back to `pkill -9` if the client
-   ignores it.
+2. **The shared client is restarted only when its API is not
+   answering.** A per-store problem never restarts it. The one place
+   that does — the client startup round, § Client startup below — runs
+   only when nothing answers on the control port (normal mode, not
+   running, leftovers, hung with no store browser of ours open), which
+   is also why it cannot ask the client to `exit` politely first.
 3. **`updateCore` up front.** `start()` calls `update_ziniao_core()` once
    after the client is confirmed running, mirroring the demo, so a
    per-store launch never blocks on a kernel download.
@@ -194,7 +196,7 @@ long a peer may **wait**, and an `asyncio.Lock` waits for ever.
 So a wedged holder stopped being a slow launch and became a **hang**:
 
 ```
-POST /api/stores/{id}/browser/start?force=1      (proxies unset)
+POST /api/stores/{id}/browser/start      (proxies unset)
   → HTTP 000 (240.003041s)
 ```
 
@@ -220,15 +222,95 @@ wrapper's own 90 s curl gives up before the server has said anything at all.
   not the work.
 - `0` disables the ceiling, for an operator who wants the old behaviour back.
 
+## Client startup: always relaunch, kill-all, 120 s deadline (2026-11-20)
+
+**Before:** whether a Ziniao that was not answering got fixed depended on
+who asked. The task pre-check relaunched it (under the global launch
+lock), `POST /browser/start` only with `?force=1`, store setup showed a
+"close Ziniao, Refresh, then Force Restart" panel, and auto-mode tasks
+had no pre-check at all — their agent met the cold client through the
+wrapper's 90 s curl. A launch was one try of 30 × (2 s + ≤10 s request);
+on Windows 72 % of our launches timed out.
+
+**Now there is one behaviour** (`app/browser/ziniao_startup.py`), for
+every caller: every Ziniao-store task before its agent runs
+(`app/task_ziniao_precheck.py` — auto, plan, execute, wake), browser
+start, store setup, MCP. No flag, no prompt.
+
+1. **Probe** `getBrowserList` (connect ≤5 s, read ≤10 s). Any JSON
+   answer — even `-10003` — is WebDriver mode: done. Unchanged fast path.
+2. **Accepted but silent** (read timeout): one more probe with 20 s.
+   Still silent and **this server has Ziniao store browsers open or a
+   launch in progress** → leave it alone: its kernels still serve CDP,
+   and killing it would recreate the outage above. On WSL a timeout
+   never kills either.
+3. Otherwise a **round** — one per server at a time; concurrent callers
+   join it (a second kill-all would kill the first round's launch):
+   - stop **every** Ziniao process (`app/browser/ziniao_processes.py`) —
+     Ziniao's own WebDriver doc (`ziniao-open/skill-hub`,
+     `ziniao-webdriver-doc`, trap 3): before each launch and before a
+     retry, kill the main client *and* its kernels, or leftovers keep the
+     port. A name match is not enough: on Windows the client also runs
+     `env-kit.exe` from its install dir and a `node.exe` under
+     `%APPDATA%\ziniaobrowser\env-kit`, next to `ziniaobrowser.exe` /
+     `superbrowser.exe` kernels. The rule is "executable under a
+     Ziniao-owned directory, or a `ziniao*` name", never the updater,
+     never a command-line match. POSIX: SIGKILL the client (it respawns
+     kernels and survives SIGTERM), SIGTERM kernels with 3 s grace, then
+     clear `Singleton*` in their `--user-data-dir`s (see the runbook
+     below). Survivors (started as administrator) fail fast
+     (`kill_failed`); a foreign program on the port fails fast
+     (`port_in_use`);
+   - launch, then poll until a **120 s deadline**. A refused connection
+     is re-polled every 2 s (a client that binds at 8 s is seen at
+     ~8-10 s, as before); a request the client *accepted* gets every
+     second left as its read timeout — the first `getBrowserList` on a
+     cold client signs in, Ziniao asks for ≥120 s per request, and the
+     old 10 s cap cut it short so the next request started over;
+   - deadline missed → stop everything again, relaunch once, another
+     120 s. Then `startup_timeout`, cached for
+     `VIBE_ZINIAO_START_COOLDOWN_S` (180 s) so a fan-out or a retrying
+     agent cannot kill-and-relaunch in a loop. Store setup (a click) is
+     not held back.
+4. **Who waits how long.** The task pre-check waits for the outcome.
+   `POST /browser/start` runs it **before** the global launch lock (a
+   round can take ~4 min and must not starve other stores), and its
+   Ziniao wait plus its lock wait share one `VIBE_BROWSER_LOCK_WAIT_S`
+   budget, so it answers before the wrapper's 90 s curl: 503 "Ziniao is
+   starting" while the round goes on; the wrapper re-POSTs on 503 up to 3
+   times. Store setup answers 503 `{"status":"starting"}` after 45 s and
+   the page asks again with the spinner and the elapsed time.
+5. **Accounts.** Only one Ziniao account runs per machine. A caller for
+   another account never kills the client while the first account's
+   stores are open, or while the client its last round brought up still
+   answers (`ziniao_account_conflict`).
+6. **WSL** cannot launch (Electron rejects the flags via interop). It
+   stops every Ziniao process only when Windows shows no listener on the
+   port, then points at `ziniao_webdriver.bat` (which now stops every
+   Ziniao process too and waits 120 s); a listener WSL cannot reach is a
+   networking error, nothing is killed.
+
+Errors carry their category as data (`ZiniaoStartError.task_category` →
+`task.error_category`), never parsed from text.
+
 ## Tests
 
+- **CI-safe unit** (`tests/unit/test_browser/test_ziniao_startup.py`, on
+  `ziniao_fake_host.py` — a fake machine at the psutil / subprocess /
+  httpx / clock boundary): normal mode killed and relaunched without
+  error; leftover kernels (by path) killed, updater kept; a 30 s first
+  answer succeeds; a dead launch is relaunched once; two fail once with
+  the reason; concurrent callers share one round; a hung client with
+  live stores is left alone; survivors / port in use fail fast;
+  cooldown; WSL kill + `.bat`, never kill an unreachable listener; a
+  caller past its wait gets "starting" while the round goes on.
 - **CI-safe unit** (`tests/unit/test_browser/test_launch_lock.py`): a wedged
   holder is refused rather than waited out, the lock survives the refusal, and
   the message distinguishes contention from a stuck holder.
 - **CI-safe unit** (`tests/unit/test_browser/test_ziniao_per_store_recovery.py`):
   mocks the Ziniao API, forces stale launches, and asserts recovery is
-  per-store `stopBrowser` + retry with **no** `force_kill_ziniao` /
-  `kill_and_relaunch_ziniao` call.
+  per-store `stopBrowser` + retry with **no** client kill-all
+  (`kill_all_ziniao`) or relaunch (`launch_ziniao`) call.
 - **Local-only e2e** (`tests/e2e/test_ziniao_concurrency_recovery.py`,
   marked `e2e` + `ziniao`, **never in CI**): concurrent multi-store starts
   emit no global-kill markers; a scheduled fan-out survives
@@ -276,11 +358,10 @@ shutdown lets Chrome remove its own singleton files.)
 **Recovery (macOS; adapt paths for Windows/Linux):**
 
 ```bash
-# 1. Stop Ziniao + all its Chrome cleanly (graceful exit, then hard-stop
-#    any stragglers so nothing holds the user-data dirs).
-python3 -c "import asyncio; from app.browser import ziniao_utils as zu; \
-  asyncio.run(zu.graceful_exit_ziniao(16851, {'company':..., 'username':..., 'password':...}))"
-pkill -9 -f 'env-kit/Core/chrome' ; pkill -9 -f 'ziniaobrowser' ; pkill -9 -f 'ziniao.app'
+# 1. Stop Ziniao + all its Chrome (every Ziniao process, by the same rule
+#    the server uses; also clears Singleton* in the kernels' profiles).
+python3 -c "from app.browser.ziniao_processes import kill_all_ziniao as k, describe as d; \
+  r = k(wsl=False); print('stopped:', d(r.killed), '| left:', d(r.survivors))"
 sleep 6
 
 # 2. Clear the stale singleton locks from ALL profiles (safe only when no

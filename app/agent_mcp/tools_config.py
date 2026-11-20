@@ -80,7 +80,6 @@ _ZINIAO_ACTIONS = (
     'update',
     'delete',
     'browsers',
-    'restart',
 )
 
 
@@ -116,17 +115,16 @@ async def _stored_ziniao_password(ctx: McpContext, account_id: str):
     'Manage Ziniao anti-detect browser accounts (Settings → Stores '
     '→ Ziniao). Actions: list, create, update, delete, browsers '
     '(the browser profiles on the account, needed as '
-    'browser_oauth when creating a ziniao store), restart '
-    '(kill-and-relaunch the Ziniao client in WebDriver mode — only '
-    'allowed while it sits in normal mode, so it never kills an '
-    'active WebDriver session). Passwords are write-only: they are '
+    'browser_oauth when creating a ziniao store; Ziniao is relaunched '
+    'in WebDriver mode first when it is not answering, closing its open '
+    'windows). Passwords are write-only: they are '
     'accepted on create/update and never returned.',
     action_schema(
         {
             'account_id': {
                 'type': ['string', 'null'],
                 'description': (
-                    'Account id (required for update/delete/browsers/restart).'
+                    'Account id (required for update/delete/browsers).'
                 ),
             },
             'name': {
@@ -233,25 +231,15 @@ async def manage_ziniao_account(ctx: McpContext, args: dict) -> dict:
         )
         return redact(result or {'ok': True})
 
-    if action == 'browsers':
-        account_id = require(args, 'account_id')
-        browsers = await call_route(
-            ziniao_route.list_browsers,
-            account_id,
-            db=ctx.db,
-            _user=ctx.user,
-        )
-        return redact({'browsers': [b.model_dump() for b in browsers]})
-
-    # restart
+    # browsers
     account_id = require(args, 'account_id')
-    result = await call_route(
-        ziniao_route.restart_ziniao,
+    browsers = await call_route(
+        ziniao_route.list_browsers,
         account_id,
         db=ctx.db,
         _user=ctx.user,
     )
-    return redact(result or {'ok': True})
+    return redact({'browsers': [b.model_dump() for b in browsers]})
 
 
 _PROFILE_ACTIONS = (

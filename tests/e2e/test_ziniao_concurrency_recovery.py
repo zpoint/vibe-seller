@@ -36,13 +36,12 @@ logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.e2e, pytest.mark.ziniao]
 
 BACKEND_LOG = Path('logs/backend_7777.log')
-# The log strings that mark a SHARED-CLIENT restart. After the fix these
-# must never be emitted by per-store browser starts — only by an explicit
-# user-initiated force-restart.
+# The log strings that mark a SHARED-CLIENT restart. These must never be
+# emitted by per-store browser starts against an answering client — only
+# by a client startup round (nothing answering on the control port).
 GLOBAL_KILL_MARKERS = (
-    'Killing Ziniao for WebDriver relaunch',
-    'SIGKILL',
-    'force_kill_ziniao',
+    'Stopping every Ziniao process before launch',
+    'Launching Ziniao in WebDriver mode',
 )
 
 
