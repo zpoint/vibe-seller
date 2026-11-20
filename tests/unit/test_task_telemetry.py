@@ -340,6 +340,9 @@ async def test_scheduler_jobs_never_run_in_a_request_channel(task_env):
         ('Skill', {'skill': '__internal'}, []),
         ('Skill', {'skill': 'a b'}, []),
         ('Skill', {'skill': 'x' * 65}, []),
+        ('Bash', {'command': 'cat /w/.claude/skills/*/SKILL.md'}, []),
+        ('Bash', {'command': 'cat /w/.claude/skills/$s/SKILL.md'}, []),
+        ('Bash', {'command': 'cat /w/.claude/skills/${s}/SKILL.md'}, []),
     ],
 )
 def test_skill_names(tool, tool_input, expected):
