@@ -26,6 +26,7 @@
 
 🔥 *News* 🔥
 
+- [Nov 2026] **Let the AI use WeCom / Feishu / DingTalk**: click Connect, scan or authorize, and the AI writes docs and sheets, sends messages and schedules events: [**details**](https://docs.vibe-sellers.com/en/workplace-cli/)
 - [Nov 2026] **MCP setup**: drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder: [**details**](https://docs.vibe-sellers.com/en/mcp/)
 - [Nov 2026] **Amazon ads over the Ads API**: the same ad-optimization task went from 147 minutes to 11, with less need to step in: [**details**](https://docs.vibe-sellers.com/en/ads-api/)
 
@@ -182,7 +183,7 @@ description to copy, the settings screenshots and the finished result — see
 |---|---|
 | **Getting started** | [Installation](https://docs.vibe-sellers.com/en/install/) · [Quickstart](https://docs.vibe-sellers.com/en/quickstart/) · [Configure AI Models](https://docs.vibe-sellers.com/en/llm-keys/) · [Core Concepts](https://docs.vibe-sellers.com/en/concepts/) |
 | **Browsers** | [Browsers Overview](https://docs.vibe-sellers.com/en/browsers/) · [Ziniao: Setup & Common Errors](https://docs.vibe-sellers.com/en/ziniao/) · [Yuehulian: Setup Guide](https://docs.vibe-sellers.com/en/yuehulian/) |
-| **Integrations** | [Overview](https://docs.vibe-sellers.com/en/integrations/) · [MCP setup](https://docs.vibe-sellers.com/en/mcp/) · [Amazon Ads API](https://docs.vibe-sellers.com/en/ads-api/) · [Email](https://docs.vibe-sellers.com/en/email/) · [Chat bots](https://docs.vibe-sellers.com/en/chat-bots/) · [TickTick / Dida365](https://docs.vibe-sellers.com/en/ticktick/) · [Google Workspace](https://docs.vibe-sellers.com/en/google-workspace/) |
+| **Integrations** | [Overview](https://docs.vibe-sellers.com/en/integrations/) · [MCP setup](https://docs.vibe-sellers.com/en/mcp/) · [Amazon Ads API](https://docs.vibe-sellers.com/en/ads-api/) · [Email](https://docs.vibe-sellers.com/en/email/) · [Chat bots](https://docs.vibe-sellers.com/en/chat-bots/) · [WeCom / Feishu / DingTalk](https://docs.vibe-sellers.com/en/workplace-cli/) · [TickTick / Dida365](https://docs.vibe-sellers.com/en/ticktick/) · [Google Workspace](https://docs.vibe-sellers.com/en/google-workspace/) |
 | **Examples** | [All Examples](https://docs.vibe-sellers.com/en/examples/) · [Daily email digest to WeCom](https://docs.vibe-sellers.com/en/example-email-wecom/) · [Analyse ad ACOS and apply fixes](https://docs.vibe-sellers.com/en/example-ads-acos/) · [Weekly listing check](https://docs.vibe-sellers.com/en/example-listing-check/) · [Monthly sales report](https://docs.vibe-sellers.com/en/example-daily-report/) · [Export a Ziniao store's finances with Codex](https://docs.vibe-sellers.com/en/example-mcp/) |
 | **User guide** | [Stores & Browsers](https://docs.vibe-sellers.com/en/stores/) · [Tasks](https://docs.vibe-sellers.com/en/using-tasks/) · [Schedules](https://docs.vibe-sellers.com/en/schedules/) · [Knowledge & Skills](https://docs.vibe-sellers.com/en/knowledge/) |
 | **FAQ** | [About Vibe Seller](https://docs.vibe-sellers.com/en/faq-about/) · [Cost & Model Choice](https://docs.vibe-sellers.com/en/faq-cost/) · [Login & Accounts](https://docs.vibe-sellers.com/en/faq-login/) · [Deployment & Data](https://docs.vibe-sellers.com/en/faq-data/) · [All Questions](https://docs.vibe-sellers.com/en/faq/) |
@@ -203,6 +204,7 @@ no code:
 - **Amazon Ads API** — Amazon ad tasks call the API instead of clicking through the seller console; in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](https://docs.vibe-sellers.com/en/ads-api/)
 - **Email** (IMAP/SMTP) — read your linked store mailboxes, sort and summarize, draft and send replies (sending can be turned off per mailbox). Works with 163 / QQ / Gmail and more. [Setup guide](https://docs.vibe-sellers.com/en/email/)
 - **Group chat bots** (WeCom / DingTalk / Feishu / Slack) — have the AI post results, reports and reminders straight into a group; WeCom bots can send files too. [Setup guide](https://docs.vibe-sellers.com/en/chat-bots/)
+- **WeCom / Feishu / DingTalk** — with each vendor's official program, the AI writes docs and sheets, sends messages, schedules events and creates to-dos; connect by scanning or authorizing. [Setup guide](https://docs.vibe-sellers.com/en/workplace-cli/)
 - **TickTick / Dida365** — auto-create todos (follow-ups, order tracking, periodic checks). [Setup guide](https://docs.vibe-sellers.com/en/ticktick/)
 - **Google Workspace** — Gmail, Drive, Docs, Sheets, Slides, Calendar — read, write, edit. [Setup guide](https://docs.vibe-sellers.com/en/google-workspace/)
 
