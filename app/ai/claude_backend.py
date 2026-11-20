@@ -173,6 +173,7 @@ class AgentSession(
         # mid-AskUserQuestion can be parked in WAITING instead of
         # failing silently.
         self._last_pending_questions: dict[str, dict] = {}
+        self._question_park = None  # question_wait.QuestionPark, on timeout
         # Whether the agent produced any tool_use block at all.
         # Used by task_runner to detect text-only exits (agent
         # wrote questions as prose instead of calling
@@ -731,12 +732,13 @@ class AgentSession(
         # Kill orphaned browser-use daemons for this task
         await self._cleanup_browser_daemons()
 
-    async def submit_answer(self, request_id: str, answers: dict):
-        """Submit an answer for a pending AskUserQuestion."""
+    async def submit_answer(self, request_id: str, answers: dict) -> bool:
+        """Deliver an answer; False once the wait has already decided."""
+        if (evt := self._answer_events.get(request_id)) is None:
+            return False
         self._answers[request_id] = answers
-        evt = self._answer_events.get(request_id)
-        if evt:
-            evt.set()
+        evt.set()
+        return True
 
     async def send_user_message(self, message: str) -> bool:
         """Send a follow-up user message; True = delivered. A

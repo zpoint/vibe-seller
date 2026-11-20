@@ -20,8 +20,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent_mcp.support import stored_pending_question
-from app.ai.claude_backend_manager import agent_manager
 from app.auth import get_current_user
 from app.config import AI_BOT_ROLE
 from app.database import get_db
@@ -30,6 +28,7 @@ from app.models.schedule import Schedule
 from app.models.task import Task
 from app.models.user import User
 from app.plan_states import PlanStatus
+from app.question_park import pending_question_for
 from app.routers.schedule_planning import (
     abort_current_planning_task,
     finalize_pending_abort,
@@ -140,9 +139,9 @@ async def _planner_questions(db: AsyncSession) -> list[PlannerQuestionItem]:
     for sched in rows:
         task_id = sched.current_planning_task_id
         task = await db.get(Task, task_id)
-        if agent_manager.get_pending_questions(
-            task_id
-        ) or stored_pending_question(task):
+        # One source with the pending-question route: live, being
+        # parked, or parked on the row (and not yet answered).
+        if pending_question_for(task_id, task) is not None:
             items.append(
                 PlannerQuestionItem(
                     schedule_id=sched.id,

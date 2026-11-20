@@ -494,6 +494,113 @@ def run_ask_question():
     emit_result(result)
 
 
+# Question-park flows (an unanswered question parks the task; a
+# scheduled run's question is declined). Placeholders only.
+PARK_MARKER = '[[MOCK_ASK_PARK]]'
+ASK_ON_EXECUTE_MARKER = '[[MOCK_ASK_ON_EXECUTE]]'
+ANSWERED_PREFIX = 'The operator answered your earlier AskUserQuestion:'
+SHIPPING_QUESTIONS = [
+    {
+        'question': 'Which shipping option?',
+        'header': 'Shipping',
+        'options': [
+            {'label': 'Standard', 'description': '5 days'},
+            {'label': 'Express', 'description': '2 days'},
+        ],
+        'multiSelect': False,
+    }
+]
+
+
+def answer_in_prompt(prompt: str) -> str | None:
+    """The answer a resumed run was handed (``- <q> → <a>``), if any."""
+    if not prompt.startswith(ANSWERED_PREFIX):
+        return None
+    for line in prompt.splitlines()[1:]:
+        if line.startswith('- ') and ' → ' in line:
+            return line.split(' → ', 1)[1].strip()
+    return ''
+
+
+def ask_shipping(request_id: str) -> dict | None:
+    """Ask the shipping question; wait with NO deadline of our own.
+
+    Returns the control_response, or None when the server interrupted
+    us or closed stdin — what a CLI stopped mid-question sees.
+    """
+    emit({
+        'type': 'control_request',
+        'request_id': request_id,
+        'request': {
+            'tool_name': 'AskUserQuestion',
+            'input': {'questions': SHIPPING_QUESTIONS},
+        },
+    })
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            return None
+        try:
+            msg = json.loads(line.strip() or '{}')
+        except json.JSONDecodeError:
+            continue
+        if msg.get('type') == 'control_response':
+            return msg
+        req = (
+            msg.get('request', {})
+            if msg.get('type') == 'control_request'
+            else {}
+        )
+        if req.get('subtype') == 'interrupt':
+            return None
+
+
+def run_ask_park(prompt: str):
+    """Ask, and wait as long as it takes. A resumed run (its prompt
+    carries the answer) reports the chosen option instead of asking."""
+    emit_system()
+    answer = answer_in_prompt(prompt)
+    if answer is not None:
+        result = f'Resumed. Chosen option: {answer}'
+        emit_text(result)
+        emit_result(result)
+        return
+    time.sleep(DELAY)
+    response = ask_shipping('park-req-001')
+    if response is None:
+        sys.exit(130)  # interrupted while waiting, like a stopped CLI
+    answers = (
+        response.get('response', {})
+        .get('response', {})
+        .get('updatedInput', {})
+        .get('answers', {})
+    )
+    result = f'Chosen option: {answers.get("Which shipping option?", "")}'
+    emit_text(result)
+    emit_result(result)
+
+
+def run_ask_on_execute():
+    """A scheduled run's execute turn asks; a decline is reported."""
+    emit_system()
+    time.sleep(DELAY)
+    response = ask_shipping('exec-ask-001')
+    if response is None:
+        sys.exit(130)
+    inner = response.get('response', {}).get('response', {})
+    if inner.get('behavior') == 'deny':
+        reason = (inner.get('message') or '').split(':')[0]
+        result = (
+            f'Question declined ({reason}). Chose Standard myself. '
+            'Open questions: Which shipping option?'
+        )
+    else:
+        chosen = inner.get('updatedInput', {}).get('answers', {})
+        result = f'Chosen option: {chosen.get("Which shipping option?", "")}'
+    emit_text(result)
+    emit_result(result)
+
+
 def wait_for_stdin_response(timeout: float = 30.0):
     """Read and return a control_response JSON message from stdin.
 
@@ -682,6 +789,10 @@ if __name__ == '__main__':
     prompt = read_initial_prompt()
     if mode == 'workspace':
         run_workspace(prompt)
+    elif PARK_MARKER in prompt:
+        run_ask_park(prompt)
+    elif ASK_ON_EXECUTE_MARKER in prompt and mode == 'execute':
+        run_ask_on_execute()
     elif ASK_MARKER in prompt:
         run_ask_question()
     elif ASYNC_MARKER in prompt:

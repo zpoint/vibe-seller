@@ -35,7 +35,6 @@ from app.agent_mcp.support import (
     pending_image_for,
     pending_question_for,
     require,
-    stored_pending_question,
     task_summary,
     trim,
 )
@@ -366,26 +365,20 @@ async def _status_after_approval(ctx: McpContext, task_id: str) -> str:
 )
 async def get_pending_questions(ctx: McpContext, args: dict) -> dict:
     task_id = require(args, 'task_id')
-    live = await call_route(
-        conversation_route.get_pending_questions, task_id, _user=ctx.user
-    )
-    if live.get('pending'):
-        return {
-            'pending': True,
-            'source': 'live',
-            'request_id': live.get('request_id'),
-            'questions': live.get('questions', []),
-        }
-    task = await ctx.db.get(Task, task_id)
-    if not task:
+    if not await ctx.db.get(Task, task_id):
         raise ToolError(f'Task not found: {task_id}')
-    parked = stored_pending_question(task)
-    if parked:
+    pending = await call_route(
+        conversation_route.get_pending_questions,
+        task_id,
+        db=ctx.db,
+        _user=ctx.user,
+    )
+    if pending.get('pending'):
         return {
             'pending': True,
-            'source': 'parked',
-            'request_id': parked.get('request_id'),
-            'questions': parked.get('questions', []),
+            'source': pending.get('source', 'live'),
+            'request_id': pending.get('request_id'),
+            'questions': pending.get('questions', []),
         }
     return {'pending': False}
 
@@ -428,15 +421,13 @@ async def answer_question(ctx: McpContext, args: dict) -> dict:
         raise ToolError(f'Task not found: {task_id}')
 
     live = await call_route(
-        conversation_route.get_pending_questions, task_id, _user=ctx.user
+        conversation_route.get_pending_questions,
+        task_id,
+        db=ctx.db,
+        _user=ctx.user,
     )
     questions = list(live.get('questions') or [])
     request_id = args.get('request_id') or live.get('request_id')
-    if not questions:
-        parked = stored_pending_question(task)
-        if parked:
-            questions = list(parked.get('questions') or [])
-            request_id = request_id or parked.get('request_id')
     if not request_id:
         raise ToolError(
             'No pending question for this task — call '

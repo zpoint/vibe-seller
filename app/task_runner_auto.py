@@ -263,6 +263,7 @@ async def auto_run_task(task_id: str, store: Store | None):
             store_slug=(_store_slug(store.name, store.id) if store else None),
             on_start=_on_start,
             resume=resume_existing_session,
+            persist_prompt=not bundle.answered,
         )
         if not started:
             return

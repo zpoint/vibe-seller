@@ -24,6 +24,10 @@ Cross-store scheduling. Three recurring task patterns:
 - **No-store tasks**: `store_id=None`. They go through `TaskQueueScheduler` but bypass the *per-store* browser config, session tracking, and store CDP proxy. L2 catalog tasks are pure file operations; general orchestrator tasks additionally get the store-less `web` browser wrapper (`bin/_web`, lazy-started) for neutral public web work — see [docs/browser.md](browser.md#store-less-web-browser).
 - **Task grouping**: `Task.batch_id` UUID groups tasks from same fan-out trigger
 - **Auto vs review**: a schedule is **auto** by default (each fire runs its prompt). With plan review on (`plan_mode=True`), a dedicated `is_plan_only` Task writes a plan, the owner approves it, and every fire copies the APPROVED plan into its child task and skips the design phase. See [Plan review lifecycle](#plan-at-creation-lifecycle) below.
+- **Unattended runs never wait on a person** (`app/ai/question_policy.py`). Every child a schedule fires (auto or review; store-bound, `single`, `fanout`, `two_phase`, a finalize step) has `schedule_id` set and nobody at the screen:
+  - **Questions:** its `AskUserQuestion` is denied at once with `UNATTENDED_QUESTION_DENY`. The agent decides itself (the recommended option, the safest one when unsure, or skips the step) and lists each open question in its result. Transcript `agent_event` `question_declined`; telemetry `agent_question_declined`.
+  - **Other waits on a person:** it never enters WAITING with `check_strategy: manual` (an agent-signalled wait-condition, incomplete todos, a prose question); it completes with its result. Waits on outside events, such as `check_strategy: email`, still park.
+  - **Exempt:** a review schedule's planner (`is_plan_only`), whose owner reviews the plan. Its questions are asked and shown in the top attention banner, bounded by `VIBE_QUESTION_ANSWER_TIMEOUT_S` ([tasks.md § WAITING with a pending question](tasks.md#waiting-with-a-pending-question)).
 - **No new task status**: fan-out tasks use standard lifecycle (pending → queued → designing → planned → running → completed/failed)
 - **Session reuse**: existing per-store task queue serializes fan-out tasks; browser session persists between queued tasks
 - **Frontend**: all-stores schedules shown with "All Stores" badge; child tasks grouped by store (collapsed by default)
@@ -307,6 +311,8 @@ Persistent per-account email storage with background sync and SMTP send capabili
 ## Browser & Task Concurrency
 
 **Concurrent per-store execution**: Multiple tasks for the same store can run concurrently (up to the proxy's `max_clients` connection limit, default 16 per CDPMuxProxy instance) when they share the same platform/country. The `CDPMuxProxy` provides per-task isolation within a single browser session via request ID rewriting and session-based event routing. Tasks that share the same platform but target different countries are queued since Ziniao needs to switch country; all other combinations run concurrently.
+
+**What holds an agent slot**: an agent that can make progress. A slot (`MAX_AGENT_CONCURRENCY`, Settings → max agent concurrency) is taken when the agent launches and given back when its process exits. A wait on a person is bounded: an `AskUserQuestion` left unanswered for `VIBE_QUESTION_ANSWER_TIMEOUT_S` stops the agent and parks the task in WAITING, and that frees the slot. See [tasks.md § WAITING with a pending question](tasks.md#waiting-with-a-pending-question).
 
 **Dispatch**: All store-task launch paths (create, retry, continue, execute-plan) route through `_schedule_or_run()` which submits to `TaskQueueScheduler` when it's running.  No-store tasks launch directly.  The scheduler uses `can_schedule()` to gate by platform/country compatibility (`RUN`, `RUN_IN_NEW_TAB`, or `QUEUE`).
 

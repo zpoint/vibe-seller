@@ -28,6 +28,8 @@ class TelemetryEvent:
 
     AGENT_QUESTION_ASKED = 'agent_question_asked'
     AGENT_QUESTION_ANSWERED = 'agent_question_answered'
+    AGENT_QUESTION_PARKED = 'agent_question_parked'
+    AGENT_QUESTION_DECLINED = 'agent_question_declined'
 
     # User-action events (the plan/message/schedule verdicts mirror
     # the frontend event names of the same actions; server rows carry

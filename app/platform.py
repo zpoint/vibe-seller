@@ -176,15 +176,42 @@ def find_pid_listening_on_port(port: int) -> int | None:
         # fewer sockets keeps `vibe-seller stop` responsive on busy hosts.
         conns = psutil.net_connections(kind='tcp')
     except (psutil.AccessDenied, OSError):
-        return None
+        # macOS refuses the system-wide table to anyone but root, so
+        # there this always failed and `vibe-seller stop` / the tray
+        # restart could not find a server whose pid file was gone. A
+        # process may still list its OWN sockets, and the server to stop
+        # runs as this user: ask each of this user's processes instead.
+        return _listening_pid_by_process(port)
     for conn in conns:
-        if (
-            conn.status == psutil.CONN_LISTEN
-            and conn.laddr
-            and conn.laddr.port == port
-            and conn.pid is not None  # explicit: PID 0 is still valid
-        ):
+        if _listens_on(conn, port) and conn.pid is not None:
+            # explicit: PID 0 is still valid
             return conn.pid
+    return None
+
+
+def _listens_on(conn, port: int) -> bool:
+    return (
+        conn.status == psutil.CONN_LISTEN
+        and bool(conn.laddr)
+        and conn.laddr.port == port
+    )
+
+
+def _listening_pid_by_process(port: int) -> int | None:
+    """The pid LISTENING on *port* among this user's own processes."""
+    try:
+        me = psutil.Process().username()
+    except (psutil.Error, OSError):
+        return None
+    for proc in psutil.process_iter(['username']):
+        if proc.info.get('username') != me:
+            continue
+        try:
+            conns = proc.net_connections(kind='tcp')
+        except (psutil.Error, OSError):
+            continue
+        if any(_listens_on(conn, port) for conn in conns):
+            return proc.pid
     return None
 
 
