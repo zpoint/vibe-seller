@@ -34,7 +34,7 @@ describe('Tool call rendering', () => {
       }),
     ]
     renderConversationStream({ items })
-    expect(screen.getByText(/3 tool calls/)).toBeInTheDocument()
+    expect(screen.getByText(/3 actions/)).toBeInTheDocument()
   })
 
   it('single tool call between other items is not grouped', () => {
@@ -50,8 +50,8 @@ describe('Tool call rendering', () => {
       }),
     ]
     renderConversationStream({ items })
-    // Should show "1 tool call" (single item group) not "N tool calls"
-    expect(screen.queryByText(/\d+ tool calls/)).not.toBeInTheDocument()
+    // Should show "1 action" (single item group) not "N actions"
+    expect(screen.queryByText(/\d+ actions/)).not.toBeInTheDocument()
     expect(screen.getByText(/Read/)).toBeInTheDocument()
   })
 })
@@ -182,7 +182,7 @@ describe('Full conversation flow', () => {
     })
 
     // Grouped tool calls (2 consecutive before plan v1)
-    expect(screen.getByText(/2 tool calls/)).toBeInTheDocument()
+    expect(screen.getByText(/2 actions/)).toBeInTheDocument()
     // User feedback
     expect(screen.getByText('change approach')).toBeInTheDocument()
     // New plan content

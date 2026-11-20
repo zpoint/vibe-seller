@@ -207,7 +207,7 @@ export function ZiniaoSection(props: {
             <button onClick={p.editingAccountId ? p.updateZiniaoAccount : p.createZiniaoAccount} className="px-2 py-1 bg-indigo-600 text-white rounded text-xs">{t('common.save')}</button>
             <button onClick={() => { p.setShowAddAccount(false); p.setEditingAccountId(''); p.setShowAccountPassword(false) }} className="px-2 py-1 bg-gray-200 rounded text-xs">{t('common.cancel')}</button>
           </div>
-          <p className="text-[10px] text-gray-400">Credentials stored in local SQLite, not in the cloud.</p>
+          <p className="text-[10px] text-gray-400">{t('settings.ziniaoLocalOnlyNote')}</p>
         </div>
       )}
       {p.selectedZiniaoAccountId && (() => {

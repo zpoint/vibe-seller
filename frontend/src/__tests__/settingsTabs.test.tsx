@@ -1,6 +1,6 @@
 /**
  * Contract tests for the Settings tab shape after the redesign:
- *   - tabs: stores, general, aiAgent, email, account, integrations
+ *   - tabs: aiAgent, integrations, email, general, account, stores
  *   - tab_security renamed to tab_account (login settings + users)
  *   - tab_channels renamed to tab_email (email accounts)
  *   - new tab_general for cross-cutting defaults (task retention,

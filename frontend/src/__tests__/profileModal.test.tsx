@@ -338,7 +338,7 @@ describe('ProfileModal', () => {
 
     expect(await screen.findByTestId('context-badge-M-Flash[1m]')).toHaveTextContent('1M')
     expect(screen.getByTestId('context-badge-M-Flash')).toHaveTextContent('200K')
-    expect(screen.getByText(/the same model with \[1m\] uses 1M/)).toBeInTheDocument()
+    expect(screen.getByText(/1M \/ 200K is how much the AI can keep in mind/)).toBeInTheDocument()
   })
 
   it('shows a text-only badge and syncs model + name when another chip is picked', async () => {

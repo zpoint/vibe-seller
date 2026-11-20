@@ -69,7 +69,7 @@ export function SettingsView({
   loadUsers,
 }: SettingsViewProps) {
   const { t } = useTranslation()
-  const tabs: SettingsTab[] = ['stores', 'general', 'aiAgent', 'email', 'account', 'integrations']
+  const tabs: SettingsTab[] = ['aiAgent', 'integrations', 'email', 'general', 'account', 'stores']
   return (
     <div className="flex-1 flex flex-col bg-gray-50 p-4 sm:p-6 overflow-y-auto">
       <h2 className="text-lg font-bold mb-4">{t('settings.title')}</h2>
@@ -118,23 +118,6 @@ export function SettingsView({
         <EmailAccountsPanel emailAccounts={emailAccounts} loadEmailAccounts={loadEmailAccounts} stores={stores} isAdmin={currentUser?.role === 'admin'} />
       ) : settingsTab === 'aiAgent' ? (
         <div className="space-y-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <h3 className="font-semibold text-sm mb-3">{t('settings.aiAgentConfig')}</h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div>
-                  <p className="text-sm font-medium">{t('settings.aiBackend')}</p>
-                  <p className="text-xs text-gray-500">Claude Code CLI</p>
-                </div>
-                <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full">{t('settings.connected')}</span>
-              </div>
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="text-sm font-medium mb-1">{t('settings.aiWorkspace')}</p>
-                <p className="text-xs text-gray-500 font-mono">~/.vibe-seller/</p>
-              </div>
-            </div>
-          </div>
-
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-sm">{t('settings.aiProfiles')}</h3>
