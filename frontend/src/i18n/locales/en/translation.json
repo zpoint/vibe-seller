@@ -86,6 +86,8 @@
     "descriptionPlaceholder": "Enter task description",
     "promptLabel": "Task description",
     "promptHint": "The title is generated automatically. Ctrl/⌘+Enter to submit.",
+    "promptPlaceholderAll": "e.g. Process billing files",
+    "promptPlaceholderStore": "e.g. Navigate to google.com",
     "store": "Store",
     "noStore": "No Store",
     "filterByStore": "Filter by store",
@@ -1121,5 +1123,21 @@
     "question_one": "The AI has a question about {{count}} scheduled task's plan",
     "question_other": "The AI has questions about {{count}} scheduled tasks' plans",
     "answer": "Answer"
+  },
+  "aiSetup": {
+    "prompt": {
+      "title": "Set up AI first",
+      "body": "Tasks are carried out by AI. This computer has no AI set up yet, so a task created now could not run.",
+      "time": "It takes a few minutes, once: get an API key from an AI provider and paste it into Vibe Seller.",
+      "gotIt": "Got it",
+      "docs": "Read the setup guide",
+      "goToSettings": "Set up AI"
+    },
+    "guide": {
+      "title": "Click here to add an AI model",
+      "body": "Pick a provider (DeepSeek is a good first choice), paste its API key and click \"Create\". That's it.",
+      "docs": "No API key yet? See how to get one",
+      "gotIt": "Got it"
+    }
   }
 }

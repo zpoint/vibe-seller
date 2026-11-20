@@ -86,6 +86,8 @@
     "descriptionPlaceholder": "请输入任务描述",
     "promptLabel": "任务描述",
     "promptHint": "标题会自动生成。Ctrl/⌘+Enter 提交。",
+    "promptPlaceholderAll": "例如：处理账单文件",
+    "promptPlaceholderStore": "例如：打开 google.com",
     "store": "店铺",
     "noStore": "无店铺",
     "filterByStore": "按店铺筛选",
@@ -1123,5 +1125,21 @@
     "question_one": "{{count}} 个定时任务的 AI 有问题要问你",
     "question_other": "{{count}} 个定时任务的 AI 有问题要问你",
     "answer": "去回答"
+  },
+  "aiSetup": {
+    "prompt": {
+      "title": "先设置 AI，再创建任务",
+      "body": "任务是由 AI 来完成的。这台电脑上还没有可用的 AI，现在创建的任务会无法运行。",
+      "time": "设置一次只要几分钟：到 AI 服务商那里申请一把 API Key，粘贴到 Vibe Seller 里就行。",
+      "gotIt": "知道了",
+      "docs": "查看设置教程",
+      "goToSettings": "去设置 AI"
+    },
+    "guide": {
+      "title": "点这里，添加一个 AI 模型",
+      "body": "在「服务商」里选一家（第一次用推荐 DeepSeek），把它的 API Key 粘贴进来，点「创建」就行。",
+      "docs": "还没有 API Key？看怎么申请",
+      "gotIt": "知道了"
+    }
   }
 }

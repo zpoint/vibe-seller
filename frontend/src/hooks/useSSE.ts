@@ -6,6 +6,7 @@ import { uuid } from '../uuid'
 import { patchById } from '../lib/patchById'
 import { NOTICE_ROLE, parseNotice } from '../lib/notice'
 import { ATTENTION_EVENT } from './useScheduleAttention'
+import { appendResult } from '../lib/conversation'
 
 /** Finalize any streaming thinking block — set isStreaming to false. */
 function _finalizeThinking(items: ConversationItem[]): ConversationItem[] {
@@ -294,25 +295,15 @@ export function useSSE({
               } else if (data.role === 'result') {
                 setAgentMessages(p => [...p, { role: data.role, content: data.content }])
                 if (selectedTaskIdRef.current === data.task_id) {
-                  setConversationItems(items => {
-                    const updated = _finalizeThinking(items)
-                    const hasResult = updated.some(i => i.type === 'result')
-                    if (hasResult) {
-                      // Already have a result card — show as regular message
-                      return [...updated, {
-                        id: `asst-${uuid()}`,
-                        type: 'agent_message' as const,
-                        timestamp: new Date().toISOString(),
-                        message: { role: 'assistant', content: data.content },
-                      }]
-                    }
-                    return [...updated, {
-                      id: `result-${uuid()}`,
-                      type: 'result' as const,
-                      timestamp: new Date().toISOString(),
-                      result: data.content,
-                    }]
-                  })
+                  // Every turn's result is a result card, as on reload
+                  // (lib/conversation.ts); it replaces the same text
+                  // just shown as a plain message.
+                  setConversationItems(items => appendResult(_finalizeThinking(items), {
+                    id: `result-${uuid()}`,
+                    type: 'result' as const,
+                    timestamp: new Date().toISOString(),
+                    result: data.content,
+                  }))
                 }
               } else if (data.role === NOTICE_ROLE) {
                 const notice = parseNotice(data.content)

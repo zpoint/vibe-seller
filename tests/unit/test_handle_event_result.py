@@ -110,6 +110,47 @@ class TestHandleEventResultTurns:
         assert session._result_text == ''
         assert session._turn_result_seen is False
 
+    async def test_planning_result_repeating_the_text_is_not_a_second_message(
+        self,
+    ):
+        """The CLI's result repeats the turn's last assistant text. In
+        planning (a model that answered instead of planning) that text
+        was already emitted from the assistant event: it is one message,
+        not two."""
+        session = _make_session('plan_then_execute')
+        emitted: list[tuple[str, str]] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        answer = 'I am the model you configured.'
+        with patch.object(session, '_emit_message', _mock_emit):
+            await session._handle_event({
+                'type': 'assistant',
+                'message': {'content': [{'type': 'text', 'text': answer}]},
+            })
+            await session._handle_event({'type': 'result', 'result': answer})
+
+        assert emitted == [('assistant', answer)]
+
+    async def test_planning_result_with_new_text_is_still_a_message(self):
+        """A planning result that says something the text blocks did not
+        (e.g. a model that answered only in thinking) still shows."""
+        session = _make_session('plan_then_execute')
+        emitted: list[tuple[str, str]] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        with patch.object(session, '_emit_message', _mock_emit):
+            await session._handle_event({
+                'type': 'assistant',
+                'message': {'content': [{'type': 'text', 'text': 'Looking.'}]},
+            })
+            await session._handle_event({'type': 'result', 'result': 'Done.'})
+
+        assert emitted == [('assistant', 'Looking.'), ('assistant', 'Done.')]
+
     async def test_execution_results_after_planning(self):
         """After planning, every execution result is a turn card."""
         session = _make_session('plan_then_execute')
