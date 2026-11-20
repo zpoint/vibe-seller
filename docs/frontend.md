@@ -191,6 +191,33 @@ otherwise cover every UI test in a fresh browser context);
 `test_onboarding_guide.py` pins the whole key story across two
 contexts.
 
+## Set-up-AI prompt
+
+While no AI is set up (`GET /api/profiles/readiness` → `{ready: false}`,
+see [backend.md § AI setup check](backend.md#ai-setup-check-aiai_readinesspy)),
+creating a task first asks the user to set one up.
+
+- **`hooks/useAiSetupGate.tsx`** (owned by `App.tsx`): `guardOpen(open)`
+  wraps every New Task and New Schedule button. It asks the server on
+  each click and shows `components/AiSetupPrompt.tsx` instead of the
+  form when not set up. When the request fails, the form opens: the
+  prompt never blocks on our own error. The prompt offers *Got it*,
+  the setup docs (`aiDocsUrl` in `lib/aiSetup.ts`, by UI language) in a
+  new tab, or *Set up AI*, which requests the guide and navigates to
+  Settings → AI.
+- **`hooks/useAiSetupGuide.ts` + `components/AiSetupGuide.tsx`** (on the
+  AI tab, `SettingsView`): the page dims around the Add Model button
+  (`[data-tour="add-model"]`, four dim rects as in the first-run guide;
+  the button stays clickable through the hole) with a short "click
+  here" note. It opens when the prompt sent the user here, or on a
+  first visit while not set up. Clicking the button, *Got it* or Esc
+  closes it and writes `vibe-seller-ai-guide-seen` (guarded storage,
+  `lib/guideStorage.ts`, shared with the first-run guide). It closes
+  by itself once AI is set up, re-asking whenever the default model or
+  the model list changes.
+- `lib/aiSetup.ts` also holds the small store for "the prompt sent the
+  user to the guide".
+
 ## Internationalization
 
 Translations stored in `src/i18n/locales/`:
