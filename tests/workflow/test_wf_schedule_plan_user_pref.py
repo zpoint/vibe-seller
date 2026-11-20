@@ -1,19 +1,15 @@
-"""Schedule plan-only authoring auto-approves regardless of
-``user.plan_mode_default``.
+"""Schedules ignore ``user.plan_mode_default``.
 
-The schedule plan-authoring flow is intentionally decoupled from
-the user-level ``plan_mode_default`` preference so the approve UX
-is consistent across schedules: the plan text is not screened at
-ExitPlanMode (the fanout no-sub-tasks rule is enforced on the
-action, at ``POST /api/tasks`` — see
-``tests/workflow/test_wf_fanout_subtask_guard.py``), then
-auto-committed to the schedule. Users review + iterate via
-the SchedulePlanPanel (Re-plan / edit prompt) rather than a
-blocking "approve" click.
-
-This test is the opposite of an earlier iteration where the
-preference gated the approval path — asserts that BOTH values now
-land the plan on the schedule without any UI click.
+That preference is the default execution mode of standalone tasks. A
+schedule's mode is chosen on the schedule itself: auto unless the owner
+ticks "review the plan" — the preference must not turn review on. And
+for a review schedule the planner's ExitPlanMode is a hand-off to the
+schedule (``pending_approval``) under either preference value: the
+human decision happens on the schedule, never as a click on the
+planning task. (The plan text is not screened at ExitPlanMode; the
+fanout no-sub-tasks rule is enforced on the action, at
+``POST /api/tasks`` — see
+``tests/workflow/test_wf_fanout_subtask_guard.py``.)
 """
 
 import asyncio
@@ -52,7 +48,7 @@ async def _wait_plan_status(sched_id: str, target: str, timeout=3.0):
     return None
 
 
-async def _create_schedule(client):
+async def _create_schedule(client, **extra):
     r = await client.post(
         '/api/schedules',
         json={
@@ -60,30 +56,43 @@ async def _create_schedule(client):
             'description': 'd',
             'schedule_type': 'days',
             'schedule_time': '09:00',
+            **extra,
         },
     )
     assert r.status_code == 201, r.text
-    return r.json()['id']
+    return r.json()
 
 
 class TestPlanModeUserPrefIgnored:
     @pytest.mark.parametrize('pref_value', [True, False])
-    async def test_schedule_plan_auto_commits_regardless_of_pref(
+    async def test_pref_does_not_turn_review_on(
         self, admin_client, install_fake_agent, pref_value
     ):
-        """Both pref values end at plan_status='ready' without a
-        user click. The gate is `bool(task.schedule_id)`, not the
-        creator's preference."""
+        await _set_admin_pref(pref_value)
+        sched = await _create_schedule(admin_client)
+        assert sched['plan_mode'] is False
+        assert sched['plan_status'] == 'none'
+
+    @pytest.mark.parametrize('pref_value', [True, False])
+    async def test_review_planner_hands_over_regardless_of_pref(
+        self, admin_client, install_fake_agent, pref_value
+    ):
+        """Both pref values end at plan_status='pending_approval' with
+        no click on the planning task; nothing is approved for the
+        owner."""
         await _set_admin_pref(pref_value)
         install_fake_agent.default_scenario = FakeAgentScenario(
-            plan='## auto-approved plan'
+            plan='## proposed plan'
         )
-        sched_id = await _create_schedule(admin_client)
-        ready = await _wait_plan_status(sched_id, 'ready', timeout=3.0)
-        assert ready is not None, (
-            f'Schedule should reach ready without a click even when '
+        sched_id = (await _create_schedule(admin_client, plan_mode=True))['id']
+        pending = await _wait_plan_status(
+            sched_id, 'pending_approval', timeout=3.0
+        )
+        assert pending is not None, (
+            f'The planner should hand its plan over even when '
             f'plan_mode_default={pref_value!r}.'
         )
-        assert ready.plan == '## auto-approved plan'
-        assert ready.plan_version == 1
-        assert ready.current_planning_task_id is None
+        assert pending.proposed_plan == '## proposed plan'
+        assert pending.plan is None
+        assert pending.plan_version == 1
+        assert pending.current_planning_task_id is None

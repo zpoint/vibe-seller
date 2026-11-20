@@ -52,8 +52,10 @@ Each subscriber gets its own `asyncio.Queue`. Events are JSON-serialized with `t
 | `fanout_triggered` | `schedule_id`, `batch_id`, `store_count`, `title` | `fanout.py` |
 | `schedule_skipped` | `schedule_id`, `reason`, `plan_status` | `cron.py`, `fanout.py` |
 | `schedule_waiting_cancelled` | `schedule_id`, `task_id`, `store_id` | `fanout.py` |
-| `schedule_plan_ready` | `schedule_id`, `plan_version` | `claude_backend_hooks.py` |
-| `schedule_plan_timeout` | `schedule_id`, `task_id` | `plan_reaper.py` |
+| `schedule_plan_pending_approval` | `schedule_id`, `plan_version` | `schedule_plan_review.py` |
+| `schedule_plan_ready` | `schedule_id`, `plan_version` | `routers/schedule_review.py` |
+| `schedule_plan_changed` | `schedule_id`, `plan_status` | `routers/schedules.py`, `routers/schedule_review.py` |
+| `schedule_plan_failed` | `schedule_id`, `task_id` | `plan_reaper.py` |
 | `ws_assistant_message` | `session_key`, `role`, `content` | `workspace_assistant.py` |
 | `ws_assistant_turn_done` | `session_key` | `workspace_assistant.py` — per turn: the CLI's `result` arrived, the process stays alive |
 | `ws_assistant_done` | `session_key`, `return_code`, `interrupted?` | `workspace_assistant.py` — PROCESS exit only (stop, crash, stdin EOF) |
@@ -81,8 +83,10 @@ Emitted in addition to the standard `task_update` stream:
 
 - **`schedule_skipped`** — a cron fire was refused by the plan-mode fire-gate. `reason='plan_not_ready'` (plan-mode schedules require `plan_status='ready'`). Frontend can surface a toast for unexpected skips.
 - **`schedule_waiting_cancelled`** — a prior `(schedule, store)` task in `waiting` was cancelled so the next fire could create a fresh run. `task_id` is the cancelled task; `store_id` is null for single-mode schedules.
-- **`schedule_plan_ready`** — user approved a plan-only Task; plan is persisted on the Schedule. `plan_version` matches the new bumped counter.
-- **`schedule_plan_timeout`** — `plan_reaper.py` failed a schedule stuck in `plan_status='planning'` whose planner Task was idle past the threshold.
+- **`schedule_plan_pending_approval`** — a planner handed its plan to the schedule; it waits for the owner's approval (the top banner refreshes).
+- **`schedule_plan_ready`** — the owner approved the pending plan; `plan_version` matches the new bumped counter.
+- **`schedule_plan_changed`** — an edit, a review on/off switch or a change request started (or dropped) a plan.
+- **`schedule_plan_failed`** — `plan_reaper.py` failed a planner that can no longer progress (its agent died).
 
 All four are emitted **after** the DB commit so consumers never observe an event for state that isn't yet persisted.
 

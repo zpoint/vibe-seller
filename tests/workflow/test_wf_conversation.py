@@ -517,28 +517,13 @@ class TestRetryConversation:
         assert data['status'] == 'completed'
         assert data['plan'] == '# Fanout frozen plan'
 
-    @pytest.mark.parametrize(
-        'plan_status', ['planning', 'failed', 'stale', 'none']
-    )
-    async def test_retry_schedule_plan_not_ready_falls_back_to_replan(
-        self,
-        admin_client,
-        install_fake_agent,
-        override_async_session,
-        plan_status,
+    async def _failed_review_fire(
+        self, admin_client, override_async_session, *, plan_status, plan
     ):
-        """If Schedule.plan_status is anything other than 'ready',
-        retry must not re-seed — the schedule's plan is either being
-        authored, broken, or explicitly invalidated. Fall back to
-        the default (PENDING → re-plan) so the UI can surface the
-        re-planning step."""
-        install_fake_agent.default_scenario = FakeAgentScenario(
-            plan='Regenerated plan', result='After replan'
-        )
-
+        """A failed fire of a review schedule in the given plan state."""
         async with override_async_session() as db:
             sched = Schedule(
-                title='Not-ready schedule',
+                title='Review schedule',
                 schedule_type='days',
                 schedule_time='09:00',
                 interval_value=1,
@@ -548,7 +533,7 @@ class TestRetryConversation:
                 phase_mode='single',
                 plan_status=plan_status,
                 plan_version=1,
-                plan='# Stale or in-flight plan',
+                plan=plan,
                 created_by='admin',
             )
             db.add(sched)
@@ -560,10 +545,9 @@ class TestRetryConversation:
             '/api/tasks',
             # defer_start: the state under test (a failed run of a
             # schedule-owned task) is set up directly below, and a
-            # first run racing that write made the re-plan
-            # indistinguishable from the first plan.
+            # first run racing that write made the outcome ambiguous.
             json={
-                'title': 'Not-ready retry',
+                'title': 'Review retry',
                 'plan_mode': True,
                 'defer_start': True,
             },
@@ -575,18 +559,70 @@ class TestRetryConversation:
             task.status = 'failed'
             task.plan = None
             await db.commit()
+        return task_id
 
+    @pytest.mark.parametrize(
+        ('plan_status', 'plan'),
+        [
+            ('planning', None),
+            ('pending_approval', None),
+            ('failed', None),
+            ('none', None),
+            # Legacy: a stale row's text belongs to an older prompt.
+            ('stale', '# Old prompt plan'),
+        ],
+    )
+    async def test_retry_without_an_approved_plan_is_refused(
+        self,
+        admin_client,
+        install_fake_agent,
+        override_async_session,
+        plan_status,
+        plan,
+    ):
+        """A fire of a review schedule with no approved plan must not
+        retry: it would plan for itself and run a plan nobody approved.
+        The refusal leaves the task exactly as it was."""
+        task_id = await self._failed_review_fire(
+            admin_client,
+            override_async_session,
+            plan_status=plan_status,
+            plan=plan,
+        )
         r2 = await admin_client.post(f'/api/tasks/{task_id}/retry')
-        assert r2.status_code == 200
-        assert r2.json()['status'] == 'pending'
+        assert r2.status_code == 409, r2.text
+        assert 'approved' in r2.json()['detail']
+        async with override_async_session() as db:
+            task = await db.get(Task, task_id)
+            assert task.status == 'failed'
+            assert task.retry_count in (0, None)
 
-        # The task carries a schedule_id, so its plan auto-approves
-        # (schedule-owned runs review via the frozen-plan flow) and
-        # the run goes straight through to COMPLETED with the
-        # regenerated plan still on the row. The CONTENT is what
-        # proves the stale schedule plan was not re-seeded.
+    @pytest.mark.parametrize(
+        'plan_status', ['planning', 'pending_approval', 'failed']
+    )
+    async def test_retry_during_a_revision_runs_the_approved_plan(
+        self,
+        admin_client,
+        install_fake_agent,
+        override_async_session,
+        plan_status,
+    ):
+        """While a revision is written / waits / failed, the approved
+        plan is still the schedule's plan: a retry re-seeds it."""
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            result='Ran the approved plan'
+        )
+        task_id = await self._failed_review_fire(
+            admin_client,
+            override_async_session,
+            plan_status=plan_status,
+            plan='# Approved plan',
+        )
+        r2 = await admin_client.post(f'/api/tasks/{task_id}/retry')
+        assert r2.status_code == 200, r2.text
+        assert r2.json()['status'] == 'planned'
         data = await wait_for_task(admin_client, task_id, target='completed')
-        assert data['plan'] == 'Regenerated plan'
+        assert data['plan'] == '# Approved plan'
 
     async def test_retry_non_plan_mode_schedule_does_not_reseed(
         self, admin_client, install_fake_agent, override_async_session

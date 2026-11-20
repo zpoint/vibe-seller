@@ -5,10 +5,12 @@ Companion to ``test_agent_mcp.py``; same mock-CLI lane (no model
 credits) and the same skip guard. A SEPARATE FILE on purpose: the
 e2e-mock-cli CI job names its test files explicitly.
 
-What these pin: token-mints-token → 403; delete_task; plan-mode
-create_schedule → wait_task → review_plan approve → plan_status=ready;
-prompt edit → stale → replan; run_schedule refused while not ready;
-next_actions per state.
+What these pin: token-mints-token → 403; delete_task; a blank agent's
+two schedule flows — auto (create → it fires its prompt) and review
+(create → wait_task → get_attention → review_schedule_plan approve →
+ready → fires; request changes → re-plan; prompt edit → re-plan for
+approval; run_schedule refused without an approved plan); next_actions
+per state.
 """
 
 import logging
@@ -19,7 +21,7 @@ import httpx
 import pytest
 
 from tests.e2e.conftest import BASE_URL
-from tests.e2e.e2e_helpers import create_store
+from tests.e2e.e2e_helpers import create_store, run_tag
 from tests.e2e.test_agent_mcp import McpClient, wait_until
 
 logger = logging.getLogger(__name__)
@@ -69,8 +71,12 @@ def mcp(api_token) -> McpClient:
 
 
 @pytest.fixture(scope='module')
-def store_id(api_client) -> str:
-    return create_store(api_client, 'MCP A1 E2E Store')['id']
+def store_id(api_client):
+    # A unique name and a delete on teardown: a second run on the same
+    # server must not collide with the first one's store.
+    store = create_store(api_client, f'mcp-a1-e2e-{run_tag()}')
+    yield store['id']
+    api_client.delete(f'{BASE_URL}/api/stores/{store["id"]}')
 
 
 def _schedule(mcp: McpClient, schedule_id: str) -> dict:
@@ -86,10 +92,9 @@ def _schedule(mcp: McpClient, schedule_id: str) -> dict:
 def _wait_for_plan_task(mcp: McpClient, task_id: str) -> None:
     """Follow a plan-only task until it has written its plan.
 
-    A plan-only task authors the plan and finishes: the plan is
-    committed onto the schedule when it completes. It does not park in
-    ``planned`` for a second review — the human checkpoint for a
-    schedule's plan is the schedule's own plan panel.
+    A plan-only task writes the plan and finishes: the plan becomes the
+    schedule's PROPOSAL (``pending_approval``). The decision is made on
+    the schedule (``review_schedule_plan``), never on this task.
     """
     wait_until(
         mcp,
@@ -177,18 +182,79 @@ class TestDeleteTask:
 # ── The schedule lifecycle ──────────────────────────
 
 
-class TestScheduleLifecycle:
-    """The plan-mode schedule lifecycle, as the server actually runs it.
+def _approve_pending(mcp: McpClient, schedule_id: str) -> dict:
+    """What a blank agent does after its user said yes."""
+    attention = mcp.call_tool('get_attention')
+    assert attention['ok'], attention['text']
+    item = next(
+        a
+        for a in attention['data']['schedule_plan_approvals']
+        if a['schedule_id'] == schedule_id
+    )
+    assert item['proposed_plan'], item
+    decided = mcp.call_tool(
+        'review_schedule_plan',
+        schedule_id=schedule_id,
+        approve=True,
+        plan_version=item['plan_version'],
+    )
+    assert decided['ok'], decided['text']
+    return decided['data']
 
-    A schedule never fires before its plan is frozen. Creating one
-    spawns a plan-only task; when that task finishes, the plan it wrote
-    is committed onto the schedule (``plan_status=ready``) and the
-    schedule becomes eligible to fire. Editing the prompt later makes
-    the plan ``stale`` — the schedule stops firing until it is
-    re-planned and approved again.
+
+class TestAutoSchedule:
+    """The default: an auto schedule fires its prompt — nothing to plan,
+    nothing to approve."""
+
+    def test_auto_schedule_fires_its_prompt(self, mcp, store_id):
+        created = mcp.call_tool(
+            'create_schedule',
+            title='MCP e2e auto report',
+            description='Write one line to a scratch file.',
+            store_id=store_id,
+            schedule_type='weekly',
+            schedule_time='03:10',
+        )
+        assert created['ok'], created['text']
+        data = created['data']
+        schedule_id = data['id']
+        fired_tasks: list[str] = []
+        try:
+            assert data['review_plan'] is False, data
+            assert data['paused'] is False, data
+            assert data['plan_status'] == 'none', data
+            assert data['fires'] is True, data
+            assert data['plan_task_id'] is None, data
+
+            fired = mcp.call_tool('run_schedule', schedule_id=schedule_id)
+            assert fired['ok'], fired['text']
+            task_id = fired['data']['task_id']
+            fired_tasks.append(task_id)
+            waited = wait_until(
+                mcp,
+                task_id,
+                lambda w: w['status'] in ('completed', 'failed'),
+                'the auto fire to finish',
+            )
+            assert waited['status'] == 'completed', waited
+        finally:
+            removed = mcp.call_tool('delete_schedule', schedule_id=schedule_id)
+            assert removed['ok'], removed['text']
+            for task_id in fired_tasks:
+                mcp.call_tool('delete_task', task_id=task_id)
+
+
+class TestReviewSchedule:
+    """A review schedule, as the server actually runs it.
+
+    It never fires a plan nobody approved. Creating one spawns a
+    plan-only task; when it finishes, the plan waits for approval
+    (``pending_approval``) for as long as it takes. Approval makes it
+    ``ready`` and the schedule fires it. Editing the prompt later drops
+    the approved plan and re-plans for approval.
     """
 
-    def test_plan_mode_schedule_from_create_to_ready(self, mcp, store_id):
+    def test_review_schedule_from_create_to_fire(self, mcp, store_id):
         created = mcp.call_tool(
             'create_schedule',
             title='MCP e2e weekly report',
@@ -198,10 +264,7 @@ class TestScheduleLifecycle:
             store_id=store_id,
             schedule_type='weekly',
             schedule_time='03:00',
-            # ARMED on purpose: this test drives the fire path. The
-            # tool's default is paused (the human checkpoint) — see
-            # test_create_is_paused_by_default below.
-            paused=False,
+            review_plan=True,
         )
         assert created['ok'], created['text']
         data = created['data']
@@ -217,23 +280,33 @@ class TestScheduleLifecycle:
             assert plan_task_id, f'no plan task id: {data}'
             assert 'wait_task' in (data.get('next_actions') or []), data
 
-            # Follow the plan-only task. It authors the plan; when it
-            # finishes, the plan is frozen onto the schedule.
             _wait_for_plan_task(mcp, plan_task_id)
-
             listed = _schedule(mcp, schedule_id)
-            assert listed['plan_status'] == 'ready', listed
-            assert listed['fires'] is True, listed
-            assert listed['plan_task_id'] is None, listed
-            assert 'run_schedule' in (listed.get('next_actions') or []), listed
+            assert listed['plan_status'] == 'pending_approval', listed
+            assert listed['fires'] is False, listed
+            assert listed['proposed_plan'], listed
+            assert listed['plan'] is None, 'the server never approves'
 
-            # A ready schedule fires on demand.
+            refused = mcp.call_tool('run_schedule', schedule_id=schedule_id)
+            assert not refused['ok'], 'an unapproved plan must not fire'
+            assert 'approv' in refused['text'], refused['text']
+
+            approved = _approve_pending(mcp, schedule_id)
+            assert approved['plan_status'] == 'ready', approved
+            assert approved['fires'] is True, approved
+
             fired = mcp.call_tool('run_schedule', schedule_id=schedule_id)
             assert fired['ok'], fired['text']
-            if fired['data'].get('task_id'):
-                fired_tasks.append(fired['data']['task_id'])
+            fired_tasks.append(fired['data']['task_id'])
+            waited = wait_until(
+                mcp,
+                fired['data']['task_id'],
+                lambda w: w['status'] in ('completed', 'failed'),
+                'the approved fire to finish',
+            )
+            assert waited['status'] == 'completed', waited
 
-            # ── prompt edit → stale → the schedule stops firing ──
+            # ── prompt edit → the approved plan is dropped, re-plan ──
             edited = mcp.call_tool(
                 'update_schedule',
                 schedule_id=schedule_id,
@@ -243,66 +316,32 @@ class TestScheduleLifecycle:
                 ),
             )
             assert edited['ok'], edited['text']
-            assert edited['data']['plan_status'] == 'stale', edited['data']
+            assert edited['data']['plan_status'] == 'planning', edited['data']
             assert edited['data']['fires'] is False, edited['data']
-
-            refused = mcp.call_tool('run_schedule', schedule_id=schedule_id)
-            assert not refused['ok'], 'a stale schedule must not fire'
-            assert 'plan_status' in refused['text'], refused['text']
-
-            # ── replan → a new plan task → ready again ──
-            replanned = mcp.call_tool(
-                'update_schedule', schedule_id=schedule_id, replan=True
-            )
-            assert replanned['ok'], replanned['text']
-            assert replanned['data']['plan_status'] == 'planning', replanned[
-                'data'
-            ]
-            new_plan_task = replanned['data']['plan_task_id']
-            assert new_plan_task, replanned['data']
-            assert new_plan_task != plan_task_id
+            new_plan_task = edited['data']['plan_task_id']
+            assert new_plan_task and new_plan_task != plan_task_id
 
             _wait_for_plan_task(mcp, new_plan_task)
-            listed = _schedule(mcp, schedule_id)
-            assert listed['plan_status'] == 'ready', listed
-            assert listed['fires'] is True, listed
+            # ── request changes → another planning round ──
+            pending = _schedule(mcp, schedule_id)
+            sent_back = mcp.call_tool(
+                'review_schedule_plan',
+                schedule_id=schedule_id,
+                approve=False,
+                feedback='Only campaigns spending more than 50 a day.',
+                plan_version=pending['plan_version'],
+            )
+            assert sent_back['ok'], sent_back['text']
+            third = sent_back['data']['plan_task_id']
+            assert third and third != new_plan_task
+            _wait_for_plan_task(mcp, third)
+            approved = _approve_pending(mcp, schedule_id)
+            assert approved['fires'] is True, approved
         finally:
             removed = mcp.call_tool('delete_schedule', schedule_id=schedule_id)
             assert removed['ok'], removed['text']
             for task_id in fired_tasks:
                 mcp.call_tool('delete_task', task_id=task_id)
-
-
-class TestCreateIsPausedByDefault:
-    """The MCP create path arms nothing by default.
-
-    The web UI creates active schedules; the hosted MCP tool creates
-    them PAUSED, because the server accepts a schedule's plan without
-    anyone reading it — an armed schedule fires on its own the moment
-    the plan freezes. The agent resumes it after showing the plan to
-    its user.
-    """
-
-    def test_create_is_paused_and_says_so(self, mcp, store_id):
-        created = mcp.call_tool(
-            'create_schedule',
-            title='MCP e2e paused report',
-            description='Pull the weekly campaign report.',
-            store_id=store_id,
-            schedule_type='weekly',
-            schedule_time='03:20',
-        )
-        assert created['ok'], created['text']
-        data = created['data']
-        schedule_id = data['id']
-        try:
-            assert data['paused'] is True, data
-            assert data['fires'] is False, data
-            # The note tells the agent what to do next.
-            assert 'resume' in (data.get('note') or '').lower(), data
-        finally:
-            removed = mcp.call_tool('delete_schedule', schedule_id=schedule_id)
-            assert removed['ok'], removed['text']
 
 
 # ── Lifecycle guidance in results ───────────────────

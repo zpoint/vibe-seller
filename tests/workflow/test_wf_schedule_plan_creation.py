@@ -1,10 +1,11 @@
-"""Workflow tests for plan-at-creation (Schedule plan lifecycle).
+"""Workflow tests for creating schedules: auto by default, review on ask.
 
-Covers the happy path and core edge cases for creating a plan-mode
-schedule. When plan_mode=True, the POST spawns a plan-only Task and
-leaves the Schedule in ``plan_status=planning`` until the agent calls
-ExitPlanMode and the user approves.  On approval the plan is frozen
-onto the Schedule and the fire-gate opens (plan_status=ready).
+A schedule is AUTO unless the owner asks to review the plan
+(``plan_mode=True``). Then the POST spawns a plan-only Task and leaves
+the Schedule in ``plan_status=planning``; when the agent calls
+ExitPlanMode the plan becomes a PROPOSAL (``pending_approval``), and
+only the owner's approval makes it the plan every fire runs
+(``ready``).
 """
 
 import asyncio
@@ -14,6 +15,7 @@ from sqlalchemy import select
 
 import app.database as _db
 from app.models.schedule import Schedule
+from app.models.task import Task
 from tests.workflow.fake_agent import FakeAgentScenario
 
 pytestmark = pytest.mark.workflow
@@ -91,12 +93,11 @@ class TestCreatePlanMode:
         # via the direct DB check via the schedule pointer.
         assert task['schedule_id'] == sched['id']
 
-    async def test_exit_plan_mode_commits_plan_to_schedule(
+    async def test_exit_plan_mode_proposes_and_only_approval_commits(
         self, admin_client, install_fake_agent
     ):
-        """ExitPlanMode → hook auto-commits plan to Schedule,
-        Task ends COMPLETED. No user click required — the gate
-        `bool(task.schedule_id)` auto-approves for plan-only."""
+        """ExitPlanMode → the plan is PROPOSED, the planning Task ends
+        COMPLETED, and nothing is approved until the owner says so."""
         plan_text = '## Canonical plan\n1. List products\n2. Push anomalies'
         install_fake_agent.default_scenario = FakeAgentScenario(plan=plan_text)
 
@@ -114,78 +115,77 @@ class TestCreatePlanMode:
         task = await _wait_planning_task(admin_client, sched_id)
         task_id = task['id']
 
-        # Plan-only tasks auto-approve at ExitPlanMode — wait for
-        # the schedule to land at plan_status='ready' directly.
-        sched = await _wait_schedule_status(admin_client, sched_id, 'ready')
-        assert sched['plan'] == plan_text
+        sched = await _wait_schedule_status(
+            admin_client, sched_id, 'pending_approval'
+        )
+        assert sched['plan'] is None, 'a proposal is never the run plan'
         assert sched['plan_version'] == 1
         assert sched['current_planning_task_id'] is None
+        body = (await admin_client.get(f'/api/schedules/{sched_id}')).json()
+        assert body['proposed_plan'] == plan_text
 
         task_after = (await admin_client.get(f'/api/tasks/{task_id}')).json()
         assert task_after['status'] == 'completed'
 
-    async def test_post_without_plan_mode_in_body_still_plans(
+        # The owner approves the version they read.
+        r = await admin_client.post(
+            f'/api/schedules/{sched_id}/plan/approve',
+            json={'plan_version': 1},
+        )
+        assert r.status_code == 200, r.text
+        approved = r.json()
+        assert approved['plan_status'] == 'ready'
+        assert approved['plan'] == plan_text
+        assert approved['proposed_plan'] is None
+        assert approved['plan_version'] == 2
+
+    async def test_post_without_plan_mode_in_body_is_auto(
         self, admin_client, install_fake_agent
     ):
-        """Regression guard for the #136 frontend-bypass bug.
-
-        The real CreateScheduleModal does NOT send `plan_mode` in the
-        POST body at all. Before the fix, the Pydantic default of
-        False silently bypassed the plan-at-creation flow, so no
-        schedule created through the UI ever got a planning task.
-
-        This test sends the exact minimal body the frontend sends
-        today and asserts the server still forces plan_mode=True and
-        spawns a planning task.
-        """
-        install_fake_agent.default_scenario = FakeAgentScenario(
-            plan='## plan',
-            design_delay=0.1,
-        )
+        """The minimal body (no plan_mode) creates an AUTO schedule: no
+        planner, nothing to approve, it fires its prompt."""
         r = await admin_client.post(
             '/api/schedules',
             json={
-                # NO plan_mode field, mimicking the real UI.
                 'title': 'UI-created schedule',
-                'description': 'What the UI actually sends',
+                'description': 'What the UI sends by default',
                 'schedule_type': 'days',
                 'schedule_time': '09:05',
             },
         )
         assert r.status_code == 201, r.text
         sched = r.json()
-        assert sched['plan_mode'] is True
-        assert sched['plan_status'] == 'planning'
-        assert sched['current_planning_task_id'] is not None
+        assert sched['plan_mode'] is False
+        assert sched['plan_status'] == 'none'
+        assert sched['current_planning_task_id'] is None
+        async with _db.async_session() as db:
+            planners = (
+                (
+                    await db.execute(
+                        select(Task).where(Task.schedule_id == sched['id'])
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        assert planners == []
 
-    async def test_post_with_plan_mode_false_overridden(
+    async def test_post_with_plan_mode_false_is_honoured(
         self, admin_client, install_fake_agent
     ):
-        """An old client sending plan_mode=False is force-overridden.
-
-        We don't 400 on it — keep the API tolerant — but the resulting
-        schedule must still go through the plan lifecycle. This
-        prevents a quiet regression if some caller hard-codes
-        plan_mode=False.
-        """
-        install_fake_agent.default_scenario = FakeAgentScenario(
-            plan='## plan',
-            design_delay=0.1,
-        )
+        """plan_mode=False is the owner's choice, not overridden."""
         r = await admin_client.post(
             '/api/schedules',
             json={
-                'title': 'Legacy client',
+                'title': 'Explicit auto',
                 'description': 'd',
                 'schedule_type': 'days',
                 'schedule_time': '09:00',
-                'plan_mode': False,  # explicitly False
+                'plan_mode': False,
             },
         )
         assert r.status_code == 201
         sched = r.json()
-        assert sched['plan_mode'] is True, (
-            'Server must force plan_mode=True for user-created schedules'
-        )
-        assert sched['plan_status'] == 'planning'
-        assert sched['current_planning_task_id'] is not None
+        assert sched['plan_mode'] is False
+        assert sched['plan_status'] == 'none'
+        assert sched['current_planning_task_id'] is None

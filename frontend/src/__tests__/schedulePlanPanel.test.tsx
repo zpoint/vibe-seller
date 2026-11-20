@@ -1,6 +1,6 @@
 /**
- * SchedulePlanPanel tests — cover the 4 render states + history
- * disclosure + CTA wiring.
+ * SchedulePlanPanel tests — cover the render states (incl. the
+ * approval wait) + history disclosure + CTA wiring.
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
@@ -12,7 +12,7 @@ import { i18nTestInstance } from '../test/helpers'
 import type { Schedule } from '../types'
 
 vi.mock('../api', () => ({
-  api: { get: vi.fn() },
+  api: { get: vi.fn(), post: vi.fn() },
 }))
 
 function sched(overrides: Partial<Schedule> = {}): Schedule {
@@ -53,6 +53,7 @@ function sched(overrides: Partial<Schedule> = {}): Schedule {
 function renderPanel(schedule: Schedule, handlers: {
   onOpenTask?: (id: string) => void
   onReplan?: (id: string) => Promise<void> | void
+  onUpdated?: (s: Schedule) => void
 } = {}) {
   return render(
     <I18nextProvider i18n={i18nTestInstance}>
@@ -60,15 +61,18 @@ function renderPanel(schedule: Schedule, handlers: {
         schedule={schedule}
         onOpenTask={handlers.onOpenTask || (() => {})}
         onReplan={handlers.onReplan || (() => {})}
+        onUpdated={handlers.onUpdated}
       />
     </I18nextProvider>,
   )
 }
 
 const mockGet = api.get as ReturnType<typeof vi.fn>
+const mockPost = api.post as ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   mockGet.mockReset()
+  mockPost.mockReset()
 })
 
 describe('SchedulePlanPanel', () => {
@@ -273,6 +277,32 @@ describe('SchedulePlanPanel', () => {
       await screen.findByTestId('plan-replan')
       expect(screen.getByText(/LLM quota exceeded/)).toBeTruthy()
     })
+
+    it('says a known reason in plain words and hides the technical text', async () => {
+      mockGet.mockResolvedValue({
+        plan_status: 'failed', plan_version: 0, plan_text: null,
+        plan_error: 'Server restarted while task was active',
+        plan_error_code: 'server_restart',
+        current_planning_task_id: null, planning_task_history: [],
+      })
+      renderPanel(sched({ plan_status: 'failed' }))
+      const reason = await screen.findByTestId('plan-failure-reason')
+      expect(reason.textContent).toContain('Vibe Seller restarted while the plan was being written')
+      expect(screen.queryByTestId('plan-failure-detail')).toBeNull()
+      expect(screen.queryByText(/Server restarted while task was active/)).toBeNull()
+    })
+
+    it('an unknown cause keeps the detail under the plain sentence', async () => {
+      mockGet.mockResolvedValue({
+        plan_status: 'failed', plan_version: 0, plan_text: null,
+        plan_error: 'LLM quota exceeded', plan_error_code: 'other',
+        current_planning_task_id: null, planning_task_history: [],
+      })
+      renderPanel(sched({ plan_status: 'failed' }))
+      const reason = await screen.findByTestId('plan-failure-reason')
+      expect(reason.textContent).toContain('Something went wrong while writing the plan')
+      expect(screen.getByTestId('plan-failure-detail').textContent).toContain('Details: LLM quota exceeded')
+    })
   })
 
   describe('history disclosure', () => {
@@ -356,5 +386,130 @@ describe('SchedulePlanPanel', () => {
       await screen.findByTestId('plan-history-toggle')
       expect(screen.queryByTestId('schedule-finalize-step')).toBeNull()
     })
+  })
+  describe('state: pending_approval', () => {
+    const pending = {
+      plan_status: 'pending_approval',
+      plan_version: 3,
+      plan_text: null,
+      proposed_plan: '## Proposed steps\n\n1. Open the report page',
+      plan_feedback: null,
+      plan_error: null,
+      current_planning_task_id: null,
+      planning_task_history: [],
+    }
+
+    it('shows the proposed plan expanded, with Approve and Request changes', async () => {
+      mockGet.mockResolvedValue(pending)
+      renderPanel(sched({ plan_status: 'pending_approval', plan_version: 3 }))
+      const md = await screen.findByTestId('plan-proposed-markdown')
+      expect(md.textContent).toContain('Proposed steps')
+      expect(md.textContent).toContain('Open the report page')
+      expect(screen.getByTestId('schedule-plan-status').textContent).toContain(
+        'Waiting for your approval',
+      )
+      expect(screen.getByText(/Nothing runs until you approve it/)).toBeTruthy()
+      expect(screen.getByTestId('plan-approve').textContent).toContain('Approve')
+      expect(screen.getByTestId('plan-request-changes')).toBeTruthy()
+      // No approved plan yet — nothing "keeps running".
+      expect(screen.queryByTestId('plan-approved-keeps-running')).toBeNull()
+    })
+
+    it('shows the changes the user asked for next to the revision', async () => {
+      mockGet.mockResolvedValue({ ...pending, plan_feedback: 'Skip weekends' })
+      renderPanel(sched({ plan_status: 'pending_approval', plan_version: 3 }))
+      const shown = await screen.findByTestId('plan-feedback-shown')
+      expect(shown.textContent).toContain('Changes you asked for:')
+      expect(shown.textContent).toContain('Skip weekends')
+    })
+
+    it('Approve posts the plan_version it read and hands back the schedule', async () => {
+      mockGet.mockResolvedValue(pending)
+      const updated = sched({ plan_status: 'ready', plan_version: 3, plan: 'x' })
+      mockPost.mockResolvedValue(updated)
+      const onUpdated = vi.fn()
+      // The schedule row is behind the /plan response (version 2):
+      // the version sent must be the one the user is looking at.
+      renderPanel(sched({ plan_status: 'pending_approval', plan_version: 2 }), { onUpdated })
+      await screen.findByTestId('plan-proposed-markdown')
+      fireEvent.click(screen.getByTestId('plan-approve'))
+      await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
+        '/api/schedules/sched-1/plan/approve',
+        { plan_version: 3 },
+      ))
+      await waitFor(() => expect(onUpdated).toHaveBeenCalledWith(updated))
+    })
+
+    it('shows the server reason when approval is refused', async () => {
+      mockGet.mockResolvedValue(pending)
+      mockPost.mockRejectedValue(new Error('The plan changed since you opened it.'))
+      renderPanel(sched({ plan_status: 'pending_approval', plan_version: 3 }))
+      await screen.findByTestId('plan-proposed-markdown')
+      fireEvent.click(screen.getByTestId('plan-approve'))
+      const err = await screen.findByTestId('plan-action-error')
+      expect(err.textContent).toContain('The plan changed since you opened it.')
+    })
+
+    it('Request changes sends the feedback with plan_version', async () => {
+      mockGet.mockResolvedValue(pending)
+      mockPost.mockResolvedValue(sched({ plan_status: 'planning', plan_version: 3 }))
+      renderPanel(sched({ plan_status: 'pending_approval', plan_version: 3 }))
+      await screen.findByTestId('plan-proposed-markdown')
+      expect(screen.queryByTestId('plan-feedback-input')).toBeNull()
+      fireEvent.click(screen.getByTestId('plan-request-changes'))
+      const input = await screen.findByTestId('plan-feedback-input')
+      fireEvent.change(input, { target: { value: 'Also check the returns page' } })
+      fireEvent.click(screen.getByTestId('plan-feedback-send'))
+      await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
+        '/api/schedules/sched-1/plan/request-changes',
+        { feedback: 'Also check the returns page', plan_version: 3 },
+      ))
+      await waitFor(() => expect(screen.queryByTestId('plan-feedback-input')).toBeNull())
+    })
+
+    it('says the approved plan keeps running while a new one waits', async () => {
+      mockGet.mockResolvedValue({ ...pending, plan_text: '## Approved steps' })
+      renderPanel(sched({ plan_status: 'pending_approval', plan: '## Approved steps' }))
+      await screen.findByTestId('plan-approved-keeps-running')
+      // The approved plan is there too, behind its toggle.
+      fireEvent.click(screen.getByTestId('plan-toggle'))
+      const md = await screen.findByTestId('plan-markdown')
+      expect(md.textContent).toContain('Approved steps')
+    })
+  })
+
+  it('ready: Request changes is offered next to Re-plan', async () => {
+    mockGet.mockResolvedValue({
+      plan_status: 'ready',
+      plan_version: 4,
+      plan_text: '## plan',
+      plan_error: null,
+      current_planning_task_id: null,
+      planning_task_history: [],
+    })
+    mockPost.mockResolvedValue(sched({ plan_status: 'planning' }))
+    renderPanel(sched({ plan_status: 'ready', plan_version: 4, plan: '## plan' }))
+    fireEvent.click(await screen.findByTestId('plan-request-changes'))
+    fireEvent.change(await screen.findByTestId('plan-feedback-input'), {
+      target: { value: 'Skip weekends' },
+    })
+    fireEvent.click(screen.getByTestId('plan-feedback-send'))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
+      '/api/schedules/sched-1/plan/request-changes',
+      { feedback: 'Skip weekends', plan_version: 4 },
+    ))
+  })
+
+  it('failed: the retry button says Try again', async () => {
+    mockGet.mockResolvedValue({
+      plan_status: 'failed',
+      plan_version: 0,
+      plan_text: null,
+      plan_error: 'boom',
+      current_planning_task_id: null,
+      planning_task_history: [],
+    })
+    renderPanel(sched({ plan_status: 'failed', plan_error: 'boom' }))
+    expect((await screen.findByTestId('plan-replan')).textContent).toContain('Try again')
   })
 })

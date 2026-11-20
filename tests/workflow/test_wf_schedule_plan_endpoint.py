@@ -15,6 +15,7 @@ from sqlalchemy import select
 import app.database as _db
 from app.models.schedule import Schedule
 from tests.workflow.fake_agent import FakeAgentScenario
+from tests.workflow.schedule_review_helpers import approve_when_proposed
 
 pytestmark = pytest.mark.workflow
 
@@ -46,12 +47,13 @@ async def _wait_schedule_status(client, schedule_id, target, timeout=5.0):
 
 
 async def _create_plan_schedule(client, **extras):
-    """Create a plan-mode schedule (minimal body — mirrors real UI)."""
+    """Create a review schedule (the UI body with the review box ticked)."""
     body = {
         'title': 'T',
         'description': 'do thing',
         'schedule_type': 'days',
         'schedule_time': '09:00',
+        'plan_mode': True,
     }
     body.update(extras)
     r = await client.post('/api/schedules', json=body)
@@ -119,15 +121,25 @@ class TestPlanEndpoint:
         install_fake_agent.default_scenario = FakeAgentScenario(plan=plan_text)
         sched = await _create_plan_schedule(admin_client)
         planning_id = await _wait_planning_task_id(admin_client, sched['id'])
-        # Plan-only auto-approves at ExitPlanMode — just wait for
-        # the schedule to land on 'ready'.
-        await _wait_schedule_status(admin_client, sched['id'], 'ready')
+        # The planner only PROPOSES; the panel shows the proposal…
+        await _wait_schedule_status(
+            admin_client, sched['id'], 'pending_approval'
+        )
+        body = (
+            await admin_client.get(f'/api/schedules/{sched["id"]}/plan')
+        ).json()
+        assert body['plan_status'] == 'pending_approval'
+        assert body['proposed_plan'] == plan_text
+        assert body['plan_text'] is None
+        # …until the owner approves it.
+        await approve_when_proposed(admin_client, sched['id'])
 
         r = await admin_client.get(f'/api/schedules/{sched["id"]}/plan')
         body = r.json()
         assert body['plan_status'] == 'ready'
         assert body['plan_text'] == plan_text
-        assert body['plan_version'] == 1
+        assert body['proposed_plan'] is None
+        assert body['plan_version'] == 2
         assert body['current_planning_task_id'] is None
         # History keeps the completed planner for audit.
         completed = [
@@ -137,15 +149,19 @@ class TestPlanEndpoint:
         ]
         assert completed and completed[0]['status'] == 'completed'
 
-    async def test_stale_after_prompt_edit(
+    async def test_prompt_edit_replans_for_approval(
         self, admin_client, install_fake_agent
     ):
-        install_fake_agent.default_scenario = FakeAgentScenario(plan='## v1')
+        """A prompt edit drops the approved plan (it answered the old
+        prompt) and starts a new planner at once — no separate re-plan
+        click, and nothing fires until the new plan is approved."""
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            plan='## v1', design_delay=0.3
+        )
         sched = await _create_plan_schedule(admin_client, description='first')
         await _wait_planning_task_id(admin_client, sched['id'])
-        ready = await _wait_schedule_status(admin_client, sched['id'], 'ready')
+        ready = await approve_when_proposed(admin_client, sched['id'])
 
-        # Edit prompt → stale.
         r = await admin_client.put(
             f'/api/schedules/{sched["id"]}',
             json={
@@ -154,14 +170,10 @@ class TestPlanEndpoint:
             },
         )
         assert r.status_code == 200
-
-        body = (
-            await admin_client.get(f'/api/schedules/{sched["id"]}/plan')
-        ).json()
-        assert body['plan_status'] == 'stale'
-        # Old plan text preserved for diff display.
-        assert body['plan_text'] == '## v1'
-        assert body['current_planning_task_id'] is None
+        edited = r.json()
+        assert edited['plan_status'] == 'planning'
+        assert edited['plan'] is None
+        assert edited['current_planning_task_id'] is not None
 
     async def test_replan_adds_to_history(
         self, admin_client, install_fake_agent
@@ -169,7 +181,7 @@ class TestPlanEndpoint:
         install_fake_agent.default_scenario = FakeAgentScenario(plan='## v1')
         sched = await _create_plan_schedule(admin_client)
         planning_id = await _wait_planning_task_id(admin_client, sched['id'])
-        await _wait_schedule_status(admin_client, sched['id'], 'ready')
+        await approve_when_proposed(admin_client, sched['id'])
 
         r = await admin_client.post(f'/api/schedules/{sched["id"]}/replan')
         assert r.status_code == 200

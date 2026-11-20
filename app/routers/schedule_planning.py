@@ -23,12 +23,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import resolve_schedule_profile
+from app.config import AI_BOT_ROLE
 from app.database import async_session
 from app.models.schedule import Schedule
 from app.models.schedule_constants import PhaseMode
 from app.models.task import Task
 from app.models.user import User
-from app.plan_states import PlanStatus
+from app.plan_states import (
+    PlanFailure,
+    PlanStatus,
+    clear_plan_failure,
+    fail_plan,
+    is_review_schedule,
+    review_plan_fires,
+)
 from app.task_launch import schedule_or_run
 from app.task_states import TaskStatus, can_transition
 from app.telemetry_events import TaskSource
@@ -101,8 +109,26 @@ def normalize_prompt(text: str | None) -> str:
 
 
 def schedule_needs_plan(sched: Schedule) -> bool:
-    """True iff this schedule goes through the plan-at-creation flow."""
-    return bool(sched.plan_mode) and not sched.is_system
+    """True iff this is a review schedule (plan approved before firing).
+
+    Auto schedules (``plan_mode=False``, the default) and system
+    schedules fire their prompt as-is.
+    """
+    return is_review_schedule(sched)
+
+
+def drop_review_state(sched: Schedule) -> None:
+    """Forget every plan artefact: the schedule now fires its prompt.
+
+    Used when review is switched off. The approved plan goes too — an
+    auto schedule that kept one would look reviewed while firing the
+    prompt. The caller aborts any in-flight planner first.
+    """
+    sched.plan = None
+    sched.proposed_plan = None
+    sched.plan_feedback = None
+    clear_plan_failure(sched)
+    sched.plan_status = PlanStatus.NONE.value
 
 
 async def spawn_planning_task(
@@ -110,20 +136,17 @@ async def spawn_planning_task(
     current_user: User,
     db: AsyncSession,
 ) -> Task:
-    """Create a plan-only Task that authors the plan for a schedule.
+    """Create a plan-only Task that writes the plan for a review schedule.
 
     The Task runs through the normal auto-run pipeline in DESIGNING.
-    The gate in ``task_runner_auto.py`` auto-approves any task with
-    ``schedule_id`` set (``auto_approve_plan = bool(task.schedule_id) or
-    not task.plan_mode``), so the hook commits the plan to
-    ``Schedule.plan`` and terminates the Task at COMPLETED as soon as
-    the agent calls ExitPlanMode — no manual approve click.
-
-    Review + iteration happens afterwards via ``SchedulePlanPanel`` on
-    the detail view: user can read the frozen plan, hit "Re-plan" to
-    author a new version, or edit the schedule prompt (which flips
-    ``plan_status`` to ``stale`` and requires a re-plan before the
-    next fire).
+    When the agent calls ExitPlanMode, the hook records the plan as a
+    PROPOSAL (``Schedule.proposed_plan``, ``plan_status=
+    pending_approval``) and ends the Task at COMPLETED — the agent
+    process exits and its slot is freed. Nothing is approved here: the
+    owner approves or requests changes later via
+    ``POST /api/schedules/{id}/plan/approve|request-changes`` (the
+    banner + ``SchedulePlanPanel``, or the MCP ``review_schedule_plan``
+    tool), and that wait costs nothing and never expires.
 
     The profile comes from :func:`resolve_schedule_profile`, the same
     resolver the fire path uses, so the plan is authored by the
@@ -151,7 +174,7 @@ async def spawn_planning_task(
     await db.flush()
     schedule.current_planning_task_id = task.id
     schedule.plan_status = PlanStatus.PLANNING.value
-    schedule.plan_error = None
+    clear_plan_failure(schedule)
     schedule.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
     await db.refresh(task)
@@ -161,6 +184,41 @@ async def spawn_planning_task(
     # the no-store direct-launch path.
     await schedule_or_run(task.id, None)
     return task
+
+
+async def spawn_planning_task_or_fail(
+    schedule: Schedule,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    """Start the planner; on failure record it on the schedule.
+
+    Never raises: a schedule that could not start its planner is
+    ``failed`` with the reason, and the UI/MCP offer re-plan. Clears
+    the orphaned pointer + task a partial spawn left, so /replan's
+    idempotency check is not tricked into returning a never-started
+    task.
+    """
+    try:
+        await spawn_planning_task(schedule, current_user, db)
+    except Exception as e:
+        logger.exception(
+            'Failed to spawn planning task for schedule %s', schedule.id
+        )
+        if schedule.current_planning_task_id:
+            orphan = await db.get(Task, schedule.current_planning_task_id)
+            if orphan and can_transition(orphan.status, TaskStatus.FAILED):
+                orphan.status = TaskStatus.FAILED
+                orphan.error = f'Planning task launch failed: {e}'
+                orphan.error_category = 'planning_launch_failed'
+                orphan.updated_at = datetime.now(UTC).isoformat()
+        schedule.current_planning_task_id = None
+        fail_plan(
+            schedule,
+            PlanFailure.START_FAILED,
+            f'Failed to spawn planning task: {e}',
+        )
+        await db.commit()
 
 
 async def abort_current_planning_task(
@@ -244,3 +302,102 @@ async def finalize_pending_abort(schedule: Schedule) -> None:
         del schedule._pending_abort_reason  # type: ignore[attr-defined]
     except AttributeError:
         pass
+
+
+async def retry_schedule_plan(
+    task: Task, db: AsyncSession
+) -> tuple[bool, str | None, int | None] | None:
+    """How a retry of a schedule-owned task restarts — decided up front.
+
+    Returns ``None`` to leave the task's mode alone, else
+    ``(plan_mode, plan, plan_version)`` for the retried run. Raises 409
+    when the retry would run something nobody approved. Called before
+    the retry wipes anything, so a refusal changes nothing.
+
+    - A planner (``is_plan_only``) re-authors: it becomes the
+      schedule's current planner again (``plan_status=planning``) —
+      unless the schedule went auto or a newer planner exists.
+    - A fire (``plan_mode`` task) follows its schedule's CURRENT mode:
+      an auto schedule retries as a plain auto run; a review schedule
+      re-seeds its approved plan, and with no approved plan the retry
+      is refused (it would otherwise plan for itself).
+    - A non-plan-mode task keeps its recorded mode.
+    """
+    if not task.schedule_id or not (task.plan_mode or task.is_plan_only):
+        return None
+    sched = await db.get(Schedule, task.schedule_id)
+    if sched is None:
+        return None
+    if task.is_plan_only:
+        if not schedule_needs_plan(sched):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    'This schedule no longer reviews a plan (it runs '
+                    'automatically), so there is nothing to plan.'
+                ),
+            )
+        if sched.current_planning_task_id not in (None, task.id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    'A newer planning run for this schedule is already '
+                    'in progress.'
+                ),
+            )
+        sched.current_planning_task_id = task.id
+        sched.plan_status = PlanStatus.PLANNING.value
+        clear_plan_failure(sched)
+        sched.updated_at = datetime.now(UTC).isoformat()
+        return None
+    if not schedule_needs_plan(sched):
+        return (False, None, None)
+    if review_plan_fires(sched):
+        return (True, sched.plan, sched.plan_version)
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "This schedule's plan has not been approved yet, so this "
+            'run cannot be retried. Approve the plan on the schedule '
+            'first.'
+        ),
+    )
+
+
+def refuse_task_agent_review_off(user: User, review_change: bool | None):
+    """403 when an in-task agent tries to switch plan review OFF.
+
+    Review off makes fires run the prompt with no approved plan — a
+    task agent (every in-task credential resolves to the ``ai_bot``
+    user) must not be able to walk around the review it is held to.
+    Turning review ON, or editing the prompt (which re-plans for
+    approval), stays open to it.
+    """
+    if review_change is False and user.role == AI_BOT_ROLE:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                'Only the schedule owner can switch plan review off. A '
+                'task agent cannot.'
+            ),
+        )
+
+
+def not_firing_detail(schedule: Schedule) -> str:
+    """Why a review schedule cannot fire, and what unblocks it."""
+    if schedule.plan_status == PlanStatus.PENDING_APPROVAL.value:
+        return (
+            'This schedule runs only an approved plan, and its plan is '
+            'waiting for approval (plan_status=pending_approval). '
+            'Approve it first.'
+        )
+    if schedule.plan_status == PlanStatus.PLANNING.value:
+        return (
+            'This schedule runs only an approved plan; its plan is being '
+            'written now (plan_status=planning). Approve it once it is '
+            'ready.'
+        )
+    return (
+        'This schedule runs only an approved plan and has none '
+        f'(plan_status={schedule.plan_status!r}). Re-plan, then approve.'
+    )

@@ -407,3 +407,20 @@ async def test_catalog_sync_task_events_are_marked(task_env):
     task.schedule_id = 's-user-1'
     send_task_started(task)
     assert calls[0][1]['is_catalog'] is False
+
+
+async def test_lifecycle_events_tell_plan_writing_from_runs(task_env):
+    """A plan-only planner and a real run must be distinguishable on
+    every lifecycle event."""
+    _maker, task, calls = task_env
+    for plan_only in (True, False):
+        calls.clear()
+        task.is_plan_only = plan_only
+        send_task_created(task)
+        send_task_started(task)
+        task.status = 'completed'
+        await send_task_completed(task)
+        await send_task_failed(task, phase='running', category='cli_error')
+        send_task_cancelled(task, status_at='running')
+        assert len(calls) == 5
+        assert all(props['is_plan_only'] is plan_only for _, props in calls)
