@@ -212,6 +212,7 @@ async def test_switched_off_sources_keep_every_job_but_only_their_timers(
             'presets',
             'vision_catalog',
             'model_pricing',
+            'workplace_clis',
             'email',
             'daemon_reaper',
         } <= set(timers)
@@ -224,6 +225,7 @@ async def test_switched_off_sources_keep_every_job_but_only_their_timers(
             'vision_catalog',
             'model_pricing',
             'ads_skill',
+            'workplace_clis',
         ):
             assert timers[name] is None, name
     finally:

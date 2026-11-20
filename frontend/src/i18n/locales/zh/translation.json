@@ -653,7 +653,7 @@
     },
     "cli": {
       "title": "企业微信 / 飞书 / 钉钉（官方 CLI）",
-      "description": "开通后，agent 可以通过平台的官方 CLI 和官方 skill 直接操作该平台：消息、文档、表格、日程、待办等。每个平台在本机只登录一个账号，团队所有成员的任务都以这个账号的身份操作。agent 只能看到这里已启用的平台。",
+      "description": "开通后，agent 可以通过平台的官方 CLI 和官方 skill 直接操作该平台：消息、文档、表格、日程、待办等。每个平台在本机只登录一个账号，团队所有成员的任务都以这个账号的身份操作。agent 只能看到这里已启用的平台。已安装的 CLI 每天自动更新到官方最新版，skill 随之同步。",
       "notInstalled": "未安装",
       "notSignedIn": "未登录",
       "signedInAs": "已登录：{{identity}}",
@@ -662,7 +662,6 @@
       "connect": "开通",
       "working": "处理中…",
       "relogin": "重新登录",
-      "update": "更新",
       "disable": "停用",
       "cancel": "取消",
       "step": "第 {{step}}/{{steps}} 步：",

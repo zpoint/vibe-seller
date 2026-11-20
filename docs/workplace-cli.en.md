@@ -30,7 +30,7 @@ whole suite — docs, sheets, calendars, to-dos. You can use both.
 - The sign-in belongs to Vibe Seller: it is stored in Vibe Seller's own
   data directory, and never reads or changes a CLI you installed for
   yourself on the same computer.
-- Only admins can connect, sign in, update or disable, and only admins
+- Only admins can connect, sign in or disable, and only admins
   see the QR code and sign-in links — whoever scans signs this Vibe
   Seller in as themselves.
 - Prefer an account or bot dedicated to automation over a personal
@@ -97,11 +97,16 @@ The three platforms are independent — connect one, two or all three:
 - A platform that is not connected, or disabled, has neither its skills
   nor its command available to agents.
 
-## Update, sign in again, disable
+## Automatic updates, sign in again, disable
 
-- **Update** downloads the platform's latest version and refreshes the
-  skills agents read, so the docs always match the program. Tasks
-  already running keep the previous version; new tasks use the new one.
+- **Automatic updates**: a connected platform needs no manual update.
+  Vibe Seller checks for the official latest release once a day; a new
+  one is downloaded, verified, and the skills agents read are refreshed
+  with it, so the docs always match the program. Tasks already running
+  keep the previous version; new tasks use the new one. If a new
+  release fails to download or verify, the current version keeps
+  running and the next day's check tries again. A platform nobody
+  connected is never downloaded.
 - **Sign in again** switches accounts, or re-authorizes after the login
   expired.
 - **Disable** takes the platform away from agents immediately. The

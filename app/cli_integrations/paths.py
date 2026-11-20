@@ -107,6 +107,21 @@ def skill_dir(key: str, home: Path | None = None) -> Path:
     return skills_root(home) / key
 
 
+#: Inside the umbrella: the CLI version its sub-skills were taken from.
+SKILLS_VERSION_FILE = '.cli-version'
+
+
+def skills_version(key: str, home: Path | None = None) -> str | None:
+    """The version the umbrella of *key* documents (None: no umbrella)."""
+    try:
+        text = (skill_dir(key, home) / SKILLS_VERSION_FILE).read_text(
+            encoding='utf-8'
+        )
+    except OSError:
+        return None
+    return text.strip() or None
+
+
 def is_installed(key: str, binary: str, home: Path | None = None) -> bool:
     """The current version's binary is on disk."""
     exe = binary_path(key, binary, home)

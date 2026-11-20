@@ -12,6 +12,9 @@ its state in ``$FAKE_CLI_STATE`` (a directory):
                                   very long JSON line if
                                   $FAKE_CLI_LONG_LINE is set
 
+Every run, like ``dws``, unpacks a runtime file (``RUNTIME``) next to
+the executable — what Windows then holds open while it scans it.
+
 "Approving" is a file the test drops: ``approve`` (consumed by each
 step) or ``deny`` (the CLI exits 3, like a user who said no).
 """
@@ -28,9 +31,12 @@ PNG = (
     b'\x0f\x00\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
 )
 
+RUNTIME = '.fake-runtime.lock'  # = fake_cli_integration.RUNTIME
+
 state = Path(os.environ['FAKE_CLI_STATE'])
 state.mkdir(parents=True, exist_ok=True)
 args = sys.argv[1:]
+Path(sys.argv[0]).with_name(RUNTIME).touch()
 
 
 def say(text: str) -> None:

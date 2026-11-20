@@ -182,12 +182,6 @@ function CliRow({
 
   const relogin = () => run('login', startLogin)
 
-  const update = () =>
-    run('update', async () => {
-      await api.post(`${BASE}/${card.key}/install`, {}, { timeoutMs: LONG_TIMEOUT_MS })
-      await onChanged()
-    })
-
   const disable = () =>
     run('disable', async () => {
       await api.post(`${BASE}/${card.key}/disable`, {}, { timeoutMs: LONG_TIMEOUT_MS })
@@ -247,16 +241,6 @@ function CliRow({
                 className="px-3 py-1.5 text-sm rounded bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:opacity-40"
               >
                 {t('integrations.cli.relogin')}
-              </button>
-            )}
-            {card.installed && !loginActive && (
-              <button
-                onClick={update}
-                disabled={!!busy}
-                data-testid={`cli-update-${card.key}`}
-                className="px-3 py-1.5 text-sm rounded bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:opacity-40"
-              >
-                {busy === 'update' ? t('integrations.cli.working') : t('integrations.cli.update')}
               </button>
             )}
             {card.enabled && (

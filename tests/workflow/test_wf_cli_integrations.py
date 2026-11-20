@@ -3,12 +3,14 @@
 The page's journey, end to end against a fake platform
 (``tests/fixtures/fake_cli_integration.py``) whose "release" is served
 from disk: Connect (install → login with link/code or QR → enabled on
-success), the agent PATH / skills it yields, disable, update, and the
+success), the agent PATH / skills it yields, disable, the daily update
+of every connected platform (sync job ``workplace_clis``), and the
 gates — admin only, never enabled while signed out, a tampered download
 never installed.
 """
 
 import asyncio
+import os
 import sys
 
 import pytest
@@ -18,6 +20,9 @@ from app.ai.claude_backend_utils import apply_agent_venv_path
 from app.cli_integrations import paths
 from app.cli_integrations.login import login_manager
 from app.cli_integrations.registry import INTEGRATIONS
+from app.sync import jobs as sync_jobs
+from app.sync.scheduler import sync_scheduler
+from tests.fixtures import fake_cli_integration as fake_cli
 from tests.fixtures.fake_cli_integration import FakeIntegration
 
 pytestmark = [
@@ -277,6 +282,51 @@ async def test_tampered_download_is_never_installed(
     assert not paths.is_installed('fake-a', 'fakecli', home)
 
 
+async def test_install_never_moves_a_dir_the_cli_has_run_in(
+    admin_client, platforms, home, monkeypatch
+):
+    """Windows refuses to rename a dir while a file in it is open, and
+    the antivirus holds a CLI that just ran (and what it unpacked next
+    to itself: ``dws``) open for seconds after. Here a dir holding
+    such a file cannot be moved either — as on Windows — and the
+    install, then an update, must still land."""
+    real_rename, real_replace = os.rename, os.replace
+
+    def windows_like(move):
+        def refuse(src, dst, *a, **kw):
+            if os.path.isfile(os.path.join(src, fake_cli.RUNTIME)):
+                raise PermissionError(13, 'Access is denied', str(src))
+            return move(src, dst, *a, **kw)
+
+        return refuse
+
+    monkeypatch.setattr(os, 'rename', windows_like(real_rename))
+    monkeypatch.setattr(os, 'replace', windows_like(real_replace))
+    fake = platforms['fake-a']
+    r = await admin_client.post(f'{BASE}/fake-a/install')
+    assert r.status_code == 200, r.text
+    assert paths.is_installed('fake-a', 'fakecli', home)
+    fake.publish('2.0.0')
+    r = await admin_client.post(f'{BASE}/fake-a/install')
+    assert r.status_code == 200, r.text
+    assert paths.read_manifest('fake-a', home)['version'] == '2.0.0'
+    versions = paths.versions_dir('fake-a', home)
+    assert sorted(p.name for p in versions.iterdir()) == ['1.2.3', '2.0.0']
+
+
+async def test_a_build_that_does_not_run_leaves_nothing_behind(
+    admin_client, platforms, home
+):
+    fake = platforms['fake-a']
+    await admin_client.post(f'{BASE}/fake-a/install')
+    fake.publish_broken('2.0.0')
+    r = await admin_client.post(f'{BASE}/fake-a/install')
+    assert r.status_code == 400 and 'exited 9' in r.json()['detail']
+    assert paths.read_manifest('fake-a', home)['version'] == '1.2.3'
+    versions = paths.versions_dir('fake-a', home)
+    assert sorted(p.name for p in versions.iterdir()) == ['1.2.3']
+
+
 async def test_login_cancel_and_already_signed_in(
     admin_client, platforms, home
 ):
@@ -324,3 +374,142 @@ async def test_sign_in_with_withheld_scopes_still_enables(
     view = await _wait_login(admin_client, 'fake-a', 'succeeded')
     assert view['message'] == 'logged in'
     await _wait_enabled(admin_client, 'fake-a')
+
+
+# ── the daily update (sync job ``workplace_clis``) ─────────────────
+
+
+@pytest.fixture
+async def update_job():
+    """The real job on the process-wide scheduler, run the way the page
+    and the daily tick reach it: ``POST /api/sync/workplace_clis/run``."""
+    sync_scheduler.reset()
+    job = next(
+        j
+        for j in sync_jobs.core_jobs()
+        if j.name == sync_jobs.WORKPLACE_CLIS_JOB
+    )
+    await sync_scheduler.register(job)
+    yield
+    sync_scheduler.reset()
+
+
+async def _daily_update(client) -> dict:
+    r = await client.post(f'/api/sync/{sync_jobs.WORKPLACE_CLIS_JOB}/run')
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def _connect(client, fake, *, enable: bool) -> None:
+    fake.sign_in()
+    assert (await client.post(f'{BASE}/{fake.key}/install')).status_code == 200
+    if enable:
+        assert (
+            await client.post(f'{BASE}/{fake.key}/enable')
+        ).status_code == 200
+
+
+def _calendar_skill(home, key) -> str:
+    return (paths.skill_dir(key, home) / 'calendar' / 'SKILL.md').read_text(
+        encoding='utf-8'
+    )
+
+
+async def test_daily_update_moves_only_the_connected_platforms(
+    admin_client, platforms, home, update_job
+):
+    a, b, c = platforms['fake-a'], platforms['fake-b'], platforms['fake-c']
+    await _connect(admin_client, a, enable=True)
+    await _connect(admin_client, b, enable=False)
+    for fake in (a, b, c):
+        fake.publish('2.0.0')
+
+    run = await _daily_update(admin_client)
+    assert run['status'] == 'updated' and run['error'] is None
+    # Enabled: the new binary AND the skills of that same version.
+    assert paths.read_manifest('fake-a', home)['version'] == '2.0.0'
+    assert paths.skills_version('fake-a', home) == '2.0.0'
+    assert 'version 2.0.0' in _calendar_skill(home, 'fake-a')
+    assert (await _card(admin_client, 'fake-a'))['enabled']
+    # Installed but not enabled: new binary, still no skills for agents.
+    assert paths.read_manifest('fake-b', home)['version'] == '2.0.0'
+    assert not paths.skill_dir('fake-b', home).exists()
+    # Never connected: never downloaded.
+    assert paths.read_manifest('fake-c', home) is None
+    assert not paths.versions_dir('fake-c', home).exists()
+    # The version a running task started on is still there.
+    versions = sorted(
+        p.name for p in paths.versions_dir('fake-a', home).iterdir()
+    )
+    assert versions == ['1.2.3', '2.0.0']
+
+    # Current already: nothing is downloaded (the release is gone, so a
+    # download would fail the run).
+    a.release.unlink()
+    b.release.unlink()
+    run = await _daily_update(admin_client)
+    assert run['status'] == 'unchanged' and run['error'] is None
+
+
+async def test_daily_update_asks_no_vendor_when_nothing_is_connected(
+    admin_client, platforms, home, update_job
+):
+    def _never():
+        raise AssertionError('asked a vendor with nothing installed')
+
+    for fake in platforms.values():
+        fake.latest_version = _never
+    run = await _daily_update(admin_client)
+    assert run['status'] == 'skipped'
+    assert run['skip_reason'] == 'precondition'
+
+
+async def test_a_failed_update_keeps_the_running_version(
+    admin_client, platforms, home, update_job
+):
+    a, b = platforms['fake-a'], platforms['fake-b']
+    await _connect(admin_client, a, enable=True)
+    await _connect(admin_client, b, enable=True)
+    a.publish('2.0.0')
+    a.bad_checksum = True  # a tampered (or broken) release
+    b.publish('2.0.0')
+
+    run = await _daily_update(admin_client)
+    # One vendor's bad release holds back neither the other platform
+    # nor the run; it is reported.
+    assert run['status'] == 'updated'
+    assert 'fake-a' in run['error'] and 'sha256' in run['error']
+    assert paths.read_manifest('fake-b', home)['version'] == '2.0.0'
+    # fake-a keeps running — and documenting — what it had.
+    assert paths.read_manifest('fake-a', home)['version'] == '1.2.3'
+    assert paths.is_enabled('fake-a', 'fakecli', home)
+    assert paths.skills_version('fake-a', home) == '1.2.3'
+    env = {'PATH': '/usr/bin'}
+    apply_agent_venv_path(env, None, vibe_home=home, server_bin=home)
+    assert str(paths.version_dir('fake-a', '1.2.3', home)) in env['PATH'].split(
+        ':'
+    )
+
+
+async def test_skills_left_behind_by_a_failed_run_catch_up_next_run(
+    admin_client, platforms, home, update_job
+):
+    """The binary moved but its skills download failed: the agent would
+    read docs of the old version until the NEXT release. The next run
+    sees the umbrella documents another version and brings it level."""
+    a = platforms['fake-a']
+    await _connect(admin_client, a, enable=True)
+    a.publish('2.0.0')
+    a.skills.unlink()  # the skills host is down this time
+
+    run = await _daily_update(admin_client)
+    assert run['status'] == 'failed' and 'fake-a' in run['error']
+    assert paths.read_manifest('fake-a', home)['version'] == '2.0.0'
+    assert paths.skills_version('fake-a', home) == '1.2.3'
+
+    a.publish('2.0.0')  # the host is back
+    run = await _daily_update(admin_client)
+    assert run['status'] == 'updated' and run['error'] is None
+    assert run['detail'] == {'fake-a': '2.0.0 -> 2.0.0 +skills'}
+    assert paths.skills_version('fake-a', home) == '2.0.0'
+    assert 'version 2.0.0' in _calendar_skill(home, 'fake-a')

@@ -83,6 +83,31 @@ describe('WorkplaceCliPanel', () => {
     expect(screen.queryByTestId('cli-disable-feishu')).toBeNull()
   })
 
+  it('an installed platform has no update button: it updates itself', async () => {
+    mockApi.get.mockResolvedValue({
+      integrations: [
+        card('feishu', {
+          installed: true,
+          version: '1.0.100',
+          enabled: true,
+          auth: { usable: true, reason: 'logged_in', identity: 'Alice' },
+        }),
+        card('wecom', { installed: true, version: '1.3.4' }),
+      ],
+    })
+    renderPanel(true)
+    expect(await screen.findByTestId('cli-disable-feishu')).toBeTruthy()
+    expect(screen.getByTestId('cli-relogin-feishu')).toBeTruthy()
+    expect(screen.getByTestId('cli-connect-wecom')).toBeTruthy()
+    const row = screen.getByTestId('cli-row-feishu').textContent ?? ''
+    expect(row).not.toContain('Update')
+    expect(screen.queryByTestId('cli-update-feishu')).toBeNull()
+    expect(screen.queryByTestId('cli-update-wecom')).toBeNull()
+    expect(screen.getByTestId('cli-card').textContent).toContain(
+      'update themselves',
+    )
+  })
+
   it('survives a list response without integrations', async () => {
     mockApi.get.mockResolvedValue([])
     renderPanel(true)

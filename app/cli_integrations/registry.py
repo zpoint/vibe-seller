@@ -14,7 +14,12 @@ from pathlib import Path
 from app.cli_integrations.base import CliIntegration
 from app.cli_integrations.dingtalk import DingTalk
 from app.cli_integrations.feishu import Feishu
-from app.cli_integrations.paths import bin_dir, is_enabled, vibe_home
+from app.cli_integrations.paths import (
+    bin_dir,
+    is_enabled,
+    read_manifest,
+    vibe_home,
+)
 from app.cli_integrations.wecom import WeCom
 
 logger = logging.getLogger(__name__)
@@ -22,6 +27,12 @@ logger = logging.getLogger(__name__)
 INTEGRATIONS: dict[str, CliIntegration] = {
     i.key: i for i in (WeCom(), Feishu(), DingTalk())
 }
+
+
+def installed(home: Path | None = None) -> list[CliIntegration]:
+    """The integrations an admin has connected (blocking: reads each
+    ``install.json``) — the only ones the daily update touches."""
+    return [i for i in INTEGRATIONS.values() if read_manifest(i.key, home)]
 
 
 def enabled(home: Path | None = None) -> list[CliIntegration]:

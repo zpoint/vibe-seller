@@ -9,6 +9,8 @@ enable   fetch the official skills of the INSTALLED version and swap
          the umbrella into the skills tree — from then on every task
          workspace gets the skill and the agent's PATH gets the binary
 disable  remove the umbrella (the binary and the login stay)
+update   the daily sync job (``app.sync.jobs``): move every INSTALLED
+         CLI to the vendor's current release, with its skills
 
 Every run of a CLI — ours and the agent's — carries ``integ.env(home)``:
 its config + login live in ``tools/<key>/state``, private to this
@@ -28,7 +30,6 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 
 from app.cli_integrations import download, paths, skills
 from app.cli_integrations.base import (
@@ -201,27 +202,46 @@ def _proves_it_runs(exe: Path, integ: CliIntegration, home: Path) -> None:
         )
 
 
-def _land(staging: Path, target: Path, sha: str, exe: str) -> None:
-    """Move *staging* to *target*; an existing target of the same build
-    that a running task holds open is kept as it is."""
+def _holds(exe: Path, sha: str) -> bool:
+    """*exe* is exactly the build with *sha*."""
+    try:
+        return hashlib.sha256(exe.read_bytes()).hexdigest() == sha
+    except OSError:
+        return False
+
+
+def _place(target: Path, exe: Path, body: bytes, sha: str) -> bool:
+    """Put the build into its version dir; True when this call made it.
+
+    The dir is written where it will run and never moved afterwards:
+    Windows refuses to rename a dir while any file in it is open, and
+    a CLI that just ran there (``dws`` unpacks a native library next to
+    itself) is held open by the antivirus scanning it for seconds after.
+    ``install.json`` is the commit point — a dir it does not name is
+    never on anyone's PATH, so writing it in place is not visible early.
+
+    A dir already holding this exact build is reused as it is (a task
+    may run it: the previous version, or a release the vendor went back
+    to). Anything else there is a leftover of a failed attempt.
+    """
+    if _holds(exe, sha):
+        return False
     if target.exists():
         try:
             shutil.rmtree(target)
         except OSError as e:
-            old = target / exe
-            same = (
-                old.is_file()
-                and hashlib.sha256(old.read_bytes()).hexdigest() == sha
-            )
-            shutil.rmtree(staging, ignore_errors=True)
-            if same:
-                return
             raise IntegrationError(
                 f'{target.name} is in use by a running task; retry when it '
                 f'finishes ({e})'
             ) from e
-    target.parent.mkdir(parents=True, exist_ok=True)
-    staging.rename(target)
+    target.mkdir(parents=True)
+    try:
+        exe.write_bytes(body)
+        safe_chmod(exe, 0o755)
+    except Exception:
+        shutil.rmtree(target, ignore_errors=True)
+        raise
+    return True
 
 
 def _prune(integ: CliIntegration, keep: set[str], home: Path) -> None:
@@ -237,9 +257,12 @@ def _prune(integ: CliIntegration, keep: set[str], home: Path) -> None:
             shutil.rmtree(d, ignore_errors=True)
 
 
-def _install_blocking(integ: CliIntegration, home: Path) -> dict:
+def _install_blocking(
+    integ: CliIntegration, home: Path, version: str | None = None
+) -> dict:
+    """Install *version* (default: the current release)."""
     previous = (paths.read_manifest(integ.key, home) or {}).get('version')
-    version = integ.latest_version()
+    version = version or integ.latest_version()
     plat = host_platform()
     try:
         asset = integ.binary_asset(version, plat)
@@ -247,20 +270,17 @@ def _install_blocking(integ: CliIntegration, home: Path) -> dict:
         raise IntegrationError(str(e)) from e
     data, url = download.fetch(asset.urls, verify=asset.verify)
     body = download.archive_member(data, asset.member)
-    tool = paths.tool_dir(integ.key, home)
+    sha = hashlib.sha256(body).hexdigest()
     paths.state_dir(integ.key, home).mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(dir=str(tool), prefix='.staging-'))
-    exe_name = paths.exe_name(integ.binary)
+    target = paths.version_dir(integ.key, version, home)
+    exe = target / paths.exe_name(integ.binary)
+    made = _place(target, exe, body, sha)
     try:
-        exe = staging / exe_name
-        exe.write_bytes(body)
-        safe_chmod(exe, 0o755)
         _proves_it_runs(exe, integ, home)
     except Exception:
-        shutil.rmtree(staging, ignore_errors=True)
+        if made:
+            shutil.rmtree(target, ignore_errors=True)
         raise
-    sha = hashlib.sha256(body).hexdigest()
-    _land(staging, paths.version_dir(integ.key, version, home), sha, exe_name)
     manifest = {
         'version': version,
         'platform': plat,
@@ -288,6 +308,59 @@ async def install(integ: CliIntegration, home: Path | None = None) -> dict:
         if was_enabled:
             await _install_skills(integ, manifest['version'], h)
         return manifest
+
+
+async def update(
+    integ: CliIntegration, home: Path | None = None
+) -> dict | None:
+    """Keep an installed CLI on the vendor's current release.
+
+    ``None`` when it is not installed: only a platform an admin
+    connected is ever downloaded. Otherwise ``{'from', 'to', 'skills'}``
+    — ``to == from`` when it already was current. A release the vendor
+    withdrew is followed back too: "current" is whatever the vendor
+    publishes as latest, not the highest number seen.
+
+    An enabled platform leaves with the skills of the version it now
+    runs. That is checked against the umbrella's own record, not only
+    after a download: when an earlier run moved the binary but its
+    skills download failed, this run brings the skills level.
+    """
+    h = _home(home)
+    async with _lock(integ.key):
+        manifest = await asyncio.to_thread(paths.read_manifest, integ.key, h)
+        if manifest is None:
+            return None
+        current = manifest['version']
+        latest = await asyncio.to_thread(integ.latest_version)
+        if latest != current:
+            await asyncio.to_thread(_install_blocking, integ, h, latest)
+            logger.info('%s CLI updated %s -> %s', integ.key, current, latest)
+        enabled = await asyncio.to_thread(
+            (paths.skill_dir(integ.key, h) / 'SKILL.md').is_file
+        )
+        documented = await asyncio.to_thread(paths.skills_version, integ.key, h)
+        refreshed = enabled and documented != latest
+        if refreshed:
+            await _install_skills(integ, latest, h)
+        return {'from': current, 'to': latest, 'skills': refreshed}
+
+
+async def update_installed(home: Path | None = None) -> dict[str, dict]:
+    """``update`` every platform, each on its own: one vendor's outage
+    (or a release that does not run here) never holds the others back,
+    and never touches the version that platform is running."""
+    outcome: dict[str, dict] = {}
+    for integ in INTEGRATIONS.values():
+        try:
+            result = await update(integ, home)
+        except Exception as e:
+            logger.warning('%s CLI update failed: %s', integ.key, e)
+            outcome[integ.key] = {'error': str(e)}
+            continue
+        if result is not None:
+            outcome[integ.key] = result
+    return outcome
 
 
 # ── enable / disable ───────────────────────────────────

@@ -651,7 +651,7 @@
     },
     "cli": {
       "title": "WeCom / Feishu / DingTalk (official CLIs)",
-      "description": "Connect a platform and your agents can work in it through its official CLI and skills — messages, docs, sheets, calendar, to-dos and more. Each platform is signed in once for this Vibe Seller, and every teammate's tasks act as that account. Agents only see the platforms enabled here.",
+      "description": "Connect a platform and your agents can work in it through its official CLI and skills — messages, docs, sheets, calendar, to-dos and more. Each platform is signed in once for this Vibe Seller, and every teammate's tasks act as that account. Agents only see the platforms enabled here. Installed CLIs update themselves to the official latest release every day, together with their skills.",
       "notInstalled": "Not installed",
       "notSignedIn": "Not signed in",
       "signedInAs": "Signed in as {{identity}}",
@@ -660,7 +660,6 @@
       "connect": "Connect",
       "working": "Working…",
       "relogin": "Sign in again",
-      "update": "Update",
       "disable": "Disable",
       "cancel": "Cancel",
       "step": "Step {{step}}/{{steps}}:",

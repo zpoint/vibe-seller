@@ -27,6 +27,8 @@ from app.cli_integrations.base import (
 )
 
 FAKE_CLI = Path(__file__).with_name('fake_workplace_cli.py')
+# What the fake CLI unpacks next to itself on every run (as dws does).
+RUNTIME = '.fake-runtime.lock'
 
 SKILLS = {
     'fake-shared/SKILL.md': (
@@ -111,6 +113,14 @@ class FakeIntegration(CliIntegration):
         )
         files[f'{repo}/README.md'] = b'repo readme\n'
         self.skills.write_bytes(_tar(files))
+
+    def publish_broken(self, version: str) -> None:
+        """Publish *version* as a build that does not run here."""
+        self.publish(version)
+        top = f'fakecli-{version}'
+        self.release.write_bytes(
+            _tar({f'{top}/fakecli': b'#!/bin/sh\nexit 9\n'}, {f'{top}/fakecli'})
+        )
 
     def env(self, home: Path) -> dict[str, str]:
         env = {

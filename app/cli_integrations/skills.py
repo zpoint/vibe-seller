@@ -25,7 +25,11 @@ import shutil
 import tempfile
 
 from app.cli_integrations.base import CliIntegration, SkillLayout
-from app.cli_integrations.paths import skill_dir, skills_root
+from app.cli_integrations.paths import (
+    SKILLS_VERSION_FILE,
+    skill_dir,
+    skills_root,
+)
 from app.workspace.skill_swap import swap_in
 
 _FRONTMATTER = re.compile(r'\A---\s*\n(.*?)\n---\s*\n', re.S)
@@ -167,6 +171,10 @@ def _populate(
     (staging / 'SKILL.md').write_text(
         umbrella_md(integ, version, subs), encoding='utf-8'
     )
+    # Swapped in with the files it describes, so it can never name a
+    # version the umbrella does not hold (``manager.update`` compares it
+    # with the installed binary's).
+    (staging / SKILLS_VERSION_FILE).write_text(version, encoding='utf-8')
 
 
 def install(

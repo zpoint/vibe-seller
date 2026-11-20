@@ -18,6 +18,7 @@ Not in this list, deliberately:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import httpx
@@ -25,6 +26,10 @@ import httpx
 from app import ads_skill, vision, vision_catalog_sync
 from app.ai import model_pricing_sync, provider_presets_sync
 from app.browser.daemon_reaper import reap_orphaned_daemons
+from app.cli_integrations import (
+    manager as cli_manager,
+    registry as cli_registry,
+)
 from app.plugins import registered_sync_jobs
 from app.scheduler.email_sync import sync_all_email_accounts
 from app.sync import state as sync_state
@@ -52,6 +57,7 @@ EMAIL_JOB = 'email'
 REAPER_JOB = 'daemon_reaper'
 VISION_JOB = 'vision_catalog'
 PRICING_JOB = 'model_pricing'
+WORKPLACE_CLIS_JOB = 'workplace_clis'
 
 #: AppSettings key behind the skills toggle (Settings → General).
 #: Knowledge and provider presets have NO toggle — an explicit product
@@ -241,6 +247,40 @@ async def _run_pricing(ctx: SyncContext) -> SyncResult:
     )
 
 
+# ── workplace CLIs: the vendors' current releases ─────────────────
+
+
+async def _clis_installed() -> bool:
+    """Only an install with a connected platform has anything to
+    keep current; the rest never ask a vendor what is new."""
+    return bool(await asyncio.to_thread(cli_registry.installed))
+
+
+async def _run_workplace_clis(ctx: SyncContext) -> SyncResult:
+    """Move every connected WeCom / Feishu / DingTalk CLI (and, when it
+    is enabled, its skills) to the vendor's current release.
+
+    There is no update button: an installed CLI stays current by itself,
+    the same way its official skills must match it. A platform that
+    fails is reported and keeps running the version it has.
+    """
+    outcome = await cli_manager.update_installed()
+    errors = {k: v['error'] for k, v in outcome.items() if 'error' in v}
+    changed = {
+        k: f'{v["from"]} -> {v["to"]}' + (' +skills' if v['skills'] else '')
+        for k, v in outcome.items()
+        if 'error' not in v and (v['from'] != v['to'] or v['skills'])
+    }
+    error = '; '.join(f'{k}: {e}' for k, e in errors.items()) or None
+    if errors and len(errors) == len(outcome):
+        return SyncResult(status=STATUS_FAILED, error=error, detail=errors)
+    return SyncResult(
+        status=STATUS_UPDATED if changed else STATUS_UNCHANGED,
+        error=error,
+        detail=changed,
+    )
+
+
 # ── email: one pass over the enabled accounts ──────────────────────
 
 
@@ -307,6 +347,13 @@ def core_jobs() -> list[SyncJob]:
             name=PRICING_JOB,
             cadence=Cadence.DAILY,
             run=_run_pricing,
+            sources=frozenset({SOURCE_EXTERNAL}),
+        ),
+        SyncJob(
+            name=WORKPLACE_CLIS_JOB,
+            cadence=Cadence.DAILY,
+            run=_run_workplace_clis,
+            when=_clis_installed,
             sources=frozenset({SOURCE_EXTERNAL}),
         ),
         SyncJob(
