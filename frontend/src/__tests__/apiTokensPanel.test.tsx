@@ -233,7 +233,7 @@ describe('ApiTokenCreatedModal — close', () => {
     const onClose = vi.fn()
     render(
       <I18nextProvider i18n={i18nTestInstance}>
-        <ApiTokenCreatedModal token="vst_secret" onClose={onClose} />
+        <ApiTokenCreatedModal token="vst_x" onClose={onClose} />
       </I18nextProvider>,
     )
     fireEvent.click(screen.getByTestId('api-token-created-close'))
