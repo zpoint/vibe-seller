@@ -23,7 +23,7 @@ Cross-store scheduling. Three recurring task patterns:
 - **Mode resolution on create**: store-bound → forced `single`; else client-supplied value (rejects `two_phase`); else `AppSettings.default_schedule_phase_mode`; else `fanout`. `phase_mode` and `store_id` are immutable after creation — `ScheduleUpdate` uses `extra='forbid'` so mutation attempts return 422.
 - **No-store tasks**: `store_id=None`. They go through `TaskQueueScheduler` but bypass the *per-store* browser config, session tracking, and store CDP proxy. L2 catalog tasks are pure file operations; general orchestrator tasks additionally get the store-less `web` browser wrapper (`bin/_web`, lazy-started) for neutral public web work — see [docs/browser.md](browser.md#store-less-web-browser).
 - **Task grouping**: `Task.batch_id` UUID groups tasks from same fan-out trigger
-- **Plan authoring** (plan-mode schedules): Plan is authored **at schedule creation** via a dedicated `is_plan_only` Task, stored on `Schedule.plan`, and gated by `plan_status`. Every fire copies the frozen plan into its child task and skips the design phase. See [Plan-at-creation lifecycle](#plan-at-creation-lifecycle) below.
+- **Auto vs review**: a schedule is **auto** by default (each fire runs its prompt). With plan review on (`plan_mode=True`), a dedicated `is_plan_only` Task writes a plan, the owner approves it, and every fire copies the APPROVED plan into its child task and skips the design phase. See [Plan review lifecycle](#plan-at-creation-lifecycle) below.
 - **No new task status**: fan-out tasks use standard lifecycle (pending → queued → designing → planned → running → completed/failed)
 - **Session reuse**: existing per-store task queue serializes fan-out tasks; browser session persists between queued tasks
 - **Frontend**: all-stores schedules shown with "All Stores" badge; child tasks grouped by store (collapsed by default)
@@ -38,51 +38,70 @@ Every schedule carries `Schedule.ai_profile_id` with two meanings: `'default'`/N
 
 ## Plan-at-creation lifecycle
 
-Plan-mode schedules (`Schedule.plan_mode=True`) author their plan
-**once at creation**, not on every fire. The plan lives on
-`Schedule.plan` and is governed by a lifecycle column `plan_status`
-(`PlanStatus` enum in `app/plan_states.py`):
+(Anchor kept for old links — this is the **plan review** lifecycle.)
+
+A schedule runs in one of two modes, chosen by its owner (create form
+checkbox "Let me review the plan before it runs", `plan_mode` in the
+API, `review_plan` over MCP):
+
+- **Auto** (`plan_mode=False`, the default for every new schedule):
+  each fire runs the schedule's prompt directly. No plan, no review;
+  `plan_status` stays `none`.
+- **Review** (`plan_mode=True`): a plan-only Task writes a plan, the
+  schedule **waits for a human to approve it** (the web UI, or an
+  external agent acting for the owner over `/api/mcp`), and every fire
+  runs the approved plan. The server never approves a plan itself, and
+  the wait never expires.
+
+`PlanStatus` (`app/plan_states.py`) tracks a review schedule:
 
 ```
-           (no plan_mode)
- create ─────────────────── ready
-    │
-    │ (plan_mode=True)
-    ▼
-  planning ──(user /replan)──┐
-    │       ▲                │
-    │ ok    │ fail           │
-    ▼       │                │
-  ready ◄───┴── failed       │
-    │                        │
-    │ (prompt edited)        │
-    ▼                        │
-  stale ───(user /replan)────┘
+ create(review) / prompt edit / review on / replan / request changes
+                     │
+                     ▼
+   planning ──(planner calls ExitPlanMode)──▶ pending_approval
+     │  ▲                                        │        │
+     │  └──── request changes (feedback) ────────┘        │ approve
+     │ planner failed / died                              ▼
+     ▼                                                  ready  ──▶ fires
+   failed ──(replan)──▶ planning
 ```
 
-| Status | Meaning | Fire-gate |
+| Status | Meaning | Fires? |
 |---|---|---|
-| `none` | No plan authored (plan_mode=False, or never planned) | pass (plan_mode=False only) |
-| `planning` | An `is_plan_only` Task is authoring the plan | block |
-| `ready` | Plan committed; schedule eligible to fire | pass |
-| `stale` | Prompt was edited; stored plan is no longer valid | block |
-| `failed` | Planner task failed or timed out | block |
+| `none` | Auto schedule (no plan) — or a legacy review row with no plan | auto: yes |
+| `planning` | An `is_plan_only` Task is writing a plan | only an earlier approved plan |
+| `pending_approval` | `proposed_plan` waits for the owner; costs nothing, never expires | only an earlier approved plan |
+| `ready` | `plan` is the approved plan | yes |
+| `stale` | Legacy: prompt edited, no planner started | no |
+| `failed` | Planner failed or its agent died — `plan_error_code` says why (`planner_died`, `server_restart`, `stopped`, `no_plan`, `start_failed`, `other`; the UI translates it), `plan_error` keeps the detail | only an earlier approved plan |
+
+Columns: `plan` = the approved plan (the only text a fire copies);
+`proposed_plan` = the plan awaiting approval; `plan_feedback` = the
+owner's requested changes, handed to the next planner;
+`plan_version` = the optimistic-lock token (bumped on every proposal and
+every approval).
 
 ### Fire-gate
 
-Enforced inside both `app/scheduler/cron.py:_run_task_job` and
-`app/scheduler/fanout.py:run_fanout_job` / `run_single_job`:
+One rule, `app/plan_states.py:schedule_fires`, used by
+`app/scheduler/cron.py:_run_task_job`,
+`app/scheduler/fanout.py:run_fanout_job` / `run_single_job`, manual
+`POST /api/schedules/{id}/trigger` / `/resume` (409 with the reason) and
+the MCP lifecycle block:
 
 ```
-fire eligible iff
-    is_system == True
- OR plan_mode == False
- OR plan_status == 'ready'
+fires iff  is_system OR plan_mode == False
+           OR (plan is set AND plan_status not in {stale, none})
 ```
 
-Non-ready plan-mode schedules are skipped with a `schedule_skipped`
-SSE event. Manual `POST /api/schedules/{id}/trigger` and `/resume`
-mirror the gate with a 409.
+So an approved plan **keeps firing while a revision is planned, waits
+for approval, or fails** — asking for changes never silently stops a
+working schedule. A prompt edit clears the approved plan (it answered
+the old prompt), so nothing fires until the new plan is approved. The
+fire reads the mode and plan from the row at fire time
+(`plan_states.fire_plan`), never from the APScheduler job's frozen
+kwargs. Skipped fires emit a `schedule_skipped` SSE event.
 
 ### Cancel-forward on next fire
 
@@ -95,74 +114,115 @@ forgotten user question.
 
 ### Plan-only Task flow
 
-A plan-only Task (`Task.is_plan_only=True`) is a one-shot planner
-that terminates at `completed` without executing. `auto_approve_plan`
-is forced to `False` for these tasks (narrowed gate in
-`app/task_runner_auto.py`), so the agent pauses at `ExitPlanMode`
-and waits for human review via the standard review-plan UI.
+A plan-only Task (`Task.is_plan_only=True`) writes the plan and ends
+without executing. Its ExitPlanMode is accepted at the agent level
+(`plan_states.plan_auto_accepted` — the one rule for every launch path),
+but that is only the **hand-off**: `record_plan_proposal`
+(`app/schedule_plan_review.py`, called by the hook and by the test
+FakeAgent) runs one transaction:
 
-On approval, `_commit_plan_only_approval` in
-`app/ai/claude_backend_hooks.py` runs inside a single DB transaction:
+1. Compare-and-swap on `current_planning_task_id == task.id`: only the
+   schedule's CURRENT planner proposes (an edit that started a newer
+   one wins; the superseded task ends FAILED/`superseded_by_edit`).
+2. `proposed_plan = <plan>`, `plan_status='pending_approval'`,
+   `plan_version += 1`. The approved `plan` is untouched.
+3. Task → COMPLETED; the hook answers `deny` and stops the session —
+   the agent slot is free while the owner takes their time.
+4. Emits `schedule_plan_pending_approval` after commit.
 
-1. Task DESIGNING/PLANNED → COMPLETED.
-2. `Schedule.plan = <plan_text>`, `plan_status='ready'`,
-   `plan_version += 1`, `plan_error=None`,
-   `current_planning_task_id=None`.
-3. Sends a `deny` ControlResponse so the agent halts instead of
-   entering bypass mode.
-4. Emits `task_update` + `schedule_plan_ready` only **after** commit.
+A task of a review schedule that ends up planning for itself (a retry
+or follow-up with no approved plan to copy) is NOT auto-accepted — it
+waits for a human like any plan-mode task. Retrying a fire of a review
+schedule with no approved plan is refused (409); retrying a planner
+re-attaches it as the current planner.
 
-### Invalidation on prompt edit
+### Approve / request changes
+
+`app/routers/schedule_review.py` (registered before the schedules
+router so `GET /attention` is not shadowed):
+
+- `POST /api/schedules/{id}/plan/approve {plan_version?}` — 409 unless
+  `pending_approval`, 412 if the version moved; compare-and-swap
+  `proposed_plan → plan`, `ready`. Emits `schedule_plan_ready`.
+- `POST /api/schedules/{id}/plan/request-changes {feedback, plan_version?}`
+  — on `pending_approval` or `ready`; stores the feedback and spawns a
+  planner whose prompt carries the previous plan + the feedback.
+- `GET /api/schedules/attention` — plans awaiting approval, and planners
+  waiting on an answer to a question (the two top banners in the web UI).
+
+The decision routes refuse the `ai_bot` user (every in-task credential
+resolves to it), so a task can never approve the plan it runs under;
+an external agent with the owner's `vst_` token decides through the MCP
+tool `review_schedule_plan`. Switching review OFF is refused to
+`ai_bot` too.
+
+### Edits
 
 `PUT /api/schedules/{id}`:
 
-- `plan_mode` is immutable after creation — attempts return 400.
-- `plan_version` acts as an `If-Match` optimistic-lock token — stale
-  values return 412. Bumped on every successful plan commit.
-- `description` changes are normalized (strip + collapse whitespace)
-  before comparison so cosmetic edits don't spuriously invalidate.
-- Prompt change → abort any in-flight planner (stop session, FAIL
-  the Task with `error_category='superseded_by_edit'`) and set
-  `plan_status='stale'`. The old plan text is kept so the UI can
-  show a diff until the user re-plans.
-- Cron/timezone/store changes do not invalidate.
+- `plan_mode` switches review: **on** → a planner starts, nothing fires
+  until a plan is approved; **off** → planner aborted, plan / proposal /
+  feedback dropped, `plan_status='none'`, fires run the prompt.
+- Prompt change on a review schedule → abort the in-flight planner
+  (FAIL with `superseded_by_edit`), drop the approved plan and any
+  proposal, spawn a new planner — in the same commit as the edit.
+- `plan_version` (If-Match) applies only to edits that change the plan
+  (prompt / review mode); a title or time edit never 412s.
+- `description` changes are normalized (strip + collapse whitespace).
 
 ### `/replan` (idempotent)
 
-`POST /api/schedules/{id}/replan` spawns a new plan-only Task. If a
-non-terminal planning Task already exists for the schedule, the
-endpoint returns the current response without spawning a duplicate.
-Non-plan-mode schedules return 400.
+`POST /api/schedules/{id}/replan` spawns a new plan-only Task (after a
+failure, or to start over). If a non-terminal planning Task already
+exists, it returns the current response without spawning a duplicate.
+Auto schedules return 400.
 
-### Stuck-planning reaper
+### Plan reaper
 
-`app/scheduler/plan_reaper.py:reap_stuck_planning_tasks` runs every
-5 minutes (registered in `cron.py:_register_plan_reaper`). For each
-Schedule with `plan_status='planning'` whose planner Task is neither
-WAITING nor younger than 30 min, it:
+`app/scheduler/plan_reaper.py:reap_stuck_planning_tasks` decides about
+each `planning` schedule's planner by whether anything can still
+advance it — never by elapsed time:
 
-1. Calls `agent_manager.stop(task.id)`.
-2. Transitions the Task to FAILED with
-   `error_category='planning_timeout'`.
-3. Sets `plan_status='failed'`, `plan_error='Planning timed out'`,
-   and clears `current_planning_task_id`.
-4. After commit, emits `schedule_plan_timeout`.
+- PENDING / QUEUED (waiting for a slot — orphans are re-queued by
+  `queue_reconciler`) and WAITING (a question) are never touched;
+  `pending_approval` is not even in scope.
+- Alive = held by its launcher (`task_owners.is_held`), between `run()`
+  and process spawn (`agent_manager.is_launching`), or a live process
+  within `stall_reaper`'s stream-silence bound
+  (`stall_reaper.agent_cannot_progress`, the same verdict as for
+  running tasks).
+- Dead (no live agent and the row older than the 3-min hand-over grace)
+  → Task FAILED `planner_died`, `plan_status='failed'` with a
+  plain-language `plan_error`; emits `schedule_plan_failed`.
+- A PLANNED planner with a saved plan and no live agent (server died
+  between saving the plan and the hand-off) → its plan becomes the
+  proposal. Boot recovery (`task_queue._recover_from_db`) never
+  re-queues a plan-only PLANNED task — it would EXECUTE it.
+- COMPLETED with a plan → proposal; COMPLETED without / FAILED →
+  `failed` with the reason.
 
-WAITING is explicitly preserved — it is legitimate user-input wait,
-handled by `waiting.py`'s 30-day timeout, not this reaper.
+### Migration
+
+`app/schedule_review_migration.py` runs once from `init_db` (marker
+`AppSettings['schedules_plan_review_optin']`): every non-system
+schedule that predates the choice (all were forced into plan mode)
+becomes auto — plan artefacts dropped, in-flight planners failed in the
+same transaction. `is_active` is untouched.
 
 ### Key file map
 
 | Component | File |
 |---|---|
-| Plan state enum | `app/plan_states.py` |
+| Plan states, fire gate, auto-accept rule | `app/plan_states.py` |
+| Proposal / approval writes (CAS) | `app/schedule_plan_review.py` |
+| Approve / request-changes / attention routes | `app/routers/schedule_review.py` |
 | Schedule model (plan columns) | `app/models/schedule.py` |
-| Task model (`is_plan_only`, `plan_version`) | `app/models/task.py` |
-| Router endpoints (create/update/replan/trigger/resume) | `app/routers/schedules.py` |
+| Router endpoints (create/update/replan/trigger/resume) | `app/routers/schedules.py`, `app/routers/schedule_planning.py` |
 | Fire-gate + cancel-forward | `app/scheduler/cron.py`, `app/scheduler/fanout.py` |
-| Approval hook + plan commit | `app/ai/claude_backend_hooks.py:_commit_plan_only_approval` |
+| ExitPlanMode hand-off | `app/ai/claude_backend_hooks.py:_commit_plan_proposal` |
 | Reaper | `app/scheduler/plan_reaper.py` |
-| `auto_approve_plan` narrowing | `app/task_runner_auto.py` |
+| One-time migration | `app/schedule_review_migration.py` |
+| MCP tools | `app/agent_mcp/tools_schedules.py`, `app/agent_mcp/tools_schedule_review.py` |
 | Prompt block for plan-only tasks | `app/task_runner.py:build_system_extra` |
 
 ## Skill Prerequisite Hints
@@ -387,6 +447,7 @@ The AI provider presets (Settings → AI) auto-sync from `main` every 48 h: fetc
 | `stall_reaper` | every 1 min | `app/scheduler/stall_reaper.py` | Terminalize RUNNING tasks whose agent can no longer progress |
 | `queue_reconciler` | every 1 min | `app/scheduler/queue_reconciler.py` | Re-queue orphaned rows — `queued`, or scheduled `pending`/`planned` — that nothing in the process will start (no lane, launcher or slot wait; `app/task_owners.py`). Does at runtime what `_recover_from_db` does at boot, via `TaskQueueScheduler.adopt_orphan` (re-checked under the queue lock, so never a double launch). Skips held tasks, live agent sessions, rows changed in the last 60 s, plan-only tasks and unscheduled `pending` rows parked for `/start` (`defer_start`) |
 | `task_cleanup` | daily 03:30 server-tz | `app/scheduler/task_cleanup.py` | Auto-delete terminal leaf tasks past `AppSettings.task_retention_days` (see [docs/tasks.md § Task deletion + auto-cleanup](tasks.md#task-deletion--auto-cleanup)) |
+| `ai_setup_check` | once, at scheduler start (`DateTrigger` "now", `misfire_grace_time=None`) | `app/ai/ai_readiness.py` | Run `claude auth status --json` once in the background; its answer decides whether new users are asked to set up AI (see [backend.md § AI setup check](backend.md#ai-setup-check-aiai_readinesspy)) |
 
 **stall_reaper's authority split** — who may declare "this request is dead": while the agent **process is alive and input-capable**, the CLI owns the in-flight request, and every spawn env arms the CLI's own dead-stream machinery (`ProfileManager.get_env_for_profile` → `ensure_stream_liveness_env`): `CLAUDE_ENABLE_STREAM_WATCHDOG=1` + `CLAUDE_STREAM_IDLE_TIMEOUT_MS=420000` (7 min) make the CLI abort a stream with no chunk for 7 min (TTFB counts, every chunk resets it) and fall into its non-streaming fallback, with each failed attempt announced on stdout as `system/api_retry`; `CLAUDE_CODE_INCLUDE_PARTIAL_MESSAGES=1` forwards every raw SSE part (message_start / deltas / pings) as a stdout line, so a healthy compose bumps `updated_at` per part instead of going silent. The reaper only fires after **true stdout silence** has outlasted that watchdog bound + recovery headroom (~200 s retry backoff + 60 s poll + 60 s heartbeat throttle) — **13 min with presets** — instead of the earlier `API_TIMEOUT_MS + 2 min` (~52 min), which only bounded the headers phase. A slow first token is structurally inside the bound: a healthy agent composing a long report after a large `tool_result` can be silent for minutes (observed 3–4 min live), and `updated_at` staleness alone can't distinguish it from a dropped stream. When there is **no session, the process has exited, or the process is past its turn terminator** (stdin closed — the post-close kill escalation in `app/ai/claude_backend_turns.py` disposes of it), nothing can bump `updated_at` any more and the flat 3-min silence rule applies. Pending `AskUserQuestion`s are always skipped (the operator may take hours).
 

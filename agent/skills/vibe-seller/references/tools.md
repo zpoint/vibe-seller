@@ -235,7 +235,7 @@ answer the card (`answer_question`), not the composer.
 route treats any incoming message as the reject verdict — the text
 becomes the re-plan feedback. Use `review_plan` there, never a
 clarification. (On a task FIRED by its schedule, `planned` means the
-frozen plan is auto-executing — never review or message it; follow it
+approved plan is auto-executing — never review or message it; follow it
 with `wait_task`.)
 
 ## stop_task
@@ -331,21 +331,26 @@ actually fire.
 
 **Returns.** A list of schedules, each with `title`, the recurrence
 fields (`schedule_type`, `schedule_time`, `schedule_day`,
-`interval_value`, `timezone`), `next_run`, `paused`, `plan_mode`,
-`plan_status`, `plan_task_id` (the plan-only task authoring the plan
-while `plan_status=planning`), `last_run_status`,
+`interval_value`, `timezone`), `next_run`, `paused`, `review_plan`
+(`false` = auto: each fire runs the prompt; `true` = a human approves
+a plan first), `plan_status`, `plan_task_id` (the plan-only task
+writing the plan while `plan_status=planning`), `last_run_status`,
 `child_task_count`, plus the lifecycle block: `plan_status_meaning`,
 `fires` and `next_actions`.
 
-**Every entry also carries the plan itself** — `plan` (the frozen plan
-text, trimmed only if it is longer than one field's budget),
-`plan_truncated`, and `plan_full_text_where` (where to read it whole
-when it was trimmed). The plan is what the schedule will run, so it is
-what you show your user before the schedule can run it.
+**Review schedules also carry their plans** — `plan` (the APPROVED
+plan fires run), `proposed_plan` (a plan waiting for approval),
+`plan_feedback` (the changes last asked for), each trimmed only if it
+is longer than one field's budget (`plan_truncated`,
+`proposed_plan_truncated`, `plan_full_text_where`).
 
-**`fires` is the answer to "will this run?"** It is `false` when the
-plan is not ready or the schedule is paused. Never report a schedule
-as "scheduled" when `fires` is `false` — say what is missing instead.
+**`fires` is the answer to "will this run?"** It is `false` when a
+review schedule has no approved plan or the schedule is paused. A
+review schedule with no approved plan never fires — not while its plan
+is being written, waits for approval, is `failed` or (legacy) `stale`;
+those last two need a re-plan. Never
+report a schedule as "scheduled" when `fires` is `false` — say what is
+missing instead.
 
 ## create_schedule
 
@@ -368,36 +373,34 @@ recurrence.
 | `fanout_serial` | bool | Optional. Fanout only: run the batch's stores one at a time. |
 | `finalize_description` | string | Optional. Fanout only: a reduce task run after every store of a batch finishes. |
 | `ai_profile_id` | string | Optional. Pin an AI profile. Omit to inherit the owner's current default at fire time. |
-| `paused` | bool | Optional. Omit (or `true`) to create the schedule PAUSED — it cannot fire until you resume it with `update_schedule(paused: false)`. Pass `false` only when your user already told you to go ahead (the web UI creates active schedules; paused is this tool's default). |
+| `review_plan` | bool | Optional. `true`: the agent writes a plan first and nothing runs until a human approves it (`review_schedule_plan`). Omit/`false`: AUTO — each fire runs the prompt. |
+| `paused` | bool | Optional. `true` creates it PAUSED (nothing fires until `update_schedule(paused: false)`). Omit to create it active, like the web UI. |
 
-**Returns.** The schedule, plus `plan_status`, `plan_task_id`, `plan`
-and the lifecycle block.
+**Returns.** The schedule, its lifecycle block and a `note` saying
+what happens next.
 
-**Every schedule plans first.** A plan-only task (`plan_task_id`)
-authors the plan; follow it with `wait_task`. When it finishes, the
-plan is frozen onto the schedule (`plan_status=ready`) and the
-planning task executes **nothing**. Until then the schedule does not
-fire.
+**Auto is the default.** An auto schedule (`review_plan` omitted) is
+created ACTIVE and runs your `description` on its cron — exactly what
+the web UI creates. Tell your user when it first runs (`next_run`);
+`run_schedule` fires it once now if they want to see it work.
 
-**The default is PAUSED — resume only with your user's go-ahead.**
-The schedule is created paused, so it cannot fire until you resume
-it — which is what keeps its plan a checkpoint your user can actually
-see: the plan is accepted by the server without anyone reading it, and
-an armed schedule fires on its own once the plan is ready. (The web UI
-creates active schedules; the divergence is deliberate, like
-`manage_profile` leaving `set_default` off.) If the pause step itself
-fails, the tool deletes the schedule it just created — nothing
-half-armed is left behind; retry the create.
+**Review when your user wants to read the plan first.** With
+`review_plan: true`, a plan-only task (`plan_task_id`) writes the plan
+— follow it with `wait_task`. The schedule then sits at
+`plan_status=pending_approval`: show `proposed_plan` to your user
+(`get_attention` lists every plan waiting) and pass their decision to
+`review_schedule_plan`. The server never approves on its own, and the
+wait never expires. Nothing runs until a plan is approved.
 
-**The plan is accepted by the server, not by a human.** `plan_status:
-ready` means the server took the plan the planner wrote — nobody
-approved it. Showing it to your user is your job.
+`paused: true` creates it paused. If the pause step itself fails, the
+tool deletes the schedule it just created — nothing half-armed is
+left behind; retry the create.
 
 ## update_schedule
 
-**Purpose.** Edit a schedule, pause or resume it, or re-plan it. One
-call can do several: the edit applies first, then the re-plan, then
-the pause/resume.
+**Purpose.** Edit a schedule, switch plan review on or off, pause or
+resume it, or re-plan it. One call can do several: the edit applies
+first, then the re-plan, then the pause/resume.
 
 **Arguments.**
 
@@ -405,7 +408,8 @@ the pause/resume.
 | --- | --- | --- |
 | `schedule_id` | string | Required. |
 | `title` | string | Optional. |
-| `description` | string | Optional. The prompt every fire runs. Changing it makes the stored plan **stale**. |
+| `description` | string | Optional. The prompt every fire runs. On a review schedule a change starts a new plan for approval. |
+| `review_plan` | bool | Optional. `true` switches plan review on (a plan is written and must be approved before it runs again); `false` switches to auto (the plan is dropped; fires run the prompt). |
 | `schedule_type` | string | Optional. `minutes`, `hours`, `days`, `weekly` or `monthly`. |
 | `schedule_time` | string | Optional. `HH:MM`. |
 | `schedule_day` | int | Optional. Day of week or day of month. |
@@ -416,16 +420,17 @@ the pause/resume.
 | `finalize_description` | string | Optional. Fanout only. |
 | `plan_version` | int | Optional. Optimistic lock: the `plan_version` you last saw. The server refuses (412) if it moved. |
 | `paused` | bool | Optional. `true` pauses; `false` resumes. |
-| `replan` | bool | Optional. `true` spawns a fresh plan-only task to author a new plan. |
+| `replan` | bool | Optional. `true` spawns a fresh plan-only task to write a new plan (after a failure); it then waits for approval. |
 
 **Returns.** The schedule after the change, with `plan_status`,
-`plan_task_id` (the new planning task, when one was spawned), `plan`
-(the frozen plan text), `updated_fields` and the lifecycle block.
+`plan_task_id` (the new planning task, when one was spawned), the
+plans, `updated_fields` and the lifecycle block.
 
-**Editing the prompt invalidates the plan**: `plan_status` becomes
-`stale` and the schedule will not fire again until it is re-planned
-(`replan: true`). Resuming a paused schedule needs a ready plan — a
-`stale` or `failed` one is refused with the reason.
+**On an auto schedule an edited prompt simply runs from the next
+fire.** On a review schedule, editing the prompt starts a new plan at
+once (`plan_status=planning`) and drops the approved one — nothing
+runs until the new plan is approved. Resuming a paused review
+schedule needs an approved plan; the refusal says what is missing.
 
 ## delete_schedule
 
@@ -449,18 +454,60 @@ answers with one; an all-stores schedule fans out in the background
 and answers with `mode: fanout` instead — find the tasks with
 `list_tasks`), and the lifecycle block.
 
-**The plan must be ready.** A schedule whose plan is not `ready` never
-fires; the refusal says why, and it is not an error you can retry
-your way out of — re-plan it first.
+**A review schedule needs an approved plan.** An auto schedule runs its
+prompt; a review schedule runs its approved plan and is refused
+without one — the refusal says why, and it is not an error you can
+retry your way out of.
 
 **It fires a PAUSED schedule too.** The web UI's Run-now button is not
 disabled by the pause, and neither is this tool — get your user's
-go-ahead before firing a paused one; resuming
-(`update_schedule(paused: false)`) is the move when they have already
-approved the plan.
+go-ahead before firing a paused one.
 
-**The fired task does not re-plan.** It runs the frozen plan, so the
-work happens without another review stop.
+**The fired task does not re-plan.** It runs the approved plan (or,
+for an auto schedule, the prompt), so the work happens without another
+review stop.
+
+## review_schedule_plan
+
+**Purpose.** Decide on a review schedule's plan while it is
+`pending_approval`: approve it, or send it back with the changes your
+user wants.
+
+**Arguments.**
+
+| Name | Type | Notes |
+| --- | --- | --- |
+| `schedule_id` | string | Required. |
+| `approve` | bool | Required. `true` approves; `false` requests changes. |
+| `feedback` | string | Required with `approve: false` — what should change, in your user's words. |
+| `plan_version` | int | Optional. The `plan_version` of the plan you showed; if it changed since, the call is refused (re-read the plan). |
+
+**Returns.** The schedule after the decision, `decision` and a `note`.
+
+**A plan is your user's checkpoint.** Show them the plan and approve
+only with their go-ahead (unless they told you to approve without
+asking). Approved: the schedule fires that plan on its cron.
+Changes requested: a new plan-only task revises it (follow
+`plan_task_id` with `wait_task`) and it comes back to
+`pending_approval`. Feedback also works on an approved (`ready`) plan
+— the approved one keeps running until the revision is approved.
+
+## get_attention
+
+**Purpose.** Everything waiting for a human right now, each with the
+exact next call: schedule plans awaiting approval (with the full
+`proposed_plan`), questions agents asked, and task plans awaiting
+review.
+
+**Arguments.** None.
+
+**Returns.** `needs_attention`, `schedule_plan_approvals`,
+`task_questions`, `task_plan_reviews` and a `note`.
+
+**Nothing here expires** — a plan awaiting approval waits until
+someone decides. Call it when your user asks "anything for me?",
+after creating a schedule with `review_plan: true`, and before
+reporting that nothing is pending.
 
 ## get_task_log
 

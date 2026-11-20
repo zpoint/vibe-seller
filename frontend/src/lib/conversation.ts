@@ -12,11 +12,29 @@ export interface RawMessage {
   created_at?: string
 }
 
+/**
+ * Append a turn's result card. Claude Code's ``result`` event repeats
+ * the turn's last assistant text, and both are persisted and streamed
+ * (role ``assistant``, then role ``result``). One answer must render
+ * once: when the item right before is that same text as a plain agent
+ * message, the result card takes its place. Used by the history rebuild
+ * and the live SSE path alike, so a reload and a live view agree.
+ */
+export function appendResult(
+  items: ConversationItem[],
+  item: ConversationItem & { type: 'result' },
+): ConversationItem[] {
+  const prev = items[items.length - 1]
+  const same = prev?.type === 'agent_message'
+    && (prev.message?.content ?? '').trim() === (item.result ?? '').trim()
+  return same ? [...items.slice(0, -1), item] : [...items, item]
+}
+
 export function buildConversationItems(
   msgs: RawMessage[],
   task: Task,
 ): ConversationItem[] {
-  const convItems: ConversationItem[] = []
+  let convItems: ConversationItem[] = []
   for (const m of msgs) {
     const ts = m.created_at || new Date().toISOString()
     if (m.role === 'user') {
@@ -30,7 +48,7 @@ export function buildConversationItems(
       // ("how much did we sell today?" then "review the socks ads"), and
       // demoting the later ones put each answer somewhere other than
       // under the question that asked for it.
-      convItems.push({ id: `hist-result-${convItems.length}`, type: 'result', timestamp: ts, result: m.content })
+      convItems = appendResult(convItems, { id: `hist-result-${convItems.length}`, type: 'result', timestamp: ts, result: m.content })
     } else if (m.role === 'tool_use') {
       try {
         const toolInfo = JSON.parse(m.content)

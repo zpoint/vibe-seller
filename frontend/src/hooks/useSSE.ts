@@ -5,6 +5,8 @@ import { TASK_USAGE_FIELDS } from '../types'
 import { uuid } from '../uuid'
 import { patchById } from '../lib/patchById'
 import { NOTICE_ROLE, parseNotice } from '../lib/notice'
+import { ATTENTION_EVENT } from './useScheduleAttention'
+import { appendResult } from '../lib/conversation'
 
 /** Finalize any streaming thinking block — set isStreaming to false. */
 function _finalizeThinking(items: ConversationItem[]): ConversationItem[] {
@@ -293,25 +295,15 @@ export function useSSE({
               } else if (data.role === 'result') {
                 setAgentMessages(p => [...p, { role: data.role, content: data.content }])
                 if (selectedTaskIdRef.current === data.task_id) {
-                  setConversationItems(items => {
-                    const updated = _finalizeThinking(items)
-                    const hasResult = updated.some(i => i.type === 'result')
-                    if (hasResult) {
-                      // Already have a result card — show as regular message
-                      return [...updated, {
-                        id: `asst-${uuid()}`,
-                        type: 'agent_message' as const,
-                        timestamp: new Date().toISOString(),
-                        message: { role: 'assistant', content: data.content },
-                      }]
-                    }
-                    return [...updated, {
-                      id: `result-${uuid()}`,
-                      type: 'result' as const,
-                      timestamp: new Date().toISOString(),
-                      result: data.content,
-                    }]
-                  })
+                  // Every turn's result is a result card, as on reload
+                  // (lib/conversation.ts); it replaces the same text
+                  // just shown as a plain message.
+                  setConversationItems(items => appendResult(_finalizeThinking(items), {
+                    id: `result-${uuid()}`,
+                    type: 'result' as const,
+                    timestamp: new Date().toISOString(),
+                    result: data.content,
+                  }))
                 }
               } else if (data.role === NOTICE_ROLE) {
                 const notice = parseNotice(data.content)
@@ -394,6 +386,11 @@ export function useSSE({
             if (prev && prev.id === data.task_id) setTodoItems(data.todos || [])
             return prev
           })
+        }
+        // The top banner counts planners waiting on an answer: a new
+        // question, or a status change (answered, ended), may change it.
+        if (data.type === 'task_questions' || (data.type === 'task_update' && data.status)) {
+          window.dispatchEvent(new Event(ATTENTION_EVENT))
         }
         if (data.type === 'task_questions') {
           setSelectedTask(prev => {
@@ -517,13 +514,17 @@ export function useSSE({
           loadTasksRef.current?.()
           loadScheduleTasksRef.current?.()
         }
-        // Plan-lifecycle events: plan committed, aborted, or invalidated.
-        // Without these the left-panel badge (ScheduleList.PlanStatusBadge)
-        // and the SchedulePlanPanel remain stale — the API query that
-        // hydrates `schedules` isn't re-run, so plan_status='planning'
-        // sticks on-screen even after the DB row flipped to 'ready'.
+        // Plan-lifecycle events: a plan proposed (waits for approval),
+        // approved, changed, failed, or invalidated. Without these the
+        // left-panel badge (ScheduleList.PlanStatusBadge), the
+        // SchedulePlanPanel and the top approval banner (which refetches
+        // when `schedules` reloads) remain stale. `schedule_plan_timeout`
+        // is the retired name of `schedule_plan_failed`.
         if (
+          data.type === 'schedule_plan_pending_approval' ||
           data.type === 'schedule_plan_ready' ||
+          data.type === 'schedule_plan_changed' ||
+          data.type === 'schedule_plan_failed' ||
           data.type === 'schedule_plan_timeout' ||
           data.type === 'schedule_plan_stale'
         ) {

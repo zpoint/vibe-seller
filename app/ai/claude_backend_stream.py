@@ -321,6 +321,7 @@ class _StreamMixin:
                 if block.get('type') == 'text':
                     if self._executing:
                         self._exec_phase_text_parts.append(block['text'])
+                    self._last_assistant_text = block['text']
                     await self._emit_message('assistant', block['text'])
                 elif block.get('type') == 'thinking':
                     thinking = block.get('thinking', '')
@@ -466,11 +467,15 @@ class _StreamMixin:
                 await self._emit_message('result', text)
             elif should_emit:
                 # Planning-phase results are conversation, not a turn
-                # boundary.
+                # boundary. The CLI's result repeats the turn's last
+                # assistant text, already emitted above: only a result
+                # that says something new (e.g. an answer the model
+                # gave in no text block) becomes a message.
                 self._last_result_event = text
                 if is_error:
                     self._is_error_result = True
-                await self._emit_message('assistant', text)
+                if text.strip() != self._last_assistant_text.strip():
+                    await self._emit_message('assistant', text)
             # Turn termination. The CLI never exits on its own with
             # stdin open (spike-verified), so closing stdin IS the
             # terminator — the question is when. With a linger window

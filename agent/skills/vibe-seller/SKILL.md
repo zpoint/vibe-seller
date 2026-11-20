@@ -182,56 +182,55 @@ Pass a `profile_id` to choose another.
 
 ## Schedules
 
-A schedule runs a task on a timetable — and **every user-created
-schedule is plan-mode**: it authors its plan once, through a plan-only
-task, and the plan it writes is frozen onto the schedule.
+A schedule runs a task on a timetable. It has one of two modes, and
+the user chooses:
 
-**The one rule: a schedule whose `plan_status` is not `ready` NEVER
-fires.** Not at its timetable time, not via `run_schedule`, not ever —
-until its plan is ready again. When you create or edit a schedule, say
-this to the user in plain words; "scheduled" is a lie until the status
-is `ready`.
+- **Auto (the default).** Every fire runs the schedule's prompt
+  (`description`) directly — no plan, no review. This is what the web
+  UI creates unless the user ticks "review the plan".
+- **Review (`review_plan: true`).** A plan-only task writes a plan; the
+  schedule then WAITS for a human to approve it, and from then on every
+  fire runs the approved plan. The server never approves a plan on its
+  own, and the wait never expires.
 
-**A schedule's plan is a human checkpoint — and the server accepts it by
-itself.** The plan-only task writes the plan and the server freezes it
-onto the schedule with nobody asked (`plan_status: ready`,
-`fires: true`). Nothing has run yet, but the next fire WILL run that
-plan, with no second stop. So the review is YOUR job: show the plan to
-your user before the schedule can run it. The plan text comes back with
-every schedule result (`plan`).
+Pick review only when the user asks to see the plan first (or the job
+changes things they would want to check, and they agree). Otherwise
+create an auto schedule.
 
-To make that checkpoint real, create the schedule **paused**:
+**Auto:**
 
-1. `create_schedule(…, paused=true)` → the schedule is created PAUSED,
-   `plan_status: planning`, a `plan_task_id` — the plan-only task — and
-   `fires: false`. Pass `paused: true` unless your user already told
-   you to go ahead.
-2. `wait_task` on the plan-only task → it **completes on its own**: the
-   plan-only task writes the plan and finishes, and the plan is
-   committed onto the schedule (`plan_status: ready`). It is still
-   paused, so `fires` is still `false`. (The plan-only task is not a
-   task you approve with `review_plan`.)
-3. Show the plan (`plan` in the schedule result) to your user and get
-   their go-ahead.
-4. Happy → `update_schedule(schedule_id, paused=false)` → `fires: true`,
-   armed. Object → `update_schedule` with a new `description` (the plan
-   goes `stale`), or `replan: true` for a fresh plan, or
-   `delete_schedule`.
+1. `create_schedule(title, description, schedule_type, …)` → created
+   ACTIVE, `plan_status: none`, `fires: true`, `next_run`.
+2. Tell the user what it will do and when it first runs. If they want
+   to see it work now: `run_schedule(schedule_id)` → a task id; follow
+   it with `wait_task` like any task.
 
-Left unpaused (`paused` omitted — what the web UI does), the schedule
-arms itself: `create_schedule` → `wait_task` → the plan is committed
-(`plan_status: ready`, `fires: true`). Nothing is executed — the
-schedule is armed, not run — but it is armed without anyone having read
-the plan, so say what it will do when you report back. From then on,
-every fire copies the frozen plan and **skips planning** — it runs
-straight through.
+**Review:**
 
-Editing the schedule's prompt (`update_schedule` with a new
-`description`) makes the plan `stale` — the schedule stops firing until
-you `replan` (`update_schedule` with `replan: true`), which spawns a
-fresh plan-only task; when it completes, the schedule is `ready` again.
-`run_schedule` fires a schedule manually, now — and is refused, with the
-reason, while the plan is not `ready`.
+1. `create_schedule(…, review_plan=true)` → `plan_status: planning`,
+   `plan_task_id`, `fires: false`.
+2. `wait_task(plan_task_id)` → the plan-only task completes on its own;
+   the schedule is now `plan_status: pending_approval` with the plan in
+   `proposed_plan`. (`get_attention` lists every plan waiting, with its
+   text.)
+3. Show the plan to the user and ask for their decision — this is the
+   checkpoint; nobody else will make it for you.
+4. `review_schedule_plan(schedule_id, approve=true, plan_version=…)` →
+   `plan_status: ready`, `fires: true`. Or `approve=false` with
+   `feedback` (their words) → a new plan is written (`planning` →
+   `pending_approval` again); show that one too.
+
+**The one rule: never call a schedule "scheduled" while `fires` is
+`false`.** A review schedule without an approved plan never fires — not
+on its timetable, not via `run_schedule`. A paused schedule never fires
+either. Say what is missing instead.
+
+Editing an auto schedule's prompt just changes what the next fire runs.
+Editing a review schedule's prompt starts a new plan at once and drops
+the approved one: nothing runs until the user approves the new plan.
+`update_schedule(review_plan=…)` switches review on or off. A `failed`
+plan (its planning run died or errored — `plan_error` says why) is
+fixed with `update_schedule(replan=true)`.
 
 Every schedule result carries `plan_status`, `plan_status_meaning`,
 `fires` and `next_actions` — `fires` is the answer to "will this run?",

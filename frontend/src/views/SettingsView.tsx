@@ -7,6 +7,8 @@ import { StoresPanel } from '../components/settings/StoresPanel'
 import { EmailAccountsPanel } from '../components/settings/EmailAccountsPanel'
 import { IntegrationsPanel } from '../components/settings/IntegrationsPanel'
 import { VisionPanel } from '../components/settings/VisionPanel'
+import { AiSetupGuide } from '../components/AiSetupGuide'
+import { useAiSetupGuide } from '../hooks/useAiSetupGuide'
 import { SETTINGS_TABS } from '../lib/route'
 import type { AuthUser, Profile, EmailAccount, Store } from '../types'
 
@@ -118,10 +120,12 @@ export function SettingsView({
         <EmailAccountsPanel emailAccounts={emailAccounts} loadEmailAccounts={loadEmailAccounts} stores={stores} isAdmin={currentUser?.role === 'admin'} />
       ) : settingsTab === 'aiAgent' ? (
         <div className="space-y-4">
+          <AiTabGuide currentUser={currentUser} profiles={profiles} />
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-sm">{t('settings.aiProfiles')}</h3>
               <button
+                data-tour="add-model"
                 onClick={() => { setEditingProfile(undefined); setShowProfileModal(true) }}
                 className="px-3 py-1 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700"
               >
@@ -244,4 +248,10 @@ export function SettingsView({
 
     </div>
   )
+}
+
+/** The "click here to add a model" highlight for this tab. */
+function AiTabGuide({ currentUser, profiles }: { currentUser: AuthUser; profiles: Profile[] }) {
+  const guide = useAiSetupGuide(currentUser?.default_profile_id, profiles.map(p => p.id).join(','))
+  return <AiSetupGuide guide={guide} />
 }

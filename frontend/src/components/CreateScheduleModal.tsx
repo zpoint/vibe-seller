@@ -25,6 +25,7 @@ function initialState(defaultTimezone: string): ScheduleFormState {
     dayOfWeek: 1,
     dayOfMonth: 1,
     timezone: defaultTimezone,
+    reviewPlan: false,
   }
 }
 
@@ -92,6 +93,7 @@ export function CreateScheduleModal({
               ? form.dayOfMonth
               : null,
         timezone: form.timezone,
+        plan_mode: form.reviewPlan,
       }
       if (showModeSelector) body.phase_mode = phaseMode
       if (showModeSelector && phaseMode === 'fanout') {

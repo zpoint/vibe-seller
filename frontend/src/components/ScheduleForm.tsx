@@ -17,18 +17,24 @@ export interface ScheduleFormState {
   dayOfWeek: number
   dayOfMonth: number
   timezone: string
+  // "Let me review the plan before it runs" (Schedule.plan_mode).
+  reviewPlan: boolean
 }
 
 interface ScheduleFormProps {
   value: ScheduleFormState
   onChange: (next: ScheduleFormState) => void
   showTitle?: boolean
+  // Edit only: the schedule's saved review setting. Turning review on
+  // over a saved `false` stops runs until a plan is approved — say so.
+  savedReviewPlan?: boolean
 }
 
 export function ScheduleForm({
   value,
   onChange,
   showTitle = true,
+  savedReviewPlan,
 }: ScheduleFormProps) {
   const { t } = useTranslation()
   const set = <K extends keyof ScheduleFormState>(
@@ -219,6 +225,33 @@ export function ScheduleForm({
           {t('schedules.timezoneHint')}
         </p>
       </div>
+
+      {/* Review mode — off (auto) by default. */}
+      <label className="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={value.reviewPlan}
+          onChange={e => set('reviewPlan', e.target.checked)}
+          data-testid="schedule-review-plan"
+        />
+        <span className="flex-1">
+          <span className="block text-sm font-medium text-gray-700">
+            {t('schedules.reviewPlan.label')}
+          </span>
+          <span className="block text-xs text-gray-500 mt-0.5">
+            {t('schedules.reviewPlan.hint')}
+          </span>
+          {savedReviewPlan === false && value.reviewPlan && (
+            <span
+              className="block text-xs text-amber-700 mt-1"
+              data-testid="schedule-review-plan-note"
+            >
+              {t('schedules.reviewPlan.turnOnNote')}
+            </span>
+          )}
+        </span>
+      </label>
     </div>
   )
 }

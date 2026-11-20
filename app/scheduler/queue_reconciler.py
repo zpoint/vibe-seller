@@ -27,8 +27,11 @@ Scope, deliberately narrow:
   a task for a person. An unscheduled PENDING task may be parked on
   purpose (``defer_start``: the client uploads attachments, then calls
   ``/start``), and an unscheduled PLANNED task waits for the user to
-  press Run; neither is touched. Plan-only authoring tasks wait for a
-  review, so they are left alone too.
+  press Run; neither is touched. A PENDING plan-only planner IS
+  adopted (nothing parks a planner before it starts; the plan reaper
+  leaves PENDING planners to this job), but a PLANNED one never is: it
+  holds a written plan that only the plan reaper may turn into a
+  proposal — re-queued, it would be EXECUTED.
 - A row changed in the last ``_GRACE`` is skipped: every launch path
   writes the row first and hands the task over a moment later.
 - A task with a live agent session is skipped — it is running.
@@ -82,6 +85,10 @@ async def reconcile_orphaned_tasks() -> int:
                             ]),
                             Task.schedule_id.is_not(None),
                             Task.is_plan_only.is_not(True),
+                        ),
+                        and_(
+                            Task.status == TaskStatus.PENDING,
+                            Task.is_plan_only.is_(True),
                         ),
                     ),
                     Task.updated_at < cutoff_iso,

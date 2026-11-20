@@ -313,7 +313,8 @@ export type AppView = 'tasks' | 'workspace' | 'settings'
 
 export type SchedulePhaseMode = 'fanout' | 'single' | 'two_phase'
 
-export type SchedulePlanStatus = 'none' | 'planning' | 'ready' | 'stale' | 'failed'
+export type SchedulePlanStatus =
+  | 'none' | 'planning' | 'pending_approval' | 'ready' | 'stale' | 'failed'
 
 export interface Schedule {
   id: string
@@ -330,6 +331,8 @@ export interface Schedule {
   timezone: string
   is_active: boolean
   phase_mode: SchedulePhaseMode
+  // true = "review the plan before it runs": the AI writes a plan and
+  // nothing runs until a person approves it. false (default) = auto.
   plan_mode: boolean
   // Parent finalize/reduce step registered by the plan agent for an
   // all-stores fanout schedule (null = none). See finalize_reaper.
@@ -349,6 +352,31 @@ export interface Schedule {
   plan_error: string | null
   current_planning_task_id: string | null
   pending_questions_count: number
+  // A plan the AI wrote that waits for approval (plan_status
+  // 'pending_approval'); `plan` stays the last APPROVED plan.
+  proposed_plan?: string | null
+  // The user's last "request changes" text, handed to the next plan.
+  plan_feedback?: string | null
+  // Why the plan failed, as a code (see SchedulePlanPanel).
+  plan_error_code?: string | null
+}
+
+/** One schedule whose plan waits for approval (GET /api/schedules/attention). */
+export interface PlanApprovalItem {
+  schedule_id: string
+  title: string
+  store_id: string | null
+  plan_version: number
+  proposed_at: string
+}
+
+/** A review schedule whose AI stopped to ask the user something while
+ * writing the plan (GET /api/schedules/attention). */
+export interface PlannerQuestionItem {
+  schedule_id: string
+  title: string
+  store_id: string | null
+  task_id: string
 }
 
 // ─── API tokens (external-agent access) ───────────────

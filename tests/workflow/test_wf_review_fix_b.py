@@ -4,14 +4,14 @@ Each test here is the negative-control companion of a code change:
 run against the pre-fix tree it fails, against the fixed tree it
 passes. What they pin, per finding:
 
-* S2 — a schedule-FIRED task at ``planned`` auto-executes its frozen
+* S2 — a schedule-FIRED task at ``planned`` auto-executes its approved
   plan: ``wait_task`` must NOT report ``needs_operator`` (and the
   guidance must not offer ``review_plan``) — the state is
   pre-execution, not a checkpoint.
 * Q2 — ``create_schedule``'s pause step failing deletes the schedule
   it just created; nothing half-armed is left behind.
 * S5 — retrying a completed PLAN-ONLY task re-authors the plan; it
-  must not EXECUTE the frozen one (pre-fix, retry re-seeded the plan
+  must not EXECUTE it (pre-fix, retry re-seeded the plan
   and spawned an EXECUTE session: the "planner" ran the store work).
 * M6 — a planner that already died under a ``planning`` row gets
   replan guidance, not "wait for the planner".
@@ -44,6 +44,7 @@ from tests.workflow.test_wf_agent_mcp import make_store
 from tests.workflow.test_wf_agent_mcp_assistant import MockAssistantManager
 from tests.workflow.test_wf_agent_mcp_schedules import (
     PLAN_TEXT,
+    approve_over_mcp,
     call_tool,
     wait_plan_status,
 )
@@ -73,9 +74,8 @@ async def _task_row(task_id):
 
 
 class TestScheduleFiredPlannedIsNotACheckpoint:
-    """S2: the fired task's plan was accepted when the schedule was
-    armed; reviewing (or messaging) it would discard that plan and
-    re-plan with automatic approval."""
+    """S2: the fired task's plan was approved on the schedule; reviewing
+    (or messaging) it would throw that approved plan away."""
 
     async def test_wait_task_waits_through_fired_planned(
         self, admin_client, install_fake_agent
@@ -96,11 +96,11 @@ class TestScheduleFiredPlannedIsNotACheckpoint:
                 'schedule_type': 'weekly',
                 'schedule_time': '09:05',
                 'store_id': store_id,
-                'paused': False,
+                'review_plan': True,
             },
         )
         assert not is_error, created
-        await wait_plan_status(created['schedule_id'], 'ready')
+        await approve_over_mcp(admin_client, created['schedule_id'])
 
         fired, is_error = await call_tool(
             admin_client, 'run_schedule', {'schedule_id': created['id']}
@@ -122,7 +122,7 @@ class TestScheduleFiredPlannedIsNotACheckpoint:
             'a schedule-fired planned task is pre-execution: the wait '
             'blocks, it must not answer needs_operator'
         )
-        assert 'frozen plan' in waited['status_meaning']
+        assert 'APPROVED plan' in waited['status_meaning']
         assert 'review_plan' not in waited['next_actions']
         assert 'wait_task' in waited['next_actions']
         # Clean up the parked task (it holds no agent; the delete
@@ -145,10 +145,10 @@ class TestScheduleFiredPlannedIsNotACheckpoint:
                 'schedule_type': 'weekly',
                 'schedule_time': '09:05',
                 'store_id': store_id,
-                'paused': False,
+                'review_plan': True,
             },
         )
-        await wait_plan_status(created['schedule_id'], 'ready')
+        await approve_over_mcp(admin_client, created['schedule_id'])
         fired, is_error = await call_tool(
             admin_client, 'run_schedule', {'schedule_id': created['id']}
         )
@@ -159,7 +159,7 @@ class TestScheduleFiredPlannedIsNotACheckpoint:
         )
         assert not is_error, got
         assert 'review_plan' not in got['next_actions']
-        assert 'frozen plan' in got['status_meaning']
+        assert 'APPROVED plan' in got['status_meaning']
         await admin_client.delete(f'/api/tasks/{task_id}')
 
 
@@ -183,6 +183,7 @@ class TestCreateSchedulePauseFailure:
                 'description': 'x',
                 'schedule_type': 'days',
                 'schedule_time': '08:00',
+                'paused': True,
             },
         )
         assert is_error, result
@@ -199,8 +200,8 @@ class TestCreateSchedulePauseFailure:
 
 class TestRetryPlanOnlyReauthors:
     """S5: retry on a plan-only task re-authors — it must not run the
-    frozen plan (pre-fix: execute_planned_task spawned an EXECUTE
-    session, the planner "ran the store work" and stored a result)."""
+    plan (pre-fix: execute_planned_task spawned an EXECUTE session,
+    the planner "ran the store work" and stored a result)."""
 
     async def test_retry_reauthors_without_executing(
         self, admin_client, install_fake_agent
@@ -216,13 +217,13 @@ class TestRetryPlanOnlyReauthors:
                 'description': 'Check links',
                 'schedule_type': 'weekly',
                 'schedule_time': '09:05',
-                'paused': False,
+                'review_plan': True,
             },
         )
         assert not is_error, created
         schedule_id = created['schedule_id']
         planner_id = created['plan_task_id']
-        await wait_plan_status(schedule_id, 'ready')
+        await wait_plan_status(schedule_id, 'pending_approval')
         planner = await _task_row(planner_id)
         assert planner.status == 'completed'
         assert planner.result is None, 'the planner executed nothing'
@@ -233,8 +234,9 @@ class TestRetryPlanOnlyReauthors:
         assert not is_error, retried
 
         # The re-authored planner completes again WITHOUT executing:
-        # its result stays empty and the plan re-freezes. (Pre-fix the
-        # task ran an EXECUTE session and stored the scenario result.)
+        # its result stays empty and the plan is proposed again.
+        # (Pre-fix the task ran an EXECUTE session and stored the
+        # scenario result.)
         for _ in range(200):
             await asyncio.sleep(0.05)
             planner = await _task_row(planner_id)
@@ -245,7 +247,7 @@ class TestRetryPlanOnlyReauthors:
             'retry EXECUTED the frozen plan instead of re-authoring: '
             f'{planner.result!r}'
         )
-        await wait_plan_status(schedule_id, 'ready')
+        await wait_plan_status(schedule_id, 'pending_approval')
 
 
 class TestDeadPlannerGuidance:
@@ -266,11 +268,20 @@ class TestDeadPlannerGuidance:
                 'description': 'x',
                 'schedule_type': 'days',
                 'schedule_time': '08:00',
+                'review_plan': True,
             },
         )
         assert not is_error, created
         schedule_id = created['schedule_id']
         planner_id = created['plan_task_id']
+
+        # Precondition: the planner is running (a PENDING task is not
+        # stoppable — stop would be a no-op).
+        for _ in range(100):
+            if (await _task_row(planner_id)).status == 'designing':
+                break
+            await asyncio.sleep(0.05)
+        assert (await _task_row(planner_id)).status == 'designing'
 
         # The operator stops the stuck planner. The plan reaper (a
         # background loop) is not running under the test client, so
@@ -311,6 +322,7 @@ class TestDeleteScheduleStopsThePlanner:
                 'description': 'x',
                 'schedule_type': 'days',
                 'schedule_time': '08:00',
+                'review_plan': True,
             },
         )
         planner_id = created['plan_task_id']

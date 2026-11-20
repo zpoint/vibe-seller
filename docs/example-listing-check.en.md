@@ -47,9 +47,9 @@ to one store, so that's the store the AI reads.
 
 ![The New Schedule form: every 1 week Tuesday 10:00, mode set to Fan out](images/example-listing-schedule_en.png)
 
-Click **Create**. The AI drafts an execution plan right away and freezes it on the
-schedule, and every later fire runs that same plan — see
-[The plan is authored once, at creation](schedules.md#the-plan-is-authored-once-at-creation).
+Click **Create**. Every fire runs your instructions directly; to approve a plan
+first, tick **Let me review the plan before it runs** — see
+[Review the plan first](schedules.md#review-the-plan-first-optional).
 
 ## 2. Tick "Run stores one at a time" when every store logs in to the same portal
 

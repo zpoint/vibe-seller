@@ -237,41 +237,44 @@ plan mode — the server forces it.
 
 ### Schedules
 
-A schedule runs a prompt on a timetable. Every user-created schedule is
-plan-mode: a plan-only task writes the plan once, and the schedule fires
-with that frozen plan (no planning step at fire time).
+A schedule runs a prompt on a timetable, in one of two modes its owner
+chooses:
 
-**A schedule whose plan is not `ready` never fires** — not on its
-timetable, not via `run_schedule`, not ever. Every schedule result says
-so in plain words: `plan_status`, `fires` and `plan_status_meaning`.
+- **Auto (default).** Each fire runs the prompt directly. No plan, no
+  review. `create_schedule` creates it ACTIVE, like the web UI.
+- **Review (`review_plan: true`).** A plan-only task writes a plan, and
+  the schedule waits at `plan_status: pending_approval` until a human
+  (or your agent, with their go-ahead) calls `review_schedule_plan`:
+  approve, or send it back with feedback for a revision. The server
+  never approves on its own and the wait never expires. Every fire
+  then runs the approved plan (no planning step at fire time).
 
-**The plan is accepted by the server, not by a human.** The plan-only task
-auto-approves at `ExitPlanMode`, so `plan_status: ready` means "the server
-took the plan the planner wrote" — nobody has read it yet.
-`create_schedule` therefore creates the schedule **paused by default**
-(pass `paused: false` only when your user already told you to go ahead —
-the web UI creates active schedules, but an armed schedule fires on its
-own the moment the plan freezes). Show your user the plan text from the
-result, then resume it with `update_schedule(paused: false)`. If the
-pause step itself fails, the tool deletes the schedule it just created —
-nothing half-armed is left behind.
+**A review schedule without an approved plan never fires** — not on its
+timetable, not via `run_schedule`. Every schedule result says so in plain
+words: `plan_status`, `fires` and `plan_status_meaning`. While a revision
+of an approved plan is written or waits for approval, the approved plan
+keeps running.
+
+**`get_attention`** answers "is anything waiting for my user?" in one
+call: plans awaiting approval (with the full text), questions agents
+asked, and task plans awaiting review — each with the next call.
 
 **A task fired by its schedule skips the review.** Its `planned` status
-means the frozen plan is auto-executing (the queue picks it up) — the
+means the approved plan is auto-executing (the queue picks it up) — the
 result says so, does not offer `review_plan`, and rejecting or messaging
-such a task would discard the approved plan and re-plan with automatic
-approval. Follow it with `wait_task` like any running work. (A
-non-scheduled task's `planned` is the interactive checkpoint: use
-`review_plan` there — and remember a plain message to a `planned` task IS
-a rejection.)
+such a task would throw the approved plan away. Follow it with
+`wait_task` like any running work. (A non-scheduled task's `planned` is
+the interactive checkpoint: use `review_plan` there — and remember a
+plain message to a `planned` task IS a rejection.)
 
 **`run_schedule` fires a paused schedule too** (the web UI's Run-now
 button is not disabled by the pause). Get your user's go-ahead before
-firing a paused one; resuming is the move when they have already approved
-the plan.
+firing a paused one.
 
-Editing a schedule's prompt makes its plan `stale` — it stops firing until
-`update_schedule(replan: true)` authors a new one.
+Editing an auto schedule's prompt changes what the next fire runs.
+Editing a review schedule's prompt starts a new plan at once and drops
+the approved one: it stops firing until the new plan is approved.
+`update_schedule(review_plan: …)` switches review on or off.
 
 ### Answers are keyed by the full question text
 

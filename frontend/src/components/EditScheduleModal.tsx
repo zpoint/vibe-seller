@@ -34,6 +34,7 @@ function fromSchedule(s: Schedule): ScheduleFormState {
         : 1,
     timezone:
       s.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    reviewPlan: !!s.plan_mode,
   }
 }
 
@@ -69,6 +70,11 @@ export function EditScheduleModal({
         timezone: form.timezone,
       }
       if (fansOut) body.fanout_serial = fanoutSerial
+      // Only a changed review setting is sent: switching it is what
+      // starts (on) or drops (off) the plan on the server.
+      if (form.reviewPlan !== !!schedule.plan_mode) {
+        body.plan_mode = form.reviewPlan
+      }
       const updated = await api.put(
         `/api/schedules/${schedule.id}`,
         body,
@@ -101,7 +107,11 @@ export function EditScheduleModal({
             {t('schedules.editSchedule')}
           </h3>
         </div>
-        <ScheduleForm value={form} onChange={setForm} />
+        <ScheduleForm
+          value={form}
+          onChange={setForm}
+          savedReviewPlan={!!schedule.plan_mode}
+        />
         {fansOut && (
           <FanoutSerialToggle checked={fanoutSerial} onChange={setFanoutSerial} />
         )}

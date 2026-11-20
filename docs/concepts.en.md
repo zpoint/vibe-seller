@@ -59,9 +59,9 @@ Turns a one-off sentence into “do this every Monday”. A schedule creates ord
 
 A store-bound schedule fires exactly one task. An **All Stores** schedule picks its shape once, when you create it: **Fan out (one task per store)** or **Single (one task)**, with an optional **Run stores one at a time** so no two shops share the browser at the same moment.
 
-For schedules you create yourself, **the plan is produced once, at creation**: after you save it the agent runs the planning pass and freezes the result on the schedule — **there's no approval click** — and every later fire copies that plan instead of re-planning ("A plan is frozen on this schedule and will be reused for every fire."). You can read the frozen plan any time; to change it, edit the schedule's text — the plan is then marked "Plan stale" and the schedule won't fire until you hit **Re-plan**.
+Schedules you create yourself **run automatically by default**: when due, they run your instructions directly. Tick **Let me review the plan before it runs** and the AI writes a plan first; it runs only after you press **Approve** (in the bar at the top of the app or on the schedule's page), and every later fire follows that plan. Approval never expires.
 
-What suits a schedule and how to revise a frozen plan: [Schedules](schedules.en.md#the-plan-is-authored-once-at-creation).
+What suits a schedule and how to review or revise its plan: [Schedules](schedules.en.md#review-the-plan-first-optional).
 
 ## Knowledge & Skills
 

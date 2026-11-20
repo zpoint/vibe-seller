@@ -56,6 +56,7 @@ async def store_and_task(db_session):
         country=None,
         schedule_id=None,
         store_id='store-1',
+        is_plan_only=False,
     ):
         async with db_session() as db:
             # Only create store if it doesn't exist yet
@@ -80,6 +81,7 @@ async def store_and_task(db_session):
                 country=country,
                 schedule_id=schedule_id,
                 store_id=store_id,
+                is_plan_only=is_plan_only,
                 created_by='test-user',
                 created_at=datetime.now(UTC).isoformat(),
                 updated_at=datetime.now(UTC).isoformat(),
@@ -353,6 +355,27 @@ class TestRecovery:
             await scheduler._recover_from_db()
 
         assert 'task-1' in scheduler._queues.get('store-1', [])
+
+    async def test_planned_planner_never_re_enqueued(
+        self, db_session, store_and_task
+    ):
+        # A plan-only PLANNER left PLANNED (the server died between
+        # saving its plan and handing it to the schedule) must NOT be
+        # re-queued: the dispatcher would EXECUTE the plan it was only
+        # meant to write. The plan reaper proposes it instead.
+        await store_and_task(
+            status=TaskStatus.PLANNED,
+            plan_mode=True,
+            plan='## written plan',
+            schedule_id='sched-1',
+            is_plan_only=True,
+        )
+        scheduler = TaskQueueScheduler()
+
+        with patch('app.scheduler.task_queue.async_session', db_session):
+            await scheduler._recover_from_db()
+
+        assert 'task-1' not in scheduler._queues.get('store-1', [])
 
     async def test_planned_interactive_not_re_enqueued(
         self, db_session, store_and_task

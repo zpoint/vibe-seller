@@ -12,10 +12,10 @@ class ScheduleCreate(BaseModel):
     # None → server-resolved default (AppSettings['default_schedule_timezone']
     # or tzlocal). Router normalizes to a concrete IANA name before insert.
     timezone: str | None = None
-    # User-created schedules are always plan-mode — the plan-at-creation
-    # lifecycle (app/plan_states.py) is the single UX for them. The field
-    # is kept for API back-compat but the router force-overrides it below.
-    plan_mode: bool = True
+    # "Review the plan before it runs". False (default) = auto: every
+    # fire runs the prompt. True = a planner writes a plan and the
+    # schedule waits for the owner's approval. See app/plan_states.py.
+    plan_mode: bool = False
     ai_profile_id: str | None = 'default'
     # 'fanout' | 'single'. Only meaningful when store_id is None;
     # store-bound schedules always resolve to 'single'. When omitted,
@@ -41,10 +41,9 @@ class ScheduleUpdate(BaseModel):
     schedule_day: int | None = None
     interval_value: int | None = None
     timezone: str | None = None
-    # Kept in the schema for back-compat with older clients, but
-    # the router rejects non-null values for plan_mode because the
-    # plan lifecycle (app/plan_states.py) would be bypassed by a
-    # toggle-off.
+    # Switch plan review on/off (see app/plan_states.py): on → a
+    # planner starts and the schedule waits for an approved plan;
+    # off → the plan is dropped and fires run the prompt.
     plan_mode: bool | None = None
     ai_profile_id: str | None = None
     finalize_description: str | None = None
@@ -84,7 +83,10 @@ class ScheduleResponse(BaseModel):
     plan_status: str = 'none'
     plan_version: int = 0
     plan_error: str | None = None
+    plan_error_code: str | None = None
     current_planning_task_id: str | None = None
+    proposed_plan: str | None = None
+    plan_feedback: str | None = None
     # Computed fields (filled in by router, not from ORM directly)
     next_run: str | None = None
     child_task_count: int = 0
@@ -113,8 +115,59 @@ class SchedulePlanResponse(BaseModel):
     plan_status: str
     plan_version: int
     plan_text: str | None = None
+    # Review schedules: the plan awaiting approval, and the owner's
+    # last requested changes.
+    proposed_plan: str | None = None
+    plan_feedback: str | None = None
     plan_error: str | None = None
+    plan_error_code: str | None = None
     current_planning_task_id: str | None = None
     planning_task_history: list[SchedulePlanTaskSummary] = []
     # Parent finalize/reduce step the plan agent registered (or null).
     finalize_description: str | None = None
+
+
+class PlanApproveRequest(BaseModel):
+    """Body for POST /api/schedules/{id}/plan/approve."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    # The plan_version the reviewer read; 412 if a newer proposal
+    # replaced it. Omit to approve whatever is pending.
+    plan_version: int | None = None
+
+
+class PlanChangesRequest(BaseModel):
+    """Body for POST /api/schedules/{id}/plan/request-changes."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    feedback: str
+    plan_version: int | None = None
+
+
+class PlanApprovalItem(BaseModel):
+    """One schedule whose plan waits for the owner's approval."""
+
+    schedule_id: str
+    title: str
+    store_id: str | None = None
+    plan_version: int
+    proposed_at: str
+
+
+class PlannerQuestionItem(BaseModel):
+    """A review schedule whose planner stopped to ask the owner something."""
+
+    schedule_id: str
+    title: str
+    store_id: str | None = None
+    task_id: str
+
+
+class ScheduleAttentionResponse(BaseModel):
+    """Payload for GET /api/schedules/attention (the top banner)."""
+
+    plan_approvals: list[PlanApprovalItem] = []
+    # The plan cannot be written until these are answered.
+    planner_questions: list[PlannerQuestionItem] = []
