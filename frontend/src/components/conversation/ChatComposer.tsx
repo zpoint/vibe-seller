@@ -81,11 +81,13 @@ export function ChatComposer({
             if (e.dataTransfer.files?.length) uploadFiles(e.dataTransfer.files)
           }}
           onPaste={e => {
-            const imgs = Array.from(e.clipboardData?.items || [])
-              .filter(i => i.kind === 'file' && i.type.startsWith('image/'))
+            // Any pasted file attaches (a copied spreadsheet, not just
+            // a screenshot); plain text pastes stay text.
+            const files = Array.from(e.clipboardData?.items || [])
+              .filter(i => i.kind === 'file')
               .map(i => i.getAsFile())
               .filter((f): f is File => !!f)
-            if (imgs.length) { e.preventDefault(); uploadFiles(imgs) }
+            if (files.length) { e.preventDefault(); uploadFiles(files) }
           }}
           onKeyDown={e => {
             // Bail on IME composition keystrokes. Chinese / Japanese /

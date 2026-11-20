@@ -41,6 +41,7 @@ from app.task_runner_context import (
     ticktick_context,
 )
 from app.task_states import TaskStatus, assert_transition
+from app.task_title import is_derived_from
 from app.todos import parse_stored
 
 logger = logging.getLogger(__name__)
@@ -80,17 +81,21 @@ def _format_header(
     """
     desc = task.description or task.title
 
-    if header == TaskHeader.DESIGN:
-        prompt = 'Design an execution plan for this task: ' + task.title
+    # A title cut from the description's opening adds nothing; send
+    # the description alone (app/task_title.py).
+    if is_derived_from(task.title, task.description):
+        instruction = task.description
+    else:
+        instruction = task.title
         if task.description:
-            prompt += f'\n\nDetails: {task.description}'
+            instruction += f'\n\nDetails: {task.description}'
+
+    if header == TaskHeader.DESIGN:
+        prompt = 'Design an execution plan for this task: ' + instruction
         return prompt, 'plan_then_execute', ''
 
     if header == TaskHeader.AUTO:
-        prompt = task.title
-        if task.description:
-            prompt += f'\n\nDetails: {task.description}'
-        return prompt, 'auto', ''
+        return instruction, 'auto', ''
 
     if header == TaskHeader.EXECUTE:
         mode = 'auto' if not task.plan_mode else 'execute'

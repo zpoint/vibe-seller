@@ -10,7 +10,6 @@ from app.agent_mcp.support import (
     McpContext,
     ToolError,
     call_route,
-    derive_title,
     guidance_for,
 )
 from app.models.task import Task
@@ -125,7 +124,6 @@ async def create_task(ctx: McpContext, args: dict) -> dict:
             'non-blank'
         )
     description = description or title
-    title = title or derive_title(description)
     raw_attachments = args.get('attachments') or []
     if not isinstance(raw_attachments, list):
         raise ToolError('attachments must be an array')
@@ -135,7 +133,9 @@ async def create_task(ctx: McpContext, args: dict) -> dict:
     # agent's first prompt already sees them.
     uploads = [decode_upload(item) for item in raw_attachments]
     data = TaskCreate(
-        title=title,
+        # Blank → derived from the description, then AI-upgraded
+        # (app/task_title.py), the same as the UI's create dialog.
+        title=title or None,
         description=description,
         store_id=args.get('store_id') or None,
         plan_mode=args.get('plan_mode'),

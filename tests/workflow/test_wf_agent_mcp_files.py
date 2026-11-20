@@ -347,32 +347,34 @@ class TestCreateAttachments:
         finally:
             shutil.rmtree(task_dir, ignore_errors=True)
 
-    async def test_disallowed_type_is_refused_by_the_route(
+    async def test_any_file_type_attaches(
         self, admin_client, install_fake_agent
     ):
-        store_id = await make_store(admin_client, 'Bad Type Store')
-        _, envelope = await call_tool(
+        """A non-image attachment lands in the task workspace like an
+        image, so the agent's prompt names it."""
+        store_id = await make_store(admin_client, 'Any Type Store')
+        data, envelope = await call_tool(
             admin_client,
             'create_task',
             {
                 'description': 'x',
                 'store_id': store_id,
                 'attachments': [
-                    _attachment(
-                        'payload.exe',
-                        'application/x-msdownload',
-                        b'MZ...',
-                    )
+                    _attachment('orders.csv', 'text/csv', b'sku,qty\n')
                 ],
             },
         )
-        assert envelope['isError'] is True
-        assert 'not allowed' in envelope['content'][0]['text'].lower()
-        # The refusal happened BEFORE the task was created (the same
-        # allow-list the upload route enforces, checked up front), so
-        # no PENDING task lingers with a half-delivered attachment.
-        listed = await admin_client.get('/api/tasks')
-        assert listed.json() == []
+        assert envelope.get('isError') is not True, envelope
+        task_id = data['task_id']
+        task_dir = _TASKS_DIR / task_id
+        try:
+            saved = task_dir / 'uploads' / 'orders.csv'
+            assert saved.read_bytes() == b'sku,qty\n'
+            await wait_for_task(admin_client, task_id)
+            runs = install_fake_agent.get_calls(task_id, action='run')
+            assert 'uploads/orders.csv' in runs[0].system_extra
+        finally:
+            shutil.rmtree(task_dir, ignore_errors=True)
 
     async def test_invalid_base64_is_a_tool_error(
         self, admin_client, install_fake_agent

@@ -17,13 +17,13 @@ The entry point is the **Tasks** page in the sidebar:
 1. **Pick the scope** — click a store in the left store list to create the task
    under that store; stay on **[All Stores](#two-scopes-where-you-create-a-task-decides-what-it-can-do)**
    (no store selected) to create a cross-store task;
-2. Click **New Task**, fill in a title and a description — the description is
-   just you telling the AI what to do, the way you'd brief a colleague, e.g.
+2. Click **New Task** and type what the AI should do — one box, the way you'd
+   brief a colleague (the title is generated for you), e.g.
    “review the ads and pause every keyword above 30% ACOS” or “export the sales
    report for the past 7 days”;
 3. Attach images or files if needed — drag files into the input, paste a
-   screenshot with Ctrl+V, or click to browse (PNG, JPEG, GIF, WebP and PDF, up
-   to 100 MB each). Attachments land in the task's workspace where the agent can
+   screenshot with Ctrl+V, or click to browse (any file type, up to 100 MB
+   each; images show a preview). Attachments land in the task's workspace where the agent can
    read them directly;
 4. Submit. By default the task **starts executing right away** — there is no
    separate run button.
