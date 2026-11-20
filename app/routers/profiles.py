@@ -7,6 +7,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
+from app.ai import ai_readiness
 from app.ai.profile_validation import validate_profile_env
 from app.ai.profiles import (
     DEFAULT_PROFILE_ID,
@@ -165,6 +166,13 @@ async def validate_profile(
     """
     result = await validate_profile_env(data.get('env') or {})
     return result.to_dict()
+
+
+@router.get('/readiness')
+async def get_readiness(_user: User = Depends(get_current_user)):
+    """``{ready}``: false means the UI shows the set-up-AI prompt
+    (``app/ai/ai_readiness.py``)."""
+    return {'ready': await ai_readiness.ai_ready()}
 
 
 @router.get('/presets')

@@ -75,6 +75,7 @@ TASK_MESSAGE_KEYS = {
 }
 
 PROFILE_KEYS = {'id', 'name', 'description', 'env', 'load_global_mcp'}
+READINESS_KEYS = {'ready'}
 
 EVENT_KEYS = {
     'id',
@@ -255,6 +256,12 @@ class TestProfileContracts:
         assert 'presets' in data
         for _name, preset in data['presets'].items():
             assert {'name', 'env'} <= set(preset.keys())
+
+    async def test_readiness_shape(self, admin_client, monkeypatch):
+        monkeypatch.setenv('MOCK_CLI', 'mock.py')  # no real CLI probe
+        r = await admin_client.get('/api/profiles/readiness')
+        assert r.status_code == 200
+        assert set(r.json()) == READINESS_KEYS
 
 
 # ── Event contracts ──────────────────────────────────
