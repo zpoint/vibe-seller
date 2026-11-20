@@ -196,7 +196,7 @@ def write_web_browser_use_wrapper(
             -X POST \\{auth_header}
             -H "Content-Type: application/json" \\
             --max-time 90 \\
-            "http://{LOCALHOST}:{port}/api/browser/web/start?force=1" \\
+            "http://{LOCALHOST}:{port}/api/browser/web/start" \\
             2>/dev/null) || true
           _start_http=${{_start_resp##*$'\\n'}}
           if ! [ "$_start_http" -ge 200 ] 2>/dev/null \\

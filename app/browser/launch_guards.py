@@ -62,9 +62,9 @@ class RelaunchBudget:
                 f'{len(recent)} times in the last {oldest}s and its CDP '
                 f'proxy is still dead. Refusing to restart again — '
                 f'repeated relaunches wipe the browser session and can '
-                f'wedge the shared Ziniao client. Check that Ziniao is '
-                f'running in WebDriver mode and responding, then retry '
-                f'(Settings → Ziniao → Force Restart).'
+                f'wedge the shared Ziniao client. Close Ziniao '
+                f'completely and retry — the next start relaunches it in '
+                f'WebDriver mode by itself.'
             )
         recent.append(now)
         self._seen[store_id] = recent
@@ -100,7 +100,8 @@ async def start_backend_bounded(backend, browser_config: dict, store_name: str):
             f'Browser launch for {store_name} exceeded {timeout:.0f}s and '
             f'was aborted so it could not block other stores. This store '
             f'failed to start; other stores are unaffected. Retry the '
-            f'task — if it persists, restart Ziniao (Settings → Ziniao).'
+            f'task — if it persists, restart Ziniao (close it completely; '
+            f'the next start relaunches it).'
         ) from None
 
 
@@ -121,7 +122,7 @@ class GlobalLaunchLock:
     was an ``asyncio.Lock``, so **a wedged holder made every later
     caller wait for ever** — and an HTTP handler that waits for ever
     sends no response at all. On 2026-08-24 that is exactly what a task
-    saw: ``POST /api/stores/{id}/browser/start?force=1`` with proxies
+    saw: ``POST /api/stores/{id}/browser/start`` with proxies
     unset returned ``HTTP 000 (240.003041s)``, and the agent's only
     possible reading was *"the infrastructure is broken"* — no status,
     no message, nothing naming what to restart.
@@ -174,8 +175,8 @@ class GlobalLaunchLock:
             verdict = (
                 f'It has been in there {held:.0f}s, past the '
                 f'{launch_cap:.0f}s a launch may take, so it is stuck — '
-                f'restart Ziniao (Settings → Ziniao) rather than '
-                f'retrying.'
+                f'restart Ziniao (close it completely; the next start '
+                f'relaunches it) rather than retrying.'
             )
         else:
             verdict = (
@@ -189,9 +190,16 @@ class GlobalLaunchLock:
         )
 
     @asynccontextmanager
-    async def hold(self, what: str):
-        """Take the lock, or raise :class:`BrowserBusyError` saying why not."""
-        timeout = Options.BROWSER_LOCK_WAIT_S.get_float()
+    async def hold(self, what: str, timeout: float | None = None):
+        """Take the lock, or raise :class:`BrowserBusyError` saying why not.
+
+        ``timeout`` overrides ``VIBE_BROWSER_LOCK_WAIT_S`` for a caller
+        that already spent part of its one budget elsewhere (a browser
+        start waits for Ziniao first, then for the lock — both inside one
+        answer to the wrapper's 90 s curl).
+        """
+        if timeout is None:
+            timeout = Options.BROWSER_LOCK_WAIT_S.get_float()
         started = time.monotonic()
         if timeout <= 0:
             await self._lock.acquire()

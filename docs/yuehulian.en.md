@@ -100,6 +100,12 @@ Like a Ziniao store, a Yuehulian store's tasks also get a Chrome auxiliary
 browser for the logistics / overseas sites Yuehulian can't open. See
 [two browsers working together](browsers.en.md#store-browser-and-auxiliary-browser).
 
+## Closing Yuehulian while a task runs
+
+Nothing to do by hand. The next time the task uses the browser, Vibe Seller reopens the Yuehulian client, signs in and opens the store again. A client that was closed forcibly often still marks the store as open (its button reads Opened); Vibe Seller then closes it with the client's own "close browser" first, and opens it again.
+
+Likewise, if you opened a store in the Yuehulian client yourself, a task that needs that store's browser closes it and opens it again (so Vibe Seller can drive it). A task that doesn't use the browser leaves it alone.
+
 ## Common statuses / errors
 
 | UI message | Meaning / what to do |

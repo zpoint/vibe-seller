@@ -229,14 +229,27 @@ def write_browser_use_wrapper(
             if ! curl -sf -o /dev/null \\
                  --max-time 2 "{cdp_http_url}/json/version" \\
                  2>/dev/null; then
-              # Attempt to start browser via API
-              _start_resp=$(curl -s -w '\\n%{{http_code}}' \\
-                -X POST \\{auth_header}
-                -H "Content-Type: application/json" \\
-                --max-time 90 \\
-                "http://{LOCALHOST}:{port}/api/stores/{store_id or 'UNKNOWN'}/browser/start?force=1" \\
-                2>/dev/null) || true
-              _start_http=${{_start_resp##*$'\\n'}}
+              # Attempt to start browser via API. 503 = busy, or Ziniao
+              # still starting (the server relaunches it by itself): the
+              # start call is idempotent, so ask again, a bounded number
+              # of times.
+              _try=0
+              while :; do
+                _start_resp=$(curl -s -w '\\n%{{http_code}}' \\
+                  -X POST \\{auth_header}
+                  -H "Content-Type: application/json" \\
+                  --max-time 90 \\
+                  "http://{LOCALHOST}:{port}/api/stores/{store_id or 'UNKNOWN'}/browser/start" \\
+                  2>/dev/null) || true
+                _start_http=${{_start_resp##*$'\\n'}}
+                _try=$((_try + 1))
+                if [ "$_start_http" = "503" ] && [ "$_try" -lt 3 ]; then
+                  echo "browser start busy (try $_try/3): $(printf '%s' "$_start_resp" | head -1 | head -c 300)" >&2
+                  sleep 5
+                  continue
+                fi
+                break
+              done
               if ! [ "$_start_http" -ge 200 ] 2>/dev/null \\
                  || ! [ "$_start_http" -lt 300 ] 2>/dev/null; then
                 echo "ERROR: browser start API failed (HTTP ${{_start_http:-unavailable}})" >&2
@@ -358,10 +371,10 @@ def write_browser_use_wrapper(
     # ONE browser, so recycling it is a store-wide, multi-tenant action —
     # it destroys every peer's tabs and login state mid-task. One tenant
     # must not make that call. Worse, it would not even work here:
-    # ``browser/start?force=1`` only re-launches Ziniao when it is in
-    # normal (non-WebDriver) mode, and the manager tears the env down
-    # only when the CDP proxy is *dead*. In this wedge the proxy still
-    # answers, so the request is a no-op — and in the case where it is
+    # ``browser/start`` only re-launches Ziniao when its control API is
+    # not answering, and the manager tears the env down only when the
+    # CDP proxy is *dead*. In this wedge both still answer, so the
+    # request is a no-op — and in the case where it is
     # not a no-op, every peer's next call escalates the same way and the
     # only thing standing between that and a stop/start storm is the
     # per-store relaunch budget. Recycling a shared browser belongs to

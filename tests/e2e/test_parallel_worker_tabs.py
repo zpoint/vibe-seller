@@ -108,7 +108,7 @@ def chrome_store(api_client):
     # developer's real instance, once per attempt.
     try:
         resp = api_client.post(
-            f'{BASE_URL}/api/stores/{store["id"]}/browser/start?force=1',
+            f'{BASE_URL}/api/stores/{store["id"]}/browser/start',
             timeout=180,
         )
         if resp.status_code >= 300:

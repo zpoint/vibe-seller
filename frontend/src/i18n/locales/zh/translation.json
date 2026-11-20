@@ -431,11 +431,6 @@
     "ziniaoDownloadLauncher": "下载 ziniao_webdriver.bat",
     "ziniaoLaunchHint": "步骤：1) 下载下方 .bat 文件  2) 在 Windows 上双击运行  3) 等待显示 ready  4) 点击刷新",
     "ziniaoNoProfiles": "未找到浏览器配置，请检查紫鸟账号。",
-    "ziniaoRunningNormalMode": "紫鸟正在运行，但未处于 WebDriver 模式。",
-    "ziniaoNormalModeHint": "请关闭紫鸟后点击刷新。",
-    "ziniaoStillRunning": "紫鸟仍在运行，可能未完全退出。",
-    "ziniaoForceRestart": "强制重启",
-    "ziniaoForceKill": "强制关闭",
     "ziniaoNotInstalled": "紫鸟未安装。",
     "ziniaoNotInstalledHint": "请从官网下载安装。",
     "ziniaoDownloadZiniao": "下载紫鸟",
@@ -443,7 +438,6 @@
     "ziniaoNoPermissionHint": "需要由 BOSS 主账号在开发者控制台中开启 WebDriver。",
     "ziniaoNewTerminalLogin": "系统检测到您在新终端登录，请人工打开紫鸟进行登录验证后回到本系统重试。",
     "ziniaoEnableWebDriver": "如何开通 WebDriver",
-    "ziniaoRestartFailed": "重启失败，请手动关闭紫鸟后重试。",
     "ziniaoConnectErrorMac": "无法连接紫鸟，请检查是否已安装。",
     "ziniaoCredentialsError": "保存的密码在这台电脑上读取不了（可能换过电脑或重装过），请点「编辑」重新输入。",
     "enterStoreNameFirst": "请先输入店铺名称",
@@ -565,7 +559,11 @@
     "yuehulianNoAccount": "未配置账号",
     "yuehulianAddAccount": "添加账号",
     "yuehulianOneAccount": "悦互联一台机器只支持一个账号，请先在设置页面删除所有悦互联店铺，再添加新账号。",
-    "ziniaoLocalOnlyNote": "账号密码只保存在这台电脑上，不会上传。"
+    "ziniaoLocalOnlyNote": "账号密码只保存在这台电脑上，不会上传。",
+    "ziniaoLoadingHint": "紫鸟没打开或是手动打开的，Vibe Seller 会自动帮你重新打开，可能要一两分钟。",
+    "ziniaoStartingFor": "正在打开紫鸟…已等待 {{secs}} 秒（最长约 4 分钟）。",
+    "ziniaoStartFailed": "紫鸟没能打开。",
+    "ziniaoAccountConflict": "这台电脑上正在使用另一个紫鸟账号。"
   },
   "integrations": {
     "gws": {

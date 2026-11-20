@@ -62,8 +62,9 @@ class TestInstrumentationGate:
             return next(live)
 
         with (
-            mock.patch.object(
-                zmod, 'ensure_ziniao_running', new=mock.AsyncMock()
+            mock.patch(
+                'app.browser.ziniao_startup.ensure_ziniao_running',
+                new=mock.AsyncMock(),
             ),
             mock.patch.object(zmod, 'update_ziniao_core', new=mock.AsyncMock()),
             mock.patch.object(
@@ -88,11 +89,8 @@ class TestInstrumentationGate:
             ),
             mock.patch.object(zmod, 'CDPMuxProxy') as MockProxy,
             mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
-            mock.patch('app.browser.ziniao_utils.force_kill_ziniao') as fk,
-            mock.patch(
-                'app.browser.ziniao_utils.kill_and_relaunch_ziniao',
-                new=mock.AsyncMock(),
-            ) as kar,
+            mock.patch('app.browser.ziniao_startup.kill_all_ziniao') as fk,
+            mock.patch('app.browser.ziniao_startup.launch_ziniao') as kar,
         ):
             MockProxy.return_value.start = mock.AsyncMock()
             await ZiniaoBackend().start(cfg)
@@ -111,8 +109,9 @@ class TestInstrumentationGate:
             return ({'statusCode': '0', 'debuggingPort': 6000}, '127.0.0.1')
 
         with (
-            mock.patch.object(
-                zmod, 'ensure_ziniao_running', new=mock.AsyncMock()
+            mock.patch(
+                'app.browser.ziniao_startup.ensure_ziniao_running',
+                new=mock.AsyncMock(),
             ),
             mock.patch.object(zmod, 'update_ziniao_core', new=mock.AsyncMock()),
             mock.patch.object(

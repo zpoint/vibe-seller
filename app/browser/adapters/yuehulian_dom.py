@@ -54,6 +54,35 @@ NAV_TO_STORE_LIST_JS = (
 )
 
 
+# The data row of the store NAMED exactly ``name`` (one of its cells reads
+# exactly the name — never a substring: 'test' must not match 'test-2'),
+# among the data rows (first line = numeric seq). Leaves ``rows`` and
+# ``idx`` (−1 when absent) in scope; the operation rows of the
+# fixed-right table line up with ``rows`` by index.
+_ROW_IDX_JS = (
+    "var rows=Array.from(document.querySelectorAll('.el-table__row'))"
+    ".filter(function(r){var h=(r.innerText||'').trim().split('\\n')[0]"
+    '.trim();return /^[0-9]+$/.test(h);});'
+    'var idx=rows.findIndex(function(r){'
+    "return Array.from(r.querySelectorAll('td')).some(function(td){"
+    "return (td.innerText||'').trim()===name;});});"
+)
+
+# The store row's primary action button (first one with text): 'Open'
+# when the env is closed, 'Opened' when the client thinks it is open.
+_ACTION_BTN_JS = (
+    'var actionRows=Array.from(document.querySelectorAll('
+    "'.el-table__fixed-right .el-table__row'));"
+    'var cell=idx<0?null:actionRows[idx];'
+    "var btn=cell?Array.from(cell.querySelectorAll('button')).find("
+    "function(b){return (b.innerText||'').trim().length>0;}):null;"
+)
+
+
+# A data row's selection box.
+_BOX_JS = "function box(r){return r.querySelector('.el-checkbox__input');}"
+
+
 def click_open_js(store_name: str) -> str:
     """JS that clicks the Open action on the row matching ``store_name``.
 
@@ -70,6 +99,7 @@ def click_open_js(store_name: str) -> str:
     the Nth entry no longer lines up with the Nth data row and the click
     lands on the wrong store. That case is real: two concurrent tasks
     open two stores, so the second one always sees the first as 'Opened'.
+    The row is the one with a cell reading exactly the name.
 
     Returns ``'OK:<idx>'`` (clicked), ``'ALREADYOPEN:<label>'`` (the store
     is already open, so no fresh debug-port kernel will spawn), or
@@ -78,23 +108,113 @@ def click_open_js(store_name: str) -> str:
     name = json.dumps(store_name)
     return (
         '(function(name){'
-        "var rows=Array.from(document.querySelectorAll('.el-table__row'))"
-        ".filter(function(r){var h=(r.innerText||'').trim().split('\\n')[0]"
-        '.trim();return /^[0-9]+$/.test(h);});'
-        'var idx=rows.findIndex(function(r){'
-        "return (r.innerText||'').includes(name);});"
-        "if(idx<0)return 'NOTFOUND';"
-        'var actionRows=Array.from(document.querySelectorAll('
-        "'.el-table__fixed-right .el-table__row'));"
-        "var cell=actionRows[idx];if(!cell)return 'NOTFOUND';"
-        "var btn=Array.from(cell.querySelectorAll('button')).find("
-        "function(b){return (b.innerText||'').trim().length>0;});"
-        "if(!btn)return 'NOTFOUND';"
+        + _ROW_IDX_JS
+        + "if(idx<0)return 'NOTFOUND';"
+        + _ACTION_BTN_JS
+        + "if(!btn)return 'NOTFOUND';"
         "var label=(btn.innerText||'').trim();"
         "if(label!=='Open')return 'ALREADYOPEN:'+label;"
         "btn.click();return 'OK:'+idx;"
         '})(' + name + ')'
     )
+
+
+def row_label_js(store_name: str) -> str:
+    """JS returning the store row's action label ('Open' / 'Opened' / …),
+    or ``'NOTFOUND'``."""
+    return (
+        '(function(name){'
+        + _ROW_IDX_JS
+        + _ACTION_BTN_JS
+        + "return btn?(btn.innerText||'').trim():'NOTFOUND';"
+        '})(' + json.dumps(store_name) + ')'
+    )
+
+
+def select_only_row_js(store_name: str) -> str:
+    """JS ticking the selection box of ``store_name``'s row ONLY: every
+    other ticked row is unticked. ``'CLICKED:<idx>'`` / ``'NOTFOUND'``.
+
+    Element-UI re-renders the boxes asynchronously, so the result must be
+    read back with :func:`selected_only_js` afterwards — a read in the
+    same tick still sees the old state.
+    """
+    return (
+        '(function(name){'
+        + _ROW_IDX_JS
+        + "if(idx<0)return 'NOTFOUND';"
+        + _BOX_JS
+        + 'rows.forEach(function(r,i){var b=box(r);if(!b)return;'
+        "var on=b.classList.contains('is-checked');"
+        'if(on!==(i===idx))b.click();});'
+        "return 'CLICKED:'+idx;"
+        '})(' + json.dumps(store_name) + ')'
+    )
+
+
+def selected_only_js(store_name: str) -> str:
+    """JS reading the selection back: ``'OK:<idx>'`` only when exactly
+    ``store_name``'s row is ticked, else ``'BADSELECT'`` / ``'NOTFOUND'``.
+    A batch action must never reach another store's env."""
+    return (
+        '(function(name){'
+        + _ROW_IDX_JS
+        + "if(idx<0)return 'NOTFOUND';"
+        + _BOX_JS
+        + 'var on=rows.map(function(r){var b=box(r);'
+        "return !!(b&&b.classList.contains('is-checked'));});"
+        'var n=on.filter(Boolean).length;'
+        "return (n===1&&on[idx])?'OK:'+idx:'BADSELECT';"
+        '})(' + json.dumps(store_name) + ')'
+    )
+
+
+# Untick every selected row (leave the list as we found it).
+CLEAR_SELECTION_JS = (
+    '(function(){'
+    "Array.from(document.querySelectorAll('.el-table__row "
+    ".el-checkbox__input.is-checked')).forEach(function(b){b.click();});"
+    "return 'OK';})()"
+)
+
+# Open the toolbar's "More Batch Operations" dropdown (it holds the
+# client's own close-browser action). 'OK' / 'NOTRIGGER'.
+OPEN_BATCH_MENU_JS = (
+    '(function(){'
+    "var t=Array.from(document.querySelectorAll('button.el-dropdown-selfdefine'))"
+    '.find(function(b){return /More Batch Operations|更多批量操作/.test('
+    "(b.innerText||'').trim());});"
+    "if(!t)return 'NOTRIGGER';"
+    "t.dispatchEvent(new MouseEvent('mouseenter',{bubbles:true}));"
+    "t.click();return 'OK';})()"
+)
+
+# Click the visible "close browser" item of that dropdown — and nothing
+# else: the same menu holds Delete / 解绑环境, so the match is on the close
+# label only (the client ships it as the raw key 'brower.close_browser').
+# 'CLICKED' / 'NOITEM:<labels>'.
+CLICK_CLOSE_BROWSER_JS = (
+    '(function(){'
+    "var items=Array.from(document.querySelectorAll('.el-dropdown-menu__item'))"
+    '.filter(function(i){return i.offsetParent;});'
+    'var it=items.find(function(i){return '
+    "/close_browser|关闭浏览器|close browser/i.test((i.innerText||'').trim());});"
+    "if(!it)return 'NOITEM:'+items.map(function(i){"
+    "return (i.innerText||'').trim();}).join('|');"
+    "it.click();return 'CLICKED';})()"
+)
+
+# Confirm the client's "close the browser window?" dialog.
+# 'CONFIRMED' / 'NODIALOG' / 'NOBTN'.
+CONFIRM_DIALOG_JS = (
+    '(function(){'
+    "var box=Array.from(document.querySelectorAll('.el-message-box'))"
+    '.find(function(b){return b.offsetParent;});'
+    "if(!box)return 'NODIALOG';"
+    "var b=Array.from(box.querySelectorAll('button')).find(function(x){"
+    "return /^(Confirm|确定|确认|OK)$/.test((x.innerText||'').trim());});"
+    "if(!b)return 'NOBTN';b.click();return 'CONFIRMED';})()"
+)
 
 
 # Click the store-list pagination's Next button when it is enabled. The

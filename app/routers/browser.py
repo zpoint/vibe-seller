@@ -1,7 +1,7 @@
 import logging
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,14 +35,6 @@ async def download_ziniao_launcher():
 
 @router.post('/api/browser/web/start')
 async def start_web_browser(
-    force: bool = Query(
-        False,
-        description=(
-            'Accepted for parity with the store browser-start route. '
-            'The web browser has no Ziniao force-restart path, so this '
-            'is currently a no-op; wrappers pass force=1.'
-        ),
-    ),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
