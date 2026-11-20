@@ -407,3 +407,45 @@ class TestPlannerQuestions:
                 'task_id': task_id,
             }
         ]
+
+
+class TestFailureCode:
+    async def test_a_planner_that_cannot_start_says_so(
+        self, admin_client, install_fake_agent, monkeypatch
+    ):
+        """The schedule records WHY (a code the UI translates), not only
+        the technical text."""
+
+        import app.routers.schedule_planning as planning  # noqa: PLC0415
+
+        launch = planning.schedule_or_run
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError('launcher exploded')
+
+        monkeypatch.setattr(planning, 'schedule_or_run', _boom)
+        r = await admin_client.post(
+            '/api/schedules',
+            json={
+                'title': 'Cannot start',
+                'description': 'd',
+                'schedule_type': 'days',
+                'schedule_time': '09:00',
+                'plan_mode': True,
+            },
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body['plan_status'] == 'failed'
+        assert body['plan_error_code'] == 'start_failed'
+        assert 'launcher exploded' in body['plan_error']
+        plan = (
+            await admin_client.get(f'/api/schedules/{body["id"]}/plan')
+        ).json()
+        assert plan['plan_error_code'] == 'start_failed'
+
+        # Re-planning clears it.
+        monkeypatch.setattr(planning, 'schedule_or_run', launch)
+        r = await admin_client.post(f'/api/schedules/{body["id"]}/replan')
+        assert r.json()['plan_error_code'] is None
+        await wait_plan_status(body['id'], 'pending_approval')

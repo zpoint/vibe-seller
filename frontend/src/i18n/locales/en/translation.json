@@ -823,7 +823,16 @@
       "proposedHeading": "New plan",
       "approvedHeading": "Approved plan",
       "approvedKeepsRunning": "The approved plan keeps running until you approve the new one.",
-      "yourFeedback": "Changes you asked for:"
+      "yourFeedback": "Changes you asked for:",
+      "failure": {
+        "planner_died": "The AI writing the plan stopped before it finished. Click \"Try again\" to write it again.",
+        "server_restart": "Vibe Seller restarted while the plan was being written, so it was not finished. Click \"Try again\" to write it again.",
+        "stopped": "Writing the plan was stopped. Click \"Try again\" if you want a new one.",
+        "no_plan": "The AI finished without writing a plan. Click \"Try again\".",
+        "start_failed": "Writing the plan could not start. Click \"Try again\"; if it still fails, check the model and API key in Settings → AI.",
+        "other": "Something went wrong while writing the plan. Click \"Try again\".",
+        "detail": "Details: "
+      }
     },
     "nextRun": "Next Run",
     "runs": "Runs",

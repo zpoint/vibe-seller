@@ -55,6 +55,7 @@ def _ensure_added_columns(conn) -> None:
         # owner's approval, and their requested changes.
         ('schedules', 'proposed_plan', 'TEXT'),
         ('schedules', 'plan_feedback', 'TEXT'),
+        ('schedules', 'plan_error_code', 'VARCHAR(32)'),
         # Backfill: these four shipped on the model but were never
         # added here, so any DB created before each one landed is
         # still missing the column. Harmless to re-run; the PRAGMA

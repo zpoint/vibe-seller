@@ -64,6 +64,7 @@ async def migrate_forced_plan_schedules(session) -> int:
         sched.proposed_plan = None
         sched.plan_feedback = None
         sched.plan_error = None
+        sched.plan_error_code = None
         sched.current_planning_task_id = None
         sched.updated_at = now
     if converted:

@@ -219,6 +219,7 @@ class TestDeadPlanner:
         s, t = await _state(maker, sched_id, task_id)
         assert s.plan_status == 'failed'
         assert s.plan_error == _reaper.PLANNER_DIED_MESSAGE
+        assert s.plan_error_code == 'planner_died'
         assert s.current_planning_task_id is None
         assert t.status == 'failed'
         assert t.error_category == 'planner_died'
@@ -335,6 +336,7 @@ class TestTerminalReconcile:
             assert s.plan_status == 'failed'
             assert s.current_planning_task_id is None
             assert s.plan_error and 'ExitPlanMode' in s.plan_error
+            assert s.plan_error_code == 'no_plan'
 
     async def test_missing_pointer_cleaned_up(self, reaper_env):
         """Schedule in planning with no pointer → failed (repair)."""
@@ -360,3 +362,51 @@ class TestTerminalReconcile:
         async with maker() as db:
             s = await db.get(Schedule, sched_id)
             assert s.plan_status == 'failed'
+
+
+class TestFailureCodes:
+    """The UI says why a plan failed from the code, in the user's language."""
+
+    @pytest.mark.parametrize(
+        ('category', 'code'),
+        [
+            ('server_restart', 'server_restart'),
+            ('stopped_by_user', 'stopped'),
+            ('planning_launch_failed', 'start_failed'),
+            ('cli_error', 'other'),
+            (None, 'other'),
+        ],
+    )
+    async def test_failed_planner_maps_to_a_code(
+        self, reaper_env, category, code
+    ):
+        maker, _ = reaper_env
+        sched_id, task_id = await _mk(
+            maker, plan_status='planning', task_status='failed', minutes_ago=1
+        )
+        async with maker() as db:
+            t = await db.get(Task, task_id)
+            t.error = 'technical detail'
+            t.error_category = category
+            await db.commit()
+        await _reaper.reap_stuck_planning_tasks()
+        s, _t = await _state(maker, sched_id, task_id)
+        assert s.plan_status == 'failed'
+        assert s.plan_error_code == code
+        assert s.plan_error == 'technical detail'
+
+    async def test_a_new_planning_round_clears_the_code(self, reaper_env):
+        from app.plan_states import (  # noqa: PLC0415
+            PlanFailure,
+            clear_plan_failure,
+            fail_plan,
+        )
+
+        sched = Schedule(plan_status='planning')
+        fail_plan(sched, PlanFailure.SERVER_RESTART, 'x')
+        assert (sched.plan_status, sched.plan_error_code) == (
+            'failed',
+            'server_restart',
+        )
+        clear_plan_failure(sched)
+        assert sched.plan_error_code is None and sched.plan_error is None

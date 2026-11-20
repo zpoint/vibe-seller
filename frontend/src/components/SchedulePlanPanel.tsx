@@ -24,6 +24,7 @@ export interface SchedulePlanResponse {
   proposed_plan?: string | null
   /** The user's last "request changes" text. */
   plan_feedback?: string | null
+  plan_error_code?: string | null
   plan_error: string | null
   current_planning_task_id: string | null
   planning_task_history: PlanningTaskSummary[]
@@ -57,6 +58,11 @@ const STATUS_PILL: Record<SchedulePlanStatus, string> = {
   failed: 'bg-red-100 text-red-800',
   none: 'bg-amber-100 text-amber-800',
 }
+
+// Plan failure reasons the server records (app.plan_states.PlanFailure).
+const KNOWN_FAILURES = new Set([
+  'planner_died', 'server_restart', 'stopped', 'no_plan', 'start_failed', 'other',
+])
 
 const PROSE =
   'prose prose-sm max-w-none prose-p:my-1.5 prose-ul:my-1.5 prose-li:my-0.5'
@@ -175,6 +181,10 @@ export function SchedulePlanPanel({
   const revising = !!planText && REVISION_STATES.includes(status)
   const planVersion = plan?.plan_version ?? schedule.plan_version
   const planError = plan?.plan_error ?? schedule.plan_error
+  const planErrorCode = plan?.plan_error_code ?? schedule.plan_error_code ?? null
+  // A known reason is said in plain words; the technical text is only
+  // shown when the cause is unknown (or the row predates the codes).
+  const failureKey = planErrorCode && KNOWN_FAILURES.has(planErrorCode) ? planErrorCode : null
   const planFeedback = plan?.plan_feedback ?? schedule.plan_feedback ?? null
   const planningTaskId =
     plan?.current_planning_task_id ?? schedule.current_planning_task_id
@@ -220,9 +230,15 @@ export function SchedulePlanPanel({
         {cta}
       </div>
 
-      <div className="px-4 pb-3 text-xs text-gray-600">
-        {t(`schedules.plan.explainer.${status}`)}
-      </div>
+      {status === 'failed' && failureKey ? (
+        <div className="px-4 pb-3 text-sm text-red-800" data-testid="plan-failure-reason">
+          {t(`schedules.plan.failure.${failureKey}`)}
+        </div>
+      ) : (
+        <div className="px-4 pb-3 text-xs text-gray-600">
+          {t(`schedules.plan.explainer.${status}`)}
+        </div>
+      )}
 
       {revising && (
         <div
@@ -273,9 +289,10 @@ export function SchedulePlanPanel({
         </div>
       )}
 
-      {planError && (
-        <div className="mx-4 mb-3 px-3 py-2 text-xs font-mono bg-red-50 border border-red-100 text-red-800 rounded break-all">
-          {planError}
+      {planError && (!failureKey || failureKey === 'other') && (
+        <div className="mx-4 mb-3 px-3 py-2 text-xs bg-red-50 border border-red-100 text-red-800 rounded break-all" data-testid="plan-failure-detail">
+          {failureKey && <span className="font-medium">{t('schedules.plan.failure.detail')}</span>}
+          <span className="font-mono">{planError}</span>
         </div>
       )}
 

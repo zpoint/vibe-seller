@@ -825,7 +825,16 @@
       "proposedHeading": "新方案",
       "approvedHeading": "已批准的方案",
       "approvedKeepsRunning": "在你同意新方案之前，仍按已批准的方案运行。",
-      "yourFeedback": "你的修改意见："
+      "yourFeedback": "你的修改意见：",
+      "failure": {
+        "planner_died": "写方案的 AI 中途停下了，方案没写完。点「重新生成方案」再写一次。",
+        "server_restart": "Vibe Seller 在写方案时重启了，方案没写完。点「重新生成方案」再写一次。",
+        "stopped": "写方案被停止了。需要的话，点「重新生成方案」再写一次。",
+        "no_plan": "AI 这次没有写出方案。点「重新生成方案」再试一次。",
+        "start_failed": "没能开始写方案。点「重新生成方案」再试一次；还不行的话，到「设置 → AI」检查模型和 API 密钥。",
+        "other": "写方案时出错了。点「重新生成方案」再试一次。",
+        "detail": "详细信息："
+      }
     },
     "nextRun": "下次执行",
     "runs": "执行记录",

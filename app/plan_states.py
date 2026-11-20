@@ -42,6 +42,39 @@ class PlanStatus(enum.StrEnum):
     FAILED = 'failed'
 
 
+class PlanFailure(enum.StrEnum):
+    """Why a review schedule's plan could not be written.
+
+    Stored as ``Schedule.plan_error_code`` so the UI can say it in the
+    user's language; ``plan_error`` keeps the technical detail.
+    """
+
+    # The planning agent stopped and nothing could resume it.
+    PLANNER_DIED = 'planner_died'
+    # The server restarted while the plan was being written.
+    SERVER_RESTART = 'server_restart'
+    # Someone stopped the planning run.
+    STOPPED = 'stopped'
+    # The planning run finished without writing a plan.
+    NO_PLAN = 'no_plan'
+    # The planning run could not be started.
+    START_FAILED = 'start_failed'
+    # Any other error (see plan_error for the detail).
+    OTHER = 'other'
+
+
+def fail_plan(sched, code: PlanFailure, detail: str | None) -> None:
+    """Mark the plan failed with a reason code and the technical detail."""
+    sched.plan_status = PlanStatus.FAILED.value
+    sched.plan_error_code = code.value
+    sched.plan_error = detail
+
+
+def clear_plan_failure(sched) -> None:
+    sched.plan_error_code = None
+    sched.plan_error = None
+
+
 def freeze_schedule_plan(sched, plan_text: str | None, now: str) -> None:
     """Make *plan_text* the schedule's approved plan: the one commit point.
 
@@ -55,7 +88,7 @@ def freeze_schedule_plan(sched, plan_text: str | None, now: str) -> None:
     sched.plan_feedback = None
     sched.plan_status = PlanStatus.READY.value
     sched.plan_version = (sched.plan_version or 0) + 1
-    sched.plan_error = None
+    clear_plan_failure(sched)
     sched.current_planning_task_id = None
     sched.updated_at = now
 

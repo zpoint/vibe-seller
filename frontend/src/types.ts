@@ -357,6 +357,8 @@ export interface Schedule {
   proposed_plan?: string | null
   // The user's last "request changes" text, handed to the next plan.
   plan_feedback?: string | null
+  // Why the plan failed, as a code (see SchedulePlanPanel).
+  plan_error_code?: string | null
 }
 
 /** One schedule whose plan waits for approval (GET /api/schedules/attention). */

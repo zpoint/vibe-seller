@@ -156,6 +156,7 @@ async def schedule_summary(ctx: McpContext, schedule) -> dict:
         'review_plan': bool(schedule.plan_mode) and not schedule.is_system,
         'plan_version': schedule.plan_version,
         'plan_error': schedule.plan_error,
+        'plan_error_code': schedule.plan_error_code,
         'plan_task_id': schedule.current_planning_task_id,
         # The APPROVED plan fires run, verbatim (trimmed only if it
         # is longer than one field's budget).

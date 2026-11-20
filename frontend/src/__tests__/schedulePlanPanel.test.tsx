@@ -277,6 +277,32 @@ describe('SchedulePlanPanel', () => {
       await screen.findByTestId('plan-replan')
       expect(screen.getByText(/LLM quota exceeded/)).toBeTruthy()
     })
+
+    it('says a known reason in plain words and hides the technical text', async () => {
+      mockGet.mockResolvedValue({
+        plan_status: 'failed', plan_version: 0, plan_text: null,
+        plan_error: 'Server restarted while task was active',
+        plan_error_code: 'server_restart',
+        current_planning_task_id: null, planning_task_history: [],
+      })
+      renderPanel(sched({ plan_status: 'failed' }))
+      const reason = await screen.findByTestId('plan-failure-reason')
+      expect(reason.textContent).toContain('Vibe Seller restarted while the plan was being written')
+      expect(screen.queryByTestId('plan-failure-detail')).toBeNull()
+      expect(screen.queryByText(/Server restarted while task was active/)).toBeNull()
+    })
+
+    it('an unknown cause keeps the detail under the plain sentence', async () => {
+      mockGet.mockResolvedValue({
+        plan_status: 'failed', plan_version: 0, plan_text: null,
+        plan_error: 'LLM quota exceeded', plan_error_code: 'other',
+        current_planning_task_id: null, planning_task_history: [],
+      })
+      renderPanel(sched({ plan_status: 'failed' }))
+      const reason = await screen.findByTestId('plan-failure-reason')
+      expect(reason.textContent).toContain('Something went wrong while writing the plan')
+      expect(screen.getByTestId('plan-failure-detail').textContent).toContain('Details: LLM quota exceeded')
+    })
   })
 
   describe('history disclosure', () => {

@@ -30,7 +30,10 @@ from app.models.schedule_constants import PhaseMode
 from app.models.task import Task
 from app.models.user import User
 from app.plan_states import (
+    PlanFailure,
     PlanStatus,
+    clear_plan_failure,
+    fail_plan,
     is_review_schedule,
     review_plan_fires,
 )
@@ -124,7 +127,7 @@ def drop_review_state(sched: Schedule) -> None:
     sched.plan = None
     sched.proposed_plan = None
     sched.plan_feedback = None
-    sched.plan_error = None
+    clear_plan_failure(sched)
     sched.plan_status = PlanStatus.NONE.value
 
 
@@ -171,7 +174,7 @@ async def spawn_planning_task(
     await db.flush()
     schedule.current_planning_task_id = task.id
     schedule.plan_status = PlanStatus.PLANNING.value
-    schedule.plan_error = None
+    clear_plan_failure(schedule)
     schedule.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
     await db.refresh(task)
@@ -210,8 +213,11 @@ async def spawn_planning_task_or_fail(
                 orphan.error_category = 'planning_launch_failed'
                 orphan.updated_at = datetime.now(UTC).isoformat()
         schedule.current_planning_task_id = None
-        schedule.plan_status = PlanStatus.FAILED.value
-        schedule.plan_error = f'Failed to spawn planning task: {e}'
+        fail_plan(
+            schedule,
+            PlanFailure.START_FAILED,
+            f'Failed to spawn planning task: {e}',
+        )
         await db.commit()
 
 
@@ -341,7 +347,7 @@ async def retry_schedule_plan(
             )
         sched.current_planning_task_id = task.id
         sched.plan_status = PlanStatus.PLANNING.value
-        sched.plan_error = None
+        clear_plan_failure(sched)
         sched.updated_at = datetime.now(UTC).isoformat()
         return None
     if not schedule_needs_plan(sched):

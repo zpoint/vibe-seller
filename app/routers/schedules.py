@@ -26,7 +26,7 @@ from app.models.schedule_constants import (
 from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
-from app.plan_states import PlanStatus, schedule_fires
+from app.plan_states import PlanStatus, clear_plan_failure, schedule_fires
 from app.routers.schedule_planning import (
     abort_current_planning_task,
     drop_review_state,
@@ -443,7 +443,7 @@ async def update_schedule(
         schedule.plan = None
         schedule.proposed_plan = None
         schedule.plan_feedback = None
-        schedule.plan_error = None
+        clear_plan_failure(schedule)
 
     # Arm (or disarm) the finalize step. Only the empty ↔ non-empty
     # TRANSITION moves the stamp: editing the prompt text of a schedule
@@ -657,6 +657,7 @@ async def get_schedule_plan(
         proposed_plan=schedule.proposed_plan,
         plan_feedback=schedule.plan_feedback,
         plan_error=schedule.plan_error,
+        plan_error_code=schedule.plan_error_code,
         current_planning_task_id=schedule.current_planning_task_id,
         planning_task_history=history,
         finalize_description=schedule.finalize_description,

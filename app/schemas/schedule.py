@@ -83,6 +83,7 @@ class ScheduleResponse(BaseModel):
     plan_status: str = 'none'
     plan_version: int = 0
     plan_error: str | None = None
+    plan_error_code: str | None = None
     current_planning_task_id: str | None = None
     proposed_plan: str | None = None
     plan_feedback: str | None = None
@@ -119,6 +120,7 @@ class SchedulePlanResponse(BaseModel):
     proposed_plan: str | None = None
     plan_feedback: str | None = None
     plan_error: str | None = None
+    plan_error_code: str | None = None
     current_planning_task_id: str | None = None
     planning_task_history: list[SchedulePlanTaskSummary] = []
     # Parent finalize/reduce step the plan agent registered (or null).

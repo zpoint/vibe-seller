@@ -446,6 +446,7 @@ All endpoints returning a schedule serialize these fields:
 | `plan_status` | `'none' \| 'planning' \| 'pending_approval' \| 'ready' \| 'stale' \| 'failed'` | Plan review lifecycle — see [`PlanStatus`](subsystems.md#plan-at-creation-lifecycle). |
 | `plan_version` | int | Monotonic counter, bumped on every proposal and every approval. Use as `If-Match` when sending PUT, and on approve / request-changes. |
 | `plan_error` | string \| null | Last planner failure reason (shown in the UI banner on `failed`). Cleared on successful plan commit or on prompt-edit invalidation. |
+| `plan_error_code` | string \| null | Why the plan failed, as a code the UI translates: `planner_died`, `server_restart`, `stopped`, `no_plan`, `start_failed`, `other` (`app.plan_states.PlanFailure`). Cleared with `plan_error`. |
 | `current_planning_task_id` | string \| null | Task ID currently authoring the plan, if any. |
 | `next_run` | string \| null | Next APScheduler fire time (ISO). |
 | `child_task_count` | int | Count of non-plan-only child tasks. |

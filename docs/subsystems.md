@@ -74,7 +74,7 @@ API, `review_plan` over MCP):
 | `pending_approval` | `proposed_plan` waits for the owner; costs nothing, never expires | only an earlier approved plan |
 | `ready` | `plan` is the approved plan | yes |
 | `stale` | Legacy: prompt edited, no planner started | no |
-| `failed` | Planner failed or its agent died (`plan_error`) | only an earlier approved plan |
+| `failed` | Planner failed or its agent died — `plan_error_code` says why (`planner_died`, `server_restart`, `stopped`, `no_plan`, `start_failed`, `other`; the UI translates it), `plan_error` keeps the detail | only an earlier approved plan |
 
 Columns: `plan` = the approved plan (the only text a fire copies);
 `proposed_plan` = the plan awaiting approval; `plan_feedback` = the

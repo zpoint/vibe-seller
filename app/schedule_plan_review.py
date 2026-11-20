@@ -58,6 +58,7 @@ async def end_planner_with_proposal(
             plan_status=PlanStatus.PENDING_APPROVAL.value,
             plan_version=Schedule.plan_version + 1,
             plan_error=None,
+            plan_error_code=None,
             current_planning_task_id=None,
             updated_at=now,
         )
@@ -178,6 +179,7 @@ async def approve_proposal(
             plan_status=PlanStatus.READY.value,
             plan_version=Schedule.plan_version + 1,
             plan_error=None,
+            plan_error_code=None,
             current_planning_task_id=None,
             updated_at=now,
         )

@@ -125,6 +125,11 @@ class Schedule(Base):
         String, nullable=True
     )
     plan_error: Mapped[str | None] = mapped_column(SafeText, nullable=True)
+    # Why the plan failed, as a code the UI translates
+    # (app.plan_states.PlanFailure); plan_error keeps the detail.
+    plan_error_code: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
     # Review schedules only: the plan a planner wrote, waiting for the
     # owner's approval (plan_status='pending_approval'). Never fired —
     # approval moves it into ``plan``.

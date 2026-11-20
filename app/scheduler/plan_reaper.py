@@ -38,7 +38,7 @@ from app.database import async_session
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
 from app.models.task import Task
-from app.plan_states import PlanStatus
+from app.plan_states import PlanFailure, PlanStatus, fail_plan
 from app.schedule_plan_review import (
     emit_proposal_events,
     end_planner_with_proposal,
@@ -57,9 +57,20 @@ PLANNER_DIED_MESSAGE = (
 )
 
 
-def _fail_schedule(sched: Schedule, message: str) -> None:
-    sched.plan_status = PlanStatus.FAILED.value
-    sched.plan_error = message
+# A failed planner's error_category → why the plan failed, as the
+# code the UI translates (PlanFailure). Unknown categories are OTHER.
+_FAILURE_OF_CATEGORY = {
+    'server_restart': PlanFailure.SERVER_RESTART,
+    'stopped_by_user': PlanFailure.STOPPED,
+    'planner_died': PlanFailure.PLANNER_DIED,
+    'planning_launch_failed': PlanFailure.START_FAILED,
+}
+
+
+def _fail_schedule(
+    sched: Schedule, code: PlanFailure, message: str | None
+) -> None:
+    fail_plan(sched, code, message)
     sched.current_planning_task_id = None
     sched.updated_at = datetime.now(UTC).isoformat()
 
@@ -95,7 +106,9 @@ async def reap_stuck_planning_tasks() -> None:
             if task is None:
                 # Creation sets pointer + status atomically, so
                 # `planning` with no planner means nothing is coming.
-                _fail_schedule(sched, PLANNER_DIED_MESSAGE)
+                _fail_schedule(
+                    sched, PlanFailure.PLANNER_DIED, PLANNER_DIED_MESSAGE
+                )
                 continue
             if task.status in _WAITING:
                 continue
@@ -105,13 +118,20 @@ async def reap_stuck_planning_tasks() -> None:
                 else:
                     _fail_schedule(
                         sched,
+                        PlanFailure.NO_PLAN,
                         task.error
                         or 'Planning task completed without calling '
                         'ExitPlanMode — no plan was saved.',
                     )
                 continue
             if task.status == TaskStatus.FAILED:
-                _fail_schedule(sched, task.error or 'The planning run failed.')
+                _fail_schedule(
+                    sched,
+                    _FAILURE_OF_CATEGORY.get(
+                        task.error_category or '', PlanFailure.OTHER
+                    ),
+                    task.error or 'The planning run failed.',
+                )
                 continue
             if _planner_live(task, now):
                 continue
@@ -140,7 +160,9 @@ async def reap_stuck_planning_tasks() -> None:
                 task.error = PLANNER_DIED_MESSAGE
                 task.error_category = 'planner_died'
                 task.updated_at = now.isoformat()
-            _fail_schedule(sched, PLANNER_DIED_MESSAGE)
+            _fail_schedule(
+                sched, PlanFailure.PLANNER_DIED, PLANNER_DIED_MESSAGE
+            )
             died.append((sched.id, task.id))
 
         landed = []
