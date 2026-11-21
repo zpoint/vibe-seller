@@ -48,6 +48,17 @@ repos:
         files: ^frontend/
         pass_filenames: false
 
+    # A child started with stdout/stderr=PIPE that nobody reads blocks
+    # on its own write once the pipe buffer fills, and the wait() for it
+    # never returns — that is how _run_git wedged the workspace git lock
+    # (fixed in app/workspace/git_run.py, which uses communicate()).
+    # Escape hatch: `# pipe-ok: <reason>` on the spawn or the wait line.
+    -   id: subprocess-pipes
+        name: subprocess pipes read before wait()
+        entry: python3 scripts/check_subprocess_pipes.py
+        language: system
+        files: ^app/.*\.py$
+
     -   id: line-limit
         name: enforce 800-line limit
         entry: scripts/check_line_limit.sh
