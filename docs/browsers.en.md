@@ -22,7 +22,7 @@ vendor's own site:
 |---|---|---|---|---|---|---|
 | Chrome | The system's own Chrome / Chromium (launched by Playwright) | Running a single store yourself; public-web work | macOS / Linux / WSLg | Built in, no install | — | [Stores & Browsers → Creating a store](stores.en.md#creating-a-store) |
 | Ziniao | Third-party anti-detect browser (developer / WebDriver mode, driven over CDP) | One team managing many accounts; strict risk control | macOS / Linux / Windows | [ziniao.com](https://www.ziniao.com) · [download](https://www.ziniao.com/download) | Register an enterprise account → BOSS enables developer mode on the [Open Platform](https://open.ziniao.com/docSupport?docId=99) and ticks WebDriver login for the sub-account | [Ziniao setup](ziniao.en.md) |
-| Yuehulian | Chinese anti-detect e-commerce browser (Node inspector + CDP) | One team managing many accounts (Windows) | Windows only (incl. WSL-on-Windows) | [kj.chinafic.com](https://kj.chinafic.com/) · client download on the site | Register an enterprise account → create sub-accounts and grant store permissions in the console (team login = team name + sub-account + password) | [Yuehulian setup](yuehulian.en.md) |
+| Yuehulian | Chinese anti-detect e-commerce browser | One team managing many accounts (Windows) | Windows only (incl. WSL-on-Windows) | [kj.chinafic.com](https://kj.chinafic.com/) · client download on the site | Register an enterprise account → create sub-accounts and grant store permissions in the console (team login = team name + sub-account + password) | [Yuehulian setup](yuehulian.en.md) |
 
 > Windows also has a fourth backend, `winchrome` (set at deployment, not a
 > choice in the store form) — see the end of "Which browser backend?".
@@ -31,7 +31,7 @@ vendor's own site:
 
 | | Ziniao (Browser Backend) | Yuehulian (Browser Backend) | Chrome |
 |---|---|---|---|
-| What it is | A third-party anti-detect fingerprint browser; driven over CDP through its developer (WebDriver) mode | A Chinese anti-detect e-commerce browser; no local API, driven via a Node inspector + CDP | The system's own Chrome / Chromium, launched by Playwright with a profile dedicated to this store |
+| What it is | A third-party anti-detect fingerprint browser; driven over CDP through its developer (WebDriver) mode | A Chinese anti-detect e-commerce browser; Vibe Seller opens and signs in to its client itself | The system's own Chrome / Chromium, launched by Playwright with a profile dedicated to this store |
 | Good for | One team managing many accounts that must not share fingerprints; strict risk control | One team managing many accounts (Windows) | Running a single store yourself, no extra software; public-web work |
 | What you need | A Ziniao enterprise account whose BOSS enabled developer mode | A Yuehulian team account (team + sub-account + password) | Nothing extra; on a headless Linux box you need a virtual display such as Xvfb |
 | Where logins live | Inside Ziniao's own profile — Vibe Seller only opens and drives it | Inside the Yuehulian client (Vibe Seller auto-signs-in) | In this store's own Chrome profile directory, kept across tasks |
@@ -44,9 +44,8 @@ Ziniao accounts, which suits stores on marketplaces with strict risk
 control. What to enable and how to handle errors: [Ziniao: Setup & Common
 Errors](ziniao.en.md).
 
-Yuehulian is an anti-detect browser like Ziniao, but it ships no local
-API, so Vibe Seller drives it via a Node inspector + CDP, and it is
-**Windows-only**; a machine keeps a single Yuehulian account and
+Yuehulian is an anti-detect browser like Ziniao. Vibe Seller opens and
+signs in to its client itself, and it is **Windows-only**; a machine keeps a single Yuehulian account and
 auto-signs-in when the session expires. Download, team-account creation,
 binding and errors: [Yuehulian: Setup Guide](yuehulian.en.md).
 

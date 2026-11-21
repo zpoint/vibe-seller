@@ -56,7 +56,7 @@ A saved key is masked in the UI by default — an admin can click **Show** / **C
 
 In the sidebar (Tasks view) click **+ New Store**, give it a **Store Name**, choose the browser backend from the dropdown, then click **Create**:
 
-- **Ziniao (Browser Backend)** — the anti-detect browser. Click the `+` next to the account field to add a Ziniao account with your **Company / Username / Password** (the same ones you use to log into Ziniao), save, then pick **Select Ziniao account...** and **Select store profile...**.
+- **Ziniao (Browser Backend)** — the anti-detect browser. Click the `+` next to the account field to add a Ziniao account with your **Company / Username / Password** (the same ones you use to log into Ziniao), save, then pick **Select Ziniao account...** and **Select store profile...**. Picking the account closes a Ziniao you opened by hand and reopens it; see [Picking a Ziniao account reopens Ziniao](ziniao.md#picking-a-ziniao-account-reopens-ziniao).
 - **Chrome** — pick this if you don't use Ziniao. It runs the Chromium that came with Vibe Seller, as a separate browser instance reserved for this store.
 
 !!! warning "Before you use Ziniao"
