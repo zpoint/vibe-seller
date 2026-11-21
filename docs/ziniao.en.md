@@ -6,7 +6,7 @@ description: Ziniao with Vibe Seller in one page — developer-mode and WebDrive
 
 Ziniao is a third-party anti-detect browser; Vibe Seller drives it over CDP through its developer (WebDriver) mode, and browser fingerprints stay isolated between Ziniao accounts — the right choice for stores on marketplaces with strict risk control. Before your first Ziniao store, the BOSS (admin) account has to do two one-time setups on the Ziniao side. The errors you may hit when binding a store, the extra step on Windows through WSL, and where the credentials live are all on this page.
 
-A Ziniao store's tasks also get a Chrome auxiliary browser for the logistics and overseas sites Ziniao can't open — see [Two browsers working together](stores.md#ziniao-stores-two-browsers-working-together).
+A Ziniao store's tasks also get a Chrome auxiliary browser for the logistics and overseas sites Ziniao can't open — see [Two browsers working together](browsers.md#store-browser-and-auxiliary-browser).
 
 If you don't use Ziniao, skip all of this: pick "Chrome" as the browser backend in the new-store form.
 
@@ -40,6 +40,15 @@ Add a Ziniao account with the "+" button in the new-store form (backend "Ziniao"
 Same credentials you use to log into Ziniao — Vibe Seller passes them to the developer-mode HTTP API to list your browser profiles and start sessions.
 
 Why the password at all: developer-mode auth is plain account-and-password — no OAuth / token flow exists on the Ziniao side today. If that's a deal-breaker, use plain Chrome instead (new-store form, backend "Chrome").
+
+## Picking a Ziniao account reopens Ziniao
+
+When you create or edit a store, picking a Ziniao account (or clicking **Refresh**) loads that account's store list. If Ziniao isn't running in developer mode at that moment (closed, or in normal mode because you are using it by hand), Vibe Seller first closes Ziniao and reopens it in developer mode, without asking.
+
+!!! warning "Ziniao windows you opened by hand are closed"
+    Store windows you opened in Ziniao by hand close with it, and unsaved work in them is lost. Save and finish what you are doing in Ziniao before binding a store.
+
+Reopening usually takes from a few seconds to a couple of minutes; the page shows how long it has waited, and the store list appears when Ziniao is ready. A Ziniao already running in developer mode is not restarted. On Windows (WSL), Vibe Seller never closes Ziniao itself; follow the [launcher steps](#windows-wsl-getting-ziniao-into-developer-mode-ziniao_webdriverbat) instead.
 
 ## "无权限通过 webdriver 登录" when binding a store
 
