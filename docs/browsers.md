@@ -14,7 +14,7 @@ Vibe Seller 通过 CDP（Chrome 底层远程控制协议）驱动**真实浏览�
 |---|---|---|---|---|---|---|
 | Chrome | 系统自带 Chrome / Chromium（Playwright 拉起） | 单店自用、公开网页任务 | macOS / Linux / WSLg | 系统自带，无需安装 | — | [店铺与浏览器 → 新建店铺](stores.md#新建店铺) |
 | 紫鸟 Ziniao | 第三方防关联浏览器（开发者模式 / WebDriver，CDP 驱动） | 一个团队管多账号、平台风控严格 | macOS / Linux / Windows | [ziniao.com](https://www.ziniao.com) · [下载](https://www.ziniao.com/download) | 官网注册企业账号 → 主账号在[开放平台](https://open.ziniao.com/docSupport?docId=99)开通开发者模式、给子账号勾选 WebDriver 登录 | [紫鸟配置指南](ziniao.md) |
-| 悦互联 YueHuLian | 国产电商防关联浏览器（Node inspector + CDP 驱动） | 一个团队管多账号（Windows） | 仅 Windows（含 WSL-on-Windows） | [kj.chinafic.com](https://kj.chinafic.com/) · 官网「客户端下载」 | 官网注册企业账号 → 控制台开子账号、分配店铺权限（团队登录 = 团队名称 + 子账号 + 密码） | [悦互联配置指南](yuehulian.md) |
+| 悦互联 YueHuLian | 国产电商防关联浏览器 | 一个团队管多账号（Windows） | 仅 Windows（含 WSL-on-Windows） | [kj.chinafic.com](https://kj.chinafic.com/) · 官网「客户端下载」 | 官网注册企业账号 → 控制台开子账号、分配店铺权限（团队登录 = 团队名称 + 子账号 + 密码） | [悦互联配置指南](yuehulian.md) |
 
 > Windows 上还有第四种后端 `winchrome`（部署时设置，不在店铺表单里选），见下文「选哪个浏览器后端」末段。
 
@@ -32,7 +32,7 @@ Vibe Seller 通过 CDP（Chrome 底层远程控制协议）驱动**真实浏览�
 紫鸟是第三方防关联浏览器，Vibe Seller 通过它的开发者模式（WebDriver）以 CDP 直接控制它。
 不同紫鸟账号之间的浏览器指纹互相隔离，适合平台风控严格的店铺。要开通什么、报错怎么处理，见 [紫鸟：开通与常见报错](ziniao.md)。
 
-悦互联和紫鸟一样是防关联浏览器，但它没有对外的本地 API，Vibe Seller 通过 Node inspector + CDP 驱动，且**只支持 Windows**；一台机器只保留一个悦互联账号，登录过期会自动登回。下载、创建团队账号、绑定、报错见 [悦互联：配置指南](yuehulian.md)。
+悦互联和紫鸟一样是防关联浏览器，Vibe Seller 会自动打开并登录它的客户端，**只支持 Windows**；一台机器只保留一个悦互联账号，登录过期会自动登回。下载、创建团队账号、绑定、报错见 [悦互联：配置指南](yuehulian.md)。
 
 Chrome 后端由 Playwright 为这个店铺拉起一个独立档案，不需要额外软件，也不需要把防关联浏览器的密码交给系统；Linux 无图形界面时需要 Xvfb 之类的虚拟显示。
 

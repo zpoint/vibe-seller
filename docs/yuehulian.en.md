@@ -5,12 +5,10 @@ description: Yuehulian in Vibe Seller — download and install, create a team ac
 # Yuehulian: Setup Guide
 
 Yuehulian (YueHuLian / 悦互联) is a Chinese anti-detect browser for
-e-commerce sellers ([official site](https://kj.chinafic.com/)). Unlike
-Ziniao, it ships **no local automation HTTP API**, so Vibe Seller drives
-its Electron client through a **Node inspector + renderer DOM** and
-injects a CDP debug port into the kernel it launches. From the CDP
-endpoint onward it reuses the same `CDPMuxProxy` path as the Ziniao and
-Chrome backends.
+e-commerce sellers ([official site](https://kj.chinafic.com/)). Once a
+store is bound, Vibe Seller opens and signs in to the Yuehulian client
+itself and uses it to open your stores for tasks; you don't need to
+operate the client by hand.
 
 **The Yuehulian backend is Windows-only** (including WSL running on
 Windows). On macOS / plain Linux the option does not appear in the
@@ -58,8 +56,7 @@ bind it in the same form, just like Ziniao:
 | Password | That sub-account's password |
 
 2. After saving, Vibe Seller signs the client in with this team login and
-   **auto-loads** the stores under the account (no separate "Load"
-   button).
+   loads the stores under the account.
 3. Pick the store this binding is for under "**Select a store...**" and
    hit "**Create**".
 
@@ -68,8 +65,8 @@ the frontend (see "Where credentials are stored" below).
 
 ## One account per machine
 
-This is the **only** difference from Ziniao: a machine can be signed in to
-exactly one Yuehulian account at a time, so the account row has **only a
+Unlike Ziniao, a machine can be signed in to exactly one Yuehulian
+account at a time, so the account row has **only a
 "+"** — no edit or delete. Clicking "+" and entering a new account
 **overwrites** the current one.
 
@@ -82,10 +79,8 @@ is refused with:
 
 To switch to a different Yuehulian account: delete every Yuehulian store
 under `Settings → Stores` first, then click "+" to add the new account and
-re-bind the stores. Because all Yuehulian stores on one machine share this
-single login, there is no "stores A and B on account 1, store C on
-account 2" case — and therefore no runtime account conflict; it's
-prevented at creation time.
+re-bind the stores. All Yuehulian stores on one machine share this one
+account.
 
 ## Auto-login
 
