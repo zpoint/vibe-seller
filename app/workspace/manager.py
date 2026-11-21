@@ -22,9 +22,9 @@ from app.text_utils import sanitize_text
 from app.workspace import skills_tree, task_links, venv_bootstrap
 from app.workspace.actor import current_actor
 from app.workspace.fs_walk import safe_stat, tolerant_rglob
+from app.workspace.git_run import run_git
 from app.workspace.ignored_paths import (
     RUNTIME_DIRS,
-    git_env as ignored_git_env,
     purge_ignored_history,
     untrack_ignored,
 )
@@ -550,24 +550,8 @@ class WorkspaceManager(SkillsMixin):
         self, *args, check: bool = True
     ) -> asyncio.subprocess.Process:
         """Run git in self.root; serialised on ``self._git_lock``."""
-        # GIT_*_NAME/EMAIL via env (setdefault; a real identity wins)
-        # keeps initial-commit working on hosts with no global
-        # `git config user.email/name` (#181), without touching .git/config.
-        git_env = ignored_git_env()
         async with self._git_lock:
-            proc = await asyncio.create_subprocess_exec(
-                'git',
-                *args,
-                cwd=str(self.root),
-                env=git_env,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.wait()
-            if check and proc.returncode != 0:
-                err = (await proc.stderr.read()).decode() if proc.stderr else ''
-                raise RuntimeError(f'git {" ".join(args)} failed: {err}')
-            return proc
+            return await run_git(self.root, *args, check=check)
 
     async def prepare_task_workspace(
         self,

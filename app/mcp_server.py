@@ -25,13 +25,14 @@ Tools provided:
 
 import asyncio
 import json
+from pathlib import Path
 import sys
 from urllib.parse import quote, urlencode
 
 import httpx
 
 from app import vision
-from app.config import BACKEND_PORT, LOCALHOST
+from app.config import BACKEND_PORT, LOCALHOST, VIBE_SELLER_DIR
 from app.mcp_tool_schemas import TOOLS
 from app.notifiers.base import PLATFORMS
 from app.skill_pack import pack_skill_dir
@@ -151,6 +152,22 @@ async def call_api(
         return resp.json()
 
 
+def _authored_in_this_task(path: str) -> bool:
+    """True when *path* lies inside this task's own workspace.
+
+    An agent that builds a skill directory in its cwd and installs it
+    with ``import_skill`` (to keep a script's executable bit) has
+    AUTHORED that skill; ``imported`` is for one the user already had
+    (a directory elsewhere on the machine, or a URL). A relative path
+    resolves against the cwd, which is the task workspace.
+    """
+    task_id = _config['task_id']
+    if not task_id:
+        return False
+    workspace = (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
+    return Path(path).expanduser().resolve().is_relative_to(workspace)
+
+
 async def _import_skill(arguments: dict) -> dict:
     """``vibe_seller_import_skill``: one install, two sources.
 
@@ -176,7 +193,14 @@ async def _import_skill(arguments: dict) -> dict:
         params['slug'] = str(arguments['slug'])
     if path:
         data = await asyncio.to_thread(pack_skill_dir, str(path))
-        params['origin_url'] = str(arguments.get('origin_url') or path)
+        # Provenance is decided from the path, not from what the agent
+        # claims: a directory inside this task's own workspace was
+        # written in this task — it is the user's (custom) skill, not
+        # one installed from elsewhere, whatever origin_url says.
+        authored = await asyncio.to_thread(_authored_in_this_task, str(path))
+        params['origin_url'] = (
+            '' if authored else str(arguments.get('origin_url') or path)
+        )
         return await call_api(
             'POST',
             f'/api/workspace/skills/import-local?{urlencode(params)}',

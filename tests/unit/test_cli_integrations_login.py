@@ -161,6 +161,19 @@ async def test_cancel_kills_the_waiting_cli(fake, tmp_path):
 
 
 async def test_timeout_fails_and_kills(fake, tmp_path, monkeypatch):
+    # The pid comes from the spawn itself. The fake writes its own pid
+    # file once Python is up, but the 0.5 s step timeout can kill it
+    # before that on a loaded machine (seen in a full -n 8 unit run:
+    # FileNotFoundError on login-pid) — the kill is what this pins.
+    spawned: list[int] = []
+    real_spawn = asyncio.create_subprocess_exec
+
+    async def spawn(*args, **kwargs):
+        proc = await real_spawn(*args, **kwargs)
+        spawned.append(proc.pid)
+        return proc
+
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
     mgr = LoginManager()
     steps = [
         LoginStep(('auth', 'login'), lambda line, view: None, timeout_s=0.5)
@@ -176,7 +189,8 @@ async def test_timeout_fails_and_kills(fake, tmp_path, monkeypatch):
     assert session.view.state == 'failed'
     assert 'timed out' in session.view.message
     assert session.view.error == 'timeout'  # the page's own sentence
-    pid = int((fake.state / 'login-pid').read_text())
+    assert len(spawned) == 1
+    pid = spawned[0]
     await _until(lambda: not _alive(pid))
 
 

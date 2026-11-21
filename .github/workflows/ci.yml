@@ -292,6 +292,7 @@ jobs:
           tests/e2e/test_agent_mcp.py
           tests/e2e/test_agent_mcp_schedules.py
           tests/e2e/test_schedule_review_ui.py
+          tests/e2e/test_create_task_dialog.py
           tests/e2e/test_task_mode_switch.py
           tests/e2e/test_agent_mcp_files.py
           tests/e2e/test_agent_mcp_ops.py
