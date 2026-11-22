@@ -42,6 +42,7 @@ EXPECTED = {
     'store_platform_counts': dict,
     'ads_api_bound_store_count': int,
     'gws_enabled': bool,
+    'workplace_clis_enabled': list,
     'ticktick_enabled': bool,
     'vision_key_set': bool,
     'chat_bot_platforms': list,
@@ -102,16 +103,20 @@ class TestHeartbeatShape:
         )
         assert r.status_code == 200
         # Google Workspace connected and enabled (the managed gws: its
-        # install on disk and its umbrella skill).
+        # install on disk and its umbrella skill), and WeCom's CLI too.
         home = tmp_path / 'home'
         monkeypatch.setattr(config, 'VIBE_SELLER_DIR', home)
-        cli_paths.tool_dir('gws', home).mkdir(parents=True)
-        cli_paths.write_manifest('gws', {'version': '0.22.5'}, home)
-        exe = cli_paths.binary_path('gws', 'gws', home)
-        exe.parent.mkdir(parents=True)
-        exe.write_bytes(b'')
-        cli_paths.skill_dir('gws', home).mkdir(parents=True)
-        (cli_paths.skill_dir('gws', home) / 'SKILL.md').write_text('x')
+        for key, binary, version in (
+            ('gws', 'gws', '0.22.5'),
+            ('wecom', 'wecom-cli', '1.0.0'),
+        ):
+            cli_paths.tool_dir(key, home).mkdir(parents=True, exist_ok=True)
+            cli_paths.write_manifest(key, {'version': version}, home)
+            exe = cli_paths.binary_path(key, binary, home)
+            exe.parent.mkdir(parents=True, exist_ok=True)
+            exe.write_bytes(b'')
+            cli_paths.skill_dir(key, home).mkdir(parents=True, exist_ok=True)
+            (cli_paths.skill_dir(key, home) / 'SKILL.md').write_text('x')
 
         await send_install_heartbeat()
         beats = [p for e, p in events if e == 'install_heartbeat']
@@ -136,6 +141,7 @@ class TestHeartbeatShape:
         assert props['default_ai_provider_hosts'] == ['api.anthropic.com']
         assert props['api_token_count'] == 1
         assert props['gws_enabled'] is True
+        assert props['workplace_clis_enabled'] == ['gws', 'wecom']
         assert props['chat_bot_platforms'] == ['wecom']
         # The same keys land as person properties for breakdowns.
         assert len(person) == 1

@@ -27,7 +27,7 @@ from app.ai.profiles import (
     profile_kind_for_id,
     provider_hosts,
 )
-from app.cli_integrations import paths as cli_paths
+from app.cli_integrations import paths as cli_paths, registry as cli_registry
 from app.database import async_session
 from app.events_system.syncer import load_backend_config
 from app.models.api_token import ApiToken
@@ -198,6 +198,9 @@ async def send_install_heartbeat() -> None:
             ).scalar() or 0
         sync_failed_jobs = await sync_scheduler.failed_jobs()
         gws_on = await asyncio.to_thread(cli_paths.is_enabled, 'gws', 'gws')
+        clis_on = sorted(
+            i.key for i in await asyncio.to_thread(cli_registry.enabled)
+        )
     except Exception:
         logger.warning('install_heartbeat counts failed', exc_info=True)
         return
@@ -224,6 +227,7 @@ async def send_install_heartbeat() -> None:
         'store_platform_counts': store_platform_counts,
         'ads_api_bound_store_count': ads_api_bound_store_count,
         'gws_enabled': gws_on,
+        'workplace_clis_enabled': clis_on,
         'ticktick_enabled': _ticktick_enabled(),
         'vision_key_set': get_kie_api_key() is not None,
         'chat_bot_platforms': chat_bot_platforms,
