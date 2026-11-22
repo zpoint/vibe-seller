@@ -128,13 +128,23 @@ jobs:
       - name: Install dependencies
         run: uv pip install -e ".[dev]"
 
-      - name: Workplace CLI tests on ${{ matrix.os }}
+      # -rs: the log lists every skipped test with its reason, so a
+      # windows-real test skipping on windows-latest cannot hide.
+      - name: Workplace CLI + Windows app-locator tests on ${{ matrix.os }}
         run: >-
-          uv run pytest -v
+          uv run pytest -v -rs
           tests/unit/test_cli_integrations_core.py
           tests/unit/test_cli_integrations_login.py
           tests/unit/test_cli_integrations_gws.py
           tests/integration/test_cli_integrations_real.py
+          tests/unit/test_browser/test_win_app_locator.py
+          tests/unit/test_browser/test_win_app_locator_windows.py
+          tests/unit/test_browser/test_powershell_scripts.py
+          tests/unit/test_browser/test_scratch_dir.py
+          tests/unit/test_browser/test_lnk_file.py
+          tests/unit/test_browser/test_yuehulian_win.py
+          tests/unit/test_browser/test_ziniao_utils.py
+          tests/unit/test_browser/test_ziniao_processes.py
 
   workflow-test:
     runs-on: ubuntu-latest

@@ -35,6 +35,7 @@ import time
 
 import psutil
 
+from app.browser import win_app_locator as win_locator
 from app.platform import IS_WINDOWS
 
 logger = logging.getLogger(__name__)
@@ -343,6 +344,13 @@ def kill_all_ziniao(wsl: bool, client_path: str = '') -> KillReport:
             break
         _kill(wsl, alive)
         time.sleep(0.5)
+    # The launch that follows this kill needs the install path when no
+    # process answers anymore; remember the main exe observed before it
+    # was stopped so the locator's process hint has it (validated at
+    # lookup time — the kill removes processes, not the install).
+    for p in seen.values():
+        if p.exe and is_main(p):
+            win_locator.remember_process_path('ziniao', p.exe)
     left = {p.pid for p in report.survivors}
     report.killed = [p for pid, p in seen.items() if pid not in left]
     if not report.survivors:
