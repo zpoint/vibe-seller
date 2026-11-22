@@ -18,6 +18,7 @@ from app import (
     telemetry_actions,  # noqa: F401
 )
 from app.ai.profiles import profile_kind_for_id, profile_telemetry
+from app.cli_integrations.registry import INTEGRATIONS
 from app.database import async_session
 from app.models.schedule_constants import SYSTEM_CATALOG_SYNC_ID
 from app.models.task import Task, close_pause, open_pause, paused_total
@@ -33,7 +34,12 @@ logger = logging.getLogger(__name__)
 
 _SKILL_FILE_RE = re.compile(r'(?:^|[/\s])skills/([^/\s]+)/SKILL\.md')
 _SKILL_NAME_RE = re.compile(r'[^\s/\\*?$`{}\[\]()<>|;&\'"]{1,64}')
-_GWS_COMMAND_RE = re.compile(r'(?:^|[\s;&|(`])gws\s+[a-z+]')
+_CLI_COMMAND_RES = {
+    integ.key: re.compile(
+        rf'(?:^|[\s;&|(`/]){re.escape(integ.binary)}(?:\.exe)?\s+[a-z+]'
+    )
+    for integ in INTEGRATIONS.values()
+}
 
 
 def skill_names(tool: str, tool_input: dict) -> list[str]:
@@ -55,10 +61,10 @@ def skill_names(tool: str, tool_input: dict) -> list[str]:
 def integration_names(tool: str, tool_input: dict) -> list[str]:
     if tool.startswith('mcp__ticktick__'):
         return ['ticktick']
+    if tool != 'Bash':
+        return []
     command = str(tool_input.get('command') or '')
-    if tool == 'Bash' and _GWS_COMMAND_RE.search(command):
-        return ['gws']
-    return []
+    return [key for key, rx in _CLI_COMMAND_RES.items() if rx.search(command)]
 
 
 async def _tool_uses_in_task(db, task_id: str) -> tuple[list[str], list[str]]:
