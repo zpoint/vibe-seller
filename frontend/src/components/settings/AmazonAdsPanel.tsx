@@ -3,12 +3,23 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 
+/** How the service says the store's last Amazon consent ended. Amazon
+ *  accepts a consent from a login with no Ads access and hands back zero
+ *  advertising profiles — 'no_profiles' is that outcome, and without it
+ *  the panel would tell a user who DID finish the consent to go finish
+ *  it. Absent entirely on services that predate the field. */
+interface LastConsent {
+  result: 'bound' | 'no_profiles' | 'failed'
+  at: string
+}
+
 interface AdsStoreRow {
   local_id: string
   name: string
   marketplace: string | null
   store_key: string | null
   authorized: boolean
+  last_consent?: LastConsent | null
 }
 
 interface AuthUrlResponse {
@@ -19,6 +30,20 @@ interface AuthUrlResponse {
    *  own Amazon session lives. Opening it anywhere else authorizes
    *  whichever account the operator happens to be signed into. */
   open_in: 'ziniao' | 'browser'
+}
+
+/** The consent outcome the service reported for a store, when it can be
+ *  about the link in hand: one stamped before that link was minted
+ *  describes an earlier attempt, not the consent just made, and must not
+ *  explain it. A missing or unparseable `at` says nothing either. */
+function consentAfter(rows: AdsStoreRow[], mintedAt: number): LastConsent | null {
+  for (const row of rows) {
+    const consent = row.last_consent
+    if (!consent) continue
+    const at = typeof consent.at === 'string' ? Date.parse(consent.at) : Number.NaN
+    if (!Number.isNaN(at) && at > mintedAt) return consent
+  }
+  return null
 }
 
 export function AmazonAdsPanel() {
@@ -32,7 +57,7 @@ export function AmazonAdsPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
-  const [link, setLink] = useState<(AuthUrlResponse & { store: string; storeId: string }) | null>(null)
+  const [link, setLink] = useState<(AuthUrlResponse & { store: string; storeId: string; mintedAt: number }) | null>(null)
   const [copied, setCopied] = useState(false)
 
   /** Copy to the clipboard, falling back to a selected-text copy when the
@@ -71,24 +96,33 @@ export function AmazonAdsPanel() {
   /** "I've authorized it": look now, and say what we found. The consent
    *  finishes on the service's own domain and nothing calls back here, so
    *  this click is the only moment the page can learn the outcome — it
-   *  must report it, not silently redraw a list. */
+   *  must report it, not silently redraw a list. When the service says
+   *  why a finished consent did not bind, that reason is the report:
+   *  "go finish the consent" sends a user who did finish it into a
+   *  loop. */
   const [checkNote, setCheckNote] = useState<string | null>(null)
   const confirmAuthorized = async () => {
     if (!link) return
     setBusy(true); setCheckNote(null)
     try {
       const rows = await refresh()
-      const markets = rows
-        .filter(r => r.local_id === link.storeId && r.authorized)
+      const storeRows = rows.filter(r => r.local_id === link.storeId)
+      const markets = storeRows
+        .filter(r => r.authorized)
         .map(r => r.marketplace)
         .filter(Boolean)
         .sort()
       if (markets.length) {
         setLink(null)
         setMessage(t('ads.authorizedDone', { store: link.store, markets: markets.join(' · ') }))
-      } else {
-        setCheckNote(t('ads.notYetAuthorized'))
+        return
       }
+      const consent = consentAfter(storeRows, link.mintedAt)
+      setCheckNote(
+        consent?.result === 'no_profiles' ? t('ads.noAdPermission')
+        : consent?.result === 'failed' ? t('ads.consentFailed')
+        : t('ads.notYetAuthorized'),
+      )
     } finally {
       setBusy(false)
     }
@@ -124,7 +158,10 @@ export function AmazonAdsPanel() {
       const body = (await api.get(
         `/api/ads/stores/${storeId}/auth-url`
       )) as AuthUrlResponse
-      setLink({ ...body, store: storeName, storeId })
+      // When this link was minted, on this clock. A consent outcome the
+      // service stamps earlier than this belongs to a previous attempt
+      // and must not be read as the verdict on this one.
+      setLink({ ...body, store: storeName, storeId, mintedAt: Date.now() })
       // The next thing anyone does with this link is paste it into the
       // store's browser window, so copy it now rather than make them
       // select a 300-character URL by hand. Deferred one frame so the
@@ -180,7 +217,9 @@ export function AmazonAdsPanel() {
                       <td className="py-2 text-xs text-muted-foreground">
                         {authorized.length
                           ? authorized.map(r => r.marketplace).join(' · ')
-                          : t('ads.notAuthorized')}
+                          : rows.some(r => r.last_consent?.result === 'no_profiles')
+                            ? t('ads.notAuthorizedNoAdPermission')
+                            : t('ads.notAuthorized')}
                       </td>
                       <td className="space-x-2 whitespace-nowrap py-2 text-right">
                         {authorized.length > 0 && (

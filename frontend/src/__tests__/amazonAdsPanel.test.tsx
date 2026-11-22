@@ -1,6 +1,7 @@
 /**
- * AmazonAdsPanel: no key to enter, every store listed, and revoking an
- * authorization asks first (with an opt-in to delete the history).
+ * AmazonAdsPanel: no key to enter, every store listed, revoking an
+ * authorization asks first (with an opt-in to delete the history), and
+ * the recheck after a consent names why the store did not bind.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
@@ -144,5 +145,142 @@ describe('AmazonAdsPanel', () => {
     fireEvent.click(screen.getByTestId('ads-unbind-confirm-button'))
     const note = await screen.findByTestId('ads-message')
     expect(note.textContent).toMatch(/Another machine/)
+  })
+
+  it('hints on the row when the last consent had no ad access', async () => {
+    const at = new Date().toISOString()
+    mockApi.post.mockImplementation((url: string) => {
+      if (url === '/api/ads/stores/sync')
+        return Promise.resolve({
+          stores: NOT_AUTHORIZED.map(r => ({
+            ...r,
+            last_consent: { result: 'no_profiles' as const, at },
+          })),
+        })
+      return Promise.resolve({ stores: [] })
+    })
+    renderPanel()
+    await screen.findByTestId('ads-stores')
+    expect(
+      screen.getByText(enTranslation.ads.notAuthorizedNoAdPermission),
+    ).toBeTruthy()
+  })
+})
+
+describe('AmazonAdsPanel recheck', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // The authorize flow copies the link; give it a clipboard that works
+    // so the fallback path never runs.
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    })
+    mockApi.post.mockImplementation((url: string) => {
+      if (url === '/api/ads/stores/sync')
+        return Promise.resolve({ stores: [...AUTHORIZED, ...NOT_AUTHORIZED] })
+      return Promise.resolve({ stores: NOT_AUTHORIZED, kept_shared: [] })
+    })
+  })
+
+  /** Mint a consent link for a store and leave the panel waiting on the
+   *  recheck click. */
+  async function openAuthLink(storeId: string) {
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === `/api/ads/stores/${storeId}/auth-url`)
+        return Promise.resolve({
+          url: 'https://amazon.example/ap/oa?consent=1',
+          expires_in: 1800,
+          open_in: 'browser' as const,
+        })
+      return Promise.resolve({})
+    })
+    fireEvent.click(await screen.findByTestId(`ads-authorize-${storeId}`))
+    await screen.findByTestId('ads-auth-link')
+    // The link's copy step settles one animation frame later; only then
+    // does the recheck button stop being busy.
+    await waitFor(() =>
+      expect(screen.getByTestId('ads-recheck')).not.toBeDisabled(),
+    )
+  }
+
+  function syncAnswers(rows: unknown) {
+    mockApi.post.mockImplementation((url: string) => {
+      if (url === '/api/ads/stores/sync') return Promise.resolve({ stores: rows })
+      return Promise.resolve({ stores: [], kept_shared: [] })
+    })
+  }
+
+  /** `at` the service could have stamped on a consent made AFTER this
+   *  link was minted (the click that mints happens later in real time). */
+  const freshAt = () => new Date(Date.now() + 60_000).toISOString()
+  const staleAt = () => new Date(Date.now() - 60_000).toISOString()
+
+  it('says the account has no ad access when the consent bound no profiles', async () => {
+    renderPanel()
+    await openAuthLink('s2')
+    syncAnswers([
+      {
+        ...NOT_AUTHORIZED[0],
+        last_consent: { result: 'no_profiles', at: freshAt() },
+      },
+    ])
+    fireEvent.click(screen.getByTestId('ads-recheck'))
+    const note = await screen.findByTestId('ads-check-note')
+    expect(note.textContent).toBe(enTranslation.ads.noAdPermission)
+  })
+
+  it('says the service failed when the consent did not complete', async () => {
+    renderPanel()
+    await openAuthLink('s2')
+    syncAnswers([
+      {
+        ...NOT_AUTHORIZED[0],
+        last_consent: { result: 'failed', at: freshAt() },
+      },
+    ])
+    fireEvent.click(screen.getByTestId('ads-recheck'))
+    const note = await screen.findByTestId('ads-check-note')
+    expect(note.textContent).toBe(enTranslation.ads.consentFailed)
+  })
+
+  it('still asks to finish the consent when the service sends no field', async () => {
+    renderPanel()
+    await openAuthLink('s2')
+    syncAnswers([NOT_AUTHORIZED[0]])
+    fireEvent.click(screen.getByTestId('ads-recheck'))
+    const note = await screen.findByTestId('ads-check-note')
+    expect(note.textContent).toBe(enTranslation.ads.notYetAuthorized)
+  })
+
+  it('ignores a consent outcome older than the link it explains', async () => {
+    renderPanel()
+    await openAuthLink('s2')
+    // A no_profiles from BEFORE this link was minted belongs to an
+    // earlier attempt — the user has not even used this link yet.
+    syncAnswers([
+      {
+        ...NOT_AUTHORIZED[0],
+        last_consent: { result: 'no_profiles', at: staleAt() },
+      },
+    ])
+    fireEvent.click(screen.getByTestId('ads-recheck'))
+    const note = await screen.findByTestId('ads-check-note')
+    expect(note.textContent).toBe(enTranslation.ads.notYetAuthorized)
+  })
+
+  it('reports the bound marketplaces when the store is authorized', async () => {
+    renderPanel()
+    await openAuthLink('s1')
+    syncAnswers(AUTHORIZED)
+    fireEvent.click(screen.getByTestId('ads-recheck'))
+    const message = await screen.findByTestId('ads-message')
+    expect(message.textContent).toBe(
+      enTranslation.ads.authorizedDone
+        .replace('{{store}}', 'Shop A')
+        .replace('{{markets}}', 'AE · SA'),
+    )
+    // The consent link section closes on success.
+    await waitFor(() => expect(screen.queryByTestId('ads-auth-link')).toBeNull())
   })
 })
