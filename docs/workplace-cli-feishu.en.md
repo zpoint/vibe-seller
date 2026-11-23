@@ -69,10 +69,29 @@ Feishu's official guide: [Apply for API permissions](https://open.feishu.cn/docu
 
 <details markdown="1"><summary><b>"Your Feishu admin has restricted these permissions"?</b></summary>
 
-The sign-in worked and Feishu is enabled. Only the permissions listed
-were restricted by your Feishu organization's admin, so the features
-that need them won't work yet; nothing else is affected. If you need
-them, ask your Feishu admin to allow them, then click **Sign in again**.
+The sign-in worked and Feishu is enabled; nothing else is affected.
+
+Many organizations see this message the first time they connect, and the
+permission listed is usually `vc:meeting.realtime:read`. It is used for
+one thing only: **taking a screenshot of a Feishu video meeting in
+progress**. Feishu has removed that feature from its official skills, so
+the AI doesn't use it and you can ignore the message.
+
+If you do need it, the Feishu app's admin turns it on:
+
+1. Open the [Feishu developer console](https://open.feishu.cn/app) and
+   open the app created in step 1.
+2. Under 开发配置 → 权限管理 (Development → Permissions), click 开通权限
+   (Add permissions), search for the permission the message lists (for
+   example `vc:meeting.realtime:read`), tick it and click 确认开通权限
+   (Confirm). If it is already in the list, go to the next step.
+3. Under 应用发布 → 版本管理与发布 (App release → Version management),
+   click 创建版本 (Create version), save, then 申请线上发布 (Submit for
+   release), and wait for your Feishu organization's admin to approve.
+4. Once approved, click **Sign in again** on the Feishu row in Vibe
+   Seller's Settings.
+
+If the message lists a different permission, the steps are the same.
 </details>
 
 <details markdown="1"><summary><b>"This sign-in can't renew itself"?</b></summary>
