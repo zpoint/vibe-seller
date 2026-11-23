@@ -9,7 +9,7 @@ Once it's installed, three steps get you going: set up AI, add a store, create a
 ## Have two things ready
 
 - **An API key for an AI model**: Vibe Seller's work is done by AI, so you need a key of your own. For a first try, [DeepSeek](llm-keys.md#deepseek) is easiest — sign up and top up a few dollars. For the other providers, see [Configure AI Models](llm-keys.md).
-- **Your store's browser**: if your store uses Ziniao or Yuehulian, have that account and password at hand. If not, use the Chrome browser that comes with Vibe Seller and sign in to your seller center yourself, once.
+- **Your store's browser**: if your store uses Ziniao or Yuehulian, have the sub-account's username and password at hand. If not, use the Chrome browser that comes with Vibe Seller and sign in to your seller center yourself, once.
 
 ## 1. Open Vibe Seller
 
