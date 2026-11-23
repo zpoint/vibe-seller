@@ -110,48 +110,36 @@ scratch.
 
 ## Install
 
-**🪟 Windows — native installer (recommended)**: download
-**`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest)
-and run it, or install in one PowerShell line:
+**🪟 Windows**: download [VibeSeller-Setup.exe](https://github.com/zpoint/vibe-seller/releases/latest),
+double-click it, and Vibe Seller opens when it's done.
 
-```powershell
-irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/install.ps1 | iex
-```
-
-**🍎 macOS / 🐧 Linux**: two lines in a terminal —
+**🍎 macOS / 🐧 Linux**: open a terminal, run these two lines, then open
+<http://localhost:7777> in your browser:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 vibe-seller start
 ```
 
-Then open <http://localhost:7777>. Teammates on the same network just
-browse to `http://<your-host-ip>:7777` — nothing to install.
-
-> **⚠️ Before using Ziniao**
->
-> The Ziniao main (BOSS) account must first enable developer mode on the [Ziniao Open Platform](https://open.ziniao.com/docSupport?docId=99) and tick "WebDriver login" for the sub-account, or Ziniao rejects the login when you bind a store.
-> The setup steps, and fixes for the two common errors ("无权限通过 webdriver 登录" and "检测到您在新终端登录"), are on [Ziniao: Setup & Common Errors](ziniao.en.md).
-
-Everything else — WSL2, installing from source, upgrade and
-uninstall, running it as an always-on service — is on the
-[Installation](install.en.md) page. First time using it? Follow the
-[Quickstart](quickstart.en.md).
+Step-by-step pictures, upgrading and uninstalling, WSL2 and installing
+from source: [Installation](install.en.md).
 
 ## Quickstart
 
-Once it's installed, these four steps get your first task running; the
+Once it's installed, three steps get your first task running; the
 illustrated walkthrough is the [Quickstart](quickstart.en.md):
 
-1. **Open the web app** at <http://localhost:7777> — no login by default;
-2. **Configure an AI model**: in **Settings → AI**, click **Create Profile**,
-   pick a provider and paste its API key (how to get one:
-   [Configure AI Models](llm-keys.en.md));
-3. **Bind a store**: click **+ New Store**, choose the Ziniao or Chrome browser
-   backend and sign in to Seller Central once in the browser that opens (see
-   [Stores and browsers](stores.en.md));
-4. **Create your first task**: select the store, click **+ New Task** and say
-   what you want in one sentence, e.g. “Export the last 7 days' sales report”.
+1. **Set up AI**: in **Settings → AI**, click **Add Model**, pick a
+   provider, paste its API key and click **Create**. No key yet? DeepSeek
+   is the easiest first choice; how to get one from each provider:
+   [Configure AI Models](llm-keys.en.md);
+2. **Add a store**: click **+ New Store**. If the store lives in Ziniao or
+   Yuehulian, pick that browser; otherwise pick Chrome. Ziniao's main
+   account has to enable "WebDriver login" first; see
+   [Ziniao: Setup & Common Errors](ziniao.en.md);
+3. **Create a task**: select the store, click **+ New Task**, say what you
+   want in one sentence, e.g. “Export the last 7 days' sales report”, and
+   click **Create & Run**.
 
 ## What you can do with it
 

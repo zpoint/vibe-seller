@@ -74,36 +74,24 @@ flowchart LR
 
 ## 安装
 
-**🪟 Windows（原生安装包，推荐）**：到 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 `VibeSeller-Setup.exe` 双击运行；或在 PowerShell 中执行一条命令完成安装：
+**🪟 Windows**：下载 [VibeSeller-Setup.exe](https://github.com/zpoint/vibe-seller/releases/latest)，双击安装，装完会自动打开。
 
-```powershell
-irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/install.ps1 | iex
-```
-
-**🍎 macOS / 🐧 Linux**：在终端执行两行命令——
+**🍎 macOS / 🐧 Linux**：打开终端，执行下面两行，然后在浏览器打开 <http://localhost:7777>：
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 vibe-seller start
 ```
 
-打开 <http://localhost:7777>；同事在浏览器里输入 `http://<这台电脑的IP>:7777` 即可一起使用。
-
-> **⚠️ 用紫鸟之前**
->
-> 紫鸟需要先由主账号（BOSS 账号）在[紫鸟开放平台](https://open.ziniao.com/docSupport?docId=99)开通开发者模式，并给子账号勾选「WebDriver 登录」，否则绑定店铺时会被紫鸟拒绝。
-> 开通步骤，以及「无权限通过 webdriver 登录」「检测到您在新终端登录」这两个常见报错的解决办法，见 [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/)。
-
-完整说明（WSL2、源码安装、升级卸载、常驻服务）见 [安装](https://docs.vibe-sellers.com/install/)；第一次使用请看 [快速开始](https://docs.vibe-sellers.com/quickstart/)。
+图文步骤、升级和卸载、WSL2 与源码安装，见 [安装](https://docs.vibe-sellers.com/install/)。
 
 ## 快速开始
 
-装好之后，按这四步跑通第一个任务，图文步骤见[快速开始](https://docs.vibe-sellers.com/quickstart/)：
+装好之后三步跑通第一个任务，图文步骤见 [快速开始](https://docs.vibe-sellers.com/quickstart/)：
 
-1. **打开网页**：浏览器访问 <http://localhost:7777>，默认不需要登录；
-2. **配置 AI 模型**：进入「设置 → AI」，点击「创建配置文件」，选择供应商并粘贴 API 密钥（各家怎么获取见[配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/)）；
-3. **绑定店铺**：点击「+ 新建店铺」，选择浏览器后端「紫鸟」或「Chrome」，在打开的浏览器里登录一次卖家后台（见[店铺与浏览器](https://docs.vibe-sellers.com/stores/)）；
-4. **创建第一个任务**：选中店铺，点击「+ 新建任务」，用一句话写清要做的事，比如“导出过去 7 天的销售报表”。
+1. **配置 AI**：进入「设置 → AI」，点「添加模型」，选服务商、粘贴 API 密钥，点「创建」。还没有 Key？第一次用推荐 DeepSeek，各家怎么申请见 [配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/)；
+2. **新建店铺**：点「+ 新建店铺」，店铺开在紫鸟或悦互联里就选对应的浏览器，都没有就选 Chrome。用紫鸟要先让主账号开通「WebDriver 登录」，见 [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/)；
+3. **创建任务**：选中店铺，点「+ 新建任务」，用一句话写清要做的事，比如“导出过去 7 天的销售报表”，点「创建并运行」。
 
 ## 能干什么
 
