@@ -56,7 +56,7 @@ AI 会按官方技能的说明选择身份，不用你指定。
 
 ## 常见问题
 
-<details markdown="1"><summary><b>开通后提示「飞书管理员限制了下面这些权限」？</b></summary>
+<details markdown="1" id="admin-restricted-permissions"><summary><b>开通后提示「飞书管理员限制了下面这些权限」？</b></summary>
 
 授权已经成功，飞书也已经开通，其他功能不受影响。
 

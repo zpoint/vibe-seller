@@ -67,7 +67,7 @@ Feishu's official guide: [Apply for API permissions](https://open.feishu.cn/docu
 
 ## FAQ
 
-<details markdown="1"><summary><b>"Your Feishu admin has restricted these permissions"?</b></summary>
+<details markdown="1" id="admin-restricted-permissions"><summary><b>"Your Feishu admin has restricted these permissions"?</b></summary>
 
 The sign-in worked and Feishu is enabled; nothing else is affected.
 

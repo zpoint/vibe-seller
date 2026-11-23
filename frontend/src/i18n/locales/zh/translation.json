@@ -680,7 +680,7 @@
         "gws_auth": "打开下面的链接，选择要连接的 Google 账号。Google 提示「Google 尚未验证此应用」时，那是你刚才自己创建的应用，点「继续」；再点一次「继续」；然后勾选「全选」，点「继续」。看到「Success!」就可以关掉那个页面。"
       },
       "notice": {
-        "feishu_missing_scopes": "已经连接好了。不过飞书管理员限制了下面这些权限，用到它们的功能暂时不能用：{{detail}}。其他功能不受影响。如果需要这些功能，请飞书管理员放开这些权限，然后回来点「{{button}}」。",
+        "feishu_missing_scopes": "已经连接好了，其他功能都能正常用。飞书管理员限制了个别权限，只影响：{{detail}}。需要的话，请飞书管理员按说明开通，然后回来点「{{button}}」。",
         "feishu_no_refresh_token": "已经连接好了，但这次登录不能自动续期：用你的飞书账号做的操作到 {{detail}} 就会失效，之后需要重新登录；以飞书应用身份做的操作不受影响。要让登录一直有效，请飞书应用的管理员打开下面的链接，在「安全设置」里开启「刷新 user_access_token」，创建并发布新版本，然后回来点「{{button}}」。",
         "dingtalk_cli_access": "钉钉还没有允许 Vibe Seller 使用你们组织的数据。这要钉钉组织的管理员在钉钉开发者后台打开，再点「{{button}}」解决不了。请管理员按下面的步骤操作："
       },
@@ -742,7 +742,16 @@
         "gws_moved": "Google Workspace 现在可以直接在这里开通，不用再自己安装任何东西。之前在这台电脑上自己安装的 Google Workspace 工具保持原样，但 AI 不再使用它。请点「开通」重新连接一次。"
       },
       "signInExpired": "登录已失效",
-      "enabledNeedsSignIn": "AI 暂时用不了，请点「重新登录」"
+      "enabledNeedsSignIn": "AI 暂时用不了，请点「重新登录」",
+      "scopesUnusedByAi": "AI 平时用不到这个功能，不开通也没关系。",
+      "guideLink": {
+        "feishu_missing_scopes": "怎么开通"
+      },
+      "scopeFeature": {
+        "meetingScreenshot": "给进行中的视频会议截图"
+      },
+      "scopeWithCode": "{{feature}}（{{scope}}）",
+      "listSeparator": "、"
     }
   },
   "stores": {
