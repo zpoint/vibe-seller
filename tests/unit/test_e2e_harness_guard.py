@@ -752,6 +752,34 @@ def test_a_stopped_owned_server_passes_the_session_end_check(
     assert own_server._STARTED == []
 
 
+def test_a_port_reused_after_stop_is_not_this_workers_leak(
+    tmp_path, monkeypatch
+):
+    """A stopped server's port belongs to whoever binds it next.
+
+    Observed in CI: one worker stopped its server, the kernel handed the
+    freed port to another worker's server (with its own ``.pids_<port>``),
+    and the first worker's session-end check reported that live server
+    as its own leak.
+    """
+    listener = socket.socket()
+    listener.bind(('127.0.0.1', 0))
+    port = listener.getsockname()[1]
+    monkeypatch.chdir(tmp_path)
+    mine = OwnServer(port=port, home=tmp_path)
+    monkeypatch.setattr(own_server, '_STARTED', [mine])
+    monkeypatch.setattr(mine, '_stop_own', lambda: None)
+    try:
+        mine.stop()
+        # Another worker's server now holds the port and its pid file.
+        listener.listen()
+        (tmp_path / f'.pids_{port}').write_text('12345')
+        own_server.assert_no_owned_server_leaked()
+    finally:
+        listener.close()
+        monkeypatch.setattr(own_server, '_STARTED', [])
+
+
 def test_the_session_end_check_never_touches_the_shared_server(
     tmp_path, monkeypatch
 ):
