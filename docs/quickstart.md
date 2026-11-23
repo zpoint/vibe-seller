@@ -30,7 +30,10 @@ Windows 装完会自动打开。以后想打开，点开始菜单里的 Vibe Sel
 ??? note "已经在用 Claude Code？（点击展开）"
     这台电脑上的 Claude Code 已经登录过的话，不用再填 Key：「AI 模型」列表里内置的「Claude」用的就是它，可以直接去创建任务。
 
-    装了 cc-switch 之类的 Claude 账号切换工具也不影响，所有模型都能正常用，不用退出 cc-switch。v0.3.3 之前的版本只有内置的那个模型能正常用，升级到最新版就没有这个限制了。
+    装了 cc-switch 之类的 Claude 账号切换工具？
+
+    - **v0.3.3 之前**：cc-switch 会改掉 Vibe Seller 的 AI 配置，你在 Vibe Seller 里添加的模型用不了。
+    - **v0.3.3 及以后**：你添加的模型完全用 Vibe Seller 里自己的服务商和 Key，cc-switch 改不到。只有内置的「Claude」跟着这台电脑的 Claude Code 走，所以用的是 cc-switch 当前选的账号。
 
 ## 3. 新建店铺
 

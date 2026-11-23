@@ -30,7 +30,10 @@ Everything else fills itself in. Your key is stored only on your own computer.
 ??? note "Already using Claude Code? (click to expand)"
     If Claude Code is already signed in on this computer, you don't need a key: the built-in **Claude** entry in the **AI Models** list uses it, so you can go straight to creating a task.
 
-    cc-switch or a similar Claude account switcher doesn't affect Vibe Seller either: every model works, and you don't need to quit cc-switch. Before v0.3.3 only the built-in model worked properly; upgrade to the latest version and that limit is gone.
+    Using cc-switch or a similar Claude account switcher?
+
+    - **Before v0.3.3**: cc-switch overrode Vibe Seller's AI settings, so the models you added in Vibe Seller didn't work.
+    - **v0.3.3 and later**: the models you add use only their own provider and key in Vibe Seller — cc-switch can't change them. Only the built-in **Claude** follows this computer's Claude Code, so it uses whichever account cc-switch has selected.
 
 ## 3. Add a store
 
