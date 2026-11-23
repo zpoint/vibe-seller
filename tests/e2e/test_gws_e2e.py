@@ -111,11 +111,30 @@ def _gws_processes() -> list[psutil.Process]:
     return found
 
 
+def _describe(procs: list[psutil.Process]) -> str:
+    """Which gws, started by whom and when — so a failure names the
+    process (a sign-in, a status probe, ...) instead of only a pid."""
+    out = []
+    for p in procs:
+        try:
+            with p.oneshot():
+                args = ' '.join(p.cmdline()[1:]) or '?'
+                age = time.time() - p.create_time()
+                out.append(
+                    f'pid {p.pid} ({p.status()}, parent {p.ppid()}, '
+                    f'{age:.0f}s old): gws {args}'
+                )
+        except psutil.Error as e:
+            out.append(f'pid {p.pid}: {type(e).__name__}')
+    return '; '.join(out)
+
+
 def _no_gws_left(timeout: float = 15) -> None:
     deadline = time.time() + timeout
     while _gws_processes() and time.time() < deadline:
         time.sleep(0.5)
-    assert not _gws_processes(), 'gws outlived its sign-in'
+    left = _gws_processes()
+    assert not left, f'gws outlived its sign-in: {_describe(left)}'
 
 
 def _key_file(tmp_dir: Path) -> Path:

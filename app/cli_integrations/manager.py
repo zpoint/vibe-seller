@@ -111,6 +111,15 @@ def _creationflags() -> dict:
     return {}
 
 
+async def _kill_probe(proc: asyncio.subprocess.Process, why: str) -> None:
+    """Stop a status probe whose answer nobody will read."""
+    if proc.returncode is None:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+    logger.info('status probe pid %s killed: %s', proc.pid, why)
+
+
 async def _runner(integ: CliIntegration, home: Path):
     """``run(args)`` for ``CliIntegration.auth_status``."""
     exe = await asyncio.to_thread(
@@ -139,10 +148,15 @@ async def _runner(integ: CliIntegration, home: Path):
                 proc.communicate(), STATUS_TIMEOUT_S
             )
         except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
+            await _kill_probe(proc, f'{integ.key} {args[:2]} timed out')
             return 124, '', 'timeout'
+        except BaseException:
+            # The request waiting on it went away (cancelled): the probe
+            # must not outlive it — nobody would read or reap it.
+            await asyncio.shield(
+                _kill_probe(proc, f'{integ.key} {args[:2]} abandoned')
+            )
+            raise
         return (
             proc.returncode or 0,
             out.decode('utf-8', 'replace'),
