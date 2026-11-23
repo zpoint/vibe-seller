@@ -26,7 +26,7 @@
 
 🔥 *最新动态* 🔥
 
-- [2026 年 11 月] **让 AI 使用企业微信 / 飞书 / 钉钉**：点「开通」扫码或授权，AI 就能写文档和表格、发消息、排日程：[**详情**](https://docs.vibe-sellers.com/workplace-cli/)
+- [2026 年 11 月] **让 AI 使用企业微信 / 飞书 / 钉钉**：点<kbd>开通</kbd>扫码或授权，AI 就能写文档和表格、发消息、排日程：[**详情**](https://docs.vibe-sellers.com/workplace-cli/)
 - [2026 年 11 月] **MCP 接入**：在 Claude、Codex、WorkBuddy、Qoder 这些 AI 工具里，一句话让 Vibe Seller 干活：[**详情**](https://docs.vibe-sellers.com/mcp/)
 - [2026 年 11 月] **亚马逊广告直连 Ads API**：同一个广告优化任务从 147 分钟缩短到 11 分钟，人工介入更少：[**详情**](https://docs.vibe-sellers.com/ads-api/)
 
@@ -89,13 +89,13 @@ vibe-seller start
 
 装好之后三步跑通第一个任务，图文步骤见 [快速开始](https://docs.vibe-sellers.com/quickstart/)：
 
-1. **配置 AI**：进入「设置 → AI」，点「添加模型」，选服务商、粘贴 API 密钥，点「创建」。还没有 Key？第一次用推荐 DeepSeek，各家怎么申请见 [配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/)；
-2. **新建店铺**：点「+ 新建店铺」，店铺开在紫鸟或悦互联里就选对应的浏览器，都没有就选 Chrome。用紫鸟的话，先让主账号开通权限，见 [紫鸟：开通前提](https://docs.vibe-sellers.com/ziniao/#开通前提开发者模式与-webdriver-登录)；
-3. **创建任务**：选中店铺，点「+ 新建任务」，用一句话写清要做的事，比如“导出过去 7 天的销售报表”，点「创建并运行」。
+1. **配置 AI**：进入<kbd>设置 › AI</kbd>，点<kbd>添加模型</kbd>，选服务商、粘贴 API 密钥，点<kbd>创建</kbd>。还没有 Key？第一次用推荐 DeepSeek，各家怎么申请见 [配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/)；
+2. **新建店铺**：点<kbd>+ 新建店铺</kbd>，店铺用的是紫鸟或悦互联，就选对应的浏览器；都没有就选 Chrome。用紫鸟的话，先让主账号开通权限，见 [紫鸟：开通前提](https://docs.vibe-sellers.com/ziniao/#开通前提开发者模式与-webdriver-登录)；
+3. **创建任务**：选中店铺，点<kbd>+ 新建任务</kbd>，用一句话写清要做的事，比如“导出过去 7 天的销售报表”，点<kbd>创建并运行</kbd>。
 
 ## 能干什么
 
-Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一。AI 能浏览页面、读你的邮件、发企业微信、写滴答清单、改 Google 文档——只要一件事符合「看了 → 判断 → 操作」，能用浏览器就走浏览器，有接口就直接调用接口。
+Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一。AI 能浏览页面、读你的邮件、发企业微信、写滴答清单、改 Google 文档——只要一件事符合 **看了 → 判断 → 操作**，能用浏览器就走浏览器，有接口就直接调用接口。
 
 跨境场景里常见的几类任务：
 
@@ -131,7 +131,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 
 ## 集成
 
-除了浏览器，AI 还能直接调用这些外部服务，全部在「设置 → 集成」里配置，不需要写代码：
+除了浏览器，AI 还能直接调用这些外部服务，全部在<kbd>设置 › 集成</kbd>里配置，不需要写代码：
 
 - **MCP 接入**——在 Claude、Codex、WorkBuddy、Qoder、Hermes Agent、Pi 等 AI 工具里直接指挥 Vibe Seller，[接入步骤](https://docs.vibe-sellers.com/mcp/)
 - **Amazon Ads API**——广告任务直连接口，不再逐页操作卖家后台；实测同一个任务从 147 分钟缩短到 11 分钟，[绑定步骤和实测对比](https://docs.vibe-sellers.com/ads-api/)
@@ -139,9 +139,9 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 - **群机器人**（企业微信、钉钉、飞书、Slack）——让 AI 把结果、报表、提醒直接发到群里，企业微信还支持发送文件，[接入步骤](https://docs.vibe-sellers.com/chat-bots/)
 - **企业微信 / 飞书 / 钉钉**——用三家的官方程序，AI 直接写文档和表格、发消息、排日程、建待办，扫码或授权就能开通，[开通步骤](https://docs.vibe-sellers.com/workplace-cli/)
 - **滴答清单 / TickTick**——自动创建待办（追单、跟进、定期检查），[接入步骤](https://docs.vibe-sellers.com/ticktick/)
-- **Google Workspace**——用 Google 官方程序，AI 收发 Gmail、读写表格和文档、上传到云端硬盘、安排日历，点「开通」按步骤登录 Google 即可，[开通步骤](https://docs.vibe-sellers.com/google-workspace/)
+- **Google Workspace**——用 Google 官方程序，AI 收发 Gmail、读写表格和文档、上传到云端硬盘、安排日历，点<kbd>开通</kbd>按步骤登录 Google 即可，[开通步骤](https://docs.vibe-sellers.com/google-workspace/)
 
-一个任务可以同时使用浏览器和这些服务。例如“找出所有店铺滞销的 SKU”可以这样安排：浏览器读取库存 → 生成 Google Sheet 报表 → 把摘要发到企业微信 → 在滴答清单里创建「下周降价」待办。全部集成见 [集成总览](https://docs.vibe-sellers.com/integrations/)。
+一个任务可以同时使用浏览器和这些服务。例如“找出所有店铺滞销的 SKU”可以这样安排：浏览器读取库存 → 生成 Google Sheet 报表 → 把摘要发到企业微信 → 在滴答清单里创建<kbd>下周降价</kbd>待办。全部集成见 [集成总览](https://docs.vibe-sellers.com/integrations/)。
 
 ## 支持的平台
 
@@ -159,7 +159,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 其他平台没有专门的 Skill，AI 照样通过紫鸟或普通浏览器完成店铺后台和前台的操作。第一次可能要多试
 几步；走通的路径它会记进这家店的知识库，下次直接照着做，几轮之后就稳定了。你也可以把自己的操作
 步骤写成 Skill 装进来（见[导入已有的 Skill](https://docs.vibe-sellers.com/knowledge/#导入已有的-skill)），或者整理好提交给
-项目（见下文「贡献代码」）。
+项目（见下文 [贡献代码](#贡献代码)）。
 
 ## 贡献代码
 

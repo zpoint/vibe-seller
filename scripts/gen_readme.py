@@ -40,7 +40,13 @@ Every rewrite rule (docs source -> GitHub README), applied per locale:
     for python-markdown (with ``md_in_html``), which the site needs and
     GitHub does not; GitHub renders markdown inside ``<details>``
     natively.
-8.  Everything else passes through verbatim: absolute GitHub links to
+8.  UI labels render as ``<kbd>`` boxes: the same 「标签」 / 「设置 → AI」
+    (zh) and ``"**Label**"`` (en) the site draws as chips, found by
+    ``docs_ui_chips.mark_ui_labels`` under the same rules (prose in
+    brackets, headings, code and HTML are left alone). GitHub strips the
+    site's ``class`` attribute, so the site's ``<span class="ui">`` would
+    show as plain text; ``<kbd>`` is the boxed form GitHub does draw.
+9.  Everything else passes through verbatim: absolute GitHub links to
     repo-root files (DESIGN.md / CLAUDE.md / LICENSE / the ``docs/``
     tree), Unicode heading anchors, and all body text.
 
@@ -52,12 +58,18 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import importlib
 from pathlib import Path
 import re
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / 'docs'
+
+# The label detector lives at the repo root next to docs_hooks.py (the
+# site build imports it from there), along with the docs_cjk it uses.
+sys.path.insert(0, str(ROOT))
+_ui_chips = importlib.import_module('docs_ui_chips')
 
 # locale -> (source page, generated README)
 PAIRS = {
@@ -150,6 +162,9 @@ def generate(text: str, source_name: str, locale: str) -> str:
     # Rule 7: strip the site-only markdown attribute on <details>.
     text = text.replace('<details markdown="1">', '<details>')
     text = text.replace('<details open markdown="1">', '<details open>')
+
+    # Rule 8: UI labels as <kbd> boxes, under the site's chip rules.
+    text = _ui_chips.mark_ui_labels(text, render=_ui_chips.github_chip)
 
     if _USER_ATTACHMENTS in text:
         raise SystemExit(

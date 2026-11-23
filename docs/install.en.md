@@ -1,5 +1,5 @@
 ---
-description: Install Vibe Seller — on Windows download the installer and double-click it; on macOS / Linux paste one command. Upgrading, uninstalling, and advanced topics: WSL2, installing from source, service management, LAN access.
+description: Install Vibe Seller — on Windows download the installer and double-click it; on macOS / Linux paste one command. Also covers upgrading, uninstalling, WSL2, installing from source, service management and LAN access.
 ---
 
 # Installation

@@ -129,7 +129,7 @@ illustrated walkthrough is the [Quickstart](https://docs.vibe-sellers.com/en/qui
    provider, paste its API key and click **Create**. No key yet? DeepSeek
    is the easiest first choice; how to get one from each provider:
    [Configure AI Models](https://docs.vibe-sellers.com/en/llm-keys/);
-2. **Add a store**: click **+ New Store**. If the store lives in Ziniao or
+2. **Add a store**: click **+ New Store**. If your store uses Ziniao or
    Yuehulian, pick that browser; otherwise pick Chrome. Using Ziniao? Its
    main account has to grant access first; see
    [Ziniao: Prerequisites](https://docs.vibe-sellers.com/en/ziniao/#prerequisites-developer-mode-and-webdriver-login);

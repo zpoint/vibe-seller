@@ -9,7 +9,7 @@ Once it's installed, three steps get you going: set up AI, add a store, create a
 ## Have two things ready
 
 - **An API key for an AI model**: Vibe Seller's work is done by AI, so you need a key of your own. For a first try, [DeepSeek](llm-keys.md#deepseek) is easiest — sign up and top up a few dollars. For the other providers, see [Configure AI Models](llm-keys.md).
-- **How your store logs in**: if the store lives in Ziniao or Yuehulian, have that account and password at hand. If not, use the browser that comes with Vibe Seller and sign in to your seller center yourself, once.
+- **Your store's browser**: if your store uses Ziniao or Yuehulian, have that account and password at hand. If not, use the browser that comes with Vibe Seller and sign in to your seller center yourself, once.
 
 ## 1. Open Vibe Seller
 
@@ -38,7 +38,7 @@ Everything else fills itself in. Your key is stored only on your own computer.
 ## 3. Add a store
 
 1. In the sidebar click **+ New Store** and give it a **Store Name** you'll recognise;
-2. Pick a browser: if the store lives in Ziniao, pick **Ziniao (Browser Backend)**; in Yuehulian, **Yuehulian (Browser Backend)** (Windows only); otherwise **Chrome**;
+2. Pick a browser: if your store uses Ziniao, pick **Ziniao (Browser Backend)**; if it uses Yuehulian, pick **Yuehulian (Browser Backend)** (Windows only); otherwise pick **Chrome**;
 3. For Ziniao or Yuehulian: click the `+` next to the account field, enter its login, then pick this store from the list;
 4. Click **Create**.
 

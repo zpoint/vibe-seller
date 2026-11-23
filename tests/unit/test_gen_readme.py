@@ -78,3 +78,25 @@ def test_language_switch_links_open_the_docs_site():
     assert '](https://docs.vibe-sellers.com/en/)' in out
     assert '](https://docs.vibe-sellers.com/)' in out
     assert 'README' not in out.split('-->', 1)[1]
+
+
+def test_ui_labels_render_as_kbd_in_the_zh_readme():
+    # The site draws 「标签」 as chips; GitHub strips the chip's class, so
+    # without this the README shows bare brackets that read as prose.
+    src = '1. 进入「设置 → AI」，点「添加模型」。\n'
+    out = gen_readme.generate(src, 'x.md', 'zh')
+    assert '<kbd>设置 › AI</kbd>' in out
+    assert '<kbd>添加模型</kbd>' in out
+    assert '「' not in out
+
+
+def test_quoted_bold_labels_render_as_kbd_in_the_en_readme():
+    out = gen_readme.generate('Click "**Add Model**".\n', 'x.md', 'en')
+    assert '<kbd>Add Model</kbd>' in out
+
+
+def test_headings_and_code_keep_their_brackets_in_the_readme():
+    src = '## 「标题」\n\n```\n「代码」\n```\n'
+    out = gen_readme.generate(src, 'x.md', 'zh')
+    assert '## 「标题」' in out
+    assert '「代码」' in out
