@@ -1,15 +1,17 @@
+import asyncio
 import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.browser import aux_browser
 from app.browser.launch_guards import BrowserBusyError
 from app.browser.manager import browser_manager
-from app.config import BASE_DIR
+from app.browser.win_app_locator import ZINIAO_SPEC, locate
+from app.browser.ziniao_launcher import build_launcher_bat
 from app.database import get_db
 from app.models.app_settings import AppSettings
 from app.models.store import Store
@@ -22,14 +24,26 @@ router = APIRouter(tags=['browser'])
 
 @router.get('/api/ziniao/launcher')
 async def download_ziniao_launcher():
-    """Download the Ziniao WebDriver launcher batch file."""
-    bat_path = BASE_DIR / 'ziniao_webdriver.bat'
-    if not bat_path.exists():
-        raise HTTPException(status_code=404, detail='Launcher script not found')
-    return FileResponse(
-        path=str(bat_path),
-        filename='ziniao_webdriver.bat',
+    """Download the Ziniao WebDriver launcher batch file.
+
+    Generated at download time (``app/browser/ziniao_launcher.py``)
+    with the exe path the shared locator found on this machine, so a
+    double-click launches a custom install dir — a Chinese-named
+    folder on any drive — exactly like a default one. When nothing is
+    located, the script keeps the conventional-path fallback list.
+    """
+    located = await asyncio.to_thread(locate, ZINIAO_SPEC)
+    if located:
+        logger.info(
+            'ziniao launcher baked with located exe: %s', located.exe_path
+        )
+    bat = build_launcher_bat(located.exe_path if located else None)
+    return Response(
+        content=bat,
         media_type='application/octet-stream',
+        headers={
+            'Content-Disposition': 'attachment; filename="ziniao_webdriver.bat"'
+        },
     )
 
 

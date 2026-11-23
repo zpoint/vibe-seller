@@ -14,7 +14,7 @@ from unittest import mock
 
 import pytest
 
-from app.browser import ziniao_processes as zp
+from app.browser import win_app_locator as win_locator, ziniao_processes as zp
 from app.browser.ziniao_processes import install_dirs_of, is_ziniao_process
 
 pytestmark = pytest.mark.unit
@@ -127,3 +127,36 @@ def test_describe_counts_without_listing_every_pid():
     procs = [zp.ZiniaoProcess(i, 'ziniao.exe', None) for i in range(3)]
     procs.append(zp.ZiniaoProcess(9, 'env-kit.exe', None))
     assert zp.describe(procs) == 'env-kit.exe, ziniao.exe ×3'
+
+
+def test_kill_all_remembers_the_main_exe_it_stopped():
+    """The launch that follows the kill needs the install path when no
+    process answers anymore — kill_all_ziniao must remember the main
+    exe it observed BEFORE stopping it (helpers and kernels do not
+    count; only the main client does)."""
+    win_locator.clear_locator_cache()
+    main = zp.ZiniaoProcess(21, 'ziniao.exe', 'D:\\紫鸟\\ziniao\\ziniao.exe')
+    kernel = zp.ZiniaoProcess(
+        22, 'ziniaobrowser.exe', 'C:\\Users\\u\\ziniaobrowser\\kernel.exe'
+    )
+    with mock.patch(
+        'app.browser.ziniao_processes.list_ziniao_processes'
+    ) as list_mock:
+        # First listing: main + kernel alive; second: none (killed).
+        list_mock.side_effect = [[main, kernel], []]
+        report = zp.kill_all_ziniao(wsl=False)
+    assert report.killed == [main, kernel]
+    assert win_locator.remembered_process_path('ziniao') == (
+        'D:\\紫鸟\\ziniao\\ziniao.exe'
+    )
+    win_locator.clear_locator_cache()
+
+
+def test_kill_all_with_no_ziniao_running_remembers_nothing():
+    win_locator.clear_locator_cache()
+    with mock.patch(
+        'app.browser.ziniao_processes.list_ziniao_processes',
+        return_value=[],
+    ):
+        zp.kill_all_ziniao(wsl=False)
+    assert win_locator.remembered_process_path('ziniao') is None

@@ -73,7 +73,10 @@ class RealYuehulianClient(InjectClient):
         if await asyncio.to_thread(self._proc.is_running):
             return
         if not await asyncio.to_thread(self._proc.launch):
-            raise ClientNotRunning('could not locate/launch the client')
+            detail = self._proc.locate_error or 'launch failed'
+            raise ClientNotRunning(
+                f'could not locate/launch the client: {detail}'
+            )
         for _ in range(30):
             await asyncio.sleep(1.0)
             if await asyncio.to_thread(self._proc.main_pid):

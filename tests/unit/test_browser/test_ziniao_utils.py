@@ -1,10 +1,10 @@
 """Tests for Ziniao browser utility functions."""
 
-import os
 from unittest import mock
 
 import pytest
 
+from app.browser import win_app_locator as win_locator
 from app.browser.ziniao_utils import (
     build_launch_cmd,
     find_ziniao_exe_windows,
@@ -13,6 +13,14 @@ from app.browser.ziniao_utils import (
     is_wsl,
     is_ziniao_installed_mac,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clean_locator_state():
+    """Locator cache / remembered paths never leak across tests."""
+    win_locator.clear_locator_cache()
+    yield
+    win_locator.clear_locator_cache()
 
 
 class TestIsWSL:
@@ -226,16 +234,56 @@ class TestFindZiniaoExeWindows:
         """Should return None on non-Windows platforms."""
         assert find_ziniao_exe_windows() is None
 
-    @mock.patch('app.browser.ziniao_utils.IS_WINDOWS', True)
-    @mock.patch.dict(
-        'os.environ', {'ProgramFiles': 'C:\\Program Files'}, clear=True
-    )
-    @mock.patch('os.path.isfile')
-    def test_finds_in_program_files(self, mock_isfile):
-        """Should resolve the standard Program Files install path."""
-        expected = os.path.join('C:\\Program Files', 'ziniao', 'ziniao.exe')
-        mock_isfile.side_effect = lambda p: p == expected
+    def test_finds_in_program_files(self, tmp_path, monkeypatch):
+        """Should resolve the standard Program Files install path.
+
+        Drives the real locator over a fake filesystem: a 'C:' tree
+        under tmp_path stands in for the Windows disk.
+        """
+        exe = tmp_path / 'c' / 'Program Files' / 'ziniao' / 'ziniao.exe'
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b'MZ')
+
+        def to_local(win):
+            p = str(win).strip().strip('"')
+            if len(p) >= 2 and p[1] == ':':
+                rel = p[2:].replace('\\', '/')
+                return str(tmp_path / p[0].lower() / rel.lstrip('/'))
+            return p
+
+        monkeypatch.setattr('app.browser.ziniao_utils.IS_WINDOWS', True)
+        monkeypatch.setattr(win_locator, 'win_path_to_local', to_local)
+        monkeypatch.setattr(win_locator, 'fixed_drives', lambda: ['C:'])
+        expected = 'C:\\Program Files\\ziniao\\ziniao.exe'
         assert find_ziniao_exe_windows() == expected
+
+    def test_uses_process_seen_before_kill(self, tmp_path, monkeypatch):
+        """The launch flow kills the client BEFORE it needs the exe
+        path, so a live lookup is always too late: the path remembered
+        from the pre-kill process listing must be what launches — even
+        though the process itself is long gone."""
+        exe = tmp_path / 'd' / '紫鸟' / 'ziniao' / 'ziniao.exe'
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b'MZ')
+
+        def to_local(win):
+            p = str(win).strip().strip('"')
+            if len(p) >= 2 and p[1] == ':':
+                rel = p[2:].replace('\\', '/')
+                return str(tmp_path / p[0].lower() / rel.lstrip('/'))
+            return p
+
+        monkeypatch.setattr('app.browser.ziniao_utils.IS_WINDOWS', True)
+        monkeypatch.setattr(win_locator, 'win_path_to_local', to_local)
+        # No registry/shortcut/drive hints can find it: only the
+        # remembered process path points here.
+        monkeypatch.setattr(win_locator, 'fixed_drives', lambda: [])
+        win_locator.remember_process_path(
+            'ziniao', 'D:\\紫鸟\\ziniao\\ziniao.exe'
+        )
+        cmd = build_launch_cmd('ziniao', 8080)
+        assert cmd[0] == 'D:\\紫鸟\\ziniao\\ziniao.exe'
+        assert '--run_type=web_driver' in cmd
 
 
 class TestIsZiniaoInstalledMac:
@@ -250,22 +298,40 @@ class TestIsZiniaoInstalledMac:
         )
         assert is_ziniao_installed_mac() is True
 
+    @mock.patch('app.browser.ziniao_utils._MAC_APP_DIRS', ())
     @mock.patch('app.browser.ziniao_utils.IS_MAC', True)
     @mock.patch('subprocess.run')
     def test_not_found(self, mock_run):
-        """Should return False when mdfind returns empty."""
+        """Should return False when mdfind returns empty and no
+        conventional Applications folder holds the app."""
         mock_run.return_value = mock.MagicMock(stdout='')
         assert is_ziniao_installed_mac() is False
+
+    @mock.patch('app.browser.ziniao_utils._MAC_APP_DIRS', ())
+    @mock.patch('app.browser.ziniao_utils.IS_MAC', True)
+    @mock.patch('subprocess.run')
+    def test_conventional_dirs_fallback(self, mock_run, tmp_path):
+        """Spotlight can miss an installed app (privacy exclusions,
+        indexing disabled or unfinished) — the conventional
+        Applications folders, which LaunchServices itself scans, are
+        the fallback."""
+        mock_run.return_value = mock.MagicMock(stdout='')
+        apps = tmp_path / 'Applications'
+        (apps / 'ziniao.app').mkdir(parents=True)
+        with mock.patch('app.browser.ziniao_utils._MAC_APP_DIRS', (str(apps),)):
+            assert is_ziniao_installed_mac() is True
 
     @mock.patch('app.browser.ziniao_utils.IS_MAC', False)
     def test_not_mac(self):
         """Should return False on non-Mac."""
         assert is_ziniao_installed_mac() is False
 
+    @mock.patch('app.browser.ziniao_utils._MAC_APP_DIRS', ())
     @mock.patch('app.browser.ziniao_utils.IS_MAC', True)
     @mock.patch('subprocess.run')
     def test_mdfind_error(self, mock_run):
-        """Should return False if mdfind fails."""
+        """Should return False if mdfind fails and the fallback dirs
+        are empty."""
         mock_run.side_effect = Exception('mdfind error')
         assert is_ziniao_installed_mac() is False
 

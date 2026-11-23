@@ -27,6 +27,17 @@ The BOSS (admin) account has to do two one-time things before a sub-account can 
 1. **Enable developer mode for the company on the Ziniao Open Platform** (see <https://open.ziniao.com/docSupport?docId=99>). Without it, Ziniao rejects the login with `statusCode: -10003` — Ziniao's own error for "developer mode isn't enabled for this company".
 2. **Tick the WebDriver-login option for the sub-account** that will log in via WebDriver. Without it, binding a store shows "无权限通过 webdriver 登录" — see ["无权限通过 webdriver 登录"](#无权限通过-webdriver-登录-when-binding-a-store) below.
 
+## Any install folder works (Windows)
+
+On Windows, Vibe Seller needs the full path of `ziniao.exe` to launch it with flags. The default `C:\Program Files\ziniao` works, and so does anywhere else you installed it — `D:\紫鸟\ziniao`, a folder with spaces or Chinese characters, another drive. The lookup order:
+
+1. the install path of the Ziniao process that was alive just before launch (recorded before the auto-restart closes it);
+2. the registry App Paths / Uninstall entries (`InstallLocation`, `DisplayIcon`, …);
+3. what the Desktop and Start-Menu shortcuts point at (Ziniao's own shortcut points wherever you installed it);
+4. the conventional folders on every fixed drive (`X:\Program Files\ziniao`, `X:\Program Files (x86)\ziniao`, `X:\ziniao`, …).
+
+Every hit is validated to really be `ziniao.exe` — an uninstaller is never mistaken for the client. If nothing checks out, the error lists everything that was searched; **open Ziniao once by hand from its shortcut and retry** (the next start records where it lives), or reinstall to the default folder.
+
 ## What you fill in when binding a store
 
 Add a Ziniao account with the "+" button in the new-store form (backend "Ziniao") — three fields:
