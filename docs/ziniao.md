@@ -21,7 +21,7 @@ description: 紫鸟接入 Vibe Seller 的一页说明：开通前提（开发者
 
 主账号（BOSS 账号）需要做两步一次性配置，子账号绑定店铺才会成功：
 
-1. **在紫鸟开放平台开通开发者模式**（见 <https://open.ziniao.com/docSupport?docId=99>）。没有开通时紫鸟会拒绝登录，报错 `statusCode: -10003`——这是紫鸟自己的错误码，含义就是「这个公司没有开通开发者模式」。
+1. **在[紫鸟开放平台](https://open.ziniao.com/docSupport?docId=99)开通开发者模式**。没有开通时紫鸟会拒绝登录，报错 `statusCode: -10003`——这是紫鸟自己的错误码，含义就是「这个公司没有开通开发者模式」。
 2. **给要用 WebDriver 登录的子账号勾选「WebDriver 登录」**。没有勾选时，绑定店铺会提示「无权限通过 webdriver 登录」，处理方法和截图见下面 [提示「无权限通过 webdriver 登录」](#报错无权限通过-webdriver-登录)。
 
 为什么需要开发者模式：紫鸟同一时间只能运行一种模式：

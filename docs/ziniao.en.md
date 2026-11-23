@@ -21,7 +21,7 @@ If you don't use Ziniao, skip this page. Vibe Seller supports other browsers too
 
 The BOSS (admin) account has to do two one-time things before a sub-account can bind a store:
 
-1. **Enable developer mode for the company on the Ziniao Open Platform** (see <https://open.ziniao.com/docSupport?docId=99>). Without it, Ziniao rejects the login with `statusCode: -10003` — Ziniao's own error for "developer mode isn't enabled for this company".
+1. **Enable developer mode for the company on the [Ziniao Open Platform](https://open.ziniao.com/docSupport?docId=99)**. Without it, Ziniao rejects the login with `statusCode: -10003` — Ziniao's own error for "developer mode isn't enabled for this company".
 2. **Tick the WebDriver-login option for the sub-account** that will log in via WebDriver. Without it, binding a store shows "无权限通过 webdriver 登录" — see ["无权限通过 webdriver 登录"](#无权限通过-webdriver-登录-when-binding-a-store) below.
 
 Why developer mode: Ziniao runs in exactly one mode at a time:
