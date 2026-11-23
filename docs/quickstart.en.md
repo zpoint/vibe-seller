@@ -32,7 +32,7 @@ Everything else fills itself in. Your key is stored only on your own computer.
 
     Using cc-switch or a similar Claude account switcher?
 
-    - **Before v0.3.3**: cc-switch overrode Vibe Seller's AI settings, so the models you added in Vibe Seller didn't work.
+    - **Before v0.3.3**: cc-switch overrode Vibe Seller's AI settings, so the models you added in Vibe Seller didn't work; you had to pick the built-in **Claude** (the default model) and let cc-switch take over.
     - **v0.3.3 and later**: the models you add use only their own provider and key in Vibe Seller — cc-switch can't change them. Only the built-in **Claude** follows this computer's Claude Code, so it uses whichever account cc-switch has selected.
 
 ## 3. Add a store
