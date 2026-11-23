@@ -129,11 +129,30 @@ def _describe(procs: list[psutil.Process]) -> str:
     return '; '.join(out)
 
 
-def _no_gws_left(timeout: float = 15) -> None:
+def _ident(p: psutil.Process) -> tuple[int, float] | None:
+    try:
+        return p.pid, p.create_time()
+    except psutil.Error:
+        return None
+
+
+def _no_gws_left(running: list[psutil.Process], timeout: float = 15) -> None:
+    """Every gws in *running* — taken just before the sign-in was ended —
+    is gone within *timeout*.
+
+    Only those: ending a sign-in refreshes the card, and the refresh runs
+    a fresh ``gws auth status`` (observed in CI, 1 s old at the check).
+    That probe did not outlive anything. Identity is pid + start time, so
+    a reused pid is not mistaken for a survivor, and the loop and the
+    assertion read the same sample.
+    """
+    before = {i for p in running if (i := _ident(p))}
     deadline = time.time() + timeout
-    while _gws_processes() and time.time() < deadline:
+    while True:
+        left = [p for p in _gws_processes() if _ident(p) in before]
+        if not left or time.time() >= deadline:
+            break
         time.sleep(0.5)
-    left = _gws_processes()
     assert not left, f'gws outlived its sign-in: {_describe(left)}'
 
 
@@ -184,7 +203,8 @@ def test_sign_in_starts_relays_and_cancels(api_client):
     assert view['url'].startswith('https://accounts.google.com/'), view
     assert re.fullmatch(r'http://localhost:\d+', view['callback']), view
     assert view['paste_back'] is True
-    assert _gws_processes()
+    running = _gws_processes()
+    assert running
 
     r = api_client.post(
         f'{_base()}/{KEY}/login/paste',
@@ -195,16 +215,17 @@ def test_sign_in_starts_relays_and_cancels(api_client):
     view = _wait_view(
         api_client, lambda v: v['state'] == 'failed', 'refusal not final'
     )
-    _no_gws_left()
+    _no_gws_left(running)
 
     r = api_client.post(f'{_base()}/{KEY}/login', json={})
     assert r.status_code == 200, r.text
     _wait_view(api_client, lambda v: v['callback'], 'no second link')
+    running = _gws_processes()
     started = time.time()
     r = api_client.delete(f'{_base()}/{KEY}/login', timeout=30)
     assert r.json() == {'cancelled': True}
     assert time.time() - started < 15
-    _no_gws_left()
+    _no_gws_left(running)
     assert _card(api_client)['enabled'] is False
 
 
@@ -267,9 +288,11 @@ def test_ui_setup_and_sign_in(api_client, authenticated_page, tmp_path):
         'waiting'
     )
 
+    running = _gws_processes()
+    assert running
     page.get_by_test_id(f'cli-cancel-{KEY}').click()
     expect(panel).to_be_hidden(timeout=15000)
-    _no_gws_left()
+    _no_gws_left(running)
     assert _card(api_client)['enabled'] is False
 
 
