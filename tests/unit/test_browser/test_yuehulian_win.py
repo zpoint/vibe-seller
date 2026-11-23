@@ -14,8 +14,8 @@ from app.browser.adapters.yuehulian_win import (
     SPAWN_HOOK_JS,
     SPAWN_UNHOOK_JS,
     win_path_to_local,
-    win_path_to_wsl,
 )
+from app.browser.win_app_locator import win_path_to_wsl
 
 pytestmark = pytest.mark.unit
 
@@ -73,3 +73,123 @@ def test_spawn_hook_saves_original_and_never_deletes():
     assert '__vsOrigSpawn' in SPAWN_UNHOOK_JS
     assert 'delete ' not in SPAWN_HOOK_JS
     assert 'delete ' not in SPAWN_UNHOOK_JS
+
+
+# The process queries, pinned as COMPLETE scripts: a substring check
+# cannot notice a missing brace. Behaviour under a real engine is
+# covered by test_powershell_scripts.py.
+_NAME_ARM = "$_.ExecutablePath -match 'YueHuLian'"
+
+
+def _captured(monkeypatch, method, install_dir=None):
+    """Run a ProcessLayer method with PowerShell stubbed; return the
+    exact script it generated."""
+    scripts = []
+
+    def fake_run(script, *_a, **_k):
+        scripts.append(script)
+        return ''
+
+    monkeypatch.setattr(win_mod, '_run_ps', fake_run)
+    getattr(win_mod.ProcessLayer(install_dir), method)()
+    assert len(scripts) == 1
+    return scripts[0]
+
+
+def _both_arms(ps_dir_literal: str) -> str:
+    """The path condition: the located dir (given as the PowerShell
+    single-quoted literal the product must emit) OR the legacy name —
+    ``((<null-guarded prefix>) -or <name>)``."""
+    return (
+        '(($_.ExecutablePath -and $_.ExecutablePath.StartsWith('
+        + ps_dir_literal
+        + ', [StringComparison]::OrdinalIgnoreCase))'
+        + ' -or '
+        + _NAME_ARM
+        + ')'
+    )
+
+
+def _is_running_script(condition: str) -> str:
+    return (
+        '(Get-CimInstance Win32_Process | Where-Object { '
+        + condition
+        + " -and $_.Name -ne 'chrome.exe' } | Measure-Object).Count"
+    )
+
+
+def _main_pid_script(condition: str) -> str:
+    return (
+        'Get-CimInstance Win32_Process | Where-Object { '
+        + condition
+        + " -and $_.Name -ne 'chrome.exe'"
+        + " -and $_.ExecutablePath -notmatch 'resources'"
+        + " -and $_.CommandLine -notmatch '--type=' }"
+        + ' | Select-Object -ExpandProperty ProcessId -First 1'
+    )
+
+
+class TestProcessMatchUsesLocatedDir:
+    """is_running()/main_pid() must see a custom-install client.
+
+    Installed to e.g. ``D:\\悦互联`` the client's path contains no
+    'YueHuLian', so the process queries match the LOCATED install dir
+    as a case-insensitive path prefix (quotes escaped for PowerShell),
+    with the legacy name as the second arm.
+    """
+
+    def test_is_running_script_matches_chinese_install_dir(self, monkeypatch):
+        script = _captured(monkeypatch, 'is_running', install_dir='D:\\悦互联')
+        # Spelled out in full …
+        assert script == (
+            '(Get-CimInstance Win32_Process | Where-Object { '
+            '(($_.ExecutablePath -and $_.ExecutablePath.StartsWith('
+            "'D:\\悦互联\\', [StringComparison]::OrdinalIgnoreCase)) "
+            "-or $_.ExecutablePath -match 'YueHuLian') "
+            "-and $_.Name -ne 'chrome.exe' } | Measure-Object).Count"
+        )
+        # … and equal to the composed expectation.
+        assert script == _is_running_script(_both_arms("'D:\\悦互联\\'"))
+
+    def test_main_pid_script_matches_located_dir(self, monkeypatch):
+        assert _captured(
+            monkeypatch, 'main_pid', install_dir='E:\\custom dir'
+        ) == _main_pid_script(_both_arms("'E:\\custom dir\\'"))
+
+    def test_single_quotes_in_dir_are_escaped(self, monkeypatch):
+        assert _captured(
+            monkeypatch, 'is_running', install_dir="D:\\悦'联"
+        ) == _is_running_script(_both_arms("'D:\\悦''联\\'"))
+
+    def test_trailing_backslash_is_not_part_of_the_prefix(self, monkeypatch):
+        assert _captured(
+            monkeypatch, 'is_running', install_dir='D:\\悦互联\\'
+        ) == _is_running_script(_both_arms("'D:\\悦互联\\'"))
+
+    def test_drive_root_never_becomes_a_prefix(self, monkeypatch):
+        # Located at D:\ the prefix would match the whole drive.
+        for root in ('D:\\', 'D:'):
+            assert _captured(
+                monkeypatch, 'is_running', install_dir=root
+            ) == _is_running_script('(' + _NAME_ARM + ')')
+
+    def test_not_located_falls_back_to_name_only(self, monkeypatch):
+        monkeypatch.setattr(
+            win_mod.win_locator, 'locate', lambda spec, **kw: None
+        )
+        name_only = '(' + _NAME_ARM + ')'
+        assert _captured(monkeypatch, 'is_running') == _is_running_script(
+            name_only
+        )
+        assert _captured(monkeypatch, 'main_pid') == _main_pid_script(name_only)
+
+    def test_configured_dir_counts_without_discovery(self, monkeypatch):
+        # A caller-configured dir is trusted: the prefix arm uses it
+        # directly and locate() is never asked (prove with a bomb).
+        def bomb(*_a, **_k):
+            raise AssertionError('locate() called for a configured dir')
+
+        monkeypatch.setattr(win_mod.win_locator, 'locate', bomb)
+        assert _captured(
+            monkeypatch, 'is_running', install_dir='D:\\自定义目录'
+        ) == _is_running_script(_both_arms("'D:\\自定义目录\\'"))

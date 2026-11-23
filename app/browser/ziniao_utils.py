@@ -16,6 +16,7 @@ import threading
 
 import httpx
 
+from app.browser import win_app_locator as win_locator
 from app.browser.proxy_env import browser_launch_env
 from app.config import LOCALHOST
 from app.platform import IS_LINUX, IS_MAC, IS_WINDOWS
@@ -155,74 +156,18 @@ def find_ziniao_exe_windows() -> str | None:
     the stored ``client_path`` defaults to the bare name ``ziniao``,
     which only resolves on macOS via ``open -a``.
 
-    Tries, in order: common install directories (fast, no subprocess),
-    the running process's ExecutablePath, then the registry uninstall
-    entries. Returns an absolute path, or None if Ziniao can't be found.
+    Discovery is the shared Windows app locator
+    (:mod:`app.browser.win_app_locator`): the exe path remembered from
+    the client process observed before it was stopped, registry App
+    Paths + Uninstall keys, Desktop/Start-Menu shortcuts, then bounded
+    conventional dirs on every fixed drive — all validated (the result
+    is a real ``ziniao.exe``, never an uninstaller) and logged per
+    hint. Returns an absolute path, or None if Ziniao can't be found.
     """
     if not IS_WINDOWS:
         return None
-
-    # 1. Common install locations (no subprocess — fast path).
-    for env_var in ('ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA'):
-        base = os.environ.get(env_var)
-        if base:
-            candidate = os.path.join(base, 'ziniao', 'ziniao.exe')
-            if os.path.isfile(candidate):
-                return candidate
-
-    # 2. Running process — most authoritative when Ziniao is already up.
-    try:
-        result = subprocess.run(
-            [
-                'powershell',
-                '-NoProfile',
-                '-Command',
-                'Get-CimInstance Win32_Process -Filter '
-                '"name=\'ziniao.exe\'" | Select-Object -First 1 '
-                '-ExpandProperty ExecutablePath',
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        path = result.stdout.strip()
-        if path and os.path.isfile(path):
-            return path
-    except Exception as e:
-        logger.debug('Ziniao process-path lookup failed: %s', e)
-
-    # 3. Registry uninstall entry (DisplayIcon points at the exe).
-    try:
-        result = subprocess.run(
-            [
-                'powershell',
-                '-NoProfile',
-                '-Command',
-                '$roots='
-                "'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion"
-                "\\Uninstall',"
-                "'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows"
-                "\\CurrentVersion\\Uninstall',"
-                "'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion"
-                "\\Uninstall';"
-                'Get-ChildItem $roots -ErrorAction SilentlyContinue | '
-                "ForEach-Object { $_.GetValue('DisplayIcon') } | "
-                "Where-Object { $_ -match 'ziniao' } | Select-Object -First 1",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        icon = result.stdout.strip()
-        if icon:
-            # DisplayIcon is often "C:\...\ziniao.exe,0".
-            icon = icon.split(',')[0].strip().strip('"')
-            if os.path.isfile(icon):
-                return icon
-    except Exception as e:
-        logger.debug('Ziniao registry lookup failed: %s', e)
-
-    return None
+    located = win_locator.locate(win_locator.ZINIAO_SPEC)
+    return located.exe_path if located else None
 
 
 def _resolve_windows_client_path(client_path: str) -> str:
@@ -239,10 +184,7 @@ def _resolve_windows_client_path(client_path: str) -> str:
     found = find_ziniao_exe_windows()
     if found:
         return found
-    raise RuntimeError(
-        'Could not find ziniao.exe. Please make sure Ziniao is '
-        'installed (default: C:\\Program Files\\ziniao\\ziniao.exe).'
-    )
+    raise RuntimeError(win_locator.not_found_message(win_locator.ZINIAO_SPEC))
 
 
 def build_launch_cmd(client_path: str, socket_port: int) -> list[str]:
@@ -306,11 +248,19 @@ def build_launch_cmd(client_path: str, socket_port: int) -> list[str]:
         raise RuntimeError(f'Unsupported platform: {platform.system()}')
 
 
+# Conventional .app locations LaunchServices itself always scans; the
+# fallback when Spotlight (mdfind) misses an app — its index excludes
+# folders (privacy), is disabled, or has not finished its first scan.
+_MAC_APP_DIRS = ('/Applications', os.path.expanduser('~/Applications'))
+
+
 def is_ziniao_installed_mac() -> bool:
     """Check if Ziniao is installed on Mac.
 
-    Uses Spotlight (mdfind) for reliable detection across
-    /Applications, ~/Applications, and other locations.
+    Uses Spotlight (mdfind) first for detection anywhere on disk, then
+    falls back to the conventional Applications folders, which
+    LaunchServices itself scans — Spotlight can miss an app that sits
+    in an excluded folder or before its first index scan completes.
     """
     if not IS_MAC:
         return False
@@ -324,10 +274,14 @@ def is_ziniao_installed_mac() -> bool:
             text=True,
             timeout=10,
         )
-        return bool(result.stdout.strip())
+        if result.stdout.strip():
+            return True
     except Exception as e:
         logger.debug('Failed to check Ziniao install: %s', e)
-        return False
+    for base in _MAC_APP_DIRS:
+        if os.path.isdir(os.path.join(base, 'ziniao.app')):
+            return True
+    return False
 
 
 def get_platform() -> str:

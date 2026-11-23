@@ -46,6 +46,7 @@ class _FakeProc:
         self._pid = pid
         self._port = port
         self._launch_ok = launch_ok
+        self.locate_error = None  # mirrors ProcessLayer.locate_error
 
     def is_running(self):
         return self._running

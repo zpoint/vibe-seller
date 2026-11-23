@@ -27,6 +27,17 @@ description: 紫鸟接入 Vibe Seller 的一页说明：开通前提（开发者
 1. **在紫鸟开放平台开通开发者模式**（见 <https://open.ziniao.com/docSupport?docId=99>）。没有开通时紫鸟会拒绝登录，报错 `statusCode: -10003`——这是紫鸟自己的错误码，含义就是「这个公司没有开通开发者模式」。
 2. **给要用 WebDriver 登录的子账号勾选「WebDriver 登录」**。没有勾选时，绑定店铺会提示「无权限通过 webdriver 登录」，处理方法和截图见下面 [提示「无权限通过 webdriver 登录」](#报错无权限通过-webdriver-登录)。
 
+## 装在哪个目录都能找到（Windows）
+
+Windows 上 Vibe Seller 需要拿到 `ziniao.exe` 的完整路径才能带参启动它。默认装在 `C:\Program Files\ziniao` 自然没问题；装到别处（比如 `D:\紫鸟\ziniao`、带空格或中文的目录、其他盘）也一样能找到——查找顺序是：
+
+1. 启动前还活着的紫鸟进程的安装路径（每次自动重启前会先记录再关闭它）；
+2. 注册表 App Paths / Uninstall 项（`InstallLocation`、`DisplayIcon` 等）；
+3. 桌面和开始菜单的快捷方式指向哪里（紫鸟自己的快捷方式装在哪就指向哪）；
+4. 每个固定磁盘上的常规目录（`X:\Program Files\ziniao`、`X:\Program Files (x86)\ziniao`、`X:\ziniao` 等）。
+
+以上每一项都会校验找到的确实是 `ziniao.exe`（绝不会把卸载器当成客户端）。如果全都找不到，报错会列出搜索过的位置；此时**手动从快捷方式打开一次紫鸟再重试**（下次启动会记下它的安装位置），或者重装到默认目录。
+
 ## 绑定时要填什么
 
 新建店铺（浏览器后端选择「紫鸟」）时点击「+」添加一个「紫鸟账号」，填写三个字段：

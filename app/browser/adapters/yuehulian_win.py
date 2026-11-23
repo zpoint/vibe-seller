@@ -1,8 +1,10 @@
 """Windows I/O for the Yuehulian client (process + Node inspector).
 
 Thin wrappers over ``powershell.exe`` and the inspector WebSocket; the
-pure logic lives in :mod:`yuehulian_dom`. Everything here only works on
-Windows (or WSL-on-Windows, driving the Windows side over 127.0.0.1).
+pure logic lives in :mod:`yuehulian_dom`, and install discovery in
+:mod:`app.browser.win_app_locator` (shared with Ziniao). Everything
+here only works on Windows (or WSL-on-Windows, driving the Windows side
+over 127.0.0.1).
 
 Validated live 2026-11-18: install location via registry/Start Menu,
 Electron MAIN pid (``用户端.exe`` with no ``--type=`` — the kernel's root
@@ -15,63 +17,35 @@ it with ``require('inspector').close()``.
 import asyncio
 import json
 import logging
+import ntpath
 import os
-import subprocess
 
 import aiohttp
+
+from app.browser import win_app_locator as win_locator
+from app.browser.win_app_locator import (
+    run_powershell as _run_ps,
+    win_path_to_local,
+)
 
 logger = logging.getLogger(__name__)
 
 # The installed Electron binary sits directly in the install dir; the
 # bundled kernel is under resources\chrome\...\chrome.exe. We separate
 # the two by name (the kernel is chrome.exe) and path (resources).
-_PS = ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command']
-_UTF8 = '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;'
 _DEFAULT_DIR = r'C:\Program Files (x86)\YueHuLian'
 
-
-def _run_ps(script: str, timeout: float = 30.0) -> str:
-    """Run a PowerShell script, return stdout (UTF-8), '' on failure."""
-    try:
-        proc = subprocess.run(
-            [*_PS, _UTF8 + script],
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            timeout=timeout,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as e:
-        logger.warning('powershell call failed: %s', e)
-        return ''
-    return (proc.stdout or '').strip()
+# win_path_to_local / win_path_to_wsl (Windows path → where THIS process
+# reads it: native Windows vs WSL /mnt) live in win_app_locator now.
 
 
-def win_path_to_wsl(win_path: str) -> str:
-    """``C:\\Users\\x`` → ``/mnt/c/Users/x`` (best-effort, drive letters)."""
-    p = win_path.strip().strip('"').replace('\\', '/')
-    if len(p) >= 2 and p[1] == ':':
-        return f'/mnt/{p[0].lower()}{p[2:]}'
-    return p
+def _where_ps(*conditions: str) -> str:
+    """A complete ``Where-Object { … }`` clause from bare conditions.
 
-
-def win_path_to_local(win_path: str) -> str:
-    """Resolve a Windows path to where THIS Python process reads files.
-
-    The 悦互联 client always reports Windows paths (``C:\\...``) and
-    sometimes doubles the separators in a kernel's spawn args
-    (``C:\\\\Users\\\\...``). The server reading the file may itself run as
-    native Windows (open ``C:\\...`` directly) or under WSL driving the
-    Windows side (open it under ``/mnt/<drive>/``). An earlier version
-    always converted to ``/mnt`` and so could not find the file on a
-    native-Windows install — the real deployment target. Pick the form for
-    the current OS; ``normpath`` collapses the doubled separators on
-    Windows and ``win_path_to_wsl`` does on WSL.
+    The braces live here only: a caller passes conditions and cannot
+    leave the block unbalanced.
     """
-    raw = win_path.strip().strip('"')
-    if os.name == 'nt':
-        return os.path.normpath(raw)
-    return win_path_to_wsl(raw)
+    return 'Where-Object { ' + ' -and '.join(conditions) + ' }'
 
 
 class ProcessLayer:
@@ -79,34 +53,58 @@ class ProcessLayer:
 
     def __init__(self, install_dir: str | None = None):
         self._dir = install_dir
+        #: Why discovery failed (surfaced in ClientNotRunning errors).
+        self.locate_error: str | None = None
 
     def locate_install_dir(self) -> str | None:
+        """The install dir, via the shared Windows app locator.
+
+        A caller-configured dir is trusted as-is; otherwise the locator
+        tries the running client (observed before it was stopped),
+        registry App Paths + Uninstall, Desktop/Start-Menu shortcuts,
+        then bounded conventional dirs on every fixed drive — all with
+        UTF-8 PowerShell output, so Chinese install paths survive.
+        """
         if self._dir:
             return self._dir
-        script = (
-            '$dir=$null;'
-            "$keys='HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\"
-            "CurrentVersion\\Uninstall\\*','HKLM:\\SOFTWARE\\Microsoft\\"
-            "Windows\\CurrentVersion\\Uninstall\\*';"
-            'foreach($e in (Get-ItemProperty $keys -ErrorAction '
-            'SilentlyContinue | Where-Object { $_.DisplayIcon -match '
-            "'YueHuLian' -or $_.InstallLocation -match 'YueHuLian' })){"
-            "if($e.InstallLocation){$dir=$e.InstallLocation.TrimEnd('\\')}"
-            'elseif($e.DisplayIcon){$dir=Split-Path ($e.DisplayIcon '
-            "-replace ',\\d+$','')};if($dir){break}}"
-            "if(-not $dir -and (Test-Path '" + _DEFAULT_DIR + "'))"
-            "{$dir='" + _DEFAULT_DIR + "'};"
-            'if($dir){$dir}'
+        located = win_locator.locate(win_locator.YUEHULIAN_SPEC)
+        if located:
+            self._dir = ntpath.dirname(located.exe_path)
+            return self._dir
+        self.locate_error = win_locator.not_found_message(
+            win_locator.YUEHULIAN_SPEC
         )
-        out = _run_ps(script).splitlines()
-        self._dir = out[0].strip() if out and out[0].strip() else None
-        return self._dir
+        return None
+
+    def _path_match_ps(self) -> str:
+        """PS condition matching any process of THIS install.
+
+        A custom install dir (e.g. ``D:\\悦互联``) carries no
+        'YueHuLian' in its path, so the located dir is matched as a
+        case-insensitive path prefix (single quotes escaped for
+        PowerShell). The legacy name match stays as the second arm so a
+        not-yet-located state still works; ``locate_install_dir`` caches
+        its result, so polling callers do not re-run discovery.
+        """
+        conds = ["$_.ExecutablePath -match 'YueHuLian'"]
+        d = self.locate_install_dir()
+        d = d.rstrip('\\') if d else ''
+        # A bare drive root ('D:') would match every process on that
+        # drive — only a real install dir becomes a prefix.
+        if len(d) > 2:
+            esc = d.replace("'", "''")
+            conds.insert(
+                0,
+                '($_.ExecutablePath -and $_.ExecutablePath.StartsWith('
+                f"'{esc}\\', [StringComparison]::OrdinalIgnoreCase))",
+            )
+        return '(' + ' -or '.join(conds) + ')'
 
     def is_running(self) -> bool:
         script = (
-            '(Get-CimInstance Win32_Process | Where-Object '
-            "{ $_.ExecutablePath -match 'YueHuLian' -and "
-            "$_.Name -ne 'chrome.exe' } | Measure-Object).Count"
+            '(Get-CimInstance Win32_Process | '
+            + _where_ps(self._path_match_ps(), "$_.Name -ne 'chrome.exe'")
+            + ' | Measure-Object).Count'
         )
         out = _run_ps(script)
         try:
@@ -117,12 +115,14 @@ class ProcessLayer:
     def main_pid(self) -> int | None:
         """The Electron MAIN process pid (not a kernel chrome.exe)."""
         script = (
-            'Get-CimInstance Win32_Process | Where-Object '
-            "{ $_.ExecutablePath -match 'YueHuLian' -and "
-            "$_.Name -ne 'chrome.exe' -and "
-            "$_.ExecutablePath -notmatch 'resources' -and "
-            "$_.CommandLine -notmatch '--type=' } | "
-            'Select-Object -ExpandProperty ProcessId -First 1'
+            'Get-CimInstance Win32_Process | '
+            + _where_ps(
+                self._path_match_ps(),
+                "$_.Name -ne 'chrome.exe'",
+                "$_.ExecutablePath -notmatch 'resources'",
+                "$_.CommandLine -notmatch '--type='",
+            )
+            + ' | Select-Object -ExpandProperty ProcessId -First 1'
         )
         out = _run_ps(script).strip()
         try:
@@ -144,12 +144,20 @@ class ProcessLayer:
         return _run_ps(script).strip().endswith('ok')
 
     def kernel_user_data_dirs(self) -> list[str]:
-        """``--user-data-dir`` of every running Yuehulian kernel."""
+        """``--user-data-dir`` of every running Yuehulian kernel.
+
+        Matches the ``YueHuLianData`` NAME in the kernel's command
+        line — the client builds that data dir under its own fixed
+        name wherever it is installed, so a custom install dir does
+        not change this match (unlike the exe-path matches above).
+        """
         script = (
-            'Get-CimInstance Win32_Process | Where-Object '
-            "{ $_.Name -eq 'chrome.exe' -and "
-            "$_.CommandLine -match 'YueHuLianData' } | "
-            'ForEach-Object { if($_.CommandLine -match '
+            'Get-CimInstance Win32_Process | '
+            + _where_ps(
+                "$_.Name -eq 'chrome.exe'",
+                "$_.CommandLine -match 'YueHuLianData'",
+            )
+            + ' | ForEach-Object { if($_.CommandLine -match '
             '\'--user-data-dir="?([^" ]+)\'){$matches[1]} } | '
             'Sort-Object -Unique'
         )
