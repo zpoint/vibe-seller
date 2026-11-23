@@ -70,7 +70,7 @@ What each browser needs and how they differ: [Browsers](browsers.md).
 The AI opens the browser and does the work itself, then hands you a report. Every step and screenshot stays visible in the task.
 
 !!! tip "Want to see the AI's plan before it acts?"
-    In **Settings → General**, set **Default Execution Mode** to **Review**. From then on, the AI writes a plan for each new task and only starts once you click **Confirm & Execute**. Worth doing for tasks that change store data, such as ads or prices.
+    In **Settings → General**, set **Default Execution Mode** to **Review**. From then on, the AI writes a plan for each new task and only starts once you click **Confirm & Execute**.
 
 ## What's next
 
