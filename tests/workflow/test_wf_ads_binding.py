@@ -164,6 +164,170 @@ class TestStoreSync:
         assert store.ads_authorized is True
 
 
+class TestLastConsent:
+    """The service's word on how a store's last consent ended, verbatim.
+
+    A consent Amazon accepts from a login with no Ads access binds
+    nothing, and the recheck in Settings tells that user WHY rather than
+    asking them to finish a consent they did finish — but only if this
+    field survives the trip. The client must neither reshape nor filter
+    it. Services that predate the field send nothing, and those rows
+    pass exactly as they always did.
+    """
+
+    async def test_the_field_reaches_the_frontend_unchanged(
+        self, authenticated_client, test_store, monkeypatch
+    ):
+        consent = {'result': 'no_profiles', 'at': '2026-11-22T08:00:00Z'}
+
+        async def fake_call(
+            _session, path, *, method='GET', params=None, json_body=None, **kw
+        ):
+            assert path == '/me/stores'
+            return {
+                'stores': [
+                    {
+                        'local_id': test_store.id,
+                        'marketplace': None,
+                        'store_key': None,
+                        'authorized': False,
+                        'last_consent': consent,
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ads_client, 'call', fake_call)
+
+        response = await authenticated_client.post('/api/ads/stores/sync')
+
+        assert response.status_code == 200
+        assert response.json()['stores'] == [
+            {
+                'local_id': test_store.id,
+                'name': test_store.name,
+                'marketplace': None,
+                'store_key': None,
+                'authorized': False,
+                'last_consent': consent,
+            }
+        ]
+
+    async def test_a_no_permission_consent_keeps_the_store_off_the_ads_path(
+        self, authenticated_client, async_db_session, test_store, monkeypatch
+    ):
+        """A consent that bound nothing is a failure, not a success.
+
+        The service reports the last consent ended `no_profiles` and the
+        rows unauthorized: the store keeps `ads_authorized` off, its
+        tasks keep going through the browser, and the ads skill is never
+        routed for it — routing follows what Amazon actually bound, never
+        that a consent finished.
+        """
+
+        async def fake_call(
+            _session, path, *, method='GET', params=None, json_body=None, **kw
+        ):
+            assert path == '/me/stores'
+            return {
+                'stores': [
+                    {
+                        'local_id': test_store.id,
+                        'marketplace': None,
+                        'store_key': None,
+                        'authorized': False,
+                        'last_consent': {
+                            'result': 'no_profiles',
+                            'at': '2026-01-01T00:00:00Z',
+                        },
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ads_client, 'call', fake_call)
+
+        rows = (await authenticated_client.post('/api/ads/stores/sync')).json()[
+            'stores'
+        ]
+        assert rows[0]['last_consent']['result'] == 'no_profiles'
+        store = (
+            await async_db_session.execute(
+                select(Store).where(Store.id == test_store.id)
+            )
+        ).scalar_one()
+        await async_db_session.refresh(store)
+        assert store.ads_authorized is False
+        assert store.ads_store_keys == '{}'
+
+    async def test_the_whole_binding_flow_with_a_service_sending_nothing(
+        self, authenticated_client, async_db_session, test_store, monkeypatch
+    ):
+        """Register is faked elsewhere; here the panel's own journey —
+        sync (unauthorized), consent link, recheck that finds the store
+        bound, revoke — against a service whose rows carry no
+        ``last_consent`` at all, i.e. every service today.
+        """
+        authorized = False
+
+        async def fake_call(
+            _session, path, *, method='GET', params=None, json_body=None, **kw
+        ):
+            nonlocal authorized
+            if path == '/auth-url':
+                return {
+                    'url': 'https://amazon.example/ap/oa?...',
+                    'expires_in': 1800,
+                }
+            if path == f'/me/stores/{test_store.id}/unbind':
+                authorized = False
+                return {'stores': []}
+            assert path == '/me/stores'
+            return {
+                'stores': [
+                    {
+                        'local_id': test_store.id,
+                        'marketplace': 'SA' if authorized else None,
+                        'store_key': 'sk_sa' if authorized else None,
+                        'authorized': authorized,
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ads_client, 'call', fake_call)
+
+        listed = (
+            await authenticated_client.post('/api/ads/stores/sync')
+        ).json()['stores']
+        assert listed[0]['authorized'] is False
+        assert 'last_consent' not in listed[0]
+
+        link = await authenticated_client.get(
+            f'/api/ads/stores/{test_store.id}/auth-url'
+        )
+        assert link.status_code == 200 and link.json()['url']
+
+        # The person finishes the consent on the service's domain; the
+        # recheck's next sync is what finds the store bound.
+        authorized = True
+        rechecked = (
+            await authenticated_client.post('/api/ads/stores/sync')
+        ).json()['stores']
+        assert rechecked[0]['authorized'] is True
+        store = (
+            await async_db_session.execute(
+                select(Store).where(Store.id == test_store.id)
+            )
+        ).scalar_one()
+        await async_db_session.refresh(store)
+        assert store.ads_authorized is True
+
+        revoked = await authenticated_client.post(
+            f'/api/ads/stores/{test_store.id}/unbind', json={'purge': False}
+        )
+        assert revoked.status_code == 200
+        await async_db_session.refresh(store)
+        assert store.ads_authorized is False
+
+
 class TestAgentCall:
     async def test_binding_paths_are_refused(
         self, authenticated_client, bound, test_task

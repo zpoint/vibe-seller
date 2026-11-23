@@ -101,6 +101,11 @@ class AdsService(http.server.ThreadingHTTPServer):
         self._lock = threading.Lock()
         self.bundle_version = VERSION
         self.bundle_files: dict[str, str] = {'SKILL.md': SKILL_MD}
+        # Per-store consent outcomes (see :meth:`set_consent`). Empty by
+        # default, so the store rows carry no ``last_consent`` at all —
+        # the shape of a service that predates the field, which the
+        # client must keep passing through unchanged.
+        self.consents: dict[str, dict] = {}
 
     def record(self, method: str, path: str, query: dict) -> None:
         with self._lock:
@@ -115,6 +120,17 @@ class AdsService(http.server.ThreadingHTTPServer):
         with self._lock:
             self.bundle_version = version
             self.bundle_files = dict(files)
+
+    def set_consent(self, local_id: str, result: str, at: str) -> None:
+        """Have the next store sync report how a consent ended.
+
+        The real service adds this when an Amazon login finished the
+        consent but bound nothing — ``no_profiles`` is a login with no
+        Ads access, which Amazon still accepts. Only stores given one
+        carry the field, on every marketplace row alike.
+        """
+        with self._lock:
+            self.consents[local_id] = {'result': result, 'at': at}
 
     def served_version(self) -> str:
         with self._lock:
@@ -202,13 +218,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             rows = []
             for s in body.get('stores', []):
                 ok = AUTHORIZED_MARK in s['name']
-                rows.append({
+                row = {
                     'local_id': s['local_id'],
                     'name': s['name'],
                     'marketplace': MARKETPLACE if ok else None,
                     'store_key': store_key(s['local_id']) if ok else None,
                     'authorized': ok,
-                })
+                }
+                consent = self.server.consents.get(s['local_id'])
+                if consent is not None:
+                    row['last_consent'] = consent
+                rows.append(row)
             return self._reply(200, {'stores': rows})
         if url.path == '/skill/version':
             return self._reply(
