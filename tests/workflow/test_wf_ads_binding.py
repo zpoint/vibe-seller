@@ -212,6 +212,52 @@ class TestLastConsent:
             }
         ]
 
+    async def test_a_no_permission_consent_keeps_the_store_off_the_ads_path(
+        self, authenticated_client, async_db_session, test_store, monkeypatch
+    ):
+        """A consent that bound nothing is a failure, not a success.
+
+        The service reports the last consent ended `no_profiles` and the
+        rows unauthorized: the store keeps `ads_authorized` off, its
+        tasks keep going through the browser, and the ads skill is never
+        routed for it — routing follows what Amazon actually bound, never
+        that a consent finished.
+        """
+
+        async def fake_call(
+            _session, path, *, method='GET', params=None, json_body=None, **kw
+        ):
+            assert path == '/me/stores'
+            return {
+                'stores': [
+                    {
+                        'local_id': test_store.id,
+                        'marketplace': None,
+                        'store_key': None,
+                        'authorized': False,
+                        'last_consent': {
+                            'result': 'no_profiles',
+                            'at': '2026-01-01T00:00:00Z',
+                        },
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ads_client, 'call', fake_call)
+
+        rows = (await authenticated_client.post('/api/ads/stores/sync')).json()[
+            'stores'
+        ]
+        assert rows[0]['last_consent']['result'] == 'no_profiles'
+        store = (
+            await async_db_session.execute(
+                select(Store).where(Store.id == test_store.id)
+            )
+        ).scalar_one()
+        await async_db_session.refresh(store)
+        assert store.ads_authorized is False
+        assert store.ads_store_keys == '{}'
+
     async def test_the_whole_binding_flow_with_a_service_sending_nothing(
         self, authenticated_client, async_db_session, test_store, monkeypatch
     ):

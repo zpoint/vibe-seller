@@ -147,24 +147,6 @@ describe('AmazonAdsPanel', () => {
     expect(note.textContent).toMatch(/Another machine/)
   })
 
-  it('hints on the row when the last consent had no ad access', async () => {
-    const at = new Date().toISOString()
-    mockApi.post.mockImplementation((url: string) => {
-      if (url === '/api/ads/stores/sync')
-        return Promise.resolve({
-          stores: NOT_AUTHORIZED.map(r => ({
-            ...r,
-            last_consent: { result: 'no_profiles' as const, at },
-          })),
-        })
-      return Promise.resolve({ stores: [] })
-    })
-    renderPanel()
-    await screen.findByTestId('ads-stores')
-    expect(
-      screen.getByText(enTranslation.ads.notAuthorizedNoAdPermission),
-    ).toBeTruthy()
-  })
 })
 
 describe('AmazonAdsPanel recheck', () => {
@@ -228,6 +210,8 @@ describe('AmazonAdsPanel recheck', () => {
     fireEvent.click(screen.getByTestId('ads-recheck'))
     const note = await screen.findByTestId('ads-check-note')
     expect(note.textContent).toBe(enTranslation.ads.noAdPermission)
+    // A failure is said as a failure, in the failure colour.
+    expect(note.className).toContain('text-red-600')
   })
 
   it('says the service failed when the consent did not complete', async () => {
@@ -242,6 +226,7 @@ describe('AmazonAdsPanel recheck', () => {
     fireEvent.click(screen.getByTestId('ads-recheck'))
     const note = await screen.findByTestId('ads-check-note')
     expect(note.textContent).toBe(enTranslation.ads.consentFailed)
+    expect(note.className).toContain('text-red-600')
   })
 
   it('still asks to finish the consent when the service sends no field', async () => {
@@ -251,6 +236,8 @@ describe('AmazonAdsPanel recheck', () => {
     fireEvent.click(screen.getByTestId('ads-recheck'))
     const note = await screen.findByTestId('ads-check-note')
     expect(note.textContent).toBe(enTranslation.ads.notYetAuthorized)
+    // Not completed is also said in the failure colour.
+    expect(note.className).toContain('text-red-600')
   })
 
   it('ignores a consent outcome older than the link it explains', async () => {

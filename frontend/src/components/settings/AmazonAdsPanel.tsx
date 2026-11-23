@@ -99,7 +99,9 @@ export function AmazonAdsPanel() {
    *  must report it, not silently redraw a list. When the service says
    *  why a finished consent did not bind, that reason is the report:
    *  "go finish the consent" sends a user who did finish it into a
-   *  loop. */
+   *  loop. Whatever the recheck has to say — not completed, or why it
+   *  failed — is said in the panel's own failure red, like the
+   *  wrong-account warning above. */
   const [checkNote, setCheckNote] = useState<string | null>(null)
   const confirmAuthorized = async () => {
     if (!link) return
@@ -211,15 +213,17 @@ export function AmazonAdsPanel() {
               <tbody>
                 {Object.entries(byStore).map(([localId, rows]) => {
                   const authorized = rows.filter(r => r.authorized)
+                  // The cell states a fact — where the store advertises,
+                  // or that it is not authorized — and nothing else; the
+                  // recheck note below is where a failed authorization is
+                  // explained.
                   return (
                     <tr key={localId} className="border-t">
                       <td className="py-2">{rows[0].name}</td>
                       <td className="py-2 text-xs text-muted-foreground">
                         {authorized.length
                           ? authorized.map(r => r.marketplace).join(' · ')
-                          : rows.some(r => r.last_consent?.result === 'no_profiles')
-                            ? t('ads.notAuthorizedNoAdPermission')
-                            : t('ads.notAuthorized')}
+                          : t('ads.notAuthorized')}
                       </td>
                       <td className="space-x-2 whitespace-nowrap py-2 text-right">
                         {authorized.length > 0 && (
@@ -338,7 +342,7 @@ export function AmazonAdsPanel() {
             {busy ? t('ads.checking') : t('ads.recheck')}
           </button>
           {checkNote && (
-            <p data-testid="ads-check-note" className="text-xs font-medium text-amber-700">
+            <p data-testid="ads-check-note" className="text-xs font-medium text-red-600">
               {checkNote}
             </p>
           )}
