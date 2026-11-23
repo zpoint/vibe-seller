@@ -38,6 +38,7 @@ from app.platform import (
     reap_task_agents,
 )
 from app.release_channel import best_upgrade, channel_of, offered_versions
+from app.server_pid import read_server_pid
 from app.system_proxy import urlopen as checked_urlopen
 
 
@@ -90,18 +91,8 @@ def _pid_alive(pid: int) -> bool:
 
 
 def _read_pid(port: int) -> int | None:
-    f = _pid_file_for(port)
-    if not f.exists():
-        return None
-    try:
-        pid = int(f.read_text().strip())
-    except (ValueError, OSError):
-        return None
-    if not _pid_alive(pid):
-        with suppress(OSError):
-            f.unlink()
-        return None
-    return pid
+    """The running server's PID — app/server_pid.py says when it is."""
+    return read_server_pid(_pid_file_for(port), _pid_alive)
 
 
 def _build_parser() -> argparse.ArgumentParser:
