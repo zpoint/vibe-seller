@@ -203,7 +203,19 @@ WSL cannot launch Ziniao automatically because Electron's Node.js V8 rejects unk
 1. If Ziniao is already running with the HTTP API on port 16851, it works seamlessly (WSL reaches it via 127.0.0.1 in mirrored networking, or the gateway IP in NAT mode)
 2. If it is not answering and Windows shows **no listener** on the port (normal mode, or leftovers), the server stops every Ziniao process through Windows interop, then raises the error guiding the user to run `ziniao_webdriver.bat` (which stops every Ziniao process too, then launches in WebDriver mode and waits up to 120 s)
 3. If Windows **does** show a listener WSL cannot reach, nothing is killed — that is a networking problem (`ziniao_wsl_unreachable`), and killing would lose a healthy client only the `.bat` can bring back. A timeout alone never kills on WSL
-4. The launcher script is served at `GET /api/ziniao/launcher`
+4. The launcher script is served at `GET /api/ziniao/launcher` — **generated at download time** by `ziniao_launcher.py` (below), with the located exe path baked in, so a double-click finds a custom install dir exactly like a default one
+
+### `win_app_locator.py` — Windows install discovery (Ziniao & 悦互联)
+
+One bounded locator for where a Windows client's main exe lives, shared by Ziniao and 悦互联 — a custom install dir (another drive, a Chinese-named folder) is found like the default one. Ordered hints; the first hit that **validates** wins:
+
+1. `configured` — the account's `client_path` (a full `.exe` is operator intent)
+2. `process` — the exe path **remembered when the client was stopped** (`kill_all_ziniao` feeds it before the launch that needs it; a live query is always too late)
+3. `app_paths` / `uninstall` — registry via native `winreg` (under WSL, PowerShell with UTF-8 pinned on both sides, so non-ASCII paths survive any console code page): App Paths, then Uninstall `InstallLocation` → `DisplayIcon` → `UninstallString` dir (parsed, never executed)
+4. `shortcut` — Desktop (user + Public) and Start Menu `.lnk` targets, read from the file by `lnk_file.py` in pure Python (`WScript.Shell` is ANSI-bound and breaks on non-ASCII paths under a non-matching system locale)
+5. `conventional` — `X:\Program Files[ (x86)]\<name>`, `X:\<name>`, `%LOCALAPPDATA%\Programs\<name>` on every fixed drive, one level down only; no recursive disk scan
+
+Validation means an existing `.exe` that is the app's **main** binary — exact name for Ziniao; for 悦互联 (whose exe name is a locale string) the largest non-rejected `.exe` directly in the dir — never an uninstaller, a Chromium kernel under `resources\`, or an Electron helper. A hit is cached until the file disappears. Every hint logs at INFO what it tried, and a miss returns `not_found_message` listing every searched surface and advising to open the client once by hand (never "set the path" — there is no UI for it). `run_powershell` (UTF-8 both sides) and `win_path_to_local` / `win_path_to_wsl` live here — moved out of `yuehulian_win.py` so both clients share them.
 
 ### `ziniao_utils.py` — Ziniao Utilities
 
@@ -212,7 +224,12 @@ Shared helpers used by both `ziniao.py` (task execution) and `ziniao_accounts` r
 - `send_http(port, data)` / `try_connect_ziniao(...)` — Send a command to the Ziniao HTTP API
 - `ensure_ziniao_running(port, client_path, user_info, ...)` — the one way to get the client answering in WebDriver mode; implemented in `ziniao_startup.py` (below)
 - `launch_ziniao(client_path, port)` — start the client in WebDriver mode; fails at once when the launch itself is refused (macOS `open -a` exit code, missing `.exe`)
+- `find_ziniao_exe_windows()` — resolve the installed `ziniao.exe` via the shared locator (`win_app_locator.py`, above); this is what turns the default bare `ziniao` client path into a launchable full path on Windows
 - `is_ziniao_installed_mac()` — Spotlight `mdfind` check for ziniao.app (handles /Applications and ~/Applications)
+
+### `ziniao_launcher.py` — the WSL launcher download
+
+Builds the `ziniao_webdriver.bat` served at `GET /api/ziniao/launcher` (the file is **generated, not static**): the server runs the shared locator and bakes the exe path it found into the script, so the double-click launch works for a custom or Chinese-named install dir, not just the conventional ones. The script is UTF-8 with `chcp 65001` before any non-ASCII line (batch files are parsed in the console code page), tries the baked path first, and keeps the old fixed-path list as the fallback for a stale baked path (a reinstall to yet another folder). The kill/launch/port-probe steps are the same ones the static script always had.
 
 ### `ziniao_startup.py` / `ziniao_processes.py` — Client startup
 
@@ -239,7 +256,7 @@ Key behaviors:
 **悦互联 (Yuehulian)** is an ixBrowser OEM with **no local automation API**. Instead of HTTP (ziniao), it is driven by injecting a CDP debug port into the client-launched kernel:
 
 - **`inject/`** — shared Route-B engine (`InjectCdpBackend`), the `InjectClient` boundary, and typed operator errors (`CLIENT_NOT_RUNNING` / `LOGIN_REQUIRED` / `STORE_NOT_FOUND` / `CDP_UNREACHABLE` / `ACCOUNT_CONFLICT` / `IDLE_EXPIRED` / `UNSUPPORTED_PLATFORM`).
-- **`adapters/yuehulian_win.py`** — Windows I/O: `ProcessLayer` (locate install; Electron **main** pid, excluding the kernel `chrome.exe`; launch; kernel `--user-data-dir`s; `DevToolsActivePort`) and `InspectorSession` (open the Node inspector via `ELECTRON_RUN_AS_NODE` + `process._debugProcess`; `Runtime.evaluate` incl. `webContents.executeJavaScript`; spawn-hook install/uninstall; `require('inspector').close()`).
+- **`adapters/yuehulian_win.py`** — Windows I/O: `ProcessLayer` (locate install — via the shared `win_app_locator.py`, so a custom dir like `D:\悦互联` is found through registry, shortcuts or conventional dirs, and a miss carries `locate_error` into the `ClientNotRunning` message; process matching is a case-insensitive prefix of the located dir plus the legacy `YueHuLian` name; Electron **main** pid, excluding the kernel `chrome.exe`; launch; kernel `--user-data-dir`s; `DevToolsActivePort`) and `InspectorSession` (open the Node inspector via `ELECTRON_RUN_AS_NODE` + `process._debugProcess`; `Runtime.evaluate` incl. `webContents.executeJavaScript`; spawn-hook install/uninstall; `require('inspector').close()`).
 - **`adapters/yuehulian_dom.py`** — pure parsing + JS for the renderer's Element-UI UI (UIA is a dead end — accessibility is off): the store table (drops fixed-column duplicate rows), the login-state route hash, the click-Open-by-row JS (scoped to the store's own fixed-right action row — robust to the stateful Open/Opened label and to mixed states), **store-list navigation** (the list is a tags-view tab whose hash stays `#/index`, so it **clicks the menu item**, not the hash), **next-page** JS (the table paginates), and the **团队登录** form-fill JS (`fill_team_login_js` — native-setter + input/change so Element-UI's v-model updates).
 - **`adapters/yuehulian_creds.py`** — the machine's one team-login credential in `app_settings` (password encrypted): `save_credentials`, `credentials_status`, `inject_yuehulian_config` (shared by the manager + the enumerate router).
 - **`adapters/yuehulian_client.py`** — `RealYuehulianClient` composing the above. `ensure_logged_in` drives the 团队登录 form when logged out (no-op if already in; `LoginRequired` on missing creds / un-driveable form / a submit that never logs in). `list_stores` navigates to the list then **pages through** collecting every store; `open_store` pages to the store's row, installs the spawn-hook (adds `--remote-debugging-port=0`), clicks Open, waits for the intercepted kernel's `--user-data-dir`, then reads a **fresh** (mtime-guarded) `DevToolsActivePort` (OS-aware: a native-Windows server reads `C:\…` directly, WSL reads `/mnt/…`). An already-open store reports a clear `CDP_UNREACHABLE`, not a misleading not-found. When the client still lists the store as **Opened** (an env left over from a client that was closed or crashed with it open, or one a person opened by hand — neither has a debug port), `open_store` closes it with the client's own batch **close browser** (only that row ticked, the selection read back until it settles, the confirm dialog accepted) and opens it again, so the next browser use recovers by itself. Rows are matched by a cell reading **exactly** the store name, and every drive of the client GUI (list, login, open, close) takes one lock (`_ui_lock`), so store setup's list and a task's open never interleave on the same window.
