@@ -131,8 +131,8 @@ illustrated walkthrough is the [Quickstart](https://docs.vibe-sellers.com/en/qui
    [Configure AI Models](https://docs.vibe-sellers.com/en/llm-keys/);
 2. **Add a store**: click **+ New Store**. If the store lives in Ziniao or
    Yuehulian, pick that browser; otherwise pick Chrome. Using Ziniao? Its
-   main account has to grant access first; follow the
-   [Ziniao setup steps](https://docs.vibe-sellers.com/en/ziniao/#setup-steps);
+   main account has to grant access first; see
+   [Ziniao: Prerequisites](https://docs.vibe-sellers.com/en/ziniao/#prerequisites-developer-mode-and-webdriver-login);
 3. **Create a task**: select the store, click **+ New Task**, say what you
    want in one sentence, e.g. “Export the last 7 days' sales report”, and
    click **Create & Run**.
