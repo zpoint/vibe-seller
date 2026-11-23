@@ -16,7 +16,7 @@ in `stores/<slug>/notes.md`. How they are applied:
 | Total spend, sales, orders | sum over the campaigns in the window |
 | AOV | total sales / total orders (undefined with 0 orders) |
 | Margin % | `margin:` in store notes, else the default (`tuning-recommendation-format.md` § Missing margin) |
-| Goal | the user's, else `scale` |
+| Goal | [§ Goal](#goal): `scale` unless the store notes or the user plainly name another |
 
 ## Derived values
 
@@ -52,6 +52,27 @@ step cap in `tuning-recommendation-format.md`.
 **Budget-throttled**: the campaign list shows `Out of budget`. Use
 Amazon's signal rather than spend ÷ budget arithmetic: Amazon may
 overspend up to about 25% on a single day and balance it over the month.
+
+## Goal
+
+The goal is one of the three in the Target ACOS table. Pick it once,
+by this rule, not by weighing the user's phrasing:
+
+1. A `goal: launch|scale|profit` line in `stores/<slug>/notes.md` →
+   that goal.
+2. Otherwise the user's words, only when they plainly name one: a new
+   product, a launch, or "breaking even on ads is fine" → `launch`;
+   cut ad spend, protect margin or maximise profit, with nothing about
+   growth → `profit`.
+3. Everything else is `scale`, including mixed wording such as
+   "profitable growth" or "grow without losing money": scale's target
+   (70% of breakeven) is growth that keeps margin.
+
+State it once in the report next to the margin — `goal: scale
+(default)`, or `goal: profit — you asked to protect margin` — and don't
+reopen it later in the task. If the user meant another goal they say so
+on the next reply; record it as `goal: <name>` in
+`stores/<slug>/notes.md`.
 
 ## Worked examples
 
