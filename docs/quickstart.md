@@ -9,7 +9,7 @@ description: 第一次使用：配置 AI、新建店铺、创建第一个任务�
 ## 准备两样东西
 
 - **一个 AI 的 API Key**：Vibe Seller 靠 AI 帮你干活，需要你自己申请一个 Key。第一次用推荐 [DeepSeek](llm-keys.md#deepseek)，注册后充值几块钱就能用；其他几家怎么申请，见 [配置 AI 模型](llm-keys.md)。
-- **店铺用的浏览器**：店铺用的是紫鸟或悦互联，准备好它的账号密码；都没有的话，用 Vibe Seller 自带的浏览器，自己登录一次卖家后台就行。
+- **店铺用的浏览器**：店铺用的是紫鸟或悦互联，准备好它的账号密码；都没有的话，用 Vibe Seller 自带的 Chrome 浏览器，自己登录一次卖家后台就行。
 
 ## 1. 打开 Vibe Seller
 
