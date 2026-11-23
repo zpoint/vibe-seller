@@ -8,7 +8,7 @@ description: 悦互联接入 Vibe Seller 的一页说明：下载安装、创建
 
 **悦互联后端只支持 Windows**（含在 Windows 上运行的 WSL）。mac / 纯 Linux 上这个选项不会出现在「浏览器后端」下拉里——悦互联客户端本身只有 Windows 版。
 
-不用悦互联的话，这一页整体可以跳过：新建店铺时浏览器后端选「Chrome」或「紫鸟」即可。
+不用悦互联的话，这一页可以跳过。Vibe Seller 还支持其他浏览器，见 [浏览器](browsers.md)。
 
 ## 下载与安装
 

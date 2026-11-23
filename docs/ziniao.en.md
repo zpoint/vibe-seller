@@ -8,7 +8,7 @@ Ziniao is a third-party anti-detect browser; Vibe Seller drives it over CDP thro
 
 A Ziniao store's tasks also get a Chrome auxiliary browser for the logistics and overseas sites Ziniao can't open — see [Two browsers working together](browsers.md#store-browser-and-auxiliary-browser).
 
-If you don't use Ziniao, skip all of this: pick "Chrome" as the browser backend in the new-store form.
+If you don't use Ziniao, skip this page. Vibe Seller supports other browsers too; see [Browsers](browsers.md).
 
 **How to use this page:**
 

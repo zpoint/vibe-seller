@@ -14,8 +14,7 @@ operate the client by hand.
 Windows). On macOS / plain Linux the option does not appear in the
 "Browser Backend" dropdown — the Yuehulian client itself is Windows-only.
 
-Not using Yuehulian? Skip this whole page — pick "Chrome" or "Ziniao" as
-the backend when you create a store.
+Not using Yuehulian? Skip this page. Vibe Seller supports other browsers too; see [Browsers](browsers.md).
 
 ## Download and install
 
