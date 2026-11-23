@@ -32,13 +32,7 @@ irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/
 !!! note "Why the installer is 650 MB"
     The Python runtime, Claude Code, Git and the Chromium browser engine are all inside it, so setup downloads nothing else — it installs fine on a slow or heavily proxied network. The trade-off is size: about 650 MB.
 
-After installation:
-
-- **It installs per-user** — no UAC prompt, no admin rights; the program lives in `%LOCALAPPDATA%\Programs\VibeSeller`.
-- **It starts on login.** Once you're signed in, the server is already running and a Vibe Seller tray icon appears: **Open Vibe Seller** / **Copy LAN address** / **Restart server** / **Check for updates** / **Quit**. The tray is only an entry point — it drives the same CLI underneath, and **Quit** stops the server with it.
-- **Upgrade**: tray → **Check for updates** looks up the newest `VibeSeller-Setup.exe`, downloads it and opens the installer over your existing install; the server and tray exit during that and come back on the next login. Or grab the new installer from the [releases page](https://github.com/zpoint/vibe-seller/releases/latest) yourself. Either way only the program is replaced — `~/.vibe-seller/` keeps everything.
-- **Change the port**: set a `VIBE_SELLER_PORT` environment variable (default 7777); the tray and the server both pick it up.
-- **Uninstall**: remove "Vibe Seller" in Windows **Settings → Apps**. Your data stays in `~/.vibe-seller/`; delete that folder if you want it gone.
+Once installed, Vibe Seller starts automatically when you sign in to Windows. To turn that on or off, right-click the Vibe Seller tray icon (bottom-right) and check or uncheck **Start at login**.
 
 ## macOS / Linux: one command
 

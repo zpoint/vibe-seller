@@ -34,13 +34,7 @@ irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/
 !!! note "为什么安装包有 650MB"
     Python 运行环境、Claude Code、Git 和 Chromium 浏览器引擎都已打包在安装包里，安装时不需要联网下载任何依赖，网络较慢或公司代理严格的机器同样能装上。代价就是安装包体积较大，约 650MB。
 
-装完之后你需要知道的几件事：
-
-- **安装位置**：程序装在你自己的账户下，不会弹出 UAC 提示，也不需要管理员权限，程序文件位于 `%LOCALAPPDATA%\Programs\VibeSeller`。
-- **开机自动启动**：登录 Windows 后服务就在后台运行。右下角托盘有一个 Vibe Seller 图标，菜单包含 **打开 Vibe Seller**、**复制局域网地址**、**重启服务**、**检查更新**、**退出**（跟随系统语言）。托盘只是入口，服务的启动和停止使用同一套命令，退出托盘会一并停止服务。
-- **升级**：在托盘点击 **检查更新**，它会自动从 GitHub 找到新版本的 `VibeSeller-Setup.exe`，下载并打开安装程序覆盖安装。这期间服务和托盘会自动退出，安装完成后下次登录自动恢复。也可以到 [release 页](https://github.com/zpoint/vibe-seller/releases/latest) 下载新的安装包手动安装一次。两种方式都只替换程序文件，`~/.vibe-seller/` 里的数据不会变动。
-- **更换端口**：给系统添加 `VIBE_SELLER_PORT` 环境变量（默认 7777），托盘会按这个端口启动服务。
-- **卸载**：在 Windows「设置 → 应用」中卸载 Vibe Seller。店铺数据保留在 `~/.vibe-seller/`，需要彻底清除时自行删除该目录。
+装好后，Vibe Seller 默认在你登录 Windows 时自动启动。想打开或关闭，右键点击右下角托盘里的 Vibe Seller 图标，勾选或取消 **开机自动启动** 即可。
 
 ## macOS / Linux：一行命令
 
