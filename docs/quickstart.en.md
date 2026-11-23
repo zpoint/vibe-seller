@@ -47,10 +47,10 @@ A saved key is masked in the UI by default — an admin can click **Show** / **C
 !!! tip "Already signed in to Claude Code on this machine?"
     The built-in **Default** profile uses this machine's Claude Code environment, so there's nothing to fill in — run a task first and only create a profile if you want a different provider.
 
-!!! note "Using cc-switch or a similar Claude account switcher? Either choice works"
-    Pick **Default** and tasks use cc-switch's current setup (this machine's Claude Code). Pick any other profile and tasks use that profile's own provider and key — cc-switch can't override it. No need to quit cc-switch or edit `~/.claude/settings.json`.
+!!! note "Using cc-switch or a similar Claude account switcher?"
+    It doesn't affect Vibe Seller: every profile works, and you don't need to quit cc-switch.
 
-    Task agents don't read your own global Claude Code config: `~/.claude/CLAUDE.md` and `~/.claude/rules` are never loaded, and with any profile other than Default your `~/.claude/settings.json`, skills and plugins aren't loaded either (Default keeps your settings and sign-in, which is how cc-switch takes effect). With **Load global MCP servers** turned on in a profile, the MCP servers you added to `~/.claude.json` still load.
+    Before v0.3.3 only the **Default** profile worked properly. Upgrade to the latest version and that limit is gone.
 
 ## 3. Connect a store
 

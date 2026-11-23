@@ -47,10 +47,10 @@ http://localhost:7777
 !!! tip "这台机器上的 Claude Code 已经登录过 Anthropic 订阅？"
     内置的那个「默认」配置使用的就是本机 Claude Code 环境，不需要再填 Key，可以先创建一个任务试试。
 
-!!! note "装了 cc-switch 之类的 Claude 账号切换工具？两种选法都能正常用"
-    选「默认」，就用 cc-switch（也就是本机 Claude Code）当前的设置；选别的配置，就用 Vibe Seller 里这份配置自己的供应商和 Key，cc-switch 改不到它。不用退出 cc-switch，也不用改 `~/.claude/settings.json`。
+!!! note "装了 cc-switch 之类的 Claude 账号切换工具？"
+    不影响，所有配置都能正常用，也不用退出 cc-switch。
 
-    任务里的 AI 不会读取你自己的全局 Claude Code 配置：`~/.claude/CLAUDE.md`、`~/.claude/rules` 一律不加载；选别的配置时，`~/.claude/settings.json`、你装的技能和插件也不加载（选「默认」时保留设置和登录，这样 cc-switch 才能生效）。配置里打开「加载全局 MCP 服务器」时，`~/.claude.json` 里你自己添加的 MCP 服务器仍然会加载。
+    v0.3.3 之前的版本只有「默认」配置能正常用，升级到最新版就没有这个限制了。
 
 ## 3. 绑定店铺
 
