@@ -13,7 +13,17 @@ description: 第一次使用：配置 AI、新建店铺、创建第一个任务�
 
 ## 1. 打开 Vibe Seller
 
-Windows 装完会自动打开。以后想打开，点开始菜单里的 Vibe Seller；macOS / Linux 先在终端执行 `vibe-seller start`，再在浏览器打开 <http://localhost:7777>。
+=== "Windows"
+
+    装完会自动打开。以后想打开，点开始菜单里的 Vibe Seller。
+
+=== "macOS"
+
+    在终端执行 `vibe-seller start`，再在浏览器打开 <http://localhost:7777>。
+
+=== "Linux"
+
+    在终端执行 `vibe-seller start`，再在浏览器打开 <http://localhost:7777>。
 
 ## 2. 配置 AI
 

@@ -13,7 +13,17 @@ Once it's installed, three steps get you going: set up AI, add a store, create a
 
 ## 1. Open Vibe Seller
 
-On Windows it opens by itself after installing; later, click Vibe Seller in the Start menu. On macOS / Linux, run `vibe-seller start` in a terminal, then open <http://localhost:7777> in your browser.
+=== "Windows"
+
+    It opens by itself after installing. To open it later, click Vibe Seller in the Start menu.
+
+=== "macOS"
+
+    Run `vibe-seller start` in a terminal, then open <http://localhost:7777> in your browser.
+
+=== "Linux"
+
+    Run `vibe-seller start` in a terminal, then open <http://localhost:7777> in your browser.
 
 ## 2. Set up AI
 
