@@ -81,7 +81,19 @@ description: 安装 Vibe Seller：Windows 下载安装包双击安装，macOS / 
 
 ## 升级
 
-不用手动升级。有新版本时，Vibe Seller 会在后台下载好，并在左侧栏提示你：Windows 上点「重启并更新」就会装好新版本；macOS / Linux 会在没有任务运行时自动更新。升级不会动你的数据。
+=== "自动更新"
+
+    默认就是自动的。有新版本时，Vibe Seller 会在后台下载好，并在左侧栏提示你：
+
+    - Windows：点「重启并更新」，等几分钟就装好并重新打开；
+    - macOS / Linux：没有任务在运行时会自己更新，不用你操作。
+
+=== "手动更新"
+
+    - Windows：右键点击右下角托盘里的 Vibe Seller 图标，点 **检查更新**；
+    - macOS / Linux：在终端执行 `vibe-seller upgrade`。
+
+升级不会动你的数据。
 
 ## 卸载
 
@@ -130,7 +142,6 @@ cd vibe-seller
 | 更换端口 | `vibe-seller start --port 8080` | `./start.sh 8080` | 设置 `VIBE_SELLER_PORT` 环境变量 |
 | 停止 | `vibe-seller stop` | `./stop.sh` | 托盘 → **退出** |
 | 重启 | `vibe-seller stop && vibe-seller start` | `./restart.sh` | 托盘 → **重启服务** |
-| 手动升级 | `vibe-seller upgrade` | — | 托盘 → **检查更新** |
 | 前台运行（查看日志） | `vibe-seller start --foreground` | `./start.sh --dev` | — |
 | 补装浏览器引擎 | `vibe-seller install-browser` | `./install.sh --dev` 时装好 | 安装包自带 |
 | 登录后自动启动 | `vibe-seller autostart on`（仅 macOS，见 [7×24 小时运行](always-on.md)） | 见 [macOS 常驻服务](macos-setup.md) | 托盘「开机自动启动」，默认开启 |

@@ -42,7 +42,7 @@ Everything else fills itself in. Your key is stored only on your own computer.
 With Chrome, the first time the AI opens your seller center you may need to sign in once in the browser window that pops up; it stays signed in after that.
 
 !!! warning "Using Ziniao? Turn on access first"
-    Ziniao's main (BOSS) account has to enable **WebDriver login** first, or binding fails. Steps and common errors: [Ziniao: Setup & Common Errors](ziniao.en.md).
+    Ziniao's main (BOSS) account has to grant two permissions on the Ziniao website first, or binding fails. Follow the [Ziniao setup steps](ziniao.en.md#setup-steps) one by one.
 
 What each browser needs and how they differ: [Browsers](browsers.md).
 

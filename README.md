@@ -90,7 +90,7 @@ vibe-seller start
 装好之后三步跑通第一个任务，图文步骤见 [快速开始](https://docs.vibe-sellers.com/quickstart/)：
 
 1. **配置 AI**：进入「设置 → AI」，点「添加模型」，选服务商、粘贴 API 密钥，点「创建」。还没有 Key？第一次用推荐 DeepSeek，各家怎么申请见 [配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/)；
-2. **新建店铺**：点「+ 新建店铺」，店铺开在紫鸟或悦互联里就选对应的浏览器，都没有就选 Chrome。用紫鸟要先让主账号开通「WebDriver 登录」，见 [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/)；
+2. **新建店铺**：点「+ 新建店铺」，店铺开在紫鸟或悦互联里就选对应的浏览器，都没有就选 Chrome。用紫鸟的话，先按 [紫鸟接入步骤](https://docs.vibe-sellers.com/ziniao/#接入步骤) 让主账号开通权限；
 3. **创建任务**：选中店铺，点「+ 新建任务」，用一句话写清要做的事，比如“导出过去 7 天的销售报表”，点「创建并运行」。
 
 ## 能干什么

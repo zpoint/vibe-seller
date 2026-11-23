@@ -134,9 +134,9 @@ illustrated walkthrough is the [Quickstart](quickstart.en.md):
    is the easiest first choice; how to get one from each provider:
    [Configure AI Models](llm-keys.en.md);
 2. **Add a store**: click **+ New Store**. If the store lives in Ziniao or
-   Yuehulian, pick that browser; otherwise pick Chrome. Ziniao's main
-   account has to enable "WebDriver login" first; see
-   [Ziniao: Setup & Common Errors](ziniao.en.md);
+   Yuehulian, pick that browser; otherwise pick Chrome. Using Ziniao? Its
+   main account has to grant access first; follow the
+   [Ziniao setup steps](ziniao.en.md#setup-steps);
 3. **Create a task**: select the store, click **+ New Task**, say what you
    want in one sentence, e.g. “Export the last 7 days' sales report”, and
    click **Create & Run**.

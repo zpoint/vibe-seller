@@ -81,7 +81,19 @@ Once it's installed, go on to [Quickstart](quickstart.md): set up AI, add a stor
 
 ## Upgrade
 
-Nothing to do by hand. When a new version comes out, Vibe Seller downloads it in the background and tells you in the sidebar: on Windows, click **Restart and update**; on macOS / Linux it updates itself when no task is running. Upgrading never touches your data.
+=== "Automatic"
+
+    This is the default. When a new version comes out, Vibe Seller downloads it in the background and tells you in the sidebar:
+
+    - Windows: click **Restart and update**; a few minutes later it's installed and opens again;
+    - macOS / Linux: it updates itself when no task is running — nothing to do.
+
+=== "By hand"
+
+    - Windows: right-click the Vibe Seller tray icon (bottom-right) and click **Check for updates**;
+    - macOS / Linux: run `vibe-seller upgrade` in a terminal.
+
+Upgrading never touches your data.
 
 ## Uninstall
 
@@ -130,7 +142,6 @@ cd vibe-seller
 | Different port | `vibe-seller start --port 8080` | `./start.sh 8080` | set `VIBE_SELLER_PORT` |
 | Stop | `vibe-seller stop` | `./stop.sh` | tray → **Quit** |
 | Restart | `vibe-seller stop && vibe-seller start` | `./restart.sh` | tray → **Restart server** |
-| Upgrade by hand | `vibe-seller upgrade` | — | tray → **Check for updates** |
 | Run in the foreground (watch logs) | `vibe-seller start --foreground` | `./start.sh --dev` | — |
 | (Re)install the browser engine | `vibe-seller install-browser` | done by `./install.sh --dev` | bundled |
 | Start after login | `vibe-seller autostart on` (macOS only; see [Keep It Running 24/7](always-on.md)) | see [macOS Service](macos-setup.md) | tray **Start at login**, on by default |
