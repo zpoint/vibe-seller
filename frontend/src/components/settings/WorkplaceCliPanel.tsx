@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
@@ -47,7 +48,8 @@ interface Notice {
   url: string | null
 }
 
-/** The vendor's own guide for each notice the server can raise. */
+/** Where to read how to act on a notice: the vendor's own guide, or
+ *  ours. The link reads ``guideLink.<key>`` (default ``officialGuide``). */
 const NOTICE_GUIDES: Record<string, { zh: string; en: string }> = {
   // DingTalk's own permission guide (Chinese only): where 「CLI设置」
   // is and which channel Vibe Seller falls under.
@@ -55,6 +57,27 @@ const NOTICE_GUIDES: Record<string, { zh: string; en: string }> = {
     zh: 'https://open.dingtalk.com/document/development/dws-permission-management-guide',
     en: 'https://open.dingtalk.com/document/development/dws-permission-management-guide',
   },
+  // What the withheld permissions do and how the Feishu app's admin
+  // grants one (FAQ in docs/workplace-cli-feishu.md).
+  feishu_missing_scopes: {
+    zh: 'https://docs.vibe-sellers.com/workplace-cli-feishu/#admin-restricted-permissions',
+    en: 'https://docs.vibe-sellers.com/en/workplace-cli-feishu/#admin-restricted-permissions',
+  },
+}
+
+/** Feishu permissions an org admin often withholds, named by the
+ *  feature they gate (``scopeFeature.<feature>``) so the page says what
+ *  stops working instead of only a permission code.
+ *  vc:meeting.realtime:read gates only ``lark-cli vc +meeting-screenshot``,
+ *  which lark-cli hid and took out of its skills (larksuite/cli#2909),
+ *  yet ``auth login --recommend`` still asks for it. */
+const FEISHU_SCOPE_FEATURES: Record<string, string> = {
+  'vc:meeting.realtime:read': 'meetingScreenshot',
+}
+
+/** The withheld scopes a ``feishu_missing_scopes`` notice carries. */
+function withheldScopes(n: Notice): string[] {
+  return (n.detail ?? '').split(/\s+/).filter(Boolean)
 }
 
 interface CliCard {
@@ -684,12 +707,26 @@ function LoginOutcome({
 }
 
 /** A notice's detail as the page shows it: an expiry is a moment, said
- *  in the reader's own time zone and language. */
-function noticeDetail(n: Notice, lang: string): string {
+ *  in the reader's own time zone and language; a withheld permission is
+ *  the feature it gates, with the code an admin searches the console for. */
+function noticeDetail(n: Notice, lang: string, t: TFunction): string {
   if (!n.detail) return ''
   if (n.key === 'feishu_no_refresh_token') {
     const at = new Date(n.detail)
     if (!Number.isNaN(at.getTime())) return at.toLocaleString(lang)
+  }
+  if (n.key === 'feishu_missing_scopes') {
+    return withheldScopes(n)
+      .map((scope) => {
+        const feature = FEISHU_SCOPE_FEATURES[scope]
+        return feature
+          ? t('integrations.cli.scopeWithCode', {
+              feature: t(`integrations.cli.scopeFeature.${feature}`),
+              scope,
+            })
+          : scope
+      })
+      .join(t('integrations.cli.listSeparator'))
   }
   return n.detail
 }
@@ -707,7 +744,7 @@ function NoticeBlock({ notice, cardKey, button }: { notice: Notice; cardKey: str
     <div className="space-y-1" data-testid={`cli-notice-${cardKey}-${notice.key}`}>
       <p>
         {t(`integrations.cli.notice.${notice.key}`, {
-          detail: noticeDetail(notice, i18n.language),
+          detail: noticeDetail(notice, i18n.language, t),
           button,
         })}
       </p>
@@ -732,7 +769,9 @@ function NoticeBlock({ notice, cardKey, button }: { notice: Notice; cardKey: str
           {guideUrl && (
             <a href={guideUrl} target="_blank" rel="noreferrer"
               className="text-indigo-600 hover:underline" data-testid={`cli-guide-${cardKey}`}>
-              {t('integrations.cli.officialGuide')}
+              {t(`integrations.cli.guideLink.${notice.key}`, {
+                defaultValue: t('integrations.cli.officialGuide'),
+              })}
             </a>
           )}
         </p>

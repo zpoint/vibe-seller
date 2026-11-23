@@ -311,6 +311,7 @@ describe('WorkplaceCliPanel outcomes', () => {
       .toBe('https://open-dev.dingtalk.com/fe/old#/developerSettings')
     expect(screen.getByTestId('cli-guide-dingtalk').getAttribute('href'))
       .toBe('https://open.dingtalk.com/document/development/dws-permission-management-guide')
+    expect(screen.getByTestId('cli-guide-dingtalk').textContent).toBe(cli.officialGuide)
     // The notice speaks for itself; the raw CLI message is not repeated.
     expect(outcome.textContent).not.toContain('device authorization failed')
   })
@@ -325,6 +326,37 @@ describe('WorkplaceCliPanel outcomes', () => {
     expect(outcome.className).toContain('text-amber-700')
     expect(outcome.textContent).toContain('vc:meeting.realtime:read')
     expect(outcome.textContent).not.toContain(enTranslation.integrations.cli.loginFailed)
+  })
+
+  it('Feishu withheld the meeting-screenshot permission: names the feature and links the guide', async () => {
+    finished({
+      key: 'feishu', state: 'succeeded',
+      notices: [{ key: 'feishu_missing_scopes', detail: 'vc:meeting.realtime:read', url: null }],
+    })
+    renderPanel(true)
+    const outcome = await screen.findByTestId('cli-outcome-feishu', {}, { timeout: 3000 })
+    // What stops working, in words — and the code an admin searches for.
+    expect(outcome.textContent).toContain(cli.scopeFeature.meetingScreenshot)
+    expect(outcome.textContent).toContain('vc:meeting.realtime:read')
+    const guide = screen.getByTestId('cli-guide-feishu')
+    expect(guide.getAttribute('href'))
+      .toBe('https://docs.vibe-sellers.com/en/workplace-cli-feishu/#admin-restricted-permissions')
+    expect(guide.textContent).toBe(cli.guideLink.feishu_missing_scopes)
+  })
+
+  it('Feishu withheld a permission the page does not know: its code as is', async () => {
+    finished({
+      key: 'feishu', state: 'succeeded',
+      notices: [{
+        key: 'feishu_missing_scopes',
+        detail: 'vc:meeting.realtime:read im:example.scope:read',
+        url: null,
+      }],
+    })
+    renderPanel(true)
+    const outcome = await screen.findByTestId('cli-outcome-feishu', {}, { timeout: 3000 })
+    expect(outcome.textContent).toContain('im:example.scope:read')
+    expect(outcome.textContent).toContain(cli.scopeFeature.meetingScreenshot)
   })
 
   it('Feishu: withheld scopes AND a sign-in that cannot renew, both shown', async () => {
