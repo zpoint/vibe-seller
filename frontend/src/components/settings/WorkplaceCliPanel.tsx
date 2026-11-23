@@ -67,13 +67,12 @@ const NOTICE_GUIDES: Record<string, { zh: string; en: string }> = {
 
 /** Feishu permissions an org admin often withholds, named by the
  *  feature they gate (``scopeFeature.<feature>``) so the page says what
- *  stops working instead of only a permission code. ``aiUses: false``:
- *  no official skill uses it, so it is safe to leave off.
+ *  stops working instead of only a permission code.
  *  vc:meeting.realtime:read gates only ``lark-cli vc +meeting-screenshot``,
  *  which lark-cli hid and took out of its skills (larksuite/cli#2909),
  *  yet ``auth login --recommend`` still asks for it. */
-const FEISHU_SCOPE_FEATURES: Record<string, { feature: string; aiUses: boolean }> = {
-  'vc:meeting.realtime:read': { feature: 'meetingScreenshot', aiUses: false },
+const FEISHU_SCOPE_FEATURES: Record<string, string> = {
+  'vc:meeting.realtime:read': 'meetingScreenshot',
 }
 
 /** The withheld scopes a ``feishu_missing_scopes`` notice carries. */
@@ -719,10 +718,10 @@ function noticeDetail(n: Notice, lang: string, t: TFunction): string {
   if (n.key === 'feishu_missing_scopes') {
     return withheldScopes(n)
       .map((scope) => {
-        const known = FEISHU_SCOPE_FEATURES[scope]
-        return known
+        const feature = FEISHU_SCOPE_FEATURES[scope]
+        return feature
           ? t('integrations.cli.scopeWithCode', {
-              feature: t(`integrations.cli.scopeFeature.${known.feature}`),
+              feature: t(`integrations.cli.scopeFeature.${feature}`),
               scope,
             })
           : scope
@@ -730,13 +729,6 @@ function noticeDetail(n: Notice, lang: string, t: TFunction): string {
       .join(t('integrations.cli.listSeparator'))
   }
   return n.detail
-}
-
-/** Every withheld permission is one no official skill uses: the page can
- *  say leaving it off is fine. */
-function unusedByAi(n: Notice): boolean {
-  const scopes = withheldScopes(n)
-  return scopes.length > 0 && scopes.every((s) => FEISHU_SCOPE_FEATURES[s]?.aiUses === false)
 }
 
 function NoticeBlock({ notice, cardKey, button }: { notice: Notice; cardKey: string; button: string }) {
@@ -756,9 +748,6 @@ function NoticeBlock({ notice, cardKey, button }: { notice: Notice; cardKey: str
           button,
         })}
       </p>
-      {notice.key === 'feishu_missing_scopes' && unusedByAi(notice) && (
-        <p data-testid={`cli-notice-unused-${cardKey}`}>{t('integrations.cli.scopesUnusedByAi')}</p>
-      )}
       {notice.key === 'dingtalk_cli_access' && notice.detail && (
         <p>{t('integrations.cli.orgAdmins', { names: notice.detail })}</p>
       )}

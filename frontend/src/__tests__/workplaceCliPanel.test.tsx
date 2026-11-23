@@ -328,7 +328,7 @@ describe('WorkplaceCliPanel outcomes', () => {
     expect(outcome.textContent).not.toContain(enTranslation.integrations.cli.loginFailed)
   })
 
-  it('Feishu withheld the meeting-screenshot permission: names the feature, says it is safe to leave off, links the guide', async () => {
+  it('Feishu withheld the meeting-screenshot permission: names the feature and links the guide', async () => {
     finished({
       key: 'feishu', state: 'succeeded',
       notices: [{ key: 'feishu_missing_scopes', detail: 'vc:meeting.realtime:read', url: null }],
@@ -338,14 +338,13 @@ describe('WorkplaceCliPanel outcomes', () => {
     // What stops working, in words — and the code an admin searches for.
     expect(outcome.textContent).toContain(cli.scopeFeature.meetingScreenshot)
     expect(outcome.textContent).toContain('vc:meeting.realtime:read')
-    expect(screen.getByTestId('cli-notice-unused-feishu').textContent).toBe(cli.scopesUnusedByAi)
     const guide = screen.getByTestId('cli-guide-feishu')
     expect(guide.getAttribute('href'))
       .toBe('https://docs.vibe-sellers.com/en/workplace-cli-feishu/#admin-restricted-permissions')
     expect(guide.textContent).toBe(cli.guideLink.feishu_missing_scopes)
   })
 
-  it('Feishu withheld a permission the page does not know: its code as is, no "safe to leave off"', async () => {
+  it('Feishu withheld a permission the page does not know: its code as is', async () => {
     finished({
       key: 'feishu', state: 'succeeded',
       notices: [{
@@ -358,8 +357,6 @@ describe('WorkplaceCliPanel outcomes', () => {
     const outcome = await screen.findByTestId('cli-outcome-feishu', {}, { timeout: 3000 })
     expect(outcome.textContent).toContain('im:example.scope:read')
     expect(outcome.textContent).toContain(cli.scopeFeature.meetingScreenshot)
-    // One of them may be something the AI needs: no reassurance.
-    expect(screen.queryByTestId('cli-notice-unused-feishu')).toBeNull()
   })
 
   it('Feishu: withheld scopes AND a sign-in that cannot renew, both shown', async () => {
