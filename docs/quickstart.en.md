@@ -57,7 +57,8 @@ A saved key is masked in the UI by default — an admin can click **Show** / **C
 In the sidebar (Tasks view) click **+ New Store**, give it a **Store Name**, choose the browser backend from the dropdown, then click **Create**:
 
 - **Ziniao (Browser Backend)** — the anti-detect browser. Click the `+` next to the account field to add a Ziniao account with your **Company / Username / Password** (the same ones you use to log into Ziniao), save, then pick **Select Ziniao account...** and **Select store profile...**. Picking the account closes a Ziniao you opened by hand and reopens it; see [Picking a Ziniao account reopens Ziniao](ziniao.md#picking-a-ziniao-account-reopens-ziniao).
-- **Chrome** — pick this if you don't use Ziniao. It runs the Chromium that came with Vibe Seller, as a separate browser instance reserved for this store.
+- **Yuehulian (Browser Backend)** — another anti-detect browser, shown on Windows only. Click the `+` next to the account field, fill in **Team name / Sub-account login / Login password**, save, then pick this store under **Select a store...**. A machine can hold only one Yuehulian account; see [Yuehulian: Setup Guide](yuehulian.en.md).
+- **Chrome** — pick this if you don't use Ziniao or Yuehulian. It runs the Chromium that came with Vibe Seller, as a separate browser instance reserved for this store.
 
 !!! warning "Before you use Ziniao"
     The BOSS (admin) account must first enable developer mode on the [Ziniao Open Platform](https://open.ziniao.com/docSupport?docId=99) and tick the WebDriver-login option for the sub-account — without it, Ziniao refuses the binding. When an error shows up:
