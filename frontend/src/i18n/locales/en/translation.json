@@ -1077,7 +1077,7 @@
     "checking": "Checking…",
     "authorizedDone": "✓ {{store}} authorized: {{markets}}",
     "notYetAuthorized": "No authorization for this store yet. Finish the Amazon consent in Ziniao or the store’s browser, then come back here and click “Done authorizing”.",
-    "noAdPermission": "The Amazon consent went through, but this account has no advertising access, so the store did not bind. Authorize again with the account that manages this store’s advertising — its main account (or an ads-console admin); if you used a sub-account, the main account must grant it ad access under Seller Central → User Permissions; if the store has never advertised, enable ads in Amazon Advertising first.",
+    "noAdPermission": "The Amazon account you just signed in with has no access to this store’s advertising, so the store was not bound. Authorize again with the store’s main account.",
     "consentFailed": "The Amazon Ads service did not answer, so the consent did not complete. Please try authorizing again a little later.",
     "unbind": "Revoke",
     "unbindTitle": "Revoke authorization for {{store}}",
