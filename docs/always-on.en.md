@@ -148,7 +148,7 @@ Where a step has **GUI / Command line** tabs, **pick one** and follow it — you
 
 ## Windows
 
-This covers the [native Windows installer](install.md#windows-native-installer-recommended).
+This covers the [native Windows installer](install.md).
 For the WSL2 setup see the [Windows + WSL2 Deployment Guide](windows-setup.md).
 
 1. **No sleep while plugged in.**

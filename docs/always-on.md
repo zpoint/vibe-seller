@@ -138,7 +138,7 @@ description: 让跑 Vibe Seller 的电脑 7×24 小时不睡眠：台式 Mac、M
 
 ## Windows
 
-下面针对 [Windows 原生安装包](install.md#windows原生安装包推荐)。WSL2 方案看
+下面针对 [Windows 原生安装包](install.md)。WSL2 方案看
 [Windows + WSL2 Deployment Guide](windows-setup.md)（英文）。
 
 1. **插电时不睡眠。**
