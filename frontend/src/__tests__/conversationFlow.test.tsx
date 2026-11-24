@@ -204,10 +204,16 @@ describe('Thinking block rendering', () => {
 
   it('renders finalized thinking as collapsed', () => {
     const items = [makeConversationItem('thinking', {
-      thinking: { content: 'Full reasoning here...', isStreaming: false },
+      thinking: { content: 'Check the sync time first.\nThen the notes.', isStreaming: false },
     })]
     renderConversationStream({ items })
-    expect(screen.getByText(/Thinking/)).toBeInTheDocument()
+    // A finished thought reads as the agent's narration, never as
+    // "Thinking..." (which claimed a done task was still at it).
+    expect(screen.queryByText(/Thinking/)).not.toBeInTheDocument()
+    expect(screen.getByText('Check the sync time first.')).toBeInTheDocument()
+    expect(screen.queryByText(/Then the notes/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Check the sync time first.'))
+    expect(screen.getByText(/Then the notes/)).toBeInTheDocument()
   })
 })
 

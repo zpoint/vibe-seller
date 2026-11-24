@@ -13,7 +13,7 @@ import {
   type Step,
 } from '../../lib/activity'
 
-function Chevron({ open, dir = 'right' }: { open: boolean; dir?: 'right' | 'down' }) {
+export function Chevron({ open, dir = 'right' }: { open: boolean; dir?: 'right' | 'down' }) {
   const turn = dir === 'right' ? (open ? 'rotate-90' : '') : (open ? 'rotate-180' : '')
   return (
     <svg
