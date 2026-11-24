@@ -29,7 +29,7 @@ from app.schemas.task import TaskCreate
     '(as the web UI does) — pass plan_mode: false to run straight '
     'through (pending → running → completed, stopping only if the '
     'agent asks a question), and plan_mode: true to plan first and '
-    'wait for review_plan. A task with NO store ALWAYS plans. '
+    'wait for review_plan. '
     'Plan first for anything that changes a store (ads, prices, '
     'listings, money); run directly for read-only or reporting work.',
     schema(
@@ -56,8 +56,7 @@ from app.schemas.task import TaskCreate
             'store_id': {
                 'type': ['string', 'null'],
                 'description': (
-                    'The store to act on. Omit for a store-less task '
-                    '(those always plan first).'
+                    'The store to act on. Omit for a store-less task.'
                 ),
             },
             'plan_mode': {
@@ -65,8 +64,7 @@ from app.schemas.task import TaskCreate
                 'description': (
                     'true to plan first and wait for review_plan; false '
                     "to run straight through. Omit to use the owner's "
-                    'default, as the web UI does. A task with no store '
-                    'always plans.'
+                    'default, as the web UI does.'
                 ),
             },
             'profile_id': {

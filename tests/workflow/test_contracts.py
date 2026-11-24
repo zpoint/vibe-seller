@@ -221,9 +221,9 @@ class TestTaskMessageContract:
         assert r.status_code == 200
         task_id = r.json()['id']
 
-        # No-store tasks are plan-mode and pause at PLANNED; the
-        # shape contract only needs the run's messages to exist.
-        await wait_for_task(admin_client, task_id, target='planned')
+        # The shape contract only needs the run's messages to exist;
+        # the auto run (admin default) writes its result message.
+        await wait_for_task(admin_client, task_id)
 
         r2 = await admin_client.get(f'/api/tasks/{task_id}/messages')
         assert r2.status_code == 200

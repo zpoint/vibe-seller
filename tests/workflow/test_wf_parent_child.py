@@ -23,20 +23,13 @@ async def _create_store(client, name='Parent-Child Store'):
 
 
 async def _create_parent_and_execute(client):
-    """Create a non-store parent task, confirm plan, wait for complete."""
+    """Create a no-store parent task in Auto and wait for completion."""
     r = await client.post(
         '/api/tasks',
-        json={'title': 'Parent task'},
+        json={'title': 'Parent task', 'plan_mode': False},
     )
     assert r.status_code == 200
     parent_id = r.json()['id']
-    # Non-store tasks force plan_mode=True → goes to PLANNED
-    data = await wait_for_task(client, parent_id, target='planned', timeout=10)
-    assert data['status'] == 'planned'
-    # Execute the plan
-    r = await client.post(f'/api/tasks/{parent_id}/execute-plan')
-    assert r.status_code == 200
-    # Wait for completion
     data = await wait_for_task(
         client, parent_id, target='completed', timeout=10
     )

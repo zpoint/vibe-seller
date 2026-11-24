@@ -28,10 +28,10 @@ class TestToolCallMessages:
             '/api/tasks', json={'title': 'Tool call test'}
         )
         task_id = r.json()['id']
-        # No-store tasks are plan-mode: the agent persists its tool
-        # calls and pauses at PLANNED. The assertions only need the
-        # messages the run wrote, not execution.
-        await wait_for_task(admin_client, task_id, target='planned')
+        # The auto run (admin default) persists its tool calls before
+        # its result; the assertions only need the messages the run
+        # wrote.
+        await wait_for_task(admin_client, task_id)
 
         r2 = await admin_client.get(f'/api/tasks/{task_id}/messages')
         msgs = r2.json()
@@ -51,9 +51,9 @@ class TestToolCallMessages:
             '/api/tasks', json={'title': 'Thinking test'}
         )
         task_id = r.json()['id']
-        # Plan-mode pause is enough: the thinking block is persisted
-        # before the plan is (see fake_agent._do_plan_then_execute).
-        await wait_for_task(admin_client, task_id, target='planned')
+        # The thinking block is persisted before the result is written
+        # (see fake_agent._do_execute); completion covers it.
+        await wait_for_task(admin_client, task_id)
 
         r2 = await admin_client.get(f'/api/tasks/{task_id}/messages')
         msgs = r2.json()
@@ -74,10 +74,10 @@ class TestDeltaFiltering:
             '/api/tasks', json={'title': 'Delta filter test'}
         )
         task_id = r.json()['id']
-        # The filter contract is about the rows /messages returns; the
-        # plan-mode pause is the earliest point the run's own messages
-        # are in, which is all the insertion below needs.
-        await wait_for_task(admin_client, task_id, target='planned')
+        # The filter contract is about the rows /messages returns; a
+        # completed auto run is the point its own messages are all in,
+        # which is all the insertion below needs.
+        await wait_for_task(admin_client, task_id)
 
         # Insert delta rows directly (simulates old behavior where
         # _emit_message persisted every streaming chunk)

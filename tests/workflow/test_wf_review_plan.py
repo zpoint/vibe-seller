@@ -212,23 +212,24 @@ class TestPlanModeToggle:
 
 
 class TestNonStoreTaskPlanModeDefault:
-    async def test_non_store_task_defaults_to_plan_mode(
+    async def test_non_store_task_follows_user_default(
         self, admin_client, install_fake_agent
     ):
-        """Non-store tasks force plan_mode=True."""
+        """A non-store task resolves plan_mode like a store task: no
+        force — with the admin's Auto default it runs to completion."""
         r = await admin_client.post(
             '/api/tasks',
             json={
-                'title': 'No store plan mode',
+                'title': 'No store auto default',
                 'store_id': None,
             },
         )
         assert r.status_code == 200
-        assert r.json()['plan_mode'] is True
+        assert r.json()['plan_mode'] is False
         task_id = r.json()['id']
 
-        data = await wait_for_task(admin_client, task_id, target='planned')
-        assert data['status'] == 'planned'
+        data = await wait_for_task(admin_client, task_id)
+        assert data['status'] == 'completed'
 
     async def test_store_task_defaults_to_user_preference(
         self, admin_client, install_fake_agent
@@ -254,10 +255,10 @@ class TestNonStoreTaskPlanModeDefault:
         data = await wait_for_task(admin_client, task_id)
         assert data['status'] == 'completed'
 
-    async def test_explicit_plan_mode_false_on_non_store_still_forces_plan(
+    async def test_explicit_plan_mode_false_on_non_store_runs_auto(
         self, admin_client, install_fake_agent
     ):
-        """Non-store tasks always force plan_mode=True."""
+        """Explicit plan_mode=False is honored for a non-store task."""
         r = await admin_client.post(
             '/api/tasks',
             json={
@@ -267,4 +268,6 @@ class TestNonStoreTaskPlanModeDefault:
             },
         )
         assert r.status_code == 200
-        assert r.json()['plan_mode'] is True
+        assert r.json()['plan_mode'] is False
+        data = await wait_for_task(admin_client, r.json()['id'])
+        assert data['status'] == 'completed'

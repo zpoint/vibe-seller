@@ -635,8 +635,11 @@ class TestRetryConversation:
         # Same race as the plan-mode test above: let the first run
         # fail naturally rather than racing the runner with a forced
         # DB write.  See the sibling test for the full explanation.
+        # The task runs Auto (an explicit plan_mode=False is honored
+        # for a no-store task now), so the failure is injected in
+        # its execute phase.
         install_fake_agent.default_scenario = FakeAgentScenario(
-            should_fail=True, fail_at_phase='design'
+            should_fail=True, fail_at_phase='execute'
         )
 
         async with override_async_session() as db:
@@ -961,8 +964,10 @@ class TestRetryCleanState:
         self, admin_client, install_fake_agent
     ):
         """W17: POST retry → immediate GET → clean state."""
+        # The no-store task runs Auto (the admin default), so the
+        # first run is failed in its execute phase.
         install_fake_agent.default_scenario = FakeAgentScenario(
-            should_fail=True, fail_at_phase='design'
+            should_fail=True, fail_at_phase='execute'
         )
         r = await admin_client.post(
             '/api/tasks',

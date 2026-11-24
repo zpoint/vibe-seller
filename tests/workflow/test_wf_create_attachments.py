@@ -162,9 +162,10 @@ async def test_deferred_no_store_task_starts(admin_client):
         )
 
         # And it must actually move — a 200 that launches nothing is the
-        # same stranded task with a nicer status code. No-store tasks are
-        # forced into plan mode, so the agent designs and parks at PLANNED.
-        got = await wait_for_task(admin_client, tid, target='planned')
+        # same stranded task with a nicer status code. The no-store
+        # task runs Auto (the admin default), so /start carries it to
+        # COMPLETED.
+        got = await wait_for_task(admin_client, tid)
         assert got['status'] != 'pending', (
             f'task never left PENDING after /start: {got["status"]}'
         )
