@@ -6,7 +6,7 @@ description: Integrations overview — what Vibe Seller can connect to, where ea
 
 Vibe Seller itself only schedules and executes. Getting into a store, reading mail, posting to a group or making an image all need an external service hooked up. This page answers three things: **what you can connect**, **where you configure it**, and **how they differ from each other**.
 
-Configuration lives in three places: `Settings → Integrations` (six cards, in this order: ads, API keys, chat bots, WeCom / Feishu / DingTalk, Google Workspace, TickTick), `Settings → Email` (its own tab), and `Settings → AI` (image generation is the card at the bottom).
+Configuration lives in three places: `Settings → Integrations` (seven cards, in this order: ads, API keys, chat bots, WeCom / Feishu / DingTalk, Google Workspace, TickTick, custom MCP servers), `Settings → Email` (its own tab), and `Settings → AI` (image generation is the card at the bottom).
 
 ## What you can connect
 
@@ -19,6 +19,7 @@ Configuration lives in three places: `Settings → Integrations` (six cards, in 
 | **WeCom / Feishu / DingTalk** | The AI uses each vendor's official program to write docs and sheets, send messages, schedule events and create to-dos | `Settings → Integrations → WeCom / Feishu / DingTalk` → "**Connect**" on the platform's row; only an admin can connect, sign in or disable | One signed-in account per platform for the whole install; each platform is enabled separately and agents see only the enabled ones | Reads and writes within that account's permissions; messages and document changes only when the task asks | [Overview](workplace-cli.en.md) · [WeCom](workplace-cli-wecom.en.md) · [Feishu](workplace-cli-feishu.en.md) · [DingTalk](workplace-cli-dingtalk.en.md) |
 | **Dida365 / TickTick** | The AI can see your lists and write to-dos into them | `Settings → Integrations → Dida365 / TickTick` → the five-step wizard, ending with "**Authorize**" | One connection for the whole install; you may pin one default list, and if you don't the AI reaches all of your projects | Reads and writes your own lists and tasks | [TickTick](ticktick.en.md) |
 | **Google Workspace** | The AI uses Google's official program to read and send Gmail, read and edit Sheets and Docs, upload to Drive and add Calendar events | `Settings → Integrations → Google Workspace` → "**Connect**", a one-time sign-in key from your own Google Cloud project, then sign in with Google; only an admin can connect, sign in again or disable | One Google account for the whole install; every task uses it | Reads and writes Gmail, Drive, Sheets, Docs and Calendar within that account; mail, shares and document changes only when the task asks | [Google Workspace](google-workspace.en.md) |
+| **Custom MCP servers** | Lets tasks call the tools of an outside MCP service — keyword and market data from a research service, for example | `Settings → Integrations → Custom MCP servers` → "**Add MCP**", paste the config the service gives you; only an admin can add, turn off or delete | Shared across the install: every user's tasks can use it (the workspace assistant does not) | Whatever the service's tools and your token allow; the token is stored encrypted and only its last 4 characters are ever shown | [Custom MCP servers](mcp-custom.en.md) |
 | **AI image generation** | Product hero images and infographics, or editing an image against a reference | `Settings → AI → Vision (Image Generation)` → paste the kie.ai API key → "**Save**". Only an admin can enter the key | One key for the whole install | Only on request inside a task, and nothing is generated until you press "Generate" on the review card | [Below](#ai-image-generation) |
 
 ## How they differ
@@ -35,6 +36,12 @@ Configuration lives in three places: `Settings → Integrations` (six cards, in 
 - **MCP access** points inward: the AI tool already in your hand connects and creates tasks, asks follow-ups, answers questions and reviews plans for you. Each key it uses is pinned to one user identity and carries that person's full permissions.
 - Neither of these is the toolset the agent inside Vibe Seller uses while working — three separate channels, none impersonates another.
 
+### Both called MCP, opposite directions: MCP access vs custom MCP servers
+
+- **MCP access**: Vibe Seller is the one being called. You add it as an MCP server to Codex, Claude and the like, connecting with a Vibe Seller API key.
+- **Custom MCP servers**: Vibe Seller does the calling. An admin adds an outside MCP service (Xiyou Insight, say) and tasks call its tools while they work, using the token the service issued.
+- They don't affect each other and work together: Codex asks Vibe Seller for a task, and that task pulls data from Xiyou Insight. See [Add a custom MCP server](mcp-custom.en.md).
+
 ### API or browser: the Ads API vs ad tasks in a store browser
 
 - Ads themselves — reports, targeting, search terms, bid and budget changes — are far faster and steadier through the API than by having the AI click through the console ([Ads API setup](ads-api.en.md) has the 147-minute vs 11-minute measurement).
@@ -44,7 +51,7 @@ Configuration lives in three places: `Settings → Integrations` (six cards, in 
 
 - **Per store**: the browser backend and its profile (Ziniao account or persistent Chrome profile — see [Stores & Browsers](stores.en.md)), the Amazon Ads authorization, and the mailboxes linked to the store.
 - **Per person**: API keys for MCP access.
-- **Per machine (whole install)**: mailboxes, chat bots, the WeCom / Feishu / DingTalk CLI sign-ins, Dida365 / TickTick, Google Workspace, the image-generation key.
+- **Per machine (whole install)**: mailboxes, chat bots, the WeCom / Feishu / DingTalk CLI sign-ins, Dida365 / TickTick, Google Workspace, custom MCP servers, the image-generation key.
 - In practice: a second person signing in has to create their own API key, while mail, bots, lists, Workspace and image generation are one shared set for the machine. Ads authorization hangs off the store rather than the person and only an admin can grant or revoke it — two people sharing a store authorize it once, through the admin.
 
 ## AI image generation

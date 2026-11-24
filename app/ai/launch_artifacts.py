@@ -13,11 +13,13 @@ one place that may import both.
 
 from app.ai.agent_proxy import launch_settings_file
 from app.ai.claude_backend_utils import (
+    CUSTOM_MCP_SUFFIX,
     apply_agent_venv_path,
     write_mcp_config_file,
     write_system_prompt_file,
 )
 from app.ai.claude_isolation import read_user_mcp_servers
+from app.platform import safe_chmod
 
 
 def build_launch_artifacts(
@@ -30,6 +32,7 @@ def build_launch_artifacts(
     store_slug: str | None = None,
     mcp_config: dict | None = None,
     user_mcp_env: dict | None = None,
+    custom_mcp: dict | None = None,
 ) -> dict:
     """Write EVERY launch artifact in ONE thread hop.
 
@@ -48,7 +51,13 @@ def build_launch_artifacts(
     global config and writes them to a ``--mcp-config`` payload — for
     a profile that loads global MCP while the user setting source is
     off (``app.ai.claude_isolation``); ``None`` skips it, and so does
-    a user config with no servers.
+    a user config with no servers. *custom_mcp* (``{name: config}``,
+    the admin's custom servers from ``app.custom_mcp``) is written to
+    its own owner-only ``--mcp-config`` file — fresh per launch, never
+    the shared workspace ``.mcp.json`` (store-less tasks rewrite that
+    one from itself, so a server disabled since would linger there),
+    and deleted again at the agent's ``system/init``
+    (``discard_custom_mcp_config``); empty or ``None`` skips it.
     """
     prompt_path = write_system_prompt_file(system_prompt, task_id, task_dir)
     settings_path = (
@@ -68,6 +77,16 @@ def build_launch_artifacts(
                 task_dir,
                 suffix='.user-mcp.json',
             )
+    custom_mcp_path = None
+    if custom_mcp:
+        custom_mcp_path = write_mcp_config_file(
+            {'mcpServers': custom_mcp},
+            task_id,
+            task_dir,
+            suffix=CUSTOM_MCP_SUFFIX,
+        )
+        # It carries the servers' credentials.
+        safe_chmod(custom_mcp_path, 0o600)
     return {
         'system_prompt': prompt_path,
         'settings': settings_path,
@@ -77,4 +96,5 @@ def build_launch_artifacts(
             else None
         ),
         'user_mcp_config': user_mcp_path,
+        'custom_mcp_config': custom_mcp_path,
     }

@@ -43,10 +43,10 @@ from app.ai.claude_backend_utils import (
     INTERRUPT_TIMEOUT,
     SIGNAL_TIMEOUT,
     apply_agent_venv_path as apply_agent_venv_path,  # re-export
-    mcp_launch_flags,
     permission_mode_for_agent,
     resolve_claude_binary,
     sdk_initialize_request,
+    task_mcp_flags,
 )
 from app.ai.claude_isolation import (
     isolation_settings,
@@ -70,6 +70,7 @@ from app.browser.manager import (
 )
 from app.browser.process_utils import kill_with_escalation, taskkill_tree
 from app.config import AI_BOT_USER_ID, BACKEND_PORT, BASE_DIR
+from app.custom_mcp import load_launch_servers
 from app.database import async_session
 from app.env_options import Options
 from app.models.task import Task
@@ -375,6 +376,8 @@ class AgentSession(
                 user_mcp_env=(
                     env if load_global_mcp and not user_settings else None
                 ),
+                # Fresh from the DB every launch (app.custom_mcp).
+                custom_mcp=await load_launch_servers(),
             )
             if artifacts['system_prompt'] is not None:
                 cmd.extend([
@@ -382,22 +385,7 @@ class AgentSession(
                     str(artifacts['system_prompt']),
                 ])
             cmd.extend(['--settings', str(artifacts['settings'])])
-            # MCP flags: ONE shared decision (claude_backend_utils.
-            # mcp_launch_flags) — the profile's load_global_mcp decides
-            # strictness; when globals load, the project .mcp.json is
-            # picked up by the CLI from the cwd with no flags. Global
-            # MCP configs can add 200+ tool definitions that bloat the
-            # prompt and slow down third-party LLM APIs — that is why
-            # the default profile opts out and gets the strict pair.
-            mcp_json = ws_dir / '.mcp.json'
-            cmd.extend(
-                mcp_launch_flags(
-                    load_global=load_global_mcp,
-                    session_config=None,
-                    project_config=mcp_json if mcp_json.exists() else None,
-                    user_config=artifacts['user_mcp_config'],
-                )
-            )
+            cmd.extend(task_mcp_flags(ws_dir, load_global_mcp, artifacts))
         logger.info(
             'Starting agent for task %s (mode=%s, profile=%s, '
             'base_url=%s, model=%s)',

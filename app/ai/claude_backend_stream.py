@@ -17,6 +17,7 @@ from app.ai.claude_backend_turn_hold import (
 )
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
+    discard_custom_mcp_config,
     get_next_seq,
 )
 from app.ai.stop_gates.listing_upload_gate import rollover_upload_markers
@@ -547,6 +548,12 @@ class _StreamMixin:
                 await self._maybe_bump_updated_at()
 
         elif etype == 'system':
+            if event.get('subtype') == 'init':
+                # The CLI has read its --mcp-config files by now; the
+                # custom-MCP one carries third-party tokens in clear.
+                await asyncio.to_thread(
+                    discard_custom_mcp_config, self.task_id, self.task_dir
+                )
             sid = event.get('session_id')
             if sid:
                 first = self.session_id is None

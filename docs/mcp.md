@@ -36,6 +36,11 @@ sequenceDiagram
 任何支持 MCP 的 AI 工具都能接入，只需要准备一个 API Key。
 各集成分别配在哪里、彼此怎么分工，见[集成总览](integrations.md)。
 
+!!! tip "方向别弄反：这一页是「外部 AI 工具调用 Vibe Seller」"
+    这里讲的是把 Vibe Seller 作为 MCP 服务，添加到 Codex、Claude 等工具里。
+    想反过来，让 Vibe Seller 的任务使用外部 MCP 服务（例如用西柚洞察查关键词
+    数据），请看[添加自定义 MCP](mcp-custom.md)。
+
 ## 可以这样用
 
 接好之后，在 Codex 里像给同事交代工作一样直接说。句子里提到 Vibe Seller，

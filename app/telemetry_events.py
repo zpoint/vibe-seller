@@ -71,6 +71,9 @@ class TelemetryEvent:
     CHAT_BOT_ADDED = 'chat_bot_added'
     CHAT_BOT_REMOVED = 'chat_bot_removed'
     CHAT_BOT_MESSAGE_SENT = 'chat_bot_message_sent'
+    CUSTOM_MCP_ADDED = 'custom_mcp_added'
+    CUSTOM_MCP_REMOVED = 'custom_mcp_removed'
+    CUSTOM_MCP_TESTED = 'custom_mcp_tested'
     IMAGE_GENERATED = 'image_generated'
     WORKSPACE_ASSISTANT_MESSAGE = 'workspace_assistant_message'
 

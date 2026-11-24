@@ -627,6 +627,32 @@ by magic bytes) answers 415. `app/skill_uploads.py` owns every rule.
 | POST | `/api/dida365/setup-mcp` | Auto-install ticktick-mcp |
 | DELETE | `/api/dida365/disconnect` | Disconnect integration |
 
+## `custom_mcp.py` — Custom MCP servers (external tools for tasks)
+
+The opposite direction from [`agent_mcp/`](#agent_mcp--hosted-mcp-endpoint-external-agents):
+here Vibe Seller's task agents are the MCP **clients** of servers an
+admin added (Settings → Integrations → Custom MCP servers). User guide:
+[mcp-custom.md](mcp-custom.md).
+
+| Method | Path | Who | Description |
+|--------|------|-----|-------------|
+| GET | `/api/custom-mcp-servers` | any user | List servers — credentials masked (`public_view`), plus `valid` / `problem` for a stored row that no longer normalizes (launches skip it) |
+| POST | `/api/custom-mcp-servers` | admin, **refused for `vst_` tokens** (`TOKEN_REFUSALS`) | Body `{config, name?, replace?}`. `config` is what the user pasted: a vendor blurb (text around the JSON is ignored), `{"mcpServers": …}` / `{"servers": …}` / a bare name→config map, or a bare URL (then `name` is required). All-or-nothing; an existing name is `409` with `detail.names` unless `replace` |
+| PATCH | `/api/custom-mcp-servers/{id}` | admin | `{enabled}` — on/off without losing the config |
+| DELETE | `/api/custom-mcp-servers/{id}` | admin | Remove it |
+| POST | `/api/custom-mcp-servers/{id}/test` | admin | Connect the way a task would (`initialize` → `tools/list`, over Streamable HTTP, legacy SSE or stdio — `custom_mcp_probe.py`) and answer `{ok, server_name, tool_count, tools}` or `{ok: false, error}` (always `200`) |
+
+Rules (`app/custom_mcp.py`): every config is normalized to the server
+object Claude Code accepts — Claude Code `exit(1)`s on one invalid
+`--mcp-config` entry, so a vendor's `{"url": …}` without `type` gets
+`type: http` (`/sse` paths: `sse`). Refused with a reason: `oauth` /
+`headersHelper` (headless tasks cannot complete either), any `${VAR}`
+(expanded from the AGENT's env, which holds the model key), a value that
+is one of our masks, the platform's own names (`vibe-seller`,
+`ticktick`, `playwright`, `browser-use`, …). The row stores the
+normalized config Fernet-encrypted (`config_enc`); there is no partial
+edit, so a mask can never round-trip into storage.
+
 ## `chat_bots.py` — Chat Bot Webhooks (WeCom / DingTalk / Feishu / Slack)
 
 Workspace-level webhook configs for group chat bots. Not bound to any

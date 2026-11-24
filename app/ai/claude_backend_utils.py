@@ -1,5 +1,6 @@
 """Module-level helpers shared across claude_backend split modules."""
 
+from collections.abc import Sequence
 import hashlib
 import json
 import logging
@@ -168,6 +169,7 @@ def mcp_launch_flags(
     session_config: Path | None,
     project_config: Path | None = None,
     user_config: Path | None = None,
+    extra_configs: Sequence[Path] = (),
 ) -> list[str]:
     """The MCP flags for one launch — ONE decision, both launches.
 
@@ -187,18 +189,51 @@ def mcp_launch_flags(
     ``app.ai.claude_isolation``), where the CLI no longer loads them.
     It only ever rides along with globals ON; a strict launch never
     sees it.
+
+    *extra_configs* ride along in BOTH modes — the custom MCP servers
+    an admin added (``app.custom_mcp``): the admin chose them for
+    every task, unlike the machine user's global servers, so a strict
+    launch keeps them too.
     """
+    extras = [str(p) for p in extra_configs]
     if not load_global:
         cfg = session_config or project_config
-        if cfg is None:
+        configs = ([str(cfg)] if cfg is not None else []) + extras
+        if not configs:
             return []
-        return ['--mcp-config', str(cfg), '--strict-mcp-config']
+        return ['--mcp-config', *configs, '--strict-mcp-config']
     configs = []
     if session_config is not None and session_config != project_config:
         configs.append(str(session_config))
     if user_config is not None:
         configs.append(str(user_config))
+    configs.extend(extras)
     return ['--mcp-config', *configs] if configs else []
+
+
+def task_mcp_flags(
+    ws_dir: Path, load_global: bool, artifacts: dict
+) -> list[str]:
+    """The MCP flags of a TASK launch (the assistant builds its own).
+
+    ONE shared decision (:func:`mcp_launch_flags`) — the profile's
+    ``load_global_mcp`` decides strictness; when globals load, the
+    project ``.mcp.json`` is picked up by the CLI from the cwd with no
+    flags. Global MCP configs can add 200+ tool definitions that bloat
+    the prompt and slow down third-party LLM APIs — that is why the
+    default profile opts out and gets the strict pair. The admin's
+    custom servers (*artifacts*' ``custom_mcp_config``) ride along
+    either way.
+    """
+    mcp_json = ws_dir / '.mcp.json'
+    custom = artifacts.get('custom_mcp_config')
+    return mcp_launch_flags(
+        load_global=load_global,
+        session_config=None,
+        project_config=mcp_json if mcp_json.exists() else None,
+        user_config=artifacts['user_mcp_config'],
+        extra_configs=[custom] if custom is not None else [],
+    )
 
 
 def write_mcp_config_file(
@@ -218,6 +253,29 @@ def write_mcp_config_file(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(mcp_config), encoding='utf-8')
     return path
+
+
+#: Suffix of the per-launch file that carries the admin's custom MCP
+#: servers (``app.custom_mcp``), beside the system-prompt file.
+CUSTOM_MCP_SUFFIX = '.custom-mcp.json'
+
+
+def custom_mcp_config_file(task_id: str, task_dir: Path | None) -> Path:
+    """Where a launch's custom-MCP ``--mcp-config`` file is written."""
+    return system_prompt_file(task_id, task_dir).with_suffix(CUSTOM_MCP_SUFFIX)
+
+
+def discard_custom_mcp_config(task_id: str, task_dir: Path | None) -> None:
+    """Delete the launch's custom-MCP file once the CLI has read it.
+
+    It holds third-party credentials in clear, and the CLI reads
+    ``--mcp-config`` files exactly once, at startup, before its
+    ``system/init`` event — so the stream handler calls this on
+    ``init``. A task folder must not keep a token after the run (or
+    after the admin deleted / rotated it); the next launch writes a
+    fresh copy from the DB.
+    """
+    custom_mcp_config_file(task_id, task_dir).unlink(missing_ok=True)
 
 
 # A `browser-use` that always ERRORS — sits on the agent PATH just below
