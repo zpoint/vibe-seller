@@ -1,14 +1,13 @@
-"""Live (real LLM): an All-Stores AUTO task runs and keeps the tree flat.
+"""Live (real LLM): an All-Stores AUTO task delegates per store.
 
-Pins with a real model the product change: a no-store task an Auto
-user creates runs straight through — plan_mode False, never entering
-the planning states — and completes. The spawn contract holds for
-whatever shape the model gives the work: any sub-task it creates is
-store-bound and nothing spawns deeper (the prompt explicitly lets an
-orchestrator do a file write in-turn; forcing per-store sub-tasks
-here would assert a model habit, not the rule — the deterministic
-delegation proof is the mock tier's M2, driving the real in-task MCP
-tool).
+Pins with a real model: a no-store task an Auto user creates runs
+straight through (plan_mode False, never planning), hands each store's
+seller-center work to a store-bound sub-task, nothing spawns deeper,
+and the parent completes once its sub-tasks are terminal.
+
+The ask is seller-center work because an All-Stores task cannot reach
+a store's seller center itself — delegating it is the product's own
+rule, not a phrasing the prompt dictates.
 
 Skips when MOCK_CLI is set (that lane lives in
 test_no_store_auto_mock.py) or the server reports no AI ready. Like
@@ -85,16 +84,16 @@ def test_all_stores_auto_task_runs_and_keeps_the_tree_flat(
 ):
     tag = run_tag()
     name_a, name_b = f'live-orch-a-{tag}', f'live-orch-b-{tag}'
-    create_store(live_api, name_a)
-    create_store(live_api, name_b)
-    # Pure human intent, no mechanics, no tool names — and the stores
-    # are NAMED: on the shared CI server "each of my stores" would
-    # mean every store the other workers just created. Workspace
-    # notes, deliberately NOT seller-center work: fake stores have no
-    # login, so the run must not hinge on a browser.
+    sa = create_store(live_api, name_a)['id']
+    sb = create_store(live_api, name_b)['id']
+    # Pure human intent, no mechanics, no tool names. The stores are
+    # NAMED: on the shared CI server "each of my stores" would mean
+    # every store the other workers created. These stores have no
+    # login, so a sub-task may end failed — the parent still completes
+    # once every sub-task is terminal, which is what is pinned.
     prompt = (
-        f'For my stores {name_a} and {name_b}, write a short note '
-        "with today's date into each store's notes."
+        f'Check the seller center of my stores {name_a} and {name_b} '
+        'and tell me how many open orders each one has.'
     )
 
     # Own precondition: the user's DEFAULT is Auto; the profile is the
@@ -108,7 +107,7 @@ def test_all_stores_auto_task_runs_and_keeps_the_tree_flat(
     try:
         task = create_task(
             live_api,
-            'Leave a dated note in each store',
+            'Open orders in each store',
             description=prompt,
             profile_id=me['default_profile_id'],
         )
@@ -116,17 +115,17 @@ def test_all_stores_auto_task_runs_and_keeps_the_tree_flat(
         assert task['store_id'] is None
         assert task['plan_mode'] is False, 'auto default must be honored'
 
-        # The parent does not hang: COMPLETED (directly, or by
-        # aggregation once any children went terminal).
+        # The parent does not hang: it completes by aggregation once
+        # every sub-task is terminal.
         final = _wait_parent(live_api, parent_id)
         assert final['status'] == 'completed', final
 
         tasks = live_api.get(f'{BASE_URL}/api/tasks').json()
         children = [t for t in tasks if t.get('parent_task_id') == parent_id]
 
-        # The spawn contract, whatever the model's shape for the work:
-        # every sub-task store-bound, auto (spawned with no explicit
-        # mode), and nothing deeper than one level.
+        # Delegated per store; every sub-task store-bound, auto (spawned
+        # with no explicit mode), and nothing deeper than one level.
+        assert {sa, sb} <= {c['store_id'] for c in children}, children
         assert all(c['store_id'] for c in children), children
         assert all(c['plan_mode'] is False for c in children), children
         child_ids = {c['id'] for c in children}

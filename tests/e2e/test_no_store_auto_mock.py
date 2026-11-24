@@ -292,8 +292,7 @@ class TestM4ReviewDefault:
             assert data['status'] == 'planned', data['status']
 
             # The footer switch shows REVIEW pressed; clicking Auto
-            # PATCHes this task's mode — the refusal ("Non-store
-            # tasks require plan mode") is gone.
+            # PATCHes this task's mode.
             review_btn = page.get_by_role(
                 'button', name=re.compile('^review$', re.I)
             ).first
