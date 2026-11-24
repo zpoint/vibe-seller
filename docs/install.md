@@ -12,7 +12,7 @@ description: 安装 Vibe Seller：Windows 下载安装包双击安装，macOS / 
     2. 双击运行，按提示一路点「下一步」；
     3. 最后一步点「完成」，默认浏览器会自动打开 <http://localhost:7777>，这就是 Vibe Seller。
 
-    以后点开始菜单里的 Vibe Seller，也会自动打开这个网址。Vibe Seller 在运行时（任务栏右下角托盘里有它的图标），也可以自己在浏览器里访问 <http://localhost:7777>。
+    以后点开始菜单里的 Vibe Seller，也会自动打开这个网址。当 Vibe Seller 程序在后台运行时（任务栏右下角托盘里有它的图标），也可以自己在浏览器访问 <http://localhost:7777>。
 
     装好后，Vibe Seller 默认在你登录 Windows 时自动启动。想打开或关闭，右键点击右下角托盘里的 Vibe Seller 图标，勾选或取消 **开机自动启动** 即可。
 
