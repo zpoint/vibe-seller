@@ -16,6 +16,7 @@ Every answer comes from ``app.email.access``, the one place that decides.
 
 from datetime import UTC, datetime
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 import uuid
 
@@ -23,7 +24,9 @@ import pytest
 from sqlalchemy import update
 
 from app import mcp_server
+from app.ai.tool_call_guards import tool_call_refusal
 from app.browser.wrapper import store_slug
+from app.config import EMAIL_DBS_DIR
 from app.email.access import NO_MAILBOX, NO_STORE_MAILBOX
 from app.models.email_account import EmailAccount
 from app.models.task import Task
@@ -51,7 +54,7 @@ def _mail_dbs_in_tmp(monkeypatch, tmp_path):
     """Keep the per-mailbox SQLite files off the developer's machine."""
     monkeypatch.setattr('app.email.info.init_email_db', lambda account_id: None)
     monkeypatch.setattr(
-        'app.email.info.db_path_for_account',
+        'app.email.access.db_path_for_account',
         lambda account_id: tmp_path / f'email_{account_id}.db',
     )
 
@@ -224,6 +227,93 @@ class TestWhatEachMailboxCanDo:
         assert 'other@b.example' in boxes
         assert boxes['other@b.example']['stores'] == ['Shop B']
         assert boxes['ok@a.example']['stores'] == ['Shop A']
+
+
+class TestReadingTheDatabaseItGives:
+    """The agent queries the ``db_path`` ``email_info`` gives it with
+    sqlite3 (its description, the prompt line, ``noon-shared`` § 1). The
+    tool-call guard of that task's session lets exactly those files
+    through. Observed on a real mailbox: it refused the path the tool had
+    just given, and the task could not read its own inbox."""
+
+    @pytest.fixture
+    def readable(self, monkeypatch, override_async_session):
+        # Where the paths really are: inside the data dir the guard
+        # protects (only path strings; init_email_db is stubbed above).
+        monkeypatch.setattr(
+            'app.email.access.db_path_for_account',
+            lambda account_id: EMAIL_DBS_DIR / f'email_{account_id}.db',
+        )
+        monkeypatch.setattr(
+            'app.ai.tool_call_guards.async_session', override_async_session
+        )
+
+        async def refusal(task_id: str, tool_name: str, tool_input: dict):
+            """What the PreToolUse hook of *task_id*'s agent answers."""
+            session = SimpleNamespace(task_id=task_id, mode='auto')
+            return await tool_call_refusal(
+                session, {'tool_name': tool_name, 'tool_input': tool_input}
+            )
+
+        return refusal
+
+    @staticmethod
+    def _query(db_path: str) -> dict:
+        return {
+            'command': f'sqlite3 "{db_path}" "SELECT subject FROM emails '
+            "WHERE folder='INBOX' ORDER BY received_epoch DESC LIMIT 1\""
+        }
+
+    async def test_its_own_mailboxes_read_and_another_stores_do_not(
+        self, shops, tool, readable
+    ):
+        own = _by_email(await tool(shops['task_a'], 'vibe_seller_email_info'))
+        theirs = _by_email(
+            await tool(shops['task_none'], 'vibe_seller_email_info')
+        )['other@b.example']
+        for box in own.values():
+            path = box['db_path']
+            assert (
+                await readable(shops['task_a'], 'Bash', self._query(path))
+                is None
+            )
+            assert (
+                await readable(shops['task_a'], 'Read', {'file_path': path})
+                is None
+            )
+        deny = await readable(
+            shops['task_a'], 'Bash', self._query(theirs['db_path'])
+        )
+        assert deny and "vibe-seller's own data" in deny
+
+    async def test_no_store_task_reads_every_mailbox(
+        self, shops, tool, readable
+    ):
+        info = await tool(shops['task_none'], 'vibe_seller_email_info')
+        for box in info['accounts']:
+            query = self._query(box['db_path'])
+            assert await readable(shops['task_none'], 'Bash', query) is None
+
+    async def test_store_without_mailbox_reads_none(
+        self, shops, tool, readable
+    ):
+        any_box = (await tool(shops['task_none'], 'vibe_seller_email_info'))[
+            'accounts'
+        ][0]
+        deny = await readable(
+            shops['task_c'], 'Bash', self._query(any_box['db_path'])
+        )
+        assert deny and "vibe-seller's own data" in deny
+
+    async def test_the_app_database_stays_refused(self, shops, readable):
+        deny = await readable(
+            shops['task_a'],
+            'Bash',
+            {
+                'command': f'sqlite3 {EMAIL_DBS_DIR.parent}/vibe_seller.db .tables'
+            },
+        )
+        assert deny and "vibe-seller's own data" in deny
 
 
 class TestTheSkillsCallShape:

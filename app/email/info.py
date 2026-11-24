@@ -14,8 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
 from app.browser.wrapper import store_slug
-from app.email.access import NO_MAILBOX, NO_STORE_MAILBOX, mailboxes_for
-from app.email.db import db_path_for_account, init_email_db
+from app.email.access import (
+    NO_MAILBOX,
+    NO_STORE_MAILBOX,
+    mailbox_files,
+    mailboxes_for,
+)
+from app.email.db import init_email_db
 from app.models.store import Store
 from app.telemetry_events import TelemetryEvent
 from app.telemetry_via import current_via
@@ -60,14 +65,12 @@ async def mailbox_info(db: AsyncSession, store_id: str | None) -> dict:
     accounts = []
     for m in mailboxes:
         await asyncio.to_thread(init_email_db, m.account_id)
-        path = db_path_for_account(m.account_id)
+        db_path, attachments_dir = mailbox_files(m.account_id)
         accounts.append({
             **m.as_dict(),
             'stores': list(m.stores),
-            'db_path': str(path),
-            'attachments_dir': str(
-                path.parent / f'email_{m.account_id}_attachments'
-            ),
+            'db_path': str(db_path),
+            'attachments_dir': str(attachments_dir),
         })
     telemetry.send(
         TelemetryEvent.EMAIL_READ,
@@ -99,7 +102,10 @@ async def mailbox_info(db: AsyncSession, store_id: str | None) -> dict:
             '"since <time>" filter use `received_epoch` (unix seconds, '
             'arrival axis) — that is the axis the email_watermark cursor '
             'is measured in, so `received_epoch > <cursor>` is a correct '
-            'INTEGER compare.'
+            'INTEGER compare. One sync gives every message it fetches the '
+            'same received_epoch, so for newest first order by '
+            '`received_epoch DESC, date DESC` (`date` is UTC ISO, so it '
+            'sorts).'
         ),
         # Metadata-only samples (subject/sender/date — never body_text
         # or SELECT *). For a "new since last run" sweep, do NOT widen
@@ -108,9 +114,13 @@ async def mailbox_info(db: AsyncSession, store_id: str | None) -> dict:
         # into the run (see tests/e2e/test_email_watermark_e2e.py). Use
         # vibe_seller_get_new_emails instead — see watermark_note.
         'sample_queries': [
+            # Newest first. One sync stamps every message it fetches
+            # with the same received_epoch (the first sync: the whole
+            # inbox), so `date` breaks the tie; without it the "latest"
+            # is any message of that batch (observed on a real inbox).
             'sqlite3 <db_path> "SELECT subject, sender, '
             "date FROM emails WHERE folder='INBOX' "
-            'ORDER BY received_epoch DESC LIMIT 20"',
+            'ORDER BY received_epoch DESC, date DESC LIMIT 20"',
             'sqlite3 <db_path> "SELECT subject, sender, date '
             "FROM emails WHERE subject LIKE '%keyword%'\"",
             # Time window: compare received_epoch (INTEGER), never date.

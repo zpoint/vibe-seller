@@ -5,7 +5,10 @@ Every surface asks here and nowhere else:
 - the send gate in ``app.email.sender``, which opens SMTP only when
   :func:`send_problem` is ``None``;
 - the task prompt's one line about email (:func:`store_prompt_section`,
-  :func:`all_mailboxes_line`).
+  :func:`all_mailboxes_line`);
+- the tool-call guard, which lets a task read its own mailboxes'
+  databases and no other file in the data dir
+  (:func:`readable_mailbox_files`).
 
 So the prompt, the tool and the server can never disagree about whether a
 mailbox can send.
@@ -21,10 +24,12 @@ with no store (an orchestrator) sees every mailbox.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.email.db import db_path_for_account
 from app.models.email_account import EmailAccount
 from app.models.store import Store
 from app.models.store_email_link import StoreEmailLink
@@ -165,6 +170,28 @@ async def mailboxes_for(
         )
         for a in rows
     ]
+
+
+def mailbox_files(account_id: str) -> tuple[Path, Path]:
+    """A mailbox's synced database and its attachments directory.
+
+    The paths ``vibe_seller_email_info`` hands a task, and the only files
+    under the data dir its tool-call guard lets the task read
+    (``app.ai.source_guard``).
+    """
+    db_path = db_path_for_account(account_id)
+    return db_path, db_path.parent / f'email_{account_id}_attachments'
+
+
+async def readable_mailbox_files(
+    db: AsyncSession, store_id: str | None
+) -> tuple[str, ...]:
+    """The mailbox files a task on *store_id* may read: its mailboxes'."""
+    return tuple(
+        str(path)
+        for m in await mailboxes_for(db, store_id)
+        for path in mailbox_files(m.account_id)
+    )
 
 
 def store_prompt_section(mailboxes: list[MailboxAccess]) -> str:

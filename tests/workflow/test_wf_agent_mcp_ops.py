@@ -1026,7 +1026,7 @@ class TestManageEmailAccount:
             lambda account_id: tmp_path / f'{account_id}.db',
         )
         monkeypatch.setattr(
-            'app.email.info.db_path_for_account',
+            'app.email.access.db_path_for_account',
             lambda account_id: tmp_path / f'{account_id}.db',
         )
         data, _ = await call_tool(

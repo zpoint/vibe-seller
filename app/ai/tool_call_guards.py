@@ -8,13 +8,17 @@ called while planning, and a shell command that calls the ads service
 around its tool.
 """
 
+import asyncio
 import re
 from urllib.parse import urlsplit
 
 from app.ads_client import SERVICE_URL
 from app.ai.mcp_args_guard import missing_args_deny
 from app.ai.shell_patterns import COMMAND_PREFIX
-from app.ai.source_guard import source_access_deny
+from app.ai.source_guard import is_data_deny, source_access_deny
+from app.database import async_session
+from app.email.access import readable_mailbox_files
+from app.models.task import Task
 
 # Tools that DO the task. While planning, the agent decides what to do;
 # these run when the plan executes. Observed in CI: a fanout planner
@@ -145,18 +149,46 @@ def subagent_finish_deny(session, tool_name: str, tool_use_id) -> str | None:
     return None
 
 
-def tool_call_deny(session, hook_input: dict) -> str | None:
+def tool_call_deny(
+    session, hook_input: dict, mailbox_files: tuple[str, ...] = ()
+) -> str | None:
     """First refusal for this PreToolUse call, else ``None``.
 
     ``hook_input`` is the hook callback's input: ``tool_name``,
-    ``tool_input`` and the CLI's ``tool_use_id``.
+    ``tool_input`` and the CLI's ``tool_use_id``. ``mailbox_files``: the
+    task's own mailbox files, the one part of the data dir it may read.
     """
     tool_name = hook_input.get('tool_name', '')
     tool_input = hook_input.get('tool_input', {})
     return (
         subagent_finish_deny(session, tool_name, hook_input.get('tool_use_id'))
         or missing_args_deny(tool_name, tool_input)
-        or source_access_deny(tool_name, tool_input)
+        or source_access_deny(tool_name, tool_input, mailbox_files)
         or planning_deny(session, tool_name)
         or ads_service_deny(tool_name, tool_input)
     )
+
+
+async def tool_call_refusal(session, hook_input: dict) -> str | None:
+    """:func:`tool_call_deny`, with the task's own mailboxes readable.
+
+    ``vibe_seller_email_info`` hands a task its mailboxes' database paths
+    to query, and they sit in the data dir the source guard refuses.
+    Observed on a real mailbox: the guard refused the path the tool had
+    just given, so the task could not read its own inbox, opened the
+    webmail login page and asked the user for the password. A call that
+    reaches the data dir is asked again with the files
+    ``app.email.access`` says this task may read: its store's mailboxes,
+    or every one for a task with no store. They are looked up per call,
+    so a mailbox linked mid-task reads at once, the same answer
+    ``email_info`` gives.
+    """
+    deny = await asyncio.to_thread(tool_call_deny, session, hook_input)
+    if deny is None or not is_data_deny(deny):
+        return deny
+    async with async_session() as db:
+        task = await db.get(Task, session.task_id)
+        if task is None:
+            return deny
+        files = await readable_mailbox_files(db, task.store_id)
+    return await asyncio.to_thread(tool_call_deny, session, hook_input, files)

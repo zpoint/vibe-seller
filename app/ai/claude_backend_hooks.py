@@ -38,7 +38,7 @@ from app.ai.question_wait import (
 )
 from app.ai.skill_gate_utils import find_skill_md, unloaded_skill_read_hint
 from app.ai.stop_gates import record_skill_load
-from app.ai.tool_call_guards import tool_call_deny
+from app.ai.tool_call_guards import tool_call_refusal
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.task import Task
@@ -266,7 +266,7 @@ class _HookMixin:
                 self._catalog_read = True
             barred = ads_routing.refusal_for(
                 self.task_id, inner_name, inner_input
-            ) or await asyncio.to_thread(tool_call_deny, self, tool_input)
+            ) or await tool_call_refusal(self, tool_input)
             if barred:  # routed away, malformed MCP args, or app source
                 await self._deny_pre_tool_use(request_id, barred)
                 return
