@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
+from app.email import NO_STORE_MAILBOX
 from app.models.base import Base
 from app.models.email_account import EmailAccount
 from app.models.schedule import Schedule
@@ -503,6 +504,22 @@ class TestEmailSendPolicy:
         assert 'shop@example.com (not linked to any store)' in body
         assert 'Sending is allowed from: sales@example.com.' in body
         assert 'turned off by the user): shop@example.com.' in body
+
+    @pytest.mark.asyncio
+    async def test_store_without_a_mailbox_says_it_cannot_send(
+        self, _patch_async_session, task, store
+    ):
+        """Silence about email, with the email tools still offered, sent
+        an agent hunting the machine for a way to send after its answer
+        was done. The prompt says plainly that this task has no mail."""
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=[]
+        )
+        assert NO_STORE_MAILBOX in bundle.system_extra
+        with_mail = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
+        )
+        assert NO_STORE_MAILBOX not in with_mail.system_extra
 
 
 class TestAutoNoStoreTask:

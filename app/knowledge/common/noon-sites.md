@@ -10,7 +10,7 @@ on redirect after auth).
 
 | Feature | Domain | Direct URL works? |
 |---------|--------|-------------------|
-| Login | `login.noon.partners` | Yes |
+| Login | the `noon-shared` skill § 1 has the address | Yes |
 | Welcome / Home | `welcome.noon.partners` | Yes |
 | Store Dashboard | `noon-store.noon.partners` | Yes |
 | Catalog Management | `noon-catalog.noon.partners` | Yes |
@@ -147,72 +147,14 @@ Two mechanisms, and the URL does not always say which one is in force
 The Store Dashboard embeds the country in its path suffix (`-N{CC}`),
 like the path-scoped portals.
 
-## Login Flow — OTP via Email MCP, User Only as Fallback
+## Sign-in
 
-Noon uses **email OTP only** (no password). If the store has an
-email MCP integration bound and the bound email matches the Noon
-login email, the agent should fetch the OTP itself. Only fall back
-to asking the user when no bound email matches.
+Signing in (email OTP, fetched from a connected mailbox when it matches
+the login email, asked of the user otherwise) is the `noon-shared`
+skill § 1: load it before opening any noon page. It is the one place
+the login address and steps are kept, so no task follows a stale copy.
 
-### Decision
-
-1. Open `https://login.noon.partners/en/`. Ziniao may auto-fill or
-   show a "Log in with OTP sent to `<email>`" screen for a saved
-   session. Record that `<email>`.
-2. Look at the **"## Email System"** section injected into the task
-   prompt (present when the store has connected email accounts).
-   Compare those bound addresses to `<email>`.
-   - **Match** → Case A (fetch the OTP).
-   - **No section** or **mismatch** → Case B (ask the user).
-
-### Case A — Fetch OTP yourself
-
-```
-vibe_seller_sync_email_now(account_email="<bound-email>")
-vibe_seller_email_info(store_id="<store-id>")
-# → gives db_path for the account
-```
-
-Then extract the 6-digit OTP from the most recent Noon verification
-email. Use `body_html` (not `body_text`) — the HTML wraps the code
-in a styled `<div>`. Skip all-identical-digit matches (e.g.
-`000000`, `333333`) — those are hex colors in inline styles, not
-the OTP.
-
-```bash
-sqlite3 <db_path> \
-  "SELECT body_html FROM emails \
-    WHERE folder='INBOX' \
-      AND sender LIKE '%verify@noon.com%' \
-      AND subject='Verify your email' \
-    ORDER BY date DESC LIMIT 1" \
-| python3 -c "
-import sys, re
-for m in re.findall(r'>\s*(\d{6})\s*<', sys.stdin.read()):
-    if len(set(m)) > 1:
-        print(m); break
-"
-```
-
-Type the extracted code into the OTP field via the browser skill (see
-it for exact commands). Click Continue → dismiss "Set
-up a passkey" with Maybe Later.
-
-### Case B — Ask the user
-
-Use `AskUserQuestion` **with 2+ options** (1 option fails
-validation). Offer at minimum an "Entered, continue" and a
-"Didn't arrive" option so the tool call is valid and the user has
-a retry path.
-
-### Do NOT
-
-- Ask the user for the OTP when an email MCP binding can retrieve
-  it. That wastes the user's time and defeats the integration.
-- Attempt to skip or bypass OTP — there is no password fallback.
-- Proceed past Continue without confirming the OTP was accepted.
-
-### Session Persistence
+## Session Persistence
 
 Once logged in, the session is cookie-based and stable across pages
 on `*.noon.partners` domains for the duration of the browser session.

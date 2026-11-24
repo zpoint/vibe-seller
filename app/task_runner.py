@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import knowledge_contract, vision
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
+from app.email.prompt import Mailbox, get_store_emails
 from app.events.bus import event_bus
 from app.knowledge_contract import cleanup_scope
 from app.models.schedule import Schedule
@@ -31,13 +32,11 @@ from app.prompts import (
 )
 from app.question_answers import expand_free_text_answers
 from app.task_runner_context import (
-    Mailbox,
     ads_store_note,
     build_all_stores_context,
     build_store_context,
     build_system_context,
     detect_language_hint,
-    get_store_emails,
     ticktick_context,
 )
 from app.task_states import TaskStatus, assert_transition

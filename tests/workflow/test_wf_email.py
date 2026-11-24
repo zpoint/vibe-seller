@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import (
 from app.auth import create_token
 from app.config import AI_BOT_USER_ID, DEFAULT_USER_ID
 from app.database import _ensure_added_columns  # noqa: PLC2701
+from app.email import NO_MAILBOX, NO_STORE_MAILBOX
 from app.models.app_settings import AppSettings
 from app.models.base import Base
 from app.models.user import User
@@ -183,6 +184,47 @@ class TestEmailInfoByStore:
         )
         assert r.status_code == 200
         assert len(r.json()['accounts']) == 0
+
+    async def test_empty_store_says_this_task_has_no_mail(self, admin_client):
+        """No schema and sample queries for mailboxes that don't exist:
+        the answer is that this store's task cannot read or send mail."""
+        sr = await admin_client.post('/api/stores', json={'name': 'No Mail'})
+        r = await admin_client.get(
+            f'/api/email-accounts/info-by-store/{sr.json()["id"]}'
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data['note'] == NO_STORE_MAILBOX
+        assert 'sample_queries' not in data
+
+    async def test_slug_finds_the_stores_mailbox(self, admin_client):
+        """Agents pass the store's slug (its stores/<slug>/ folder) as
+        often as its id. Named either way, a store with a mailbox must
+        never be answered as having none."""
+        sr = await admin_client.post('/api/stores', json={'name': 'Slug Shop'})
+        store_id = sr.json()['id']
+        acct = await _create_account(admin_client, email='slug@example.com')
+        await admin_client.post(
+            f'/api/stores/{store_id}/emails',
+            json={'email_account_id': acct['id']},
+        )
+        r = await admin_client.get(
+            '/api/email-accounts/info-by-store/slug-shop'
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data['store_id'] == store_id
+        assert [a['email'] for a in data['accounts']] == ['slug@example.com']
+        assert 'note' not in data
+
+    async def test_unknown_store_is_refused_not_called_mailless(
+        self, admin_client
+    ):
+        r = await admin_client.get(
+            '/api/email-accounts/info-by-store/no-such-store'
+        )
+        assert r.status_code == 404
+        assert 'No store' in r.json()['detail']
 
 
 class TestSendEndpoint:
@@ -565,6 +607,26 @@ class TestInTaskSendTool:
         result = await _in_task_send()
         assert 'turned sending off' in result['detail']
         assert 'draft' in result['detail']
+        assert _smtp_untouched(smtp_spy)
+
+    async def test_no_mailbox_anywhere_says_nothing_can_send(
+        self, admin_client, monkeypatch, smtp_spy
+    ):
+        """'No account found for X' alone read as "the account is
+        somewhere else" — the agent went looking for it on the machine."""
+        _route_mcp_call_api(admin_client, monkeypatch)
+        result = await _in_task_send()
+        assert result['error'] == NO_MAILBOX
+        assert _smtp_untouched(smtp_spy)
+
+    async def test_unknown_address_names_the_mailboxes_that_can(
+        self, admin_client, monkeypatch, smtp_spy
+    ):
+        await _create_account(admin_client, email='sales@example.com')
+        _route_mcp_call_api(admin_client, monkeypatch)
+        result = await _in_task_send()
+        assert 'shop@example.com' in result['error']
+        assert 'Send from one of: sales@example.com.' in result['error']
         assert _smtp_untouched(smtp_spy)
 
     async def test_sends_by_default(self, admin_client, monkeypatch, smtp_spy):
