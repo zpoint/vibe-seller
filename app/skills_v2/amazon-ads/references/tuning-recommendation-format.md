@@ -72,8 +72,10 @@ What it means by default:
   its offending rows individually: pausing it stops its order drivers
   too.
 
-In the report, mark it `Hold (PROTECT) — N orders, ROAS X` (add
-`efficiency` or `workhorse`).
+In the report, the row's action comes first and PROTECT marks why:
+`Hold (PROTECT) — N orders, ROAS X`, or `Raise (PROTECT) — …` for a
+protected row being raised, so the cell matches the row's action in
+`CHANGES.tsv` (add `efficiency` or `workhorse`).
 
 ## Bid floor and step cap
 
