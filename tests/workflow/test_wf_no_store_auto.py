@@ -1,21 +1,12 @@
 """A no-store task follows the SAME plan-mode rule as a store task.
 
-The old product rule — "a non-store task is always plan mode" — was a
-model-behaviour brake, not a runtime need: the orchestrator flow was
-already reachable (AUTO-schedule fires write their Task rows directly,
-and an auto no-store parent simply runs). It meant a user who chose
-Auto could not get it for an All-Stores task, and the Auto/Review
-switch in the footer was a dead label.
+Pinned here, in the flow the rule exists to serve (All-Stores
+orchestration):
 
-What the brake silently provided was recursion safety: a no-store
-child parked at PLANNED, so an orchestrator that spawned children of
-children never advanced. With auto no-store tasks that hole has to be
-closed on the ACTION, and these tests pin the replacement:
-
-* mode resolution is uniform (explicit wins, else the user default);
-* the footer switch works for a no-store task;
-* a sub-task must have a store_id, and a sub-task cannot spawn
-  (depth ≤ 1, recursion impossible by construction);
+* mode resolution is uniform — explicit wins, else the user default;
+* the footer Auto/Review switch works for a no-store task;
+* a sub-task must have a store_id, and a sub-task cannot spawn —
+  depth is capped at 1, so recursion is impossible by construction;
 * a sub-task with no explicit plan_mode runs Auto — the parent's mode
   already decided review.
 """

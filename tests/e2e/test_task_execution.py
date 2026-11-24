@@ -284,8 +284,8 @@ class TestAgentPipeline:
         )
 
     def test_task_without_store_completes(self, api_client: httpx.Client):
-        """Create a store-independent task (no store_id) and verify
-        the pipeline completes via plan mode (forced for non-store).
+        """Create a store-independent task (no store_id) in plan mode
+        and verify the pipeline completes.
         """
         task = create_task(
             api_client,
@@ -294,17 +294,18 @@ class TestAgentPipeline:
                 'Answer: 4. That is all. '
                 'Do not ask questions. Do not use browser.'
             ),
+            plan_mode=True,
         )
         task_id = task['id']
         assert task['store_id'] is None
         assert task['plan_mode'] is True
 
         logger.info(
-            'Created store-independent task %s (plan mode forced)',
+            'Created store-independent task %s (plan mode asked for)',
             task_id[:8],
         )
 
-        # Non-store tasks force plan_mode. The expected path is
+        # Plan mode: the expected path is
         # `planned` → execute-plan → `completed`, but trivial
         # prompts (e.g. "what is 2+2") let the agent skip the plan
         # entirely — see CLAUDE.md § Plan-skipping. The state

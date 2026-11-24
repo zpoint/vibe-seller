@@ -126,9 +126,9 @@ class TestConversationStreamUI:
         page = authenticated_page
         tag = int(time.time())
         title = f'Tool call test {tag}'
-        task_id = _create_task_api(self.api, title)
+        task_id = _create_task_api(self.api, title, plan_mode=True)
 
-        # Non-store task → plan mode → approve then complete
+        # Plan mode (asked for): approve then complete
         _poll_status(self.api, task_id, target='planned')
         self.api.post(f'{BASE_URL}/api/tasks/{task_id}/execute-plan')
         _poll_status(self.api, task_id)
@@ -153,8 +153,8 @@ class TestConversationStreamUI:
         page = authenticated_page
         tag = int(time.time())
         title = f'Thinking test {tag}'
-        task_id = _create_task_api(self.api, title)
-        # Non-store task → plan mode → approve then complete
+        task_id = _create_task_api(self.api, title, plan_mode=True)
+        # Plan mode (asked for): approve then complete
         _poll_status(self.api, task_id, target='planned')
         self.api.post(f'{BASE_URL}/api/tasks/{task_id}/execute-plan')
         _poll_status(self.api, task_id)

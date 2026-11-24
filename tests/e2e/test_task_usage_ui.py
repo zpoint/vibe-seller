@@ -85,11 +85,16 @@ def _expected_cost(t: dict) -> float:
 
 def test_usage_is_metered_once_per_call_and_priced(api):
     resp = api.post(
-        f'{BASE_URL}/api/tasks', json={'title': f'Usage meter {time.time()}'}
+        f'{BASE_URL}/api/tasks',
+        json={
+            'title': f'Usage meter {time.time()}',
+            'plan_mode': True,
+        },
     )
     resp.raise_for_status()
     task_id = resp.json()['id']
-    # Non-store task → plan mode: plan, approve, execute.
+    # Plan mode asked for explicitly: plan, approve, execute — the
+    # usage test measures the plan phase and the execute phase.
     planned = _wait(api, task_id, 'planned')
     api.post(f'{BASE_URL}/api/tasks/{task_id}/execute-plan').raise_for_status()
     done = _wait(api, task_id, 'completed')
@@ -112,7 +117,9 @@ def test_usage_is_metered_once_per_call_and_priced(api):
 def test_chip_renders_and_updates_live(api, authenticated_page):
     page = authenticated_page
     title = f'Usage chip {int(time.time())}'
-    resp = api.post(f'{BASE_URL}/api/tasks', json={'title': title})
+    resp = api.post(
+        f'{BASE_URL}/api/tasks', json={'title': title, 'plan_mode': True}
+    )
     resp.raise_for_status()
     task_id = resp.json()['id']
     planned = _wait(api, task_id, 'planned')

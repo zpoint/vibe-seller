@@ -360,12 +360,13 @@ class TestLifecycleGuidance:
         created = mcp.call_tool(
             'create_task',
             description='Plan a small piece of work, then do it.',
+            plan_mode=True,
         )
         assert created['ok'], created['text']
         task_id = created['data']['task_id']
         try:
-            # A no-store task always plans; the result says which path
-            # it is.
+            # Plan mode is what was asked for; the result says which
+            # path it is.
             assert created['data']['plan_mode'] is True
             assert created['data']['status'] == 'pending', created['data']
             assert created['data'].get('status_meaning'), created['data']

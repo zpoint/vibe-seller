@@ -107,12 +107,15 @@ def _set_allow_send(client: httpx.Client, account_id: str, value: bool):
 
 
 def _run_task(client: httpx.Client, title: str, description: str) -> dict:
-    """Create a store-less task and drive it to a terminal state.
+    """Create a store-less task IN PLAN MODE, drive it to a terminal state.
 
-    A store-less task is always plan mode, so approve the plan the way
-    the UI's confirm button does, then wait for the run to finish.
+    Plan mode is asked for explicitly (a task's mode follows the user
+    default otherwise), so the helper approves the plan the way the
+    UI's confirm button does and still covers a direct completion.
     """
-    task = e2e_helpers.create_task(client, title, description=description)
+    task = e2e_helpers.create_task(
+        client, title, description=description, plan_mode=True
+    )
     final = e2e_helpers.poll_task_status(
         client, task['id'], {'planned', 'completed', 'failed'}, timeout=600
     )

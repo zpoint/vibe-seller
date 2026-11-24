@@ -240,14 +240,14 @@ class TestLLMWebBrowserNoStore:
     """
 
     def _run_no_store_task(self, api_client, prompt: str) -> dict:
-        """Create a no-store task and drive it to a terminal state.
+        """Create a no-store task in plan mode, drive it to a terminal state.
 
-        Non-store tasks are forced into plan mode, so accept the
-        ``planned`` → execute-plan → ``completed`` path (and the
-        plan-skip shortcut where the agent completes directly). See
+        Accept the ``planned`` → execute-plan → ``completed`` path
+        (and the plan-skip shortcut where the agent completes
+        directly). See
         ``test_task_execution.test_task_without_store_completes``.
         """
-        data = create_task(api_client, prompt)
+        data = create_task(api_client, prompt, plan_mode=True)
         assert data['store_id'] is None
         assert data['plan_mode'] is True
         result = poll_task_status(

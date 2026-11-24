@@ -544,13 +544,14 @@ def test_chat_bot_agent_send(api_client, platform, webhook_url, secret):
             api_client,
             f'Chat bot e2e {platform} {nonce}',
             description=description,
+            plan_mode=True,
         )
         task_id = task['id']
-        # A store-less task is ALWAYS plan mode (app/routers/tasks.py:
-        # `if data.store_id is None: plan_mode = True`), so the agent
-        # stops at 'planned' and waits for a human to approve — the
-        # same flow the UI drives. Poll for 'planned' too, approve the
-        # plan, then wait for the run to finish.
+        # Plan mode is asked for explicitly (it is no longer forced
+        # for a store-less task), so the agent stops at 'planned' and
+        # waits for a human to approve — the same flow the UI drives.
+        # Poll for 'planned' too, approve the plan, then wait for the
+        # run to finish.
         final = e2e_helpers.poll_task_status(
             api_client,
             task_id,
