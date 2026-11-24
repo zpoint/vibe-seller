@@ -10,9 +10,9 @@ Pick your system and follow along — it takes a few minutes. Runs on Windows 10
 
     1. Download the installer, [VibeSeller-Setup.exe](https://github.com/zpoint/vibe-seller/releases/latest);
     2. Double-click it and click **Next** through the wizard;
-    3. On the last page click **Finish** — your browser opens Vibe Seller.
+    3. On the last page click **Finish** — your default browser opens <http://localhost:7777>, which is Vibe Seller.
 
-    To open it again later, click Vibe Seller in the Start menu.
+    Later, clicking Vibe Seller in the Start menu opens the same address. While Vibe Seller is running (its icon is in the tray at the bottom right of the taskbar), you can also go to <http://localhost:7777> in your browser yourself.
 
     Once installed, Vibe Seller starts automatically when you sign in to Windows. To turn that on or off, right-click the Vibe Seller tray icon (bottom-right) and check or uncheck **Start at login**.
 

@@ -15,7 +15,9 @@ Once it's installed, three steps get you going: set up AI, add a store, create a
 
 === "Windows"
 
-    It opens by itself after installing. To open it later, click Vibe Seller in the Start menu.
+    When the install finishes, it opens <http://localhost:7777> in your default browser. Later, clicking Vibe Seller in the Start menu opens the same address.
+
+    You can also open it yourself: while Vibe Seller is running (its icon is in the tray at the bottom right of the taskbar), go to <http://localhost:7777> in your browser.
 
 === "macOS"
 
