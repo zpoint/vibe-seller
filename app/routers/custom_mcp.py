@@ -5,7 +5,9 @@ only an admin adds, toggles, tests or removes one — a server reaches
 every task of every user, and a local (stdio) one is a command this
 machine runs. API tokens cannot add one at all (``TOKEN_REFUSALS``).
 
-Credentials are write-only: every response is :func:`public_view`.
+A server is saved only after it connects (the add route runs the
+Test handshake first). Credentials are write-only: every response is
+:func:`public_view`.
 There is no partial edit — changing a token means pasting the
 service's config again with ``replace`` — so a masked value can never
 round-trip into storage (``normalize_server`` refuses one anyway).
@@ -59,6 +61,11 @@ class CustomMcpUpdate(BaseModel):
     enabled: bool
 
 
+def _config_error(e: McpConfigError) -> dict:
+    """A 400 body the panel can say in the user's language."""
+    return {'code': f'config_{e.code}', 'message': str(e), **e.params}
+
+
 def _view(row: CustomMcpServer) -> dict:
     try:
         config = unseal(row.config_enc)
@@ -106,11 +113,20 @@ async def add_servers(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    """Add every server in the paste (all or nothing)."""
+    """Add every server in the paste — all or nothing, and only once
+    each one CONNECTS.
+
+    The same handshake as the Test button runs before anything is
+    written (like the AI-profile save probe): a wrong token or a dead
+    URL is answered here, on the settings page, not by a task that
+    quietly runs without the tools. A failure is a ``400`` with
+    ``detail = {code: 'connect_failed', name, error}`` and nothing is
+    stored. The answer carries each server's probe result as ``test``.
+    """
     try:
         servers = parse_pasted(data.config, (data.name or '').strip() or None)
     except McpConfigError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=_config_error(e)) from e
     existing = {
         r.name: r
         for r in (
@@ -131,6 +147,21 @@ async def add_servers(
                 'names': sorted(existing),
             },
         )
+    tests: dict[str, dict] = {}
+    for name, config in servers.items():
+        try:
+            tests[name] = {'ok': True, **await probe(config)}
+        except ProbeError as e:
+            logger.info('Custom MCP %s not saved: %s', name, e)
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    'code': 'connect_failed',
+                    'name': name,
+                    'error': str(e),
+                    'reason': e.reason,
+                },
+            ) from e
     now = datetime.now(UTC).isoformat()
     saved = []
     for name, config in servers.items():
@@ -157,7 +188,7 @@ async def add_servers(
                 'replaced': row.name in existing,
             },
         )
-    return [_view(r) for r in saved]
+    return [{**_view(r), 'test': tests[r.name]} for r in saved]
 
 
 @router.patch('/{server_id}')
@@ -213,7 +244,7 @@ async def test_server(
         result = await probe(config)
     except ProbeError as e:
         logger.info('Custom MCP %s test failed: %s', row.name, e)
-        outcome = {'ok': False, 'error': str(e)}
+        outcome = {'ok': False, 'error': str(e), 'reason': e.reason}
     else:
         outcome = {'ok': True, **result}
     telemetry.send(

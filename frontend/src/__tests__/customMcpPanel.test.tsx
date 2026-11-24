@@ -1,9 +1,10 @@
 /**
  * Settings → Integrations → Custom MCP servers.
  *
- * Admins paste a vendor's config as-is (the server normalizes it); a
- * save is followed by a connection test without another click; a name
- * that exists asks before replacing. Members see the list only.
+ * Admins paste a vendor's config as-is (the server normalizes it and
+ * connects before saving — a server that does not connect is not
+ * saved); a name that exists asks before replacing. Members see the
+ * list only.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
@@ -66,14 +67,14 @@ describe('CustomMcpPanel', () => {
     expect(row).toHaveTextContent('HTTP')
   })
 
-  it('saves the paste as-is, then tests the connection by itself', async () => {
-    mockApi.post.mockImplementation((url: string) => {
-      if (url === '/api/custom-mcp-servers') return Promise.resolve([SERVER])
-      return Promise.resolve({
+  it('saves the paste as-is and shows what the save connected to', async () => {
+    mockApi.post.mockResolvedValue([{
+      ...SERVER,
+      test: {
         ok: true, server_name: 'acme', tool_count: 3,
         tools: [{ name: 'lookup', description: 'Look things up' }],
-      })
-    })
+      },
+    }])
     renderPanel(true)
     fireEvent.click(await screen.findByTestId('custom-mcp-add'))
     const paste = 'install this: {"mcpServers": {"acme-data": {"url": "https://mcp.example.com/mcp"}}}'
@@ -84,12 +85,32 @@ describe('CustomMcpPanel', () => {
     await waitFor(() => expect(mockApi.post).toHaveBeenCalledWith(
       '/api/custom-mcp-servers',
       { config: paste, name: null, replace: false },
-    ))
-    await waitFor(() => expect(mockApi.post).toHaveBeenCalledWith(
-      '/api/custom-mcp-servers/s1/test', undefined, expect.anything(),
+      expect.anything(),
     ))
     const result = await screen.findByTestId('custom-mcp-test-result')
     expect(result).toHaveTextContent('Connected to acme — 3 tools')
+    // The save already connected — no second round trip.
+    expect(mockApi.post).toHaveBeenCalledTimes(1)
+  })
+
+  it('says which server did not connect, and keeps the form', async () => {
+    mockApi.post.mockRejectedValue(Object.assign(new Error('Request failed (400)'), {
+      status: 400,
+      detail: {
+        code: 'connect_failed', name: 'acme', reason: 'unauthorized',
+        error: 'HTTP 401: the server refused the credentials',
+      },
+    }))
+    renderPanel(true)
+    fireEvent.click(await screen.findByTestId('custom-mcp-add'))
+    fireEvent.change(screen.getByTestId('custom-mcp-config'), {
+      target: { value: 'https://mcp.example.com/mcp' },
+    })
+    fireEvent.click(screen.getByTestId('custom-mcp-save'))
+    expect(await screen.findByTestId('custom-mcp-error')).toHaveTextContent(
+      "Couldn't connect to acme, so it wasn't saved: the token is wrong or no longer valid",
+    )
+    expect(screen.getByTestId('custom-mcp-form')).toBeInTheDocument()
   })
 
   it('asks before replacing a server with the same name', async () => {
@@ -98,8 +119,7 @@ describe('CustomMcpPanel', () => {
     })
     mockApi.post
       .mockRejectedValueOnce(conflict)
-      .mockResolvedValueOnce([SERVER])
-      .mockResolvedValue({ ok: true, tool_count: 0, tools: [] })
+      .mockResolvedValueOnce([{ ...SERVER, test: { ok: true, tool_count: 0, tools: [] } }])
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderPanel(true)
     fireEvent.click(await screen.findByTestId('custom-mcp-add'))
@@ -113,20 +133,38 @@ describe('CustomMcpPanel', () => {
     await waitFor(() => expect(mockApi.post).toHaveBeenCalledWith(
       '/api/custom-mcp-servers',
       { config: 'https://mcp.example.com/mcp', name: 'acme-data', replace: true },
+      expect.anything(),
     ))
     expect(confirm).toHaveBeenCalled()
     confirm.mockRestore()
   })
 
-  it('shows why a paste was refused', async () => {
-    mockApi.post.mockRejectedValue(Object.assign(
-      new Error('headers.Authorization uses a ${…} variable'), { status: 400 },
-    ))
+  it('says why a paste was refused in the UI language', async () => {
+    mockApi.post.mockRejectedValue(Object.assign(new Error('Request failed (400)'), {
+      status: 400,
+      detail: { code: 'config_placeholder', message: 'headers.A has characters…', name: 'acme' },
+    }))
     renderPanel(true)
     fireEvent.click(await screen.findByTestId('custom-mcp-add'))
     fireEvent.change(screen.getByTestId('custom-mcp-config'), { target: { value: '{}' } })
     fireEvent.click(screen.getByTestId('custom-mcp-save'))
-    expect(await screen.findByTestId('custom-mcp-error')).toHaveTextContent('variable')
+    expect(await screen.findByTestId('custom-mcp-error')).toHaveTextContent(
+      t.configErrors.placeholder,
+    )
+  })
+
+  it('falls back to the server sentence for an error it has no words for', async () => {
+    mockApi.post.mockRejectedValue(Object.assign(new Error('Request failed (400)'), {
+      status: 400,
+      detail: { code: 'config_something_new', message: 'Something specific went wrong' },
+    }))
+    renderPanel(true)
+    fireEvent.click(await screen.findByTestId('custom-mcp-add'))
+    fireEvent.change(screen.getByTestId('custom-mcp-config'), { target: { value: '{}' } })
+    fireEvent.click(screen.getByTestId('custom-mcp-save'))
+    expect(await screen.findByTestId('custom-mcp-error')).toHaveTextContent(
+      'Something specific went wrong',
+    )
   })
 
   it('turns a server off and deletes it', async () => {

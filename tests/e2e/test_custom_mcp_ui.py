@@ -2,10 +2,10 @@
 
 The config step a user takes, against a stand-in MCP server this test
 serves itself (``fake_mcp_server``): paste the vendor's JSON (no
-``type``, text around it — what vendors publish), Save, and the panel
-tests the connection on its own and lists the server's tool. The token
-the user pasted is never on the page afterwards. Then turn it off and
-on, and delete it.
+``type``, text around it — what vendors publish) and Save; saving
+connects first and lists the server's tool, and a server that does not
+connect is not saved. The token the user pasted is never on the page
+afterwards. Then turn it off and on, delete it, and add it again.
 
 No model is involved — it runs in the mock-CLI job and on the shared
 e2e server alike. Whether a TASK then uses the server is
@@ -60,7 +60,7 @@ def _open_integrations(page: Page):
     return card
 
 
-def test_add_test_toggle_and_delete_a_custom_mcp_server(
+def test_add_toggle_delete_and_add_again(
     authenticated_page: Page,
     mcp_server,
     clean_servers,
@@ -74,12 +74,13 @@ def test_add_test_toggle_and_delete_a_custom_mcp_server(
     })
     card.get_by_test_id('custom-mcp-add').click()
     card.get_by_test_id('custom-mcp-config').fill(paste)
+    card.get_by_test_id('custom-mcp-name').fill(NAME)
     card.get_by_test_id('custom-mcp-save').click()
 
     row = card.get_by_test_id(f'custom-mcp-row-{NAME}')
     expect(row).to_be_visible()
     expect(row.get_by_test_id('custom-mcp-state')).to_have_text('On')
-    # Saving runs the connection test by itself.
+    # Saving connected first and shows what it found.
     result = row.get_by_test_id('custom-mcp-test-result')
     expect(result).to_contain_text(
         f'Connected to {fake_mcp_server.SERVER_NAME} — 1 tools',
@@ -115,6 +116,18 @@ def test_add_test_toggle_and_delete_a_custom_mcp_server(
     listed = api_client.get(f'{e2e_helpers.BASE_URL}/api/custom-mcp-servers')
     assert NAME not in [s['name'] for s in listed.json()]
 
+    # Add the same server again: the name is free, and it connects.
+    card.get_by_test_id('custom-mcp-add').click()
+    card.get_by_test_id('custom-mcp-config').fill(paste)
+    card.get_by_test_id('custom-mcp-name').fill(NAME)
+    card.get_by_test_id('custom-mcp-save').click()
+    expect(row.get_by_test_id('custom-mcp-test-result')).to_contain_text(
+        f'Connected to {fake_mcp_server.SERVER_NAME} — 1 tools',
+        timeout=30_000,
+    )
+    listed = api_client.get(f'{e2e_helpers.BASE_URL}/api/custom-mcp-servers')
+    assert [s['name'] for s in listed.json()].count(NAME) == 1
+
 
 def test_a_paste_claude_code_would_refuse_is_explained_not_saved(
     authenticated_page: Page, clean_servers
@@ -136,6 +149,34 @@ def test_a_paste_claude_code_would_refuse_is_explained_not_saved(
     )
     card.get_by_test_id('custom-mcp-save').click()
     expect(card.get_by_test_id('custom-mcp-error')).to_contain_text(
-        'paste the real value'
+        'replace it with the real token'
     )
     expect(card.get_by_test_id(f'custom-mcp-row-{NAME}')).to_have_count(0)
+
+
+def test_a_server_that_does_not_connect_is_not_saved(
+    authenticated_page: Page, mcp_server, clean_servers
+):
+    """Like the AI-profile save: the panel connects first and refuses
+    to save a server that does not answer (here, a wrong token)."""
+    page = authenticated_page
+    card = _open_integrations(page)
+    card.get_by_test_id('custom-mcp-add').click()
+    card.get_by_test_id('custom-mcp-config').fill(
+        json.dumps({
+            'mcpServers': {
+                NAME: {
+                    'url': fake_mcp_server.url_of(mcp_server),
+                    'headers': {'Authorization': 'Bearer wrong-token'},
+                }
+            }
+        })
+    )
+    card.get_by_test_id('custom-mcp-name').fill(NAME)
+    card.get_by_test_id('custom-mcp-save').click()
+    expect(card.get_by_test_id('custom-mcp-error')).to_contain_text(
+        f"Couldn't connect to {NAME}, so it wasn't saved: the token is "
+        'wrong or no longer valid'
+    )
+    expect(card.get_by_test_id(f'custom-mcp-row-{NAME}')).to_have_count(0)
+    expect(card.get_by_test_id('custom-mcp-form')).to_be_visible()

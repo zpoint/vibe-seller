@@ -26,6 +26,7 @@ from app.ai.launch_artifacts import build_launch_artifacts
 from app.custom_mcp import (
     McpConfigError,
     check_name,
+    derive_name,
     launch_servers,
     normalize_server,
     parse_pasted,
@@ -99,6 +100,13 @@ def test_unknown_fields_are_dropped():
         ({'url': 'https://h/mcp', 'headers': {'A': 'Bearer ${KEY}'}}, '${'),
         ({'command': 'x', 'env': {'K': '${ANTHROPIC_AUTH_TOKEN}'}}, '${'),
         ({'url': 'https://h/mcp', 'headers': {'A': '****abcd'}}, 'masked'),
+        (
+            {
+                'url': 'https://h/mcp',
+                'headers': {'A': 'Bearer 请改成您的 Token'},
+            },
+            'sample text',
+        ),
         ({'url': 'https://h', 'oauth': {'clientId': 'x'}}, 'OAuth'),
         ({'url': 'https://h', 'headersHelper': 'sh x'}, 'headersHelper'),
         ({'url': 'ftp://h/mcp'}, 'http(s)'),
@@ -141,7 +149,7 @@ def test_a_vendor_blurb_with_text_around_the_json_parses():
     blurb = '帮我安装这个 MCP，以下是配置 ' + json.dumps(VENDOR_JSON) + ' 谢谢'
     servers = parse_pasted(blurb)
     assert servers == {
-        'acme-data': {
+        'example': {
             'type': 'http',
             'url': 'https://mcp.example.com/mcp',
             'headers': {'Authorization': f'Bearer {TOKEN}'},
@@ -155,24 +163,79 @@ def test_vs_code_servers_key_and_a_bare_map_parse():
     assert parse_pasted(inner) == parse_pasted(VENDOR_JSON)
 
 
-def test_a_bare_url_needs_and_takes_a_name():
+def test_a_bare_url_is_named_after_its_domain_unless_named():
     url = 'https://mcp.example.com/mcp?mcp_token=abc123'
-    with pytest.raises(McpConfigError, match='name'):
-        parse_pasted(url)
+    assert parse_pasted(url) == {'example': {'type': 'http', 'url': url}}
     assert parse_pasted(url, name='acme') == {
         'acme': {'type': 'http', 'url': url}
     }
+
+
+def test_an_unnamed_remote_server_takes_its_domain_not_its_json_key():
+    """The panel promises "leave the name empty → named after the
+    domain" — the vendor's JSON key (``acme-data``) does not win."""
+    assert list(parse_pasted(VENDOR_JSON)) == ['example']
+    paste = {
+        'mcpServers': {
+            'a': {'url': 'https://mcp.example.com/mcp'},
+            'b': {'url': 'https://api.example.com/sse'},
+            'files': {'command': 'npx', 'args': ['-y', '@acme/fs']},
+        }
+    }
+    # Same domain twice gets -2; a local command has no domain and
+    # keeps its key.
+    assert list(parse_pasted(paste)) == ['example', 'example-2', 'files']
+
+
+@pytest.mark.parametrize(
+    'raw, name',
+    [
+        ({'url': 'https://mcp.example.com/mcp'}, 'example'),
+        ({'url': 'https://api.example.com.cn/mcp'}, 'example'),
+        ({'url': 'https://mcp.example.co.uk/sse'}, 'example'),
+        ({'url': 'http://127.0.0.1:7792/mcp'}, '127-0-0-1'),
+        ({'url': 'https://localhost/mcp'}, 'localhost'),
+        # A name the platform owns is never derived as-is.
+        ({'url': 'https://playwright.dev/mcp'}, 'playwright-mcp'),
+        (
+            {'command': 'npx', 'args': ['-y', '@acme/files-server', '/data']},
+            'files-server',
+        ),
+        ({'command': 'npx', 'args': ['-y', '@acme/tools@1.2.3']}, 'tools'),
+        ({'command': 'uvx', 'args': ['mcp-server-fetch']}, 'mcp-server-fetch'),
+        ({'command': 'mytool'}, 'mytool'),
+    ],
+)
+def test_derived_names_are_valid_and_readable(raw, name):
+    assert derive_name(raw) == name
+    assert check_name(name) == name
 
 
 def test_the_typed_name_renames_a_single_server():
     assert list(parse_pasted(VENDOR_JSON, name='mine')) == ['mine']
 
 
+def test_errors_carry_a_code_the_panel_can_translate():
+    with pytest.raises(McpConfigError) as exc:
+        parse_pasted(
+            {'mcpServers': {'x': {'url': 'https://h', 'oauth': {'a': 1}}}},
+            name='acme',
+        )
+    assert exc.value.code == 'oauth'
+    assert exc.value.params == {'name': 'acme'}
+    with pytest.raises(McpConfigError) as exc:
+        check_name('ticktick')
+    assert (exc.value.code, exc.value.params) == (
+        'reserved_name',
+        {'name': 'ticktick'},
+    )
+
+
 def test_one_bad_server_rejects_the_whole_paste_naming_it():
     paste = {
         'mcpServers': {
-            'good': {'url': 'https://h/mcp'},
-            'bad': {'url': 'ftp://h'},
+            'one': {'url': 'https://good.example/mcp'},
+            'two': {'url': 'ftp://bad.example'},
         }
     }
     with pytest.raises(McpConfigError, match='^bad: '):
@@ -191,7 +254,7 @@ def test_empty_or_unreadable_pastes_are_refused(paste):
 
 
 def test_sealed_config_is_not_readable_and_round_trips():
-    config = parse_pasted(VENDOR_JSON)['acme-data']
+    config = parse_pasted(VENDOR_JSON)['example']
     stored = seal(config)
     assert TOKEN not in stored
     assert 'mcp.example.com' not in stored
@@ -284,7 +347,7 @@ def test_httpx_log_records_have_their_url_credentials_masked():
 
 
 def test_launch_servers_skips_a_bad_row_and_keeps_the_rest(caplog):
-    good = parse_pasted(VENDOR_JSON)['acme-data']
+    good = parse_pasted(VENDOR_JSON)['example']
     rows = [
         ('acme-data', seal(good)),
         ('broken', 'garbage'),

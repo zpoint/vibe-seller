@@ -23,6 +23,7 @@ export interface CustomMcpServer {
 export interface McpTestResult {
   ok: boolean
   error?: string
+  reason?: string
   server_name?: string
   server_version?: string
   tool_count?: number
@@ -76,21 +77,44 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
     setSaving(true)
     setError('')
     try {
-      const saved: CustomMcpServer[] = await api.post(LIST_URL, {
-        config,
-        name: name.trim() || null,
-        replace,
-      })
+      // The server connects to each server before saving it (like the
+      // AI-profile save probe) and answers with what it found.
+      const saved: (CustomMcpServer & { test?: McpTestResult })[] = await api.post(
+        LIST_URL,
+        { config, name: name.trim() || null, replace },
+        { timeoutMs: LONG_TIMEOUT_MS },
+      )
       setAdding(false)
       setConfig('')
       setName('')
+      setTests(prev => {
+        const next = { ...prev }
+        for (const s of saved) if (s.test) next[s.id] = s.test
+        return next
+      })
       await refresh()
-      // Test right away: the first thing anyone wants to know is
-      // whether the token works.
-      for (const s of saved) void runTest(s.id)
     } catch (e) {
-      const err = e as Error & { status?: number; detail?: { names?: string[] } }
-      if (err.status === 409 && err.detail?.names) {
+      const err = e as Error & {
+        status?: number
+        detail?: {
+          names?: string[]; code?: string; name?: string
+          error?: string; reason?: string; message?: string
+        }
+      }
+      const code = err.detail?.code ?? ''
+      if (code === 'connect_failed') {
+        setError(t('customMcp.connectFailed', {
+          name: err.detail?.name,
+          why: reasonText(t, err.detail?.reason, err.detail?.error),
+        }))
+      } else if (code.startsWith('config_')) {
+        // Say the common mistakes in the user's language; anything else
+        // falls back to the server's own sentence.
+        setError(t(`customMcp.configErrors.${code.slice('config_'.length)}`, {
+          ...err.detail,
+          defaultValue: err.detail?.message ?? err.message,
+        }))
+      } else if (err.status === 409 && err.detail?.names) {
         const names = err.detail.names.join(', ')
         if (confirm(t('customMcp.replaceConfirm', { names }))) {
           setSaving(false)
@@ -174,7 +198,7 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
               data-testid="custom-mcp-name"
               value={name}
               onChange={e => setName(e.target.value)}
-              placeholder="my-service"
+              placeholder={t('customMcp.namePlaceholder')}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
             />
           </div>
@@ -189,7 +213,7 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
               disabled={saving}
               className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
             >
-              {saving ? t('common.loading') : t('common.save')}
+              {saving ? t('customMcp.connecting') : t('common.save')}
             </button>
             <button
               type="button"
@@ -227,6 +251,15 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
       )}
     </div>
   )
+}
+
+/** Why a connection failed, in the user's language when we know the case. */
+function reasonText(
+  t: (k: string, o?: Record<string, unknown>) => string,
+  reason: string | undefined,
+  error: string | undefined,
+): string {
+  return t(`customMcp.reasons.${reason ?? 'other'}`, { defaultValue: error ?? '' })
 }
 
 function typeLabel(type: CustomMcpServer['type'], t: (k: string) => string): string {
@@ -352,7 +385,9 @@ function ServerRow({
               )}
             </div>
           ) : (
-            <div className="text-red-600">{t('customMcp.testFailed', { error: test.error })}</div>
+            <div className="text-red-600">
+              {t('customMcp.testFailed', { error: reasonText(t, test.reason, test.error) })}
+            </div>
           )}
         </div>
       )}

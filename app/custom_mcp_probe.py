@@ -33,7 +33,16 @@ _MAX_TOOLS = 200
 
 
 class ProbeError(Exception):
-    """The server could not be reached, refused us, or spoke nonsense."""
+    """The server could not be reached, refused us, or spoke nonsense.
+
+    *reason* names the case for the panel, which says it in the user's
+    language (``customMcp.reasons.<reason>``); the message is the
+    detail and the fallback.
+    """
+
+    def __init__(self, message: str, reason: str = 'other'):
+        super().__init__(message)
+        self.reason = reason
 
 
 def _request(req_id: int, method: str, params: dict | None = None) -> dict:
@@ -103,10 +112,13 @@ def _http_error(resp: httpx.Response) -> ProbeError:
     if resp.status_code in (401, 403):
         return ProbeError(
             f'HTTP {resp.status_code}: the server refused the credentials '
-            '— check the token / headers'
+            '— check the token / headers',
+            'unauthorized',
         )
     if resp.status_code == 404:
-        return ProbeError('HTTP 404: no MCP server at this address')
+        return ProbeError(
+            'HTTP 404: no MCP server at this address', 'not_found'
+        )
     body = resp.text[:200].strip()
     return ProbeError(f'HTTP {resp.status_code}: {body}')
 
@@ -238,7 +250,8 @@ async def _probe_stdio(config: dict) -> dict:
     if command is None:
         raise ProbeError(
             f'"{config["command"]}" was not found on this machine — '
-            'install it first'
+            'install it first',
+            'command_missing',
         )
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -264,7 +277,8 @@ async def _probe_stdio(config: dict) -> dict:
                 err = (await proc.stderr.read(2000)).decode(errors='replace')
                 raise ProbeError(
                     'The server exited before answering'
-                    + (f': {err.strip()}' if err.strip() else '')
+                    + (f': {err.strip()}' if err.strip() else ''),
+                    'exited',
                 )
             with contextlib.suppress(ValueError):
                 m = json.loads(line)
@@ -301,11 +315,13 @@ async def probe(config: dict) -> dict:
     try:
         return await asyncio.wait_for(runner(config), timeout)
     except TimeoutError:
-        raise ProbeError(f'No answer within {int(timeout)} seconds') from None
+        raise ProbeError(
+            f'No answer within {int(timeout)} seconds', 'timeout'
+        ) from None
     except httpx.HTTPError as e:
         # httpx messages can embed the request URL — and the URL can
         # carry the server's token.
         detail = str(e) or type(e).__name__
         if config.get('url'):
             detail = detail.replace(config['url'], mask_url(config['url']))
-        raise ProbeError(f'Could not connect: {detail}') from e
+        raise ProbeError(f'Could not connect: {detail}', 'unreachable') from e

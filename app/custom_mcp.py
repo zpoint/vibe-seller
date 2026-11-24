@@ -99,7 +99,18 @@ _MASK_FILL = ('****', '••••')
 
 
 class McpConfigError(ValueError):
-    """A pasted/stored server config Claude Code would not accept."""
+    """A pasted/stored server config Claude Code would not accept.
+
+    *code* names the problem for the panel, which says it in the user's
+    language (``customMcp.configErrors.<code>``); the English message is
+    the fallback and what the log and tests read. *params* fill the
+    translated sentence (e.g. the offending name).
+    """
+
+    def __init__(self, message: str, code: str = 'invalid', **params):
+        super().__init__(message)
+        self.code = code
+        self.params = params
 
 
 # ── validation ──────────────────────────────────────────────────
@@ -108,16 +119,19 @@ class McpConfigError(ValueError):
 def check_name(name: object) -> str:
     """The server name, or :class:`McpConfigError` saying what is wrong."""
     if not isinstance(name, str) or not name.strip():
-        raise McpConfigError('The server needs a name')
+        raise McpConfigError('The server needs a name', 'name_missing')
     name = name.strip()
     if not NAME_RE.match(name) or '__' in name:
         raise McpConfigError(
             f'Invalid server name "{name}": use letters, digits, "-" '
-            'and "_" (up to 48 characters, no "__")'
+            'and "_" (up to 48 characters, no "__")',
+            'invalid_name',
         )
     if name.lower() in RESERVED_NAMES:
         raise McpConfigError(
-            f'"{name}" is a name Vibe Seller uses itself — pick another'
+            f'"{name}" is a name Vibe Seller uses itself — pick another',
+            'reserved_name',
+            name=name,
         )
     return name
 
@@ -130,7 +144,8 @@ def _check_value(where: str, value: object) -> str:
         raise McpConfigError(
             f'{where} uses a ${{…}} variable — paste the real value '
             "instead (variables would be filled from the agent's own "
-            'environment)'
+            'environment)',
+            'variable',
         )
     # Both mask shapes the server emits (app.agent_mcp.redact.is_mask)
     # contain one of these fills — and so does any value copied out
@@ -139,10 +154,26 @@ def _check_value(where: str, value: object) -> str:
     if any(fill in value for fill in _MASK_FILL):
         raise McpConfigError(
             f'{where} looks like a masked value — paste the real one '
-            "from the service's own setup page"
+            "from the service's own setup page",
+            'masked',
         )
     if '\r' in value or '\n' in value:
         raise McpConfigError(f'{where} must be a single line')
+    return value
+
+
+def _check_header_value(where: str, value: str) -> str:
+    """An HTTP header can only carry Latin-1 text. A vendor's sample
+    config pasted unedited (``Bearer 请改成您的 MCP Token``) is the usual
+    way to get anything else — and httpx / the CLI cannot send it."""
+    try:
+        value.encode('latin-1')
+    except UnicodeEncodeError:
+        raise McpConfigError(
+            f'{where} has characters a request header cannot carry — is '
+            "the sample text still there? Paste the service's real token",
+            'placeholder',
+        ) from None
     return value
 
 
@@ -158,6 +189,8 @@ def _check_str_map(where: str, raw: object, *, header: bool) -> dict:
         if header and not _HEADER_NAME_RE.match(key):
             raise McpConfigError(f'Invalid header name "{key}"')
         out[key] = _check_value(f'{where}.{key}', value)
+        if header:
+            _check_header_value(f'{where}.{key}', out[key])
     return out
 
 
@@ -166,7 +199,7 @@ def _check_url(raw: object) -> str:
     parts = urlsplit(url)
     if parts.scheme not in ('http', 'https') or not parts.hostname:
         raise McpConfigError(
-            f'"{url}" is not an http(s) address of an MCP server'
+            f'"{url}" is not an http(s) address of an MCP server', 'bad_url'
         )
     return url
 
@@ -179,7 +212,9 @@ def _infer_type(raw: dict) -> str:
         key = declared.strip().lower().replace(' ', '')
         if key not in _TYPE_ALIASES:
             raise McpConfigError(
-                f'Unsupported server type "{declared}" — use http, sse or stdio'
+                f'Unsupported server type "{declared}" — use http, sse or '
+                'stdio',
+                'unsupported',
             )
         return _TYPE_ALIASES[key]
     if 'command' in raw:
@@ -194,7 +229,8 @@ def _infer_type(raw: dict) -> str:
         return 'sse' if path.endswith('/sse') else 'http'
     raise McpConfigError(
         'A server needs either a "url" (remote server) or a "command" '
-        '(local program)'
+        '(local program)',
+        'bad_config',
     )
 
 
@@ -212,7 +248,8 @@ def normalize_server(name: object, raw: object) -> dict:
             raise McpConfigError(
                 f'{label} is not supported: tasks run unattended, so '
                 'nobody can complete it. Use the token / API-key setup '
-                'the service offers instead'
+                'the service offers instead',
+                'oauth' if field == 'oauth' else 'unsupported',
             )
     kind = _infer_type(raw)
     if kind == 'stdio':
@@ -257,12 +294,90 @@ def _load_json(text: str) -> object:
         if start == -1 or end <= start:
             raise McpConfigError(
                 'Paste the JSON config (or the server URL) the service '
-                'gives you'
+                'gives you',
+                'bad_json',
             ) from None
         try:
             return json.loads(text[start : end + 1])
         except ValueError as e:
-            raise McpConfigError(f'The pasted JSON is invalid: {e}') from e
+            raise McpConfigError(
+                f'The pasted JSON is invalid: {e}', 'bad_json'
+            ) from e
+
+
+# Host labels that say "this is an MCP/API endpoint", not whose it is.
+_GENERIC_LABELS = frozenset({'mcp', 'api', 'www', 'server', 'servers', 'app'})
+# Second-level labels of country domains (example.com.cn, example.co.uk).
+_SECOND_LEVEL = frozenset({'com', 'co', 'net', 'org', 'gov', 'edu', 'ac'})
+
+
+def _slug(text: str) -> str:
+    """*text* as a server name: lowercase, ``[a-z0-9_-]``, no ``__``."""
+    slug = re.sub(r'[^a-z0-9_-]+', '-', text.lower())
+    slug = re.sub(r'_{2,}', '_', re.sub(r'-{2,}', '-', slug))
+    return slug.strip('-_')[:48].strip('-_')
+
+
+def derive_name(raw: dict) -> str:
+    """A server name for a paste that carries none.
+
+    A remote server is named after its domain — ``https://mcp.xydc.com/
+    mcp`` → ``xydc`` (endpoint labels like ``mcp.`` / ``api.`` and the
+    TLD dropped) — and a local one after the package it runs
+    (``npx -y @scope/some-server`` → ``some-server``). A name the
+    platform owns gets ``-mcp`` appended; the result still goes
+    through :func:`check_name`.
+    """
+    url = raw.get('url', raw.get('serverUrl'))
+    name = ''
+    if isinstance(url, str):
+        host = (urlsplit(url.strip()).hostname or '').lower()
+        labels = [p for p in host.split('.') if p]
+        if re.fullmatch(r'[\d.]+', host) or len(labels) < 2:
+            name = host
+        else:
+            labels = labels[:-1]  # the TLD
+            if len(labels) > 1 and labels[-1] in _SECOND_LEVEL:
+                labels = labels[:-1]
+            meaningful = [p for p in labels if p not in _GENERIC_LABELS]
+            name = meaningful[-1] if meaningful else labels[-1]
+    elif isinstance(raw.get('command'), str):
+        args = raw.get('args') if isinstance(raw.get('args'), list) else []
+        package = next(
+            (a for a in args if isinstance(a, str) and not a.startswith('-')),
+            raw['command'],
+        )
+        name = re.sub(r'@[^/]*$', '', package.rstrip('/').split('/')[-1])
+        name = name or raw['command']
+    name = _slug(name)
+    if not name:
+        raise McpConfigError('Give this server a name', 'name_missing')
+    if name in RESERVED_NAMES:
+        name = f'{name}-mcp'
+    return name
+
+
+def _auto_named(servers: dict) -> dict:
+    """The paste's servers under the names the user did not type.
+
+    A remote server is named after its URL's domain — the rule the
+    Settings panel promises ("leave it empty → named after the
+    domain"), whatever key the vendor's JSON used. A local command has
+    no domain and keeps its config key. Two servers that would share a
+    name get ``-2``, ``-3``.
+    """
+    out: dict = {}
+    for key, raw in servers.items():
+        remote = isinstance(raw, dict) and isinstance(
+            raw.get('url', raw.get('serverUrl')), str
+        )
+        base = derive_name(raw) if remote else key
+        candidate, n = base, 1
+        while candidate in out:
+            n += 1
+            candidate = f'{base}-{n}'
+        out[candidate] = raw
+    return out
 
 
 def parse_pasted(payload: object, name: str | None = None) -> dict:
@@ -274,10 +389,13 @@ def parse_pasted(payload: object, name: str | None = None) -> dict:
     * ``{"servers": {"<name>": {…}}}`` (VS Code);
     * ``{"<name>": {…}}`` — the inner map on its own;
     * one bare server ``{"url": …}`` / ``{"command": …}``, or just a
-      server URL — these carry no name, so *name* is required.
+      server URL.
 
-    *name*, when given for a paste holding exactly one server, renames
-    it — the one field the user types themselves wins.
+    Naming: *name*, when given for a paste holding exactly one server,
+    is used — the one field the user types themselves wins. Without it
+    a remote server is named after its URL's domain
+    (``https://mcp.xydc.com/mcp`` → ``xydc``, :func:`derive_name`)
+    whatever key the JSON used; a local command keeps its key.
     """
     if isinstance(payload, str):
         text = payload.strip()
@@ -286,35 +404,37 @@ def parse_pasted(payload: object, name: str | None = None) -> dict:
         else:
             payload = _load_json(text)
     if not isinstance(payload, dict) or not payload:
-        raise McpConfigError('The pasted config is empty')
+        raise McpConfigError('The pasted config is empty', 'bad_json')
     servers: dict
     if isinstance(payload.get('mcpServers'), dict):
         servers = payload['mcpServers']
     elif isinstance(payload.get('servers'), dict):
         servers = payload['servers']
     elif any(k in payload for k in ('url', 'serverUrl', 'command', 'type')):
-        if not name:
-            raise McpConfigError(
-                'This config has no server name — fill in the name field'
-            )
-        servers = {name: payload}
+        servers = {name or derive_name(payload): payload}
     elif all(isinstance(v, dict) for v in payload.values()):
         servers = payload
     else:
         raise McpConfigError(
-            'Unrecognized config — expected {"mcpServers": {...}}'
+            'Unrecognized config — expected {"mcpServers": {...}}', 'bad_json'
         )
     if not servers:
-        raise McpConfigError('The pasted config has no servers in it')
+        raise McpConfigError(
+            'The pasted config has no servers in it', 'bad_json'
+        )
     if name and len(servers) == 1:
         servers = {name: next(iter(servers.values()))}
+    elif not name:
+        servers = _auto_named(servers)
     out = {}
     for raw_name, raw in servers.items():
         clean = check_name(raw_name)
         try:
             out[clean] = normalize_server(clean, raw)
         except McpConfigError as e:
-            raise McpConfigError(f'{clean}: {e}') from e
+            raise McpConfigError(
+                f'{clean}: {e}', e.code, **{'name': clean, **e.params}
+            ) from e
     return out
 
 

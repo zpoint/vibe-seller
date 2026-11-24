@@ -70,9 +70,12 @@ def test_a_task_answers_with_the_custom_servers_tool(
         json={
             'config': {
                 'mcpServers': {
-                    SERVER_NAME: fake_mcp_server.http_config(mcp_server)
+                    'widgets': fake_mcp_server.http_config(mcp_server)
                 }
-            }
+            },
+            # Typed, as a user would — left empty it would be named after
+            # the URL's host (127.0.0.1).
+            'name': SERVER_NAME,
         },
     )
     assert r.status_code == 201, r.text

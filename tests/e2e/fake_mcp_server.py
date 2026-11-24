@@ -4,7 +4,8 @@ Serves one tool on every transport a custom server may use, so the
 tests can add it the way a user adds a vendor's server and then check
 what reached the agent:
 
-* Streamable HTTP — ``POST /mcp`` (JSON answers), Bearer-token auth;
+* Streamable HTTP — ``POST /mcp`` (JSON answers), Bearer-token auth
+  (or ``?mcp_token=`` in the URL);
 * legacy SSE — ``GET /sse`` + ``POST /messages?session=…``;
 * stdio — ``python -m tests.e2e.fake_mcp_server --stdio``.
 
@@ -92,6 +93,9 @@ class FakeMcpServer(http.server.ThreadingHTTPServer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._lock = threading.Lock()
+        #: The token it accepts — a test reassigns it to play a vendor
+        #: that revoked the one a saved server holds.
+        self.token = TOKEN
         self.calls: list[dict] = []
         self.sse_sessions: dict[str, queue.Queue] = {}
 
@@ -117,7 +121,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         pass
 
     def _authorized(self) -> bool:
-        if self.headers.get('Authorization') == f'Bearer {TOKEN}':
+        # A header, or the token in the URL — the "MCP link" shape some
+        # vendors hand out for clients that cannot set headers.
+        query = parse_qs(urlparse(self.path).query)
+        token = self.server.token
+        header_ok = self.headers.get('Authorization') == f'Bearer {token}'
+        if header_ok or query.get('mcp_token') == [token]:
             return True
         self._send(401, {'error': 'unauthorized'})
         return False
@@ -214,6 +223,11 @@ def http_config(server: FakeMcpServer) -> dict:
         'url': url_of(server),
         'headers': {'Authorization': f'Bearer {TOKEN}'},
     }
+
+
+def link_url(server: FakeMcpServer) -> str:
+    """The bare "MCP link" a vendor gives — the token in the URL."""
+    return f'{url_of(server)}?mcp_token={TOKEN}'
 
 
 def stdio_config() -> dict:
