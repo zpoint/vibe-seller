@@ -38,6 +38,12 @@ Any MCP-capable tool works; all you need is an API key. Where each integration
 is configured and how they divide up: see the
 [Integrations overview](integrations.md).
 
+!!! tip "Mind the direction: this page is an outside AI tool calling Vibe Seller"
+    This page adds Vibe Seller as an MCP server to Codex, Claude and other
+    tools. For the opposite — Vibe Seller's tasks using an outside MCP
+    service (keyword data from Xiyou Insight, say) — see
+    [Add a custom MCP server](mcp-custom.md).
+
 ## What you can ask
 
 Once connected, talk to Codex like a colleague. Mentioning "Vibe Seller" in the

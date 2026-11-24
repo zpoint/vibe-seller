@@ -191,6 +191,7 @@ directly — everything is hooked up under **Settings → Integrations**,
 no code:
 
 - **MCP** — drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder, Hermes Agent, Pi: create tasks, follow them, answer questions, review plans. [Setup guide](https://docs.vibe-sellers.com/en/mcp/)
+    - The other way round: connect an outside MCP service such as Xiyou Insight to Vibe Seller, and the AI in your tasks uses its tools directly. [Add a custom MCP server](https://docs.vibe-sellers.com/en/mcp-custom/)
 - **Amazon Ads API** — Amazon ad tasks call the API instead of clicking through the seller console; in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](https://docs.vibe-sellers.com/en/ads-api/)
 - **Email** (IMAP/SMTP) — read your linked store mailboxes, sort and summarize, draft and send replies (sending can be turned off per mailbox). Works with 163 / QQ / Gmail and more. [Setup guide](https://docs.vibe-sellers.com/en/email/)
 - **Group chat bots** (WeCom / DingTalk / Feishu / Slack) — have the AI post results, reports and reminders straight into a group; WeCom bots can send files too. [Setup guide](https://docs.vibe-sellers.com/en/chat-bots/)

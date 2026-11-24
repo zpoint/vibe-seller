@@ -99,8 +99,8 @@ What's present in the ad-group-detail left sidebar (verified):
 
 (This **differs from how Amazon docs and the bulk-upload schema list
 them** — close-match / loose-match / substitutes / complements. The
-UI rendering order has Substitutes before Loose match. Don't hardcode
-order; match by the row's group label.)
+UI rendering order has Substitutes before Loose match, so a hardcoded
+order picks the wrong row; match by the row's group label.)
 
 Each group has its **own bid**, independently tunable, independently
 pause-able via the Active toggle (verified — saw "Loose match"
@@ -202,7 +202,7 @@ the row name opens the creative editor.
 - Lever 6 (placement modifier): SB has a Bid adjustments tab (with
   a "New" badge as of Apr 2026 — column / cell semantics not yet
   drilled into). Default skill stance: load the tab and read what's
-  there before recommending; don't carry over assumptions from SP.
+  there before recommending; SP's semantics may not carry over.
 - Lever 7 (bidding strategy): SB doesn't expose Fixed / Dynamic-down
   / Dynamic-up-and-down / Rule-based the way SP does. The Goal +
   Cost type pills are the equivalent campaign-level optimization
@@ -210,7 +210,7 @@ the row name opens the creative editor.
   to be paused (not yet verified).
 - Lever 8 (search-term harvest): ✓ — Search terms tab exists at
   ad-group level. Harvesting from SB queries into SP-Manual-Exact
-  is a known good pattern (don't harvest SB→SB-Exact; that
+  is a known good pattern (SB→SB-Exact is the weaker choice: it
   over-bids on brand-related queries).
 
 **Distinctive lever — creative refresh** (SB-only): SB has a

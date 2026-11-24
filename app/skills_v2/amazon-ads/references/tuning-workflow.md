@@ -24,11 +24,11 @@ questions up front.
   calendar month or trailing 30 days?).
 - **Margin**: from `stores/<slug>/notes.md`, else the default
   (`tuning-recommendation-format.md` § Missing margin).
-- **Goal**: apply the standard playbook — negate waste, harvest
-  converters, correct drifted bids, protect order drivers, flag
-  listing-side funnel breaks. Launch / scale / profit rarely changes the
-  recommendations; the target-ACOS formulas are in
-  [`tuning-thresholds.md`](tuning-thresholds.md).
+- **Goal**: what the user asked for; where they said nothing, apply the
+  standard playbook — negate waste, harvest converters, correct drifted
+  bids, protect order drivers, flag listing-side funnel breaks. Launch /
+  scale / profit rarely changes the recommendations; the target-ACOS
+  formulas are in [`tuning-thresholds.md`](tuning-thresholds.md).
 - **Markets and campaign types**: your declaration sets the markets;
   audit every campaign type the store runs.
 
@@ -46,10 +46,11 @@ interesting it looks; the state decides `drill_status` in
 | too new | created within max(window / 4, 7 days) and < 10 clicks | drill it, and say the data is thin |
 | unreadable | the page or export failed after retries | `blocked`, with the literal error in `note` |
 
-A status you don't recognise is `blocked` with that status quoted — don't
-guess a classification. "Looks healthy from the overview" is not a
-state: idle keywords burning budget and one query bleeding a third of the
-spend hide inside healthy totals, and only the drill shows them.
+A status you don't recognise is `blocked` with that status quoted; a
+guessed classification would drill or skip the wrong campaign. "Looks
+healthy from the overview" is not a state: idle keywords burning budget
+and one query bleeding a third of the spend hide inside healthy totals,
+and only the drill shows them.
 
 ## Each campaign is its own drill
 
@@ -86,7 +87,7 @@ list of live campaigns, not a sense of pacing.
 4. **Bid adjustments / placements** — set this page's own date picker to
    the session window first, then check that the placements add up to the
    campaign total (`mechanics-reading.md` §8). Modifiers are 0% to
-   +900%, increase-only, so they can favour a good placement but never
+   +900%, increase-only, so they can favour a good placement but cannot
    suppress a bad one. A placement with real orders at high ACOS is
    refined (negate the queries that route there, trim bids, Dynamic-down
    strategy), not killed.
@@ -117,12 +118,11 @@ After the report is delivered, the user's reply is one of:
 | Approves rows ("do 1, 3", "all of campaign X", "execute the plan") | Declare `execute` and follow [`execution.md`](execution.md). |
 | Corrects a value or a decision ("2 should be 0.95", "don't pause that one") | They named it: declare `change` scoped to that campaign, update its `CHANGES.tsv` rows and the report in place, and submit again. No new drill is owed — the audit's files are already there. |
 | Asks to re-drill ("redo campaign X with 14 days") | Declare `audit` for those campaigns, re-drill only them, replace their TSVs and report sections. |
-| Changes an assumption ("margin is 30%") | Record it in `stores/<slug>/notes.md`, recompute decisions from the TSVs on disk without re-reading the console, update `CHANGES.tsv` and the report. |
+| Changes an assumption ("margin is 30%") | Apply it to this task: recompute decisions from the TSVs on disk without re-reading the console, update `CHANGES.tsv` and the report. It goes in `stores/<slug>/notes.md` when they state it as the store's standard for every run. |
 | Asks a question ("why did you flag X?") | Answer from the TSVs and report. |
 
-Work on the existing report and files — never start a fresh audit in a
-follow-up unless asked, because that overwrites what the user already
-reviewed.
+Work on the existing report and files: a fresh audit in a follow-up,
+unasked, overwrites what the user already reviewed.
 
 If answering a question shows the original decision was wrong ("you're
 right, that trim was too steep"), the reply has become a correction:

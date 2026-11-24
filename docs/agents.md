@@ -5,6 +5,11 @@ Codex, Tencent WorkBuddy, Hermes Agent, Pi, anything that speaks MCP over HTTP. 
 gets a URL and a token, and from then on it can create tasks against your
 stores, follow them, answer the task agent's questions and review plans.
 
+Not to be confused with **custom MCP servers** — the opposite direction,
+where Vibe Seller's own task agents call an outside MCP service an admin
+added: see [mcp-custom.md](mcp-custom.md) and
+[api.md § custom_mcp.py](api.md#custom_mcppy--custom-mcp-servers-external-tools-for-tasks).
+
 The agent acts **through tasks**. It never drives the browser itself, so
 every gate on the server (plan approval, ad-scope declarations, the
 ad-change and upload checks at `set_task_result`) still applies. See

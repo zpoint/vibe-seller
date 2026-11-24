@@ -343,6 +343,6 @@ Key columns by entity:
   (manual) or `close-match` / `loose-match` / `substitutes` /
   `complements` (auto).
 
-Operation is `Create`, `Update` or `Archive`. Upload tokens must be the
-English API values and Create rows need placeholder ids — see
+Operation is `Create`, `Update` or `Archive`. The uploader accepts only
+the English API values as tokens, and Create rows need placeholder ids — see
 [`bulk-operations.md`](bulk-operations.md).

@@ -131,9 +131,10 @@ the keyword or negative set:
    - The TOS field's "Top bid percentage must be between 10% and 900%"
      text is a static hint, not an error: leave TOS empty.
    - If a real validation error appears (`.ant-form-item-explain-error`,
-     seen on some Draft / Product-Ad campaigns), don't enter a TOS or
-     other value to get past it. `Cancel & Go Back` changes nothing;
-     report that campaign's change as not made.
+     seen on some Draft / Product-Ad campaigns), entering a TOS or
+     other value to get past it would change a setting nobody approved.
+     `Cancel & Go Back` changes nothing; report that campaign's change
+     as not made.
 
 Re-open the editor afterwards to confirm the change persisted.
 

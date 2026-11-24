@@ -38,9 +38,9 @@ from app.task_session_lifecycle import (
 )
 from app.task_states import (
     TaskStatus,
-    assert_transition,
     can_transition,
 )
+from app.task_status_cas import transition_if
 from app.telemetry_harness import send_cleanup_finished
 from app.workspace.actor import clear_request_actor
 from app.workspace.knowledge_sync import knowledge_sync
@@ -217,27 +217,31 @@ async def auto_run_task(task_id: str, store: Store | None):
         bundle = await maybe_inject_pending_answers(task_id, bundle)
 
         async def _on_start() -> bool:
-            """Transition status after concurrency slot acquired."""
+            """Transition status after concurrency slot acquired.
+
+            Compare-and-set (``transition_if``): a stop/abort that
+            failed the row while this launch waited must win, not be
+            overwritten by a read-then-write that saw ``pending``.
+            """
+            to = TaskStatus.DESIGNING if task.plan_mode else TaskStatus.RUNNING
+            extra = (
+                {}
+                if task.plan_mode
+                else {'started_at': datetime.now(UTC).isoformat()}
+            )
             async with async_session() as db2:
-                t = await db2.get(Task, task_id)
-                if not t or t.status not in (
-                    TaskStatus.PENDING,
-                    TaskStatus.QUEUED,
-                ):
-                    return False
-                if t.plan_mode:
-                    assert_transition(t.status, TaskStatus.DESIGNING)
-                    t.status = TaskStatus.DESIGNING
-                else:
-                    assert_transition(t.status, TaskStatus.RUNNING)
-                    t.status = TaskStatus.RUNNING
-                    t.started_at = datetime.now(UTC).isoformat()
-                t.updated_at = datetime.now(UTC).isoformat()
-                await db2.commit()
-                await event_bus.emit(
-                    'task_update',
-                    {'task_id': task_id, 'status': t.status},
+                moved = await transition_if(
+                    db2,
+                    task_id,
+                    (TaskStatus.PENDING, TaskStatus.QUEUED),
+                    to,
+                    **extra,
                 )
+            if not moved:
+                return False
+            await event_bus.emit(
+                'task_update', {'task_id': task_id, 'status': to}
+            )
             return True
 
         await refresh_token_if_needed()

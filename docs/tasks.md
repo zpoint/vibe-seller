@@ -134,6 +134,7 @@ On re-dispatch, `auto_run_task` and `execute_planned_task` both call `maybe_inje
 - Transitions: `running` → `waiting` (agent signals wait OR incomplete todos), `waiting` → `queued` (woken) / `failed` (timeout), `failed` → `queued` (retry)
 - State machine defined in `app/task_states.py` (backend) and `frontend/src/taskStates.ts` (frontend UI config)
 - Backend: `TaskStatus` enum, `TRANSITIONS` table, named groups (`STOPPABLE`, `ACTIVE`, `WAKEABLE`, etc.)
+- A status write that can race another coroutine uses `app/task_status_cas.transition_if` — ONE `UPDATE … WHERE status IN (…)` instead of read → `can_transition` → write, so the second writer sees the first's status. Read-check-write lost an update: a schedule delete failed its planner (`pending` → `failed`) while the launcher's slot callback (`_on_start`) moved it `pending` → `designing`, and `designing` landed last. Both writers now go through it; the abort also stops the agent again after its write, in case a launch passed its slot callback in between.
 - Frontend: `TASK_UI` config table maps status → which buttons/tabs/panels are visible
 - Contract test ensures both sides agree on status values
 - Waiting checker: APScheduler interval job (15 min) in `app/scheduler/waiting.py` checks email conditions, times out stale waits
@@ -277,6 +278,8 @@ All agent prompts go through one function: `build_system_extra()` in `app/task_r
 Assembly order (fixed for all task types):
 1. Base prompt (`design_system.md` with `{workspace_guidance}` filled)
 2. Language hint → 3. Waiting instruction → 4. Store/all-stores context → 5. TickTick → 6. System context (+ vision breadcrumb, scheduled / plan-only blocks) → 7. Header extra (plan text) → 8. Caller extra (conversation history) → 9. Store ads note (the last word — a fanout plan is shared) → 10. Plugin `system_extra` fragments
+
+The store context always carries a `## Email System` section (`app/email/prompt.py` → `store_email_section`). With mailboxes linked it says how to read and send. With none it says plainly that this task cannot read or send the store's mail, and that the user connects a mailbox in Settings → Email (`app.email.NO_STORE_MAILBOX`). Silence there, while the email tools stayed on offer, sent an agent hunting the machine for another way to send.
 
 `start_agent()` (ad-hoc) intentionally skips full context — it's for raw interaction.
 

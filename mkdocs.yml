@@ -136,6 +136,7 @@ plugins:
             Integrations: 集成
             Overview: 集成总览
             MCP Setup: MCP 接入
+            Custom MCP Servers: 添加自定义 MCP
             Amazon Ads API: 广告 API 绑定
             Email: 邮件
             Chat Bots: 群机器人
@@ -225,6 +226,9 @@ nav:
               - Hermes Agent: mcp-hermes.md
               - Pi: mcp-pi.md
               - Claude: mcp-claude.md
+              # The opposite direction (tasks calling an outside MCP),
+              # kept next to MCP setup so the two are found together.
+              - Custom MCP Servers: mcp-custom.md
           - Chat Bots:
               - Chat Bot Overview: chat-bots.md
               - WeCom: chat-bots-wecom.md

@@ -52,8 +52,9 @@ turns out to need decisions — raise, lower, pause, negate — call the tool
 again with `kind: "audit"` and the same or a narrower scope. That is the
 only kind change allowed inside a turn, because it only adds what you
 owe. `audit` → `investigate`, adding a marketplace, or widening the
-campaign list need a new message from the user. Don't delete
-recommendations the person asked for to fit a declaration.
+campaign list need a new message from the user. Deleting
+recommendations the person asked for to fit a declaration leaves them
+without what they asked for; correcting the declaration keeps them.
 
 **`change` — they named the row and the value.** "lower widget-006 to
 1.00" is a thing to do, not a question to answer. Declare `change`, read
@@ -62,9 +63,9 @@ those rows (their `target_bid`; `current_bid` from the page; `acos`,
 `roas`, `cpc` blank if you did not read them), and stop there. One file.
 No `CAMPAIGNS.tsv`, no drill, no search-term export — and no store rule
 judges their number: `acos_no_lower`, the CPC floor and the cooldown
-apply to what *you* recommend, never to what the user wrote. Their
-insistence is not a debate: "I know it converts well, lower it anyway"
-is still `change`.
+apply to what *you* recommend; the server skips them on what the user
+wrote. Their insistence is not a debate: "I know it converts well, lower
+it anyway" is still `change`.
 
 **It is still confirmed, and then done exactly as approved.** End the
 turn showing the change — `widget-006 1.20 → 1.00; reply to apply` — and
@@ -85,9 +86,9 @@ store-wide request.
 广告"), declare the market first with `products`, enumerate the campaign
 list, find the campaigns carrying that SKU family, then call the tool
 again with the same kind and combos plus `campaigns: [...]`. That
-narrowing call is accepted within the turn. Refining may only remove
-reach. If something seems to need a wider scope, say so in your result
-and let the user widen it.
+narrowing call is accepted within the turn. The server accepts a
+refinement only when it removes reach. If something seems to need a
+wider scope, say so in your result and let the user widen it.
 
 **A new user message that changes the work is a new phase — declare
 again.** After a `create`, "now review what you created" is an `audit`
@@ -105,7 +106,7 @@ campaigns.
 | `create` | New campaigns, verified live | [`bulk-operations.md`](references/bulk-operations.md), [`mechanics-create.md`](references/mechanics-create.md) |
 | `investigate` | The figures asked for, as the task result | this page, §0 |
 
-The server checks the TSVs, never the report's prose, so write the
+The server checks the TSVs, not the report's prose, so write the
 report in whatever shape reads best for the person and put the numbers
 and decisions in the files. For an audit, start with
 [`audit-quickref.md`](references/audit-quickref.md) and load other
@@ -195,21 +196,26 @@ value, or no audit to execute against — see
 
 ## Safety rails
 
-- **Never apply a change the user has not approved.** An `audit` or a
-  `change` ends with `CHANGES.tsv` shown to the user; execution happens
-  only in an `execute` phase, on the rows frozen from that file.
+- **Changes go live only after the user approves them.** An `audit` or
+  a `change` ends with `CHANGES.tsv` shown to the user; execution happens
+  only in an `execute` phase, which the user's reply opens, on the rows
+  frozen from that file — the server holds every logged change to it.
 - **Derive thresholds from this store's data and notes.** Defaults are in
   [`data-contract.md`](references/data-contract.md); a store overrides
-  them with `key: value` lines in `stores/<slug>/notes.md`. When the user
-  states a different standard, write it there with
-  `vibe_seller_write_workspace_file` so later runs use it.
+  them with `key: value` lines in `stores/<slug>/notes.md`. The tuning
+  references are defaults for what the user left open: a margin, goal or
+  standard the user states applies to this task. A notes line changes
+  what the server checks on every later run, so write one (with
+  `vibe_seller_write_workspace_file`) only when the user states it as
+  their standard for every run.
 - **Check the field's valid range before proposing a value** (e.g.
   placement modifiers are 0% to +900%, increase-only).
-- **Protect what drives orders** — see
+- **By default, what drives orders is protected from cuts** — see
   [`tuning-recommendation-format.md`](references/tuning-recommendation-format.md)
   § PROTECT.
-- **Per-run captures go to a subfolder of the task dir (your CWD)**,
-  never into `stores/` or `knowledge/` (`amazon-shared` §5). The
+- **Per-run captures go to a subfolder of the task dir (your CWD)**;
+  `stores/` and `knowledge/` hold lasting notes, and `knowledge/` is
+  synced into other agents' context (`amazon-shared` §5). The
   per-campaign TSVs go where
   [`data-contract.md`](references/data-contract.md) says.
 

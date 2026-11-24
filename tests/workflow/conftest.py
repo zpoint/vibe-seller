@@ -47,6 +47,7 @@ real_sleep = asyncio.sleep
 # at module level — must be patched so they all use the test DB.
 ASYNC_SESSION_MODULES = [
     'app.database',
+    'app.custom_mcp',
     'app.rest_secret_guard',
     'app.routers.secrets',
     'app.routers.tasks',

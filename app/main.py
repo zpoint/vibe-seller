@@ -51,6 +51,7 @@ from app.routers.channels import router as channels_router
 from app.routers.chat_bots import router as chat_bots_router
 from app.routers.cli_integrations import router as cli_integrations_router
 from app.routers.cron import router as cron_router
+from app.routers.custom_mcp import router as custom_mcp_router
 from app.routers.dida365_oauth import (
     refresh_token_if_needed as _refresh_dida365_token,
     router as dida365_oauth_router,
@@ -99,6 +100,7 @@ from app.sync.scheduler import REASON_BOOT, sync_scheduler
 from app.sync.state import clear_restart_flags
 from app.telemetry_events import TelemetryEvent
 from app.uploads import UploadBodyLimitMiddleware
+from app.url_redact import install_log_redaction
 from app.version import get_version
 from app.workspace.claude_memory_cleanup import purge_on_boot
 from app.workspace.knowledge_sync import knowledge_sync
@@ -117,6 +119,9 @@ logging.basicConfig(
         logging.StreamHandler(),
     ],
 )
+# httpx logs every request URL at INFO, and a URL can carry a key
+# (webhook ?key=, an MCP server's ?mcp_token=).
+install_log_redaction()
 
 
 logger = logging.getLogger(__name__)
@@ -439,6 +444,7 @@ app.include_router(dida365_oauth_router)
 app.include_router(ws_assistant_router)
 app.include_router(chat_bots_router)
 app.include_router(cli_integrations_router)
+app.include_router(custom_mcp_router)
 app.include_router(system_router)
 app.include_router(vision_router)
 # Hosted MCP endpoint for external agents (see app/agent_mcp/). Mounted

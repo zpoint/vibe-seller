@@ -309,7 +309,8 @@ jobs:
           tests/e2e/test_agent_mcp_workspace.py
           tests/e2e/test_question_park_mock.py
           tests/e2e/test_question_decline_mock.py
-          tests/e2e/test_no_store_auto_mock.py --e2e -v
+          tests/e2e/test_no_store_auto_mock.py
+          tests/e2e/test_custom_mcp_ui.py --e2e -v
           --log-cli-level=INFO
 
       - name: Stop mock CLI server

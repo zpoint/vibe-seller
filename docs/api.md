@@ -505,6 +505,7 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | PUT | `/api/email-accounts/{id}/send-permission` | `{allow_send: bool}` — **interactive-only**: any machine credential gets 403 (see below) |
 | GET | `/api/email-accounts/discover` | Auto-discover IMAP settings |
 | GET | `/api/email-accounts/discover-smtp` | Auto-discover SMTP settings |
+| GET | `/api/email-accounts/info-by-store/{store_id}` | A store's mailboxes for an agent (what `vibe_seller_email_info` returns): per account the DB path, attachments dir and send permission, plus the schema and sample queries. `store_id` may also be the store's slug (its `stores/<slug>/` folder). With no mailbox linked: `{store_id, accounts: [], note}`, where the note says the task cannot read or send that store's mail. **404** for a value that names no store |
 | POST | `/api/email-accounts/{id}/test` | Test IMAP connection |
 | POST | `/api/email-accounts/{id}/test-smtp` | Test SMTP connection |
 | POST | `/api/email-accounts/{id}/send` | Send email via SMTP. **403** when the account's `allow_send` is off — refused before any SMTP connection, with a message telling the agent to draft instead |
@@ -625,6 +626,32 @@ by magic bytes) answers 415. `app/skill_uploads.py` owns every rule.
 | POST | `/api/dida365/configure` | Save project + MCP path |
 | POST | `/api/dida365/setup-mcp` | Auto-install ticktick-mcp |
 | DELETE | `/api/dida365/disconnect` | Disconnect integration |
+
+## `custom_mcp.py` — Custom MCP servers (external tools for tasks)
+
+The opposite direction from [`agent_mcp/`](#agent_mcp--hosted-mcp-endpoint-external-agents):
+here Vibe Seller's task agents are the MCP **clients** of servers an
+admin added (Settings → Integrations → Custom MCP servers). User guide:
+[mcp-custom.md](mcp-custom.md).
+
+| Method | Path | Who | Description |
+|--------|------|-----|-------------|
+| GET | `/api/custom-mcp-servers` | any user | List servers — credentials masked (`public_view`), plus `valid` / `problem` for a stored row that no longer normalizes (launches skip it) |
+| POST | `/api/custom-mcp-servers` | admin, **refused for `vst_` tokens** (`TOKEN_REFUSALS`) | Body `{config, name?, replace?}`. `name` is what people call it — any text (the panel requires one, e.g. 「西柚MCP」). When it can be a key as typed (`[A-Za-z0-9_-]`) it is the key; otherwise it is kept as the row's `label` and the key comes from the domain, and the task prompt names both (`` `xydc` ("西柚MCP", tools `mcp__xydc__*`) ``). `config` is what the user pasted: a vendor blurb (text around the JSON is ignored), `{"mcpServers": …}` / `{"servers": …}` / a bare name→config map, or a bare URL. With no `name` (or one that cannot be a key), a remote server is keyed after its URL's domain whatever key the JSON used (`derive_name`: `https://mcp.xydc.com/mcp` → `xydc`; same domain twice → `-2`); a local command keeps its key (a bare one: its package). Every server is **probed before anything is written** (the Test handshake) — a server that does not connect is `400` with `detail = {code: 'connect_failed', name, error}` and nothing is stored. All-or-nothing; an existing name is `409` with `detail.names` unless `replace`. The answer carries each server's probe result as `test` |
+| PATCH | `/api/custom-mcp-servers/{id}` | admin | `{enabled}` — on/off without losing the config |
+| DELETE | `/api/custom-mcp-servers/{id}` | admin | Remove it |
+| POST | `/api/custom-mcp-servers/{id}/test` | admin | Connect the way a task would (`initialize` → `tools/list`, over Streamable HTTP, legacy SSE or stdio — `custom_mcp_probe.py`) and answer `{ok, server_name, tool_count, tools}` or `{ok: false, error}` (always `200`) |
+
+Rules (`app/custom_mcp.py`): every config is normalized to the server
+object Claude Code accepts — Claude Code `exit(1)`s on one invalid
+`--mcp-config` entry, so a vendor's `{"url": …}` without `type` gets
+`type: http` (`/sse` paths: `sse`). Refused with a reason: `oauth` /
+`headersHelper` (headless tasks cannot complete either), any `${VAR}`
+(expanded from the AGENT's env, which holds the model key), a value that
+is one of our masks, the platform's own names (`vibe-seller`,
+`ticktick`, `playwright`, `browser-use`, …). The row stores the
+normalized config Fernet-encrypted (`config_enc`); there is no partial
+edit, so a mask can never round-trip into storage.
 
 ## `chat_bots.py` — Chat Bot Webhooks (WeCom / DingTalk / Feishu / Slack)
 

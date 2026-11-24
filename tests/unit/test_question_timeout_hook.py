@@ -108,6 +108,27 @@ async def test_answer_before_timeout_is_delivered_in_process(
     session.stop.assert_not_called()
 
 
+async def test_second_answer_to_one_question_is_refused(session, monkeypatch):
+    """Two answerers (the UI and an external agent over /api/mcp, or two
+    tabs) answer one question in the same instant. The first decides;
+    the second is refused (the route's 409), never accepted with 200 and
+    then silently written over the first."""
+    monkeypatch.setenv('VIBE_QUESTION_ANSWER_TIMEOUT_S', '5')
+    handler = asyncio.create_task(
+        session._handle_ask_user_question('rid-2b', {'questions': QUESTIONS})
+    )
+    await _until(lambda: 'rid-2b' in session._answer_events)
+    first, second = await asyncio.gather(
+        session.submit_answer('rid-2b', {'Which shipping option?': 'Express'}),
+        session.submit_answer('rid-2b', {'Which shipping option?': 'Standard'}),
+    )
+    await asyncio.wait_for(handler, 2.0)
+    assert (first, second) == (True, False)
+    session._send_control_response.assert_awaited_once()
+    updated = session._send_control_response.await_args.args[2]
+    assert updated['answers'] == {'Which shipping option?': 'Express'}
+
+
 async def test_answer_in_same_tick_as_timeout_wins(session, monkeypatch):
     async def timed_out_but_answered(evt, timeout_s):
         # The answer landed, then the bound reported a timeout in the

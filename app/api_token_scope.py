@@ -92,6 +92,11 @@ TOKEN_REFUSALS: tuple[TokenRefusal, ...] = (
     # admin reveal endpoint refuses members by role and tokens by
     # this row — an admin's own token included.
     _refusal({'POST'}, '/api/secrets/reveal', 'reveal a stored secret'),
+    # A custom MCP server can be a local COMMAND every task launch
+    # runs on this machine — code that reads the JWT secret mints a
+    # session outliving the token. Adding/replacing one is a sign-in
+    # action; toggling, testing or deleting a saved one is not.
+    _refusal({'POST'}, '/api/custom-mcp-servers', 'add custom MCP servers'),
 )
 
 _DETAIL = 'An API token cannot {action} — sign in to the web UI to do this'

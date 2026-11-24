@@ -39,14 +39,14 @@ The mechanics are split by job so you load only what you need:
    browser on the first `new_tab(...)` if the CDP proxy is not up yet,
    so nothing needs pre-warming.
 3. Read data from the DOM (or an export), not from screenshots. A
-   screenshot is for checking layout, never the source of a number.
+   screenshot is for checking layout; the numbers come from the DOM.
 
 ## 2. URLs
 
 This table covers advertising and coupon URLs only. Seller Central
 paths (inventory, listings, orders, reports) and marketplace TLDs live
 in `knowledge/project/common/amazon-sites.md` and the `amazon-shared`
-skill; don't guess them. On a Ziniao-gated store, enter the console
+skill, which hold the confirmed ones. On a Ziniao-gated store, enter the console
 through Seller Central's own menu as `amazon-shared` describes; the
 deep links below work once you are inside the console session.
 
@@ -81,8 +81,8 @@ never type or store a credential yourself.
 account from its Seller Central (different email and entity id — see
 `amazon-shared` § 3). Read the entity id from the campaign-manager
 landing page (`entityId=ENTITY[A-Z0-9]+` in the HTML) and reuse it on
-every URL. Never copy a campaign URL across marketplaces: each
-marketplace can have its own `entityId`.
+every URL. A campaign URL copied across marketplaces can carry the
+wrong `entityId`: each marketplace can have its own.
 
 **Campaign ids come in two forms.** The bulk export carries a numeric id
 (`100000000001`); Campaign Manager links can show an `A`-prefixed id

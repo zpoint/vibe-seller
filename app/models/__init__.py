@@ -3,6 +3,7 @@ from app.models.api_token import ApiToken
 from app.models.app_settings import AppSettings
 from app.models.browser_session import BrowserSession
 from app.models.chat_bot import ChatBot
+from app.models.custom_mcp_server import CustomMcpServer
 from app.models.email_account import EmailAccount
 from app.models.event import Event
 from app.models.event_activity import EventActivity
@@ -44,4 +45,5 @@ _all_models = [
     StoreEmailLink,
     SyncState,
     ChatBot,
+    CustomMcpServer,
 ]

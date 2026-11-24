@@ -10,7 +10,9 @@ search-term actions) are in
 [`../../amazon-ads/references/tuning-recommendation-format.md`](../../amazon-ads/references/tuning-recommendation-format.md).
 Click paths are in `../SKILL.md`. Analytical decisions — which lever,
 which keyword, which bid, when to send a problem to the listing side —
-are yours.
+are yours. The defaults below cover what the user left unsaid; a margin,
+goal or instruction they gave ("grow sales", "keep spend") comes first,
+and a row that follows it names it in its `reason`.
 
 - [Scope](#scope)
 - [What to read](#what-to-read)
@@ -28,19 +30,19 @@ are yours.
 for; it is a menu, and your `vibe_seller_declare_ad_task` call picks what
 you owe. A whole-store declaration (no `combos`) owes every noon country
 in it; a country outside your declaration is out of scope. Each `en-<cc>`
-country is a separate auction, so keep countries in separate report
-sections and never use one as the baseline for another.
+country is a separate auction, so countries get separate report
+sections and one country is not a baseline for another.
 
 **Live campaigns.** Drill campaigns whose status is `Live` or `Out of
 budget` — both are spending. `Paused` and `Draft` campaigns are listed in
 `CAMPAIGNS.tsv` as `inactive` and not drilled. A question about a paused
 campaign ("should we reactivate X?") is its own section.
 
-**"Empty" countries.** Don't record a country as having no campaigns
-while `stores/<slug>/metadata.json` lists it under
-`platform_countries.noon` (or `notes.md` mentions campaigns there) until
-you have run the check in `../SKILL.md` § 2 — the Ad Manager sometimes
-renders a transient empty state.
+**"Empty" countries.** The Ad Manager sometimes renders a transient
+empty state, so a country that `stores/<slug>/metadata.json` lists under
+`platform_countries.noon` (or where `notes.md` mentions campaigns) is
+recorded as having no campaigns only after the check in `../SKILL.md`
+§ 2.
 
 ## What to read
 
@@ -73,7 +75,8 @@ For each live campaign open the detail page and capture:
 - **Both layers from the Customer Queries `Export`** (`../SKILL.md` § 6):
   the `Targets` sheet is the targeting layer (manual keywords/categories,
   or an auto campaign's `auto keyword` / `auto category` groups — one row
-  each, never a single campaign-total row), and the `Queries` sheet is
+  each, since the targeting file is per target, not a campaign total),
+  and the `Queries` sheet is
   the full search-term set. Write both per-campaign TSVs.
 - **SOI** from the Targets tab DOM (`../SKILL.md` § 4) — the export does
   not carry it, and it is the best single signal of how much reach a
@@ -116,9 +119,9 @@ keywords" or "raise bids". First read **SOI** and split the targets:
 Compare SOI and conversion between the groups in the same campaign at
 comparable bids:
 
-| Pattern | Reading | Action |
+| Pattern | Reading | Default action |
 |---|---|---|
-| Modified terms hold decent SOI; bare head term near 0% at a similar bid | The auction doesn't consider the listing a valid answer for the broad query — relevance, not price | Don't bid up the head term; grow the modified terms |
+| Modified terms hold decent SOI; bare head term near 0% at a similar bid | The auction doesn't consider the listing a valid answer for the broad query — relevance, not price | Grow the modified terms rather than bidding up the head term |
 | Both groups low SOI | Underbid or budget-capped | Raise bids / budget, re-read SOI in 3 days |
 | Head term has SOI but converts far below the modified terms | Buying unqualified traffic | Move spend to modified terms; negate the qualifiers you don't serve |
 
@@ -129,7 +132,7 @@ Qualified variants often sit in the same `searches/month` bucket as the
 bare noun ([`ads-keyword-research.md`](ads-keyword-research.md) § Step 1),
 so check before concluding you need the head term for volume.
 
-Head-term results don't transfer between stores: two stores in the same
+Head-term results are specific to a store: two stores in the same
 category and country can see opposite results on the same keyword
 because the query's dominant intent matches one and not the other. A
 sibling store's winning setup is a hypothesis to test on this store's own
@@ -140,12 +143,12 @@ SOI and Customer Queries; when they disagree, this store's data wins.
 Category targets appear as `<path> Category Match`. Before drawing a
 lesson from one, record which **ad type** it ran on:
 
-1. **Don't pool across ad types.** Brand and Product ads buy different
-   placements; a Brand-Ad category ROAS doesn't forecast a Product-Ad
+1. **Keep ad types apart.** Brand and Product ads buy different
+   placements; a Brand-Ad category ROAS is no forecast for a Product-Ad
    category target. A store may have run category targets only on Brand
    Ads, in which case "category targeting works here" is unproven for
    Product Ads.
-2. **Don't pool across campaigns of very different health.** One failing
+2. **Keep campaigns of very different health apart.** One failing
    campaign can make category targeting look worthless store-wide; split
    by campaign and the picture can reverse.
 
@@ -166,12 +169,14 @@ it.
   cap from `tuning-recommendation-format.md`.
 - **Cross-campaign overlap** — after reading every campaign in a country,
   look for the same keyword and match type in two or more campaigns. They
-  bid against each other at the same auction; a trim has to be
+  bid against each other at the same auction; a trim works only when
   coordinated across all of them, since trimming one just hands the win
   to another.
 - **Thresholds** come from the data contract's store rules; a store's
-  `stores/<slug>/notes.md` may override them, and a standard the user
-  states belongs there too.
+  `stores/<slug>/notes.md` may override them. A margin or goal the user
+  states applies to this task's recommendations; a `key: value` line
+  goes in notes only when the user states it as their standard for every
+  run, because that line changes what the server checks on later runs.
 
 ## Report shape on noon
 
@@ -188,7 +193,8 @@ The shared report rules are in `output-spec.md`; on noon:
 - **Brand Ads** are compared only with Brand Ads.
 - **Defaults line** under each country's summary: margin (see
   § Missing margin in `tuning-recommendation-format.md`), target ROAS,
-  waste/harvest cutoffs, and which came from the store's notes.
+  waste/harvest cutoffs, and which came from the store's notes or the
+  user's message.
 - **An action checklist the user can answer by number** — nested by
   campaign, one sub-letter per change (`2a`, `2b`), numbered
   continuously across countries. Each sub-item names the keyword, query

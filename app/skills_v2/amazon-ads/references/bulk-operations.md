@@ -152,8 +152,8 @@ why, rather than guessing.
 ### 4. Verify
 
 Re-export (or open the campaign in the UI) and confirm the new campaign
-exists (paused) / the bids changed. Don't trust the `Success` status
-alone — the ASIN-as-SKU trap commits the Campaign shell and reports
+exists (paused) / the bids changed. The `Success` status alone doesn't
+prove it — the ASIN-as-SKU trap commits the Campaign shell and reports
 `Success`-then-`Failed` with the ad group silently gone.
 
 ## Locale-generality
