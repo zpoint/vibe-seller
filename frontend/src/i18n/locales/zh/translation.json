@@ -1162,7 +1162,6 @@
     "configHint": "粘贴服务商提供的 JSON 配置或服务地址。",
     "configRequired": "请先粘贴配置",
     "nameLabel": "名称",
-    "trustNote": "只添加你信任的服务，任务调用它的工具时会把相关内容发给它。",
     "empty": "还没有添加自定义 MCP。",
     "enabled": "已启用",
     "disabled": "已停用",
@@ -1182,7 +1181,7 @@
     "adminOnly": "只有管理员可以添加或修改自定义 MCP。",
     "replaceConfirm": "已经有名为 {{names}} 的服务，要用刚粘贴的配置替换它吗？",
     "deleteConfirm": "删除 MCP 服务「{{name}}」？删除后任务将不能再使用它的工具。",
-    "namePlaceholder": "不填会自动命名，如 xydc",
+    "namePlaceholder": "例如 西柚MCP",
     "connecting": "正在连接…",
     "connectFailed": "连不上 {{name}}，没有保存：{{why}}",
     "reasons": {
@@ -1205,7 +1204,9 @@
       "unsupported": "暂不支持这种连接方式。",
       "bad_config": "配置里要有服务地址（url）或启动命令（command）。",
       "name_missing": "请填写名称。"
-    }
+    },
+    "nameRequired": "请填写名称，例如 西柚MCP。",
+    "keyHint": "AI 调用工具时用的名字"
   },
   "secrets": {
     "showValue": "显示",

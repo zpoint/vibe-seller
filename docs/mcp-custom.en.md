@@ -65,9 +65,9 @@ Paste what you copied and click **Save**:
 
 - A whole "install this MCP for me, here is my token {…}" blurb is fine —
   the text around the JSON is ignored.
-- **The name is optional**: left empty, the server is named after its
-  URL's domain — `https://mcp.xydc.com/mcp` → `xydc`. Pasting just the
-  URL (Xiyou's 复制链接) works too.
+- Give it a **name** you'll recognise, e.g. "Xiyou MCP". Later, say
+  "use Xiyou MCP…" in a task and the AI knows which tools you mean.
+- Pasting just the URL (Xiyou's 复制链接) works too.
 
 ### Step 3: Saving checks the connection
 
@@ -130,4 +130,4 @@ when asked about the existing name, choose to replace.
 
 **A task doesn't use it**
 
-Name the service in the task ("use Xiyou Insight…").
+Name it in the task with the name you gave it ("use Xiyou MCP…").

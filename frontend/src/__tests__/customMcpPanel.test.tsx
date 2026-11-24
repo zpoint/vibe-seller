@@ -36,6 +36,7 @@ i18nTest.use(initReactI18next).init({
 const SERVER = {
   id: 's1',
   name: 'acme-data',
+  label: 'acme-data',
   type: 'http',
   url: 'https://mcp.example.com/mcp',
   headers: { Authorization: '****abcd' },
@@ -79,12 +80,13 @@ describe('CustomMcpPanel', () => {
     fireEvent.click(await screen.findByTestId('custom-mcp-add'))
     const paste = 'install this: {"mcpServers": {"acme-data": {"url": "https://mcp.example.com/mcp"}}}'
     fireEvent.change(screen.getByTestId('custom-mcp-config'), { target: { value: paste } })
+    fireEvent.change(screen.getByTestId('custom-mcp-name'), { target: { value: 'acme' } })
     mockApi.get.mockResolvedValue([SERVER])
     fireEvent.click(screen.getByTestId('custom-mcp-save'))
 
     await waitFor(() => expect(mockApi.post).toHaveBeenCalledWith(
       '/api/custom-mcp-servers',
-      { config: paste, name: null, replace: false },
+      { config: paste, name: 'acme', replace: false },
       expect.anything(),
     ))
     const result = await screen.findByTestId('custom-mcp-test-result')
@@ -97,7 +99,7 @@ describe('CustomMcpPanel', () => {
     mockApi.post.mockRejectedValue(Object.assign(new Error('Request failed (400)'), {
       status: 400,
       detail: {
-        code: 'connect_failed', name: 'acme', reason: 'unauthorized',
+        code: 'connect_failed', name: 'acme', label: 'acme', reason: 'unauthorized',
         error: 'HTTP 401: the server refused the credentials',
       },
     }))
@@ -106,6 +108,7 @@ describe('CustomMcpPanel', () => {
     fireEvent.change(screen.getByTestId('custom-mcp-config'), {
       target: { value: 'https://mcp.example.com/mcp' },
     })
+    fireEvent.change(screen.getByTestId('custom-mcp-name'), { target: { value: 'acme' } })
     fireEvent.click(screen.getByTestId('custom-mcp-save'))
     expect(await screen.findByTestId('custom-mcp-error')).toHaveTextContent(
       "Couldn't connect to acme, so it wasn't saved: the token is wrong or no longer valid",
@@ -147,6 +150,7 @@ describe('CustomMcpPanel', () => {
     renderPanel(true)
     fireEvent.click(await screen.findByTestId('custom-mcp-add'))
     fireEvent.change(screen.getByTestId('custom-mcp-config'), { target: { value: '{}' } })
+    fireEvent.change(screen.getByTestId('custom-mcp-name'), { target: { value: 'acme' } })
     fireEvent.click(screen.getByTestId('custom-mcp-save'))
     expect(await screen.findByTestId('custom-mcp-error')).toHaveTextContent(
       t.configErrors.placeholder,
@@ -161,10 +165,30 @@ describe('CustomMcpPanel', () => {
     renderPanel(true)
     fireEvent.click(await screen.findByTestId('custom-mcp-add'))
     fireEvent.change(screen.getByTestId('custom-mcp-config'), { target: { value: '{}' } })
+    fireEvent.change(screen.getByTestId('custom-mcp-name'), { target: { value: 'acme' } })
     fireEvent.click(screen.getByTestId('custom-mcp-save'))
     expect(await screen.findByTestId('custom-mcp-error')).toHaveTextContent(
       'Something specific went wrong',
     )
+  })
+
+  it('asks for a name before saving', async () => {
+    renderPanel(true)
+    fireEvent.click(await screen.findByTestId('custom-mcp-add'))
+    fireEvent.change(screen.getByTestId('custom-mcp-config'), {
+      target: { value: 'https://mcp.example.com/mcp' },
+    })
+    fireEvent.click(screen.getByTestId('custom-mcp-save'))
+    expect(await screen.findByTestId('custom-mcp-error')).toHaveTextContent(t.nameRequired)
+    expect(mockApi.post).not.toHaveBeenCalled()
+  })
+
+  it('shows the name people typed, and the key tools use beside it', async () => {
+    mockApi.get.mockResolvedValue([{ ...SERVER, name: 'xydc', label: '西柚MCP' }])
+    renderPanel(true)
+    const row = await screen.findByTestId('custom-mcp-row-xydc')
+    expect(row).toHaveTextContent('西柚MCP')
+    expect(row).toHaveTextContent('xydc')
   })
 
   it('turns a server off and deletes it', async () => {

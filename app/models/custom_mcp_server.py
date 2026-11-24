@@ -33,6 +33,11 @@ class CustomMcpServer(Base):
     # ``mcp__<name>__<tool>``. Unique: two rows with one name would
     # collapse into one entry of the launch config.
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    # What people call it (「西柚MCP」) — any text. ``name`` above is the
+    # key the CLI builds tool names from (``[A-Za-z0-9_-]`` only), so a
+    # name typed in another script is kept here and the key comes from
+    # the server's domain. NULL means "same as name".
+    label: Mapped[str | None] = mapped_column(String, nullable=True)
     # seal()ed JSON of the normalized server object.
     config_enc: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

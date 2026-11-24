@@ -98,6 +98,9 @@ def _ensure_added_columns(conn) -> None:
         # left the fields blank. The read path derives the mode from
         # the stored fields instead (app/routers/chat_bots.py).
         ('wecom_bots', 'security_mode', 'TEXT'),
+        # Custom MCP servers: the display name people typed (「西柚MCP」),
+        # apart from the ASCII key tool names are built from.
+        ('custom_mcp_servers', 'label', 'TEXT'),
         ('tasks', 'source', 'TEXT'),
         ('tasks', 'cost_usd', 'REAL'),
         ('tasks', 'input_tokens', 'INTEGER'),

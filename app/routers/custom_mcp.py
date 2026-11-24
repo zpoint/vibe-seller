@@ -29,6 +29,7 @@ from app import telemetry
 from app.auth import get_current_user, require_admin
 from app.custom_mcp import (
     McpConfigError,
+    display_label,
     normalize_server,
     parse_pasted,
     seal,
@@ -78,6 +79,8 @@ def _view(row: CustomMcpServer) -> dict:
     return {
         'id': row.id,
         'name': row.name,
+        # What people call it; the key above is what tool names use.
+        'label': row.label or row.name,
         **view,
         'enabled': row.enabled,
         # A stored row that no longer passes is skipped at launch —
@@ -123,8 +126,12 @@ async def add_servers(
     ``detail = {code: 'connect_failed', name, error}`` and nothing is
     stored. The answer carries each server's probe result as ``test``.
     """
+    typed = (data.name or '').strip() or None
     try:
-        servers = parse_pasted(data.config, (data.name or '').strip() or None)
+        servers = parse_pasted(data.config, typed)
+        # The typed name is what people see; it names the one server a
+        # paste usually holds.
+        label = display_label(typed) if len(servers) == 1 else None
     except McpConfigError as e:
         raise HTTPException(status_code=400, detail=_config_error(e)) from e
     existing = {
@@ -145,6 +152,7 @@ async def add_servers(
             detail={
                 'message': 'A server with this name already exists',
                 'names': sorted(existing),
+                'labels': sorted(r.label or r.name for r in existing.values()),
             },
         )
     tests: dict[str, dict] = {}
@@ -158,6 +166,7 @@ async def add_servers(
                 detail={
                     'code': 'connect_failed',
                     'name': name,
+                    'label': label or name,
                     'error': str(e),
                     'reason': e.reason,
                 },
@@ -169,6 +178,7 @@ async def add_servers(
         if row is None:
             row = CustomMcpServer(
                 name=name,
+                label=label,
                 config_enc=seal(config),
                 enabled=True,
                 created_by=user.id,
@@ -176,6 +186,7 @@ async def add_servers(
             db.add(row)
         else:
             row.config_enc = seal(config)
+            row.label = label
             row.updated_at = now
         saved.append(row)
     await db.commit()

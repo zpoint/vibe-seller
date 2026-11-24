@@ -116,6 +116,28 @@ class McpConfigError(ValueError):
 # ── validation ──────────────────────────────────────────────────
 
 
+def is_key(name: str) -> bool:
+    """Whether *name* can be a server key as typed (tool names are
+    built from it: ``mcp__<key>__<tool>``)."""
+    return bool(NAME_RE.match(name)) and '__' not in name
+
+
+def display_label(name: str | None) -> str | None:
+    """The name a person typed, kept for display — any script.
+
+    ``None`` when nothing was typed. Too long or with control
+    characters is a :class:`McpConfigError`.
+    """
+    if name is None or not name.strip():
+        return None
+    label = name.strip()
+    if len(label) > 40 or any(ord(c) < 32 for c in label):
+        raise McpConfigError(
+            'The name is too long or has control characters', 'invalid_name'
+        )
+    return label
+
+
 def check_name(name: object) -> str:
     """The server name, or :class:`McpConfigError` saying what is wrong."""
     if not isinstance(name, str) or not name.strip():
@@ -422,9 +444,12 @@ def parse_pasted(payload: object, name: str | None = None) -> dict:
         raise McpConfigError(
             'The pasted config has no servers in it', 'bad_json'
         )
-    if name and len(servers) == 1:
+    if name and len(servers) == 1 and is_key(name):
         servers = {name: next(iter(servers.values()))}
-    elif not name:
+    else:
+        # No name, or one in another script (「西柚MCP」) — that stays the
+        # display label (:func:`display_label`); the key comes from the
+        # domain.
         servers = _auto_named(servers)
     out = {}
     for raw_name, raw in servers.items():
@@ -495,17 +520,44 @@ async def load_launch_servers() -> dict[str, dict]:
     return launch_servers(stored)
 
 
-def prompt_note(names: Iterable[str]) -> str | None:
+async def load_prompt_servers() -> dict[str, str | None]:
+    """``{key: label}`` for the system-prompt line — exactly the servers
+    a launch hands the CLI (enabled AND still valid)."""
+    try:
+        async with async_session() as db:
+            rows = (
+                await db.execute(
+                    select(
+                        CustomMcpServer.name,
+                        CustomMcpServer.config_enc,
+                        CustomMcpServer.label,
+                    ).where(CustomMcpServer.enabled.is_(True))
+                )
+            ).all()
+    except SQLAlchemyError as e:
+        logger.warning('Custom MCP servers not loaded: %s', e)
+        return {}
+    valid = launch_servers((name, enc) for name, enc, _ in rows)
+    return {name: label for name, _, label in rows if name in valid}
+
+
+def prompt_note(servers: dict[str, str | None]) -> str | None:
     """The one line a task's system context gets about custom servers.
 
+    *servers* maps each key to the name people call it (or ``None``).
     Names only — the CLI already hands the model each tool's own
-    description; this line is what tells it the tools are there to be
-    used for the task, and where they came from.
+    description; this line tells it the tools are there to be used, and
+    which key a user's 「用西柚MCP…」 means.
     """
-    names = sorted(names)
-    if not names:
+    if not servers:
         return None
-    listed = ', '.join(f'`{n}` (tools `mcp__{n}__*`)' for n in names)
+
+    def entry(key: str) -> str:
+        label = servers[key]
+        called = f'"{label}", ' if label and label != key else ''
+        return f'`{key}` ({called}tools `mcp__{key}__*`)'
+
+    listed = ', '.join(entry(k) for k in sorted(servers))
     return (
         f'Custom MCP servers (added by an admin in Settings → '
         f'Integrations): {listed}. Use their tools when the task needs '

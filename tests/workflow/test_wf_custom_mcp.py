@@ -173,6 +173,22 @@ class TestAddAndList:
         assert r.status_code == 201, r.text
         assert [s['name'] for s in r.json()] == ['127-0-0-1']
 
+    async def test_a_name_people_type_is_kept_beside_the_tool_key(
+        self, admin_client, mcp_server
+    ):
+        """「西柚MCP」 cannot be part of a tool name; it is kept as the
+        label, the key comes from the domain, and the task prompt says
+        which is which."""
+        r = await _add(admin_client, vendor_paste(mcp_server), name='测试MCP')
+        assert r.status_code == 201, r.text
+        (created,) = r.json()
+        assert (created['name'], created['label']) == ('127-0-0-1', '测试MCP')
+        listed = (await admin_client.get(URL)).json()
+        assert listed[0]['label'] == '测试MCP'
+        task = Task(id='label-1', title='t', description='d')
+        bundle = await build_system_extra(task, None, header=TaskHeader.AUTO)
+        assert '`127-0-0-1` ("测试MCP"' in bundle.system_extra
+
     async def test_a_bare_link_is_saved_under_its_domain(
         self, admin_client, mcp_server
     ):
@@ -206,6 +222,7 @@ class TestAddAndList:
         r = await _add(admin_client, sse, name='widgets')
         assert r.status_code == 409
         assert r.json()['detail']['names'] == ['widgets']
+        assert r.json()['detail']['labels'] == ['widgets']
 
         r = await _add(admin_client, sse, name='widgets', replace=True)
         assert r.status_code == 201

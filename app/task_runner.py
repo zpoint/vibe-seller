@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import knowledge_contract, vision
 from app.browser.manager import store_slug as _store_slug
-from app.custom_mcp import load_launch_servers, prompt_note
+from app.custom_mcp import load_prompt_servers, prompt_note
 from app.database import async_session
 from app.events.bus import event_bus
 from app.knowledge_contract import cleanup_scope
@@ -218,7 +218,7 @@ async def build_system_extra(
             parts.append(ctx)
 
     parts.append(ticktick_context())
-    parts.append(prompt_note(await load_launch_servers()) or '')
+    parts.append(prompt_note(await load_prompt_servers()) or '')
     parts.append(await build_system_context(task))
 
     # Image-gen breadcrumb — same gate the MCP server uses to hide the

@@ -147,6 +147,7 @@ def test_a_paste_claude_code_would_refuse_is_explained_not_saved(
             }
         })
     )
+    card.get_by_test_id('custom-mcp-name').fill(NAME)
     card.get_by_test_id('custom-mcp-save').click()
     expect(card.get_by_test_id('custom-mcp-error')).to_contain_text(
         'replace it with the real token'

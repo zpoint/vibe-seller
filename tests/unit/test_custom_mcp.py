@@ -27,6 +27,7 @@ from app.custom_mcp import (
     McpConfigError,
     check_name,
     derive_name,
+    display_label,
     launch_servers,
     normalize_server,
     parse_pasted,
@@ -372,10 +373,24 @@ def test_a_failed_read_costs_the_servers_not_the_launch(monkeypatch):
 
 
 def test_prompt_note_names_servers_and_their_tool_prefix():
-    assert prompt_note([]) is None
-    note = prompt_note(['zeta', 'acme'])
-    assert note.index('`acme`') < note.index('`zeta`')
+    assert prompt_note({}) is None
+    note = prompt_note({'zeta': None, 'acme': 'acme', 'xydc': '西柚MCP'})
+    assert note.index('`acme`') < note.index('`xydc`') < note.index('`zeta`')
     assert 'mcp__acme__*' in note
+    # What the user calls it, so 「用西柚MCP…」 finds the right tools.
+    assert '`xydc` ("西柚MCP", tools `mcp__xydc__*`)' in note
+    assert '"acme"' not in note  # a label equal to its key adds nothing
+
+
+def test_a_name_in_another_script_is_a_label_and_the_domain_the_key():
+    paste = {'mcpServers': {'x': {'url': 'https://mcp.xydc.com/mcp'}}}
+    assert list(parse_pasted(paste, name='西柚MCP')) == ['xydc']
+    assert display_label('西柚MCP') == '西柚MCP'
+    # A name that can be a key as typed is the key.
+    assert list(parse_pasted(paste, name='xiyou')) == ['xiyou']
+    assert display_label('  ') is None
+    with pytest.raises(McpConfigError):
+        display_label('x' * 41)
 
 
 def test_extra_configs_ride_along_strict_and_global():

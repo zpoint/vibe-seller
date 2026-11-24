@@ -114,7 +114,7 @@ SQLAlchemy 2.0 ORM models. All extend `Base` from `app/database.py`.
 | `EmailAccount` | `email_accounts` | Email accounts with Fernet-encrypted IMAP passwords; `allow_send` (default true; the user can turn it off per mailbox) gates agent sends — enforced in `app/email/sender.py` |
 | `StoreEmailLink` | `store_email_links` | Many-to-many store↔email with watermark tracking |
 | `AIProfile` | `ai_profiles` | AI agent configuration profiles |
-| `CustomMcpServer` | `custom_mcp_servers` | Admin-added external MCP servers for tasks: unique `name` (the `mcpServers` key → tools `mcp__<name>__*`), `config_enc` (Fernet-encrypted normalized server object), `enabled`. See [api.md § custom_mcp.py](api.md#custom_mcppy--custom-mcp-servers-external-tools-for-tasks) |
+| `CustomMcpServer` | `custom_mcp_servers` | Admin-added external MCP servers for tasks: unique `name` (the `mcpServers` key → tools `mcp__<name>__*`), `label` (what people call it, e.g. 「西柚MCP」; NULL = the key), `config_enc` (Fernet-encrypted normalized server object), `enabled`. See [api.md § custom_mcp.py](api.md#custom_mcppy--custom-mcp-servers-external-tools-for-tasks) |
 
 ### Key Fields
 

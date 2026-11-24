@@ -8,7 +8,10 @@ import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 // the server never sends them back.
 export interface CustomMcpServer {
   id: string
+  /** The key tool names are built from (`mcp__<name>__…`). */
   name: string
+  /** What people call it — 「西柚MCP」; the key when none was typed. */
+  label: string
   type: 'http' | 'sse' | 'stdio' | 'unknown'
   url?: string
   headers?: Record<string, string>
@@ -74,6 +77,10 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
       setError(t('customMcp.configRequired'))
       return
     }
+    if (!name.trim()) {
+      setError(t('customMcp.nameRequired'))
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -97,14 +104,14 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
       const err = e as Error & {
         status?: number
         detail?: {
-          names?: string[]; code?: string; name?: string
+          names?: string[]; labels?: string[]; code?: string; name?: string; label?: string
           error?: string; reason?: string; message?: string
         }
       }
       const code = err.detail?.code ?? ''
       if (code === 'connect_failed') {
         setError(t('customMcp.connectFailed', {
-          name: err.detail?.name,
+          name: err.detail?.label ?? err.detail?.name,
           why: reasonText(t, err.detail?.reason, err.detail?.error),
         }))
       } else if (code.startsWith('config_')) {
@@ -115,7 +122,7 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
           defaultValue: err.detail?.message ?? err.message,
         }))
       } else if (err.status === 409 && err.detail?.names) {
-        const names = err.detail.names.join(', ')
+        const names = (err.detail.labels ?? err.detail.names).join(', ')
         if (confirm(t('customMcp.replaceConfirm', { names }))) {
           setSaving(false)
           await save(true)
@@ -138,7 +145,7 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
   }
 
   const remove = async (s: CustomMcpServer) => {
-    if (!confirm(t('customMcp.deleteConfirm', { name: s.name }))) return
+    if (!confirm(t('customMcp.deleteConfirm', { name: s.label }))) return
     try {
       await api.del(`${LIST_URL}/${s.id}`)
       await refresh()
@@ -191,7 +198,7 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1" htmlFor="custom-mcp-name">
-              {t('customMcp.nameLabel')} <span className="text-gray-400">({t('common.optional')})</span>
+              {t('customMcp.nameLabel')}
             </label>
             <input
               id="custom-mcp-name"
@@ -202,9 +209,6 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
             />
           </div>
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-            {t('customMcp.trustNote')}
-          </p>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -299,7 +303,10 @@ function ServerRow({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-sm font-medium">{s.name}</span>
+            <span className="text-sm font-medium">{s.label}</span>
+            {s.label !== s.name && (
+              <span className="font-mono text-xs text-gray-400" title={t('customMcp.keyHint')}>{s.name}</span>
+            )}
             <span className="px-1.5 py-0.5 text-[11px] bg-gray-100 text-gray-600 rounded">
               {typeLabel(s.type, t)}
             </span>
@@ -361,7 +368,7 @@ function ServerRow({
           {test.ok ? (
             <div className="text-green-700">
               {t('customMcp.testOk', {
-                server: test.server_name || s.name,
+                server: test.server_name || s.label,
                 count: test.tool_count ?? 0,
               })}
               {(test.tools?.length ?? 0) > 0 && (

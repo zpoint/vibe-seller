@@ -1160,7 +1160,6 @@
     "configHint": "Paste the JSON config or server URL the service gives you.",
     "configRequired": "Paste the config first",
     "nameLabel": "Name",
-    "trustNote": "Only add services you trust — a task sends what it asks to that service.",
     "empty": "No custom MCP yet.",
     "enabled": "On",
     "disabled": "Off",
@@ -1180,7 +1179,7 @@
     "adminOnly": "Only an admin can add or change custom MCP servers.",
     "replaceConfirm": "A server named {{names}} already exists. Replace it with the pasted config?",
     "deleteConfirm": "Delete the MCP server “{{name}}”? Tasks will no longer have its tools.",
-    "namePlaceholder": "Named automatically if empty, e.g. xydc",
+    "namePlaceholder": "e.g. Xiyou MCP",
     "connecting": "Connecting…",
     "connectFailed": "Couldn't connect to {{name}}, so it wasn't saved: {{why}}",
     "reasons": {
@@ -1203,7 +1202,9 @@
       "unsupported": "This connection type isn't supported yet.",
       "bad_config": "The config needs a server URL (url) or a command to run (command).",
       "name_missing": "Give it a name."
-    }
+    },
+    "nameRequired": "Give it a name, e.g. Xiyou MCP.",
+    "keyHint": "The name the AI uses for its tools"
   },
   "secrets": {
     "showValue": "Show",
