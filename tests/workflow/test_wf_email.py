@@ -1,21 +1,28 @@
 """Workflow tests for the email system (CRUD, SMTP, info)."""
 
+from datetime import UTC, datetime
 import json
 import sqlite3
 from unittest.mock import AsyncMock, patch
+import uuid
 
 import pytest
 from sqlalchemy.ext.asyncio import (
+    AsyncSession,
     create_async_engine as sqlalchemy_create_async_engine,
 )
 
+from app import mcp_server
 from app.auth import create_token
 from app.config import AI_BOT_USER_ID, DEFAULT_USER_ID
 from app.database import _ensure_added_columns  # noqa: PLC2701
-from app.email import NO_MAILBOX, NO_STORE_MAILBOX
+from app.email.access import NO_STORE_MAILBOX, read_problem, send_problem
 from app.models.app_settings import AppSettings
 from app.models.base import Base
+from app.models.email_account import EmailAccount
+from app.models.task import Task
 from app.models.user import User
+from app.task_states import TaskStatus
 
 pytestmark = pytest.mark.workflow
 
@@ -251,15 +258,15 @@ class TestSendEndpoint:
         )
         acct_id = er.json()['id']
 
-        # Clear SMTP via update (sending is on by default, so the
-        # request gets past the permission gate to the missing-host check)
+        # Clear SMTP via update (sending is on by default, so the only
+        # thing stopping it is the missing outgoing server)
         await admin_client.put(
             f'/api/email-accounts/{acct_id}',
             json={'smtp_host': ''},
         )
 
-        # The send should fail with 502
-        # (smtp_host is empty string which is falsy)
+        # Refused by the one send gate, with what the user changes —
+        # before any SMTP connection (smtp_host '' is falsy).
         r = await admin_client.post(
             f'/api/email-accounts/{acct_id}/send',
             json={
@@ -268,7 +275,8 @@ class TestSendEndpoint:
                 'body': 'Hello',
             },
         )
-        assert r.status_code == 502
+        assert r.status_code == 403
+        assert 'no outgoing (SMTP) server' in r.json()['detail']
 
 
 SEND_BODY = {'to': 'buyer@example.com', 'subject': 'Hi', 'body': 'Hello'}
@@ -527,11 +535,12 @@ class TestSendPermissionIsInteractiveOnly:
         assert r.json()['allow_send'] is True
 
     async def test_send_still_refused_after_refused_toggle(
-        self, admin_client, unauthed_client, admin_user, smtp_spy, monkeypatch
+        self, admin_client, unauthed_client, admin_user, smtp_spy, store_task
     ):
         """The agent's story end to end: its toggle attempt is refused,
         and its send through the in-task tool stays refused."""
         acct = await _create_off(admin_client)
+        await store_task(acct)
         r = await _permit(
             unauthed_client,
             acct['id'],
@@ -541,7 +550,6 @@ class TestSendPermissionIsInteractiveOnly:
             },
         )
         assert r.status_code == 403
-        _route_mcp_call_api(admin_client, monkeypatch)
         result = await _in_task_send()
         assert 'turned sending off' in result['detail']
         assert _smtp_untouched(smtp_spy)
@@ -560,14 +568,18 @@ class TestSendPermissionIsInteractiveOnly:
                 f'/api/email-accounts/info-by-store/{store["id"]}'
             )
         ).json()
-        assert info['accounts'][0]['allow_send'] is True
+        assert info['accounts'][0]['can_send'] is True
+        assert info['accounts'][0]['send_problem'] is None
         await _permit(admin_client, acct['id'], False)
         info = (
             await admin_client.get(
                 f'/api/email-accounts/info-by-store/{store["id"]}'
             )
         ).json()
-        assert info['accounts'][0]['allow_send'] is False
+        assert info['accounts'][0]['can_send'] is False
+        assert (
+            '"Email sending permission"' in info['accounts'][0]['send_problem']
+        )
 
 
 def _route_mcp_call_api(client, monkeypatch) -> None:
@@ -582,10 +594,8 @@ def _route_mcp_call_api(client, monkeypatch) -> None:
 
 async def _in_task_send() -> dict:
     """What a task agent's ``vibe_seller_send_email`` call returns."""
-    from app.mcp_server import handle_tool_call  # noqa: PLC0415
-
     return json.loads(
-        await handle_tool_call(
+        await mcp_server.handle_tool_call(
             'vibe_seller_send_email',
             {
                 'account_email': 'shop@example.com',
@@ -597,51 +607,69 @@ async def _in_task_send() -> dict:
     )
 
 
+@pytest.fixture
+async def store_task(
+    admin_client, override_async_session, admin_user, monkeypatch
+):
+    """A running store task; its in-task MCP calls go through the app.
+
+    Yields a function that links a mailbox to the task's store: a task
+    sends only from its own store's mailboxes.
+    """
+    store = (
+        await admin_client.post('/api/stores', json={'name': 'Send Store'})
+    ).json()
+    task_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    async with override_async_session() as db:
+        db.add(
+            Task(
+                id=task_id,
+                title='Send task',
+                store_id=store['id'],
+                created_by=admin_user.id,
+                status=TaskStatus.RUNNING,
+                created_at=now,
+                updated_at=now,
+                started_at=now,
+            )
+        )
+        await db.commit()
+    monkeypatch.setitem(mcp_server._config, 'task_id', task_id)
+    _route_mcp_call_api(admin_client, monkeypatch)
+
+    async def link(account: dict) -> None:
+        r = await admin_client.post(
+            f'/api/stores/{store["id"]}/emails',
+            json={'email_account_id': account['id']},
+        )
+        assert r.status_code == 200, r.text
+
+    return link
+
+
 class TestInTaskSendTool:
     """The in-task stdio MCP tool ``vibe_seller_send_email`` (what a
     task agent calls) — routed through the real app via ``call_api``."""
 
-    async def test_refused_when_off(self, admin_client, monkeypatch, smtp_spy):
-        await _create_off(admin_client)
-        _route_mcp_call_api(admin_client, monkeypatch)
+    async def test_refused_when_off(self, admin_client, store_task, smtp_spy):
+        await store_task(await _create_off(admin_client))
         result = await _in_task_send()
         assert 'turned sending off' in result['detail']
         assert 'draft' in result['detail']
         assert _smtp_untouched(smtp_spy)
 
-    async def test_no_mailbox_anywhere_says_nothing_can_send(
-        self, admin_client, monkeypatch, smtp_spy
-    ):
-        """'No account found for X' alone read as "the account is
-        somewhere else" — the agent went looking for it on the machine."""
-        _route_mcp_call_api(admin_client, monkeypatch)
-        result = await _in_task_send()
-        assert result['error'] == NO_MAILBOX
-        assert _smtp_untouched(smtp_spy)
-
-    async def test_unknown_address_names_the_mailboxes_that_can(
-        self, admin_client, monkeypatch, smtp_spy
-    ):
-        await _create_account(admin_client, email='sales@example.com')
-        _route_mcp_call_api(admin_client, monkeypatch)
-        result = await _in_task_send()
-        assert 'shop@example.com' in result['error']
-        assert 'Send from one of: sales@example.com.' in result['error']
-        assert _smtp_untouched(smtp_spy)
-
-    async def test_sends_by_default(self, admin_client, monkeypatch, smtp_spy):
-        await _create_account(admin_client)
-        _route_mcp_call_api(admin_client, monkeypatch)
+    async def test_sends_by_default(self, admin_client, store_task, smtp_spy):
+        await store_task(await _create_account(admin_client))
         result = await _in_task_send()
         assert result['ok'] is True
         smtp_spy[0].return_value.sendmail.assert_called_once()
 
     async def test_telemetry_error_never_fails_a_sent_email(
-        self, admin_client, monkeypatch, smtp_spy
+        self, admin_client, store_task, smtp_spy, monkeypatch
     ):
         """A send reported as failed gets resent: the buyer gets two."""
-        await _create_account(admin_client)
-        _route_mcp_call_api(admin_client, monkeypatch)
+        await store_task(await _create_account(admin_client))
 
         def boom(_email):
             raise RuntimeError('telemetry')
@@ -695,6 +723,61 @@ class TestAllowSendMigration:
         assert row[0] == 1
 
 
+class TestSyncOutcomeMigration:
+    """An install from before ``sync_error`` / ``synced_at`` upgrades in
+    place: an existing, fully configured mailbox still reads and sends,
+    and a store task still sends from it."""
+
+    async def test_configured_mailbox_upgrades_able_to_read_and_send(
+        self, tmp_path
+    ):
+        db_path = tmp_path / 'legacy.db'
+        engine = sqlalchemy_create_async_engine(
+            f'sqlite+aiosqlite:///{db_path}'
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await engine.dispose()
+
+        raw = sqlite3.connect(db_path)
+        raw.execute('ALTER TABLE email_accounts DROP COLUMN sync_error')
+        raw.execute('ALTER TABLE email_accounts DROP COLUMN synced_at')
+        raw.execute(
+            'INSERT INTO email_accounts (id, email, encrypted_password,'
+            ' imap_host, imap_port, use_ssl, smtp_host, smtp_port,'
+            ' smtp_use_tls, allow_send, created_by, created_at,'
+            " updated_at) VALUES ('legacy-1', 'shop@example.com', 'x',"
+            " 'imap.example.com', 993, 1, 'smtp.example.com', 465, 1, 1,"
+            " 'u1', 't1', 't1')"
+        )
+        raw.commit()
+        raw.close()
+
+        engine = sqlalchemy_create_async_engine(
+            f'sqlite+aiosqlite:///{db_path}'
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(_ensure_added_columns)
+            await conn.run_sync(_ensure_added_columns)  # idempotent
+        async with AsyncSession(engine) as db:
+            account = await db.get(EmailAccount, 'legacy-1')
+            assert (account.sync_error, account.synced_at) == (None, None)
+            assert read_problem(account) is None
+            assert send_problem(account) is None
+        await engine.dispose()
+
+    async def test_upgraded_store_task_sends_from_its_mailbox(
+        self, admin_client, store_task, smtp_spy
+    ):
+        """A mailbox that has never recorded a sync (every mailbox right
+        after the upgrade) is read-and-send, and the task's send goes
+        out."""
+        await store_task(await _create_account(admin_client))
+        result = await _in_task_send()
+        assert result['ok'] is True
+        smtp_spy[0].return_value.sendmail.assert_called_once()
+
+
 class TestSyncNow:
     async def test_account_not_found(self, admin_client):
         r = await admin_client.post(
@@ -717,16 +800,16 @@ class TestSyncNow:
         # Mock sync to avoid real IMAP
         with (
             patch(
-                'app.routers.email_accounts.sync_account_emails',
+                'app.scheduler.email_sync.sync_account_emails',
                 new_callable=AsyncMock,
                 return_value=3,
             ),
             patch(
-                'app.routers.email_accounts.maybe_seed_sync_state',
+                'app.scheduler.email_sync.maybe_seed_sync_state',
                 new_callable=AsyncMock,
             ),
             patch(
-                'app.routers.email_accounts.get_sync_state',
+                'app.scheduler.email_sync.get_sync_state',
                 return_value={
                     'last_polled_at': '2020-01-01T00:00:00+00:00',
                 },
@@ -758,16 +841,16 @@ class TestSyncNow:
         # Mock sync to raise
         with (
             patch(
-                'app.routers.email_accounts.sync_account_emails',
+                'app.scheduler.email_sync.sync_account_emails',
                 new_callable=AsyncMock,
                 side_effect=Exception('IMAP connection refused'),
             ),
             patch(
-                'app.routers.email_accounts.maybe_seed_sync_state',
+                'app.scheduler.email_sync.maybe_seed_sync_state',
                 new_callable=AsyncMock,
             ),
             patch(
-                'app.routers.email_accounts.get_sync_state',
+                'app.scheduler.email_sync.get_sync_state',
                 return_value={},
             ),
         ):

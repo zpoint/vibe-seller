@@ -11,6 +11,7 @@ guards that invariant deterministically, without an LLM.
 """
 
 from datetime import UTC, datetime, timedelta
+import sqlite3
 import uuid
 
 import pytest
@@ -153,6 +154,44 @@ async def _make_running_task(
 
 def _all_emails(body: dict) -> list[dict]:
     return [e for acct in body['accounts'] for e in acct['new_emails']]
+
+
+class TestSweepOfAMailboxThatIsNotSyncing:
+    async def test_failing_sync_is_reported_not_read_as_no_mail(
+        self, admin_client, override_async_session, admin_user, email_env
+    ):
+        """A mailbox whose sync fails returns only its stale copy; the
+        sweep says so (``app.email.access.read_problem``) instead of
+        letting "nothing new" read as an empty inbox."""
+        async with override_async_session() as db:
+            acct = await db.get(EmailAccount, email_env['account_id'])
+            acct.sync_error = 'LOGIN failed'
+            await db.commit()
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            email_env['schedule_id'],
+            email_env['store_id'],
+        )
+        body = (
+            await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        ).json()
+        assert 'LOGIN failed' in body['accounts'][0]['problem']
+        assert 'Settings → Email' in body['accounts'][0]['problem']
+
+    async def test_a_syncing_mailbox_carries_no_problem(
+        self, admin_client, override_async_session, admin_user, email_env
+    ):
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            email_env['schedule_id'],
+            email_env['store_id'],
+        )
+        body = (
+            await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        ).json()
+        assert 'problem' not in body['accounts'][0]
 
 
 class TestNewEmailsSweep:
@@ -343,6 +382,48 @@ class TestEmailInfoSurface:
         # …and at least one sample uses received_epoch for a time window.
         assert any('received_epoch' in q for q in body['sample_queries'])
         assert 'get_new_emails' in body['watermark_note']
+
+    async def test_newest_first_sample_orders_one_syncs_batch(
+        self, admin_client, email_env
+    ):
+        """One sync stamps every message it fetches with the same
+        received_epoch. Observed on a real inbox's first sync: "the latest
+        email" answered with a message hours older than the newest one,
+        because the sample ordered by received_epoch alone."""
+        acct = email_env['account_id']
+        fetched = _iso_hours_ago(0.5)
+        store_emails(
+            acct,
+            [
+                {
+                    'message_id': f'batch-{n}-{acct}@example.test',
+                    'folder': 'INBOX',
+                    'subject': subject,
+                    'sender': 'partner@example.test',
+                    'date': _iso_hours_ago(hours),
+                    'fetched_at': fetched,
+                }
+                # Stored in the order a server may list them: the
+                # newest last, where a tie on received_epoch hides it.
+                for n, (subject, hours) in enumerate([
+                    ('Oldest', 9),
+                    ('Middle', 5),
+                    ('Newest', 1),
+                ])
+            ],
+        )
+        r = await admin_client.get(
+            f'/api/email-accounts/info-by-store/{email_env["store_id"]}'
+        )
+        newest_first = next(
+            q
+            for q in r.json()['sample_queries']
+            if "folder='INBOX'" in q and 'DESC' in q
+        )
+        sql = newest_first.split('"')[1]
+        with sqlite3.connect(db_path_for_account(acct)) as conn:
+            first = conn.execute(sql).fetchone()
+        assert first[0] == 'Newest'
 
 
 class TestWatermarkFloorAuthority:

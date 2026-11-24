@@ -19,6 +19,7 @@ from app.attachment_markdown import with_attachments
 from app.auth import get_current_user
 from app.browser.manager import browser_manager
 from app.database import get_db
+from app.email.access import MailboxAccess, mailboxes_for
 from app.events.bus import event_bus
 from app.models.ad_declaration import AdTaskDeclaration
 from app.models.report_declaration import ReportRunDeclaration
@@ -44,10 +45,8 @@ from app.task_delete import clear_gate_state
 from app.task_launch import schedule_or_run
 from app.task_outcome import clear_run_state
 from app.task_runner import (
-    Mailbox,
     TaskHeader,
     build_system_extra,
-    get_store_emails,
     reopen_parent_if_child_active,
 )
 from app.task_runner_auto import auto_run_task
@@ -379,9 +378,9 @@ async def send_task_message(
 
     # Build full system prompt with all context
     store = await db.get(Store, task.store_id) if task.store_id else None
-    store_emails: list[Mailbox] = []
+    store_emails: list[MailboxAccess] = []
     if store:
-        store_emails = await get_store_emails(db, store.id)
+        store_emails = await mailboxes_for(db, store.id)
 
     bundle = await build_system_extra(
         task,

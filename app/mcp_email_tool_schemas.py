@@ -9,21 +9,26 @@ EMAIL_TOOLS = [
     {
         'name': 'vibe_seller_email_info',
         'description': (
-            'Get email DB paths and schema for a store. '
-            'Returns per-account: email address, SQLite DB '
-            'path, attachments dir, sample sqlite3 queries. '
-            'Emails are synced automatically every 5 minutes. '
-            'Use sqlite3 CLI to query the DBs directly.'
+            "This task's mailboxes (a store task: its store's only) and "
+            'what each can do: can_read / can_send, and when it cannot, '
+            'why and what the user changes in Settings → Email. Also each '
+            "one's SQLite DB path, attachments dir, schema and sample "
+            'sqlite3 queries; mail syncs every 5 minutes. With no '
+            'mailbox it says so: then this task cannot read or send mail.'
         ),
         'inputSchema': {
             'type': 'object',
             'properties': {
                 'store_id': {
                     'type': 'string',
-                    'description': 'Store ID to get email info for',
+                    'description': (
+                        'Optional. A task with no store may name one (id '
+                        'or slug) to see only its mailboxes; a store task '
+                        'always gets its own.'
+                    ),
                 },
             },
-            'required': ['store_id'],
+            'required': [],
         },
     },
     {
@@ -62,10 +67,11 @@ EMAIL_TOOLS = [
     {
         'name': 'vibe_seller_send_email',
         'description': (
-            'Send email from a configured account (by address). If the '
-            'user turned off its "Email sending permission" (Settings → '
-            'Email), refused, nothing sent — draft it for the user. '
-            'Returns {ok: true, message_id: ...} on success.'
+            "Send email from one of this task's mailboxes (by address; "
+            "a store task: its store's only). A mailbox that cannot send "
+            '(sending turned off, no outgoing server) is refused with why '
+            '— nothing sent; draft it for the user. Returns {ok: true, '
+            'message_id: ...} on success.'
         ),
         'inputSchema': {
             'type': 'object',
@@ -97,8 +103,8 @@ EMAIL_TOOLS = [
     {
         'name': 'vibe_seller_sync_email_now',
         'description': (
-            'Trigger immediate IMAP sync for one email '
-            'account. Blocks until sync completes. Returns '
+            "Trigger immediate IMAP sync for one of this task's "
+            'mailboxes. Blocks until sync completes. Returns '
             '{ok, account_email, new_emails, last_polled_at}. '
             'Has a 30s cooldown per account. '
             'Then query the email DB via sqlite3 as usual.'

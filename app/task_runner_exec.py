@@ -13,6 +13,7 @@ from app.ai.question_policy import (
 from app.ai.turn_hold_budget import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
+from app.email.access import MailboxAccess, mailboxes_for
 from app.events.bus import event_bus
 from app.models.store import Store
 from app.models.task import Task
@@ -22,12 +23,10 @@ from app.task_finalize import check_parent_after_run
 from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
 from app.task_owners import holds_task
 from app.task_runner import (
-    Mailbox,
     TaskHeader,
     build_system_extra,
     coalesce_history,
     format_trigger_context,
-    get_store_emails,
     has_incomplete_todos,
     mark_waiting_for_input,
     maybe_inject_pending_answers,
@@ -463,11 +462,11 @@ async def execute_woken_task(task_id: str, store: Store | None):
             await db.commit()
 
         # Build system prompt (MCP config only — no browser start)
-        store_emails: list[Mailbox] = []
+        store_emails: list[MailboxAccess] = []
         async with async_session() as db:
             await browser_manager.write_task_browser_config(store, db)
             if store:
-                store_emails = await get_store_emails(db, store.id)
+                store_emails = await mailboxes_for(db, store.id)
 
         bundle = await build_system_extra(
             task,

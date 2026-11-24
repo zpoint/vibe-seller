@@ -415,7 +415,7 @@ class TestStopRetryRace:
         # Must complete (not stuck at failed).
         # 30s timeout because under self-hosted CI runner contention
         # the ~8-await dispatch chain in auto_run_task (db.get +
-        # write_browser_config_for_store + get_store_emails +
+        # write_browser_config_for_store + mailboxes_for +
         # build_system_extra + refresh_token_if_needed + agent.run
         # with _on_start → PENDING→RUNNING, then FakeAgent finishes)
         # can starve under event-loop pressure; locally it finishes
