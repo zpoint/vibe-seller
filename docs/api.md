@@ -127,7 +127,7 @@ and the reveal endpoint below.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/tasks?store_id=&include_archived=&parent_task_id=&status=&limit=` | List tasks, newest first (filter by store, archived, parent task, or status; `limit` caps the count). `status`/`limit` are the filters the hosted MCP `list_tasks` tool uses — they live in the route so both callers run the same query. |
-| POST | `/api/tasks` | Create task (auto mode by default; `plan_mode=true` for plan mode; optional `parent_task_id` to create a sub-task — sub-tasks must have a `store_id`). Task provenance (`source`) is derived server-side from the request context (`subtask` when `parent_task_id` is set, else `ui`) — it is not a request field and any body value is ignored. `title` is optional: when blank it is derived from `description` (first sentence, ≤50 chars) and, if that was lossy, replaced in the background by an AI-generated title on the task's own profile (`task_title` SSE event; skipped if the title changed meanwhile) — see `app/task_title.py`. |
+| POST | `/api/tasks` | Create task (`plan_mode` resolves the same for every task: explicit wins, else the user's `plan_mode_default`). Optional `parent_task_id` creates a sub-task: it must carry a `store_id` (400 without) and its parent must be a top-level task (400 — depth is capped at 1, a sub-task cannot spawn). A sub-task created with no explicit `plan_mode` runs auto: the parent's mode already decided review. A parent that is a FANOUT-schedule fire is also refused (400). Task provenance (`source`) is derived server-side from the request context (`subtask` when `parent_task_id` is set, else `ui`) — it is not a request field and any body value is ignored. `title` is optional: when blank it is derived from `description` (first sentence, ≤50 chars) and, if that was lossy, replaced in the background by an AI-generated title on the task's own profile (`task_title` SSE event; skipped if the title changed meanwhile) — see `app/task_title.py`. |
 | GET | `/api/tasks/{task_id}` | Get task by ID |
 | DELETE | `/api/tasks/{task_id}` | Cascade-delete a task and its full subtree (children, grandchildren, …). Removes dependent rows (`task_steps`, `task_messages`, `task_attachments`, `task_logs`, `screenshots`), drops the on-disk workspace at `~/.vibe-seller/tasks/{task_id}/`, and best-effort stops any running agent. Refuses with 409 if any task in the subtree is in `designing` / `running` — caller must Stop first. Idempotent: returns `{ok: true}` even when the task does not exist. Cleanup logic lives in `app/task_delete.py` and is shared with the auto-cleanup job. |
 | POST | `/api/tasks/{task_id}/retry` | Retry failed/completed task (clears plan_history, wipes workspace, and deletes the prior run's `ad_task_declarations` + `report_run_declarations` with its messages — a declaration belongs to the run, and a retried run has no files from it). A fired task follows its schedule's CURRENT mode: auto → a plain auto run; review → the approved plan is re-seeded so the retry executes it directly, and with no approved plan the retry is refused (409). A plan-only task (`is_plan_only`) is never re-seeded: retrying it re-attaches it as the schedule's current planner and re-writes the plan (409 if the schedule went auto or a newer planner exists). |
@@ -137,7 +137,7 @@ and the reveal endpoint below.
 | POST | `/api/tasks/{task_id}/agent/stop` | Stop agent |
 | POST | `/api/tasks/{task_id}/design` | Start design agent |
 | POST | `/api/tasks/{task_id}/execute-plan` | Execute planned task (plan mode only) |
-| PATCH | `/api/tasks/{task_id}/review-plan` | Body `{plan_mode}`. Switch THIS task between auto and review-the-plan-first (the task-detail footer switch). Never changes the user's default (`plan_mode_default`, set via `PATCH /api/auth/me/profile`). 400 when turning plan mode off on a no-store task. |
+| PATCH | `/api/tasks/{task_id}/review-plan` | Body `{plan_mode}`. Switch THIS task between auto and review-the-plan-first (the task-detail footer switch). Never changes the user's default (`plan_mode_default`, set via `PATCH /api/auth/me/profile`). |
 | GET | `/api/tasks/{task_id}/questions/pending` | The question the task waits on: live in the session, being parked, or parked on a WAITING row (`source: live\|parked`); `{pending: false}` otherwise |
 | POST | `/api/tasks/{task_id}/questions/answer` | Answer agent question (batch). Live session → delivered in-process (`{ok: true}`); parked question → written as the user's turn, task re-queued and resumed (`{ok: true, resumed: true}`); an answer that races a timed-out wait waits for the park first |
 | POST | `/api/tasks/{task_id}/result` | Record task result summary (agent-only via MCP `vibe_seller_set_task_result`). Does NOT transition status; `_auto_run_task` handles that. |
@@ -425,8 +425,7 @@ and `retry_task` STARTS OVER (they are wiped).
 
 `create_task` omits `plan_mode` by default, so the owner's
 `plan_mode_default` applies exactly as in the web UI; the result echoes
-the `plan_mode` the task actually got. A task with no store always
-plans.
+the `plan_mode` the task actually got.
 
 `answer_question` maps the answers onto the **full question text** the
 agent reads (the header or a 1-based index are also accepted) — an answer
