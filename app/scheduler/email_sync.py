@@ -5,10 +5,11 @@ Concurrency is limited by a semaphore to avoid overload.
 """
 
 import asyncio
+from datetime import UTC, datetime
 import json
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.channels.email_poller import sync_account_emails
 from app.database import async_session
@@ -47,9 +48,7 @@ async def sync_all_email_accounts() -> None:
     async def _sync_one(account: EmailAccount) -> None:
         async with sem:
             try:
-                await maybe_seed_sync_state(account.id)
-                password = decrypt_password(account.encrypted_password)
-                new_count = await sync_account_emails(account, password)
+                new_count = await sync_and_record(account)
                 if new_count:
                     logger.info(
                         'Synced %d new email(s) for %s',
@@ -60,6 +59,77 @@ async def sync_all_email_accounts() -> None:
                 logger.exception('Email sync failed for %s', account.email)
 
     await asyncio.gather(*[_sync_one(account) for account in accounts])
+
+
+async def sync_and_record(account: EmailAccount) -> int:
+    """Sync *account* once and record the outcome on its row.
+
+    A failure stores its error (``sync_error``) and re-raises; a success
+    clears it and stamps ``synced_at``. ``app/email/access.py`` reads
+    both, so an agent is told a mailbox is not syncing instead of reading
+    a stale copy as the inbox. Every sync goes through here: the
+    scheduled job and the on-demand "sync now".
+    """
+    await maybe_seed_sync_state(account.id)
+    try:
+        password = decrypt_password(account.encrypted_password)
+        new_count = await sync_account_emails(account, password)
+    except Exception as exc:
+        await _record(
+            account.id, sync_error=str(exc)[:300] or type(exc).__name__
+        )
+        raise
+    await _record(
+        account.id, sync_error=None, synced_at=datetime.now(UTC).isoformat()
+    )
+    return new_count
+
+
+async def _record(account_id: str, **values) -> None:
+    async with async_session() as db:
+        await db.execute(
+            update(EmailAccount)
+            .where(EmailAccount.id == account_id)
+            .values(**values)
+        )
+        await db.commit()
+
+
+# A "sync now" within this window returns the last sync instead of
+# opening IMAP again (an agent polling for an OTP calls it repeatedly).
+SYNC_COOLDOWN_SECONDS = 30
+
+
+async def sync_now(account: EmailAccount) -> dict:
+    """Sync *account* now, unless it synced within the cooldown.
+
+    Raises what the sync raised (recorded by :func:`sync_and_record`).
+    """
+    # The per-account DB (and its sync_state table) must exist before
+    # the cooldown read: a new account has never synced, and the first
+    # "sync now" would die on `no such table: sync_state`.
+    await maybe_seed_sync_state(account.id)
+    state = await asyncio.to_thread(get_sync_state, account.id, 'INBOX')
+    if state.get('last_polled_at'):
+        last = datetime.fromisoformat(state['last_polled_at'])
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=UTC)
+        if (datetime.now(UTC) - last).total_seconds() < SYNC_COOLDOWN_SECONDS:
+            return {
+                'ok': True,
+                'account_email': account.email,
+                'new_emails': 0,
+                'last_polled_at': state['last_polled_at'],
+                'skipped': True,
+            }
+    new_count = await sync_and_record(account)
+    state = await asyncio.to_thread(get_sync_state, account.id, 'INBOX')
+    return {
+        'ok': True,
+        'account_email': account.email,
+        'new_emails': new_count,
+        'last_polled_at': state.get('last_polled_at'),
+    }
 
 
 async def maybe_seed_sync_state(account_id: str) -> None:

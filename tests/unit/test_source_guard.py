@@ -16,6 +16,7 @@ import pytest
 from app.ai import source_guard as sg
 from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import AUTO_APPROVE_CALLBACK
+from app.ai.tool_call_guards import tool_call_deny
 from app.config import DATA_DIR
 
 pytestmark = pytest.mark.unit
@@ -140,3 +141,64 @@ def test_hook_refuses_it():
     out = sent[0]['hookSpecificOutput']
     assert out['permissionDecision'] == 'deny'
     assert 'source code' in out['permissionDecisionReason']
+
+
+class TestTheTasksOwnMailboxes:
+    """A task reads its own mailboxes' databases (the db_path values
+    ``vibe_seller_email_info`` gives it); every other file in the data
+    dir, other mailboxes' included, stays refused."""
+
+    OWN = DATA_DIR / 'email_dbs' / 'email_own.db'
+    OWN_FILES = (str(OWN), str(OWN.parent / 'email_own_attachments'))
+    OTHER = DATA_DIR / 'email_dbs' / 'email_other.db'
+
+    @pytest.mark.parametrize(
+        ('tool', 'tool_input'),
+        [
+            (
+                'Bash',
+                {'command': f'sqlite3 "{OWN}" "SELECT subject FROM emails"'},
+            ),
+            ('Bash', {'command': f"sqlite3 -json '{OWN}' .schema"}),
+            (
+                'Bash',
+                {'command': 'sqlite3 ~' + str(OWN)[len(str(Path.home())) :]},
+            ),
+            ('Read', {'file_path': str(OWN)}),
+            (
+                'Read',
+                {
+                    'file_path': str(
+                        OWN.parent / 'email_own_attachments' / 'a.pdf'
+                    )
+                },
+            ),
+        ],
+    )
+    def test_its_own_mailbox_reads(self, tool, tool_input):
+        assert sg.source_access_deny(tool, tool_input, self.OWN_FILES) is None
+
+    @pytest.mark.parametrize(
+        ('tool', 'tool_input'),
+        [
+            ('Bash', {'command': f'sqlite3 "{OTHER}" .tables'}),
+            ('Read', {'file_path': str(OTHER)}),
+            ('Bash', {'command': f'sqlite3 {OWN} .tables; ls {DATA_DIR}'}),
+            ('Bash', {'command': f'sqlite3 {OWN}/../email_other.db .tables'}),
+            ('Read', {'file_path': f'{OWN}/../email_other.db'}),
+        ],
+    )
+    def test_everything_else_in_the_data_dir_stays_refused(
+        self, tool, tool_input
+    ):
+        deny = sg.source_access_deny(tool, tool_input, self.OWN_FILES)
+        assert deny and "vibe-seller's own data" in deny
+
+    def test_the_hooks_check_takes_them(self):
+        s = AgentSession(task_id='test-task', prompt='t', mode='auto')
+        call = {
+            'tool_name': 'Read',
+            'tool_input': {'file_path': str(self.OWN)},
+        }
+        assert tool_call_deny(s, call)  # not given: refused
+        assert tool_call_deny(s, call, self.OWN_FILES) is None

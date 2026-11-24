@@ -132,15 +132,24 @@ class TestSendEmail:
         acct.smtp_port = None
         acct.allow_send = True
 
-        result = await send_email(
-            account=acct,
-            password='pw',
-            to='y@y.com',
-            subject='No SMTP',
-            body='x',
-        )
-        assert result['ok'] is False
-        assert 'No SMTP host' in result['error']
+        # Refused by the one send gate (app.email.access.send_problem),
+        # before any connection, saying what the user adds where.
+        with (
+            patch('smtplib.SMTP_SSL') as ssl_cls,
+            patch('smtplib.SMTP') as plain_cls,
+            pytest.raises(SendNotAllowedError) as exc_info,
+        ):
+            await send_email(
+                account=acct,
+                password='pw',
+                to='y@y.com',
+                subject='No SMTP',
+                body='x',
+            )
+        ssl_cls.assert_not_called()
+        plain_cls.assert_not_called()
+        assert 'no outgoing (SMTP) server' in str(exc_info.value)
+        assert 'Settings → Email' in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_send_with_html(self, mock_account):

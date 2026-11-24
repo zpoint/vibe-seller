@@ -10,10 +10,10 @@ Tools provided:
   - create_task: Create a new task
   - list_cron_jobs: List scheduled cron jobs
   - add_cron_job: Add a new cron job
-  - email_info: Get email DB paths + schema for a store
+  - email_info: This task's mailboxes, what each can do, DB paths + schema
   - get_new_emails: Scheduled sweep — only emails since the cursor
-  - send_email: Send email via configured account
-  - sync_email_now: Trigger immediate IMAP sync for one account
+  - send_email: Send from one of this task's mailboxes
+  - sync_email_now: Trigger immediate IMAP sync for one of its mailboxes
   - write_workspace_file: Write file via relative path (stores/, knowledge/)
   - list_chat_bots / send_chat_message: Post to a group chat via a
     chat bot webhook (WeCom / DingTalk / Feishu / Slack)
@@ -33,7 +33,6 @@ import httpx
 
 from app import vision
 from app.config import BACKEND_PORT, LOCALHOST, VIBE_SELLER_DIR
-from app.email import NO_MAILBOX
 from app.mcp_tool_schemas import TOOLS
 from app.notifiers.base import PLATFORMS
 from app.skill_pack import pack_skill_dir
@@ -282,10 +281,13 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 },
             )
         elif name == 'vibe_seller_email_info':
-            store_id = arguments['store_id']
+            # The task's own mailboxes, scoped on the server; store_id
+            # only narrows a no-store task (app/routers/task_mailboxes.py).
+            store = arguments.get('store_id')
             result = await call_api(
                 'GET',
-                f'/api/email-accounts/info-by-store/{store_id}',
+                f'/api/tasks/{_config["task_id"]}/mailboxes'
+                + (f'?{urlencode({"store_id": store})}' if store else ''),
             )
         elif name == 'vibe_seller_get_new_emails':
             qs = ''
@@ -296,43 +298,23 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 f'/api/tasks/{_config["task_id"]}/new-emails{qs}',
             )
         elif name == 'vibe_seller_send_email':
-            account_email = arguments['account_email']
-            # Look up account by email to get its ID
-            all_accounts = await call_api('GET', '/api/email-accounts')
-            account_id = None
-            for acct in all_accounts:
-                if acct.get('email') == account_email:
-                    account_id = acct['id']
-                    break
-            if not account_id:
-                # Name what CAN send, or that nothing can: "not found"
-                # alone sends an agent hunting for the account elsewhere.
-                addresses = [a.get('email') for a in all_accounts]
-                result = {
-                    'error': (
-                        f'No connected mailbox is {account_email}. Send '
-                        'from one of: ' + ', '.join(addresses) + '.'
-                        if addresses
-                        else NO_MAILBOX
-                    )
-                }
-            else:
-                send_body: dict[str, str] = {
-                    'to': arguments['to'],
-                    'subject': arguments['subject'],
-                    'body': arguments['body'],
-                }
-                if arguments.get('body_html'):
-                    send_body['body_html'] = arguments['body_html']
-                result = await call_api(
-                    'POST',
-                    f'/api/email-accounts/{account_id}/send',
-                    send_body,
-                )
+            send_body: dict[str, str] = {
+                'account_email': arguments['account_email'],
+                'to': arguments['to'],
+                'subject': arguments['subject'],
+                'body': arguments['body'],
+            }
+            if arguments.get('body_html'):
+                send_body['body_html'] = arguments['body_html']
+            result = await call_api(
+                'POST',
+                f'/api/tasks/{_config["task_id"]}/mailboxes/send',
+                send_body,
+            )
         elif name == 'vibe_seller_sync_email_now':
             result = await call_api(
                 'POST',
-                '/api/email-accounts/sync-now',
+                f'/api/tasks/{_config["task_id"]}/mailboxes/sync',
                 {'account_email': arguments['account_email']},
             )
         elif name == 'vibe_seller_write_workspace_file':

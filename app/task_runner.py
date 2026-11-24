@@ -11,7 +11,7 @@ from app import knowledge_contract, vision
 from app.browser.manager import store_slug as _store_slug
 from app.custom_mcp import load_prompt_servers, prompt_note
 from app.database import async_session
-from app.email.prompt import Mailbox, get_store_emails
+from app.email.access import MailboxAccess, mailboxes_for
 from app.events.bus import event_bus
 from app.knowledge_contract import cleanup_scope
 from app.models.schedule import Schedule
@@ -128,7 +128,7 @@ async def build_system_extra(
     store: 'Store | None',
     *,
     header: TaskHeader = TaskHeader.AUTO,
-    store_emails: list[Mailbox] | None = None,
+    store_emails: list[MailboxAccess] | None = None,
     extra_context: str = '',
     schedule: 'Schedule | None' = None,
 ) -> PromptBundle:
@@ -201,7 +201,7 @@ async def build_system_extra(
         emails = store_emails
         if emails is None:
             async with async_session() as db:
-                emails = await get_store_emails(db, store.id)
+                emails = await mailboxes_for(db, store.id)
         parts.append(
             build_store_context(
                 store,

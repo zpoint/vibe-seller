@@ -3,15 +3,14 @@
 Sends emails via SMTP and records them in the per-account
 SQLite DB so they are immediately visible to agents.
 
-THE INVARIANT: no email leaves a mailbox whose owner has turned
-``EmailAccount.allow_send`` off. Sending is on by default (the owner's
-call: on by default changes nothing for existing users; off would); the
-user turns it off per mailbox. The check lives HERE, in the module that
-opens the SMTP connection, not in the routes that call it: every send
-path (the REST endpoint, the in-task MCP tool that POSTs to it, the
-external ``/api/mcp`` toolset that calls the route in-process) funnels
-through ``send_email``, so a caller added later is refused without
-having to remember to check.
+THE INVARIANT: no email leaves a mailbox that cannot send, as
+``app.email.access.send_problem`` decides: sending turned off by the user
+(``EmailAccount.allow_send``, on by default) or no outgoing server. The
+check lives HERE, in the module that opens the SMTP connection, not in
+the routes that call it: every send path (the REST endpoint, the in-task
+tool's task route, the external ``/api/mcp`` toolset that calls the route
+in-process) funnels through ``send_email``, so a caller added later is
+refused without having to remember to check.
 """
 
 import asyncio
@@ -25,50 +24,34 @@ import smtplib
 import uuid
 
 from app import telemetry
+from app.email.access import send_problem, send_refusal
 from app.email.db import init_email_db, store_emails
 from app.models.email_account import EmailAccount
 from app.telemetry_events import TelemetryEvent
 
 logger = logging.getLogger(__name__)
 
-# Where the user turns sending back on. Kept next to the gate so the
-# refusal can never point at a place the UI no longer has.
-SEND_PERMISSION_LOCATION = (
-    'Settings → Email, "Email sending permission" switch on that mailbox'
-)
-
 
 class SendNotAllowedError(Exception):
-    """The user has turned sending off for this mailbox.
+    """This mailbox cannot send (``app.email.access.send_problem``).
 
     The message is written for the agent that attempted the send: what
     happened, what the user can do, and what the agent can still do.
     """
 
-    def __init__(self, email: str):
-        self.email = email
-        super().__init__(
-            f'The user has turned sending off for {email}, so nothing was '
-            'sent. Do not retry. Tell the user they can turn it back on in '
-            f'{SEND_PERMISSION_LOCATION}. You can still draft the email '
-            'and show it to the user.'
-        )
+    def __init__(self, account: EmailAccount, problem: str):
+        self.email = account.email
+        super().__init__(send_refusal(account, problem))
 
 
 def ensure_send_allowed(account: EmailAccount) -> None:
-    """Raise :class:`SendNotAllowedError` if the user turned sending off.
+    """Raise :class:`SendNotAllowedError` unless *account* can send.
 
-    Only an explicit off (``False``, or a falsy stored value such as
-    ``0``) refuses. ``None`` — "never decided" — is allowed, because it
-    can only mean the default and the default is on: the column is
-    ``NOT NULL DEFAULT 1``, so a stored row is never NULL, and ``None``
-    appears only on an object that has not been flushed yet, whose
-    column default is likewise on. The refusal must track the user's
-    decision, and the only way to record "off" is the user switching it
-    off (``PUT …/send-permission``, interactive-only).
+    The decision is ``app.email.access.send_problem``'s, the same one the
+    email tools and the task prompt report.
     """
-    if account.allow_send is not None and not account.allow_send:
-        raise SendNotAllowedError(account.email)
+    if problem := send_problem(account):
+        raise SendNotAllowedError(account, problem)
 
 
 async def send_email(
@@ -86,8 +69,8 @@ async def send_email(
     ``{'ok': False, 'error': ...}`` on failure.
 
     Raises:
-        SendNotAllowedError: the account's ``allow_send`` is off. Raised
-            before any SMTP connection is opened.
+        SendNotAllowedError: the account cannot send (sending off, or no
+            outgoing server). Raised before any SMTP connection is opened.
     """
     recipients = [to] if isinstance(to, str) else list(to)
     try:
@@ -161,12 +144,6 @@ def _do_send(
     smtp_host = account.smtp_host
     smtp_port = account.smtp_port or 465
     use_tls = account.smtp_use_tls
-
-    if not smtp_host:
-        return {
-            'ok': False,
-            'error': 'No SMTP host configured for this account',
-        }
 
     # Build message
     msg = MIMEMultipart('mixed')

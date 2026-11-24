@@ -22,6 +22,7 @@ from app.ai.turn_hold_budget import reset_ledger
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
+from app.email.access import mailboxes_for
 from app.events.bus import event_bus
 from app.models.store import Store
 from app.models.task import Task
@@ -48,7 +49,6 @@ from app.task_runner import (
     build_store_context,
     build_system_extra,
     check_parent_completion,
-    get_store_emails,
     reopen_parent_if_child_active,
 )
 from app.task_runner_exec import execute_planned_task
@@ -404,7 +404,7 @@ async def design_task(
         )
 
     store = await db.get(Store, task.store_id) if task.store_id else None
-    store_emails = await get_store_emails(db, store.id) if store else []
+    store_emails = await mailboxes_for(db, store.id) if store else []
 
     bundle = await build_system_extra(
         task,

@@ -69,6 +69,7 @@ from app.routers.sse import router as sse_router
 from app.routers.stores import router as stores_router
 from app.routers.sync import router as sync_router
 from app.routers.system import router as system_router
+from app.routers.task_mailboxes import router as task_mailboxes_router
 from app.routers.tasks import router as tasks_router
 from app.routers.tasks_ad_declaration import (
     router as tasks_ad_declaration_router,
@@ -420,6 +421,7 @@ app.include_router(tasks_ad_declaration_router)
 app.include_router(tasks_files_router)
 app.include_router(tasks_report_declaration_router)
 app.include_router(tasks_schedule_state_router)
+app.include_router(task_mailboxes_router)
 app.include_router(telemetry_router)
 app.include_router(browser_router)
 app.include_router(sse_router)

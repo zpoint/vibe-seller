@@ -128,8 +128,9 @@ async def _stored_email_password(ctx: McpContext, account_id: str):
     "account's allow_send, which only the user can change), "
     'sync_now (pull new mail now), '
     'links (stores linked to an account), link / unlink (attach an '
-    'account to a store), info_by_store (the per-account mail DB '
-    'paths + query notes an agent uses to read mail). Passwords '
+    "account to a store), info_by_store (a store's mailboxes: what "
+    'each can read and send and why not, mail DB paths + query '
+    'notes an agent uses to read mail). Passwords '
     'are write-only: accepted on create/update/test, never '
     'returned.',
     action_schema(

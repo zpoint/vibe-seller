@@ -17,10 +17,12 @@ Protected: the ``app`` package, and when it runs from a source checkout,
 that checkout's ``tests/`` (they describe the gates just as well). Also the
 app's own data dir: observed, a planner spent its first six minutes in
 ``vibe_seller.db`` and the mailbox databases instead of planning — and the
-frozen ad approvals live there too. Mail is read through the email MCP
-tools; nothing a task needs is under it. Paths are compared as written, not
-resolved, so a symlinked skill copy that happens to point into the package
-still reads normally.
+frozen ad approvals live there too. The one exception is the task's own
+mailboxes: ``vibe_seller_email_info`` hands it their database paths to
+query, so those files (``app.email.access.readable_mailbox_files``) read
+normally and every other mailbox's stays refused. Paths are compared as
+written, not resolved, so a symlinked skill copy that happens to point
+into the package still reads normally.
 """
 
 import os
@@ -81,8 +83,10 @@ _ROOT_IN_CMD = (
 
 _DATA_DENY = (
     "Blocked: `{path}` is vibe-seller's own data, not data for this task. "
-    'Mail is read with the email tools, store files and knowledge are in '
-    'your working directory, and other tasks are not yours to read.'
+    "Your mailboxes' databases are the db_path values "
+    '`vibe_seller_email_info` gives (other mailboxes are not yours), '
+    'store files and knowledge are in your working directory, and other '
+    'tasks are not yours to read.'
 )
 
 _DENY = (
@@ -99,17 +103,39 @@ def _under(path: str, dirs: tuple[Path, ...]) -> bool:
     return any(p == str(d) or p.startswith(str(d) + os.sep) for d in dirs)
 
 
+def is_data_deny(reason: str) -> bool:
+    """Whether *reason* refused a path in the data dir (not source)."""
+    return _DATA_DENY.split('{path}')[1] in reason
+
+
 def _deny(path: str) -> str:
     data = _under(path, (DATA_DIR,))
     return (_DATA_DENY if data else _DENY).format(path=path)
 
 
-def source_access_deny(tool_name: str, tool_input) -> str | None:
-    """Deny reason when a tool call reaches into vibe-seller's source."""
+def _without(cmd: str, readable: tuple[str, ...]) -> str:
+    """*cmd* with each readable path (in either spelling) taken out.
+
+    Not where it is followed by ``/..``: that climbs back out of it.
+    """
+    for path in readable:
+        for spelling in _spellings(Path(path)):
+            cmd = re.sub(re.escape(spelling) + r'(?!/\.\.)', '<mailbox>', cmd)
+    return cmd
+
+
+def source_access_deny(
+    tool_name: str, tool_input, readable: tuple[str, ...] = ()
+) -> str | None:
+    """Deny reason when a tool call reaches into vibe-seller's source.
+
+    *readable*: the task's own mailbox files, the one part of the data
+    dir it may read (``app.email.access.readable_mailbox_files``).
+    """
     if not isinstance(tool_input, dict):
         return None
     if tool_name == 'Bash':
-        cmd = str(tool_input.get('command', ''))
+        cmd = _without(str(tool_input.get('command', '')), readable)
         m = _PROTECTED_IN_CMD.search(cmd) or (
             _ROOT_IN_CMD.search(cmd) if _ROOT_IN_CMD else None
         )
@@ -123,6 +149,8 @@ def source_access_deny(tool_name: str, tool_input) -> str | None:
     if not path or not os.path.isabs(os.path.expanduser(str(path))):
         return None
     p = str(path)
+    if _under(p, tuple(Path(r) for r in readable)):
+        return None
     if _under(p, PROTECTED_DIRS) or (
         _ROOT and _under(p, (_ROOT,)) and not _under(p, (_VENV,))
     ):
