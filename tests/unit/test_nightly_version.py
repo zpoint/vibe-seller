@@ -1,6 +1,7 @@
 """A tester build's version must land on the nightly channel.
 
-``windows-installer.yml``'s ``tester_build`` stamps the installer with
+A ``windows-installer.yml`` run that does not verify (a plain dispatch,
+built for people to try) stamps the installer with
 ``scripts/nightly_version.py``. The contract is the channel's: people
 who install it are offered the next release, and no stable install is
 ever offered it.

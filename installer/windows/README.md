@@ -111,16 +111,20 @@ python-build-standalone is per-OS, and Inno Setup compiles on Windows.
 CI builds it on `windows-latest` (`.github/workflows/windows-installer.yml`).
 
 **A build for people to try** (a PR branch or `main`, before a release):
-run that workflow by hand with **tester_build** ticked, from the Actions
-page or `gh workflow run windows-installer.yml --ref <branch> -f
-tester_build=true`. It builds and uploads the installer and runs no
-checks at all, and the run page links the download (GitHub sign-in
-needed, a .zip holding the .exe, kept 14 days). The installer is stamped
-`<next patch>.dev<UTC timestamp>` (`scripts/nightly_version.py`), the
-nightly channel: whoever installs it is offered newer nightlies and the
-next release, and no stable install is ever offered it. A plain manual
-run is stamped `99.0.<run>` for the update checks, and an install of
-that is never offered a real release again — don't hand it out.
+run that workflow by hand, from the Actions page or `gh workflow run
+windows-installer.yml --ref <branch>`. It builds and uploads the
+installer and runs no checks, and the run page links the download
+(GitHub sign-in needed, a .zip holding the .exe, kept 14 days). The
+installer is stamped `<next patch>.dev<UTC timestamp>`
+(`scripts/nightly_version.py`), the nightly channel: whoever installs it
+is offered newer nightlies and the next release, and no stable install
+is ever offered it.
+
+A run that **verifies** the installer — every PR run, a dispatch with
+`verify` ticked, any `twist` — installs it and runs the smoke, agent
+e2e and auto-update checks. Those need an install shaped like a stable
+release, so that build is stamped `99.0.<run>`. An install of it is
+never offered a real release again, so don't hand it out.
 
 Locally on a Windows box:
 

@@ -310,7 +310,7 @@ bug that job cannot observe is the misleading result, not a pass).
 | workflow | when | what |
 |---|---|---|
 | `cli-upgrade.yml` | PR touching the upgrade surface; `workflow_call` from release.yml; dispatch | `upgrade from checkout/release`, and the `auto-update` matrix S1/S2/S5/S5b/S5c/S7 × ubuntu + macOS, one port per leg |
-| `windows-installer.yml` | PR (behind the `e2e` approval), dispatch | builds the installer, then the `auto-update` matrix S3/S4/S5/S5b/S5c/S6 — one runner per leg, so the isolation is the runner's, and one red leg cannot hide the others |
+| `windows-installer.yml` | PR (behind the `e2e` approval), dispatch with `verify` or a `twist` (a plain dispatch only builds an installer to try) | builds the installer, then the `auto-update` matrix S3/S4/S5/S5b/S5c/S6 — one runner per leg, so the isolation is the runner's, and one red leg cannot hide the others |
 | `bundle-fingerprint.yml` | PR, dispatch | S8 |
 | `pip-upgrade-gate.yml` | `workflow_call` from release.yml | S9, macOS/Linux + Windows, or the reason it cannot mean anything |
 

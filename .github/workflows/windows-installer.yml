@@ -65,13 +65,14 @@ on:
         description: 'Installer version string'
         required: false
         default: '0.0.0'
-      tester_build:
+      verify:
         description: >-
-          Build an installer for people to try, and nothing else: no
-          install, no checks, no e2e. Stamped as a nightly of the next
-          release (scripts/nightly_version.py), so whoever installs it
-          is offered that release when it ships, and no stable install
-          is ever offered this build. The link is on the run page.
+          Also install the build and run every check on it (smoke,
+          agent e2e, the auto-update legs), as a PR run does. Stamped
+          99.0.<run>, a version only CI may install. Unticked, the run
+          only builds an installer for people to try, stamped as a
+          nightly of the next release (scripts/nightly_version.py), and
+          links it on the run page. A twist always verifies.
         required: false
         default: false
         type: boolean
@@ -155,14 +156,23 @@ jobs:
       # the update legs build their wheels with the same pair.
       claude: ${{ steps.pins.outputs.claude }}
       playwright: ${{ steps.pins.outputs.playwright }}
+      # The jobs that test this installer run only when it was built
+      # to be tested (env.VERIFY).
+      verify: ${{ steps.build.outputs.verify }}
     env:
       # A dispatch input, never pasted into a command line: the steps
       # read it as $env:TWIST. 'none' (and any PR run, where there is no
       # input at all) builds the code exactly as it is.
       TWIST: ${{ github.event.inputs.twist }}
-      # 'true' only on a tester_build dispatch: build and upload the
-      # installer, skip every step that verifies it.
-      TESTER_BUILD: ${{ github.event.inputs.tester_build == 'true' }}
+      # 'true' when this run checks the installer it builds: every PR
+      # run, a dispatch with `verify` ticked, and every twist (a twist
+      # exists to turn a check red). Otherwise the run builds an
+      # installer for people to try and stops at the upload.
+      VERIFY: >-
+        ${{ github.event_name == 'pull_request' ||
+        github.event.inputs.verify == 'true' ||
+        (github.event.inputs.twist != 'none' &&
+        github.event.inputs.twist != '') }}
       # The floating bundle pins: empty means the newest release, which
       # build.ps1 resolves (scripts/resolve_bundle_pins.py).
       BUNDLE_CLAUDE_VERSION: ${{ github.event.inputs.claude_version || vars.BUNDLE_CLAUDE_VERSION }}
@@ -208,16 +218,19 @@ jobs:
           # step below must exercise the shipped updater on an install
           # shaped like a release. 99.x sorts above every real release,
           # so PyPI can never win a resolution against it.
-          # A tester build is the exception: it is installed by people,
-          # not by the checks below, and a 99.x install is never offered
-          # a real release again. It gets the nightly shape instead.
+          # Only a run that verifies gets it: a 99.x install is never
+          # offered a real release again, so an installer built for
+          # people to try is stamped as a nightly of the next release
+          # instead — offered newer nightlies and that release, and
+          # never offered to a stable install.
+          "verify=$env:VERIFY" >> $env:GITHUB_OUTPUT
           $ver = "${{ github.event.inputs.app_version }}"
           if ([string]::IsNullOrWhiteSpace($ver) -or $ver -eq "0.0.0") {
-            if ($env:TESTER_BUILD -eq 'true') {
+            if ($env:VERIFY -eq 'true') {
+              $ver = "99.0.${{ github.run_number }}"
+            } else {
               $ver = python scripts/nightly_version.py
               if ($LASTEXITCODE -ne 0) { throw "scripts/nightly_version.py failed" }
-            } else {
-              $ver = "99.0.${{ github.run_number }}"
             }
           }
           "version=$ver" >> $env:GITHUB_OUTPUT
@@ -265,7 +278,7 @@ jobs:
       # job — so any download the install or the app attempts fails, and
       # the Chromium checks below catch it.
       - name: Block the Playwright CDN (simulate an unreachable CDN)
-        if: env.TESTER_BUILD != 'true'
+        if: env.VERIFY == 'true'
         shell: pwsh
         run: |
           $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
@@ -286,7 +299,7 @@ jobs:
           exit 0
 
       - name: Silent-install the built package
-        if: env.TESTER_BUILD != 'true'
+        if: env.VERIFY == 'true'
         shell: pwsh
         run: |
           $exe = "installer\windows\out\VibeSeller-Setup.exe"
@@ -317,7 +330,7 @@ jobs:
           Write-Host "OK: login shortcut $lnk"
 
       - name: Verify the bundled Chromium (installed offline, launches)
-        if: env.TESTER_BUILD != 'true'
+        if: env.VERIFY == 'true'
         shell: pwsh
         run: |
           $install = $env:VS_INSTALL
@@ -372,7 +385,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "bundled Chromium failed to launch" }
 
       - name: Start server (background)
-        if: env.TESTER_BUILD != 'true'
+        if: env.VERIFY == 'true'
         shell: pwsh
         run: |
           $install = $env:VS_INSTALL
@@ -402,7 +415,7 @@ jobs:
           & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
 
       - name: Smoke test (verify_install.sh — health + store/profile API)
-        if: env.TESTER_BUILD != 'true'
+        if: env.VERIFY == 'true'
         shell: bash
         run: |
           # The tray starts the server with the bundled claude + the venv
@@ -416,7 +429,7 @@ jobs:
           bash tests/releases/verify_install.sh ""
 
       - name: Verify the installed app can recover a forgotten password
-        if: env.TESTER_BUILD != 'true'
+        if: env.VERIFY == 'true'
         shell: pwsh
         run: |
           # `vibe-seller reset-auth` is how an operator gets back in when
@@ -474,7 +487,7 @@ jobs:
           Remove-Item -Recurse -Force $resetHome
 
       - name: Verify bundled bash runs the extensionless wrapper shape
-        if: env.TESTER_BUILD != 'true'
+        if: env.VERIFY == 'true'
         shell: pwsh
         run: |
           # The per-store browser-use wrapper is an extensionless bash
@@ -495,7 +508,7 @@ jobs:
           Write-Host "OK: bundled bash executes extensionless shebang wrappers"
 
       - name: Tray dialog + start-at-login tests (dialog/clipboard, registry, shortcuts)
-        if: env.TESTER_BUILD != 'true'
+        if: env.VERIFY == 'true'
         shell: pwsh
         run: |
           # Verifies the fix for the unresponsive dialog + Copy-to-clipboard
@@ -514,7 +527,7 @@ jobs:
             tests\unit\test_tray_autostart.py -v
 
       - name: Install pytest deps into the bundled venv (for agent e2e)
-        if: env.TESTER_BUILD != 'true'
+        if: env.VERIFY == 'true'
         shell: pwsh
         run: |
           $py = "$env:VS_INSTALL\.venv\Scripts\python.exe"
@@ -522,7 +535,7 @@ jobs:
             pytest pytest-asyncio httpx pytest-playwright
 
       - name: Light agent e2e against the installed daemon
-        if: env.TESTER_BUILD != 'true'
+        if: env.VERIFY == 'true'
         shell: pwsh
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
@@ -569,7 +582,7 @@ jobs:
             --e2e -v --log-cli-level=INFO
 
       - name: Verify the agent venv reused the bundled Python
-        if: env.TESTER_BUILD != 'true'
+        if: env.VERIFY == 'true'
         shell: pwsh
         run: |
           # The e2e task created ~/.vibe-seller/.venv. Its pyvenv.cfg must
@@ -588,7 +601,7 @@ jobs:
           Write-Host "OK: agent venv reused the bundled Python ($bundled)"
 
       - name: Stop server + stage logs
-        if: always() && env.TESTER_BUILD != 'true'
+        if: always() && env.VERIFY == 'true'
         shell: pwsh
         run: |
           & "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe" stop --port 7777
@@ -602,7 +615,7 @@ jobs:
           if (Test-Path $logs) { Copy-Item -Recurse -Force $logs "$dst\logs" }
 
       - name: Upload server logs
-        if: always() && env.TESTER_BUILD != 'true'
+        if: always() && env.VERIFY == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: windows-e2e-server-logs
@@ -624,10 +637,9 @@ jobs:
     # Explicit: the implicit success() also requires every ANCESTOR to
     # have run, so a workflow_dispatch (e2e-approval skipped) silently
     # skipped this job even when the build passed.
-    # A tester build verifies nothing.
     if: >-
       !cancelled() && needs.build.result == 'success' &&
-      github.event.inputs.tester_build != 'true'
+      needs.build.outputs.verify == 'true'
     timeout-minutes: 30
     steps:
       - name: Download the built installer
@@ -888,7 +900,7 @@ jobs:
     needs: build
     if: >-
       always() &&
-      github.event.inputs.tester_build != 'true' &&
+      needs.build.outputs.verify == 'true' &&
       (needs.build.result == 'success' ||
        needs.build.result == 'failure')
     strategy:

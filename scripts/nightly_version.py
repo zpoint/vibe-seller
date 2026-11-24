@@ -1,4 +1,4 @@
-"""Print the version a tester build is stamped with.
+"""Print the version an installer built for people to try is stamped with.
 
 ``<next patch>.dev<UTC YYYYMMDDHHMM>`` after the highest stable
 ``vX.Y.Z`` tag — the shape ``app/release_channel.py`` reads as the
