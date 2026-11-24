@@ -38,6 +38,16 @@ from app.notifiers.base import PLATFORMS
 from app.skill_pack import pack_skill_dir
 from app.text_utils import sanitize_json
 
+# Returned with every sub-task a parent creates. The parent completes by
+# itself with its sub-tasks' results once its turn ends; a parent that
+# polls instead holds a run slot its own sub-tasks may be queued for.
+SUBTASK_NEXT = (
+    'Sub-task created; it runs on its own. Once all your sub-tasks are '
+    'created, end your turn with a short note of what you delegated: '
+    "this task then waits and completes by itself with every sub-task's "
+    'result. Do not poll, sleep or monitor for them in this session.'
+)
+
 # ``--tools`` sets a hard allowlist for non-task sessions: the
 # workspace assistant gets the skill tools and NOTHING task-only
 # (see WorkspaceAgentSession.start and main()). Applied twice — to
@@ -267,6 +277,8 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                     'description': arguments.get('description'),
                 },
             )
+            if arguments.get('parent_task_id') and 'id' in result:
+                result = {**result, 'next': SUBTASK_NEXT}
         elif name == 'vibe_seller_list_cron_jobs':
             result = await call_api('GET', '/api/cron/jobs')
         elif name == 'vibe_seller_add_cron_job':
