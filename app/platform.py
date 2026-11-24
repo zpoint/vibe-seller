@@ -87,6 +87,26 @@ def is_process_alive(pid: int) -> bool:
     return psutil.pid_exists(pid)
 
 
+def process_started_after(pid: int, moment: float) -> bool:
+    """Whether the process now holding *pid* was created after *moment*.
+
+    A recorded PID names one process, but the OS hands a dead process's
+    PID to the next new one — Windows within seconds — so "a process
+    with this PID exists" does not say it is the one that was recorded.
+    One created after the record was written cannot be it.
+
+    Gone → False: existence is ``is_process_alive``'s question, and the
+    caller asked it first. Access denied → True: what we record runs as
+    this user, so a process we may not inspect is someone else's.
+    """
+    try:
+        return psutil.Process(pid).create_time() > moment
+    except psutil.NoSuchProcess:
+        return False
+    except psutil.AccessDenied:
+        return True
+
+
 async def kill_process(
     pid: int,
     timeout: float = 3.0,

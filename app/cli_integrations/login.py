@@ -81,6 +81,20 @@ async def _terminate(proc: asyncio.subprocess.Process) -> None:
         proc.kill()
     with contextlib.suppress(TimeoutError):
         await asyncio.wait_for(proc.wait(), 10)
+    logger.info('login CLI pid %s ended (rc=%s)', proc.pid, proc.returncode)
+
+
+async def _terminate_fully(proc: asyncio.subprocess.Process) -> None:
+    """:func:`_terminate`, run to the end even if the caller is cancelled
+    again meanwhile.
+
+    The step's ``finally`` runs this while its task is being cancelled;
+    a second cancel landing inside ``_terminate`` (its first await is a
+    thread hop) would skip ``proc.kill()`` and leave the CLI running
+    with nobody left to stop it. Shielded, the kill always happens; the
+    second cancel still propagates once it has.
+    """
+    await asyncio.shield(_terminate(proc))
 
 
 class LoginSession:
@@ -275,6 +289,12 @@ class LoginSession:
             **kwargs,
         )
         self._proc = proc
+        logger.info(
+            '%s login step %s started: pid %s',
+            self.integ.key,
+            self.view.step,
+            proc.pid,
+        )
         try:
             return await asyncio.wait_for(
                 self._pump(proc, step), step.timeout_s
@@ -284,7 +304,7 @@ class LoginSession:
             self.view.message = 'timed out waiting for the approval'
             return 124
         finally:
-            await _terminate(proc)
+            await _terminate_fully(proc)
             self._proc = None
 
     async def _pump(self, proc: asyncio.subprocess.Process, step) -> int:

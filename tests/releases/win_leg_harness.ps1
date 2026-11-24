@@ -107,8 +107,11 @@ function Json($o) { ($o | ConvertTo-Json -Compress -Depth 8) }
 function Fail([string]$msg) {
   Write-Host "FAIL: $msg"
   Write-Host "  server answers: '$(Server-Version)'  state: $(Json (Status))"
+  # tray.log: on Windows the helper restarts the app through the tray,
+  # and the tray's `vibe-seller start` logs its refusal only there.
   foreach ($f in @("$script:Updates\pip-apply.log", "$script:Updates\last.json",
-                   "$($script:LegHome)\logs\backend_$($script:Port).log")) {
+                   "$($script:LegHome)\logs\backend_$($script:Port).log",
+                   "$env:LOCALAPPDATA\vibe-seller\logs\tray.log")) {
     if (Test-Path $f) {
       Write-Host "--- $f"
       Get-Content $f -Tail 30 -ErrorAction SilentlyContinue

@@ -42,6 +42,7 @@ BASE_URL = ''
 VIBE_HOME = Path()
 _OWNED: OwnServer | None = None
 _FAKE = ''
+_LOG_START = 0
 
 
 def log_path() -> Path:
@@ -74,7 +75,7 @@ def owned_stack(tmp_path_factory):
     port, temp ``VIBE_HOME``) instead of assuming the shared e2e
     server carries it. The shared server and home are never touched.
     """
-    global _OWNED, _FAKE, BASE_URL, VIBE_HOME
+    global _OWNED, _FAKE, BASE_URL, VIBE_HOME, _LOG_START
 
     fake = FakeGitHub()
     _FAKE = fake.start().rstrip('/')
@@ -100,6 +101,10 @@ def owned_stack(tmp_path_factory):
     _OWNED = server
     BASE_URL = server.base_url
     VIBE_HOME = server.home
+    # Measured BEFORE start: the log is per port, so it can hold an
+    # earlier server's lines (a port freed by another module is handed
+    # out again), and this server's boot ticks land during start().
+    _LOG_START = server.log.stat().st_size if server.log.is_file() else 0
     server.start()
     yield server
     server.stop()
@@ -140,10 +145,11 @@ def log_start(owned_stack) -> int:
 
     The server log accumulates across runs (and across servers), so
     counting from the top would find yesterday's run lines and wait
-    for nothing.
+    for nothing. Measured by ``owned_stack`` before its server starts,
+    so this server's boot ticks are inside the window.
     """
-    path = log_path()
-    return path.stat().st_size
+    log_path()
+    return _LOG_START
 
 
 def lines_since(offset: int, name: str | None = None) -> list[str]:
@@ -203,9 +209,13 @@ def test_upstream_unchanged_costs_one_request(fake, log_start):
     unchanged upstream must not cost a body — and a 304 does not count
     against GitHub's rate limit.
     """
+    # Round 1 — the first download — is this test's own precondition.
+    # Under ``--dist load`` it can be the only test of this module on
+    # its worker, on a server that has not run once yet.
+    wait_for_runs('skills', 1, timeout=120, offset=log_start)
     before = fake.counts()
-    seen = len(sync_lines(log_path().read_text(errors='replace'), 'skills'))
-    lines = wait_for_runs('skills', seen + 1, timeout=120)
+    seen = len(lines_since(log_start, 'skills'))
+    lines = wait_for_runs('skills', seen + 1, timeout=120, offset=log_start)
     assert any('status=unchanged' in line for line in lines), lines
     after = fake.counts()
     assert after.get('not_modified', 0) >= 1, after

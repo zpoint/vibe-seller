@@ -144,10 +144,15 @@ def owned_agent_stack(
         server.stop()
 
 
-#: Every server THIS process started, kept for the session-end leak
-#: check (:func:`assert_no_owned_server_leaked`). A per-process list is
-#: exactly right under xdist: each worker owns the servers it started,
-#: and the worker that leaked one is the one that says so.
+#: Every server THIS process started and has not stopped, kept for the
+#: session-end leak check (:func:`assert_no_owned_server_leaked`). A
+#: per-process list is exactly right under xdist: each worker owns the
+#: servers it started, and the worker that leaked one is the one that
+#: says so. ``stop()`` takes its server off: once its port is free the
+#: port is the kernel's again, and another worker's server may be
+#: listening on it (and writing its own ``.pids_<port>``) by the time
+#: this worker's session ends — observed, and reported as this worker's
+#: leak.
 _STARTED: list['OwnServer'] = []
 
 
@@ -285,7 +290,8 @@ class OwnServer:
         # Booked as soon as it is up: the session-end check reports the
         # servers this worker started, whether or not their fixture got
         # as far as calling stop().
-        _STARTED.append(self)
+        if self not in _STARTED:
+            _STARTED.append(self)
 
     def wait_health(self, timeout: float = 60) -> None:
         deadline = time.time() + timeout
@@ -309,3 +315,7 @@ class OwnServer:
         """Stop this server — only ever its own pid file."""
         assert_owned_port(self.port)
         self._stop_own()
+        # Reached only with the port verified free (``_stop_own`` raises
+        # otherwise): nothing on it is this server any more.
+        if self in _STARTED:
+            _STARTED.remove(self)

@@ -1431,9 +1431,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: win-${{ matrix.leg }}-updates
+          # The server log says what booted; the tray log says what the
+          # tray's `vibe-seller start` answered when nothing did (leg s5c
+          # went dark with no record of why: the restart's own refusal
+          # was only in tray.log, which no artifact carried).
           path: |
             ${{ runner.temp }}\vs-${{ matrix.leg }}-home\updates
+            ${{ runner.temp }}\vs-${{ matrix.leg }}-home\logs
             ${{ runner.temp }}\vs-${{ matrix.leg }}-release.json
+            ~\AppData\Local\vibe-seller\logs\tray.log
           if-no-files-found: warn
           retention-days: 14
 

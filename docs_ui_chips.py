@@ -5,11 +5,13 @@ element — they quote what the frontend itself shows (「新建任务」,
 「授权」, 「设置 → 集成 → API Key」). Written that way they read as plain
 text, so a reader scanning a step cannot tell a button from a sentence.
 
-``mark_ui_labels`` wraps them in ``<span class="ui">`` so
-``docs/stylesheets/extra.css`` can give them a chip: a hairline box, a
-light fill, no wrap. It runs in ``docs_hooks.on_page_markdown`` on the
-site build only — the sources keep their brackets, so the GitHub
-READMEs and the raw ``.md`` files are unchanged.
+``mark_ui_labels`` finds them and hands each one to a renderer. The
+site's renderer (``site_chip``, the default) wraps them in
+``<span class="ui">`` so ``docs/stylesheets/extra.css`` can give them a
+chip: a hairline box, a light fill, no wrap; it runs in
+``docs_hooks.on_page_markdown``. GitHub strips classes and styles, so
+``scripts/gen_readme.py`` renders the same labels with ``github_chip`` as
+``<kbd>`` boxes instead. The sources keep their brackets either way.
 
 What counts as a label, and what is left as plain quoted text:
 
@@ -41,6 +43,7 @@ tell from a label.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import re
 
 from docs_cjk import classify_lines
@@ -86,8 +89,25 @@ HEADING_LINE = re.compile(r'^ *(?:#{1,6})\s')
 # The muted separator inside a menu-path chip.
 _SEP = '<span class="ui-sep">›</span>'
 
+# Turns a label's segments (one for a plain label, several for a menu
+# path) into the markup that shows it as a UI element.
+ChipRenderer = Callable[[list[str]], str]
+
 # Placeholder used to park a protected span while the line is rewritten.
 _TOKEN = re.compile(r'\x00(\d+)\x00')
+
+
+def site_chip(segments: list[str]) -> str:
+    """The docs site's chip: a styled span, paths joined by a muted ›."""
+    long_class = (
+        ' ui--long' if len(''.join(segments)) > _WRAP_AFTER_CHARS else ''
+    )
+    return f'<span class="ui{long_class}">{_SEP.join(segments)}</span>'
+
+
+def github_chip(segments: list[str]) -> str:
+    """The README's chip: GitHub drops classes, but draws ``<kbd>``."""
+    return f'<kbd>{" › ".join(segments)}</kbd>'
 
 
 def _looks_like_a_sentence(text: str) -> bool:
@@ -97,7 +117,7 @@ def _looks_like_a_sentence(text: str) -> bool:
     )
 
 
-def _path_chip(text: str) -> str | None:
+def _path_chip(text: str, render: ChipRenderer) -> str | None:
     """One chip for a menu path, or ``None`` when it is not eligible.
 
     A path is ``→``-separated; each segment is trimmed of the arrows and
@@ -115,26 +135,24 @@ def _path_chip(text: str) -> str | None:
         return None
     if len(''.join(parts)) > _MAX_PATH_CHARS:
         return None
-    long_class = ' ui--long' if len(''.join(parts)) > _WRAP_AFTER_CHARS else ''
-    return f'<span class="ui{long_class}">{_SEP.join(parts)}</span>'
+    return render(parts)
 
 
-def _chip(text: str) -> str:
+def _chip(text: str, render: ChipRenderer) -> str:
     """The chip markup for one label, or the plain text if it is prose."""
     if '→' in text:
-        path = _path_chip(text)
+        path = _path_chip(text, render)
         if path is not None:
             return path
     if _looks_like_a_sentence(text):
         return text
-    long_class = ' ui--long' if len(text) > _WRAP_AFTER_CHARS else ''
-    return f'<span class="ui{long_class}">{text}</span>'
+    return render([text])
 
 
-def _chain_chip(match: re.Match[str]) -> str:
+def _chain_chip(match: re.Match[str], render: ChipRenderer) -> str:
     """One chip for 「A」→「B」: the arrows join one path, not two chips."""
     segments = _LABEL.findall(match.group(0))
-    return _path_chip(' → '.join(segments)) or match.group(0)
+    return _path_chip(' → '.join(segments), render) or match.group(0)
 
 
 def mask_line(line: str) -> tuple[str, list[str]]:
@@ -160,40 +178,42 @@ def unmask_line(line: str, kept: list[str]) -> str:
     return _TOKEN.sub(lambda m: kept[int(m.group(1))], line)
 
 
-def _mark_line(line: str) -> str:
+def _mark_line(line: str, render: ChipRenderer) -> str:
     """One prose line: chips for its labels, nothing else changed."""
     if '「' not in line and '"' not in line:
         return line
     masked, kept = mask_line(line)
     # Chains first: 「A」→「B」 must be consumed as one path before the
     # single-label pass turns each half into its own chip.
-    masked = _CHAIN.sub(_chain_chip, masked)
-    masked = _LABEL.sub(lambda m: _chip_or_keep(m.group(0), m.group(1)), masked)
+    masked = _CHAIN.sub(lambda m: _chain_chip(m, render), masked)
+    masked = _LABEL.sub(
+        lambda m: _chip_or_keep(m.group(0), m.group(1), render), masked
+    )
     masked = _QUOTED_BOLD.sub(
-        lambda m: _chip_or_keep(m.group(0), m.group(1)), masked
+        lambda m: _chip_or_keep(m.group(0), m.group(1), render), masked
     )
     return unmask_line(masked, kept)
 
 
-def _chip_or_keep(original: str, text: str) -> str:
+def _chip_or_keep(original: str, text: str, render: ChipRenderer) -> str:
     """Chip ``text``, or return ``original`` untouched when it is prose.
 
     The English ``"**Label**"`` form drops its quotes and bold markers
     along with the conversion, so when the text turns out to be prose the
     original must come back exactly as it was.
     """
-    chip = _chip(text)
+    chip = _chip(text, render)
     if chip == text:
         return original
     return chip
 
 
-def mark_ui_labels(markdown: str) -> str:
+def mark_ui_labels(markdown: str, render: ChipRenderer = site_chip) -> str:
     """Rewrite every prose line of ``markdown`` with label chips."""
     out: list[str] = []
     for kind, line in classify_lines(markdown):
         if kind != 'prose' or HEADING_LINE.match(line):
             out.append(line)
             continue
-        out.append(_mark_line(line))
+        out.append(_mark_line(line, render))
     return '\n'.join(out)

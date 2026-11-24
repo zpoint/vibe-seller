@@ -43,6 +43,10 @@ theme:
     repo: fontawesome/brands/github
   features:
     - content.code.copy
+    # Tabs with the same label switch together and the choice is kept:
+    # a reader who picks "macOS" on Install sees the macOS tab in
+    # Quickstart too, and an MCP page's "界面操作" choice carries to the next.
+    - content.tabs.link
     - content.action.edit
     - content.tooltips
     - navigation.tracking

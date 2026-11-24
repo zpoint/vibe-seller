@@ -4,15 +4,27 @@ description: Ziniao with Vibe Seller in one page — developer-mode and WebDrive
 
 # Ziniao: Setup & Common Errors
 
-Ziniao is a third-party anti-detect browser; Vibe Seller drives it over CDP through its developer (WebDriver) mode, and browser fingerprints stay isolated between Ziniao accounts — the right choice for stores on marketplaces with strict risk control. Before your first Ziniao store, the BOSS (admin) account has to do two one-time setups on the Ziniao side. The errors you may hit when binding a store, the extra step on Windows through WSL, and where the credentials live are all on this page.
+Ziniao is a third-party anti-detect browser; Vibe Seller drives it over CDP through its developer (WebDriver) mode, and browser fingerprints stay isolated between Ziniao accounts — the right choice for stores on marketplaces with strict risk control. Before your first Ziniao store, the BOSS (admin) account has to do two one-time setups on the Ziniao side.
 
 A Ziniao store's tasks also get a Chrome auxiliary browser for the logistics and overseas sites Ziniao can't open — see [Two browsers working together](browsers.md#store-browser-and-auxiliary-browser).
 
-If you don't use Ziniao, skip all of this: pick "Chrome" as the browser backend in the new-store form.
+If you don't use Ziniao, skip this page. Vibe Seller supports other browsers too; see [Browsers](browsers.md).
+
+**How to use this page:**
+
+- **Connecting Ziniao for the first time**: read [Prerequisites](#prerequisites-developer-mode-and-webdriver-login) and have the main account grant the two permissions; then read [What you fill in](#what-you-fill-in-when-binding-a-store) and [Picking a Ziniao account reopens Ziniao](#picking-a-ziniao-account-reopens-ziniao), and go create the store.
+- **An error while binding**: find the section that matches the message — ["无权限通过 webdriver 登录"](#无权限通过-webdriver-登录-when-binding-a-store) or ["检测到您在新终端登录"](#检测到您在新终端登录-when-binding-a-store).
+- **Vibe Seller runs inside WSL**: also read [getting Ziniao into developer mode (ziniao_webdriver.bat)](#windows-wsl-getting-ziniao-into-developer-mode-ziniao_webdriverbat).
+- The rest (install folder, where credentials are stored) is detail; read it when you need it.
 
 ## Prerequisites: developer mode and WebDriver login
 
-Ziniao runs in exactly one mode at a time:
+The BOSS (admin) account has to do two one-time things before a sub-account can bind a store:
+
+1. **Enable developer mode for the company on the [Ziniao Open Platform](https://open.ziniao.com/docSupport?docId=99)**. Without it, Ziniao rejects the login with `statusCode: -10003` — Ziniao's own error for "developer mode isn't enabled for this company".
+2. **Tick the WebDriver-login option for the sub-account** that will log in via WebDriver. Without it, binding a store shows "无权限通过 webdriver 登录" — see ["无权限通过 webdriver 登录"](#无权限通过-webdriver-登录-when-binding-a-store) below.
+
+Why developer mode: Ziniao runs in exactly one mode at a time:
 
 - **Normal mode** — what you get when you double-click the Ziniao icon. UI-only, designed for manual daily work. No remote control.
 - **Developer mode (WebDriver)** — same Ziniao install, launched with extra flags so it exposes an HTTP API on `127.0.0.1:16851`. This is the only mode Vibe Seller (or any external tool) can drive.
@@ -21,22 +33,6 @@ The two modes share one Ziniao process, so they can't run side by side. Switchin
 
 - **macOS / native Windows**: Vibe Seller handles the swap itself. When a task first uses a Ziniao store's browser, and when store setup loads the store list, if Ziniao isn't answering in developer mode (closed, opened by hand in normal mode, or leftovers from a crash) it closes every Ziniao process and relaunches it with `--run_type=web_driver` — no questions asked. So a Ziniao window you opened yourself gets closed and reopened — but only then: a task that never opens the browser leaves it alone. It waits up to 2 minutes for Ziniao to answer, and if it doesn't, closes it and tries once more.
 - **Windows (WSL)**: WSL can't restart a Windows-side app across the VM boundary, so the Windows side runs a one-line `.bat` launcher that does the kill + relaunch (double-click it once). The steps are in [Windows (WSL): getting Ziniao into developer mode](#windows-wsl-getting-ziniao-into-developer-mode-ziniao_webdriverbat) below.
-
-The BOSS (admin) account has to do two one-time things before a sub-account can bind a store:
-
-1. **Enable developer mode for the company on the Ziniao Open Platform** (see <https://open.ziniao.com/docSupport?docId=99>). Without it, Ziniao rejects the login with `statusCode: -10003` — Ziniao's own error for "developer mode isn't enabled for this company".
-2. **Tick the WebDriver-login option for the sub-account** that will log in via WebDriver. Without it, binding a store shows "无权限通过 webdriver 登录" — see ["无权限通过 webdriver 登录"](#无权限通过-webdriver-登录-when-binding-a-store) below.
-
-## Any install folder works (Windows)
-
-On Windows, Vibe Seller needs the full path of `ziniao.exe` to launch it with flags. The default `C:\Program Files\ziniao` works, and so does anywhere else you installed it — `D:\紫鸟\ziniao`, a folder with spaces or Chinese characters, another drive. The lookup order:
-
-1. the install path of the Ziniao process that was alive just before launch (recorded before the auto-restart closes it);
-2. the registry App Paths / Uninstall entries (`InstallLocation`, `DisplayIcon`, …);
-3. what the Desktop and Start-Menu shortcuts point at (Ziniao's own shortcut points wherever you installed it);
-4. the conventional folders on every fixed drive (`X:\Program Files\ziniao`, `X:\Program Files (x86)\ziniao`, `X:\ziniao`, …).
-
-Every hit is validated to really be `ziniao.exe` — an uninstaller is never mistaken for the client. If nothing checks out, the error lists everything that was searched; **open Ziniao once by hand from its shortcut and retry** (the next start records where it lives), or reinstall to the default folder.
 
 ## What you fill in when binding a store
 
@@ -97,6 +93,17 @@ Ziniao is installed on the Windows side while Vibe Seller runs inside WSL, and W
 ![Download ziniao_webdriver.bat](images/setup_store_wsl_en.png)
 
 If a task starts before Ziniao is ready, the error reads "Ziniao is not running. Please download and run ziniao_webdriver.bat on Windows, then retry." When Ziniao is open but in normal mode, Vibe Seller closes it for you — but WSL can't open it again, so double-click the `.bat` once more. Full Windows + WSL2 deployment, including this backend, is in the [Windows setup guide](windows-setup.md).
+
+## Any install folder works (Windows)
+
+On Windows, Vibe Seller needs the full path of `ziniao.exe` to launch it with flags. The default `C:\Program Files\ziniao` works, and so does anywhere else you installed it — `D:\紫鸟\ziniao`, a folder with spaces or Chinese characters, another drive. The lookup order:
+
+1. the install path of the Ziniao process that was alive just before launch (recorded before the auto-restart closes it);
+2. the registry App Paths / Uninstall entries (`InstallLocation`, `DisplayIcon`, …);
+3. what the Desktop and Start-Menu shortcuts point at (Ziniao's own shortcut points wherever you installed it);
+4. the conventional folders on every fixed drive (`X:\Program Files\ziniao`, `X:\Program Files (x86)\ziniao`, `X:\ziniao`, …).
+
+Every hit is validated to really be `ziniao.exe` — an uninstaller is never mistaken for the client. If nothing checks out, the error lists everything that was searched; **open Ziniao once by hand from its shortcut and retry** (the next start records where it lives), or reinstall to the default folder.
 
 ## Where the credentials are stored
 

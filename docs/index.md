@@ -78,40 +78,28 @@ flowchart LR
 
 ## 安装
 
-**🪟 Windows（原生安装包，推荐）**：到 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 `VibeSeller-Setup.exe` 双击运行；或在 PowerShell 中执行一条命令完成安装：
+**🪟 Windows**：下载 [VibeSeller-Setup.exe](https://github.com/zpoint/vibe-seller/releases/latest)，双击安装，装完会自动打开。
 
-```powershell
-irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/install.ps1 | iex
-```
-
-**🍎 macOS / 🐧 Linux**：在终端执行两行命令——
+**🍎 macOS / 🐧 Linux**：打开终端，执行下面两行，然后在浏览器打开 <http://localhost:7777>：
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 vibe-seller start
 ```
 
-打开 <http://localhost:7777>；同事在浏览器里输入 `http://<这台电脑的IP>:7777` 即可一起使用。
-
-> **⚠️ 用紫鸟之前**
->
-> 紫鸟需要先由主账号（BOSS 账号）在[紫鸟开放平台](https://open.ziniao.com/docSupport?docId=99)开通开发者模式，并给子账号勾选「WebDriver 登录」，否则绑定店铺时会被紫鸟拒绝。
-> 开通步骤，以及「无权限通过 webdriver 登录」「检测到您在新终端登录」这两个常见报错的解决办法，见 [紫鸟：开通与常见报错](ziniao.md)。
-
-完整说明（WSL2、源码安装、升级卸载、常驻服务）见 [安装](install.md)；第一次使用请看 [快速开始](quickstart.md)。
+图文步骤、升级和卸载、WSL2 与源码安装，见 [安装](install.md)。
 
 ## 快速开始
 
-装好之后，按这四步跑通第一个任务，图文步骤见[快速开始](quickstart.md)：
+装好之后三步跑通第一个任务，图文步骤见 [快速开始](quickstart.md)：
 
-1. **打开网页**：浏览器访问 <http://localhost:7777>，默认不需要登录；
-2. **配置 AI 模型**：进入「设置 → AI」，点击「创建配置文件」，选择供应商并粘贴 API 密钥（各家怎么获取见[配置 AI 模型](llm-keys.md)）；
-3. **绑定店铺**：点击「+ 新建店铺」，选择浏览器后端「紫鸟」或「Chrome」，在打开的浏览器里登录一次卖家后台（见[店铺与浏览器](stores.md)）；
-4. **创建第一个任务**：选中店铺，点击「+ 新建任务」，用一句话写清要做的事，比如“导出过去 7 天的销售报表”。
+1. **配置 AI**：进入「设置 → AI」，点「添加模型」，选服务商、粘贴 API 密钥，点「创建」。还没有 Key？第一次用推荐 DeepSeek，各家怎么申请见 [配置 AI 模型](llm-keys.md)；
+2. **新建店铺**：点「+ 新建店铺」，店铺用的是紫鸟或悦互联，就选对应的浏览器；都没有就选 Chrome。用紫鸟的话，先让主账号开通权限，见 [紫鸟：开通前提](ziniao.md#开通前提开发者模式与-webdriver-登录)；
+3. **创建任务**：选中店铺，点「+ 新建任务」，用一句话写清要做的事，比如“导出过去 7 天的销售报表”，点「创建并运行」。
 
 ## 能干什么
 
-Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一。AI 能浏览页面、读你的邮件、发企业微信、写滴答清单、改 Google 文档——只要一件事符合「看了 → 判断 → 操作」，能用浏览器就走浏览器，有接口就直接调用接口。
+Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一。AI 能浏览页面、读你的邮件、发企业微信、写滴答清单、改 Google 文档——只要一件事符合 **看了 → 判断 → 操作**，能用浏览器就走浏览器，有接口就直接调用接口。
 
 跨境场景里常见的几类任务：
 
@@ -175,7 +163,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 其他平台没有专门的 Skill，AI 照样通过紫鸟或普通浏览器完成店铺后台和前台的操作。第一次可能要多试
 几步；走通的路径它会记进这家店的知识库，下次直接照着做，几轮之后就稳定了。你也可以把自己的操作
 步骤写成 Skill 装进来（见[导入已有的 Skill](knowledge.md#导入已有的-skill)），或者整理好提交给
-项目（见下文「贡献代码」）。
+项目（见下文 [贡献代码](#贡献代码)）。
 
 ## 贡献代码
 

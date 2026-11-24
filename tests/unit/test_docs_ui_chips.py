@@ -10,7 +10,7 @@ anchors would change, code, HTML attributes, link targets).
 
 import pytest
 
-from docs_ui_chips import mark_ui_labels
+from docs_ui_chips import github_chip, mark_ui_labels
 
 
 @pytest.mark.unit
@@ -198,3 +198,19 @@ def test_chips_do_not_nest_or_double_up():
 def test_line_without_brackets_is_untouched():
     src = '普通句子，没有角括号。'
     assert mark_ui_labels(src) == src
+
+
+@pytest.mark.unit
+def test_github_renderer_draws_labels_as_kbd():
+    # The README's renderer: GitHub drops the site's class attribute, so
+    # the same labels come out as <kbd> boxes, menu paths joined by ›.
+    out = mark_ui_labels(
+        '点「添加模型」，进入「设置 → AI」。', render=github_chip
+    )
+    assert out == '点<kbd>添加模型</kbd>，进入<kbd>设置 › AI</kbd>。'
+
+
+@pytest.mark.unit
+def test_github_renderer_keeps_the_same_exclusions():
+    src = '# 「标题」\n\n「这是一句很长的话，不是按钮。」\n\n`「代码」`'
+    assert mark_ui_labels(src, render=github_chip) == src
