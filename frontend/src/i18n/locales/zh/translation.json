@@ -1277,7 +1277,9 @@
       "ask_one": "向你提问",
       "ask_other": "向你提问 {{count}} 次",
       "plan_one": "提交计划",
-      "plan_other": "提交计划 {{count}} 次"
+      "plan_other": "提交计划 {{count}} 次",
+      "tools_one": "加载工具",
+      "tools_other": "加载工具 {{count}} 次"
     },
     "row": {
       "read": "读取 {{target}}",
@@ -1291,7 +1293,8 @@
       "other": "使用 {{target}}",
       "skill": "加载技能 {{target}}",
       "ask": "向你提问",
-      "plan": "提交计划"
+      "plan": "提交计划",
+      "tools": "加载工具"
     },
     "live": {
       "read": "正在读取 {{target}}",
@@ -1306,7 +1309,145 @@
       "other": "正在使用 {{target}}",
       "skill": "正在加载技能 {{target}}",
       "ask": "等待你的回复",
-      "plan": "等待审核计划"
+      "plan": "等待审核计划",
+      "tools": "正在加载工具"
+    },
+    "tool": {
+      "ads": {
+        "done_one": "调用广告 API",
+        "done_other": "调用广告 API {{count}} 次",
+        "doneTarget": "调用广告 API：{{target}}",
+        "row": "广告 API：{{target}}",
+        "rowBare": "调用广告 API",
+        "live": "正在调用广告 API：{{target}}",
+        "liveBare": "正在调用广告 API"
+      },
+      "emailRead": {
+        "done_one": "查看邮件",
+        "done_other": "查看邮件 {{count}} 次",
+        "doneTarget": "查看邮件：{{target}}",
+        "row": "邮件：{{target}}",
+        "rowBare": "查看邮件",
+        "live": "正在查看邮件：{{target}}",
+        "liveBare": "正在查看邮件"
+      },
+      "emailSend": {
+        "done_one": "发送邮件",
+        "done_other": "发送 {{count}} 封邮件",
+        "doneTarget": "发送邮件「{{target}}」",
+        "row": "发送邮件：{{target}}",
+        "rowBare": "发送邮件",
+        "live": "正在发送邮件：{{target}}",
+        "liveBare": "正在发送邮件"
+      },
+      "declareAd": {
+        "done_one": "声明广告任务",
+        "done_other": "声明广告任务 {{count}} 次",
+        "doneTarget": "声明广告任务（{{target}}）",
+        "row": "声明广告任务：{{target}}",
+        "rowBare": "声明广告任务",
+        "live": "正在声明广告任务：{{target}}",
+        "liveBare": "正在声明广告任务"
+      },
+      "declareReport": {
+        "done_one": "声明月度报表",
+        "done_other": "声明月度报表 {{count}} 次",
+        "doneTarget": "声明 {{target}} 月度报表",
+        "row": "声明月度报表：{{target}}",
+        "rowBare": "声明月度报表",
+        "live": "正在声明月度报表：{{target}}",
+        "liveBare": "正在声明月度报表"
+      },
+      "subtask": {
+        "done_one": "创建子任务",
+        "done_other": "创建 {{count}} 个子任务",
+        "doneTarget": "创建子任务「{{target}}」",
+        "row": "子任务：{{target}}",
+        "rowBare": "创建子任务",
+        "live": "正在创建子任务：{{target}}",
+        "liveBare": "正在创建子任务"
+      },
+      "tasks": {
+        "done_one": "查看任务列表",
+        "done_other": "查看任务列表 {{count}} 次",
+        "doneTarget": "查看任务列表",
+        "row": "查看任务列表",
+        "rowBare": "查看任务列表",
+        "live": "正在查看任务列表",
+        "liveBare": "正在查看任务列表"
+      },
+      "stores": {
+        "done_one": "查看店铺列表",
+        "done_other": "查看店铺列表 {{count}} 次",
+        "doneTarget": "查看店铺列表",
+        "row": "查看店铺列表",
+        "rowBare": "查看店铺列表",
+        "live": "正在查看店铺列表",
+        "liveBare": "正在查看店铺列表"
+      },
+      "result": {
+        "done_one": "提交结果",
+        "done_other": "提交结果 {{count}} 次",
+        "doneTarget": "提交结果",
+        "row": "提交结果",
+        "rowBare": "提交结果",
+        "live": "正在提交结果",
+        "liveBare": "正在提交结果"
+      },
+      "error": {
+        "done_one": "报告失败",
+        "done_other": "报告失败 {{count}} 次",
+        "doneTarget": "报告失败：{{target}}",
+        "row": "报告失败：{{target}}",
+        "rowBare": "报告失败",
+        "live": "正在报告失败：{{target}}",
+        "liveBare": "正在报告失败"
+      },
+      "chat": {
+        "done_one": "发送群消息",
+        "done_other": "发送 {{count}} 条群消息",
+        "doneTarget": "发送群消息：{{target}}",
+        "row": "群消息：{{target}}",
+        "rowBare": "发送群消息",
+        "live": "正在发送群消息：{{target}}",
+        "liveBare": "正在发送群消息"
+      },
+      "image": {
+        "done_one": "生成图片",
+        "done_other": "生成 {{count}} 张图片",
+        "doneTarget": "生成图片 {{target}}",
+        "row": "生成图片：{{target}}",
+        "rowBare": "生成图片",
+        "live": "正在生成图片：{{target}}",
+        "liveBare": "正在生成图片"
+      },
+      "scheduleState": {
+        "done_one": "读写定时进度",
+        "done_other": "读写定时进度 {{count}} 次",
+        "doneTarget": "读写定时进度：{{target}}",
+        "row": "定时进度：{{target}}",
+        "rowBare": "读写定时进度",
+        "live": "正在读写定时进度：{{target}}",
+        "liveBare": "正在读写定时进度"
+      },
+      "cron": {
+        "done_one": "管理定时任务",
+        "done_other": "管理定时任务 {{count}} 次",
+        "doneTarget": "添加定时任务「{{target}}」",
+        "row": "定时任务：{{target}}",
+        "rowBare": "查看定时任务",
+        "live": "正在添加定时任务：{{target}}",
+        "liveBare": "正在查看定时任务"
+      },
+      "skills": {
+        "done_one": "管理技能",
+        "done_other": "管理技能 {{count}} 次",
+        "doneTarget": "保存技能 {{target}}",
+        "row": "技能：{{target}}",
+        "rowBare": "查看技能列表",
+        "live": "正在保存技能：{{target}}",
+        "liveBare": "正在查看技能"
+      }
     }
   }
 }

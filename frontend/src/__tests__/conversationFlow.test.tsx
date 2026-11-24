@@ -3,14 +3,16 @@
  * tool calls, thinking blocks, plan versioning, working indicator.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen } from '@testing-library/react'
 import {
   makeConversationItem,
   makePlan,
   renderConversationStream,
 } from '../test/helpers'
 import type { ConversationItem } from '../types'
-import { describeStep, toolTitle } from '../lib/activity'
+import i18next from 'i18next'
+import zhTranslation from '../i18n/locales/zh/translation.json'
+import { describeStep, summarizeRun, toolTitle } from '../lib/activity'
 
 describe('Tool call rendering', () => {
   it('renders single tool call with tool name and file path', () => {
@@ -68,8 +70,9 @@ describe('Agent activity folding', () => {
       thinking('First read the store notes'),
       tool('Read', { file_path: 'stores/acme/notes.md' }),
       thinking('Now declare the ad task'),
-      tool('mcp__vibe-seller__vibe_seller_declare_ad_task', { kind: 'audit' }),
-      tool('mcp__vibe-seller__vibe_seller_read_knowledge', { path: 'x' }),
+      tool('mcp__vibe-seller__vibe_seller_declare_ad_task', { kind: 'audit', scope: 'campaigns' }),
+      tool('mcp__vibe-seller__vibe_seller_ads_call', { path: '/sync', marketplace: 'AE' }),
+      tool('mcp__vibe-seller__vibe_seller_ads_call', { path: '/sync', marketplace: 'SA' }),
       thinking('Open the ad console'),
       tool('Bash', { command: 'browser-use <<PY\nnew_tab("x")\nPY', description: 'Open the ads console' }),
       tool('Bash', { command: 'ls -lt downloads/', description: 'List downloaded reports' }),
@@ -83,7 +86,7 @@ describe('Agent activity folding', () => {
 
     expect(screen.getAllByTestId('activity-group')).toHaveLength(2)
     expect(screen.getByText(
-      'Read notes.md, used Vibe Seller (2 calls), used the browser, and 1 more',
+      'Read notes.md, declared the ad task (audit · campaigns), called the Ads API 2 times, and 2 more',
     )).toBeInTheDocument()
     // Collapsed: the steps themselves stay out of the way.
     expect(screen.queryByText(/First read the store notes/)).not.toBeInTheDocument()
@@ -92,10 +95,12 @@ describe('Agent activity folding', () => {
     expect(screen.getByText('Read 2 files')).toBeInTheDocument()
 
     // Expanded: rows named by purpose, the agent's thoughts as narration.
-    fireEvent.click(screen.getByText(/^Read notes\.md, used Vibe Seller/))
+    fireEvent.click(screen.getByText(/^Read notes\.md, declared the ad task/))
     expect(screen.getByText('First read the store notes')).toBeInTheDocument()
     expect(screen.getByText('Read notes.md')).toBeInTheDocument()
-    expect(screen.getByText('Vibe Seller · Declare ad task, Read knowledge')).toBeInTheDocument()
+    // Each Vibe Seller tool is named for what it does, not "Vibe Seller".
+    expect(screen.getByText('Declared the ad task: audit · campaigns')).toBeInTheDocument()
+    expect(screen.getByText('Ads API: GET /sync · AE, GET /sync · SA')).toBeInTheDocument()
     expect(screen.getByText('Browser: Open the ads console')).toBeInTheDocument()
     expect(screen.getByText('Ran List downloaded reports')).toBeInTheDocument()
 
@@ -111,6 +116,38 @@ describe('Agent activity folding', () => {
     ]
     renderConversationStream({ items, isActive: true })
     expect(screen.getByText('Running Install dependencies')).toBeInTheDocument()
+  })
+
+  it('names the Vibe Seller call in progress and lists merged commands by purpose', () => {
+    renderConversationStream({
+      items: [thinking('sync'), tool('mcp__vibe-seller__vibe_seller_ads_call', { path: '/sync', marketplace: 'AE' })],
+      isActive: true,
+    })
+    expect(screen.getByText('Calling the Ads API: GET /sync · AE')).toBeInTheDocument()
+
+    cleanup()
+    renderConversationStream({
+      items: [
+        thinking('look around'),
+        tool('Bash', { command: 'ls', description: 'List reports' }),
+        tool('Bash', { command: 'cat a', description: 'Show the notes' }),
+      ],
+      isActive: false,
+    })
+    fireEvent.click(screen.getByText('Ran 2 commands'))
+    expect(screen.getByText('Ran List reports, Show the notes')).toBeInTheDocument()
+  })
+
+  it('reads naturally in Chinese, where one call is not "1 次"', async () => {
+    const zh = i18next.createInstance()
+    await zh.init({ lng: 'zh', resources: { zh: { translation: zhTranslation } } })
+    const items = [
+      tool('mcp__vibe-seller__vibe_seller_write_workspace_file', { path: 'stores/acme/notes.md' }),
+      tool('mcp__vibe-seller__vibe_seller_ads_call', { path: '/sync', marketplace: 'AE' }),
+      tool('mcp__vibe-seller__vibe_seller_ads_call', { path: '/sync', marketplace: 'SA' }),
+      tool('mcp__vibe-seller__vibe_seller_set_task_result', { result: 'done' }),
+    ]
+    expect(summarizeRun(items, zh.t.bind(zh) as never)).toBe('编辑 notes.md，调用广告 API 2 次，提交结果')
   })
 
   it('says it is waiting on the user, not the raw question tool name', () => {
@@ -140,7 +177,15 @@ describe('Agent activity folding', () => {
     expect(describeStep('Bash', { command: 'ls', description: 'List files' }).target).toBe('List files')
     expect(describeStep('Bash', { command: 'browser-use <<PY' }).category).toBe('browse')
     expect(describeStep('Skill', { skill: 'browser-harness' }).target).toBe('browser-harness')
+    expect(describeStep('ToolSearch', { query: 'select:X' }).category).toBe('tools')
     expect(describeStep('Read', { file_path: 'C:\\Users\\a\\notes.md' }).target).toBe('notes.md')
+    // A workspace write is a file edit; a tool the UI has no words for
+    // still names its server and tool.
+    const write = describeStep('mcp__vibe-seller__vibe_seller_write_workspace_file', { path: 'stores/acme/notes.md' })
+    expect([write.category, write.target]).toEqual(['edit', 'notes.md'])
+    const unknown = describeStep('mcp__vibe-seller__vibe_seller_read_knowledge', { path: 'x' })
+    expect([unknown.category, unknown.server, unknown.target, unknown.family])
+      .toEqual(['mcp', 'Vibe Seller', 'Read knowledge', undefined])
   })
 })
 

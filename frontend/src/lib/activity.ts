@@ -13,7 +13,7 @@ type T = (key: string, opts?: Record<string, unknown>) => string
 
 export type Category =
   | 'read' | 'search' | 'edit' | 'run' | 'browse' | 'web'
-  | 'agent' | 'todo' | 'skill' | 'ask' | 'plan' | 'mcp' | 'other'
+  | 'agent' | 'todo' | 'skill' | 'tools' | 'ask' | 'plan' | 'mcp' | 'other'
 
 export interface Step {
   category: Category
@@ -21,6 +21,11 @@ export interface Step {
   target: string
   /** MCP server label (`Vibe Seller`), for `mcp` steps. */
   server?: string
+  /**
+   * A Vibe Seller tool the UI can name in words (`ads`, `emailSend`), so
+   * the line says "Called the Ads API" rather than "Used Vibe Seller".
+   */
+  family?: string
   tool: string
   input?: Record<string, unknown>
 }
@@ -69,9 +74,54 @@ export function toolTitle(tool: string): string {
   return tool
 }
 
+type Input = Record<string, unknown> | undefined
+
+/** `GET /sync · AE` — what one Ads API call asked for. */
+function adsTarget(input: Input): string {
+  const path = str(input, 'path')
+  if (!path) return ''
+  const method = (str(input, 'method') || 'GET').toUpperCase()
+  const mkt = str(input, 'marketplace')
+  return `${method} ${path}${mkt ? ` · ${mkt}` : ''}`
+}
+
+/**
+ * The in-task Vibe Seller tools (`app/mcp_server.py`), named by what they
+ * do. A workspace write is a file edit; the rest get a family whose words
+ * live under `activity.tool.<family>`. A tool missing here still shows as
+ * `Vibe Seller · <Title>`.
+ */
+const VS_TOOLS: Record<string, { family: string; target?: (i: Input) => string }> = {
+  ads_call: { family: 'ads', target: adsTarget },
+  email_info: { family: 'emailRead' },
+  get_new_emails: { family: 'emailRead' },
+  sync_email_now: { family: 'emailRead' },
+  send_email: { family: 'emailSend', target: i => clip(str(i, 'subject'), 50) },
+  declare_ad_task: {
+    family: 'declareAd',
+    target: i => [str(i, 'kind'), str(i, 'scope')].filter(Boolean).join(' · '),
+  },
+  declare_report_run: { family: 'declareReport', target: i => str(i, 'month') },
+  create_task: { family: 'subtask', target: i => clip(str(i, 'title', 'description'), 50) },
+  list_tasks: { family: 'tasks' },
+  list_stores: { family: 'stores' },
+  set_task_result: { family: 'result' },
+  set_task_error: { family: 'error', target: i => clip(str(i, 'error'), 50) },
+  send_chat_message: { family: 'chat', target: i => clip(str(i, 'content'), 40) },
+  send_chat_file: { family: 'chat', target: i => basename(str(i, 'path')) },
+  generate_image: { family: 'image', target: i => str(i, 'output_name') || clip(str(i, 'prompt'), 40) },
+  get_schedule_state: { family: 'scheduleState', target: i => str(i, 'key') },
+  set_schedule_state: { family: 'scheduleState', target: i => str(i, 'key') },
+  list_cron_jobs: { family: 'cron' },
+  add_cron_job: { family: 'cron', target: i => clip(str(i, 'task_title'), 40) },
+  list_skills: { family: 'skills' },
+  save_skill: { family: 'skills', target: i => str(i, 'slug') },
+  import_skill: { family: 'skills', target: i => str(i, 'slug') },
+}
+
 export function describeStep(tool: string, input?: Record<string, unknown>): Step {
-  const s = (category: Category, target: string, server?: string): Step =>
-    ({ category, target, server, tool, input })
+  const s = (category: Category, target: string, server?: string, family?: string): Step =>
+    ({ category, target, server, tool, input, family })
   switch (tool) {
     case 'Read':
       return s('read', basename(str(input, 'file_path', 'path')))
@@ -98,6 +148,8 @@ export function describeStep(tool: string, input?: Record<string, unknown>): Ste
       return s('agent', str(input, 'description', 'subagent_type'))
     case 'TodoWrite':
       return s('todo', '')
+    case 'ToolSearch':
+      return s('tools', '')
     case 'AskUserQuestion':
       return s('ask', '')
     case 'ExitPlanMode':
@@ -107,13 +159,39 @@ export function describeStep(tool: string, input?: Record<string, unknown>): Ste
   }
   const parts = tool.split('__')
   if (parts[0] === 'mcp' && parts.length >= 3) {
+    if (parts[1] === 'vibe-seller') {
+      const name = parts.slice(2).join('__').replace(/^vibe_seller_/, '')
+      if (name === 'write_workspace_file' || name === 'delete_workspace_lines') {
+        return s('edit', basename(str(input, 'path')))
+      }
+      const known = VS_TOOLS[name]
+      if (known) {
+        return s('mcp', known.target?.(input) || '', serverLabel(parts[1]), known.family)
+      }
+    }
     return s('mcp', toolTitle(tool), serverLabel(parts[1]))
   }
   return s('other', tool)
 }
 
+/** Steps that read the same in a summary share a key. */
+function groupKey(step: Step): string {
+  if (step.category === 'mcp') return `mcp:${step.family || step.server}`
+  if (step.category === 'other') return `other:${step.target}`
+  return step.category
+}
+
+/** A named Vibe Seller tool, one call: "Ads API: GET /sync · AE". */
+function familyLabel(step: Step, kind: 'row' | 'live', t: T): string {
+  const key = `activity.tool.${step.family}`
+  return step.target
+    ? t(`${key}.${kind}`, { target: step.target })
+    : t(`${key}.${kind}Bare`)
+}
+
 /** Present tense, for the live line: "Running Install deps". */
 export function liveLabel(step: Step, t: T): string {
+  if (step.family) return familyLabel(step, 'live', t)
   const target = step.category === 'mcp'
     ? `${step.server} · ${step.target}`
     : step.target
@@ -123,14 +201,30 @@ export function liveLabel(step: Step, t: T): string {
 /** "read notes.md" / "read 3 files" — one category's share of a run. */
 function segment(cat: Category, steps: Step[], t: T): string {
   const n = steps.length
+  const family = steps[0].family
+  if (family) {
+    // "called the Ads API: GET /sync" / "called the Ads API 3 times"
+    return n === 1 && steps[0].target
+      ? t(`activity.tool.${family}.doneTarget`, { target: steps[0].target })
+      : counted(t, `activity.tool.${family}.done`, n)
+  }
   if (cat === 'mcp') {
     // One segment per server: "used Vibe Seller".
-    return t('activity.done.mcp', { target: steps[0].server, count: n })
+    return counted(t, 'activity.done.mcp', n, { target: steps[0].server })
   }
   if (cat === 'other') {
-    return t('activity.done.other', { target: steps[0].target, count: n })
+    return counted(t, 'activity.done.other', n, { target: steps[0].target })
   }
-  return t(`activity.done.${cat}`, { target: steps[0].target, count: n })
+  return counted(t, `activity.done.${cat}`, n, { target: steps[0].target })
+}
+
+/**
+ * `base_one` for a single step, `base_other` otherwise, picked here rather
+ * than by i18next: Chinese has no singular plural form, so `count: 1`
+ * would read "提交结果 1 次" instead of "提交结果".
+ */
+function counted(t: T, base: string, n: number, opts: Record<string, unknown> = {}): string {
+  return t(`${base}_${n === 1 ? 'one' : 'other'}`, { ...opts, count: n })
 }
 
 function capitalize(s: string): string {
@@ -148,16 +242,14 @@ export function summarizeRun(items: ConversationItem[], t: T): string {
       continue
     }
     const step = describeStep(i.toolCall.tool, i.toolCall.input)
-    const key = step.category === 'mcp' ? `mcp:${step.server}`
-      : step.category === 'other' ? `other:${step.target}`
-      : step.category
+    const key = groupKey(step)
     if (!groups.has(key)) {
       groups.set(key, { cat: step.category, steps: [] })
       order.push(key)
     }
     groups.get(key)!.steps.push(step)
   }
-  if (order.length === 0) return t('activity.thought', { count: thoughts })
+  if (order.length === 0) return counted(t, 'activity.thought', thoughts)
   const segs = order.map(k => segment(groups.get(k)!.cat, groups.get(k)!.steps, t))
   const shown = segs.slice(0, 3)
   let text = shown.join(t('activity.sep'))
@@ -169,7 +261,7 @@ export function summarizeRun(items: ConversationItem[], t: T): string {
 
 export type Row =
   | { kind: 'thought'; item: ConversationItem }
-  | { kind: 'steps'; category: Category; server?: string; items: ConversationItem[]; steps: Step[] }
+  | { kind: 'steps'; key: string; category: Category; items: ConversationItem[]; steps: Step[] }
 
 /** Rows inside an expanded run: consecutive calls of one kind merge. */
 export function buildRows(items: ConversationItem[]): Row[] {
@@ -180,42 +272,49 @@ export function buildRows(items: ConversationItem[]): Row[] {
       continue
     }
     const step = describeStep(i.toolCall.tool, i.toolCall.input)
+    const key = groupKey(step)
     const prev = rows[rows.length - 1]
-    if (
-      prev && prev.kind === 'steps' &&
-      prev.category === step.category && prev.server === step.server &&
-      step.category !== 'other'
-    ) {
+    if (prev && prev.kind === 'steps' && prev.key === key && step.category !== 'other') {
       prev.items.push(i)
       prev.steps.push(step)
     } else {
-      rows.push({
-        kind: 'steps', category: step.category, server: step.server,
-        items: [i], steps: [step],
-      })
+      rows.push({ kind: 'steps', key, category: step.category, items: [i], steps: [step] })
     }
   }
   return rows
 }
 
-/** Row header: "Read notes.md, CATALOG.md and 1 more" / "Ran Install deps". */
+/** "GET /sync · AE ×2, GET /profiles" — the targets of a merged row. */
+function targetList(steps: Step[], t: T, max = 2): string {
+  const counts = new Map<string, number>()
+  for (const s of steps) {
+    if (s.target) counts.set(s.target, (counts.get(s.target) || 0) + 1)
+  }
+  const names = [...counts].map(([k, c]) => (c > 1 ? `${k} ×${c}` : k))
+  return names.slice(0, max).join(t('activity.sep')) +
+    (names.length > max ? t('activity.andMore', { count: names.length - max }) : '')
+}
+
+/** Row header: "Read notes.md, CATALOG.md and 1 more" / "Ads API: GET /sync ×2". */
 export function rowLabel(row: Extract<Row, { kind: 'steps' }>, t: T): string {
   const n = row.steps.length
-  if (n === 1) return stepLabel(row.steps[0], t)
+  const first = row.steps[0]
+  if (n === 1) return stepLabel(first, t)
+  if (first.family) {
+    const list = targetList(row.steps, t)
+    return list
+      ? t(`activity.tool.${first.family}.row`, { target: list })
+      : capitalize(counted(t, `activity.tool.${first.family}.done`, n))
+  }
   if (row.category === 'mcp') {
     // "Vibe Seller · Read knowledge, Workspace file ×3"
-    const counts = new Map<string, number>()
-    for (const s of row.steps) counts.set(s.target, (counts.get(s.target) || 0) + 1)
-    const names = [...counts].map(([k, c]) => (c > 1 ? `${k} ×${c}` : k))
-    return `${row.server} · ${names.join(t('activity.sep'))}`
+    return `${first.server} · ${targetList(row.steps, t, 4)}`
   }
-  const targets = [...new Set(row.steps.map(s => s.target).filter(Boolean))]
-  const list = targets.slice(0, 2).join(t('activity.sep')) +
-    (targets.length > 2 ? t('activity.andMore', { count: targets.length - 2 }) : '')
-  if (['read', 'edit', 'search', 'web'].includes(row.category)) {
-    return t(`activity.row.${row.category}`, { target: list || row.steps[0].tool, count: n })
+  const list = targetList(row.steps, t)
+  if (list && !['todo', 'tools', 'ask', 'plan'].includes(row.category)) {
+    return t(`activity.row.${row.category}`, { target: list })
   }
-  return capitalize(t(`activity.done.${row.category}`, { target: list, count: n }))
+  return capitalize(counted(t, `activity.done.${row.category}`, n, { target: list }))
 }
 
 /** First line of a thought, as the agent's own narration. */
@@ -226,6 +325,7 @@ export function thoughtLine(content: string): string {
 
 /** A single step named on its own: "Read notes.md", "Ran Install deps". */
 export function stepLabel(step: Step, t: T): string {
+  if (step.family) return familyLabel(step, 'row', t)
   if (step.category === 'mcp') return `${step.server} · ${step.target}`
   return t(`activity.row.${step.category}`, { target: step.target || step.tool })
 }
