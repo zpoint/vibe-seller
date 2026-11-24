@@ -506,6 +506,7 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | PUT | `/api/email-accounts/{id}/send-permission` | `{allow_send: bool}` — **interactive-only**: any machine credential gets 403 (see below) |
 | GET | `/api/email-accounts/discover` | Auto-discover IMAP settings |
 | GET | `/api/email-accounts/discover-smtp` | Auto-discover SMTP settings |
+| GET | `/api/email-accounts/info-by-store/{store_id}` | A store's mailboxes for an agent (what `vibe_seller_email_info` returns): per account the DB path, attachments dir and send permission, plus the schema and sample queries. `store_id` may also be the store's slug (its `stores/<slug>/` folder). With no mailbox linked: `{store_id, accounts: [], note}`, where the note says the task cannot read or send that store's mail. **404** for a value that names no store |
 | POST | `/api/email-accounts/{id}/test` | Test IMAP connection |
 | POST | `/api/email-accounts/{id}/test-smtp` | Test SMTP connection |
 | POST | `/api/email-accounts/{id}/send` | Send email via SMTP. **403** when the account's `allow_send` is off — refused before any SMTP connection, with a message telling the agent to draft instead |
