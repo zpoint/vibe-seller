@@ -11,6 +11,10 @@ across browser restarts — including SESSION cookies: see
 ``_enable_session_restore`` (without it, Chromium wipes session
 cookies on every launch and Taobao-style logins die with the browser
 process even though the profile dir persists).
+
+What a page can see of the store browser is decided here too, see
+``_launch_options``: it must look like a person's browser window, not
+an automation run (platform risk control reads exactly that).
 """
 
 import asyncio
@@ -18,6 +22,7 @@ import json
 import logging
 import pathlib
 import socket
+import urllib.parse
 
 import aiohttp
 from playwright.async_api import async_playwright
@@ -57,6 +62,88 @@ def _clear_singleton_locks(user_data_dir: pathlib.Path) -> None:
 # giving up. Empirically the second attempt almost always succeeds.
 _LAUNCH_ATTEMPTS = 3
 _LAUNCH_RETRY_BACKOFF = 0.5  # seconds; doubles per attempt
+
+# The window a store browser opens with. The page fills the window
+# (``no_viewport``), so this is also the page size before anyone
+# resizes the window.
+_WINDOW_SIZE = (1280, 800)
+
+
+def store_proxy_option(browser_config: dict) -> dict | None:
+    """Playwright ``proxy`` for the store's own proxy setting, or None.
+
+    The store form saves ``proxy_server`` (``http://host:port``,
+    ``socks5://host:port``, optionally ``http://user:pass@host:port``)
+    and ``proxy_bypass`` (comma-separated hosts) into the store's
+    browser_config. Chromium will not take credentials inside the server
+    URL, so they move to Playwright's username/password, which answer
+    the proxy's auth challenge.
+    """
+    server = str(browser_config.get('proxy_server') or '').strip()
+    if not server:
+        return None
+    proxy: dict[str, str] = {'server': server}
+    parts = urllib.parse.urlsplit(server if '://' in server else f'//{server}')
+    if parts.username is not None:
+        host = parts.netloc.rsplit('@', 1)[1]
+        scheme = f'{parts.scheme}://' if parts.scheme else ''
+        proxy['server'] = f'{scheme}{host}'
+        proxy['username'] = urllib.parse.unquote(parts.username)
+        proxy['password'] = urllib.parse.unquote(parts.password or '')
+    bypass = str(browser_config.get('proxy_bypass') or '').strip()
+    if bypass:
+        proxy['bypass'] = bypass
+    return proxy
+
+
+def _launch_options(
+    debug_port: int, headless: bool, proxy: dict | None = None
+) -> dict:
+    """Playwright launch options for a store browser.
+
+    A store browser must look to a page like a person's browser window,
+    because platform risk control (Taobao's 生意参谋 "abnormal access"
+    prompt, Amazon's re-sign-in) reads what a page can see:
+
+    * ``--disable-blink-features=AutomationControlled``: Playwright
+      launches with ``--enable-automation`` over a debugging pipe, and
+      either one makes ``navigator.webdriver`` true — the plainest "this
+      is a bot" signal there is. The switch only changes what pages
+      read; CDP control (input, screenshots, downloads, tabs) is
+      unaffected.
+    * ``no_viewport`` + ``--window-size``: Playwright's default pins
+      every page to an emulated 1280x720 viewport that ignores the
+      window around it. The page now fills the real window, like the
+      Ziniao and winchrome backends.
+    * ``channel='chromium'``: the full Chromium build in both modes.
+      Headless otherwise runs ``chromium-headless-shell``, which drops
+      every SESSION cookie at startup (it ignores the restore-on-startup
+      pref ``_enable_session_restore`` sets) — switching to headless
+      logged every Taobao-style store out.
+
+    ``proxy`` (from ``store_proxy_option``) routes the browser's traffic
+    through the store's own proxy; loopback always goes direct.
+    """
+    width, height = _WINDOW_SIZE
+    args = [
+        f'--remote-debugging-port={debug_port}',
+        '--no-first-run',
+        '--disable-default-apps',
+        '--disable-popup-blocking',
+        '--disable-blink-features=AutomationControlled',
+        f'--window-size={width},{height}',
+    ]
+    if headless:
+        args.append('--disable-gpu')
+    options = {
+        'channel': 'chromium',
+        'headless': headless,
+        'no_viewport': True,
+        'args': args,
+    }
+    if proxy:
+        options['proxy'] = proxy
+    return options
 
 
 def _free_port() -> int:
@@ -125,6 +212,7 @@ class ChromeBackend(BrowserBackend):
         # runtime) — production always passes an explicit value.
         headless = bool(browser_config.get('headless', False))
         store_slug = browser_config.get('store_slug', 'default')
+        proxy = store_proxy_option(browser_config)
 
         # Persistent profile directory — survives browser restarts.
         # Managed by stores.py (rename/delete on store CRUD).
@@ -156,20 +244,13 @@ class ChromeBackend(BrowserBackend):
         # (Playwright rejects --user-data-dir as a launch arg).
         self._pw = await async_playwright().start()
 
-        chrome_args = [
-            f'--remote-debugging-port={debug_port}',
-            '--no-first-run',
-            '--disable-default-apps',
-            '--disable-popup-blocking',
-        ]
-        if headless:
-            chrome_args.append('--disable-gpu')
-
         logger.info(
-            'Launching Chrome for store %s (debug_port=%d, headless=%s)',
+            'Launching Chrome for store %s (debug_port=%d, headless=%s, '
+            'proxy=%s)',
             store_slug,
             debug_port,
             headless,
+            proxy['server'] if proxy else 'none',
         )
         last_exc: Exception | None = None
         for attempt in range(1, _LAUNCH_ATTEMPTS + 1):
@@ -177,8 +258,7 @@ class ChromeBackend(BrowserBackend):
                 self._context = (
                     await self._pw.chromium.launch_persistent_context(
                         user_data_dir=str(user_data_dir),
-                        headless=headless,
-                        args=chrome_args,
+                        **_launch_options(debug_port, headless, proxy),
                     )
                 )
                 self._browser = self._context.browser
@@ -215,7 +295,6 @@ class ChromeBackend(BrowserBackend):
                 # collision in case the previous Chrome already
                 # bound the port before crashing.
                 debug_port = _free_port()
-                chrome_args[0] = f'--remote-debugging-port={debug_port}'
                 await asyncio.sleep(
                     _LAUNCH_RETRY_BACKOFF * (2 ** (attempt - 1))
                 )
