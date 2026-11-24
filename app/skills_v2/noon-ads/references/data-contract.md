@@ -1,11 +1,11 @@
 # Ad data contract
 
 The server checks an ad task from tab-separated files with fixed headers,
-never from the report's prose. Write the report for the user in whatever
+not from the report's prose. Write the report for the user in whatever
 shape reads best; put the numbers and decisions in these files. Headers
-are matched by name: every listed column must be present (extra columns
-are fine). Numbers are plain (`12.5`, not `SAR 12.5` or `12.5%`); one
-currency column per row instead.
+are matched by name: a file missing a listed column is reported as
+unreadable (extra columns are fine). Numbers are plain (`12.5`, not
+`SAR 12.5` or `12.5%`); one currency column per row instead.
 
 | File | Where | Written by |
 |---|---|---|
@@ -83,16 +83,23 @@ approval finds the row that was applied.
 
 Starting defaults, not the store's truth: a `key: value` line in
 `stores/<slug>/notes.md` overrides any of them, and the user's own
-standard or instruction always wins over a default — a row from a
-`change` declaration is that instruction, so no threshold here is
-applied to it.
-Those lines hold standards the user stated for every run — never a
-one-off change ("lower gizmo mini to 1.00" goes in `CHANGES.tsv`; a
-breached default just shows beside it), and never a value you derived
-from another number: turning a 40% margin into `acos_no_lower: 40`
-silently changes what the server enforces on every later run, and no
-one ever chose it. When the user states a standard, write it there with
-`vibe_seller_write_workspace_file` so this and later runs use it.
+standard or instruction comes before a default. A row from a `change`
+declaration is that instruction, so the server applies no threshold here
+to it. On the agent's own rows a breach is refused once, by name, then
+delivered as a caveat; a row that follows what the user said (their
+margin, "cut anything over 20% ACOS") can stay, with that instruction in
+its `reason`.
+
+A notes line changes what the server checks on this and every later
+run. So what the user says for this task — a margin, a goal, a one-off
+change ("lower gizmo mini to 1.00" goes in `CHANGES.tsv`) — applies to
+this task's recommendations, and a line goes in notes only when the user
+states it as their standard for every run. A value worked out from
+another number is not such a standard: a 40% margin turned into
+`acos_no_lower: 40` would change every later run's checks with no one
+having chosen it. When the user states a standing standard, write it
+there with `vibe_seller_write_workspace_file` so this and later runs use
+it.
 
 | key | default | rule |
 |---|---|---|
@@ -101,11 +108,12 @@ one ever chose it. When the user states a standard, write it there with
 | `scale_roas` | 5 | a `hold` on a row with higher ROAS needs a `reason` |
 | `change_cooldown_days` | 7 | a target changed within this window is held, with the date in `reason` |
 | `reconcile_tolerance` | 0.15 | search-term spend may exceed targeting spend by at most this fraction; `CAMPAIGNS.tsv` spend and the targeting total may differ by this fraction (or 1.00) |
-| `noon_reconcile_floor` | 0.85 | search terms must cover at least this share of targeting spend (both platforms) |
+| `noon_reconcile_floor` | 0.85 | search terms covering less than this share of targeting spend are a gap (both platforms) |
 
 Margin is a fact about the store, not a server rule: when it is unknown,
-assume 25% and say so in the report; a margin the user states goes in
-`stores/<slug>/notes.md` as `margin: <n>`.
+assume 25% and say so in the report. A margin the user states applies to
+this task; it goes in `stores/<slug>/notes.md` as `margin: <n>` when they
+give it as the store's figure for every run.
 
 ## EXECUTION_LOG.tsv — what you changed
 
@@ -114,8 +122,9 @@ campaign_id ad_group target match_type action from_bid to_bid applied_at
 ```
 
 One row per change actually made, after it is visible on the console.
-Only approved rows may appear, with `to_bid` equal to the approved
-`target_bid` (within 0.01). Also record each change in the campaign's
-targeting file (`applied_action`, `applied_at` as ISO time,
-`previous_bid`). A change you could not make is left out of the log and
-explained in your result.
+The server checks it against the frozen approval: a row that isn't
+approved, or whose `to_bid` is more than 0.01 from the approved
+`target_bid`, is flagged as a contradiction. Also record each change in
+the campaign's targeting file (`applied_action`, `applied_at` as ISO
+time, `previous_bid`). A change you could not make is left out of the
+log and explained in your result.

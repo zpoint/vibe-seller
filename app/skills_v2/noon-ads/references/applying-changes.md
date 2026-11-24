@@ -79,19 +79,22 @@ Re-open the editor to confirm the tags persisted.
 
 Negate only clean query terms. Skip collapsed summary rows
 (`…（含变体 N 条）`, `… 等 ASIN 匹配`) and noon product ids (`z…` /
-truncated) — they are not single negative keywords — and never negate a
-term the same audit marks as converting in that campaign.
+truncated) — they are not single negative keywords. A term the same
+audit marks as converting in that campaign is by default left out —
+negating it cuts the orders it brings — unless the user named it for
+negation; list it with the skipped rows.
 
 ## Rows you cannot apply
 
-Don't block on a row you cannot match to a live row with confidence (the
-named value doesn't appear live, a label is unclear): skip it, finish
-every other row, and list each skipped row with its reason in your
-result. Skipped rows stay out of `EXECUTION_LOG.tsv` — the log records
-only changes visible on the console.
+A row you cannot match to a live row with confidence (the named value
+doesn't appear live, a label is unclear) is skipped rather than holding
+up the run: finish every other row, and list each skipped row with its
+reason in your result. Skipped rows stay out of `EXECUTION_LOG.tsv` —
+the log records only changes visible on the console.
 
 - A bid row on a target or campaign that is already paused is moot: skip
-  it and say so. Don't re-enable an ad to make a row applicable.
+  it and say so. Re-enabling an ad to make a row applicable would be a
+  state change nobody approved.
 - Before calling the run complete, re-open each touched campaign's live
   Targets tab (and negatives editor) and confirm every logged row matches
   the console. The log is your claim; the console is the evidence.

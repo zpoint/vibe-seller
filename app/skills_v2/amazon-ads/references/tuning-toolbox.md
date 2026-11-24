@@ -60,8 +60,9 @@ can say which change did it.
 
 - **Where**: Targeting tab → row → bid cell (`kat-numberinput`) → type →
   Save. Many at once: `ads_bulk.py bid-update --from-changes CHANGES.tsv`.
-- **When**: the row converts but at ACOS ≥ `acos_no_lower`; worth keeping
-  at a lower bid.
+- **When**: by default, the row converts but at ACOS ≥ `acos_no_lower`
+  and is worth keeping at a lower bid (a margin or goal the user states
+  moves that line).
 - **Bounds**: floor and step cap per
   `tuning-recommendation-format.md` § Bid floor and step cap; at least
   the marketplace minimum bid (read it from the campaign — it depends on
@@ -107,8 +108,9 @@ can say which change did it.
   enough conversion data to learn).
 - **When to switch**: rule-based missing its target → lower the target or
   switch to down-only; down-only on a proven winner → consider up and
-  down; fixed on a volatile campaign → consider dynamic. Don't open with
-  a strategy change when a target-level lever fixes the problem.
+  down; fixed on a volatile campaign → consider dynamic. A target-level
+  lever that fixes the problem comes before a strategy change: it is
+  easier to attribute.
 
 ## Grow what works
 

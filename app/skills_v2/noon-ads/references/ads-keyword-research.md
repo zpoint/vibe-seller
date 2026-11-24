@@ -29,15 +29,15 @@ campaigns' Customer Queries).
 
 A category may have:
 
-| Seller-side term (don't bid on these alone) | Buyer-side term (bid on these) |
+| Seller-side term (weak to bid on alone) | Buyer-side term (bid on these) |
 |---|---|
 | `4-quart air fryer 1500W` | `air fryer`, `air fryer family`, `air fryer small` |
 | `silicone collapsible food storage container 8-pack` | `food container`, `meal prep`, `lunch box` |
 | `multi-stage water filter pitcher 8-cup` | `water filter`, `water pitcher`, `filter jug` |
 
 The seller term carries SKU/spec language; buyers search the
-category + a use-case modifier. Always validate via the actual
-storefront search before adding a keyword.
+category + a use-case modifier. The actual storefront search shows
+which one buyers use, so validate a keyword there before adding it.
 
 ## Step 1 — noon's own keyword-volume tool (do this FIRST)
 
@@ -77,8 +77,8 @@ PY
 
 Run 8–15 seeds across the category and union the results — that is a
 sized vocabulary for the whole category in a few minutes. A term the
-tool does not return at all is below threshold: treat as **no volume**
-and do not bid it.
+tool does not return at all is below threshold: treat as **no volume**,
+which by default keeps it off the bid list.
 
 Three rules that fall out of this data:
 
@@ -193,10 +193,10 @@ it's already running in any of your existing campaigns:
 
 Why: if the same keyword is in two of your own campaigns, they
 auction-bid against each other, raising your eCPC and giving the
-auction inventory to noon. Always:
+auction inventory to noon. The defaults:
 
 - **Already in another Manual campaign**: skip it in the new
-  campaign. Don't add it again.
+  campaign; a second copy only bids against the first.
 - **Appears in an Auto campaign's Customer Queries with reasonable
   performance**: add as a Phrase keyword in the new Manual AND
   add as a *negative* in the Auto. This moves the conversion to
@@ -223,9 +223,10 @@ wrong query is real money you could have spent on a relevant one.
 
 For each validated keyword:
 
-- **Phrase** (default): single-word and 2-word terms with general
+- **Phrase** (default): 2-word and longer terms with general
   buyer intent. e.g. `kitchen pan`, `non stick pan`. Captures word
-  order but allows surrounding context.
+  order but allows surrounding context. A bare single-word category
+  noun defaults to Exact instead (`ads-creation.md § Match type`).
 - **Exact**: branded terms (your own brand to defend, or a
   competitor brand to siphon) and very high-intent generic terms
   where you want to outbid specifically.
@@ -258,7 +259,7 @@ Negatives:
   Phrase (10):
     <multi-word negatives>
 
-Per-keyword bid: <X> <marketplace currency> (high end of suggested range)
+Per-keyword bid: <X> <marketplace currency> (store history ~P75, else high end of suggested range)
 TOS boost: <Y>%
 ```
 
@@ -268,7 +269,7 @@ click-by-click execution.
 ## What this playbook does NOT do
 
 - **Doesn't generate keywords from product specs alone.** That
-  produces seller-side noise. Always validate via the storefront.
+  produces seller-side noise; the storefront is what validates a term.
 - **Doesn't recommend a specific keyword count.** 8–15 is typical;
   your category may need fewer or more. Listen to the autocomplete /
   peer-title signal — if it dries up, stop.

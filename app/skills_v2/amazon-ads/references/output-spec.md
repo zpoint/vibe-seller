@@ -25,8 +25,8 @@ week's audit, so the same column has to mean the same thing every time.
 - One row per item. No "other N terms" rows — they hide exactly the
   rows a decision might be about.
 - Search-term text is what the customer typed, or an ASIN in upper case
-  (`B0EXAMPLE1`) for a product-page placement — never a raw DOM attribute
-  or a lower-cased `b0…` string.
+  (`B0EXAMPLE1`) for a product-page placement. A raw DOM attribute or a
+  lower-cased `b0…` string doesn't match the same term in the export.
 
 **Targeting file (`<campaign_id>.tsv`)**
 
@@ -43,7 +43,8 @@ week's audit, so the same column has to mean the same thing every time.
   doesn't, a state filter is the first suspect.
 - `ad_group`: Amazon's `Ad Group Name` (one campaign can have several, and
   bids and negatives are set per group). noon has no ad groups: use the
-  SKU and keep it consistent. Never blank.
+  SKU and keep it consistent. A blank resolves only while the target sits
+  in one ad group of the campaign (`data-contract.md`), so fill it.
 - `bid` is the target's own bid, not Amazon's suggested bid (the
   suggested range sits in a different grid cell —
   `mechanics-reading.md` §6).
@@ -63,15 +64,17 @@ week's audit, so the same column has to mean the same thing every time.
   page's Export CSV; noon from the Customer Queries Export.
 - `source_target`: Amazon's search-term report carries `Keyword Text`
   and `Match Type` on every row, so fill it from there. noon's Queries
-  sheet has only campaign, SKU and query — write `—` and don't guess.
+  sheet has only campaign, SKU and query — write `—`; a guess would
+  attribute the term to a target that may not have caught it.
 - `ad_group`: as in the targeting file (noon: the SKU).
 
 **When a column didn't render.** If the clicks column came back empty or
 zero while spend did not (Amazon AE's Manual targeting page does this
-under load), there is no actual CPC, so there is no bid floor: propose no
-`lower` for that campaign, and leave `cpc` empty. Raises (based on ROAS),
-pauses and negates don't depend on CPC and stay valid. Say in the report
-which campaign lost the column.
+under load), there is no actual CPC, so there is no bid floor, and the
+server refuses a `lower` without one: leave `cpc` empty and propose no
+`lower` for that campaign. Raises (based on ROAS), pauses and negates
+don't depend on CPC and stay valid. Say in the report which campaign
+lost the column.
 
 ## The report
 
@@ -83,8 +86,9 @@ in it should come from the TSVs, so the two never disagree.
 What it needs:
 
 - **A title and the analysis window** on the first line or two.
-- **Assumptions**: margin, target ACOS / ROAS, and any store-notes
-  override in force. When margin is unknown, use the default and say
+- **Assumptions**: margin, target ACOS / ROAS, any store-notes override
+  in force, and any instruction of the user's that moved a default
+  ("don't cut spend"). When margin is unknown, use the default and say
   `margin assumed 25% (default) — confirm` (see
   [`tuning-recommendation-format.md`](tuning-recommendation-format.md)
   § Missing margin).

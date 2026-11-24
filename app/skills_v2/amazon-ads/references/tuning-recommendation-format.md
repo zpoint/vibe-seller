@@ -1,12 +1,15 @@
 # Deciding each row's action
 
 Shared by `amazon-ads` and `noon-ads`. This is the one home for the
-decision rules; other references link here. The thresholds named below
-(`acos_no_lower`, `cpc_floor_multiplier`, `scale_roas`,
-`change_cooldown_days`, `margin`) are defaults listed in
-[`data-contract.md`](data-contract.md) and overridden per store by
-`key: value` lines in `stores/<slug>/notes.md`. `target_roas` and the
-waste / harvest cutoffs are derived per store in
+default decision rules — what to recommend where the user said nothing
+about a point; other references link here. When the user has said
+otherwise (a margin, a goal, "don't cut spend", a row to leave alone),
+follow that and say in the row's `reason` which instruction you
+followed. The thresholds named below (`acos_no_lower`,
+`cpc_floor_multiplier`, `scale_roas`, `change_cooldown_days`, `margin`)
+are defaults listed in [`data-contract.md`](data-contract.md) and
+overridden per store by `key: value` lines in `stores/<slug>/notes.md`.
+`target_roas` and the waste / harvest cutoffs are derived per store in
 [`tuning-thresholds.md`](tuning-thresholds.md). The decisions land in
 `CHANGES.tsv` (mapping in [`audit-quickref.md`](audit-quickref.md) §5).
 
@@ -37,9 +40,9 @@ matched to that row's own data rather than a template:
   When the bid is reasonable and volume is simply low or the campaign is
   new, "keep and watch" is honest — say why.
 - The first word of the decision is the decision. A row that should be
-  paused says pause; don't write "keep" and hide "consider pausing" in
-  the reason, because the person scanning the table acts on the first
-  word.
+  paused says pause; a "keep" with "consider pausing" hidden in the
+  reason gets kept, because the person scanning the table acts on the
+  first word.
 
 ## Zero-sales rows
 
@@ -57,17 +60,22 @@ A keyword, target or search-term row is **PROTECT** when either holds:
 1. **Efficiency** — row ROAS ≥ `target_roas` × 2 with at least 1 order.
 2. **Workhorse** — the row carries ≥ 50% of the campaign's orders.
 
-What it means:
+What it means by default:
 
 - No pause, and no cut that would put the row's orders at risk: a
-  workhorse may be trimmed at most 15% in a session.
-- PROTECT blocks cuts, not growth. An efficiency row is often the best
-  candidate to raise (see [Scale winners](#scale-winners)).
-- Don't pause a campaign that contains PROTECT rows; act on its
-  offending rows individually instead.
+  workhorse is trimmed by at most 15% in a session, because it carries
+  the campaign's orders.
+- PROTECT guards against cuts, not growth. An efficiency row is often
+  the best candidate to raise (see [Scale winners](#scale-winners)), and
+  a workhorse whose ROAS is above `target_roas` can be raised too.
+- A campaign that contains PROTECT rows is better served by acting on
+  its offending rows individually: pausing it stops its order drivers
+  too.
 
-In the report, mark it `Hold (PROTECT) — N orders, ROAS X` (add
-`efficiency` or `workhorse`).
+In the report, the row's action comes first and PROTECT marks why:
+`Hold (PROTECT) — N orders, ROAS X`, or `Raise (PROTECT) — …` for a
+protected row being raised, so the cell matches the row's action in
+`CHANGES.tsv` (add `efficiency` or `workhorse`).
 
 ## Bid floor and step cap
 
@@ -83,18 +91,19 @@ already clears the auction at its CPC, so a new bid below it stops the
 target serving and its orders go with the spend. Amazon's suggested range
 is meant for targets with no history — where the target has clicks, its
 observed CPC wins. Where the platform shows no suggested range (noon),
-the CPC term alone sets the floor. With no clicks there is no CPC, and
-no `lower`.
+the CPC term alone sets the floor. The server checks the CPC term; with
+no clicks there is no CPC, and it refuses a `lower` that has none.
 
-**Step cap:** move a bid by at most 25% per session, up or down (15% down
-for a workhorse). Step toward a target across audits so you can see
-traffic respond before the next step. A one-shot jump to the suggested
-midpoint from far above it is a bid collapse, not a trim.
+**Step cap:** by default, move a bid by at most 25% per session, up or
+down (15% down for a workhorse). Step toward a target across audits so
+you can see traffic respond before the next step. A one-shot jump to the
+suggested midpoint from far above it is a bid collapse, not a trim.
 
-**No lower under `acos_no_lower`.** A row with at least one order and ACOS
+**Rows under `acos_no_lower`.** A row with at least one order and ACOS
 under the threshold (ROAS above `100 / acos_no_lower`) is converting
-profitably: keep or raise it. A bid above the suggested range is not by
-itself a reason to trim.
+profitably at the default margin: keep or raise it. The server refuses a
+`lower` or `pause` on such a row once, by name. A bid above the
+suggested range is not by itself a reason to trim.
 
 **When the floor leaves no room.** If the floor is at or above the
 current bid, a trim is impossible. Pause the row if it is losing money
@@ -119,34 +128,37 @@ row's ACOS or ROAS.
 ## Scale winners
 
 A row with ROAS above `scale_roas` and at least one order is a proven
-converter. Raise it (up to the step cap, toward the top of the suggested
-range) unless there is a concrete reason not to, and when you hold it,
-write the reason: the bid is already at or above the suggested high,
-impression share is already high, the campaign is budget-capped (raise
-the budget instead), or search volume for the term is genuinely low. A
-bare hold on a winner leaves profitable demand unclaimed.
+converter. By default, raise it (up to the step cap, toward the top of
+the suggested range) unless there is a concrete reason not to. A `hold`
+on it carries the reason — the server asks for one: the bid is already
+at or above the suggested high, impression share is already high, the
+campaign is budget-capped (raise the budget instead), search volume for
+the term is genuinely low, or the user's instruction. A bare hold on a
+winner leaves profitable demand unclaimed.
 
 ## Cooldown
 
 A target changed within `change_cooldown_days` (its `applied_at` in the
-targeting TSV) has too little data since the change to judge. Hold it,
-with the change and its age in the reason — e.g. "raised 2 days ago,
-waiting for a week of data". Moving it again would react to noise and
-destroy the evidence for the first change.
+targeting TSV) has too little data since the change to judge. The server
+expects a `hold` on it, with the change and its age in the reason — e.g.
+"raised 2 days ago, waiting for a week of data". Moving it again would
+react to noise and destroy the evidence for the first change.
 
 ## Missing margin
 
 Margin sets breakeven ACOS and with it every target. When neither the
 store notes nor the user give one, use `margin` (default 25%) and state
-in the report: `margin assumed 25% (default) — confirm`. Don't stop to
-ask; the user corrects it on the next reply, and if they state a margin,
-record it as `margin: <n>` in `stores/<slug>/notes.md`.
+in the report: `margin assumed 25% (default) — confirm`. Stopping to ask
+costs a round trip the default saves; the user corrects it on the next
+reply. A margin they state applies to this task, and goes in
+`stores/<slug>/notes.md` as `margin: <n>` when they give it as the
+store's figure for every run.
 
 ## Search-term actions
 
 A search term is what the customer typed; it has no bid of its own (the
 bid lives on the target that caught it). So search-term rows take
-search-term actions, never bid verbs.
+search-term actions; a bid verb has nothing on the term to act on.
 
 - **Negate** a term that spent past the waste cutoff with no orders.
   Aggregate first: the same term can appear under several targets, and a
@@ -157,8 +169,8 @@ search-term actions, never bid verbs.
   every query containing it. A recurring irrelevant word ("free",
   "kids", a competitor's brand) is a phrase negative on the word.
 - **Product / category placements** (an ASIN, `Category`, `Subcat`) have
-  no exact-vs-phrase variant: negate the target, or keep it. Don't invent
-  a match type.
+  no exact-vs-phrase variant: negate the target, or keep it. A keyword
+  match type doesn't exist for them.
 - **Harvest** a converting term into its own exact keyword when you need
   separate bid control for it: its source target is being cut or paused
   (save the good traffic first), or it comes from an auto or broad source
@@ -166,7 +178,7 @@ search-term actions, never bid verbs.
   keyword ≈ the term's CPC × 1.1–1.25, and negate it as exact in the
   source so the two don't compete. When the source is healthy and staying
   as it is, it already catches the term — leave it. A term identical to
-  its source keyword is already a keyword; don't harvest it.
+  its source keyword is already a keyword; harvesting it adds a duplicate.
 - **Keep** a converting term whose source is healthy, or a term with too
   little data — say which.
 
@@ -180,22 +192,29 @@ longer catches anything.
 
 ## Precedence when several signals fire
 
-Resolve top-down and use the first match; mention the lower signals in
-the reason, never as a second action.
+The default recommendation when the user hasn't said otherwise: resolve
+top-down and use the first match; mention the lower signals in the
+reason rather than as a second action (a row carries one action).
 
 | # | Signal | Decision |
 |---|---|---|
 | 1 | Inside cooldown | `hold`, with the change date |
-| 2 | PROTECT | never `pause`; efficiency → `hold` or `raise`; workhorse → `hold`, or `lower` by ≤ 15% when ACOS ≥ `acos_no_lower` |
+| 2 | PROTECT | no `pause`; efficiency → `hold` or `raise`; workhorse → `hold`, `raise` when its ROAS is above `target_roas`, or `lower` by ≤ 15% when ACOS ≥ `acos_no_lower` |
 | 3 | Bleeder: 0 orders and spend ≥ the waste cutoff | `pause` the target / `negate` the term |
 | 4 | ACOS ≥ `acos_no_lower` with orders | `lower` within floor and step cap, or `pause` if no room |
 | 5 | Scale winner (ROAS > `scale_roas`, ≥ 1 order) | `raise`, or `hold` with the reason |
 | 6 | Bid far below the competitive range, no traffic | `raise` to a level that can win, or `pause` |
 | 7 | none of the above | `hold` |
 
+Row 4's line comes from the default margin: at or above `acos_no_lower`
+(25) a keyword likely loses money. When the user's words move it — "40%
+margin, grow sales, don't cut spend" puts breakeven at 40%, so a
+converter at ACOS 30 is profitable — follow them (`hold` or `raise`, not
+`lower`) and name the instruction in the row's `reason`.
+
 ## Campaign-level calls
 
-- **Auto campaigns: prune, don't pause.** If an auto group's search terms
+- **Auto campaigns: prune before pausing.** If an auto group's search terms
   include converters, negate the zero-order waste and keep the group
   running; low group ROAS is usually the waste dragging it down. Pause
   the whole group only when none of its terms convert, or it still loses
