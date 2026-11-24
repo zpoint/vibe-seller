@@ -30,6 +30,11 @@ class EmailAccount(Base):
     allow_send: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default='1'
     )
+    # The last sync's outcome (app/scheduler/email_sync.py:sync_and_record):
+    # the error while syncing fails, cleared by the next success, and
+    # when that success was. app/email/access.py reads them.
+    sync_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    synced_at: Mapped[str | None] = mapped_column(String, nullable=True)
     created_by: Mapped[str] = mapped_column(
         String, ForeignKey('users.id'), nullable=False
     )

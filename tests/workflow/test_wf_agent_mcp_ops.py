@@ -938,15 +938,15 @@ class TestManageEmailAccount:
     async def test_sync_now(self, admin_client, monkeypatch):
         await self._create(admin_client)
         monkeypatch.setattr(
-            'app.routers.email_accounts.get_sync_state',
+            'app.scheduler.email_sync.get_sync_state',
             lambda *a, **k: {},
         )
         monkeypatch.setattr(
-            'app.routers.email_accounts.maybe_seed_sync_state',
+            'app.scheduler.email_sync.maybe_seed_sync_state',
             mock.AsyncMock(return_value=None),
         )
         monkeypatch.setattr(
-            'app.routers.email_accounts.sync_account_emails',
+            'app.scheduler.email_sync.sync_account_emails',
             mock.AsyncMock(return_value=3),
         )
         data, _ = await call_tool(
@@ -1022,11 +1022,11 @@ class TestManageEmailAccount:
             json={'email_account_id': account_id},
         )
         monkeypatch.setattr(
-            'app.routers.email_accounts.init_email_db',
+            'app.email.info.init_email_db',
             lambda account_id: tmp_path / f'{account_id}.db',
         )
         monkeypatch.setattr(
-            'app.routers.email_accounts.db_path_for_account',
+            'app.email.info.db_path_for_account',
             lambda account_id: tmp_path / f'{account_id}.db',
         )
         data, _ = await call_tool(

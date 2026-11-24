@@ -279,7 +279,7 @@ Assembly order (fixed for all task types):
 1. Base prompt (`design_system.md` with `{workspace_guidance}` filled)
 2. Language hint → 3. Waiting instruction → 4. Store/all-stores context → 5. TickTick → 6. System context (+ vision breadcrumb, scheduled / plan-only blocks) → 7. Header extra (plan text) → 8. Caller extra (conversation history) → 9. Store ads note (the last word — a fanout plan is shared) → 10. Plugin `system_extra` fragments
 
-The store context always carries a `## Email System` section (`app/email/prompt.py` → `store_email_section`). With mailboxes linked it says how to read and send. With none it says plainly that this task cannot read or send the store's mail, and that the user connects a mailbox in Settings → Email (`app.email.NO_STORE_MAILBOX`). Silence there, while the email tools stayed on offer, sent an agent hunting the machine for another way to send.
+The store context always carries a one-line `## Email System` section (`app/email/access.py` → `store_prompt_section`). It names each of the store's mailboxes and what it can do, for example `a@x (read and send)` or `b@y (read only: …)`, or says plainly that this task cannot read or send the store's mail. A no-store task's context gets the same summary for every mailbox (`all_mailboxes_line`). Both come from the function that also answers the email tools and gates sending, so the prompt cannot claim a mailbox sends when the server would refuse it. Details (DB paths, schema) come from `vibe_seller_email_info`, not the prompt.
 
 `start_agent()` (ad-hoc) intentionally skips full context — it's for raw interaction.
 

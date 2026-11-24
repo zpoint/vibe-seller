@@ -5,6 +5,7 @@ expected substrings are present/absent in the assembled prompt.
 """
 
 import os
+from types import SimpleNamespace
 
 os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-testing-only')
 
@@ -17,7 +18,12 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
-from app.email import NO_STORE_MAILBOX
+from app.email.access import (
+    NO_STORE_MAILBOX,
+    MailboxAccess,
+    read_problem,
+    send_problem,
+)
 from app.models.base import Base
 from app.models.email_account import EmailAccount
 from app.models.schedule import Schedule
@@ -36,7 +42,6 @@ from app.prompts import (
 )
 from app.task_runner import (
     VISION_SETUP_BREADCRUMB,
-    Mailbox,
     PromptBundle,
     TaskHeader,
     build_system_extra,
@@ -47,9 +52,28 @@ pytestmark = pytest.mark.unit
 
 # ── Fixtures ─────────────────────────────────────────────────
 
+
+def _mailbox(email, *, allow_send=True, smtp_host='smtp.example.com'):
+    """A store mailbox as ``app.email.access`` judges it."""
+    acct = SimpleNamespace(
+        email=email,
+        allow_send=allow_send,
+        smtp_host=smtp_host,
+        sync_error=None,
+        synced_at=None,
+    )
+    return MailboxAccess(
+        account_id=email,
+        email=email,
+        stores=('Test Store Alpha',),
+        read_problem=read_problem(acct),
+        send_problem=send_problem(acct),
+    )
+
+
 TEST_EMAILS = [
-    Mailbox('seller@example.com', allow_send=True),
-    Mailbox('support@example.com', allow_send=False),
+    _mailbox('seller@example.com'),
+    _mailbox('support@example.com', allow_send=False),
 ]
 
 
@@ -390,8 +414,9 @@ class TestAutoStoreTask:
 
 
 class TestEmailSendPolicy:
-    """The prompt names which mailboxes may send — advisory only (the
-    gate is server-side), so the agent doesn't waste a refused call."""
+    """The prompt's one email line says what each mailbox can do
+    (``app.email.access``, the same answer the email tools give and the
+    send gate enforces), so the agent doesn't waste a refused call."""
 
     @pytest.mark.asyncio
     async def test_store_task_names_sendable_and_read_only(
@@ -401,11 +426,8 @@ class TestEmailSendPolicy:
             task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
         )
         body = bundle.system_extra
-        assert 'Sending is allowed from: seller@example.com.' in body
-        assert (
-            'Read/draft only (sending turned off by the user): '
-            'support@example.com.'
-        ) in body
+        assert 'seller@example.com (read and send)' in body
+        assert 'support@example.com (read only: the user turned sending' in body
         assert 'Settings → Email' in body
         assert '"Email sending permission"' in body
 
@@ -417,11 +439,11 @@ class TestEmailSendPolicy:
             task,
             store,
             header=TaskHeader.AUTO,
-            store_emails=[Mailbox('seller@example.com', allow_send=False)],
+            store_emails=[_mailbox('seller@example.com', allow_send=False)],
         )
         body = bundle.system_extra
-        assert 'Sending is allowed from' not in body
-        assert 'Read/draft only' in body
+        assert '(read and send)' not in body
+        assert 'seller@example.com (read only: ' in body
 
     @pytest.mark.asyncio
     async def test_store_task_default_all_sendable(
@@ -431,18 +453,19 @@ class TestEmailSendPolicy:
             task,
             store,
             header=TaskHeader.AUTO,
-            store_emails=[Mailbox('seller@example.com')],
+            store_emails=[_mailbox('seller@example.com')],
         )
         body = bundle.system_extra
-        assert 'Sending is allowed from: seller@example.com.' in body
-        assert 'Read/draft only' not in body
+        assert 'seller@example.com (read and send)' in body
+        assert 'read only' not in body
 
     @pytest.mark.asyncio
     async def test_store_mailboxes_read_from_db(
         self, _patch_async_session, task, store
     ):
-        """No ``store_emails`` passed → the builder reads the links,
-        WITH their permission, from the DB."""
+        """No ``store_emails`` passed → the builder reads the links from
+        the DB, with what each mailbox can do: sending turned off, and
+        no outgoing server, are both read-only."""
         async with _patch_async_session() as db:
             db.add(store)
             db.add_all([
@@ -451,6 +474,7 @@ class TestEmailSendPolicy:
                     email='seller@example.com',
                     encrypted_password='x',
                     imap_host='imap.example.com',
+                    smtp_host='smtp.example.com',
                     created_by='user-1',
                 ),
                 EmailAccount(
@@ -458,19 +482,32 @@ class TestEmailSendPolicy:
                     email='support@example.com',
                     encrypted_password='x',
                     imap_host='imap.example.com',
+                    smtp_host='smtp.example.com',
                     allow_send=False,
+                    created_by='user-1',
+                ),
+                EmailAccount(
+                    id='ea-5',
+                    email='imap-only@example.com',
+                    encrypted_password='x',
+                    imap_host='imap.example.com',
                     created_by='user-1',
                 ),
             ])
             db.add_all([
                 StoreEmailLink(store_id=store.id, email_account_id='ea-1'),
                 StoreEmailLink(store_id=store.id, email_account_id='ea-2'),
+                StoreEmailLink(store_id=store.id, email_account_id='ea-5'),
             ])
             await db.commit()
         bundle = await build_system_extra(task, store, header=TaskHeader.AUTO)
         body = bundle.system_extra
-        assert 'Sending is allowed from: seller@example.com.' in body
-        assert 'turned off by the user): support@example.com.' in body
+        assert 'seller@example.com (read and send)' in body
+        assert 'support@example.com (read only: the user turned sending' in body
+        assert (
+            'imap-only@example.com (read only: it has no outgoing (SMTP) '
+            'server set up'
+        ) in body
 
     @pytest.mark.asyncio
     async def test_no_store_task_lists_policy(
@@ -483,6 +520,7 @@ class TestEmailSendPolicy:
                     email='shop@example.com',
                     encrypted_password='x',
                     imap_host='imap.example.com',
+                    smtp_host='smtp.example.com',
                     allow_send=False,
                     created_by='user-1',
                 )
@@ -493,6 +531,7 @@ class TestEmailSendPolicy:
                     email='sales@example.com',
                     encrypted_password='x',
                     imap_host='imap.example.com',
+                    smtp_host='smtp.example.com',
                     created_by='user-1',
                 )
             )
@@ -501,9 +540,8 @@ class TestEmailSendPolicy:
             no_store_task, None, header=TaskHeader.AUTO
         )
         body = bundle.system_extra
-        assert 'shop@example.com (not linked to any store)' in body
-        assert 'Sending is allowed from: sales@example.com.' in body
-        assert 'turned off by the user): shop@example.com.' in body
+        assert 'sales@example.com (read and send) → no store' in body
+        assert 'shop@example.com (read only: the user turned sending' in body
 
     @pytest.mark.asyncio
     async def test_store_without_a_mailbox_says_it_cannot_send(

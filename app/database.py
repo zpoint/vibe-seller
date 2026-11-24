@@ -121,6 +121,10 @@ def _ensure_added_columns(conn) -> None:
         # per mailbox under Settings → Email. Enforced in
         # app/email/sender.py.
         ('email_accounts', 'allow_send', 'BOOLEAN NOT NULL DEFAULT 1'),
+        # The last sync's outcome, read by app/email/access.py: no error
+        # (and no time yet) until the next sync records one.
+        ('email_accounts', 'sync_error', 'TEXT'),
+        ('email_accounts', 'synced_at', 'TEXT'),
     ]
     for table, column, sqltype in added:
         cols = {

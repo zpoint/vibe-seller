@@ -14,11 +14,14 @@ from app.browser.base import antidetect_display_name, is_antidetect
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
-from app.email.prompt import Mailbox, send_policy_note, store_email_section
+from app.email.access import (
+    MailboxAccess,
+    all_mailboxes_line,
+    mailboxes_for,
+    store_prompt_section,
+)
 from app.events_system.syncer import load_backend_config
-from app.models.email_account import EmailAccount
 from app.models.store import Store
-from app.models.store_email_link import StoreEmailLink
 from app.models.task import Task
 from app.prompts import (
     DUAL_BROWSER_PROMPT,
@@ -124,7 +127,7 @@ def _get_platform_sites() -> dict[str, dict[str, str]]:
 
 def build_store_context(
     store: Store,
-    mailboxes: Sequence[Mailbox] | None = None,
+    mailboxes: Sequence[MailboxAccess] | None = None,
     task_platform: str | None = None,
     task_country: str | None = None,
 ) -> str:
@@ -340,7 +343,7 @@ def build_store_context(
             'ask the user.'
         )
 
-    ctx += store_email_section(store.id, mailboxes)
+    ctx += store_prompt_section(list(mailboxes or []))
 
     return ctx
 
@@ -448,57 +451,11 @@ async def build_system_context(task: Task) -> str:
                     'timestamp is available.'
                 )
 
-        if is_store_task:
-            # Store tasks already get email info via store context
-            pass
-        else:
-            # Fetch all emails + linked store names in one query
-            result = await db.execute(
-                select(EmailAccount).order_by(EmailAccount.email)
-            )
-            all_emails = result.scalars().all()
-            if all_emails:
-                # Batch-fetch all store links
-                link_rows = await db.execute(
-                    select(
-                        StoreEmailLink.email_account_id,
-                        Store.name,
-                    ).join(
-                        Store,
-                        Store.id == StoreEmailLink.store_id,
-                    )
-                )
-                # Group by email_account_id
-                links_map: dict[str, list[str]] = {}
-                for eid, sname in link_rows.all():
-                    links_map.setdefault(eid, []).append(sname)
-
-                email_lines = []
-                for ea in all_emails:
-                    store_names = links_map.get(ea.id, [])
-                    if store_names:
-                        stores_str = ', '.join(store_names)
-                        email_lines.append(f'  {ea.email} → {stores_str}')
-                    else:
-                        email_lines.append(
-                            f'  {ea.email} (not linked to any store)'
-                        )
-                integrations.append(
-                    f'Email: {len(all_emails)} account(s) '
-                    f'(synced to SQLite DBs every 5 min):\n'
-                    + '\n'.join(email_lines)
-                    + '\n  Use vibe_seller_email_info('
-                    'store_id=...) to get DB paths, then '
-                    'query via sqlite3 CLI.\n'
-                    '  Use vibe_seller_sync_email_now('
-                    'account_email=...) for immediate sync.\n'
-                    '  Use vibe_seller_send_email(...) to '
-                    'send emails. '
-                    + send_policy_note([
-                        Mailbox(ea.email, bool(ea.allow_send))
-                        for ea in all_emails
-                    ])
-                )
+        if not is_store_task:
+            # A store task's mailboxes are in its store context.
+            line = all_mailboxes_line(await mailboxes_for(db, None))
+            if line:
+                integrations.append(line)
 
     if integrations:
         lines.append('')

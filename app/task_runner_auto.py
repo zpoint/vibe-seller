@@ -9,6 +9,7 @@ from app.ai.turn_hold_budget import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.config import VIBE_SELLER_DIR
 from app.database import async_session
+from app.email.access import MailboxAccess, mailboxes_for
 from app.env_options import Options
 from app.events.bus import event_bus
 from app.knowledge_contract import L2_SCOPE, cleanup_scope
@@ -27,10 +28,8 @@ from app.task_finalize import (
 )
 from app.task_owners import holds_task
 from app.task_runner import (
-    Mailbox,
     TaskHeader,
     build_system_extra,
-    get_store_emails,
     maybe_inject_pending_answers,
 )
 from app.task_session_lifecycle import (
@@ -87,11 +86,11 @@ async def auto_run_task(task_id: str, store: Store | None):
         # 0. Write MCP config (no browser start — agent does that lazily).
         # Store tasks get their per-store wrapper; no-store tasks get the
         # store-less "web" wrapper. Also query linked email addresses.
-        store_emails: list[Mailbox] = []
+        store_emails: list[MailboxAccess] = []
         async with async_session() as db:
             await browser_manager.write_task_browser_config(store, db)
             if store:
-                store_emails = await get_store_emails(db, store.id)
+                store_emails = await mailboxes_for(db, store.id)
 
         # 1. Join any remote sync still in flight before reading the
         # skills/knowledge trees. The central sync scheduler owns the

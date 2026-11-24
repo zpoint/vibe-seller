@@ -155,6 +155,44 @@ def _all_emails(body: dict) -> list[dict]:
     return [e for acct in body['accounts'] for e in acct['new_emails']]
 
 
+class TestSweepOfAMailboxThatIsNotSyncing:
+    async def test_failing_sync_is_reported_not_read_as_no_mail(
+        self, admin_client, override_async_session, admin_user, email_env
+    ):
+        """A mailbox whose sync fails returns only its stale copy; the
+        sweep says so (``app.email.access.read_problem``) instead of
+        letting "nothing new" read as an empty inbox."""
+        async with override_async_session() as db:
+            acct = await db.get(EmailAccount, email_env['account_id'])
+            acct.sync_error = 'LOGIN failed'
+            await db.commit()
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            email_env['schedule_id'],
+            email_env['store_id'],
+        )
+        body = (
+            await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        ).json()
+        assert 'LOGIN failed' in body['accounts'][0]['problem']
+        assert 'Settings → Email' in body['accounts'][0]['problem']
+
+    async def test_a_syncing_mailbox_carries_no_problem(
+        self, admin_client, override_async_session, admin_user, email_env
+    ):
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            email_env['schedule_id'],
+            email_env['store_id'],
+        )
+        body = (
+            await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        ).json()
+        assert 'problem' not in body['accounts'][0]
+
+
 class TestNewEmailsSweep:
     async def test_first_run_returns_recent_then_cursor_filters(
         self, admin_client, override_async_session, admin_user, email_env

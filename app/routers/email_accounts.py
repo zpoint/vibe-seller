@@ -13,21 +13,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
 from app.auth import get_current_user
-from app.browser.wrapper import store_slug
 from app.channels.email_discovery import (
     discover_imap,
     discover_smtp,
 )
-from app.channels.email_poller import sync_account_emails
 from app.database import get_db
-from app.email import NO_STORE_MAILBOX
-from app.email.db import db_path_for_account, get_sync_state, init_email_db
+from app.email.info import mailbox_info, resolve_store
 from app.email.sender import SendNotAllowedError, send_email
 from app.models.email_account import EmailAccount
 from app.models.store import Store
 from app.models.store_email_link import StoreEmailLink
 from app.models.user import User
-from app.scheduler.email_sync import maybe_seed_sync_state
+from app.scheduler.email_sync import sync_now
 from app.schemas.email_account import (
     EmailAccountCreate,
     EmailAccountResponse,
@@ -39,7 +36,6 @@ from app.schemas.email_account import (
     StoreEmailLinkResponse,
 )
 from app.telemetry_events import TelemetryEvent
-from app.telemetry_via import current_via
 from app.text_utils import SafeStr
 from app.utils.crypto import decrypt_password, encrypt_password
 
@@ -245,6 +241,9 @@ async def update_email_account(
 
     for field, value in update_data.items():
         setattr(account, field, value)
+    # The recorded sync error described the old settings; the next sync
+    # records the new outcome (app/email/access.py reads it).
+    account.sync_error = None
 
     account.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
@@ -453,13 +452,12 @@ async def sync_email_now(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Trigger immediate IMAP sync for one email account.
+    """Sync one mailbox now, by address (the operator toolset's route).
 
-    Blocks until sync completes. Returns new email count,
-    account email, and last-polled timestamp. If the account
-    was synced within the last 30 seconds, returns the cached
-    state without re-syncing. Agent then queries the
-    per-account SQLite DB directly via sqlite3 CLI.
+    Blocks until the sync completes; within 30 s of the last sync it
+    returns that one instead (``app.scheduler.email_sync.sync_now``). A
+    task syncs its own mailboxes through
+    ``POST /api/tasks/{id}/mailboxes/sync``.
     """
     result = await db.execute(
         select(EmailAccount).where(EmailAccount.email == data.account_email)
@@ -470,54 +468,11 @@ async def sync_email_now(
             status_code=404,
             detail=(f'No account found for {data.account_email}'),
         )
-
-    # The per-account DB (and its sync_state table) must exist before
-    # the cooldown read below can query it: a freshly created account
-    # has never synced, so nothing has initialized its DB yet — the
-    # first "Sync now" would die on `no such table: sync_state`. The
-    # background scheduler seeds before it reads; the route does too.
-    # Idempotent, and the seed is what gives a linked account its
-    # store watermarks.
-    await maybe_seed_sync_state(account.id)
-
-    # Cooldown: skip sync if polled within last 30 seconds
-    _SYNC_COOLDOWN_SECONDS = 30
-    state = await asyncio.to_thread(get_sync_state, account.id, 'INBOX')
-    if state.get('last_polled_at'):
-        last = datetime.fromisoformat(state['last_polled_at'])
-        if last.tzinfo is None:
-            last = last.replace(tzinfo=UTC)
-        age = (datetime.now(UTC) - last).total_seconds()
-        if age < _SYNC_COOLDOWN_SECONDS:
-            return {
-                'ok': True,
-                'account_email': data.account_email,
-                'new_emails': 0,
-                'last_polled_at': state['last_polled_at'],
-                'skipped': True,
-            }
-
-    password = decrypt_password(account.encrypted_password)
     try:
-        new_count = await sync_account_emails(account, password)
+        return await sync_now(account)
     except Exception as e:
-        logger.exception(
-            'On-demand sync failed for %s',
-            data.account_email,
-        )
-        raise HTTPException(
-            status_code=502,
-            detail=f'Sync failed: {e}',
-        ) from e
-
-    state = await asyncio.to_thread(get_sync_state, account.id, 'INBOX')
-
-    return {
-        'ok': True,
-        'account_email': data.account_email,
-        'new_emails': new_count,
-        'last_polled_at': state.get('last_polled_at'),
-    }
+        logger.exception('On-demand sync failed for %s', data.account_email)
+        raise HTTPException(status_code=502, detail=f'Sync failed: {e}') from e
 
 
 @router.get('/api/email-accounts/info-by-store/{store_id}')
@@ -526,121 +481,14 @@ async def email_info_by_store(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Return email DB paths + schema for agents/MCP.
+    """A store's mailboxes, what each can do, and how to read them.
 
-    Per-account: email address, DB path, attachments dir,
-    schema summary, sample sqlite3 queries.
-
-    ``store_id`` may be the store's slug: agents see it in every path
-    (``stores/<slug>/``) and pass it as often as the id. A value that is
-    neither is refused — answering "no mailbox" for a store that has one,
-    only because it was named differently, would tell the agent it
-    cannot do what it can.
+    The operator toolset's view (``/api/mcp``); a task reads its own
+    through ``GET /api/tasks/{id}/mailboxes``. Both are
+    ``app.email.info.mailbox_info``. ``store_id`` may be the slug.
     """
-    if await db.get(Store, store_id) is None:
-        stores = (await db.execute(select(Store))).scalars().all()
-        match = next(
-            (s for s in stores if store_slug(s.name, s.id) == store_id), None
-        )
-        if match is None:
-            raise HTTPException(
-                status_code=404,
-                detail=(
-                    f'No store {store_id!r}. Pass the store id, or its '
-                    'slug (the folder name under stores/).'
-                ),
-            )
-        store_id = match.id
-    result = await db.execute(
-        select(StoreEmailLink, EmailAccount)
-        .join(
-            EmailAccount,
-            StoreEmailLink.email_account_id == EmailAccount.id,
-        )
-        .where(StoreEmailLink.store_id == store_id)
-    )
-    rows = result.all()
-
-    accounts = []
-    for _link, acct in rows:
-        await asyncio.to_thread(init_email_db, acct.id)
-        path = db_path_for_account(acct.id)
-        accounts.append({
-            'account_id': acct.id,
-            'email': acct.email,
-            'db_path': str(path),
-            'attachments_dir': str(
-                path.parent / f'email_{acct.id}_attachments'
-            ),
-            'smtp_configured': bool(acct.smtp_host),
-            # Whether vibe_seller_send_email will be accepted for this
-            # mailbox (the server refuses it otherwise).
-            'allow_send': bool(acct.allow_send),
-        })
-    if rows:
-        telemetry.send(
-            TelemetryEvent.EMAIL_READ,
-            {
-                'source': 'info',
-                'provider_kinds': sorted({
-                    telemetry.email_provider_kind(a.email) for _link, a in rows
-                }),
-                'via': current_via(),
-            },
-        )
-    else:
-        # No schema or sample queries for databases that do not exist:
-        # the answer is that there is no mail here, said plainly.
-        return {'store_id': store_id, 'accounts': [], 'note': NO_STORE_MAILBOX}
-
-    return {
-        'store_id': store_id,
-        'accounts': accounts,
-        'schema': (
-            'emails(message_id, folder, subject, sender, '
-            'recipient, date, body_text, body_html, '
-            'raw_headers, attachments, flags, fetched_at, '
-            'email_account, received_epoch)'
-        ),
-        # date vs received_epoch is the footgun that leaked a run's
-        # already-processed email (tests/e2e/test_email_watermark_e2e.py):
-        # `date` is a human ISO string, the watermark is unix seconds, and
-        # SQLite treats every TEXT value as greater than any INTEGER — so
-        # `WHERE date > <watermark>` matches EVERY row and silently leaks.
-        'column_notes': (
-            '`date` = sender-supplied ISO string, for DISPLAY only. Never '
-            'compare it with >/< against the epoch watermark. For any '
-            '"since <time>" filter use `received_epoch` (unix seconds, '
-            'arrival axis) — that is the axis the email_watermark cursor '
-            'is measured in, so `received_epoch > <cursor>` is a correct '
-            'INTEGER compare.'
-        ),
-        # Metadata-only samples (subject/sender/date — never body_text
-        # or SELECT *). For a "new since last run" sweep, do NOT widen
-        # these into an unfiltered body query: it pulls
-        # already-processed emails into the agent context and leaks them
-        # into the run (see tests/e2e/test_email_watermark_e2e.py). Use
-        # vibe_seller_get_new_emails instead — see watermark_note.
-        'sample_queries': [
-            'sqlite3 <db_path> "SELECT subject, sender, '
-            "date FROM emails WHERE folder='INBOX' "
-            'ORDER BY received_epoch DESC LIMIT 20"',
-            'sqlite3 <db_path> "SELECT subject, sender, date '
-            "FROM emails WHERE subject LIKE '%keyword%'\"",
-            # Time window: compare received_epoch (INTEGER), never date.
-            'sqlite3 <db_path> "SELECT subject, sender, date FROM '
-            'emails WHERE received_epoch > <watermark_epoch> '
-            'ORDER BY received_epoch ASC"',
-        ],
-        'watermark_note': (
-            'For a scheduled "new emails since the last run" sweep, do '
-            'NOT query here — call vibe_seller_get_new_emails. It reads '
-            'the email_watermark cursor and filters server-side, so '
-            'already-processed emails never enter your context. If you '
-            'do query raw, filter on received_epoch (NOT date).'
-        ),
-        'sync_interval': '5 minutes (automatic)',
-    }
+    store = await resolve_store(db, store_id)
+    return await mailbox_info(db, store.id)
 
 
 # ── Email Account Links ──────────────────────────────────────

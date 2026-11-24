@@ -63,6 +63,8 @@ ASYNC_SESSION_MODULES = [
     'app.routers.schedule_planning',
     'app.schedule_plan_review',
     'app.routers.email_accounts',
+    # Records each mailbox sync's outcome (sync_and_record).
+    'app.scheduler.email_sync',
     'app.ai.claude_backend',
     'app.ai.claude_backend_manager',
     # Whether a run may wait on a person reads the task row.

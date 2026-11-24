@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import telemetry
 from app.auth import get_current_user
 from app.database import get_db
+from app.email.access import read_problem
 from app.email.db import get_new_emails_since, init_email_db
 from app.models.email_account import EmailAccount
 from app.models.schedule import Schedule
@@ -545,11 +546,16 @@ async def get_new_emails(
         )
         next_watermark = max(next_watermark, acct_max)
         total += len(emails)
-        accounts_out.append({
+        entry = {
             'account_id': acct.id,
             'email': acct.email,
             'new_emails': emails,
-        })
+        }
+        # A failing sync must not read as "no new mail": say so, the
+        # same answer vibe_seller_email_info gives (app.email.access).
+        if problem := read_problem(acct):
+            entry['problem'] = problem
+        accounts_out.append(entry)
 
     # Record the cursor floor server-side. The floor is the highest
     # next_watermark we have shown the agent;
