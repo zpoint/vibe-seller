@@ -78,7 +78,7 @@ flowchart LR
 
 ## 安装
 
-**🪟 Windows**：下载 [VibeSeller-Setup.exe](https://github.com/zpoint/vibe-seller/releases/latest)，双击安装，装完会自动打开。
+**🪟 Windows**：下载 [VibeSeller-Setup.exe](https://github.com/zpoint/vibe-seller/releases/latest)，双击安装，装完会自动用默认浏览器打开 <http://localhost:7777>。以后点开始菜单里的 Vibe Seller，或者自己在浏览器访问这个网址都可以。
 
 **🍎 macOS / 🐧 Linux**：打开终端，执行下面两行，然后在浏览器打开 <http://localhost:7777>：
 

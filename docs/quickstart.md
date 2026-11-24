@@ -15,7 +15,9 @@ description: 第一次使用：配置 AI、新建店铺、创建第一个任务�
 
 === "Windows"
 
-    装完会自动打开。以后想打开，点开始菜单里的 Vibe Seller。
+    装完会自动用默认浏览器打开 <http://localhost:7777>。以后点开始菜单里的 Vibe Seller，也会自动打开这个网址。
+
+    自己打开也行：Vibe Seller 在运行时（任务栏右下角托盘里有它的图标），在浏览器里访问 <http://localhost:7777> 即可。
 
 === "macOS"
 

@@ -111,7 +111,9 @@ scratch.
 ## Install
 
 **🪟 Windows**: download [VibeSeller-Setup.exe](https://github.com/zpoint/vibe-seller/releases/latest),
-double-click it, and Vibe Seller opens when it's done.
+double-click it, and when it's done your default browser opens
+<http://localhost:7777>. Later, click Vibe Seller in the Start menu, or go to
+that address in your browser yourself.
 
 **🍎 macOS / 🐧 Linux**: open a terminal, run these two lines, then open
 <http://localhost:7777> in your browser:
