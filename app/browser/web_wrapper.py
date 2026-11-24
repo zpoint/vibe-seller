@@ -124,6 +124,9 @@ def write_web_browser_use_wrapper(
         export BH_RUNTIME_DIR_SHARED=1
         export BH_TMP_DIR="{BH_TMP_DIR}"
         export BH_TMP_DIR_SHARED=1
+        # No horse-emoji title prefix on driven tabs (pages can observe
+        # it) — same as the per-store wrapper.
+        export BH_TAB_MARKER=0
 
         # Per-task session: each task gets its own daemon so concurrent
         # orchestrator tasks never collide on one session config.

@@ -487,6 +487,10 @@ def write_browser_use_wrapper(
         export BH_RUNTIME_DIR_SHARED=1
         export BH_TMP_DIR="{BH_TMP_DIR}"
         export BH_TMP_DIR_SHARED=1
+        # browser_harness prefixes the title of every tab it drives with
+        # a horse emoji — a change the page itself can observe, and no
+        # person's browser does that. Keep store pages untouched.
+        export BH_TAB_MARKER=0
 
         # Per-task session: each task gets its own daemon to avoid
         # "Session already running with different config".

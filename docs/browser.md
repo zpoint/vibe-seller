@@ -177,6 +177,17 @@ The same flag exists on the store-less `_web` wrapper, with the same contract. I
 
 Simple async TCP relay: listens on `127.0.0.1:{listen_port}`, forwards raw bytes to `{target_host}:{target_port}`. No CDP protocol awareness — only supports a single client at a time. Kept as `CDPTcpProxy` fallback. On WSL, `target_host` is the Windows gateway IP (detected by `_ziniao_host()`).
 
+### `chrome.py` — Chrome Backend
+
+Launches the store's Chromium with Playwright's `launch_persistent_context` (profile at `~/.vibe-seller/browser_profiles/{slug}/`) and fronts it with CDPMuxProxy. A store browser must look to a page like a person's browser window, because platform risk control (Taobao's 生意参谋 "abnormal access" prompt, Amazon's re-sign-in) reads what a page can see. `_launch_options()` owns that:
+
+- `--disable-blink-features=AutomationControlled` — Playwright launches with `--enable-automation` over a debugging pipe, and either makes `navigator.webdriver` true. The switch only changes what pages read; CDP control (input, screenshots, downloads, tabs) is unaffected.
+- `no_viewport` + `--window-size=1280,800` — the page fills the real window instead of Playwright's emulated 1280×720 viewport, like the Ziniao and winchrome backends.
+- `channel='chromium'` — the full Chromium build in both modes. Headless otherwise runs `chromium-headless-shell`, which drops every session cookie at startup (it ignores the restore-on-startup pref `_enable_session_restore` sets), so turning on 「后台运行浏览器」 logged Taobao-style stores out.
+- The store's own proxy (`browser_config.proxy_server` / `proxy_bypass` from the store form) becomes Playwright's `proxy`; credentials in the URL (`http://user:pass@host:port`) move to its username/password, since Chromium rejects them inside `--proxy-server`. Without a store proxy the browser follows the system proxy, like any browser.
+
+`tests/integration/test_chrome_store_launch.py` pins all four on a real Chromium. The wrappers also export `BH_TAB_MARKER=0`: browser_harness would otherwise prefix every driven tab's `document.title` with a horse emoji, which the page can observe.
+
 ### `ziniao.py` — Ziniao Backend
 
 Anti-detect browser with HTTP API (getBrowserList, startBrowser, stopBrowser). Each profile has unique fingerprint/cookies/proxy.

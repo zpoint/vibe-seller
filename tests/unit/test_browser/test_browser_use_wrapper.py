@@ -474,6 +474,31 @@ class TestWrapperConcurrentStores:
         )
 
 
+@pytest.mark.unit
+class TestWrapperLeavesPageTitleAlone:
+    """browser_harness prefixes every tab it drives with a horse emoji by
+    rewriting ``document.title`` — a change the page can observe, and one
+    no person's browser makes. Every wrapper turns it off, whatever the
+    caller's env says."""
+
+    @pytest.mark.parametrize('backend', ['chrome', 'ziniao'])
+    def test_store_wrapper_turns_tab_marker_off(
+        self, tmp_path: Path, backend: str
+    ):
+        wrapper = _generate_wrapper(tmp_path, backend=backend)
+        env = {**_env_without_task(), 'BH_TAB_MARKER': '1'}
+        result = _run_wrapper(wrapper, env=env)
+        assert result.returncode == 0, result.stderr
+        assert 'BH_TAB_MARKER=0' in result.stdout.splitlines()
+
+    def test_web_wrapper_turns_tab_marker_off(self, tmp_path: Path):
+        wrapper = _generate_web_wrapper(tmp_path)
+        env = {**_env_without_task(), 'BH_TAB_MARKER': '1'}
+        result = _run_wrapper(wrapper, env=env)
+        assert result.returncode == 0, result.stderr
+        assert 'BH_TAB_MARKER=0' in result.stdout.splitlines()
+
+
 def _generate_web_wrapper(tmp_path: Path) -> Path:
     """Generate the store-less orchestrator web wrapper, REAL_BU/curl
     stubbed so it runs offline."""
