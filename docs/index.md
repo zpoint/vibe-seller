@@ -124,7 +124,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 |---|---|
 | **入门** | [安装](install.md) · [快速开始](quickstart.md) · [配置 AI 模型](llm-keys.md) · [核心概念](concepts.md) |
 | **浏览器** | [浏览器总览](browsers.md) · [紫鸟：开通与常见报错](ziniao.md) · [悦互联：配置指南](yuehulian.md) |
-| **集成** | [集成总览](integrations.md) · [MCP 接入](mcp.md) · [添加自定义 MCP](mcp-custom.md) · [广告 API 绑定](ads-api.md) · [邮件](email.md) · [群机器人](chat-bots.md) · [企业微信 / 飞书 / 钉钉](workplace-cli.md) · [滴答清单 / TickTick](ticktick.md) · [Google Workspace](google-workspace.md) |
+| **集成** | [集成总览](integrations.md) · [MCP 接入](mcp.md) · [广告 API 绑定](ads-api.md) · [邮件](email.md) · [群机器人](chat-bots.md) · [企业微信 / 飞书 / 钉钉](workplace-cli.md) · [滴答清单 / TickTick](ticktick.md) · [Google Workspace](google-workspace.md) |
 | **使用示例** | [全部示例](examples.md) · [每天把重要邮件发到企业微信](example-email-wecom.md) · [分析广告 ACOS 并执行优化](example-ads-acos.md) · [每周巡检 Listing](example-listing-check.md) · [每月导出销售报表](example-daily-report.md) · [用 Codex 导出紫鸟店铺财务数据进行分析](example-mcp.md) |
 | **使用指南** | [店铺与浏览器](stores.md) · [任务](using-tasks.md) · [定时任务](schedules.md) · [知识库与 Skill](knowledge.md) |
 | **常见问题** | [了解 Vibe Seller](faq-about.md) · [费用与模型选择](faq-cost.md) · [登录与账号](faq-login.md) · [部署与数据](faq-data.md) · [全部问题](faq.md) |
@@ -138,7 +138,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 除了浏览器，AI 还能直接调用这些外部服务，全部在「设置 → 集成」里配置，不需要写代码：
 
 - **MCP 接入**——在 Claude、Codex、WorkBuddy、Qoder、Hermes Agent、Pi 等 AI 工具里直接指挥 Vibe Seller，[接入步骤](mcp.md)
-- **添加自定义 MCP**——把西柚洞察这类外部 MCP 服务接进来，任务里的 AI 直接用它的工具查数据、办事，[添加步骤](mcp-custom.md)
+    - 反过来也行：把西柚洞察这类外部 MCP 服务接进 Vibe Seller，任务里的 AI 直接用它的工具，[添加自定义 MCP](mcp-custom.md)
 - **Amazon Ads API**——广告任务直连接口，不再逐页操作卖家后台；实测同一个任务从 147 分钟缩短到 11 分钟，[绑定步骤和实测对比](ads-api.md)
 - **邮件**（IMAP/SMTP）——读取绑定的店铺邮箱，分类、整理、起草并发送回复，支持 163、QQ、Gmail 等，[接入步骤](email.md)
 - **群机器人**（企业微信、钉钉、飞书、Slack）——让 AI 把结果、报表、提醒直接发到群里，企业微信还支持发送文件，[接入步骤](chat-bots.md)
