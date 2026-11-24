@@ -39,6 +39,7 @@ from app.plan_states import (
 )
 from app.task_launch import schedule_or_run
 from app.task_states import TaskStatus, can_transition
+from app.task_status_cas import FAILABLE, transition_if
 from app.telemetry_events import TaskSource
 from app.telemetry_tasks import send_task_created
 
@@ -255,6 +256,16 @@ async def abort_current_planning_task(
     schedule._pending_abort_reason = reason  # type: ignore[attr-defined]
 
 
+async def _stop_planner(planning_task_id: str) -> None:
+    try:
+        await agent_manager.stop(planning_task_id)
+    except Exception:
+        logger.debug(
+            'Planning-task stop raised during abort',
+            exc_info=True,
+        )
+
+
 async def finalize_pending_abort(schedule: Schedule) -> None:
     """Finish the abort started by :func:`abort_current_planning_task`.
 
@@ -272,27 +283,31 @@ async def finalize_pending_abort(schedule: Schedule) -> None:
     )
     # Agent stop first so the agent cooperative-cancels before we
     # overwrite its DB row.
-    try:
-        await agent_manager.stop(planning_task_id)
-    except Exception:
-        logger.debug(
-            'Planning-task stop raised during abort',
-            exc_info=True,
-        )
+    await _stop_planner(planning_task_id)
+    # Compare-and-set from whatever failable status the row holds NOW:
+    # a launch racing this abort may have just moved it pending →
+    # designing, and a read-then-write would let that write win.
     try:
         async with async_session() as fresh_db:
-            task = await fresh_db.get(Task, planning_task_id)
-            if task and can_transition(task.status, TaskStatus.FAILED):
-                task.status = TaskStatus.FAILED
-                task.error = reason
-                task.error_category = 'superseded_by_edit'
-                task.updated_at = datetime.now(UTC).isoformat()
-                await fresh_db.commit()
+            failed = await transition_if(
+                fresh_db,
+                planning_task_id,
+                FAILABLE,
+                TaskStatus.FAILED,
+                error=reason,
+                error_category='superseded_by_edit',
+            )
     except Exception:
+        failed = False
         logger.exception(
             'Failed to transition planning task %s to FAILED',
             planning_task_id,
         )
+    if failed:
+        # A launch that passed its slot callback between the stop above
+        # and this write is still starting: stop it again (idempotent —
+        # a launching task is cancelled before it spawns).
+        await _stop_planner(planning_task_id)
     # Clear the pending markers so repeat calls are no-ops.
     try:
         del schedule._pending_abort_task_id  # type: ignore[attr-defined]

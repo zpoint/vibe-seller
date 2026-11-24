@@ -134,6 +134,7 @@ On re-dispatch, `auto_run_task` and `execute_planned_task` both call `maybe_inje
 - Transitions: `running` → `waiting` (agent signals wait OR incomplete todos), `waiting` → `queued` (woken) / `failed` (timeout), `failed` → `queued` (retry)
 - State machine defined in `app/task_states.py` (backend) and `frontend/src/taskStates.ts` (frontend UI config)
 - Backend: `TaskStatus` enum, `TRANSITIONS` table, named groups (`STOPPABLE`, `ACTIVE`, `WAKEABLE`, etc.)
+- A status write that can race another coroutine uses `app/task_status_cas.transition_if` — ONE `UPDATE … WHERE status IN (…)` instead of read → `can_transition` → write, so the second writer sees the first's status. Read-check-write lost an update: a schedule delete failed its planner (`pending` → `failed`) while the launcher's slot callback (`_on_start`) moved it `pending` → `designing`, and `designing` landed last. Both writers now go through it; the abort also stops the agent again after its write, in case a launch passed its slot callback in between.
 - Frontend: `TASK_UI` config table maps status → which buttons/tabs/panels are visible
 - Contract test ensures both sides agree on status values
 - Waiting checker: APScheduler interval job (15 min) in `app/scheduler/waiting.py` checks email conditions, times out stale waits
