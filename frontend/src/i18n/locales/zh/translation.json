@@ -197,8 +197,6 @@
     "modePlan": "先审核",
     "modeAutoDesc": "跳过审核，立即执行",
     "modePlanDesc": "先生成方案，确认后执行",
-    "modeTooltipForced": "此类任务在执行前会始终展示方案供你审阅。",
-    "planModeLabel": "先审方案",
     "executePlan": "执行计划",
     "approvePlan": "确认执行",
     "planReadyConfirm": "计划已就绪，请审核后确认执行或编辑修改。",

@@ -705,7 +705,7 @@ export function TasksView({
                       // Only this task: the default lives in Settings → General.
                     })
                   }
-                  return selectedTask.store_id ? (
+                  return (
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       <div aria-busy={busy('mode')} className={`inline-flex items-center rounded-md border border-gray-200 bg-gray-50 p-0.5${busyCls('mode')}`}>
                         <button
@@ -727,13 +727,6 @@ export function TasksView({
                       </div>
                       <span className="text-[11px] text-gray-400 hidden md:inline">{description}</span>
                     </div>
-                  ) : (
-                    <span
-                      className="text-xs text-gray-500 flex-shrink-0"
-                      title={t('tasks.modeTooltipForced')}
-                    >
-                      {t('tasks.planModeLabel')}
-                    </span>
                   )
                 })()}
                 <TaskUsageMeter usage={selectedTask} />

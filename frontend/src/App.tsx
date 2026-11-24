@@ -566,7 +566,7 @@ export default function App() {
       {
         api,
         storeId: selectedStore?.id || null,
-        planMode: selectedStore ? (currentUser?.plan_mode_default ?? false) : true,
+        planMode: currentUser?.plan_mode_default ?? false,
         setTasks,
         setSelectedTask,
         uploadAttachment: (taskId, pf) => uploadTaskAttachment(taskId, pf.file),

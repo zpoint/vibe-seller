@@ -197,8 +197,6 @@
     "modePlan": "Review",
     "modeAutoDesc": "Skip review, run immediately",
     "modePlanDesc": "Draft a plan, run after approval",
-    "modeTooltipForced": "This task type always shows a plan for review before running.",
-    "planModeLabel": "Review plan first",
     "executePlan": "Execute Plan",
     "approvePlan": "Approve & Execute",
     "planReadyConfirm": "Plan is ready. Review above, then approve or edit.",
