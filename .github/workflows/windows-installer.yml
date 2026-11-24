@@ -65,6 +65,16 @@ on:
         description: 'Installer version string'
         required: false
         default: '0.0.0'
+      tester_build:
+        description: >-
+          Build an installer for people to try, and nothing else: no
+          install, no checks, no e2e. Stamped as a nightly of the next
+          release (scripts/nightly_version.py), so whoever installs it
+          is offered that release when it ships, and no stable install
+          is ever offered this build. The link is on the run page.
+        required: false
+        default: false
+        type: boolean
       twist:
         description: >-
           Build and install from a checkout with one named bug injected
@@ -150,6 +160,9 @@ jobs:
       # read it as $env:TWIST. 'none' (and any PR run, where there is no
       # input at all) builds the code exactly as it is.
       TWIST: ${{ github.event.inputs.twist }}
+      # 'true' only on a tester_build dispatch: build and upload the
+      # installer, skip every step that verifies it.
+      TESTER_BUILD: ${{ github.event.inputs.tester_build == 'true' }}
       # The floating bundle pins: empty means the newest release, which
       # build.ps1 resolves (scripts/resolve_bundle_pins.py).
       BUNDLE_CLAUDE_VERSION: ${{ github.event.inputs.claude_version || vars.BUNDLE_CLAUDE_VERSION }}
@@ -181,6 +194,7 @@ jobs:
         run: choco install innosetup --no-progress -y
 
       - name: Build installer
+        id: build
         shell: pwsh
         run: |
           # Give every build a unique, monotonic version. CI does a
@@ -194,10 +208,19 @@ jobs:
           # step below must exercise the shipped updater on an install
           # shaped like a release. 99.x sorts above every real release,
           # so PyPI can never win a resolution against it.
+          # A tester build is the exception: it is installed by people,
+          # not by the checks below, and a 99.x install is never offered
+          # a real release again. It gets the nightly shape instead.
           $ver = "${{ github.event.inputs.app_version }}"
           if ([string]::IsNullOrWhiteSpace($ver) -or $ver -eq "0.0.0") {
-            $ver = "99.0.${{ github.run_number }}"
+            if ($env:TESTER_BUILD -eq 'true') {
+              $ver = python scripts/nightly_version.py
+              if ($LASTEXITCODE -ne 0) { throw "scripts/nightly_version.py failed" }
+            } else {
+              $ver = "99.0.${{ github.run_number }}"
+            }
           }
+          "version=$ver" >> $env:GITHUB_OUTPUT
           $env:SETUPTOOLS_SCM_PRETEND_VERSION = $ver
           .\installer\windows\build.ps1 -AppVersion $ver
 
@@ -211,12 +234,27 @@ jobs:
           "bundled claude $($pins.claude_code.version), playwright $($pins.playwright.version)"
 
       - name: Upload installer artifact
+        id: upload
         uses: actions/upload-artifact@v4
         with:
           name: VibeSeller-Setup
           path: installer/windows/out/VibeSeller-Setup.exe
           if-no-files-found: error
           retention-days: 14
+
+      - name: Link the installer on the run page
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          # Downloading an artifact needs a signed-in GitHub account; it
+          # arrives as a .zip holding VibeSeller-Setup.exe.
+          @(
+            "### VibeSeller-Setup.exe $env:VERSION"
+            ''
+            "[Download]($env:URL) (sign in to GitHub; unzip to get the .exe; kept 14 days)"
+          ) -join "`n" >> $env:GITHUB_STEP_SUMMARY
 
       # --- Verify the BUILT PACKAGE works on Windows -----------------
       # Reproduce the field failure: a network that can't reach
@@ -227,6 +265,7 @@ jobs:
       # job — so any download the install or the app attempts fails, and
       # the Chromium checks below catch it.
       - name: Block the Playwright CDN (simulate an unreachable CDN)
+        if: env.TESTER_BUILD != 'true'
         shell: pwsh
         run: |
           $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
@@ -247,6 +286,7 @@ jobs:
           exit 0
 
       - name: Silent-install the built package
+        if: env.TESTER_BUILD != 'true'
         shell: pwsh
         run: |
           $exe = "installer\windows\out\VibeSeller-Setup.exe"
@@ -277,6 +317,7 @@ jobs:
           Write-Host "OK: login shortcut $lnk"
 
       - name: Verify the bundled Chromium (installed offline, launches)
+        if: env.TESTER_BUILD != 'true'
         shell: pwsh
         run: |
           $install = $env:VS_INSTALL
@@ -331,6 +372,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "bundled Chromium failed to launch" }
 
       - name: Start server (background)
+        if: env.TESTER_BUILD != 'true'
         shell: pwsh
         run: |
           $install = $env:VS_INSTALL
@@ -360,6 +402,7 @@ jobs:
           & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
 
       - name: Smoke test (verify_install.sh — health + store/profile API)
+        if: env.TESTER_BUILD != 'true'
         shell: bash
         run: |
           # The tray starts the server with the bundled claude + the venv
@@ -373,6 +416,7 @@ jobs:
           bash tests/releases/verify_install.sh ""
 
       - name: Verify the installed app can recover a forgotten password
+        if: env.TESTER_BUILD != 'true'
         shell: pwsh
         run: |
           # `vibe-seller reset-auth` is how an operator gets back in when
@@ -430,6 +474,7 @@ jobs:
           Remove-Item -Recurse -Force $resetHome
 
       - name: Verify bundled bash runs the extensionless wrapper shape
+        if: env.TESTER_BUILD != 'true'
         shell: pwsh
         run: |
           # The per-store browser-use wrapper is an extensionless bash
@@ -450,6 +495,7 @@ jobs:
           Write-Host "OK: bundled bash executes extensionless shebang wrappers"
 
       - name: Tray dialog + start-at-login tests (dialog/clipboard, registry, shortcuts)
+        if: env.TESTER_BUILD != 'true'
         shell: pwsh
         run: |
           # Verifies the fix for the unresponsive dialog + Copy-to-clipboard
@@ -468,6 +514,7 @@ jobs:
             tests\unit\test_tray_autostart.py -v
 
       - name: Install pytest deps into the bundled venv (for agent e2e)
+        if: env.TESTER_BUILD != 'true'
         shell: pwsh
         run: |
           $py = "$env:VS_INSTALL\.venv\Scripts\python.exe"
@@ -475,6 +522,7 @@ jobs:
             pytest pytest-asyncio httpx pytest-playwright
 
       - name: Light agent e2e against the installed daemon
+        if: env.TESTER_BUILD != 'true'
         shell: pwsh
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
@@ -521,6 +569,7 @@ jobs:
             --e2e -v --log-cli-level=INFO
 
       - name: Verify the agent venv reused the bundled Python
+        if: env.TESTER_BUILD != 'true'
         shell: pwsh
         run: |
           # The e2e task created ~/.vibe-seller/.venv. Its pyvenv.cfg must
@@ -539,7 +588,7 @@ jobs:
           Write-Host "OK: agent venv reused the bundled Python ($bundled)"
 
       - name: Stop server + stage logs
-        if: always()
+        if: always() && env.TESTER_BUILD != 'true'
         shell: pwsh
         run: |
           & "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe" stop --port 7777
@@ -553,7 +602,7 @@ jobs:
           if (Test-Path $logs) { Copy-Item -Recurse -Force $logs "$dst\logs" }
 
       - name: Upload server logs
-        if: always()
+        if: always() && env.TESTER_BUILD != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: windows-e2e-server-logs
@@ -575,7 +624,10 @@ jobs:
     # Explicit: the implicit success() also requires every ANCESTOR to
     # have run, so a workflow_dispatch (e2e-approval skipped) silently
     # skipped this job even when the build passed.
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    # A tester build verifies nothing.
+    if: >-
+      !cancelled() && needs.build.result == 'success' &&
+      github.event.inputs.tester_build != 'true'
     timeout-minutes: 30
     steps:
       - name: Download the built installer
@@ -836,6 +888,7 @@ jobs:
     needs: build
     if: >-
       always() &&
+      github.event.inputs.tester_build != 'true' &&
       (needs.build.result == 'success' ||
        needs.build.result == 'failure')
     strategy:
