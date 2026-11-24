@@ -53,8 +53,9 @@ asked for, not off what you expect to find:
   the result.
 - **A new user message that changes the work is a new phase** — declare
   again (`create` → "now review them" is `audit`; "apply 2a, 3b" is
-  `execute`). Don't drop a recommendation the person asked for just to
-  fit a declaration.
+  `execute`). A recommendation the person asked for stays in the result:
+  declare the phase that covers it rather than drop it to fit a
+  declaration.
 
 ## What an audit produces
 
@@ -77,7 +78,7 @@ Both are shared with Amazon. What is different on noon:
   word in lower case (`live`, `paused`, `out of budget`). Drill `Live`
   and `Out of budget` campaigns — both are spending.
 - **`ad_group` is the SKU.** noon has no ad groups; its export groups by
-  `SKU`. Don't invent one.
+  `SKU`, so an invented group name matches nothing on the console.
 - **`source_target` is `—`.** noon's `Queries` sheet carries only
   campaign, SKU and query, so a query cannot be attributed to a target.
 - **Both layers come from one per-campaign Export** (§ 6), so the
@@ -176,8 +177,8 @@ Per country:
    ```
 3. **Extract ids** (§ 3) and de-duplicate. The list is complete when the
    distinct count equals the chip for the status filter you used (`All N`
-   for `CAMPAIGNS.tsv`). If it is short, keep scrolling — never adjust
-   the number down to match.
+   for `CAMPAIGNS.tsv`). If it is short, rows are still unloaded: keep
+   scrolling. The chip is the true total, so it stays the number to reach.
 4. Re-run the loop after every country switch.
 
 ### An "empty" Ad Manager that contradicts the store profile
@@ -424,23 +425,28 @@ switcher, not the URL — read the flag first (`noon-shared` § 2).
 
 ## Safety rails
 
-- **Never apply an ad change the user has not approved.** Audit
-  proposals go to `CHANGES.tsv`; state-changing clicks happen only in an
-  `execute` phase for rows the user picked. A read-only pass through the
-  editor never clicks Save.
-- **Compare a country only with itself.** Buyers differ between
+- **An ad change is applied only after the user approves it.** Audit
+  proposals go to `CHANGES.tsv`; state-changing clicks happen in an
+  `execute` phase, which only a user reply opens, for the rows the user
+  picked, and the server checks every logged change against the frozen
+  approval. A read-only pass through the editor ends without Save —
+  Save is what changes the campaign.
+- **Each country is its own baseline.** Buyers differ between
   countries; one country's figures are not a baseline for another's.
 - **Per-run captures go to a subfolder of the task dir (your CWD)**,
-  never under `~/.vibe-seller/knowledge/`. The per-campaign TSVs go where the data
-  contract says.
+  not under `~/.vibe-seller/knowledge/`, which later tasks read as
+  standing knowledge. The per-campaign TSVs go where the data contract
+  says.
 
 ## Tips
 
 - **Thresholds** (ROAS-equivalent of `acos_no_lower`, bid floor, scale
   ROAS, cooldown, margin) are defaults in the data contract; a store
   overrides them with `key: value` lines in `stores/<slug>/notes.md`.
-  When the user states a different standard, write it there with
-  `vibe_seller_write_workspace_file`.
+  A margin or goal the user states applies to this task's
+  recommendations. A notes line changes what the server checks on every
+  later run, so write one (with `vibe_seller_write_workspace_file`) when
+  the user states it as their standard for every run.
 - **Negative keyword limits**: 100 Exact + 100 Phrase per campaign — read
   the `N/100 … Selected` counter rather than trusting a number here.
 - **Top-of-search boost**: 0–900%.

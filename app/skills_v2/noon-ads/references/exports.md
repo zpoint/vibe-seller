@@ -37,7 +37,7 @@ The button doubles as the progress indicator:
 1. Click it once. It turns `disabled` while noon builds the file.
 2. The file arrives as `campaigns-export-*.xlsx`, usually after 1–5 min
    for a few dozen campaigns. `disabled` means "generating" — poll the
-   folder in short checks and don't re-click.
+   folder in short checks rather than re-clicking.
 3. Check the `Read me` sheet: its second row states the range
    (`Performance data is for 01 Sep 2026 to 30 Sep 2026`). A workbook
    without that sheet, or a file of a few KB, is a failed export, not a

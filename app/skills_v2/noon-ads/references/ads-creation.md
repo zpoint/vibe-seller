@@ -30,15 +30,15 @@ Creating campaigns is a `create` phase: declare it with
 ## Bidding strategy choice
 
 Three options, but practically:
-- **Fixed** — the choice for Manual Targeting. Per-keyword bids are
+- **Fixed** — the default for Manual Targeting. Per-keyword bids are
   used as-is, so keyword performance reads without dynamic-bid noise,
   which is what diagnosis needs.
 - **Dynamic Bid (Down Only)** — safer with Auto. noon throttles
   bids on low-conversion impressions. Use when you want Auto but
   are bid-shy.
 - **Dynamic Bid (Up & Down)** — Auto-only. Aggressive; noon may
-  bid up to 1.5× your bid when it expects an order. Don't use on a
-  new / unproven listing.
+  bid up to 1.5× your bid when it expects an order. Best kept for a
+  proven listing: on a new one it bids up before you know it converts.
 
 ## Per-keyword bid: heuristic for first launch
 
@@ -135,15 +135,15 @@ The boost multiplies the bid, so top-of-search clicks cost
 the whole day's spend into a couple of clicks, which produces no
 readable signal: e.g. a `250%` boost on a `1.00` bid makes a
 top-of-search click `3.50`, so a `15/day` budget buys ~4 of them.
-Boost and budget must be chosen together.
+So boost and budget are best chosen together.
 
 ## Budget: Campaign Budget vs Shared Budget
 
-Always **Campaign Budget** for new diagnostic campaigns. Shared
+**Campaign Budget** is the default for new diagnostic campaigns. Shared
 Budget pools spend across campaigns and obscures which one drove
-what. Diagnosis requires per-campaign isolation. Switch to Shared
-only after the campaign is proven and you want portfolio-level
-allocation.
+what, and diagnosis needs per-campaign isolation. Shared fits once
+the campaign is proven and you want portfolio-level allocation, or
+when the user asks for it.
 
 Maximum daily budget: the minimum is the marketplace floor (read it
 from the form rather than assuming a currency). For a diagnostic manual
@@ -180,6 +180,6 @@ against confusion when one user manages multiple country projects.
 | Day 7 | First Orders. Read the funnel (`ads-tuning.md` § Report shape on noon) before any bid change. |
 | Day 14 | First reliable ROAS read. Anything earlier is statistical noise on a low-volume site. |
 
-Don't tune in the first 7 days unless something is *obviously*
-broken (e.g. 1000 views and 0 clicks — broken creative). noon's
-auction takes a few days to settle on a new campaign.
+By default, leave a new campaign untuned for its first 7 days unless
+something is *obviously* broken (e.g. 1000 views and 0 clicks — broken
+creative): noon's auction takes a few days to settle on a new campaign.

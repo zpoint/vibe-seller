@@ -29,7 +29,7 @@ bulk export or a per-table CSV export before scraping.
 The campaign list has a search input directly above the grid. Its
 placeholder has changed over time (`Find a campaign` / `查找广告活动`,
 now `Search by name or ID`), so key on its position or on the
-`Clear search terms` aria-label of its ✕, never on the placeholder.
+`Clear search terms` aria-label of its ✕ rather than on the placeholder.
 Setting its value with the React-friendly setter and dispatching
 `input` + `keydown:Enter` filters the table; result rows link to
 `…/cm/sp/campaigns/<id>?entityId=…`. The other top-of-page input
@@ -318,7 +318,7 @@ PY
 ```
 
 Strip the suffix and currency prefix. The tile set varies with the SB
-goal / cost type, so don't hard-code it.
+goal / cost type, so a hard-coded set breaks.
 
 ## 4. Date pickers
 
@@ -486,7 +486,7 @@ the rest. The **Export** button top-right of the targets table writes
 `~/.vibe-seller/downloads/<store>/`, with `State`, `Keyword`,
 `Target match type`, `Status`,
 `Suggested bid (low|median|high)(<currency>)`, `Bid (<currency>)` and
-the metrics. Read the currency from the header, don't assume one. It
+the metrics. Read the currency from the header rather than assuming one. It
 works for keyword, category and auto-target tables, and the table
 footer's `Total: N` is the row count to match.
 

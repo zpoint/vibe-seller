@@ -24,8 +24,8 @@ say. Spending money on your best guess of "it" is the one mistake that
 cannot be undone.
 
 Whenever you ask anything before a money change, the first option
-changes nothing: a hurried click on the first (recommended) option must
-never spend money the user did not name.
+changes nothing, so a hurried click on the first (recommended) option
+spends no money the user did not name.
 
 1. Bring `CHANGES.tsv` (this task's, or the parent `audit`/`change`
    phase's) in line with what they approved. Map their words to rows
@@ -41,15 +41,16 @@ never spend money the user did not name.
 3. Execute exactly the approved rows at exactly their `target_bid`.
 
 Applying ad changes spends the user's money and is hard to undo, so
-never apply a change the user did not approve — not a neighbouring row,
-not a "while I'm here" tidy-up, not a different bid than the approved
-one. If the approval is unclear (which row, which value), ask before
-declaring.
+only the approved rows are applied, at the approved bid. The server
+checks every logged change against the frozen copy: a neighbouring row,
+a "while I'm here" tidy-up or a different bid shows up as a
+contradiction. If the approval is unclear (which row, which value), ask
+before declaring.
 
 - **What is live differs from what was approved** (a change went in at
-  the wrong value, or a check flags it): do not make another live change
-  to fix it. Tell the user what is live, and keep or revert it as they
-  decide.
+  the wrong value, or a check flags it): another live change to fix it
+  would be one more unapproved change. Tell the user what is live, and
+  keep or revert it as they decide.
 - **The approval names proposals outside `CHANGES.tsv`** (harvest a term,
   budget, placement modifier, bidding strategy, campaign pause): apply
   them as approved, verify them the same way, and list them in your
@@ -92,12 +93,13 @@ done. Anchor progress in the task list, which survives:
    in a campaign, so use them only for an approval that says so. Click
    paths are in `mechanics-edit.md`
    (noon: `noon-ads/references/applying-changes.md`). Keep a before/after capture in a subfolder of the task dir (your CWD).
-4. Read the change back from the console — send each write once; never
-   re-send it to see a status code. Read it from a page you open afresh
-   (`new_tab`) after the submit: the page you submitted from can still show
-   the old value. A write that looks like it did not take is sent again
-   only when a fresh page still shows the old value. Check the bid cell, the state toggle,
-   the negative in the negatives list, a re-export after a bulk upload.
+4. Read the change back from the console — send each write once; a
+   re-send to see a status code is a second live write. Read it from a
+   page you open afresh (`new_tab`) after the submit: the page you
+   submitted from can still show the old value. A write that looks like
+   it did not take is sent again only when a fresh page still shows the
+   old value. Check the bid cell, the state toggle, the negative in the
+   negatives list, a re-export after a bulk upload.
    A bulk `Success` only means the file was accepted; rule-based bidding
    can also move a bid back, so read after a short wait.
 5. Only once it is visible on the console, record it (next section) and

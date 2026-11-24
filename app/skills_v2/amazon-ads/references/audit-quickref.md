@@ -143,12 +143,13 @@ outside these runs; mention it in the report.
 Apply [`tuning-recommendation-format.md`](tuning-recommendation-format.md)
 to every drilled row, using the store's thresholds
 ([`tuning-thresholds.md`](tuning-thresholds.md), overrides in
-`stores/<slug>/notes.md`). Write one `CHANGES.tsv` row (task dir) per
-proposed change, with the row's `acos`, `roas` and actual `cpc` so the
-reasoning can be checked. Add a `hold` row when the hold itself needs
-explaining — a high-ROAS row you are not raising, or a target inside its
-cooldown — with the reason. Columns and the store rules the server
-checks: [`data-contract.md`](data-contract.md).
+`stores/<slug>/notes.md`) and what the user said for this task (a
+margin, a goal, a row to leave alone). Write one `CHANGES.tsv` row
+(task dir) per proposed change, with the row's `acos`, `roas` and actual
+`cpc` so the reasoning can be checked. Add a `hold` row when the hold
+itself needs explaining — a high-ROAS row you are not raising, or a
+target inside its cooldown — with the reason. Columns and the store
+rules the server checks: [`data-contract.md`](data-contract.md).
 
 Mapping to `action`:
 
@@ -177,9 +178,11 @@ The server reads the TSVs and replies with anything that doesn't hold up:
 a live campaign without both files, a marketplace far smaller than its
 recent history with no note, layers that don't add up, a change that
 breaks a store rule. Fix the data (usually by drilling or recapturing),
-update the report, and submit again. Gaps you genuinely can't close are
-delivered as caveats; rule violations on `CHANGES.tsv` are about money
-and have to be fixed.
+update the report, and submit again. Each check refuses once; gaps you
+genuinely can't close are then delivered as caveats. A store-rule breach
+on `CHANGES.tsv` is about money: fix the row, unless it follows the
+user's own instruction (their margin, "cut anything over 20% ACOS") —
+then keep it and name that instruction in its `reason`.
 
 Your CWD is the task dir. Keep its top level to the deliverables
 (report, `CAMPAIGNS.tsv`, `CHANGES.tsv`, PDF); put scratch scripts and
@@ -199,4 +202,5 @@ $PY "$S" ./AD_AUDIT_<date>.md            # writes AD_AUDIT_<date>.pdf next to it
 It renders CJK and tables through headless Chrome with a throwaway
 profile (safe while the store browser is up) and fails loudly on an
 empty PDF. Run it once and mention the `.pdf` path in your result; the
-`.md` is the deliverable, so don't iterate on the PDF's layout.
+`.md` is the deliverable, so one render is enough — the PDF's layout
+isn't worth iterating on.

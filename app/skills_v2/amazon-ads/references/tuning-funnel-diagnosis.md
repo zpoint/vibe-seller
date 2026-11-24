@@ -49,8 +49,8 @@ Is the listing earning the click?
 
 - **Sponsored Products typical CTR ranges**: 0.3% to 1.5% for most
   categories; 2%+ is strong; below 0.2% is concerning.
-- **CTR < store median × 0.5** → **listing-side problem, NOT an ad
-  problem**. The image, title, price, or rating isn't competing.
+- **CTR < store median × 0.5** → **most likely a listing-side problem,
+  not an ad problem**. The image, title, price, or rating isn't competing.
   - Ad-side action is theater here. Lowering bid reduces spend but
     doesn't fix the leak.
   - **Recommended action**: surface to user — "this is a listing
@@ -68,8 +68,8 @@ Is the PDP closing the sale?
 
 - **Sponsored Products typical CVR**: 3-8% for most consumer
   products; lower for higher-AOV / considered purchases.
-- **CVR < store median × 0.5** → **PDP / price / review problem,
-  NOT an ad problem**. The customer clicked through but didn't
+- **CVR < store median × 0.5** → **most likely a PDP / price / review
+  problem, not an ad problem**. The customer clicked through but didn't
   buy. Reasons:
   - Price uncompetitive vs the listings shown alongside it
   - Bad reviews or low review count
@@ -113,11 +113,13 @@ targeting, bid adjustments, settings).
 
 ## When ALL layers look healthy AND ACOS is at target
 
-This is a **cruiser** campaign. Don't tune. Monitor.
+This is a **cruiser** campaign. By default, leave it and monitor —
+unless the user asked for growth, where its headroom is a fair place
+to push.
 
-The temptation to "always optimize something" is real and wrong.
-A campaign that's hitting target ACOS with healthy funnel is doing
-its job; tinkering risks regression for marginal gain.
+The pull to "always optimize something" is real, but a campaign
+that's hitting target ACOS with healthy funnel is doing its job;
+tinkering risks regression for marginal gain.
 
 ## Self-stabilized campaign — judge by active-only, not campaign-level
 
@@ -130,8 +132,8 @@ top-tile number does not reflect the current state of the campaign.
 
 **Diagnostic rule**:
 - If `paused_row_count / total_row_count ≥ 0.5` (≥ 50% of keyword
-  / target rows in Paused state), **do not use the campaign-level
-  ROAS / ACOS as the diagnosis input**.
+  / target rows in Paused state), **the campaign-level ROAS / ACOS
+  misleads as the diagnosis input** — it carries the paused rows' past.
 - Instead, recompute over **active rows only**:
   ```
   active_spend  = sum(spend  for row in rows if row.status == 'Delivering')
@@ -140,7 +142,7 @@ top-tile number does not reflect the current state of the campaign.
   active_roas   = active_sales / active_spend   # may be undefined if active_spend == 0
   ```
 - The diagnosis (Layer 1 / 2 / 3 funnel call, "is this campaign
-  bleeding") must be made off `active_roas`, not the top-tile.
+  bleeding") is made off `active_roas`, not the top-tile.
 
 **Worked example — why this matters**: Campaign with 13 keyword
 rows; 11 are Paused (carrying old spend USD 200, old sales USD
@@ -151,18 +153,18 @@ to 0.54). The 2 active rows have spend USD 4, sales USD 60,
 is 15 — far above target. **Diagnosis**: the campaign is
 self-stabilized, the paused rows did the bleeding, and the
 remaining active rows are profitable. **Action**: leave alone,
-or only address the active rows individually. Don't recommend
-pausing the campaign on the basis of the 0.54 number — that
-would destroy a 15-ROAS source.
+or only address the active rows individually. Pausing the
+campaign on the basis of the 0.54 number would destroy a
+15-ROAS source.
 
 Judge the surviving rows on their own data, with the usual rules
 (`tuning-recommendation-format.md` — they are often PROTECT on
-efficiency); don't let the paused rows' history condemn them.
+efficiency); the paused rows' history says nothing about them.
 
 ## Pitfalls
 
-- **Sample size**: don't apply layer thresholds to campaigns with
-  < 50 clicks or < 14 days of data. Cold-start noise. Wait.
+- **Sample size**: layer thresholds mislead on campaigns with
+  < 50 clicks or < 14 days of data — cold-start noise. By default, wait.
 - **Match type confound**: a broad-match keyword's CTR is naturally
   lower than exact's because broad shows on more queries, including
   irrelevant ones. Compare like-for-like (broad vs broad median).
