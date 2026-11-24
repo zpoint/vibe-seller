@@ -33,6 +33,7 @@ import httpx
 
 from app import vision
 from app.config import BACKEND_PORT, LOCALHOST, VIBE_SELLER_DIR
+from app.email import NO_MAILBOX
 from app.mcp_tool_schemas import TOOLS
 from app.notifiers.base import PLATFORMS
 from app.skill_pack import pack_skill_dir
@@ -304,7 +305,17 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                     account_id = acct['id']
                     break
             if not account_id:
-                result = {'error': (f'No account found for {account_email}')}
+                # Name what CAN send, or that nothing can: "not found"
+                # alone sends an agent hunting for the account elsewhere.
+                addresses = [a.get('email') for a in all_accounts]
+                result = {
+                    'error': (
+                        f'No connected mailbox is {account_email}. Send '
+                        'from one of: ' + ', '.join(addresses) + '.'
+                        if addresses
+                        else NO_MAILBOX
+                    )
+                }
             else:
                 send_body: dict[str, str] = {
                     'to': arguments['to'],

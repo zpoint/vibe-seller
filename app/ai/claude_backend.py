@@ -721,8 +721,8 @@ class AgentSession(
         await self._cleanup_browser_daemons()
 
     async def submit_answer(self, request_id: str, answers: dict) -> bool:
-        """Deliver an answer; False once the wait has already decided."""
-        if (evt := self._answer_events.get(request_id)) is None:
+        """Deliver an answer; False once decided (a first answer, or stop)."""
+        if (evt := self._answer_events.get(request_id)) is None or evt.is_set():
             return False
         self._answers[request_id] = answers
         evt.set()

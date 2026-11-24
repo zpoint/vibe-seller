@@ -279,6 +279,8 @@ Assembly order (fixed for all task types):
 1. Base prompt (`design_system.md` with `{workspace_guidance}` filled)
 2. Language hint → 3. Waiting instruction → 4. Store/all-stores context → 5. TickTick → 6. System context (+ vision breadcrumb, scheduled / plan-only blocks) → 7. Header extra (plan text) → 8. Caller extra (conversation history) → 9. Store ads note (the last word — a fanout plan is shared) → 10. Plugin `system_extra` fragments
 
+The store context always carries a `## Email System` section (`app/email/prompt.py` → `store_email_section`). With mailboxes linked it says how to read and send. With none it says plainly that this task cannot read or send the store's mail, and that the user connects a mailbox in Settings → Email (`app.email.NO_STORE_MAILBOX`). Silence there, while the email tools stayed on offer, sent an agent hunting the machine for another way to send.
+
 `start_agent()` (ad-hoc) intentionally skips full context — it's for raw interaction.
 
 **Task dispatch**: All task launch paths (create, retry, continue, execute-plan, scheduled) route through `TaskQueueScheduler`. Store tasks are gated by platform/country compatibility (`RUN`, `RUN_IN_NEW_TAB`, `QUEUE`). No-store tasks (`store_id=None`) always dispatch immediately — they bypass the *per-store* browser config, session tracking, and store CDP proxy. They still get the store-less `web` browser wrapper (`bin/_web`), which lazy-starts its own Chrome + CDP proxy on first use via `POST /api/browser/web/start` (so a no-store task that never browses pays nothing). Per-store tasks can run concurrently when sharing the same platform/country, with CDP-level isolation provided by `CDPMuxProxy`.

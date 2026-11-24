@@ -13,12 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
 from app.auth import get_current_user
+from app.browser.wrapper import store_slug
 from app.channels.email_discovery import (
     discover_imap,
     discover_smtp,
 )
 from app.channels.email_poller import sync_account_emails
 from app.database import get_db
+from app.email import NO_STORE_MAILBOX
 from app.email.db import db_path_for_account, get_sync_state, init_email_db
 from app.email.sender import SendNotAllowedError, send_email
 from app.models.email_account import EmailAccount
@@ -528,7 +530,27 @@ async def email_info_by_store(
 
     Per-account: email address, DB path, attachments dir,
     schema summary, sample sqlite3 queries.
+
+    ``store_id`` may be the store's slug: agents see it in every path
+    (``stores/<slug>/``) and pass it as often as the id. A value that is
+    neither is refused — answering "no mailbox" for a store that has one,
+    only because it was named differently, would tell the agent it
+    cannot do what it can.
     """
+    if await db.get(Store, store_id) is None:
+        stores = (await db.execute(select(Store))).scalars().all()
+        match = next(
+            (s for s in stores if store_slug(s.name, s.id) == store_id), None
+        )
+        if match is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f'No store {store_id!r}. Pass the store id, or its '
+                    'slug (the folder name under stores/).'
+                ),
+            )
+        store_id = match.id
     result = await db.execute(
         select(StoreEmailLink, EmailAccount)
         .join(
@@ -566,6 +588,10 @@ async def email_info_by_store(
                 'via': current_via(),
             },
         )
+    else:
+        # No schema or sample queries for databases that do not exist:
+        # the answer is that there is no mail here, said plainly.
+        return {'store_id': store_id, 'accounts': [], 'note': NO_STORE_MAILBOX}
 
     return {
         'store_id': store_id,
