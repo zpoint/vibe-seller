@@ -992,6 +992,8 @@
     "noWaiting": "No tasks waiting",
     "autoEmail": "Auto: Email",
     "manual": "Manual",
+    "subtasks": "Subtasks",
+    "subtasksHint": "Continues by itself once every subtask has finished. The results are collected here.",
     "wakeMessage": "Optional message for the AI...",
     "daysRemaining": "{{days}}d remaining",
     "hours": "{{hours}}h"

@@ -32,6 +32,7 @@ from app.prompts import (
     render_prompt,
 )
 from app.question_answers import expand_free_text_answers
+from app.subtask_results import aggregate_child_results
 from app.task_runner_context import (
     ads_store_note,
     build_all_stores_context,
@@ -687,7 +688,7 @@ async def maybe_wait_for_children(
     pending = [k for k in kids if k.status not in _TERMINAL]
     if not pending:
         # All children done — aggregate results into parent
-        _aggregate_child_results(task, kids)
+        aggregate_child_results(task, kids)
         return False
 
     # Children still running — wait
@@ -732,7 +733,7 @@ async def check_parent_completion(
         return
 
     # All children done — complete parent
-    _aggregate_child_results(parent, siblings)
+    aggregate_child_results(parent, siblings)
     assert_transition(parent.status, TaskStatus.COMPLETED)
     parent.status = TaskStatus.COMPLETED
     parent.completed_at = datetime.now(UTC).isoformat()
@@ -784,14 +785,3 @@ async def reopen_parent_if_child_active(
             'task_update',
             {'task_id': parent.id, 'status': TaskStatus.WAITING},
         )
-
-
-def _aggregate_child_results(parent: 'Task', children: list['Task']) -> None:
-    """Build a summary of child task results into parent.result."""
-    lines: list[str] = []
-    for k in children:
-        icon = '\u2713' if k.status == TaskStatus.COMPLETED else '\u2717'
-        title = k.title or k.id[:8]
-        detail = (k.result or k.error or '')[:200]
-        lines.append(f'{icon} {title}: {detail}')
-    parent.result = '\n'.join(lines)

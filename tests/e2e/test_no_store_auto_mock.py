@@ -16,7 +16,7 @@ home), and it is a fresh install: no other task rows exist, so the
 * M3 (API): a CHILD running the same spawn (plus
   ``[[MOCK_TRY_GRANDCHILD]]``) is refused — depth stays 1.
 * M4 (UI): with the user default Review, a no-store task parks at
-  planned and the footer switch flips it to Auto.
+  planned; the footer switch flips it to Auto, which runs the plan.
 """
 
 import logging
@@ -187,7 +187,7 @@ class TestM2OrchestratorSpawns:
         # The no-store spawn was refused on the action; the mock
         # echoes every tool result into its transcript. (The parent's
         # `result` FIELD is the child-aggregation summary once
-        # children finish — see _aggregate_child_results — so the
+        # children finish — see aggregate_child_results — so the
         # refusal text is asserted in the agent's own result row,
         # exactly once for the one attempt.)
         echoed = _result_row(api, base, parent_id)
@@ -314,6 +314,21 @@ class TestM4ReviewDefault:
                 _url(auto_server, f'/api/tasks/{task_id}')
             ).json()
             assert got['plan_mode'] is False
+
+            # Auto means "run without review": the parked plan runs —
+            # it does not sit PLANNED with its approve button gone.
+            expect(
+                page.get_by_role('button', name='Confirm & Execute')
+            ).to_have_count(0)
+            deadline = time.time() + TERMINAL_S
+            while time.time() < deadline:
+                data = page.request.get(
+                    _url(auto_server, f'/api/tasks/{task_id}')
+                ).json()
+                if data['status'] in ('completed', 'failed'):
+                    break
+                time.sleep(1)
+            assert data['status'] == 'completed', data['status']
         finally:
             page.request.post(
                 _url(auto_server, f'/api/tasks/{task_id}/agent/stop')

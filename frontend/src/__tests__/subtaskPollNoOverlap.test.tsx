@@ -30,4 +30,20 @@ describe('SubtaskList polling', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
     expect(get).toHaveBeenCalledTimes(2)
   })
+
+  it('re-reads the children the moment the parent changes status', async () => {
+    // A parent completes when its last child finishes; waiting for the
+    // next 10 s poll showed that child "Running" under a completed parent.
+    vi.useFakeTimers()
+    get.mockResolvedValue([])
+    const { rerender } = render(
+      <SubtaskList parentTaskId="task-1" parentStatus="waiting" onSelect={() => {}} stores={[]} />,
+    )
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(get).toHaveBeenCalledTimes(1)
+
+    rerender(<SubtaskList parentTaskId="task-1" parentStatus="completed" onSelect={() => {}} stores={[]} />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(get).toHaveBeenCalledTimes(2)
+  })
 })

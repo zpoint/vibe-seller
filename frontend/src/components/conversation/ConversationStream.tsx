@@ -18,6 +18,7 @@ import { ImageRequestCard } from './ImageRequestCard'
 import { GeneratedImageCard } from './GeneratedImageCard'
 import { StepIcon } from '../ui'
 import type { ConversationItem, TodoItem, TaskStep, Task } from '../../types'
+import { parseWaitCondition, waitBadgeKey } from '../../lib/waitCondition'
 
 type DisplayItem =
   | { kind: 'item'; item: ConversationItem }
@@ -442,10 +443,31 @@ export function ConversationStream({
       )}
 
       {/* Waiting info card */}
-      {task.status === 'waiting' && task.wait_condition && (() => {
+      {task.status === 'waiting' && (() => {
+        const wait = parseWaitCondition(task.wait_condition)
+        if (!wait) return null
+        const badge = (
+          <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${wait.kind === 'manual' ? 'bg-gray-100 text-gray-600' : 'bg-indigo-100 text-indigo-700'}`}>
+            {t(waitBadgeKey(wait.kind))}
+          </span>
+        )
+        if (wait.kind === 'children') {
+          // Ended only by the last sub-task finishing: no reason, no
+          // deadline, nothing for the user to do here.
+          return (
+            <div className="bg-amber-50 rounded-lg border border-amber-200 p-4" data-testid="waiting-subtasks">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-amber-600 text-lg">&#9203;</span>
+                <h3 className="text-sm font-semibold text-amber-800">{t('status.waiting')}</h3>
+                {badge}
+              </div>
+              <p className="text-sm text-gray-700">{t('waiting.subtasksHint')}</p>
+            </div>
+          )
+        }
         try {
-          const cond = JSON.parse(task.wait_condition)
-          const strategy = cond.check_strategy || 'manual'
+          const cond = wait.cond as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+          const strategy = wait.kind
           const waitingSince = cond.waiting_since ? new Date(cond.waiting_since) : null
           const nextCheck = cond.next_check_at ? new Date(cond.next_check_at) : null
           const maxDays = cond.max_wait_days || 30
@@ -458,9 +480,7 @@ export function ConversationStream({
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-amber-600 text-lg">&#9203;</span>
                 <h3 className="text-sm font-semibold text-amber-800">{t('status.waiting')}</h3>
-                <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${strategy === 'email' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'}`}>
-                  {strategy === 'email' ? t('waiting.autoEmail') : t('waiting.manual')}
-                </span>
+                {badge}
               </div>
               <div className="space-y-2 text-sm">
                 <div>

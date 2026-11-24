@@ -994,6 +994,8 @@
     "noWaiting": "没有等待中的任务",
     "autoEmail": "自动: 邮件",
     "manual": "手动",
+    "subtasks": "等待子任务",
+    "subtasksHint": "所有子任务结束后会自动继续，并在这里汇总结果。",
     "wakeMessage": "给 AI 的补充信息（可选）...",
     "daysRemaining": "剩余 {{days}} 天",
     "hours": "{{hours}} 小时"

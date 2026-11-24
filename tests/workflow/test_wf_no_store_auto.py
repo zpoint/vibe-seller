@@ -151,6 +151,45 @@ class TestReviewPlanSwitchWorksForNoStore:
         got = await admin_client.get(f'/api/tasks/{task_id}')
         assert got.json()['plan_mode'] is False
 
+    async def test_switching_a_parked_plan_to_auto_runs_it(
+        self, admin_client, install_fake_agent
+    ):
+        """Auto means "run without review": a plan parked for review
+        runs on the switch, as Confirm would. Left PLANNED it would
+        wait for an approve button that only Review mode shows."""
+        r = await _create(
+            admin_client, {'title': 'Parked all-stores', 'plan_mode': True}
+        )
+        task_id = r.json()['id']
+        await wait_for_task(admin_client, task_id, target='planned')
+
+        r2 = await admin_client.patch(
+            f'/api/tasks/{task_id}/review-plan', json={'plan_mode': False}
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json()['plan_mode'] is False
+
+        done = await wait_for_task(admin_client, task_id)
+        assert done['status'] == 'completed'
+        assert done['result']
+
+    async def test_switching_back_to_review_does_not_run(
+        self, admin_client, install_fake_agent
+    ):
+        """Only the switch to Auto approves; a parked plan switched to
+        Review (already Review) stays parked for the user."""
+        r = await _create(
+            admin_client, {'title': 'Stays parked', 'plan_mode': True}
+        )
+        task_id = r.json()['id']
+        await wait_for_task(admin_client, task_id, target='planned')
+        r2 = await admin_client.patch(
+            f'/api/tasks/{task_id}/review-plan', json={'plan_mode': True}
+        )
+        assert r2.status_code == 200, r2.text
+        got = await admin_client.get(f'/api/tasks/{task_id}')
+        assert got.json()['status'] == 'planned'
+
 
 class TestOrchestratorFlow:
     async def test_auto_parent_with_auto_children(

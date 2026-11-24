@@ -89,39 +89,49 @@ export function buildConversationItems(
   // set_task_result, which emits an SSE result but persists no message).
   // The persisted role='result' messages are short transcript snippets
   // and must not win over task.result on history rebuild.
-  if (task.result) {
-    // `task.result` is the LATEST turn's deliverable — authoritative, and
-    // possibly resolved from a file pointer that was never persisted as a
-    // message. So it refreshes the LAST result item, not the first.
-    //
-    // Replacing the FIRST one is what drew the newest answer above the
-    // question that asked for it: on a two-turn task the turn-2 ad-audit
-    // result rendered between turn 1's question and turn 2's, reading as
-    // though it answered "how much did we sell today?". The earlier
-    // turn's own answer was displaced to the bottom of the thread as
-    // loose prose.
-    let lastIdx = -1
-    for (let i = convItems.length - 1; i >= 0; i--) {
-      if (convItems[i].type === 'result') { lastIdx = i; break }
-    }
-    if (lastIdx >= 0) {
-      // Keep the replaced item's timestamp: it is when this result
-      // actually landed — stamping "now" here would re-date the answer
-      // to whenever the history happened to be rebuilt.
-      convItems[lastIdx] = {
-        id: 'hist-result-final',
-        type: 'result' as const,
-        timestamp: convItems[lastIdx].timestamp,
-        result: task.result,
-      }
-    } else {
-      convItems.push({
-        id: 'hist-result-final',
-        type: 'result' as const,
-        timestamp: new Date().toISOString(),
-        result: task.result,
-      })
-    }
-  }
+  if (task.result) convItems = refreshLatestResult(convItems, task.result)
   return convItems
+}
+
+/**
+ * Show `result` — the task's authoritative latest deliverable — in the
+ * thread. Used on history rebuild and when a live task_update carries a
+ * new `result` (a parent whose subtasks finished gets their combined
+ * answer with no agent message), so both paths draw the same thing.
+ *
+ * It refreshes the LAST result item, not the first. Replacing the FIRST
+ * one is what drew the newest answer above the question that asked for
+ * it: on a two-turn task the turn-2 ad-audit result rendered between
+ * turn 1's question and turn 2's, reading as though it answered "how
+ * much did we sell today?". The earlier turn's own answer was displaced
+ * to the bottom of the thread as loose prose.
+ */
+export function refreshLatestResult(
+  items: ConversationItem[],
+  result: string,
+): ConversationItem[] {
+  let lastIdx = -1
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].type === 'result') { lastIdx = i; break }
+  }
+  if (lastIdx < 0) {
+    return [...items, {
+      id: 'hist-result-final',
+      type: 'result' as const,
+      timestamp: new Date().toISOString(),
+      result,
+    }]
+  }
+  if (items[lastIdx].result === result) return items
+  const next = [...items]
+  // Keep the replaced item's timestamp: it is when this result actually
+  // landed — stamping "now" here would re-date the answer to whenever
+  // the history happened to be rebuilt.
+  next[lastIdx] = {
+    id: 'hist-result-final',
+    type: 'result' as const,
+    timestamp: items[lastIdx].timestamp,
+    result,
+  }
+  return next
 }

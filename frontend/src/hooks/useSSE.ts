@@ -6,7 +6,7 @@ import { uuid } from '../uuid'
 import { patchById } from '../lib/patchById'
 import { NOTICE_ROLE, parseNotice } from '../lib/notice'
 import { ATTENTION_EVENT } from './useScheduleAttention'
-import { appendResult } from '../lib/conversation'
+import { appendResult, refreshLatestResult } from '../lib/conversation'
 
 /** Finalize any streaming thinking block — set isStreaming to false. */
 function _finalizeThinking(items: ConversationItem[]): ConversationItem[] {
@@ -127,9 +127,29 @@ export function useSSE({
         if (data.type === 'task_update') {
           const patch: Partial<Task> = { status: data.status, error: data.error }
           if (data.plan !== undefined) patch.plan = data.plan
+          if (typeof data.result === 'string' && data.result) {
+            // A result set by the server, not an agent message — e.g. a
+            // parent completed with its subtasks' combined answer.
+            patch.result = data.result
+            if (selectedTaskIdRef.current === data.task_id) {
+              const result: string = data.result
+              setConversationItems(items => refreshLatestResult(items, result))
+            }
+          }
           setTasks(prev => patchById(prev, data.task_id, t => ({ ...t, ...patch })))
           if (setScheduleTasks) {
             setScheduleTasks(prev => patchById(prev, data.task_id, t => ({ ...t, ...patch })))
+          }
+          if (data.status === 'waiting') {
+            // The event names the status only; what the task waits for
+            // (its subtasks, a reply, an email) lives on the row, and the
+            // badge and waiting card are drawn from it.
+            const taskId: string = data.task_id
+            api.get(`/api/tasks/${taskId}`).then((t: Task) => {
+              const wait = { wait_condition: t.wait_condition }
+              setTasks(prev => patchById(prev, taskId, x => ({ ...x, ...wait })))
+              setSelectedTask(prev => (prev && prev.id === taskId ? { ...prev, ...wait } : prev))
+            }).catch(() => {})
           }
 
           setSelectedTask(prev => {

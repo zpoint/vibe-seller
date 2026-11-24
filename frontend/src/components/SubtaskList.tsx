@@ -4,9 +4,15 @@ import { api } from '../api'
 import { StatusBadge } from './ui'
 import type { Task, Store } from '../types'
 
-/** Child tasks of a parent, polled every 10s (no second SSE stream). */
-export function SubtaskList({ parentTaskId, onSelect, stores }: {
+/**
+ * Child tasks of a parent, polled every 10s (no second SSE stream), and
+ * re-read whenever the parent's status changes: a parent completes the
+ * moment its last child finishes, so a poll-only list would show that
+ * child still running under a completed parent.
+ */
+export function SubtaskList({ parentTaskId, parentStatus, onSelect, stores }: {
   parentTaskId: string
+  parentStatus?: string
   onSelect: (t: Task) => void
   stores: Store[]
 }) {
@@ -30,7 +36,7 @@ export function SubtaskList({ parentTaskId, onSelect, stores }: {
     // Poll every 10s for status updates instead of opening a second SSE
     const interval = setInterval(fetchChildren, 10000)
     return () => { cancelled = true; clearInterval(interval) }
-  }, [parentTaskId])
+  }, [parentTaskId, parentStatus])
 
   if (children.length === 0) return null
 

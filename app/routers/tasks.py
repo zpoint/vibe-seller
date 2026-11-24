@@ -472,6 +472,21 @@ async def toggle_task_mode(
 
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
+    # Auto means "run without review". A plan already parked for review
+    # runs now, exactly as Confirm would: left PLANNED it would wait
+    # for an approval whose button exists only in Review mode.
+    if (
+        body.plan_mode is False
+        and task.status == TaskStatus.PLANNED
+        and task.plan is not None
+        and not task.schedule_id
+    ):
+        started = await execute_plan(task_id, db, current_user)
+        return {
+            'ok': True,
+            'plan_mode': False,
+            'status': started['status'],
+        }
     return {
         'ok': True,
         'plan_mode': task.plan_mode,
