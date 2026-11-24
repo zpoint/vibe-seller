@@ -1242,5 +1242,210 @@
       "docs": "No API key yet? See how to get one",
       "gotIt": "Got it"
     }
+  },
+  "activity": {
+    "sep": ", ",
+    "more": ", and {{count}} more",
+    "andMore": " and {{count}} more",
+    "thought_one": "Thought for a moment",
+    "thought_other": "Thought {{count}} times",
+    "done": {
+      "read_one": "read {{target}}",
+      "read_other": "read {{count}} files",
+      "search_one": "searched for {{target}}",
+      "search_other": "ran {{count}} searches",
+      "edit_one": "edited {{target}}",
+      "edit_other": "edited {{count}} files",
+      "run_one": "ran a command",
+      "run_other": "ran {{count}} commands",
+      "browse_one": "used the browser",
+      "browse_other": "used the browser {{count}} times",
+      "web_one": "searched the web",
+      "web_other": "searched the web {{count}} times",
+      "agent_one": "ran a helper agent",
+      "agent_other": "ran {{count}} helper agents",
+      "todo_one": "updated the to-do list",
+      "todo_other": "updated the to-do list",
+      "mcp_one": "used {{target}}",
+      "mcp_other": "used {{target}} ({{count}} calls)",
+      "other_one": "used {{target}}",
+      "other_other": "used {{target}} ×{{count}}",
+      "skill_one": "loaded the {{target}} skill",
+      "skill_other": "loaded {{count}} skills",
+      "ask_one": "asked you a question",
+      "ask_other": "asked you {{count}} questions",
+      "plan_one": "wrote a plan",
+      "plan_other": "wrote {{count}} plans",
+      "tools_one": "loaded tools",
+      "tools_other": "loaded tools {{count}} times"
+    },
+    "row": {
+      "read": "Read {{target}}",
+      "edit": "Edited {{target}}",
+      "search": "Searched for {{target}}",
+      "web": "Looked up {{target}}",
+      "run": "Ran {{target}}",
+      "browse": "Browser: {{target}}",
+      "agent": "Helper agent: {{target}}",
+      "todo": "Updated the to-do list",
+      "other": "Used {{target}}",
+      "skill": "Loaded skill {{target}}",
+      "ask": "Asked you a question",
+      "plan": "Wrote a plan",
+      "tools": "Loaded tools"
+    },
+    "live": {
+      "read": "Reading {{target}}",
+      "search": "Searching for {{target}}",
+      "edit": "Editing {{target}}",
+      "run": "Running {{target}}",
+      "browse": "Using the browser: {{target}}",
+      "web": "Looking up {{target}}",
+      "agent": "Helper agent: {{target}}",
+      "todo": "Updating the to-do list",
+      "mcp": "Using {{target}}",
+      "other": "Using {{target}}",
+      "skill": "Loading skill {{target}}",
+      "ask": "Waiting for your answer",
+      "plan": "Waiting for plan review",
+      "tools": "Loading tools"
+    },
+    "tool": {
+      "ads": {
+        "done_one": "called the Ads API",
+        "done_other": "called the Ads API {{count}} times",
+        "doneTarget": "called the Ads API: {{target}}",
+        "row": "Ads API: {{target}}",
+        "rowBare": "Called the Ads API",
+        "live": "Calling the Ads API: {{target}}",
+        "liveBare": "Calling the Ads API"
+      },
+      "emailRead": {
+        "done_one": "checked email",
+        "done_other": "checked email {{count}} times",
+        "doneTarget": "checked email: {{target}}",
+        "row": "Email: {{target}}",
+        "rowBare": "Checked email",
+        "live": "Checking email: {{target}}",
+        "liveBare": "Checking email"
+      },
+      "emailSend": {
+        "done_one": "sent an email",
+        "done_other": "sent {{count}} emails",
+        "doneTarget": "sent the email “{{target}}”",
+        "row": "Sent email: {{target}}",
+        "rowBare": "Sent an email",
+        "live": "Sending email: {{target}}",
+        "liveBare": "Sending an email"
+      },
+      "declareAd": {
+        "done_one": "declared the ad task",
+        "done_other": "declared the ad task {{count}} times",
+        "doneTarget": "declared the ad task ({{target}})",
+        "row": "Declared the ad task: {{target}}",
+        "rowBare": "Declared the ad task",
+        "live": "Declaring the ad task: {{target}}",
+        "liveBare": "Declaring the ad task"
+      },
+      "declareReport": {
+        "done_one": "declared the monthly report run",
+        "done_other": "declared the report run {{count}} times",
+        "doneTarget": "declared the {{target}} report run",
+        "row": "Declared the report run: {{target}}",
+        "rowBare": "Declared the report run",
+        "live": "Declaring the report run: {{target}}",
+        "liveBare": "Declaring the report run"
+      },
+      "subtask": {
+        "done_one": "created a sub-task",
+        "done_other": "created {{count}} sub-tasks",
+        "doneTarget": "created the sub-task “{{target}}”",
+        "row": "Sub-task: {{target}}",
+        "rowBare": "Created a sub-task",
+        "live": "Creating sub-task: {{target}}",
+        "liveBare": "Creating a sub-task"
+      },
+      "tasks": {
+        "done_one": "listed tasks",
+        "done_other": "listed tasks {{count}} times",
+        "doneTarget": "listed tasks",
+        "row": "Listed tasks",
+        "rowBare": "Listed tasks",
+        "live": "Listing tasks",
+        "liveBare": "Listing tasks"
+      },
+      "stores": {
+        "done_one": "listed stores",
+        "done_other": "listed stores {{count}} times",
+        "doneTarget": "listed stores",
+        "row": "Listed stores",
+        "rowBare": "Listed stores",
+        "live": "Listing stores",
+        "liveBare": "Listing stores"
+      },
+      "result": {
+        "done_one": "submitted the result",
+        "done_other": "submitted the result {{count}} times",
+        "doneTarget": "submitted the result",
+        "row": "Submitted the result",
+        "rowBare": "Submitted the result",
+        "live": "Submitting the result",
+        "liveBare": "Submitting the result"
+      },
+      "error": {
+        "done_one": "reported a failure",
+        "done_other": "reported a failure {{count}} times",
+        "doneTarget": "reported a failure: {{target}}",
+        "row": "Reported a failure: {{target}}",
+        "rowBare": "Reported a failure",
+        "live": "Reporting a failure: {{target}}",
+        "liveBare": "Reporting a failure"
+      },
+      "chat": {
+        "done_one": "sent a chat message",
+        "done_other": "sent {{count}} chat messages",
+        "doneTarget": "sent a chat message: {{target}}",
+        "row": "Chat: {{target}}",
+        "rowBare": "Sent a chat message",
+        "live": "Sending chat message: {{target}}",
+        "liveBare": "Sending a chat message"
+      },
+      "image": {
+        "done_one": "generated an image",
+        "done_other": "generated {{count}} images",
+        "doneTarget": "generated the image {{target}}",
+        "row": "Image: {{target}}",
+        "rowBare": "Generated an image",
+        "live": "Generating image: {{target}}",
+        "liveBare": "Generating an image"
+      },
+      "scheduleState": {
+        "done_one": "used the schedule's saved progress",
+        "done_other": "used the schedule's progress {{count}} times",
+        "doneTarget": "used schedule progress: {{target}}",
+        "row": "Schedule progress: {{target}}",
+        "rowBare": "Used the schedule's progress",
+        "live": "Reading schedule progress: {{target}}",
+        "liveBare": "Reading schedule progress"
+      },
+      "cron": {
+        "done_one": "managed scheduled jobs",
+        "done_other": "managed scheduled jobs {{count}} times",
+        "doneTarget": "added the scheduled job “{{target}}”",
+        "row": "Scheduled job: {{target}}",
+        "rowBare": "Listed scheduled jobs",
+        "live": "Adding scheduled job: {{target}}",
+        "liveBare": "Checking scheduled jobs"
+      },
+      "skills": {
+        "done_one": "managed skills",
+        "done_other": "managed skills {{count}} times",
+        "doneTarget": "saved the skill {{target}}",
+        "row": "Skill: {{target}}",
+        "rowBare": "Listed skills",
+        "live": "Saving skill: {{target}}",
+        "liveBare": "Checking skills"
+      }
+    }
   }
 }

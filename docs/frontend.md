@@ -31,15 +31,15 @@ src/
       WsFileItem.tsx          # Workspace file tree item
       index.ts                # Barrel re-export
     conversation/
-      ConversationStream.tsx  # Scrollable conversation timeline with render-time tool call grouping
+      ConversationStream.tsx  # Scrollable conversation timeline; folds each run of consecutive thinking + tool calls into one ActivityGroup at render time
       PlanCard.tsx            # Plan card with confirm/request-changes buttons, compact superseded style
       MessageBubble.tsx       # Single agent or user message bubble (user attachments → AttachmentThumbs)
       AttachmentThumbs.tsx    # Thumbnails / PDF chips for a user message's `![name](url)` attachments
       NoticeBanner.tsx        # Backend-authored transcript notice (role `notice`, e.g. images the model cannot see)
       TaskStartCard.tsx       # Plan-mode opening message card (title, collapsible details, create-time attachments)
       ExecutionSeparator.tsx  # Visual divider between plan and execution phases
-      ToolCallCard.tsx        # Compact tool call line + ToolCallGroup (grouped consecutive tool calls)
-      ThinkingBlock.tsx       # Streaming/collapsed thinking display + WorkingIndicator fallback
+      ToolCallCard.tsx        # ActivityGroup: one summary line per run ("Read notes.md, called the Ads API 2 times"), a live label on the in-flight run ("Running …", "Waiting for your answer"), expanding to purpose-named rows + thoughts; ToolCallLine for a lone call
+      ThinkingBlock.tsx       # A lone thought: "Thinking..." + preview while streaming, its first line as narration once finished; WorkingIndicator fallback
   views/
     TasksView.tsx             # Task list + task detail + agent session
     EventsView.tsx            # Event list + detail + activities
@@ -47,6 +47,7 @@ src/
     WorkspaceAssistantView.tsx  # Workspace AI chat interface
     SettingsView.tsx          # Stores, general, AI, email, account, integrations tabs (delegates to components/settings/*Panel.tsx)
   lib/
+    activity.ts               # Plain-language names for the agent's steps (pure): describeStep, summarizeRun, buildRows, liveLabel; Vibe Seller tools named by what they do (Ads API, email, result…); zh/en strings under `activity.*`
     userContent.ts            # parseUserContent: split a stored user message into text + attachments (app/attachment_markdown.py encoding)
     notice.ts                 # parseNotice: the JSON body of a `notice` transcript row (app/ai/unseen_images.py)
   hooks/
@@ -67,7 +68,7 @@ src/
 
 1. **Left sidebar** (`Sidebar.tsx`): Nav tabs (Tasks, Events, Workspace, Settings), store list, workspace file tree
 2. **Middle panel**: Task/event list for selected context + chat input
-3. **Right panel**: Conversation-first task detail — a unified scrollable timeline showing thinking blocks, grouped tool calls, the plan (via `PlanCard`), an `ExecutionSeparator`, then all agent/user messages (via `MessageBubble`), with a chat input at the bottom. Header shows step progress bar (`Step 2/5 ●●○○○`) clickable to scroll to plan. Both the header counter and the PlanCard step list use `TodoWrite` items as the single source of truth for step progress.
+3. **Right panel**: Conversation-first task detail — a unified scrollable timeline in which each run of the agent's thinking + tool calls folds into one line saying what was done (expand for the steps), then the plan (via `PlanCard`), an `ExecutionSeparator`, then all agent/user messages (via `MessageBubble`), with a chat input at the bottom. Header shows step progress bar (`Step 2/5 ●●○○○`) clickable to scroll to plan. Both the header counter and the PlanCard step list use `TodoWrite` items as the single source of truth for step progress.
 
 ## Views
 

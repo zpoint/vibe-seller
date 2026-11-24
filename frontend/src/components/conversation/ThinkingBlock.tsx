@@ -1,5 +1,7 @@
 import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { thoughtLine } from '../../lib/activity'
+import { Chevron } from './ToolCallCard'
 
 interface ThinkingBlockProps {
   content: string
@@ -29,21 +31,21 @@ function ThinkingBlockView({ content, isStreaming }: ThinkingBlockProps) {
     )
   }
 
-  // Collapsed state — click to expand
+  // Finished: the thought's first line as the agent's narration, the same
+  // as a thought row inside a folded run. "Thinking..." here would claim
+  // the agent is still at it on a task that ended long ago.
   return (
     <div className="py-0.5">
       <button
-        className="flex items-center gap-1.5 text-[13px] text-gray-400 hover:text-indigo-500"
+        className="flex items-center gap-1 text-[13px] italic text-gray-400 hover:text-gray-600 max-w-full min-w-0 text-left"
+        aria-expanded={expanded}
         onClick={() => setExpanded(e => !e)}
       >
-        <span>💭</span>
-        <span>{t('tasks.thinking', 'Thinking...')}</span>
-        <span className={`text-[11px] transition-transform ${expanded ? 'rotate-90' : ''}`}>
-          ▶
-        </span>
+        <span className="truncate">{thoughtLine(content) || t('activity.thought_one')}</span>
+        <Chevron open={expanded} />
       </button>
       {expanded && (
-        <div className="text-[12px] text-gray-400 mt-1 ml-5 whitespace-pre-wrap max-h-48 overflow-y-auto">
+        <div className="text-[13px] leading-[1.6] text-gray-500 mt-1 whitespace-pre-wrap max-h-64 overflow-y-auto">
           {content}
         </div>
       )}

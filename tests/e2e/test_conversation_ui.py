@@ -35,6 +35,10 @@ if not MOCK_CLI:
 
 pytestmark = [pytest.mark.e2e]
 
+# The mock CLI's planning run — thinking, Read app/models.py, Grep
+# 'class Task' — as the one folded activity line the UI shows for it.
+PLANNING_SUMMARY = 'Read models.py, searched for class Task'
+
 
 def _login_api() -> httpx.Client:
     """Login via API, return authenticated client."""
@@ -132,8 +136,17 @@ class TestConversationStreamUI:
         # Select task in browser
         self._select_task_in_browser(page, title)
 
-        # Verify tool calls appear in conversation
-        page.wait_for_selector(r'text=/\d+ actions?/', timeout=15000)
+        # The planning run (thinking + Read + Grep) folds into one line
+        # that says what was done; expanding lists each step.
+        summary = page.get_by_role('button', name=PLANNING_SUMMARY)
+        summary.wait_for(timeout=15000)
+        expect(
+            page.get_by_text('Searched for class Task', exact=True)
+        ).to_have_count(0)
+        summary.click()
+        expect(
+            page.get_by_text('Searched for class Task', exact=True)
+        ).to_be_visible(timeout=5000)
 
     def test_thinking_visible_after_completion(self, authenticated_page):
         """Thinking blocks appear in conversation stream."""
@@ -148,7 +161,14 @@ class TestConversationStreamUI:
 
         self._select_task_in_browser(page, title)
 
-        page.wait_for_selector('text=/Thinking/', timeout=15000)
+        # Thinking is folded into the run; expanding shows the agent's
+        # thought as narration.
+        summary = page.get_by_role('button', name=PLANNING_SUMMARY)
+        summary.wait_for(timeout=15000)
+        summary.click()
+        expect(
+            page.get_by_text('Let me analyze the code...').first
+        ).to_be_visible(timeout=5000)
 
     def test_plan_and_result_visible(self, authenticated_page):
         """Plan card and result card appear after task completes."""
@@ -244,13 +264,17 @@ class TestConversationStreamUI:
 
         # Load task
         self._select_task_in_browser(page, title)
-        page.wait_for_selector(r'text=/\d+ actions?/', timeout=10000)
+        page.get_by_role('button', name=PLANNING_SUMMARY).wait_for(
+            timeout=10000
+        )
 
         # Refresh again
         self._select_task_in_browser(page, title)
 
         # Verify conversation survives refresh
-        page.wait_for_selector(r'text=/\d+ actions?/', timeout=10000)
+        page.get_by_role('button', name=PLANNING_SUMMARY).wait_for(
+            timeout=10000
+        )
         expect(page.locator('text=/Step one/').first).to_be_visible(
             timeout=5000
         )
