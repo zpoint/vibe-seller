@@ -11,7 +11,7 @@ import { TaskStartCard } from './TaskStartCard'
 import { MessageBubble } from './MessageBubble'
 import { NoticeBanner } from './NoticeBanner'
 import { ExecutionSeparator } from './ExecutionSeparator'
-import { ToolCallGroup } from './ToolCallCard'
+import { ActivityGroup, ToolCallLine } from './ToolCallCard'
 import { ThinkingBlock, WorkingIndicator } from './ThinkingBlock'
 import { QuestionBanner } from '../QuestionBanner'
 import { ImageRequestCard } from './ImageRequestCard'
@@ -21,32 +21,32 @@ import type { ConversationItem, TodoItem, TaskStep, Task } from '../../types'
 
 type DisplayItem =
   | { kind: 'item'; item: ConversationItem }
-  | { kind: 'tool_group'; items: ConversationItem[] }
+  | { kind: 'activity'; items: ConversationItem[] }
 
-/** Group consecutive tool_call items at render time. */
+const isWorkStep = (item: ConversationItem) =>
+  item.type === 'tool_call' || item.type === 'thinking'
+
+/** Fold each run of consecutive working steps (thinking + tool calls)
+ *  into one collapsible activity line; a lone step renders as itself. */
 function groupItems(items: ConversationItem[]): DisplayItem[] {
   const result: DisplayItem[] = []
-  let toolBuf: ConversationItem[] = []
+  let buf: ConversationItem[] = []
 
-  const flushTools = () => {
-    if (toolBuf.length === 0) return
-    if (toolBuf.length === 1) {
-      result.push({ kind: 'tool_group', items: [...toolBuf] })
-    } else {
-      result.push({ kind: 'tool_group', items: [...toolBuf] })
-    }
-    toolBuf = []
+  const flush = () => {
+    if (buf.length === 1) result.push({ kind: 'item', item: buf[0] })
+    else if (buf.length > 1) result.push({ kind: 'activity', items: buf })
+    buf = []
   }
 
   for (const item of items) {
-    if (item.type === 'tool_call') {
-      toolBuf.push(item)
+    if (isWorkStep(item)) {
+      buf.push(item)
     } else {
-      flushTools()
+      flush()
       result.push({ kind: 'item', item })
     }
   }
-  flushTools()
+  flush()
   return result
 }
 
@@ -256,8 +256,14 @@ export function ConversationStream({
         let taskStartRendered = false
         const allPlanVersions = items.filter(i => i.type === 'plan' && i.plan).map(i => i.plan!)
         const renderDI = (di: DisplayItem, idx: number): ReactNode => {
-        if (di.kind === 'tool_group') {
-          return <ToolCallGroup key={`tg-${idx}`} items={di.items.map(i => i.toolCall!)} />
+        if (di.kind === 'activity') {
+          return (
+            <ActivityGroup
+              key={di.items[0].id}
+              items={di.items}
+              live={isActive && idx === displayItems.length - 1}
+            />
+          )
         }
         const item = di.item
         switch (item.type) {
@@ -305,6 +311,8 @@ export function ConversationStream({
             return <NoticeBanner key={item.id} notice={item.notice!} />
           case 'execution_separator':
             return <ExecutionSeparator key={item.id} />
+          case 'tool_call':
+            return <ToolCallLine key={item.id} {...item.toolCall!} />
           case 'thinking':
             return (
               <ThinkingBlock
@@ -381,9 +389,10 @@ export function ConversationStream({
         // User messages, plans, results, separators and questions render
         // standalone at full column width.
         const isAssistantSide = (di: DisplayItem) =>
-          di.kind === 'tool_group' ||
+          di.kind === 'activity' ||
           (di.kind === 'item' &&
             (di.item.type === 'agent_message' ||
+              di.item.type === 'tool_call' ||
               di.item.type === 'streaming' ||
               di.item.type === 'thinking'))
 

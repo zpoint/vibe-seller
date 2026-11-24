@@ -3,13 +3,14 @@
  * tool calls, thinking blocks, plan versioning, working indicator.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import {
   makeConversationItem,
   makePlan,
   renderConversationStream,
 } from '../test/helpers'
 import type { ConversationItem } from '../types'
+import { describeStep, toolTitle } from '../lib/activity'
 
 describe('Tool call rendering', () => {
   it('renders single tool call with tool name and file path', () => {
@@ -33,8 +34,8 @@ describe('Tool call rendering', () => {
         toolCall: { tool: 'Read', input: { file_path: 'b.py' } },
       }),
     ]
-    renderConversationStream({ items })
-    expect(screen.getByText(/3 actions/)).toBeInTheDocument()
+    renderConversationStream({ items, isActive: false })
+    expect(screen.getByText('Read 2 files, searched for class Task')).toBeInTheDocument()
   })
 
   it('single tool call between other items is not grouped', () => {
@@ -53,6 +54,93 @@ describe('Tool call rendering', () => {
     // Should show "1 action" (single item group) not "N actions"
     expect(screen.queryByText(/\d+ actions/)).not.toBeInTheDocument()
     expect(screen.getByText(/Read/)).toBeInTheDocument()
+  })
+})
+
+describe('Agent activity folding', () => {
+  const thinking = (content: string, isStreaming = false) =>
+    makeConversationItem('thinking', { thinking: { content, isStreaming } })
+  const tool = (t: string, input: Record<string, unknown>) =>
+    makeConversationItem('tool_call', { toolCall: { tool: t, input } })
+
+  it('folds interleaved thinking and tool calls into one line that says what was done', () => {
+    const items = [
+      thinking('First read the store notes'),
+      tool('Read', { file_path: 'stores/acme/notes.md' }),
+      thinking('Now declare the ad task'),
+      tool('mcp__vibe-seller__vibe_seller_declare_ad_task', { kind: 'audit' }),
+      tool('mcp__vibe-seller__vibe_seller_read_knowledge', { path: 'x' }),
+      thinking('Open the ad console'),
+      tool('Bash', { command: 'browser-use <<PY\nnew_tab("x")\nPY', description: 'Open the ads console' }),
+      tool('Bash', { command: 'ls -lt downloads/', description: 'List downloaded reports' }),
+      makeConversationItem('agent_message', {
+        message: { role: 'assistant', content: 'Found the data source.' },
+      }),
+      tool('Read', { file_path: 'a.md' }),
+      tool('Read', { file_path: 'b.md' }),
+    ]
+    renderConversationStream({ items, task: { status: 'completed' }, isActive: false })
+
+    expect(screen.getAllByTestId('activity-group')).toHaveLength(2)
+    expect(screen.getByText(
+      'Read notes.md, used Vibe Seller (2 calls), used the browser, and 1 more',
+    )).toBeInTheDocument()
+    // Collapsed: the steps themselves stay out of the way.
+    expect(screen.queryByText(/First read the store notes/)).not.toBeInTheDocument()
+    // The agent's message between runs stays readable.
+    expect(screen.getByText('Found the data source.')).toBeInTheDocument()
+    expect(screen.getByText('Read 2 files')).toBeInTheDocument()
+
+    // Expanded: rows named by purpose, the agent's thoughts as narration.
+    fireEvent.click(screen.getByText(/^Read notes\.md, used Vibe Seller/))
+    expect(screen.getByText('First read the store notes')).toBeInTheDocument()
+    expect(screen.getByText('Read notes.md')).toBeInTheDocument()
+    expect(screen.getByText('Vibe Seller · Declare ad task, Read knowledge')).toBeInTheDocument()
+    expect(screen.getByText('Browser: Open the ads console')).toBeInTheDocument()
+    expect(screen.getByText('Ran List downloaded reports')).toBeInTheDocument()
+
+    // A row opens to the call behind it.
+    fireEvent.click(screen.getByText('Ran List downloaded reports'))
+    expect(screen.getByText('ls -lt downloads/')).toBeInTheDocument()
+  })
+
+  it('says what the agent is doing right now while the last run is live', () => {
+    const items = [
+      thinking('plan'),
+      tool('Bash', { command: 'npm ci', description: 'Install dependencies' }),
+    ]
+    renderConversationStream({ items, isActive: true })
+    expect(screen.getByText('Running Install dependencies')).toBeInTheDocument()
+  })
+
+  it('says it is waiting on the user, not the raw question tool name', () => {
+    const items = [
+      thinking('need a login'),
+      tool('AskUserQuestion', { questions: [] }),
+    ]
+    renderConversationStream({ items, isActive: true })
+    expect(screen.getByText('Waiting for your answer')).toBeInTheDocument()
+    expect(screen.queryByText(/AskUserQuestion/)).not.toBeInTheDocument()
+  })
+
+  it('streams the latest thought under a live collapsed run', () => {
+    const items = [
+      tool('Read', { file_path: 'a.md' }),
+      thinking('checking the report\nlooking at today sales', true),
+    ]
+    renderConversationStream({ items, isActive: true })
+    expect(screen.getByText('Thinking...')).toBeInTheDocument()
+    expect(screen.getByText('looking at today sales')).toBeInTheDocument()
+  })
+
+  it('names steps by purpose, not by raw tool id', () => {
+    expect(toolTitle('mcp__vibe-seller__vibe_seller_read_knowledge')).toBe('Read knowledge')
+    expect(toolTitle('mcp__gws__sheets_read')).toBe('Sheets read')
+    expect(describeStep('Bash', { command: 'ls -la' }).target).toBe('ls -la')
+    expect(describeStep('Bash', { command: 'ls', description: 'List files' }).target).toBe('List files')
+    expect(describeStep('Bash', { command: 'browser-use <<PY' }).category).toBe('browse')
+    expect(describeStep('Skill', { skill: 'browser-harness' }).target).toBe('browser-harness')
+    expect(describeStep('Read', { file_path: 'C:\\Users\\a\\notes.md' }).target).toBe('notes.md')
   })
 })
 
@@ -181,8 +269,8 @@ describe('Full conversation flow', () => {
       task: { status: 'completed' },
     })
 
-    // Grouped tool calls (2 consecutive before plan v1)
-    expect(screen.getByText(/2 actions/)).toBeInTheDocument()
+    // Thinking + 2 tool calls before plan v1 fold into one line
+    expect(screen.getByText('Read a.py, searched for foo')).toBeInTheDocument()
     // User feedback
     expect(screen.getByText('change approach')).toBeInTheDocument()
     // New plan content
