@@ -25,7 +25,8 @@ site they are marked as such.
 
 | File | Topics |
 |------|--------|
-| [browsers.md](browsers.md) / [browsers.en.md](browsers.en.md) | Supported-browser directory (official download + team-account URLs), how to choose, the store-browser + auxiliary-browser design |
+| [browsers.md](browsers.md) / [browsers.en.md](browsers.en.md) | Supported-browser directory (official download + team-account URLs), how to choose |
+| [store-and-aux-browser.md](store-and-aux-browser.md) / [store-and-aux-browser.en.md](store-and-aux-browser.en.md) | The store-browser + Chrome auxiliary-browser design for anti-detect stores |
 | [ziniao.md](ziniao.md) / [ziniao.en.md](ziniao.en.md) | Ziniao: developer-mode prerequisites, binding fields, common errors, WSL launcher, credential storage |
 | [yuehulian.md](yuehulian.md) / [yuehulian.en.md](yuehulian.en.md) | Yuehulian: download, team account, binding, one account per machine, auto-login, Windows-only, credential storage |
 

@@ -1,5 +1,5 @@
 ---
-description: Which browsers Vibe Seller supports, how to choose, and the "store browser + auxiliary browser" design. Ziniao and Yuehulian setup each have their own page.
+description: Which browsers Vibe Seller supports and how to choose. The "store browser + auxiliary browser" design, and Ziniao and Yuehulian setup, each have their own page.
 ---
 
 # Browsers
@@ -8,9 +8,10 @@ Vibe Seller drives a **real browser** over CDP (Chrome's low-level
 remote-control protocol) — the AI acts on the page exactly as you would.
 Each store binds one browser backend; an anti-detect store (Ziniao /
 Yuehulian) also gets a Chrome auxiliary browser automatically. This page
-covers which browsers are supported, how to choose, and how the two
-browsers split the work — each browser's download and setup lives in its
-own guide.
+covers which browsers are supported and how to choose. How the two
+browsers split the work is in [Store Browser & Auxiliary
+Browser](store-and-aux-browser.en.md); each browser's download and setup
+lives in its own guide.
 
 ## Supported browsers
 
@@ -61,34 +62,6 @@ window visible, so a human can finish a login. It isn't a choice in the
 store form; you set it up at deployment time. See the "Browser automation —
 native Windows Chrome (`winchrome` backend)" section of the [Windows setup
 guide](windows-setup.md).
-
-## Store browser and auxiliary browser
-
-This is Vibe Seller's browser design: an anti-detect store's (Ziniao /
-Yuehulian) tasks have two browsers, each with its own job.
-
-| | Store browser (main — Ziniao / Yuehulian) | Chrome auxiliary browser |
-|---|---|---|
-| Used for | The seller center: listings, inventory, reports, ads | Everything outside the seller center: carrier tracking, overseas sites, search engines, supplier sites, public product pages |
-| Strength | Fingerprint and IP isolation, holds the store's login — the safest way into the seller center | No restrictions; opens any site |
-| Limits | Only some sites open; many overseas and logistics sites are blocked | Not signed in to the seller account, and **never** used for seller-center work |
-
-The anti-detect browser protects the store account but blocks a lot; Chrome
-covers exactly the sites it can't open, so the two complement each other.
-For example, a task that "checks the delivery status of recent orders"
-reads the orders from the seller center in the store browser and looks up
-the tracking on the carrier's site in Chrome, then puts both into one
-report.
-
-All of this is automatic: the auxiliary browser starts the first time it's
-needed, there's one per store (never shared between stores), and cookies
-for public sites survive across tasks. The AI decides which URL goes to
-which browser; you don't choose. To pin certain URLs to one browser, write
-rules in `browser-routing.md` in the store's folder — they take precedence
-over the defaults.
-
-A Chrome store is plain Chrome with none of these limits, so it uses a
-single browser.
 
 ## Per-browser setup guides
 

@@ -50,7 +50,7 @@ collected in the [Browsers](browsers.en.md) chapter:
 
 - [Supported browsers](browsers.en.md#supported-browsers)
 - [Which browser backend?](browsers.en.md#which-browser-backend)
-- [Store browser and auxiliary browser](browsers.en.md#store-browser-and-auxiliary-browser)
+- [Store browser and auxiliary browser](store-and-aux-browser.en.md)
 
 ## Logins stick around
 
@@ -58,7 +58,7 @@ A store's browser isn't a fresh incognito window every task:
 
 - **Chrome stores** each have a persistent profile: cookies, localStorage and sessions carry across tasks. The first time the AI reaches a seller center that throws a slider or SMS check at you, you log in once by hand in that browser window; after that the AI works with the session already in place.
 - **Ziniao stores** keep their logins in the Ziniao profile itself — Vibe Seller asks Ziniao to open that profile, so the one-time manual login happens in Ziniao.
-- A Ziniao / Yuehulian store's Chrome auxiliary browser keeps its own persistent profile too — see [Store browser and auxiliary browser](browsers.en.md#store-browser-and-auxiliary-browser).
+- A Ziniao / Yuehulian store's Chrome auxiliary browser keeps its own persistent profile too — see [Store browser and auxiliary browser](store-and-aux-browser.en.md).
 
 ## Running several stores at once
 

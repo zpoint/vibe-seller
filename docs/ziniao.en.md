@@ -6,7 +6,7 @@ description: Ziniao with Vibe Seller in one page — developer-mode and WebDrive
 
 Ziniao is a third-party anti-detect browser; Vibe Seller drives it over CDP through its developer (WebDriver) mode, and browser fingerprints stay isolated between Ziniao accounts — the right choice for stores on marketplaces with strict risk control. Before your first Ziniao store, the BOSS (admin) account has to do two one-time setups on the Ziniao side.
 
-A Ziniao store's tasks also get a Chrome auxiliary browser for the logistics and overseas sites Ziniao can't open — see [Two browsers working together](browsers.md#store-browser-and-auxiliary-browser).
+A Ziniao store's tasks also get a Chrome auxiliary browser for the logistics and overseas sites Ziniao can't open — see [Two browsers working together](store-and-aux-browser.en.md).
 
 If you don't use Ziniao, skip this page. Vibe Seller supports other browsers too; see [Browsers](browsers.md).
 
