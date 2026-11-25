@@ -40,13 +40,15 @@ export function formatScheduleBadge(s: BadgeFields, t: TFunc): string {
         ? `${t('schedules.daily')} ${time}`
         : `${every} ${n} ${t('schedules.days')} ${time}`
     case 'weekly': {
-      const day = DAYS[(s.schedule_day || 1) - 1]
+      // No fallback day: one without a day is shown as such (the server
+      // requires it now; app/schedule_timing.py), never as "Monday".
+      const day = s.schedule_day ? DAYS[s.schedule_day - 1] : t('schedules.dayNotSet')
       return n === 1
         ? `${t('schedules.weekly')} ${day} ${time}`
         : `${every} ${n} ${t('schedules.weeks')} ${day} ${time}`
     }
     case 'monthly': {
-      const dom = s.schedule_day || 1
+      const dom = s.schedule_day ?? t('schedules.dayNotSet')
       return n === 1
         ? `${t('schedules.monthly')} ${dom} ${time}`
         : `${every} ${n} ${t('schedules.months')} ${dom} ${time}`

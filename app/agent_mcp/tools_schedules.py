@@ -279,8 +279,10 @@ async def list_schedules(ctx: McpContext, args: dict) -> dict:
             'schedule_day': {
                 'type': ['integer', 'null'],
                 'description': (
-                    'Day of week (1=Mon..7=Sun) for weekly, day of '
-                    'month for monthly; null otherwise.'
+                    'REQUIRED for weekly (the weekday: 1=Mon..7=Sun) '
+                    'and monthly (the day of the month: 1..31) — '
+                    'without it the schedule is refused. Null for '
+                    'minutes/hours/days.'
                 ),
             },
             'interval_value': {
@@ -429,7 +431,13 @@ async def create_schedule(ctx: McpContext, args: dict) -> dict:
                 'enum': ['minutes', 'hours', 'days', 'weekly', 'monthly'],
             },
             'schedule_time': {'type': 'string'},
-            'schedule_day': {'type': ['integer', 'null']},
+            'schedule_day': {
+                'type': ['integer', 'null'],
+                'description': (
+                    'Weekly: 1=Mon..7=Sun; monthly: 1..31. A weekly or '
+                    'monthly schedule always keeps one.'
+                ),
+            },
             'interval_value': {'type': 'integer', 'minimum': 1},
             'timezone': {'type': ['string', 'null']},
             'ai_profile_id': {

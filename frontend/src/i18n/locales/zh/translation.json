@@ -871,6 +871,7 @@
     "time": "时间",
     "dayOfWeek": "星期",
     "dayOfMonth": "日期",
+    "dayNotSet": "（未设日期）",
     "active": "运行中",
     "paused": "已暂停",
     "system": "系统",

@@ -141,6 +141,7 @@ class TestReviewFlow:
                 'store_id': store_id,
                 'schedule_type': 'weekly',
                 'schedule_time': '09:00',
+                'schedule_day': 1,
                 'plan_mode': True,
             },
         )

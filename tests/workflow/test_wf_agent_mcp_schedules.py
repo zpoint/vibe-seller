@@ -135,6 +135,7 @@ async def create_review_schedule(client, *, store_id=None, **extra):
             'description': 'Check product links for anomalies',
             'schedule_type': 'weekly',
             'schedule_time': '09:05',
+            'schedule_day': 1,
             'store_id': store_id,
             'review_plan': True,
             **extra,
@@ -191,6 +192,7 @@ class TestCreateAuto:
                 'description': 'Check product links for anomalies',
                 'schedule_type': 'weekly',
                 'schedule_time': '09:05',
+                'schedule_day': 1,
             },
         )
         assert not is_error, created

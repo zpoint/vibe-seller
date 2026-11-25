@@ -138,6 +138,26 @@ def _ensure_added_columns(conn) -> None:
                 f'ALTER TABLE {table} ADD COLUMN {column} {sqltype}'
             )
     _backfill_finalize_enabled_at(conn)
+    backfill_schedule_day(conn)
+
+
+def backfill_schedule_day(conn) -> None:
+    """Give a weekly/monthly schedule written without a day the day the
+    UI has always shown for it: 1 (Monday / the 1st).
+
+    The day used to be optional over the API and MCP, and such a
+    schedule fired EVERY DAY while its card read "weekly, Monday" (the
+    UI's fallback). Writes now require the day and the trigger builder
+    refuses one without it (``app.schedule_timing``), so a row left
+    without one would never fire again; the day the owner was shown is
+    the honest one to keep. Runs on every boot, and only ever touches
+    rows a client too old to send the day wrote.
+    """
+    conn.exec_driver_sql(
+        'UPDATE schedules SET schedule_day = 1 '
+        "WHERE schedule_type IN ('weekly', 'monthly') "
+        'AND schedule_day IS NULL'
+    )
 
 
 def _backfill_finalize_enabled_at(conn) -> None:

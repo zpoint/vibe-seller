@@ -214,6 +214,7 @@ class TestAutoSchedule:
             store_id=store_id,
             schedule_type='weekly',
             schedule_time='03:10',
+            schedule_day=1,
         )
         assert created['ok'], created['text']
         data = created['data']
@@ -264,6 +265,7 @@ class TestReviewSchedule:
             store_id=store_id,
             schedule_type='weekly',
             schedule_time='03:00',
+            schedule_day=1,
             review_plan=True,
         )
         assert created['ok'], created['text']

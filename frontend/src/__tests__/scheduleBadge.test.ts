@@ -100,3 +100,19 @@ describe('formatScheduleBadge — honours interval_value for every type', () => 
     ).toBe('Every 15 minutes')
   })
 })
+
+describe('formatScheduleBadge — a weekly/monthly schedule without its day', () => {
+  // The server once accepted these (API/MCP) and fired them EVERY DAY
+  // while this badge filled in Monday / the 1st. It now requires the
+  // day, and the badge never makes one up.
+  it('weekly without a day says so instead of "Monday"', () => {
+    const badge = formatScheduleBadge(sched({ schedule_type: 'weekly', schedule_day: null }), t)
+    expect(badge).toBe('Weekly (no day set) 04:00')
+    expect(badge).not.toContain('Monday')
+  })
+
+  it('monthly without a day says so instead of "1"', () => {
+    const badge = formatScheduleBadge(sched({ schedule_type: 'monthly', schedule_day: null }), t)
+    expect(badge).toContain('(no day set)')
+  })
+})
