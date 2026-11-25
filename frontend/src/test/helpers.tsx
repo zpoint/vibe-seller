@@ -41,6 +41,7 @@ interface ConversationStreamOverrides {
   otherInputs?: Record<string, string>
   showOtherInput?: Record<string, boolean>
   onSelectAnswer?: (q: string, a: string) => void
+  onSetAnswer?: (q: string, a: string) => void
   onToggleOther?: (q: string) => void
   onSetOtherAnswer?: (q: string, t: string) => void
   onSubmitAll?: () => void
@@ -66,6 +67,7 @@ export function renderConversationStream(overrides: ConversationStreamOverrides 
         otherInputs={overrides.otherInputs ?? {}}
         showOtherInput={overrides.showOtherInput ?? {}}
         onSelectAnswer={overrides.onSelectAnswer ?? (() => {})}
+        onSetAnswer={overrides.onSetAnswer ?? (() => {})}
         onToggleOther={overrides.onToggleOther ?? (() => {})}
         onSetOtherAnswer={overrides.onSetOtherAnswer ?? (() => {})}
         onSubmitAll={overrides.onSubmitAll ?? (() => {})}

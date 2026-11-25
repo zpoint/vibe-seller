@@ -278,7 +278,7 @@ describe('F4: Edge cases', () => {
     expect(screen.getByText('X')).toBeInTheDocument()
   })
 
-  it('renders answered questions as collapsed summary', () => {
+  it('draws nothing for an answered question: the answer card shows it', () => {
     const items: ConversationItem[] = [
       makeConversationItem('question', {
         questions: {
@@ -293,9 +293,23 @@ describe('F4: Edge cases', () => {
       pendingQuestions: null,
     })
 
-    // Should show collapsed summary, not the full interactive banner
-    expect(screen.getByText(/Questions answered/)).toBeInTheDocument()
+    // Neither the interactive banner nor a summary line
+    expect(screen.queryByText(/Questions answered/)).not.toBeInTheDocument()
     expect(screen.queryByText('Pick a color')).not.toBeInTheDocument()
+  })
+
+  it('keeps a summary line for a question replied to in chat instead', () => {
+    const items: ConversationItem[] = [
+      makeConversationItem('question', {
+        questions: {
+          request_id: 'q-old',
+          questions: [{ header: 'Setup', question: 'Pick a color' }],
+        },
+        questionInterrupted: true,
+      }),
+    ]
+    renderConversationStream({ items, pendingQuestions: null })
+    expect(screen.getByText(/not answered/)).toBeInTheDocument()
   })
 })
 

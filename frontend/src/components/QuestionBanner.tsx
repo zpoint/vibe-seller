@@ -19,6 +19,13 @@ interface Question {
   header?: string
   question: string
   options?: { label: string; description?: string }[]
+  multiSelect?: boolean
+}
+
+// A multi-select answer: the picked labels, then any typed text, joined
+// as Claude Code's AskUserQuestion joins them.
+function joinPicks(picks: string[], other: string | null): string {
+  return [...picks, (other ?? '').trim()].filter(Boolean).join(', ')
 }
 
 interface QuestionBannerProps {
@@ -28,6 +35,7 @@ interface QuestionBannerProps {
   showOtherInput: Record<string, boolean>
   otherInputs: Record<string, string>
   onSelectAnswer: (questionText: string, answer: string) => void
+  onSetAnswer: (questionText: string, answer: string) => void
   onToggleOther: (questionText: string) => void
   onSetOtherAnswer: (questionText: string, text: string) => void
   onSubmitAll: (overrideAnswers?: Record<string, string>) => void
@@ -40,6 +48,7 @@ export function QuestionBanner({
   showOtherInput,
   otherInputs,
   onSelectAnswer,
+  onSetAnswer,
   onToggleOther,
   onSetOtherAnswer,
   onSubmitAll,
@@ -47,15 +56,38 @@ export function QuestionBanner({
   const { t } = useTranslation()
   const [freeTextMode, setFreeTextMode] = useState(false)
   const [freeTextInput, setFreeTextInput] = useState('')
+  // Multi-select questions keep their picks here; other text is null
+  // while "Other" is closed.
+  const [picks, setPicks] = useState<Record<string, string[]>>({})
+  const [multiOther, setMultiOther] = useState<Record<string, string | null>>({})
+  const updateMulti = (q: string, nextPicks: string[], nextOther: string | null) => {
+    setPicks(p => ({ ...p, [q]: nextPicks }))
+    setMultiOther(p => ({ ...p, [q]: nextOther }))
+    onSetAnswer(q, joinPicks(nextPicks, nextOther))
+  }
 
   return (
     <div ref={bannerRef} className="mb-4 rounded-xl border border-amber-200 bg-gradient-to-b from-amber-50 to-white overflow-hidden shadow-sm">
       {!freeTextMode && (
         <div className="divide-y divide-amber-100">
           {questions.map((q, qi) => {
-            const isOther = showOtherInput[q.question]
+            const multi = !!q.multiSelect
+            const picked = picks[q.question] || []
+            const otherText = multiOther[q.question] ?? null
+            const isOther = multi ? otherText !== null : showOtherInput[q.question]
             const selectedOpt = (q.options || []).find(o => o.label === selectedAnswers[q.question])
-            const showDesc = !isOther && selectedOpt?.description
+            const showDesc = !multi && !isOther && selectedOpt?.description
+            const isPicked = (label: string) =>
+              multi ? picked.includes(label) : selectedAnswers[q.question] === label && !isOther
+            const pick = (label: string) => {
+              if (!multi) return onSelectAnswer(q.question, label)
+              const next = picked.includes(label) ? picked.filter(l => l !== label) : [...picked, label]
+              updateMulti(q.question, next, otherText)
+            }
+            const toggleOther = () =>
+              multi ? updateMulti(q.question, picked, isOther ? null : '') : onToggleOther(q.question)
+            const typeOther = (text: string) =>
+              multi ? updateMulti(q.question, picked, text) : onSetOtherAnswer(q.question, text)
 
             return (
               <div key={qi} className="px-4 py-3 space-y-2">
@@ -71,6 +103,11 @@ export function QuestionBanner({
                       {preserveBreaks(q.question)}
                     </Markdown>
                   </div>
+                  {multi && (
+                    <div className="text-[11px] text-amber-700 mt-0.5" data-multi-select-hint>
+                      {t('tasks.multiSelectHint')}
+                    </div>
+                  )}
                 </div>
                 {/* Options */}
                 <div className="space-y-1.5">
@@ -78,9 +115,10 @@ export function QuestionBanner({
                     {(q.options || []).map((opt, oi) => (
                       <button
                         key={oi}
-                        onClick={() => onSelectAnswer(q.question, opt.label)}
+                        onClick={() => pick(opt.label)}
+                        aria-pressed={isPicked(opt.label)}
                         className={`px-3 py-2.5 text-sm sm:py-1.5 sm:text-xs border rounded-lg transition-all ${
-                          selectedAnswers[q.question] === opt.label && !isOther
+                          isPicked(opt.label)
                             ? 'bg-indigo-50 border-indigo-400 text-indigo-700 font-medium shadow-sm'
                             : 'bg-white border-gray-200 text-gray-600 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600'
                         }`}
@@ -90,7 +128,7 @@ export function QuestionBanner({
                       </button>
                     ))}
                     <button
-                      onClick={() => onToggleOther(q.question)}
+                      onClick={toggleOther}
                       className={`px-3 py-2.5 text-sm sm:py-1.5 sm:text-xs border rounded-lg transition-all ${
                         isOther
                           ? 'bg-indigo-50 border-indigo-400 text-indigo-700 font-medium shadow-sm'
@@ -105,9 +143,9 @@ export function QuestionBanner({
                   )}
                   {isOther && (
                     <input
-                      value={otherInputs[q.question] || ''}
-                      onChange={e => onSetOtherAnswer(q.question, e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Escape') onToggleOther(q.question) }}
+                      value={multi ? otherText ?? '' : otherInputs[q.question] || ''}
+                      onChange={e => typeOther(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') toggleOther() }}
                       placeholder={t('tasks.typeAnswer')}
                       className="w-full px-3 py-2.5 text-sm sm:py-1.5 sm:text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 bg-white"
                       autoFocus

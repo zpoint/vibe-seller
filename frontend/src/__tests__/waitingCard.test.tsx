@@ -28,6 +28,7 @@ function renderWaiting(waitCondition: string) {
         otherInputs={{}}
         showOtherInput={{}}
         onSelectAnswer={() => {}}
+        onSetAnswer={() => {}}
         onToggleOther={() => {}}
         onSetOtherAnswer={() => {}}
         onSubmitAll={() => {}}
