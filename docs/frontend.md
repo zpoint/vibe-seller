@@ -33,7 +33,7 @@ src/
     conversation/
       ConversationStream.tsx  # Scrollable conversation timeline; folds each run of consecutive thinking + tool calls into one ActivityGroup at render time
       PlanCard.tsx            # Plan card with confirm/request-changes buttons; full only while awaiting confirmation, else one expandable line; superseded versions are a thin marker
-      MessageBubble.tsx       # Single agent or user message bubble (user attachments → AttachmentThumbs)
+      MessageBubble.tsx       # Single agent or user message bubble (user attachments → AttachmentThumbs; answers to a parked question → AnswerBubble: each question, then its answer)
       AttachmentThumbs.tsx    # Thumbnails / PDF chips for a user message's `![name](url)` attachments
       NoticeBanner.tsx        # Backend-authored transcript notice (role `notice`, e.g. images the model cannot see)
       TaskStartCard.tsx       # Plan-mode opening message card (title, collapsible details, create-time attachments)
@@ -50,6 +50,7 @@ src/
     activity.ts               # Plain-language names for the agent's steps (pure): describeStep, summarizeRun, buildRows, liveLabel; Vibe Seller tools named by what they do (Ads API, email, result…); zh/en strings under `activity.*`
     userContent.ts            # parseUserContent: split a stored user message into text + attachments (app/attachment_markdown.py encoding)
     notice.ts                 # parseNotice: the JSON body of a `notice` transcript row (app/ai/unseen_images.py)
+    answerBubble.ts           # parseAnswerBubble: a user turn of `Q:` / `A:` pairs, the answers to a parked question (app/question_park.py answered_lines); anything else is an ordinary message
   hooks/
     useSSE.ts                 # SSE event listener hook
     useUpdateFlow.ts          # the in-app update UI state (poll + modal + restart)

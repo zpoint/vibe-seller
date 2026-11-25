@@ -225,6 +225,8 @@
     "revisedFrom": "Revised from v{{version}}",
     "stepProgress": "Step {{completed}}/{{total}}",
     "viewPlan": "View Plan",
+    "answerBubbleQuestion": "Question",
+    "answerBubbleAnswer": "Answer",
     "hidePlan": "Hide",
     "planUpdated": "Plan updated",
     "planFeedbackHint": "Send feedback to revise the plan, or confirm to execute",
