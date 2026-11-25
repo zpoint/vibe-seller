@@ -30,6 +30,18 @@ export function appendResult(
   return same ? [...items.slice(0, -1), item] : [...items, item]
 }
 
+/**
+ * Place an item where it happened. Messages are already in time order; a
+ * plan appended after all of them showed a plan written yesterday below
+ * today's conversation, as if it had just been written again.
+ */
+function insertByTime(items: ConversationItem[], item: ConversationItem): ConversationItem[] {
+  const at = Date.parse(item.timestamp)
+  if (Number.isNaN(at)) return [...items, item]
+  const idx = items.findIndex(i => Date.parse(i.timestamp) > at)
+  return idx < 0 ? [...items, item] : [...items.slice(0, idx), item, ...items.slice(idx)]
+}
+
 export function buildConversationItems(
   msgs: RawMessage[],
   task: Task,
@@ -73,17 +85,20 @@ export function buildConversationItems(
     try {
       const history = JSON.parse(task.plan_history) as { version: number; content: string; created_at: string }[]
       for (const h of history) {
-        convItems.push({ id: `hist-plan-${h.version}`, type: 'plan', timestamp: h.created_at, plan: { version: h.version, content: h.content, isCurrent: h.version === history.length } })
+        convItems = insertByTime(convItems, { id: `hist-plan-${h.version}`, type: 'plan', timestamp: h.created_at, plan: { version: h.version, content: h.content, isCurrent: h.version === history.length } })
       }
     } catch { /* fallback below */ }
   }
   if (!convItems.some(i => i.type === 'plan') && task.plan) {
     convItems.push({ id: `hist-plan-1`, type: 'plan', timestamp: new Date().toISOString(), plan: { version: 1, content: task.plan, isCurrent: true } })
   }
-  // Execution separator for tasks already in the execute phase.
+  // Execution separator for tasks already in the execute phase: execution
+  // starts from the current plan, so the separator follows that plan.
   const execPhaseStatuses = ['running', 'waiting', 'completed', 'failed']
   if (execPhaseStatuses.includes(task.status) && task.plan) {
-    convItems.push({ id: `hist-exec-sep`, type: 'execution_separator', timestamp: new Date().toISOString() })
+    const at = convItems.findIndex(i => i.type === 'plan' && i.plan?.isCurrent)
+    const sep: ConversationItem = { id: `hist-exec-sep`, type: 'execution_separator', timestamp: at < 0 ? new Date().toISOString() : convItems[at].timestamp }
+    convItems = at < 0 ? [...convItems, sep] : [...convItems.slice(0, at + 1), sep, ...convItems.slice(at + 1)]
   }
   // task.result is authoritative (may be resolved from a file pointer by
   // set_task_result, which emits an SSE result but persists no message).

@@ -227,6 +227,8 @@
     "revisedFrom": "修订自 v{{version}}",
     "stepProgress": "步骤 {{completed}}/{{total}}",
     "viewPlan": "查看计划",
+    "hidePlan": "收起",
+    "planUpdated": "计划已更新",
     "planFeedbackHint": "发送反馈修改计划，或确认执行",
     "planFeedbackPlaceholder": "建议修改...",
     "wakeMessagePlaceholder": "发送消息以恢复任务...",

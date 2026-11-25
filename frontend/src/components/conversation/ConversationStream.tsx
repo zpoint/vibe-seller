@@ -323,6 +323,10 @@ export function ConversationStream({
               />
             )
           case 'result':
+            // An empty result only marks the end of a turn (kept for the
+            // turn-end signal, app/ai/claude_backend_stream.py) — there is
+            // nothing to show, and an empty card reads as a lost answer.
+            if (!(item.result ?? '').trim()) return null
             return <ResultCard key={item.id} result={item.result || ''} label={t('tasks.result')} />
           case 'question': {
             const isActive = pendingQuestions?.request_id === item.questions?.request_id

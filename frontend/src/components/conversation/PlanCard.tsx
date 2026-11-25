@@ -45,6 +45,12 @@ function parsePlanSections(plan: string) {
 export function PlanCard({ plan, allVersions, todoItems, taskId, taskStatus, planMode, scheduleId, onConfirm, onRequestChanges }: PlanCardProps) {
   const { t } = useTranslation()
   const [viewingVersion, setViewingVersion] = useState(plan.version)
+  // No pin = follow the default (open only while the plan waits for the
+  // user's confirmation); a click pins the user's choice for THIS version,
+  // so a new version starts from the default again.
+  const [pinned, setPinned] = useState<{ version: number; open: boolean } | null>(null)
+  const userExpanded = pinned?.version === plan.version ? pinned.open : null
+  const setUserExpanded = (open: boolean) => setPinned({ version: plan.version, open })
   const planShownAt = useRef(0)
   const hadChangesRequest = useRef(false)
   useEffect(() => {
@@ -80,12 +86,43 @@ export function PlanCard({ plan, allVersions, todoItems, taskId, taskStatus, pla
   // so surfacing the button for plan-only would be misleading:
   // the task has already transitioned COMPLETED by the time the UI
   // paints, and clicking POST /execute-plan would 400.
-  const showConfirm =
-    isViewingCurrent &&
-    taskStatus === 'planned' &&
-    planMode &&
-    !scheduleId &&
-    onConfirm
+  const awaitingConfirm = taskStatus === 'planned' && planMode && !scheduleId && !!onConfirm
+  const showConfirm = isViewingCurrent && awaitingConfirm
+  // The full plan is shown only when the user has to read it to decide.
+  // Otherwise — running, finished, or a revision nobody has to approve —
+  // it is one line the user can open.
+  const expanded = userExpanded ?? awaitingConfirm
+
+  if (!expanded) {
+    const done = todoItems.filter(ti => ti.status === 'completed').length
+    return (
+      <button
+        type="button"
+        data-plan-card
+        data-plan-collapsed
+        onClick={() => setUserExpanded(true)}
+        className="w-full text-left border-l-4 border-l-indigo-400 bg-white rounded-xl shadow-sm px-4 py-2.5 flex items-center gap-2 flex-wrap hover:bg-indigo-50/40"
+      >
+        <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-indigo-100 text-indigo-700">
+          {t('tasks.planVersion', { version: plan.version })}
+        </span>
+        <span className="text-xs text-gray-500">
+          {plan.version > 1 ? t('tasks.planUpdated') : t('tasks.currentPlan')}
+        </span>
+        {plan.version > 1 && (
+          <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">
+            {t('tasks.revisedFrom', { version: plan.version - 1 })}
+          </span>
+        )}
+        {todoItems.length > 0 && (
+          <span className="text-[10px] text-gray-400">
+            {t('tasks.stepProgress', { completed: done, total: todoItems.length })}
+          </span>
+        )}
+        <span className="ml-auto text-xs text-indigo-500">{t('tasks.viewPlan')} ›</span>
+      </button>
+    )
+  }
 
   return (
     <div className="border-l-4 border-l-indigo-400 bg-white rounded-xl shadow-sm overflow-hidden">
@@ -118,6 +155,15 @@ export function PlanCard({ plan, allVersions, todoItems, taskId, taskStatus, pla
           <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">
             {t('tasks.revisedFrom', { version: plan.version - 1 })}
           </span>
+        )}
+        {!awaitingConfirm && (
+          <button
+            type="button"
+            onClick={() => setUserExpanded(false)}
+            className="ml-auto text-xs text-gray-400 hover:text-gray-600"
+          >
+            {t('tasks.hidePlan')}
+          </button>
         )}
       </div>
 
