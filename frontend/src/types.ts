@@ -252,7 +252,7 @@ export interface ImageModelOption {
 export type ConversationItemType =
   | 'plan' | 'user_message' | 'agent_message'
   | 'streaming' | 'question' | 'execution_separator'
-  | 'result' | 'tool_call' | 'thinking'
+  | 'result' | 'tool_call' | 'thinking' | 'answer'
   | 'image_request' | 'generated_image' | 'notice'
 
 export interface PlanVersion {
@@ -279,6 +279,9 @@ export interface ConversationItem {
   // the card is retired as "you replied instead", not "answered".
   questionInterrupted?: boolean
   result?: string
+  // A result card shown before the turn's own result arrives (the agent
+  // recorded its result); that result takes its place.
+  provisionalResult?: boolean
   toolCall?: { tool: string; input?: Record<string, unknown> }
   thinking?: { content: string; isStreaming: boolean }
   notice?: TaskNotice

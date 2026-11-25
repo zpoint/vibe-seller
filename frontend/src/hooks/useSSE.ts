@@ -6,7 +6,7 @@ import { uuid } from '../uuid'
 import { patchById } from '../lib/patchById'
 import { NOTICE_ROLE, parseNotice } from '../lib/notice'
 import { ATTENTION_EVENT } from './useScheduleAttention'
-import { appendResult, refreshLatestResult } from '../lib/conversation'
+import { addLiveResult, refreshLatestResult } from '../lib/conversation'
 
 /** Finalize any streaming thinking block — set isStreaming to false. */
 function _finalizeThinking(items: ConversationItem[]): ConversationItem[] {
@@ -294,6 +294,15 @@ export function useSSE({
                     }]
                   })
                 }
+              } else if (data.role === 'answer') {
+                if (selectedTaskIdRef.current === data.task_id) {
+                  setConversationItems(items => [...items, {
+                    id: `answer-${uuid()}`,
+                    type: 'answer' as const,
+                    timestamp: new Date().toISOString(),
+                    message: { role: 'answer', content: data.content },
+                  }])
+                }
               } else if (data.role === 'user') {
                 setAgentMessages(p => [...p, { role: data.role, content: data.content }])
                 // Append user message if not already there (optimistic add)
@@ -318,12 +327,12 @@ export function useSSE({
                   // Every turn's result is a result card, as on reload
                   // (lib/conversation.ts); it replaces the same text
                   // just shown as a plain message.
-                  setConversationItems(items => appendResult(_finalizeThinking(items), {
+                  setConversationItems(items => addLiveResult(_finalizeThinking(items), {
                     id: `result-${uuid()}`,
                     type: 'result' as const,
                     timestamp: new Date().toISOString(),
                     result: data.content,
-                  }))
+                  }, data.provisional === true))
                 }
               } else if (data.role === NOTICE_ROLE) {
                 const notice = parseNotice(data.content)
