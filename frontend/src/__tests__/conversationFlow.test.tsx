@@ -324,7 +324,10 @@ describe('Full conversation flow', () => {
     expect(screen.getByText('Read a.py, searched for foo')).toBeInTheDocument()
     // User feedback
     expect(screen.getByText('change approach')).toBeInTheDocument()
-    // New plan content
+    // The revised plan of a finished task is one line, opened on demand
+    // (the full plan is open by default only while it awaits approval)
+    expect(screen.queryByText('New step')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Plan updated'))
     expect(screen.getByText('New step')).toBeInTheDocument()
     // Execution separator
     expect(screen.getByText(/execution started/i)).toBeInTheDocument()

@@ -32,7 +32,7 @@ src/
       index.ts                # Barrel re-export
     conversation/
       ConversationStream.tsx  # Scrollable conversation timeline; folds each run of consecutive thinking + tool calls into one ActivityGroup at render time
-      PlanCard.tsx            # Plan card with confirm/request-changes buttons, compact superseded style
+      PlanCard.tsx            # Plan card with confirm/request-changes buttons; full only while awaiting confirmation, else one expandable line; superseded versions are a thin marker
       MessageBubble.tsx       # Single agent or user message bubble (user attachments → AttachmentThumbs)
       AttachmentThumbs.tsx    # Thumbnails / PDF chips for a user message's `![name](url)` attachments
       NoticeBanner.tsx        # Backend-authored transcript notice (role `notice`, e.g. images the model cannot see)
@@ -68,7 +68,7 @@ src/
 
 1. **Left sidebar** (`Sidebar.tsx`): Nav tabs (Tasks, Events, Workspace, Settings), store list, workspace file tree
 2. **Middle panel**: Task/event list for selected context + chat input
-3. **Right panel**: Conversation-first task detail — a unified scrollable timeline in which each run of the agent's thinking + tool calls folds into one line saying what was done (expand for the steps), then the plan (via `PlanCard`), an `ExecutionSeparator`, then all agent/user messages (via `MessageBubble`), with a chat input at the bottom. Header shows step progress bar (`Step 2/5 ●●○○○`) clickable to scroll to plan. Both the header counter and the PlanCard step list use `TodoWrite` items as the single source of truth for step progress.
+3. **Right panel**: Conversation-first task detail — a unified scrollable timeline in which each run of the agent's thinking + tool calls folds into one line saying what was done (expand for the steps), with each plan version (via `PlanCard`) at the point it was written and an `ExecutionSeparator` right after the current plan, between the agent/user messages (via `MessageBubble`), with a chat input at the bottom. A plan is shown in full only while it waits for the user's confirmation (status `planned`, review mode, not a schedule); otherwise it is one line (`Plan v2 · Plan updated · Revised from v1 · View plan ›`) the user can open and hide. A turn whose `result` is empty (a turn-end signal with nothing to say) draws no result card. Header shows step progress bar (`Step 2/5 ●●○○○`) clickable to scroll to plan. Both the header counter and the PlanCard step list use `TodoWrite` items as the single source of truth for step progress.
 
 ## Views
 
