@@ -589,7 +589,7 @@ export default function App() {
     <AttentionBanner
       schedules={schedules}
       onOpenTask={(w) => navigate(taskTarget(w.store_id, w.task_id))}
-      onOpenQuestion={(q) => navigate({ to: '/tasks/$taskId', params: { taskId: q.task_id } })}
+      onOpenQuestion={(q) => navigate(taskTarget(q.store_id, q.task_id))}
       onOpenApproval={(a) => navigate(scheduleTarget(a.store_id, a.schedule_id))}
     />
     <div className="flex flex-1 min-h-0">

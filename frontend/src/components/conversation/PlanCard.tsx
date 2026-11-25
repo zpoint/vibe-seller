@@ -5,6 +5,7 @@ import { REMARK_PLUGINS } from '../../lib/markdownPlugins'
 import { CollapsibleSection } from '../ui'
 import { sendEvent, durationBucket } from '../../lib/telemetry'
 import { FrontendEvent } from '../../lib/telemetryEvents'
+import { awaitsPlanReview } from '../../lib/taskBadge'
 import type { PlanVersion, TodoItem } from '../../types'
 
 const PROSE_BASE = 'prose prose-sm max-w-none prose-code:text-xs prose-code:font-mono prose-code:text-gray-800 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-pre:bg-gray-50 prose-pre:text-gray-800 prose-pre:border prose-pre:border-gray-200 prose-pre:rounded prose-pre:p-2 prose-pre:my-2'
@@ -86,7 +87,8 @@ export function PlanCard({ plan, allVersions, todoItems, taskId, taskStatus, pla
   // so surfacing the button for plan-only would be misleading:
   // the task has already transitioned COMPLETED by the time the UI
   // paints, and clicking POST /execute-plan would 400.
-  const awaitingConfirm = taskStatus === 'planned' && planMode && !scheduleId && !!onConfirm
+  const awaitingConfirm =
+    awaitsPlanReview({ status: taskStatus, plan_mode: planMode, schedule_id: scheduleId }) && !!onConfirm
   const showConfirm = isViewingCurrent && awaitingConfirm
   // The full plan is shown only when the user has to read it to decide.
   // Otherwise — running, finished, or a revision nobody has to approve —

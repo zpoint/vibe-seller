@@ -74,7 +74,7 @@ results. Schedules have the same two scopes — see
 - **Auto** — "Skip review, run immediately": the AI plans and executes on its
   own; watch and stop any time. Good for routine operations you trust.
 - **Review** ("Review plan first") — the AI first writes an **Execution Plan**
-  and the task waits at **Planned**. Click **Confirm & Execute** to let it
+  and the task waits at **Needs your approval**. Click **Confirm & Execute** to let it
   start; if the plan isn't right, type your feedback and send — sending
   feedback *is* the rejection: the agent rewrites the plan (v2, v3 …) until you
   approve.
@@ -103,7 +103,7 @@ Task list and detail show one of these badges:
 | **Pending** | Created, not launched yet |
 | **Queued** | Waiting on a browser conflict or a concurrency slot (see [Concurrency](#concurrency-and-queueing)) — nothing is running yet |
 | **Planning** | Review mode: the AI is writing the plan |
-| **Planned** | Plan ready, waiting for your **Confirm & Execute** |
+| **Needs your approval** | Plan ready, waiting for your **Confirm & Execute** (the same as a schedule plan waiting for approval) |
 | **Running** | Working now |
 | **Waiting** | The AI waits for *you* or for a condition: an unanswered question, an email reply to arrive, sub-tasks to finish |
 | **Completed** | It delivered a result report |

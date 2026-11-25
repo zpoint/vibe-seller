@@ -851,7 +851,7 @@
     "resolved": "Resolved",
     "closed": "Closed",
     "designing": "Planning",
-    "planned": "Planned",
+    "pending_approval": "Needs your approval",
     "queued": "Queued"
   },
   "schedules": {

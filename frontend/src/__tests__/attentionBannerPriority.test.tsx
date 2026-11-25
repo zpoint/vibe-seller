@@ -188,7 +188,7 @@ describe('top attention bar', () => {
 
     // Then the planner's question.
     await click('planner-question-banner')
-    expect(path()).toBe('/tasks/plan-task-1')
+    expect(path()).toBe('/stores/store-a/tasks/plan-task-1')
     waits.questions = []
     emit({ type: 'task_update', task_id: 'plan-task-1', status: 'queued' })
     await settle()

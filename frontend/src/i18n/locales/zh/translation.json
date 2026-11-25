@@ -853,7 +853,7 @@
     "resolved": "已解决",
     "closed": "已关闭",
     "designing": "规划中",
-    "planned": "已规划",
+    "pending_approval": "待审批",
     "queued": "排队中"
   },
   "schedules": {

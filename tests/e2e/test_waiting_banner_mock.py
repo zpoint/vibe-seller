@@ -231,7 +231,10 @@ def test_one_bar_walks_every_kind_until_nothing_waits(
     _only_bar(page, 'waiting-task-banner', '3 tasks are waiting for your reply')
     _open_store(page, base, store['name'])
     expect(_row(page, current_title(api, base, b))).to_contain_text('Waiting')
-    expect(_row(page, current_title(api, base, p))).to_contain_text('Planned')
+    # A plan waiting for review reads like a schedule plan waiting for it.
+    expect(_row(page, current_title(api, base, p))).to_contain_text(
+        'Needs your approval'
+    )
     ev.shot(page, '02-store-list-badges')
 
     # 1-3. Replies, oldest first: A (no store), B (store), C (sub-task).

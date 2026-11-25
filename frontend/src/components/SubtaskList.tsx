@@ -55,7 +55,7 @@ export function SubtaskList({ parentTaskId, parentStatus, onSelect, stores }: {
             onClick={() => onSelect(child)}
             className="w-full text-left px-2 py-1.5 text-xs rounded border border-gray-200 hover:bg-gray-50 flex items-center gap-2"
           >
-            <StatusBadge status={child.status} />
+            <StatusBadge task={child} />
             <span className="truncate flex-1">{child.title}</span>
             {child.store_id && <span className="text-gray-400 text-[10px]">{storeName(child.store_id)}</span>}
           </button>
