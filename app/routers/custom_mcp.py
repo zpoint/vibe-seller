@@ -210,10 +210,15 @@ async def update_server(
     _user: User = Depends(require_admin),
 ):
     row = await _get_or_404(db, server_id)
+    changed = row.enabled != data.enabled
     row.enabled = data.enabled
     row.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
     await db.refresh(row)
+    if changed:
+        telemetry.send(
+            TelemetryEvent.CUSTOM_MCP_TOGGLED, {'enabled': data.enabled}
+        )
     return _view(row)
 
 
