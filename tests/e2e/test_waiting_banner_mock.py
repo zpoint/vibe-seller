@@ -176,6 +176,7 @@ def test_one_bar_walks_every_kind_until_nothing_waits(
             'store_id': store['id'],
             'schedule_type': 'weekly',
             'schedule_time': '09:00',
+            'schedule_day': 1,
             'plan_mode': True,
         },
     )
