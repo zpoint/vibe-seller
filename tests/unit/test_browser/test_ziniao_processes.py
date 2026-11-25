@@ -160,3 +160,46 @@ def test_kill_all_with_no_ziniao_running_remembers_nothing():
     ):
         zp.kill_all_ziniao(wsl=False)
     assert win_locator.remembered_process_path('ziniao') is None
+
+
+class _SlowClock:
+    """Each reading is a minute later: every listing outlasts the budget."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        self.now += 60.0
+        return self.now
+
+
+def test_a_slow_listing_still_gets_a_kill_before_anything_is_a_survivor():
+    """Listing can take longer than the whole wait (a loaded host, WMI
+    on Windows). The wait starts at the first kill, so the processes
+    are stopped, not reported as unkillable without a try."""
+    proc = zp.ZiniaoProcess(31, 'ziniao.exe', None)
+    with (
+        mock.patch.object(zp, 'list_ziniao_processes') as list_mock,
+        mock.patch.object(zp, '_kill') as kill_mock,
+        mock.patch.object(zp.time, 'monotonic', _SlowClock()),
+        mock.patch.object(zp.time, 'sleep'),
+    ):
+        list_mock.side_effect = [[proc], []]
+        report = zp.kill_all_ziniao(wsl=False)
+    kill_mock.assert_called_once_with(False, [proc])
+    assert report.survivors == []
+    assert report.killed == [proc]
+
+
+def test_a_process_that_outlives_the_kill_is_a_survivor():
+    proc = zp.ZiniaoProcess(32, 'ziniao.exe', None)
+    with (
+        mock.patch.object(zp, 'list_ziniao_processes', return_value=[proc]),
+        mock.patch.object(zp, '_kill') as kill_mock,
+        mock.patch.object(zp.time, 'monotonic', _SlowClock()),
+        mock.patch.object(zp.time, 'sleep'),
+    ):
+        report = zp.kill_all_ziniao(wsl=False)
+    assert kill_mock.call_count == 1
+    assert report.survivors == [proc]
+    assert report.killed == []

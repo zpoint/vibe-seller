@@ -273,7 +273,9 @@ user opened by hand stays open. No flag, no prompt.
      kernels and survives SIGTERM), SIGTERM kernels with 3 s grace, then
      clear `Singleton*` in their `--user-data-dir`s (see the runbook
      below). Survivors (started with admin rights) fail fast
-     (`kill_failed`); a foreign program on the port fails fast
+     (`kill_failed`); a survivor is a process still listed 10 s after
+     the first kill (the wait starts at the kill, so a slow listing never
+     reports processes it did not try to stop); a foreign program on the port fails fast
      (`port_in_use`);
    - launch, then poll until a **120 s deadline**. A refused connection
      is re-polled every 2 s (a client that binds at 8 s is seen at
