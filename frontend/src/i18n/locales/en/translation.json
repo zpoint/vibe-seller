@@ -867,6 +867,7 @@
     "time": "Time",
     "dayOfWeek": "Day of Week",
     "dayOfMonth": "Day of Month",
+    "dayNotSet": "(no day set)",
     "active": "Active",
     "paused": "Paused",
     "system": "System",

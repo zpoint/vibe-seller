@@ -24,6 +24,7 @@ from app.models.schedule import Schedule
 from app.models.schedule_constants import PhaseMode
 from app.models.task import Task
 from app.plan_states import fire_plan, schedule_fires
+from app.schedule_timing import schedule_day_error
 from app.scheduler.fanout import (
     _cancel_prior_waiting,
     run_fanout_job,
@@ -450,18 +451,16 @@ def build_trigger(
             start_date=_interval_start(anchor, tz, hour, minute),
             timezone=tz,
         )
+    day_error = schedule_day_error(schedule_type, schedule_day)
+    if day_error:
+        # Fail loudly: without its day a weekly/monthly cron trigger is
+        # hour+minute only — EVERY day — and an out-of-range weekday
+        # would wrap to a different one. See app/schedule_timing.py.
+        raise ValueError(day_error)
     if schedule_type == 'weekly':
         parts = schedule_time.split(':')
         hour = int(parts[0])
         minute = int(parts[1]) if len(parts) > 1 else 0
-        if schedule_day is not None and not 1 <= schedule_day <= 7:
-            # DB stores ISO weekday (Mon=1..Sun=7). Range-check explicitly
-            # so bad input fails loudly instead of being silently wrapped
-            # to a different weekday.
-            raise ValueError(
-                f'weekly schedule_day must be 1..7 (ISO weekday, '
-                f'Mon=1..Sun=7); got {schedule_day}'
-            )
         if interval_value > 1:
             # Every N weeks: cron has no N-week stride, so anchor an
             # IntervalTrigger to the chosen weekday at HH:MM.
@@ -473,11 +472,13 @@ def build_trigger(
                 timezone=tz,
             )
         # Every week: CronTrigger fires at local HH:MM (DST-safe).
-        kwargs: dict = {'hour': hour, 'minute': minute, 'timezone': tz}
-        if schedule_day is not None:
-            # APScheduler's CronTrigger uses Mon=0..Sun=6 — translate.
-            kwargs['day_of_week'] = schedule_day - 1
-        return CronTrigger(**kwargs)
+        # APScheduler's CronTrigger uses Mon=0..Sun=6 — translate.
+        return CronTrigger(
+            hour=hour,
+            minute=minute,
+            day_of_week=schedule_day - 1,
+            timezone=tz,
+        )
     if schedule_type == 'monthly':
         parts = schedule_time.split(':')
         hour = int(parts[0])
@@ -485,10 +486,9 @@ def build_trigger(
         kwargs = {
             'hour': hour,
             'minute': minute,
+            'day': schedule_day,
             'timezone': tz,
         }
-        if schedule_day is not None:
-            kwargs['day'] = schedule_day
         if interval_value > 1:
             # Every N months: restrict the cron month field to the
             # N-step grid anchored at the creation month (in tz).

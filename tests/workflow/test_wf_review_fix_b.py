@@ -95,6 +95,7 @@ class TestScheduleFiredPlannedIsNotACheckpoint:
                 'description': 'Check links',
                 'schedule_type': 'weekly',
                 'schedule_time': '09:05',
+                'schedule_day': 1,
                 'store_id': store_id,
                 'review_plan': True,
             },
@@ -144,6 +145,7 @@ class TestScheduleFiredPlannedIsNotACheckpoint:
                 'description': 'Check links',
                 'schedule_type': 'weekly',
                 'schedule_time': '09:05',
+                'schedule_day': 1,
                 'store_id': store_id,
                 'review_plan': True,
             },
@@ -217,6 +219,7 @@ class TestRetryPlanOnlyReauthors:
                 'description': 'Check links',
                 'schedule_type': 'weekly',
                 'schedule_time': '09:05',
+                'schedule_day': 1,
                 'review_plan': True,
             },
         )

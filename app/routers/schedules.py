@@ -45,6 +45,11 @@ from app.routers.schedule_title import (
     title_and_prompt,
     upgrade_title,
 )
+from app.schedule_timing import (
+    schedule_day_error,
+    schedule_time_error,
+    schedule_type_error,
+)
 from app.scheduler.cron import (
     add_schedule_job_for,
     get_schedule_next_run,
@@ -84,40 +89,10 @@ def _validate_timezone(tz: str) -> None:
         )
 
 
-def _validate_schedule_type(schedule_type: str) -> None:
-    """Raise 400 if schedule_type is not recognized."""
-    valid = ('minutes', 'hours', 'days', 'weekly', 'monthly')
-    if schedule_type not in valid:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f'Invalid schedule_type: {schedule_type}. '
-                f'Must be one of {valid}'
-            ),
-        )
-
-
-def _validate_schedule_time(schedule_time: str) -> None:
-    """Raise 400 if schedule_time is not HH:MM or HH:MM:SS."""
-    parts = schedule_time.split(':')
-    if len(parts) not in (2, 3):
-        raise HTTPException(
-            status_code=400,
-            detail=('Invalid schedule_time format. Expected HH:MM or HH:MM:SS'),
-        )
-    try:
-        h, m = int(parts[0]), int(parts[1])
-        if not (0 <= h <= 23 and 0 <= m <= 59):
-            raise ValueError
-        if len(parts) == 3:
-            s = int(parts[2])
-            if not 0 <= s <= 59:
-                raise ValueError
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail='Invalid schedule_time values',
-        )
+def _check(error: str | None) -> None:
+    """A timing rule's error (``app.schedule_timing``) is a 400."""
+    if error:
+        raise HTTPException(status_code=400, detail=error)
 
 
 async def _resolve_phase_mode(
@@ -233,8 +208,9 @@ async def create_schedule(
     current_user: User = Depends(get_current_user),
 ):
     """Create a new schedule and register its APScheduler job."""
-    _validate_schedule_type(data.schedule_type)
-    _validate_schedule_time(data.schedule_time)
+    _check(schedule_type_error(data.schedule_type))
+    _check(schedule_time_error(data.schedule_time))
+    _check(schedule_day_error(data.schedule_type, data.schedule_day))
 
     # Resolve timezone: explicit → AppSettings default → server local.
     if data.timezone is None:
@@ -384,9 +360,17 @@ async def update_schedule(
     refuse_task_agent_review_off(current_user, review_change)
 
     if 'schedule_type' in update_data:
-        _validate_schedule_type(update_data['schedule_type'])
+        _check(schedule_type_error(update_data['schedule_type']))
     if 'schedule_time' in update_data:
-        _validate_schedule_time(update_data['schedule_time'])
+        _check(schedule_time_error(update_data['schedule_time']))
+    # The day is checked on the schedule as it WILL be: switching to
+    # weekly without a day, or clearing a weekly's day, is refused too.
+    _check(
+        schedule_day_error(
+            update_data.get('schedule_type', schedule.schedule_type),
+            update_data.get('schedule_day', schedule.schedule_day),
+        )
+    )
     if 'timezone' in update_data:
         _validate_timezone(update_data['timezone'])
     validate_finalize_description(
