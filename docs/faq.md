@@ -8,9 +8,6 @@ description: 常见问题总览：了解 Vibe Seller、紫鸟开通与报错、�
 
 ## 了解 Vibe Seller
 
-见 [了解 Vibe Seller](faq-about.md)：
-
-- [和亚马逊 SP-API 有什么区别？](faq-about.md#和亚马逊-sp-api-有什么区别)
 - [支持哪些平台？](index.md#支持的平台)：国内外浏览器能打开的平台都支持
 
 ## 紫鸟
@@ -42,7 +39,7 @@ description: 常见问题总览：了解 Vibe Seller、紫鸟开通与报错、�
 - [能部署在云服务器上吗？](faq-data.md#能部署在云服务器上吗)
 - [我的店铺数据会不会泄露？](faq-data.md#我的店铺数据会不会泄露)
 - [AI 的记忆存在哪？](faq-data.md#ai-的记忆存在哪)
-- [为什么界面上有些按钮是英文的？](faq-data.md#为什么界面上有些按钮是英文的)
+- [为什么界面上还有英文？](faq-data.md#为什么界面上还有英文)
 
 ---
 

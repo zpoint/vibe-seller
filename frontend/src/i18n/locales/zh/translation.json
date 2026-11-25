@@ -565,7 +565,7 @@
     "visionAdminOnly": "仅管理员可以设置作图的 API 密钥。",
     "visionSaved": "已保存。",
     "yuehulianNoAccount": "未配置账号",
-    "yuehulianAddAccount": "添加账号",
+    "addAccount": "添加账号",
     "yuehulianOneAccount": "悦互联一台机器只支持一个账号，请先在设置页面删除所有悦互联店铺，再添加新账号。",
     "ziniaoLocalOnlyNote": "账号密码只保存在这台电脑上，不会上传。",
     "ziniaoLoadingHint": "紫鸟没打开或是手动打开的，Vibe Seller 会自动帮你重新打开，可能要一两分钟。",

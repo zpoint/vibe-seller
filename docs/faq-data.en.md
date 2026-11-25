@@ -1,5 +1,5 @@
 ---
-description: Deployment and data — running on a cloud server, what happens to your store data, where the agent's memory lives, and why some buttons are in English.
+description: Deployment and data — running on a cloud server, what happens to your store data, where the agent's memory lives, and why the Chinese UI still shows some English.
 ---
 
 # Deployment & Data
@@ -27,6 +27,6 @@ Per-store knowledge accumulates as plain markdown under `~/.vibe-seller/stores/<
 
 You don't have to go digging for it: the **Knowledge** page in the web UI browses and edits those files, and its **AI Chat** mode will file what you tell it into the right place. Layout and conventions: [Knowledge & Skills](knowledge.md).
 
-## Why are some buttons in English?
+## Why does the Chinese UI still show some English?
 
-Because those few spots aren't translated yet — the Chinese and English UIs show the same English text: **Create & Run** (the submit button when you create a task), **Add account** (the plus next to Ziniao accounts), **Claude Code CLI** (the backend name in Settings). The docs quote them exactly as the app shows them, so seeing English in the Chinese UI doesn't mean you're in the wrong place.
+Every button and message has a Chinese version. What stays in English is product names — Claude Code, Codex, and model names such as DeepSeek or MiniMax — which have no Chinese name, so the Chinese UI shows them as they are.

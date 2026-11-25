@@ -25,7 +25,8 @@ site they are marked as such.
 
 | File | Topics |
 |------|--------|
-| [browsers.md](browsers.md) / [browsers.en.md](browsers.en.md) | Supported-browser directory (official download + team-account URLs), how to choose, the store-browser + auxiliary-browser design |
+| [browsers.md](browsers.md) / [browsers.en.md](browsers.en.md) | Supported-browser directory (official download + team-account URLs), how to choose |
+| [store-and-aux-browser.md](store-and-aux-browser.md) / [store-and-aux-browser.en.md](store-and-aux-browser.en.md) | The store-browser + Chrome auxiliary-browser design for anti-detect stores |
 | [ziniao.md](ziniao.md) / [ziniao.en.md](ziniao.en.md) | Ziniao: developer-mode prerequisites, binding fields, common errors, WSL launcher, credential storage |
 | [yuehulian.md](yuehulian.md) / [yuehulian.en.md](yuehulian.en.md) | Yuehulian: download, team account, binding, one account per machine, auto-login, Windows-only, credential storage |
 
@@ -42,10 +43,9 @@ site they are marked as such.
 
 | File | Topics |
 |------|--------|
-| [faq-about.md](faq-about.md) / [faq-about.en.md](faq-about.en.md) | How Vibe Seller differs from Amazon's SP-API |
 | [faq-cost.md](faq-cost.md) / [faq-cost.en.md](faq-cost.en.md) | Cost, which LLM to pick |
 | [faq-login.md](faq-login.md) / [faq-login.en.md](faq-login.en.md) | Login password setup / recovery, no `vibe-seller` command on Windows |
-| [faq-data.md](faq-data.md) / [faq-data.en.md](faq-data.md) | Cloud servers, data privacy, where the agent's memory lives, English-only buttons |
+| [faq-data.md](faq-data.md) / [faq-data.en.md](faq-data.en.md) | Cloud servers, data privacy, where the agent's memory lives, why product names stay in English |
 | [faq.md](faq.md) / [faq.en.md](faq.en.md) | Section overview: index of every question |
 
 ## Integrations

@@ -8,9 +8,6 @@ The questions live on topic pages, each one listed in the left navigation. This 
 
 ## About Vibe Seller
 
-See [About Vibe Seller](faq-about.en.md):
-
-- [How is it different from Amazon's SP-API?](faq-about.en.md#how-is-it-different-from-amazons-sp-api)
 - [Which platforms are supported?](index.en.md#platforms) Any platform you can open in a browser, in China or abroad.
 
 ## Ziniao
@@ -42,7 +39,7 @@ See [Deployment & Data](faq-data.en.md):
 - [Can I run it on a cloud server?](faq-data.en.md#can-i-run-it-on-a-cloud-server)
 - [What happens to my store data?](faq-data.en.md#what-happens-to-my-store-data)
 - [Where does the agent's memory live?](faq-data.en.md#where-does-the-agents-memory-live)
-- [Why are some buttons in English?](faq-data.en.md#why-are-some-buttons-in-english)
+- [Why does the Chinese UI still show some English?](faq-data.en.md#why-does-the-chinese-ui-still-show-some-english)
 
 ---
 

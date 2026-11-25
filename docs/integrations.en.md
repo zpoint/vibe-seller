@@ -30,17 +30,10 @@ Configuration lives in three places: `Settings → Integrations` (seven cards, i
 - **Google Workspace** uses Google's own authorization: not just mail, but writing docs, creating calendar events, reading sheets — live from Google rather than a cache. The price: Google accounts only, a one-time sign-in key to create in Google Cloud, one Google account for the whole install, and no per-capability toggle to turn things off.
 - You can configure the same Gmail address on both sides — they are two independent roads that don't know about each other: one is a synced local copy of the inbox, the other calls Google live. So if you want the AI to reach that mailbox through exactly one door, connect only one of them; the other stays usable as long as it's set up.
 
-### One is an exit, one is an entrance: chat bots vs MCP access
-
-- **Chat bots** point outward: the task posts its result to the group, people read it there — but nobody can drive Vibe Seller through the bot.
-- **MCP access** points inward: the AI tool already in your hand connects and creates tasks, asks follow-ups, answers questions and reviews plans for you. Each key it uses is pinned to one user identity and carries that person's full permissions.
-- Neither of these is the toolset the agent inside Vibe Seller uses while working — three separate channels, none impersonates another.
-
 ### Both called MCP, opposite directions: MCP access vs custom MCP servers
 
-- **MCP access**: Vibe Seller is the one being called. You add it as an MCP server to Codex, Claude and the like, connecting with a Vibe Seller API key.
-- **Custom MCP servers**: Vibe Seller does the calling. An admin adds an outside MCP service (Xiyou Insight, say) and tasks call its tools while they work, using the token the service issued.
-- They don't affect each other and work together: Codex asks Vibe Seller for a task, and that task pulls data from Xiyou Insight. See [Add a custom MCP server](mcp-custom.en.md).
+- **MCP access**: Vibe Seller is the one being called. You add it as an MCP server to Codex, Claude and the like, connecting with a Vibe Seller API key. For example, say "export Store A's transaction reports for the last 3 months" in Codex: Vibe Seller opens the store in Ziniao and downloads the reports, and Codex works out the numbers — see [Export a Ziniao store's financial data with Codex](example-mcp.en.md).
+- **Custom MCP servers**: Vibe Seller does the calling. An admin adds an outside MCP service and tasks call its tools while they work, using the token the service issued. For example, with Xiyou Insight added, say "use Xiyou to look up last week's search volume for yoga mat in the US" in a task and the AI calls Xiyou's keyword tool itself — see [Add a custom MCP server](mcp-custom.en.md).
 
 ### API or browser: the Ads API vs ad tasks in a store browser
 

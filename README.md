@@ -119,11 +119,11 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 | | |
 |---|---|
 | **入门** | [安装](https://docs.vibe-sellers.com/install/) · [快速开始](https://docs.vibe-sellers.com/quickstart/) · [配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/) · [核心概念](https://docs.vibe-sellers.com/concepts/) |
-| **浏览器** | [浏览器总览](https://docs.vibe-sellers.com/browsers/) · [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/) · [悦互联：配置指南](https://docs.vibe-sellers.com/yuehulian/) |
+| **浏览器** | [浏览器总览](https://docs.vibe-sellers.com/browsers/) · [店铺浏览器与辅助浏览器](https://docs.vibe-sellers.com/store-and-aux-browser/) · [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/) · [悦互联：配置指南](https://docs.vibe-sellers.com/yuehulian/) |
 | **集成** | [集成总览](https://docs.vibe-sellers.com/integrations/) · [MCP 接入](https://docs.vibe-sellers.com/mcp/) · [广告 API 绑定](https://docs.vibe-sellers.com/ads-api/) · [邮件](https://docs.vibe-sellers.com/email/) · [群机器人](https://docs.vibe-sellers.com/chat-bots/) · [企业微信 / 飞书 / 钉钉](https://docs.vibe-sellers.com/workplace-cli/) · [滴答清单 / TickTick](https://docs.vibe-sellers.com/ticktick/) · [Google Workspace](https://docs.vibe-sellers.com/google-workspace/) |
 | **使用示例** | [全部示例](https://docs.vibe-sellers.com/examples/) · [每天把重要邮件发到企业微信](https://docs.vibe-sellers.com/example-email-wecom/) · [分析广告 ACOS 并执行优化](https://docs.vibe-sellers.com/example-ads-acos/) · [每周巡检 Listing](https://docs.vibe-sellers.com/example-listing-check/) · [每月导出销售报表](https://docs.vibe-sellers.com/example-daily-report/) · [用 Codex 导出紫鸟店铺财务数据进行分析](https://docs.vibe-sellers.com/example-mcp/) |
 | **使用指南** | [店铺与浏览器](https://docs.vibe-sellers.com/stores/) · [任务](https://docs.vibe-sellers.com/using-tasks/) · [定时任务](https://docs.vibe-sellers.com/schedules/) · [知识库与 Skill](https://docs.vibe-sellers.com/knowledge/) |
-| **常见问题** | [了解 Vibe Seller](https://docs.vibe-sellers.com/faq-about/) · [费用与模型选择](https://docs.vibe-sellers.com/faq-cost/) · [登录与账号](https://docs.vibe-sellers.com/faq-login/) · [部署与数据](https://docs.vibe-sellers.com/faq-data/) · [全部问题](https://docs.vibe-sellers.com/faq/) |
+| **常见问题** | [费用与模型选择](https://docs.vibe-sellers.com/faq-cost/) · [登录与账号](https://docs.vibe-sellers.com/faq-login/) · [部署与数据](https://docs.vibe-sellers.com/faq-data/) · [全部问题](https://docs.vibe-sellers.com/faq/) |
 | **加入社区** | [加入社区与问题反馈](https://docs.vibe-sellers.com/community/)：微信群、Slack，以及怎么反馈问题、提建议 |
 | **开发者文档（英文）** | [开发者指南](https://docs.vibe-sellers.com/dev-guide/) · [任务内核](https://docs.vibe-sellers.com/tasks/) · [浏览器内核](https://docs.vibe-sellers.com/browser/) · [子系统](https://docs.vibe-sellers.com/subsystems/) · [外部 Agent（MCP API）](https://docs.vibe-sellers.com/agents/) · [Windows + WSL2 部署](https://docs.vibe-sellers.com/windows-setup/) · [macOS 常驻服务](https://docs.vibe-sellers.com/macos-setup/) |
 

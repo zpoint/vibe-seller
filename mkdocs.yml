@@ -112,6 +112,7 @@ plugins:
             Core Concepts: 核心概念
             Browsers: 浏览器
             Browsers Overview: 浏览器总览
+            Store Browser & Auxiliary Browser: 店铺浏览器与辅助浏览器
             Examples: 使用示例
             All Examples: 全部示例
             Daily Email Digest to WeCom: 每天把重要邮件发到企业微信
@@ -125,7 +126,6 @@ plugins:
             Schedules: 定时任务
             Knowledge & Skills: 知识库与 Skill
             FAQ: 常见问题
-            About Vibe Seller: 了解 Vibe Seller
             "Ziniao: Setup & Common Errors": 紫鸟：开通与常见报错
             "Yuehulian: Setup Guide": 悦互联：配置指南
             Cost & Model Choice: 费用与模型选择
@@ -204,6 +204,7 @@ nav:
           - Keep It Running 24/7: always-on.md
       - Browsers:
           - Browsers Overview: browsers.md
+          - Store Browser & Auxiliary Browser: store-and-aux-browser.md
           - "Ziniao: Setup & Common Errors": ziniao.md
           - "Yuehulian: Setup Guide": yuehulian.md
       - Integrations:
@@ -253,7 +254,6 @@ nav:
           - Schedules: schedules.md
           - Knowledge & Skills: knowledge.md
       - FAQ:
-          - About Vibe Seller: faq-about.md
           - Cost & Model Choice: faq-cost.md
           - Login & Accounts: faq-login.md
           - Deployment & Data: faq-data.md
