@@ -33,7 +33,7 @@ src/
     conversation/
       ConversationStream.tsx  # Scrollable conversation timeline; folds each run of consecutive thinking + tool calls into one ActivityGroup at render time
       PlanCard.tsx            # Plan card with confirm/request-changes buttons; full only while awaiting confirmation, else one expandable line; superseded versions are a thin marker
-      MessageBubble.tsx       # Single agent or user message bubble (user attachments → AttachmentThumbs; answers to a parked question → AnswerBubble: each question, then its answer)
+      MessageBubble.tsx       # Single agent or user message bubble (user attachments → AttachmentThumbs; answers to an agent's questions → AnswerBubble: each question, then its answer — a live answer is its own `answer` row, a parked one the user's resumed turn)
       AttachmentThumbs.tsx    # Thumbnails / PDF chips for a user message's `![name](url)` attachments
       NoticeBanner.tsx        # Backend-authored transcript notice (role `notice`, e.g. images the model cannot see)
       TaskStartCard.tsx       # Plan-mode opening message card (title, collapsible details, create-time attachments)
@@ -50,7 +50,7 @@ src/
     activity.ts               # Plain-language names for the agent's steps (pure): describeStep, summarizeRun, buildRows, liveLabel; Vibe Seller tools named by what they do (Ads API, email, result…); zh/en strings under `activity.*`
     userContent.ts            # parseUserContent: split a stored user message into text + attachments (app/attachment_markdown.py encoding)
     notice.ts                 # parseNotice: the JSON body of a `notice` transcript row (app/ai/unseen_images.py)
-    answerBubble.ts           # parseAnswerBubble: a user turn of `Q:` / `A:` pairs, the answers to a parked question (app/question_park.py answered_lines); anything else is an ordinary message
+    answerBubble.ts           # parseAnswerBubble: a user turn of `Q:` / `A:` pairs, the answers to an agent's questions, live (role `answer`) or parked (the user's turn) (app/question_park.py answered_lines); anything else is an ordinary message
   hooks/
     useSSE.ts                 # SSE event listener hook
     useUpdateFlow.ts          # the in-app update UI state (poll + modal + restart)
@@ -258,7 +258,7 @@ text goes in `groupLabel`. The frontend keeps no preset translation table, and
 |-------|---------|
 | `task_created` | Prepend new task to list when its `store_id` matches the active view (or null + All-stores). Deduped by id so the originating tab — which already inserts the task from the POST response — doesn't double-add. |
 | `task_update` | Update task status in list |
-| `task_message` | Route by role: `delta` → streaming bubble, `assistant` → agent message, `tool_use` → tool call card, `thinking`/`thinking_delta` → thinking block, `result` → result card (every turn's; it replaces the agent message right before it when that is the same text — Claude Code's `result` repeats the turn's last assistant text — via `appendResult` in `lib/conversation.ts`, which the history rebuild uses too, so one answer renders once live and on reload). **Also reconciles status**: a task streaming output can't be `queued`/`pending`, so any of these promotes it to `running` (or `designing` when `plan_mode`) — defensive against a missed/clobbered `task_update(running)` (the `pending→queued→running` race); never disturbs terminal/active states. |
+| `task_message` | Route by role: `delta` → streaming bubble, `assistant` → agent message, `tool_use` → tool call card, `thinking`/`thinking_delta` → thinking block, `result` → result card (every turn's; it replaces the agent message right before it when that is the same text — Claude Code's `result` repeats the turn's last assistant text — via `appendResult` in `lib/conversation.ts`, which the history rebuild uses too, so one answer renders once live and on reload; the card sent when the agent records its result (`provisional`) is replaced by the turn's own result, keeping the recorded text, via `addLiveResult`), `answer` → question-and-answer card. **Also reconciles status**: a task streaming output can't be `queued`/`pending`, so any of these promotes it to `running` (or `designing` when `plan_mode`) — defensive against a missed/clobbered `task_update(running)` (the `pending→queued→running` race); never disturbs terminal/active states. |
 | `task_todos` | Update todo progress bar |
 | `task_usage` | Patch the usage fields (list, schedule list, open task) — drives the footer's `TaskUsageMeter` (context bar + cost) |
 | `task_questions` | Show question banner |
