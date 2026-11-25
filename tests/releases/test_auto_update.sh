@@ -219,8 +219,8 @@ run_leg() { # run_leg <leg> <target-version> <dist-dir> [extra env…]
   export MOCK_CLI="$REPO/tests/e2e/mock_cli.py"
   # `min_run_seconds` is the leg's hold on TIME, not on steps: leg s2
   # needs a task that keeps the server busy for longer than two idle
-  # intervals, and pacing that with `delay` would pace the planning
-  # phase too (a 4-minute wait for a plan nobody is reviewing yet).
+  # intervals (its Auto turn stays open that long), and pacing that
+  # with `delay` would stretch every step instead of the turn.
   export MOCK_CLI_SCENARIO='{"result":"still working","delay":10,"min_run_seconds":260}'
   mkdir -p "$VIBE_HOME"
 
@@ -449,22 +449,24 @@ EOF
       # leg's server was started with (see run_leg): the daemon spawns
       # the agent, not this script.
       #
-      # This task is a NON-STORE one, and a non-store task is always a
-      # plan-mode task (app/routers/tasks.py, "Non-store tasks always
-      # plan mode"). So `plan_mode:false` in the body is not a request
-      # the server honours, and waiting for the task to finish by
-      # itself — what this leg used to do — waits for a turn that can
-      # never start: the agent plans, reaches PLANNED, and holds there
-      # for a human. Measured twice on 2026-11-13, in CI and here:
-      # `FAIL: the mock task never finished` after 240 s, with the
-      # server correctly refusing to apply over a DESIGNING task the
-      # whole time. The leg now sends what the UI sends, including the
-      # approval: create → PLANNED → POST /execute-plan → RUNNING.
-      local task tid st
+      # The task is sent the way the UI sends it with the user's default
+      # (Auto): `plan_mode:false`, so it runs straight away and the
+      # mock's `min_run_seconds` keeps that turn — and the server —
+      # busy. The leg used to plan, wait for PLANNED and approve,
+      # because a no-store task was once FORCED into plan mode; that
+      # rule is gone (one rule for every task: explicit wins, else the
+      # user's default — app/routers/tasks.py), and the leg then waited
+      # 240 s for a plan that never comes while the task ran and ended.
+      # So the leg checks the mode it asked for instead of assuming it:
+      # a server that overrode it fails here, by name, not as a timeout.
+      local task tid st mode
       task=$(api "$ADMIN_JAR" POST /api/tasks \
         '{"title":"hold the server","description":"keep running","plan_mode":false}') \
         || fail "could not create the task"
       tid=$(echo "$task" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+      mode=$(echo "$task" | python3 -c 'import json,sys;print(json.load(sys.stdin)["plan_mode"])')
+      [ "$mode" = False ] \
+        || fail "the server did not honour plan_mode:false (plan_mode=$mode): this leg needs a task that runs at once"
       local live waited=0
       while [ $waited -lt 60 ]; do
         live=$(update_field running_tasks)
@@ -474,16 +476,8 @@ EOF
       [ "$live" != 0 ] \
         || fail "creating a task did not make the server busy (status $(task_status "$ADMIN_JAR" "$tid")); MOCK_CLI=$MOCK_CLI"
       echo "   the task is live (running_tasks=$live)"
-      # The plan must actually arrive: that is what gates the approval,
-      # and a leg that approved a task still planning would be testing
-      # an endpoint the UI only shows once there is a plan to approve.
-      st=$(wait_for_task_status "$ADMIN_JAR" "$tid" planned 240) \
-        || fail "the mock never reached planned (last status: $st)"
-      echo "   planned — approving the way the UI does"
-      api "$ADMIN_JAR" POST "/api/tasks/$tid/execute-plan" >/dev/null \
-        || fail "POST /execute-plan was refused at status $st"
       st=$(wait_for_task_status "$ADMIN_JAR" "$tid" running 120) \
-        || fail "the approved plan never started executing (last: $st)"
+        || fail "the task never started executing (last: $st)"
       echo "   executing (status=$st); busy for two idle intervals now"
       # Busy for a good two idle-check intervals: nothing may move.
       local before=$(port_version) held=0
