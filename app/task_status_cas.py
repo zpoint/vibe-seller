@@ -31,15 +31,19 @@ async def transition_if(
     task_id: str,
     from_statuses: Iterable[str],
     to_status: str,
+    *,
+    where: Iterable = (),
     **values,
 ) -> bool:
     """Move *task_id* to *to_status* only while its status is one of
     *from_statuses*; commit, and say whether the row moved.
 
     Every ``from → to`` pair must be a legal transition — asked for an
-    illegal one, this raises instead of writing it. *values* are
-    further columns set in the same statement; ``updated_at`` is
-    stamped unless given.
+    illegal one, this raises instead of writing it. *where* adds
+    conditions to the same statement (e.g. the row's
+    ``wait_condition`` as the caller read it). *values* are further
+    columns set in the same statement; ``updated_at`` is stamped unless
+    given.
     """
     sources = [TaskStatus(s) for s in from_statuses]
     for source in sources:
@@ -47,7 +51,7 @@ async def transition_if(
     values.setdefault('updated_at', datetime.now(UTC).isoformat())
     result = await db.execute(
         update(Task)
-        .where(Task.id == task_id, Task.status.in_(sources))
+        .where(Task.id == task_id, Task.status.in_(sources), *where)
         .values(status=to_status, **values)
         .execution_options(synchronize_session=False)
     )

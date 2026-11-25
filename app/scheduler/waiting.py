@@ -3,6 +3,10 @@
 Runs on an APScheduler interval, inspects each waiting task's
 ``wait_condition`` JSON, and either wakes, times-out, or skips the
 task depending on strategy, timing, and external signals (e.g. email).
+
+It owns every WAITING row, so it is also the backstop for a parent
+waiting on its children: whichever path ended the last child, the
+parent completes here at the latest.
 """
 
 import asyncio
@@ -10,8 +14,9 @@ from datetime import UTC, datetime, timedelta
 import json
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
+from app.ai.question_policy import waits_on_a_person
 from app.database import async_session
 from app.email.db import search_emails
 from app.events.bus import event_bus
@@ -19,12 +24,55 @@ from app.models.email_account import EmailAccount
 from app.models.store_email_link import StoreEmailLink
 from app.models.task import Task
 from app.scheduler.task_queue import task_queue_scheduler
+from app.task_finalize import check_parent_after_run
+from app.task_runner import complete_if_children_done
 from app.task_states import TaskStatus
+from app.task_status_cas import transition_if
+from app.telemetry_tasks import send_task_failed
 
 logger = logging.getLogger(__name__)
 
 # Default maximum days a task can stay in WAITING before timeout.
 _DEFAULT_MAX_WAIT_DAYS = 30
+
+#: ``Task.error_category`` of a wait that reached its deadline.
+WAIT_TIMEOUT = 'wait_timeout'
+
+
+def wait_deadline(condition: dict) -> datetime | None:
+    """When a wait ends unmet: ``waiting_since`` + ``max_wait_days``.
+
+    ONE definition of the deadline: the checker fails the task at it,
+    and the SPA counts its "days left" down to it
+    (``frontend/src/lib/waitCondition.ts``). None for a wait with no
+    clock (a parent waiting on its children).
+    """
+    since = condition.get('waiting_since')
+    if not since:
+        return None
+    try:
+        start = datetime.fromisoformat(since)
+        days = float(condition.get('max_wait_days', _DEFAULT_MAX_WAIT_DAYS))
+    except (TypeError, ValueError):
+        return None
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=UTC)
+    return start + timedelta(days=days)
+
+
+def timeout_error(condition: dict) -> str:
+    """``Task.error`` for a wait that reached its deadline."""
+    days = condition.get('max_wait_days', _DEFAULT_MAX_WAIT_DAYS)
+    unmet = (
+        'Nobody replied'
+        if waits_on_a_person(condition)
+        else 'The wait condition was not met'
+    )
+    return (
+        f'{unmet} within {days} days, so the task stopped. Send a '
+        'message below to continue: the agent picks up where it '
+        'stopped (Retry would start over).'
+    )
 
 
 async def check_waiting_tasks() -> None:
@@ -61,14 +109,17 @@ async def _check_one_task(task: Task) -> None:
             )
             return
 
+    if condition.get('strategy') == 'children':
+        # Ends when the last child is terminal, never on a clock.
+        async with async_session() as db:
+            await complete_if_children_done(await db.get(Task, task.id), db)
+        return
+
     # ── Timeout check ───────────────────────────────────────
-    max_wait_days = condition.get('max_wait_days', _DEFAULT_MAX_WAIT_DAYS)
-    waiting_since_str = condition.get('waiting_since')
-    if waiting_since_str:
-        waiting_since = datetime.fromisoformat(waiting_since_str)
-        if (now - waiting_since).days > max_wait_days:
-            await _timeout_task(task)
-            return
+    deadline = wait_deadline(condition)
+    if deadline is not None and now >= deadline:
+        await _timeout_task(task, condition)
+        return
 
     # ── Strategy gate ───────────────────────────────────────
     strategy = condition.get('check_strategy', 'manual')
@@ -100,12 +151,22 @@ async def _check_one_task(task: Task) -> None:
             now + timedelta(hours=check_interval_hours)
         ).isoformat()
 
+        # Only onto the row as read: never over an answer, a wake or a
+        # Stop that landed meanwhile.
         async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.wait_condition = json.dumps(condition)
-                t.updated_at = now.isoformat()
-                await db.commit()
+            await db.execute(
+                update(Task)
+                .where(
+                    Task.id == task.id,
+                    Task.status == TaskStatus.WAITING,
+                    Task.wait_condition == task.wait_condition,
+                )
+                .values(
+                    wait_condition=json.dumps(condition),
+                    updated_at=now.isoformat(),
+                )
+            )
+            await db.commit()
 
 
 async def _check_email_condition(
@@ -188,13 +249,18 @@ async def _wake_task(
         condition['trigger_data'] = trigger_data
 
     async with async_session() as db:
-        t = await db.get(Task, task.id)
-        if not t:
-            return
-        t.status = TaskStatus.QUEUED
-        t.wait_condition = json.dumps(condition)
-        t.updated_at = now.isoformat()
-        await db.commit()
+        moved = await transition_if(
+            db,
+            task.id,
+            [TaskStatus.WAITING],
+            TaskStatus.QUEUED,
+            where=[Task.wait_condition == task.wait_condition],
+            wait_condition=json.dumps(condition),
+            updated_at=now.isoformat(),
+        )
+    if not moved:
+        # Answered, woken or stopped since this checker read it.
+        return
 
     await event_bus.emit(
         'task_update',
@@ -208,30 +274,43 @@ async def _wake_task(
     logger.info('Woke waiting task %s', task.id)
 
 
-async def _timeout_task(task: Task) -> None:
-    """Mark a waiting task as FAILED due to timeout."""
-    now = datetime.now(UTC)
-    error_msg = (
-        'Task timed out while waiting. '
-        'The wait condition was not met within the allowed period.'
-    )
+async def _timeout_task(task: Task, condition: dict) -> None:
+    """WAITING -> FAILED at the deadline, through the doors every other
+    end of a run goes through.
 
+    * ONE conditional write on the row as this checker read it (status
+      AND ``wait_condition``): an answer, a wake or a Stop that landed
+      since wins, and a task that was answered, ran and parked again
+      (a fresh wait) is not ended by the old wait's deadline.
+    * The parent of a sub-task is re-checked, as after every run
+      (``check_parent_after_run``): without it a parent waited on its
+      timed-out child forever.
+    """
+    error = timeout_error(condition)
     async with async_session() as db:
-        t = await db.get(Task, task.id)
-        if not t:
-            return
-        t.status = TaskStatus.FAILED
-        t.error = error_msg
-        t.updated_at = now.isoformat()
-        await db.commit()
+        moved = await transition_if(
+            db,
+            task.id,
+            [TaskStatus.WAITING],
+            TaskStatus.FAILED,
+            where=[Task.wait_condition == task.wait_condition],
+            error=error,
+            error_category=WAIT_TIMEOUT,
+        )
+        failed = await db.get(Task, task.id) if moved else None
+    if failed is None:
+        logger.info('Waiting task %s moved on before its timeout', task.id)
+        return
 
     await event_bus.emit(
         'task_update',
         {
             'task_id': task.id,
             'status': TaskStatus.FAILED,
-            'error': error_msg,
+            'error': error,
+            'error_category': WAIT_TIMEOUT,
         },
     )
-
+    await check_parent_after_run(task.id)
+    await send_task_failed(failed, phase='waiting', category=WAIT_TIMEOUT)
     logger.info('Timed out waiting task %s', task.id)

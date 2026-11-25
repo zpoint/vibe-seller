@@ -4,6 +4,7 @@ import { api } from '../api'
 import { sendEvent, ageBucket } from '../lib/telemetry'
 import { FrontendEvent } from '../lib/telemetryEvents'
 import { formatScheduleBadge } from '../lib/scheduleBadge'
+import { awaitsPlanReview } from '../lib/taskBadge'
 import { StatusBadge } from '../components/ui'
 import { ConversationStream } from '../components/conversation/ConversationStream'
 import { useChatUploads } from '../hooks/useChatUploads'
@@ -226,7 +227,7 @@ export function TasksView({
   // Placeholder changes by state
   const getPlaceholder = () => {
     if (!selectedTask) return t('tasks.chatPlaceholder')
-    if (selectedTask.status === 'planned') return t('tasks.planFeedbackPlaceholder')
+    if (awaitsPlanReview(selectedTask)) return t('tasks.planFeedbackPlaceholder')
     if (selectedTask.status === 'waiting') return t('tasks.wakeMessagePlaceholder')
     if (selectedTask.status === 'completed' || selectedTask.status === 'failed') return t('tasks.followupPlaceholder')
     return t('tasks.chatPlaceholder')
@@ -337,7 +338,7 @@ export function TasksView({
                       <div className="font-medium text-sm truncate">{task.title}</div>
                       {task.description && <div className="text-xs text-gray-400 truncate">{task.description}</div>}
                       <div className="flex items-center gap-2 mt-1 min-w-0">
-                        <StatusBadge status={task.status} />
+                        <StatusBadge task={task} />
                         {task.status === 'waiting' && (() => {
                           const wait = parseWaitCondition(task.wait_condition)
                           if (!wait) return null
@@ -434,7 +435,7 @@ export function TasksView({
                   </button>
                 )}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
-                  <StatusBadge status={selectedTask.status} />
+                  <StatusBadge task={selectedTask} />
                   {selectedTask.description ? (
                     <button
                       type="button"
@@ -749,7 +750,7 @@ export function TasksView({
               </div>
 
               {/* Plan feedback hint */}
-              {selectedTask.status === 'planned' && selectedTask.plan_mode && !selectedTask.schedule_id && (
+              {awaitsPlanReview(selectedTask) && (
                 <div className="text-xs text-indigo-500 mb-1">
                   {t('tasks.planFeedbackHint', 'Send feedback to revise the plan, or confirm to execute')}
                 </div>

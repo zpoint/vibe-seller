@@ -107,6 +107,7 @@ describe('planner question banner', () => {
     expect(banner.textContent).toContain("The AI has a question about 1 scheduled task's plan")
     await act(async () => { fireEvent.click(banner) })
     for (let i = 0; i < 5; i++) await act(async () => { await new Promise(r => setTimeout(r, 0)) })
-    expect(router.state.location.pathname).toBe('/tasks/plan-task-1')
+    // The planner works for store-a: it opens inside that store.
+    expect(router.state.location.pathname).toBe('/stores/store-a/tasks/plan-task-1')
   })
 })

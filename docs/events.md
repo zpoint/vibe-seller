@@ -32,7 +32,7 @@ Each subscriber gets its own `asyncio.Queue`. Events are JSON-serialized with `t
 | Event | Fields | Emitted By |
 |-------|--------|------------|
 | `task_created` | `task_id`, `store_id`, `task` (full `TaskResponse`) | `tasks.py` |
-| `task_update` | `task_id`, `status`, `error?` | `tasks.py`, `claude_backend.py` |
+| `task_update` | `task_id`, `status`, `error?`, `error_category?` | `tasks.py`, `claude_backend.py`, `scheduler/waiting.py` — a wait stopped at its deadline carries `error_category: wait_timeout`; the SPA patches `error` and `error_category` together, so the localized message shows without a reload |
 | `task_title` | `task_id`, `title` | `task_title.py` — the AI title replaced the placeholder derived from the description (only if the row still held it; a rename wins) |
 | `schedule_title` | `schedule_id`, `title` | `task_title.py` — the same upgrade for a schedule saved without a title (create, or an edit that changed the prompt) |
 | `task_message` | `task_id`, `role`, `content` | `claude_backend.py` |

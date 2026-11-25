@@ -74,6 +74,7 @@ from app.routers.tasks import router as tasks_router
 from app.routers.tasks_ad_declaration import (
     router as tasks_ad_declaration_router,
 )
+from app.routers.tasks_attention import router as tasks_attention_router
 from app.routers.tasks_conversation import router as tasks_conversation_router
 from app.routers.tasks_files import router as tasks_files_router
 from app.routers.tasks_report_declaration import (
@@ -415,6 +416,9 @@ app.include_router(app_settings_router)
 app.include_router(users_router)
 app.include_router(stores_router)
 app.include_router(sync_router)
+# Before tasks_router: GET /api/tasks/attention must not be captured by
+# GET /api/tasks/{task_id}.
+app.include_router(tasks_attention_router)
 app.include_router(tasks_router)
 app.include_router(tasks_conversation_router)
 app.include_router(tasks_ad_declaration_router)

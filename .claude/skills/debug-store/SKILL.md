@@ -457,9 +457,9 @@ echo "$TASK_ID"
 |---|---|---|
 | `title` | yes | Short imperative; this becomes the agent's primary instruction. |
 | `description` | no | Free-form context — country (`NOON EG`, `Amazon US`), date range, prior-task references. |
-| `store_id` | no\* | Required for store-scoped work. Omit for non-store tasks (always plan mode). |
+| `store_id` | no\* | Required for store-scoped work. Omit for a non-store task; its mode follows `plan_mode` like any task (omitted → the user's Auto/Review default). |
 | `ai_profile_id` | no | On task CREATE this defaults to the user's `default_profile_id`; on `retry` it does NOT — see "Reproduce what the FRONTEND sends" above. Send the user's (or the schedule's) profile explicitly. `"default"` is a real id meaning plain Claude, not "use the configured one". Live list: `app/ai/profiles.py` + `~/.vibe-seller/profiles.json`. |
-| `plan_mode` | no | `false` (default) = auto-run. `true` = plan-then-execute (PENDING → DESIGNING → PLANNED → wait for `/run`). |
+| `plan_mode` | no | `false` = auto-run, `true` = plan-then-execute (PENDING → DESIGNING → PLANNED → wait for approval). Omitted: the user's default (`plan_mode_default`); a sub-task runs auto. |
 | `parent_task_id` | no | Chains tasks. The new task inherits store + workspace from the parent. |
 | `schedule_id` | no | Set only when creating a one-off ad-hoc fire of an existing schedule; normal task creation should leave this null. |
 

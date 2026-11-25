@@ -10,6 +10,7 @@ import {
   slugToSettingsTab,
   listTarget,
   scheduleTarget,
+  taskTarget,
 } from '../lib/route'
 
 describe('parseNav — top-level view', () => {
@@ -86,6 +87,13 @@ describe('scope targets (URL builders for scope × sub-tab navigation)', () => {
     })
     expect(scheduleTarget('s1', null)).toEqual(listTarget('s1', true))
     expect(scheduleTarget(null, null)).toEqual(listTarget(null, true))
+  })
+  it('taskTarget: a store task opens inside its store', () => {
+    expect(taskTarget(null, 't1')).toEqual({ to: '/tasks/$taskId', params: { taskId: 't1' } })
+    expect(taskTarget('s1', 't1')).toEqual({
+      to: '/stores/$storeId/tasks/$taskId', params: { storeId: 's1', taskId: 't1' },
+    })
+    expect(parseNav('/stores/s1/tasks/t1')).toMatchObject({ storeId: 's1', taskId: 't1' })
   })
 })
 

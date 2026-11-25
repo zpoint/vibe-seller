@@ -88,6 +88,7 @@ ASYNC_SESSION_MODULES = [
     'app.scheduler.finalize_reaper',
     'app.scheduler.stall_reaper',
     'app.scheduler.queue_reconciler',
+    'app.scheduler.waiting',
     'app.routers.workspace_assistant',
     'app.browser.daemon_reaper',
     'app.telemetry_tasks',

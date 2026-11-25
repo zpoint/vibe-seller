@@ -132,6 +132,8 @@
     "continueMessage": "Continue the previous task — resume now, reuse the progress and data already on disk, and do not restart from scratch.",
     "rerun": "Re-run",
     "error_agent_loop": "The AI kept repeating the same steps and was stopped automatically. Please retry.",
+    "error_wait_timeout": "No reply came in time, so the task stopped. Reply below and the AI picks up where it left off (Retry starts over from scratch).",
+    "unansweredQuestion": "You haven't answered this yet. Reply in the box below and the AI will carry on from here.",
     "copyAll": "Copy All",
     "copied": "Copied!",
     "scheduled": "Scheduled",
@@ -849,7 +851,7 @@
     "resolved": "Resolved",
     "closed": "Closed",
     "designing": "Planning",
-    "planned": "Planned",
+    "pending_approval": "Needs your approval",
     "queued": "Queued"
   },
   "schedules": {
@@ -1002,6 +1004,7 @@
     "subtasksHint": "Continues by itself once every subtask has finished. The results are collected here.",
     "wakeMessage": "Optional message for the AI...",
     "daysRemaining": "{{days}}d remaining",
+    "deadlineAt": "(stops automatically at {{time}} if there is no reply)",
     "hours": "{{hours}}h"
   },
   "email": {
@@ -1278,6 +1281,14 @@
     "upgradeNotes": "Upgrade notes",
     "expandRest": "Show {{count}} more",
     "viewFullChangelog": "View the full changelog on GitHub"
+  },
+  "waitingTaskBanner": {
+    "message_one": "{{count}} task is waiting for your reply",
+    "message_other": "{{count}} tasks are waiting for your reply",
+    "action": "Open",
+    "plan_one": "{{count}} task has a plan waiting for your review",
+    "plan_other": "{{count}} tasks have a plan waiting for your review",
+    "review": "Review"
   },
   "planApprovalBanner": {
     "message_one": "{{count}} scheduled task has a plan waiting for your approval",

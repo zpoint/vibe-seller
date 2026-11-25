@@ -423,6 +423,10 @@ def run_linger_wait():
 # refusals reaching the transcript.
 SPAWN_SUBTASKS_MARKER = '[[MOCK_SPAWN_SUBTASKS]]'
 TRY_GRANDCHILD_MARKER = '[[MOCK_TRY_GRANDCHILD]]'
+# With this marker too, each spawned child's description carries the
+# park marker: the child asks the shipping question and, unanswered,
+# parks — a sub-task waiting on the user while its parent waits on it.
+CHILD_ASKS_MARKER = '[[MOCK_CHILD_ASKS]]'
 
 
 def mcp_server_entry() -> dict:
@@ -498,7 +502,10 @@ def run_spawn_subtasks(prompt: str):
                 'title': f'store work {sid[:8]}',
                 'store_id': sid,
                 'parent_task_id': own_id,
-                'description': f'Run the store-bound work for {sid}.',
+                'description': (
+                    f'{PARK_MARKER} ' if CHILD_ASKS_MARKER in prompt else ''
+                )
+                + f'Run the store-bound work for {sid}.',
             },
         )
         for sid in stores

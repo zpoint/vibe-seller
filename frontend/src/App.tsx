@@ -10,7 +10,7 @@ import { useUpdateFlow } from './hooks/useUpdateFlow'
 import { useSessionKeepalive } from './hooks/useSessionKeepalive'
 import { useYuehulian } from './hooks/useYuehulian'
 import { useZiniaoAccounts } from './hooks/useZiniaoAccounts'
-import { PlanApprovalBanner } from './components/PlanApprovalBanner'
+import { AttentionBanner } from './components/AttentionBanner'
 import { useServerInfo } from './hooks/useServerInfo'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useMobileBackStack } from './hooks/useMobileBackStack'
@@ -23,7 +23,7 @@ import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
 import { SettingsView, type SettingsTab } from './views/SettingsView'
 import { useSSE } from './hooks/useSSE'
 import { createDraftStore } from './lib/draftStore'
-import { parseNav, settingsTabToSlug, listTarget, scheduleTarget } from './lib/route'
+import { parseNav, settingsTabToSlug, listTarget, scheduleTarget, taskTarget } from './lib/route'
 import { resolveLanding } from './lib/landing'
 import { registerUserHash, unregisterUserHash } from './lib/telemetry'
 import { useTaskOpener } from './hooks/useTaskOpener'
@@ -585,8 +585,13 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-dvh bg-gray-100 text-gray-900">
-    {/* Plans waiting for approval — above every view; opens the oldest. */}
-    <PlanApprovalBanner schedules={schedules} onOpen={(a) => navigate(scheduleTarget(a.store_id, a.schedule_id))} onOpenQuestion={(q) => navigate({ to: '/tasks/$taskId', params: { taskId: q.task_id } })} />
+    {/* What waits for the user — ONE bar above every view, answers before approvals. */}
+    <AttentionBanner
+      schedules={schedules}
+      onOpenTask={(w) => navigate(taskTarget(w.store_id, w.task_id))}
+      onOpenQuestion={(q) => navigate(taskTarget(q.store_id, q.task_id))}
+      onOpenApproval={(a) => navigate(scheduleTarget(a.store_id, a.schedule_id))}
+    />
     <div className="flex flex-1 min-h-0">
       {/* Mobile drawer scrim — tap to close the slide-in sidebar. */}
       {isMobile && navOpen && (

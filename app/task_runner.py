@@ -708,31 +708,31 @@ async def check_parent_completion(
     task: 'Task',
     db: AsyncSession,
 ) -> None:
-    """If task's parent is WAITING on children, check siblings.
+    """If task's parent is WAITING on children, check siblings."""
+    if task.parent_task_id:
+        parent = await db.get(Task, task.parent_task_id)
+        await complete_if_children_done(parent, db)
 
-    When ALL siblings are terminal, auto-complete the parent
-    with aggregated results.
-    """
-    if not task.parent_task_id:
-        return
-    parent = await db.get(Task, task.parent_task_id)
+
+async def complete_if_children_done(parent, db: AsyncSession) -> None:
+    """A parent WAITING on its children completes, with their results
+    aggregated, once every child is terminal. Called after each child's
+    run AND by the waiting checker (``app/scheduler/waiting.py``), so a
+    child ended by a path that skipped the first cannot strand it."""
     if not parent or parent.status != TaskStatus.WAITING:
         return
     try:
         cond = json.loads(parent.wait_condition or '{}')
     except (json.JSONDecodeError, TypeError):
         return
-    if cond.get('strategy') != 'children':
+    if not isinstance(cond, dict) or cond.get('strategy') != 'children':
         return
-
     result = await db.execute(
-        select(Task).where(Task.parent_task_id == task.parent_task_id)
+        select(Task).where(Task.parent_task_id == parent.id)
     )
     siblings = list(result.scalars().all())
-    if not all(k.status in _TERMINAL for k in siblings):
+    if not siblings or not all(k.status in _TERMINAL for k in siblings):
         return
-
-    # All children done — complete parent
     aggregate_child_results(parent, siblings)
     assert_transition(parent.status, TaskStatus.COMPLETED)
     parent.status = TaskStatus.COMPLETED

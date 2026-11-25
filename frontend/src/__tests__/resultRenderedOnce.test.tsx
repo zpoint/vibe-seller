@@ -37,6 +37,18 @@ describe('history rebuild', () => {
     expect(shape(items)).toEqual(['user_message', `result:${ANSWER}`])
   })
 
+  it('an empty result — a run parked on a question — draws no card', () => {
+    const items = buildConversationItems(
+      [
+        { role: 'user', content: 'ask me which shipping option' },
+        { role: 'result', content: '' },
+        { role: 'result', content: '  \n' },
+      ],
+      task,
+    )
+    expect(shape(items)).toEqual(['user_message'])
+  })
+
   it('differences in surrounding whitespace still count as the same text', () => {
     const items = buildConversationItems(
       [{ role: 'assistant', content: `${ANSWER}\n` }, { role: 'result', content: ANSWER }],

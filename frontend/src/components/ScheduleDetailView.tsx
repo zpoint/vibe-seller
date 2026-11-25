@@ -191,7 +191,7 @@ export function ScheduleDetailView({
             >
               <div className="flex items-center justify-between">
                 <span className="ph-sensitive font-medium text-sm truncate">{task.title}</span>
-                <StatusBadge status={task.status} />
+                <StatusBadge task={task} />
               </div>
               <div className="text-xs text-gray-400 mt-1">
                 {formatDate(task.created_at)}

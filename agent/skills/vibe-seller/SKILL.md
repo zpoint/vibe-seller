@@ -64,8 +64,6 @@ you whether to expect a plan checkpoint or a straight run.
 - is ambiguous about scope, and getting it wrong is expensive;
 - is one the user explicitly asked to see first ("draft it, then I'll
   approve");
-- has **no store** at all. A no-store task is always plan mode; the server
-  forces it, and asking for auto mode fails.
 
 **Use auto mode (`plan_mode: false`) when the task only reads:**
 

@@ -56,6 +56,10 @@ class Options(enum.Enum):
     # holds a slot. Past it the agent is stopped and the task parks in
     # WAITING with the question; answering resumes it. 0 = wait forever.
     QUESTION_ANSWER_TIMEOUT_S = ('VIBE_QUESTION_ANSWER_TIMEOUT_S', '600')
+    # How often WAITING tasks are checked (deadline, email match, a
+    # parent whose children all ended). Tests lower it to watch a
+    # deadline pass on a real server.
+    WAITING_CHECK_INTERVAL_S = ('VIBE_WAITING_CHECK_INTERVAL_S', '900')
 
     # Turn lifecycle: how long a quiescent CLI process may linger
     # after its turn's result before stdin is closed to end it.

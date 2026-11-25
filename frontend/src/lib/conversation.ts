@@ -17,13 +17,17 @@ export interface RawMessage {
  * the turn's last assistant text, and both are persisted and streamed
  * (role ``assistant``, then role ``result``). One answer must render
  * once: when the item right before is that same text as a plain agent
- * message, the result card takes its place. Used by the history rebuild
- * and the live SSE path alike, so a reload and a live view agree.
+ * message, the result card takes its place; an empty result adds no
+ * card. Used by the history rebuild and the live SSE path alike, so a
+ * reload and a live view agree.
  */
 export function appendResult(
   items: ConversationItem[],
   item: ConversationItem & { type: 'result' },
 ): ConversationItem[] {
+  // An empty result says nothing: a run stopped while it waited on a
+  // question (parked) ends with one, and drew an empty "Result" card.
+  if (!(item.result ?? '').trim()) return items
   const prev = items[items.length - 1]
   const same = prev?.type === 'agent_message'
     && (prev.message?.content ?? '').trim() === (item.result ?? '').trim()
