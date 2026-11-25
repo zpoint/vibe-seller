@@ -15,6 +15,7 @@ import pytest
 from app import config
 from app.ai.profiles import ProfileManager
 from app.cli_integrations import paths as cli_paths
+from app.models.custom_mcp_server import CustomMcpServer
 from app.models.email_account import EmailAccount
 from app.models.schedule import Schedule
 from app.scheduler.heartbeat import send_install_heartbeat
@@ -44,6 +45,7 @@ EXPECTED = {
     'gws_enabled': bool,
     'workplace_clis_enabled': list,
     'ticktick_enabled': bool,
+    'custom_mcp_count': int,
     'vision_key_set': bool,
     'chat_bot_platforms': list,
     'api_token_count': int,
@@ -275,3 +277,24 @@ class TestHeartbeatNoLeaks:
             {'name': 'Bespoke LLM', 'host': 'api.llmbox.example'},
         ]
         assert 'api.llmbox.example' in blob
+
+
+class TestHeartbeatCustomMcp:
+    async def test_counts_enabled_servers(
+        self, override_async_session, isolated_profiles, monkeypatch
+    ):
+        events, _person = _capture(monkeypatch)
+        async with override_async_session() as db:
+            for name, enabled in (('a', True), ('b', True), ('c', False)):
+                db.add(
+                    CustomMcpServer(
+                        name=name,
+                        config_enc='x',
+                        enabled=enabled,
+                        created_by='u-1',
+                    )
+                )
+            await db.commit()
+        await send_install_heartbeat()
+        beat = next(p for e, p in events if e == 'install_heartbeat')
+        assert beat['custom_mcp_count'] == 2

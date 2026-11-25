@@ -20,6 +20,7 @@ from app import (
 from app.ai.profiles import profile_kind_for_id, profile_telemetry
 from app.cli_integrations.registry import INTEGRATIONS
 from app.database import async_session
+from app.models.custom_mcp_server import CustomMcpServer
 from app.models.schedule_constants import SYSTEM_CATALOG_SYNC_ID
 from app.models.task import Task, close_pause, open_pause, paused_total
 from app.models.task_message import TaskMessage
@@ -58,9 +59,13 @@ def skill_names(tool: str, tool_input: dict) -> list[str]:
     ]
 
 
-def integration_names(tool: str, tool_input: dict) -> list[str]:
+def integration_names(
+    tool: str, tool_input: dict, custom_mcp: frozenset[str] = frozenset()
+) -> list[str]:
     if tool.startswith('mcp__ticktick__'):
         return ['ticktick']
+    if any(tool.startswith(f'mcp__{name}__') for name in custom_mcp):
+        return ['custom_mcp']
     if tool != 'Bash':
         return []
     command = str(tool_input.get('command') or '')
@@ -77,6 +82,9 @@ async def _tool_uses_in_task(db, task_id: str) -> tuple[list[str], list[str]]:
             )
         )
         contents = result.scalars().all()
+        custom_mcp = frozenset(
+            (await db.execute(select(CustomMcpServer.name))).scalars().all()
+        )
     except Exception:
         return [], []
     skills: set[str] = set()
@@ -93,7 +101,7 @@ async def _tool_uses_in_task(db, task_id: str) -> tuple[list[str], list[str]]:
         except (ValueError, TypeError, AttributeError):
             continue
         skills.update(skill_names(tool, tool_input))
-        integrations.update(integration_names(tool, tool_input))
+        integrations.update(integration_names(tool, tool_input, custom_mcp))
     return sorted(skills)[:20], sorted(integrations)
 
 

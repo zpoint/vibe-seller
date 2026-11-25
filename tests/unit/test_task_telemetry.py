@@ -383,6 +383,19 @@ def test_integration_names(tool, tool_input, expected):
     assert integration_names(tool, tool_input) == expected
 
 
+@pytest.mark.parametrize(
+    ('tool', 'expected'),
+    [
+        ('mcp__acme-data__search', ['custom_mcp']),
+        ('mcp__acme-data-x__search', []),
+        ('mcp__vibe-seller__vibe_seller_email_info', []),
+        ('mcp__ticktick__list_tasks', ['ticktick']),
+    ],
+)
+def test_integration_names_custom_mcp(tool, expected):
+    assert integration_names(tool, {}, frozenset({'acme-data'})) == expected
+
+
 async def test_outcome_events_carry_integrations_used(task_env):
     maker, task, calls = task_env
     rows = [

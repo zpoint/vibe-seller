@@ -343,6 +343,25 @@ class TestLaunchAndPrompt:
         assert await load_launch_servers() == {}
         assert (await admin_client.get(URL)).json() == []
 
+    async def test_toggle_sends_one_event_per_change(
+        self, admin_client, mcp_server, monkeypatch
+    ):
+        (created,) = (
+            await _add(admin_client, vendor_paste(mcp_server), name='widgets')
+        ).json()
+        sent = []
+        monkeypatch.setattr(
+            'app.telemetry.send', lambda e, p=None: sent.append((e, p))
+        )
+        for enabled in (False, False, True):
+            await admin_client.patch(
+                f'{URL}/{created["id"]}', json={'enabled': enabled}
+            )
+        assert sent == [
+            ('custom_mcp_toggled', {'enabled': False}),
+            ('custom_mcp_toggled', {'enabled': True}),
+        ]
+
     async def test_delete_then_add_again_under_the_same_name(
         self, admin_client, mcp_server
     ):

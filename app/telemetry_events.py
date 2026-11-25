@@ -74,6 +74,7 @@ class TelemetryEvent:
     CUSTOM_MCP_ADDED = 'custom_mcp_added'
     CUSTOM_MCP_REMOVED = 'custom_mcp_removed'
     CUSTOM_MCP_TESTED = 'custom_mcp_tested'
+    CUSTOM_MCP_TOGGLED = 'custom_mcp_toggled'
     IMAGE_GENERATED = 'image_generated'
     WORKSPACE_ASSISTANT_MESSAGE = 'workspace_assistant_message'
 

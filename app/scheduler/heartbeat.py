@@ -32,6 +32,7 @@ from app.database import async_session
 from app.events_system.syncer import load_backend_config
 from app.models.api_token import ApiToken
 from app.models.chat_bot import ChatBot
+from app.models.custom_mcp_server import CustomMcpServer
 from app.models.email_account import EmailAccount
 from app.models.schedule import Schedule
 from app.models.store import Store
@@ -132,6 +133,13 @@ async def send_install_heartbeat() -> None:
             chat_bot_count = (
                 await db.execute(select(func.count(ChatBot.id)))
             ).scalar() or 0
+            custom_mcp_count = (
+                await db.execute(
+                    select(func.count(CustomMcpServer.id)).where(
+                        CustomMcpServer.enabled.is_(True)
+                    )
+                )
+            ).scalar() or 0
             tasks_last_24h = (
                 await db.execute(
                     select(func.count(Task.id)).where(
@@ -229,6 +237,7 @@ async def send_install_heartbeat() -> None:
         'gws_enabled': gws_on,
         'workplace_clis_enabled': clis_on,
         'ticktick_enabled': _ticktick_enabled(),
+        'custom_mcp_count': custom_mcp_count,
         'vision_key_set': get_kie_api_key() is not None,
         'chat_bot_platforms': chat_bot_platforms,
         'api_token_count': api_token_count,
