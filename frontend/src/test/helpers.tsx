@@ -51,10 +51,15 @@ interface ConversationStreamOverrides {
 }
 
 export function renderConversationStream(overrides: ConversationStreamOverrides = {}) {
+  return render(conversationStreamElement(overrides))
+}
+
+/** The element ``renderConversationStream`` renders, for ``rerender``. */
+export function conversationStreamElement(overrides: ConversationStreamOverrides = {}) {
   const task = makeTask({ status: 'running', ...overrides.task })
   const questionBannerRef = createRef<HTMLDivElement>()
 
-  return render(
+  return (
     <I18nextProvider i18n={i18nTestInstance}>
       <ConversationStream
         items={overrides.items ?? []}
@@ -76,7 +81,7 @@ export function renderConversationStream(overrides: ConversationStreamOverrides 
         questionBannerRef={questionBannerRef}
         isActive={overrides.isActive ?? true}
       />
-    </I18nextProvider>,
+    </I18nextProvider>
   )
 }
 

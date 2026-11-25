@@ -89,6 +89,12 @@ Q&A parking — reads the same `task.result` the user will see.
 
 **Plan mode** (`plan_mode=true`): `pending` → `designing` → `planned` → (user confirms via execute-plan) → `running` → `completed` / `failed` / `waiting`.
 
+The wait at `planned` is decided when the plan is written, not at launch (`plan_auto_accepted`, applied to a live session by `set_auto_approve_plan`):
+
+- **Switched to Auto while `designing`:** the plan is saved with `waits_for_approval=False` and runs at once. `planned` is written and immediately left for `running`, with no Confirm.
+- **Switched back to Review before the plan is written:** the plan parks at `planned` for execute-plan.
+- **A plan is reviewed once per task:** after approval (`started_at`), a plan the agent writes again runs the same way, with no Confirm.
+
 **Plan-only tasks** (`is_plan_only=true`): a plan-mode variant that writes the plan for a **review** schedule and ends at `completed` without ever running it. Flow: `pending` → `designing` → (ExitPlanMode) → `completed`. Its ExitPlanMode is only a hand-off: the hook records the plan as the schedule's **proposal** (`Schedule.proposed_plan`, `plan_status='pending_approval'`, `plan_version += 1`), answers `deny` so the agent halts, and the session ends — no agent slot is held while the owner decides. Nothing on the task is approved: the owner approves on the schedule (`POST /api/schedules/{id}/plan/approve`, the web UI's plan panel or top bar, or MCP `review_schedule_plan`), which makes it `Schedule.plan` with `plan_status='ready'`; the wait never expires. A request for changes starts a new plan-only task with the feedback. See [Plan review lifecycle](subsystems.md#plan-at-creation-lifecycle).
 
 **Scheduled fires** (children of a plan-mode Schedule): auto-approve the plan at execution since the human already reviewed it at creation time. They re-inject per-store context (L3 catalog, bookmarks, emails) and reuse `Schedule.plan` as-is. **Nobody is watching them, so they never wait on a person.** An `AskUserQuestion` is declined at once, with an instruction to decide and list the open question in the result. A finished fire cannot park in WAITING for a reply either (a manual wait-condition, incomplete todos, a prose question): it completes instead. The plan-authoring run (`is_plan_only`) is exempt. See [Scheduled Tasks](#scheduled-tasks) and `app/ai/question_policy.py`.
@@ -194,6 +200,14 @@ POST /api/tasks → status: "pending"
        f. Agent continues executing in same session with full access
     4. Done → "completed" / "failed" / "waiting"
 ```
+
+**A plan is reviewed once per task** (`plan_auto_accepted` in
+`app/plan_states.py`). Approval stamps `started_at` (reset only by a
+full retry); after that, a follow-up runs auto, and a plan the agent
+writes again — in the live session or a new one — runs without another
+Confirm. The task's Auto/Review switch also reaches a running session
+(`set_auto_approve_plan`): switched to Auto while planning, the plan
+runs as soon as it is written.
 
 ### System Prompt
 

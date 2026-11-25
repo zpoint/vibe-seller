@@ -169,9 +169,12 @@ export function refreshLatestResult(
   const next = [...items]
   // Keep the replaced item's timestamp: it is when this result actually
   // landed — stamping "now" here would re-date the answer to whenever
-  // the history happened to be rebuilt.
+  // the history happened to be rebuilt. Keep its id too: it is the
+  // card's React key, and a fixed id gave every turn's card the same
+  // key once a second turn's result was refreshed — React then keeps
+  // stale copies of a card, showing one turn's result several times.
   next[lastIdx] = {
-    id: 'hist-result-final',
+    id: items[lastIdx].id,
     type: 'result' as const,
     timestamp: items[lastIdx].timestamp,
     result,

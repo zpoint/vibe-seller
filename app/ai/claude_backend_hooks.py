@@ -460,7 +460,10 @@ class _HookMixin:
         optionally wait for approval, then approve with SetMode.
         """
         plan_text = tool_input.get('plan', '')
-        await self._save_design_plan(plan_text)
+        # Read once: the task's mode can change while the session runs
+        # (``set_auto_approve_plan``), and saving and deciding must agree.
+        auto = self.auto_approve_plan
+        await self._save_design_plan(plan_text, waits_for_approval=not auto)
         self._pending_plan_request_id = request_id
         self._pending_plan_tool_input = tool_input
 
@@ -475,7 +478,7 @@ class _HookMixin:
         # /api/tasks refuses a sub-task whose parent is a fanout-schedule
         # task — see ``_refuse_fanout_subtask`` in app/routers/tasks.py.
 
-        if self.auto_approve_plan:
+        if auto:
             # Auto-approve — transition straight to execution
             await self._approve_plan_request(request_id, tool_input)
         else:
@@ -554,6 +557,10 @@ class _HookMixin:
                 plan_text=latest_plan_text or '',
             )
             return
+
+        # A plan is reviewed once per task (``plan_auto_accepted``): the
+        # agent's later re-plans in this session run without waiting.
+        self.auto_approve_plan = True
 
         # Regular plan-mode execution: PLANNED → RUNNING
         try:

@@ -671,16 +671,22 @@ class FakeAgent(AIAgentBackend):
 
         await self._create_message(task_id, 'plan', scenario.plan)
 
+        # As AgentSession: the mode is read once at plan save (it may
+        # have been switched mid-run), and only a waiting plan parks.
+        auto = bool(session and session.auto_approve_plan)
         if session:
             session._plan_saved = True
-            session.plan_saved_event.set()
+            if not auto:
+                session.plan_saved_event.set()
 
-        if session and not session.auto_approve_plan:
+        if session and not auto:
             # Replan loop: wait for approval, replan on rejection
             replan_count = 0
             while True:
                 await session._plan_approval_event.wait()
                 if session._plan_approved:
+                    # As AgentSession: reviewed once per task.
+                    session.auto_approve_plan = True
                     break
                 # Rejected — simulate replan
                 replan_count += 1

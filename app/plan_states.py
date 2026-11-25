@@ -126,6 +126,9 @@ def plan_auto_accepted(task, schedule=None) -> bool:
     the task's schedule row, if it has one:
 
     - a non-plan-mode task has no plan to review;
+    - a task whose plan was already approved (``started_at`` is
+      stamped at approval, reset only by a full retry): a plan is
+      reviewed once per task, so the agent's later re-plans run;
     - a plan-only planner's "approval" is only the hand-off of its plan
       to the schedule as a PROPOSAL — the owner still approves it;
     - a task of an AUTO schedule runs without review, as its
@@ -136,6 +139,8 @@ def plan_auto_accepted(task, schedule=None) -> bool:
       no plan runs unapproved.
     """
     if task.is_plan_only or not task.plan_mode:
+        return True
+    if task.started_at:
         return True
     return schedule is not None and not is_review_schedule(schedule)
 

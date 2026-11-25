@@ -157,7 +157,9 @@ class TestPlanTextIsNotScanned:
         # saying it will not call them.
         assert session._sent == []
         # Saved, then approved, exactly as a plain plan would be.
-        session._save_design_plan.assert_awaited_once_with(plan)
+        session._save_design_plan.assert_awaited_once_with(
+            plan, waits_for_approval=False
+        )
         session._approve_plan_request.assert_awaited_once_with(
             'req-1', tool_input
         )

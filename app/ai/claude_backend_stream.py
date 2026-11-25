@@ -601,8 +601,15 @@ class _StreamMixin:
                 json.dumps(event, ensure_ascii=False),
             )
 
-    async def _save_design_plan(self, plan_text: str):
-        """Save the plan to DB and emit SSE update."""
+    async def _save_design_plan(
+        self, plan_text: str, *, waits_for_approval: bool = True
+    ):
+        """Save the plan to DB and emit SSE update.
+
+        ``waits_for_approval`` False: the plan runs at once, so the
+        session is not parked and the lifecycle owner keeps waiting for
+        the session to end.
+        """
         try:
             async with async_session() as db:
                 task = await db.get(Task, self.task_id)
@@ -643,8 +650,13 @@ class _StreamMixin:
                     # Wake any waiter in `_wait_for_session_end`
                     # (interactive plan mode) so ownership of the task
                     # can pass to `execute_planned_task` while the
-                    # session stays alive awaiting user approval.
-                    self.plan_saved_event.set()
+                    # session stays alive awaiting user approval. An
+                    # auto-approved plan does not park: its waiter
+                    # (possibly started while the task was in Review)
+                    # must stay on the session end, or the task would
+                    # be finalized while the plan executes.
+                    if waits_for_approval:
+                        self.plan_saved_event.set()
         except Exception as e:
             logger.error(
                 'Failed to save design plan for task %s: %s',

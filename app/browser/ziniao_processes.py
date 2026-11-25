@@ -332,17 +332,23 @@ def kill_all_ziniao(wsl: bool, client_path: str = '') -> KillReport:
     """
     report = KillReport()
     seen: dict[int, ZiniaoProcess] = {}
-    deadline = time.monotonic() + _KILL_WAIT_S
+    # The wait starts at the first kill: a process is a survivor only if
+    # it outlived a kill. Timed from before the first listing, a slow
+    # listing (a loaded host; PowerShell/WMI on Windows) used up the
+    # budget and every process was reported unkillable, never stopped.
+    deadline: float | None = None
     while True:
         alive = list_ziniao_processes(wsl, client_path)
         for p in alive:
             seen.setdefault(p.pid, p)
         if not alive:
             break
-        if time.monotonic() >= deadline:
+        if deadline is not None and time.monotonic() >= deadline:
             report.survivors = alive
             break
         _kill(wsl, alive)
+        if deadline is None:
+            deadline = time.monotonic() + _KILL_WAIT_S
         time.sleep(0.5)
     # The launch that follows this kill needs the install path when no
     # process answers anymore; remember the main exe observed before it
