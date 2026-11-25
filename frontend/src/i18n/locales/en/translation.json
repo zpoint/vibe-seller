@@ -160,6 +160,7 @@
     "interruptedQuestions": "You replied instead — not answered",
     "other": "Other...",
     "typeAnswer": "Type your answer...",
+    "multiSelectHint": "Pick any that apply",
     "dismissQuestions": "Type freely instead",
     "backToOptions": "Back to options",
     "freeTextPlaceholder": "Type your response...",

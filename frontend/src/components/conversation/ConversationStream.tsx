@@ -160,6 +160,7 @@ interface ConversationStreamProps {
   otherInputs: Record<string, string>
   showOtherInput: Record<string, boolean>
   onSelectAnswer: (questionText: string, answer: string) => void
+  onSetAnswer: (questionText: string, answer: string) => void
   onToggleOther: (questionText: string) => void
   onSetOtherAnswer: (questionText: string, text: string) => void
   onSubmitAll: (overrideAnswers?: Record<string, string>) => void
@@ -207,6 +208,7 @@ export function ConversationStream({
   otherInputs,
   showOtherInput,
   onSelectAnswer,
+  onSetAnswer,
   onToggleOther,
   onSetOtherAnswer,
   onSubmitAll,
@@ -342,12 +344,15 @@ export function ConversationStream({
                   showOtherInput={showOtherInput}
                   otherInputs={otherInputs}
                   onSelectAnswer={onSelectAnswer}
+                  onSetAnswer={onSetAnswer}
                   onToggleOther={onToggleOther}
                   onSetOtherAnswer={onSetOtherAnswer}
                   onSubmitAll={onSubmitAll}
                 />
               )
             }
+            // Answered: the answer card on the user's side shows it.
+            if (!item.questionInterrupted) return null
             return (
               <AnsweredQuestions
                 key={item.id}
@@ -436,12 +441,14 @@ export function ConversationStream({
       {pendingQuestions && pendingQuestions.questions.length > 0 &&
         !items.some(i => i.type === 'question' && i.questions?.request_id === pendingQuestions.request_id) && (
         <QuestionBanner
+          key={pendingQuestions.request_id}
           bannerRef={questionBannerRef}
           questions={pendingQuestions.questions}
           selectedAnswers={selectedAnswers}
           showOtherInput={showOtherInput}
           otherInputs={otherInputs}
           onSelectAnswer={onSelectAnswer}
+          onSetAnswer={onSetAnswer}
           onToggleOther={onToggleOther}
           onSetOtherAnswer={onSetOtherAnswer}
           onSubmitAll={onSubmitAll}

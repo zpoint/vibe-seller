@@ -125,6 +125,9 @@ The `task_questions` event supports structured questions:
     label: string;
     description?: string;
   }>;
+  multiSelect?: boolean;  // Several picks allowed (set per question by the
+                          // agent); the answer is the picks plus any typed
+                          // text, joined "A, B, text"
   allow_custom?: boolean; // Allow free-text input (default: true)
 }
 ```

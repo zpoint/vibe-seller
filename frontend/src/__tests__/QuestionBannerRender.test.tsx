@@ -20,6 +20,7 @@ function renderReal(question: string) {
       showOtherInput={{}}
       otherInputs={{}}
       onSelectAnswer={noop}
+      onSetAnswer={noop}
       onToggleOther={noop}
       onSetOtherAnswer={noop}
       onSubmitAll={noop}

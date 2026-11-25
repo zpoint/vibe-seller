@@ -459,6 +459,7 @@ export default function App() {
     clearDetail: () => { setSteps([]); setScreenshots({}); setAgentMessages([]); setTodoItems([]); setLogs([]); setConversationItems([]) },
   })
   const selectAnswer = (questionText: string, answer: string) => { setSelectedAnswers(prev => ({ ...prev, [questionText]: answer })); setShowOtherInput(prev => ({ ...prev, [questionText]: false })); setOtherInputs(prev => ({ ...prev, [questionText]: '' })) }
+  const setAnswer = (questionText: string, answer: string) => { setSelectedAnswers(prev => { const n = { ...prev }; if (answer) n[questionText] = answer; else delete n[questionText]; return n }) }
   const toggleOtherInput = (questionText: string) => { setShowOtherInput(prev => { const show = !prev[questionText]; if (show) { setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } else { setOtherInputs(p => ({ ...p, [questionText]: '' })); setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } return { ...prev, [questionText]: show } }) }
   const setOtherAnswer = (questionText: string, text: string) => { setOtherInputs(prev => ({ ...prev, [questionText]: text })); if (text.trim()) { setSelectedAnswers(prev => ({ ...prev, [questionText]: text.trim() })) } else { setSelectedAnswers(prev => { const n = { ...prev }; delete n[questionText]; return n }) } }
   const submitAllAnswers = async (overrideAnswers?: Record<string, string>) => { if (!selectedTask || !pendingQuestions) return; const answers = overrideAnswers || selectedAnswers; const id = selectedTask.id; await api.post(`/api/tasks/${id}/questions/answer`, { request_id: pendingQuestions.request_id, answers }); if (!isOpen(id)) return; setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}) }
@@ -647,7 +648,7 @@ export default function App() {
           currentUser={currentUser} showAllTasks={showAllScope}
           openCreateModal={() => aiGate.guardOpen(() => setShowCreateTask(true))} selectTask={selectTask}
           stopAgent={stopAgent} retryTask={retryTask} continueTask={continueTask} deleteTask={deleteTask}
-          selectAnswer={selectAnswer} toggleOtherInput={toggleOtherInput}
+          selectAnswer={selectAnswer} setAnswer={setAnswer} toggleOtherInput={toggleOtherInput}
           setOtherAnswer={setOtherAnswer} submitAllAnswers={submitAllAnswers} submitImageDecision={submitImageDecision} sendChatMessage={sendChatMessage}
           setSelectedTask={setSelectedTask} setTasks={setTasks}
           setEditingProfile={setEditingProfile} setShowProfileModal={setShowProfileModal}

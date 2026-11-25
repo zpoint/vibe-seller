@@ -21,7 +21,7 @@ src/
     EditScheduleModal.tsx     # Schedule edit modal; wraps ScheduleForm, PUTs /api/schedules/:id
     ScheduleForm.tsx          # Shared controlled form for create/edit (one prompt box — the title is derived server-side, cadence, hour/minute selects, timezone)
     TimezoneSelect.tsx        # Native <select> backed by Intl.supportedValuesOf('timeZone') (no hardcoded list)
-    QuestionBanner.tsx        # Agent question/answer banner
+    QuestionBanner.tsx        # Agent question card: one pick per question, several for a `multiSelect` one (picks + typed text sent joined, `A, B, text`); once answered it is drawn as the answer card, and only a question replied to in chat instead keeps a summary line
     ui/
       StatusBadge.tsx         # Task status pill
       EventStatusBadge.tsx    # Event status pill

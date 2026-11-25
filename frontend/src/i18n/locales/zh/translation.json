@@ -160,6 +160,7 @@
     "interruptedQuestions": "你改为发送了消息（未作答）",
     "other": "其他...",
     "typeAnswer": "输入您的回答...",
+    "multiSelectHint": "可多选",
     "dismissQuestions": "自由输入回复",
     "backToOptions": "返回选项",
     "freeTextPlaceholder": "输入您的回复...",

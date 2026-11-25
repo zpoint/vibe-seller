@@ -214,6 +214,7 @@ describe('TasksView Run Now button reflects scheduleTasks', () => {
     selectTask: vi.fn(),
     setSelectedTask: vi.fn(),
     selectAnswer: vi.fn(),
+    setAnswer: vi.fn(),
     toggleOtherInput: vi.fn(),
     setOtherAnswer: vi.fn(),
     submitAllAnswers: vi.fn(),

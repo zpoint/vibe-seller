@@ -74,6 +74,7 @@ export interface TasksViewProps {
   continueTask: (taskId: string) => Promise<void> | void
   deleteTask: (taskId: string) => void
   selectAnswer: (questionText: string, answer: string) => void
+  setAnswer: (questionText: string, answer: string) => void
   toggleOtherInput: (questionText: string) => void
   setOtherAnswer: (questionText: string, text: string) => void
   submitAllAnswers: (overrideAnswers?: Record<string, string>) => void
@@ -145,6 +146,7 @@ export function TasksView({
   continueTask,
   deleteTask,
   selectAnswer,
+  setAnswer,
   toggleOtherInput,
   setOtherAnswer,
   submitAllAnswers,
@@ -621,6 +623,7 @@ export function TasksView({
                   otherInputs={otherInputs}
                   showOtherInput={showOtherInput}
                   onSelectAnswer={selectAnswer}
+                  onSetAnswer={setAnswer}
                   onToggleOther={toggleOtherInput}
                   onSetOtherAnswer={setOtherAnswer}
                   onSubmitAll={submitAllAnswers}

@@ -39,6 +39,7 @@ function stream(items: ConversationItem[]) {
         otherInputs={{}}
         showOtherInput={{}}
         onSelectAnswer={() => {}}
+        onSetAnswer={() => {}}
         onToggleOther={() => {}}
         onSetOtherAnswer={() => {}}
         onSubmitAll={() => {}}
