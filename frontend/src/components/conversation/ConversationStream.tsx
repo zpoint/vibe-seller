@@ -18,7 +18,7 @@ import { ImageRequestCard } from './ImageRequestCard'
 import { GeneratedImageCard } from './GeneratedImageCard'
 import { StepIcon } from '../ui'
 import type { ConversationItem, TodoItem, TaskStep, Task } from '../../types'
-import { parseWaitCondition, waitBadgeKey } from '../../lib/waitCondition'
+import { daysLeft, parseWaitCondition, waitBadgeKey, waitDeadline } from '../../lib/waitCondition'
 
 type DisplayItem =
   | { kind: 'item'; item: ConversationItem }
@@ -455,6 +455,32 @@ export function ConversationStream({
         />
       )}
 
+      {/* A question nobody answered before the wait ran out: shown, read-only,
+          so the reply the stop message asks for has something to answer. */}
+      {task.status === 'failed' && task.error_category === 'wait_timeout' && (() => {
+        const asked = parseWaitCondition(task.wait_condition)?.cond.pending_question as
+          { questions?: { header?: string; question: string; options?: { label: string }[] }[] } | undefined
+        if (!asked?.questions?.length) return null
+        return (
+          <div data-testid="unanswered-question" className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 space-y-2">
+            <p className="text-xs font-medium text-gray-500">{t('tasks.unansweredQuestion')}</p>
+            {asked.questions.map((q, i) => (
+              <div key={i} className="text-sm text-gray-800">
+                {q.header && <span className="px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px] font-semibold mr-2">{q.header}</span>}
+                <span>{q.question}</span>
+                {q.options && q.options.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {q.options.map((o, j) => (
+                      <span key={j} className="px-2 py-0.5 text-xs border border-gray-200 rounded bg-white text-gray-600">{o.label}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      })()}
+
       {/* Waiting info card */}
       {task.status === 'waiting' && (() => {
         const wait = parseWaitCondition(task.wait_condition)
@@ -483,10 +509,9 @@ export function ConversationStream({
           const strategy = wait.kind
           const waitingSince = cond.waiting_since ? new Date(cond.waiting_since) : null
           const nextCheck = cond.next_check_at ? new Date(cond.next_check_at) : null
-          const maxDays = cond.max_wait_days || 30
+          const deadline = waitDeadline(cond)
           // eslint-disable-next-line react-hooks/purity -- relative time display needs current time
-          const daysSince = waitingSince ? Math.floor((Date.now() - waitingSince.getTime()) / 86400000) : 0
-          const daysRemaining = Math.max(0, maxDays - daysSince)
+          const daysRemaining = deadline ? daysLeft(deadline, Date.now()) : Number(cond.max_wait_days || 30)
           const keywords: string[] = cond.keywords || []
           return (
             <div className="bg-amber-50 rounded-lg border border-amber-200 p-4">
@@ -520,9 +545,12 @@ export function ConversationStream({
                     ))}</span>
                   </div>
                 )}
-                <div>
+                <div data-testid="waiting-deadline">
                   <span className="text-amber-700 font-medium">{t('waiting.maxDays')}:</span>
                   <span className="ml-2 text-gray-600">{t('waiting.daysRemaining', { days: daysRemaining })}</span>
+                  {deadline && (
+                    <span className="ml-1 text-gray-500">{t('waiting.deadlineAt', { time: deadline.toLocaleString() })}</span>
+                  )}
                 </div>
               </div>
             </div>

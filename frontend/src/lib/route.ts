@@ -73,6 +73,15 @@ export function scheduleTarget(storeId: string | null, scheduleId: string | null
   return { to: '/schedules/$scheduleId' as const, params: { scheduleId } }
 }
 
+/** A task in its own scope: a store task opens inside its store (the
+ * list beside it is that store's), a no-store task under All Stores. */
+export function taskTarget(storeId: string | null, taskId: string) {
+  if (storeId) {
+    return { to: '/stores/$storeId/tasks/$taskId' as const, params: { storeId, taskId } }
+  }
+  return { to: '/tasks/$taskId' as const, params: { taskId } }
+}
+
 const STORE_PREFIX = /^\/stores\/([^/]+)/
 const TASK_PATH = /^\/(?:stores\/[^/]+\/)?tasks\/([^/]+)/
 const SCHEDULE_LIST = /^\/(?:stores\/[^/]+\/)?schedules(\/|$)/

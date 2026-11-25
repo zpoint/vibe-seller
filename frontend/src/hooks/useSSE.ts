@@ -125,7 +125,10 @@ export function useSSE({
           return
         }
         if (data.type === 'task_update') {
-          const patch: Partial<Task> = { status: data.status, error: data.error }
+          // An error and its category travel together: the view shows the
+          // category's message (tasks.error_<category>), so a live update
+          // that set only `error` showed the raw backend text until reload.
+          const patch: Partial<Task> = { status: data.status, error: data.error, error_category: data.error_category }
           if (data.plan !== undefined) patch.plan = data.plan
           if (typeof data.result === 'string' && data.result) {
             // A result set by the server, not an agent message — e.g. a
@@ -139,6 +142,20 @@ export function useSSE({
           setTasks(prev => patchById(prev, data.task_id, t => ({ ...t, ...patch })))
           if (setScheduleTasks) {
             setScheduleTasks(prev => patchById(prev, data.task_id, t => ({ ...t, ...patch })))
+          }
+          if (
+            (data.status === 'failed' || data.status === 'completed')
+            && selectedTaskIdRef.current === data.task_id
+          ) {
+            // A finished task asks nothing (the server's pending_question_for
+            // agrees). A parked question has no agent left to send
+            // agent_done, so when the wait runs out or someone stops the
+            // task, this is what retires its card — else a dead "Submit
+            // Answers" stayed until reload.
+            setPendingQuestions(null)
+            setSelectedAnswers({})
+            setOtherInputs({})
+            setShowOtherInput({})
           }
           if (data.status === 'waiting') {
             // The event names the status only; what the task waits for

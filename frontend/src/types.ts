@@ -382,6 +382,18 @@ export interface PlannerQuestionItem {
   task_id: string
 }
 
+/** A task that moves on only when a person acts (GET /api/tasks/attention):
+ * a question to answer, any other wait only a reply ends, or a plan-mode
+ * task's plan to review. */
+export interface WaitingTaskItem {
+  task_id: string
+  title: string
+  store_id: string | null
+  kind: 'question' | 'reply' | 'plan'
+  since: string | null
+  deadline: string | null
+}
+
 // ─── API tokens (external-agent access) ───────────────
 // A personal access token: an external agent (Claude Code, Codex,
 // WorkBuddy, …) presents it as `Authorization: Bearer vst_…` and acts

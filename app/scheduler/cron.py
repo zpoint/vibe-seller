@@ -19,6 +19,7 @@ from app.ai.profiles import resolve_schedule_profile
 from app.browser.idle_sweep import sweep_idle_browsers
 from app.config import DEFAULT_USER_ID
 from app.database import async_session
+from app.env_options import Options
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
 from app.models.schedule_constants import PhaseMode
@@ -75,16 +76,17 @@ def start_scheduler():
 
 def _register_waiting_checker():
     """Add an interval job that checks waiting tasks."""
+    every_s = Options.WAITING_CHECK_INTERVAL_S.get_float()
     scheduler.add_job(
         check_waiting_tasks,
         'interval',
-        minutes=15,
+        seconds=every_s,
         id='waiting_checker',
         replace_existing=True,
         max_instances=1,
         coalesce=True,
     )
-    logger.info('Waiting-task checker registered (every 15 min)')
+    logger.info('Waiting-task checker registered (every %.0f s)', every_s)
 
 
 def _register_plan_reaper():

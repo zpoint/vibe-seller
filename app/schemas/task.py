@@ -86,3 +86,25 @@ class TaskStepResponse(BaseModel):
     error: str | None
     started_at: str | None
     completed_at: str | None
+
+
+class WaitingTaskItem(BaseModel):
+    """A task that moves on only when a person acts (the top banner).
+
+    ``kind``: ``question`` = the agent asked something (live or parked),
+    ``reply`` = any other wait only a person's message ends, ``plan`` =
+    a plan-mode task's plan waiting for review.
+    """
+
+    task_id: str
+    title: str
+    store_id: str | None = None
+    kind: str
+    since: str | None = None
+    deadline: str | None = None
+
+
+class TaskAttentionResponse(BaseModel):
+    """Payload for GET /api/tasks/attention, oldest wait first."""
+
+    waiting_tasks: list[WaitingTaskItem] = []

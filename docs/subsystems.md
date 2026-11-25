@@ -152,7 +152,9 @@ router so `GET /attention` is not shadowed):
   — on `pending_approval` or `ready`; stores the feedback and spawns a
   planner whose prompt carries the previous plan + the feedback.
 - `GET /api/schedules/attention` — plans awaiting approval, and planners
-  waiting on an answer to a question (the two top banners in the web UI).
+  waiting on an answer to a question (two of the kinds the web UI's ONE
+  top bar shows — after tasks waiting for a reply, see
+  [tasks.md](tasks.md); answers come before approvals).
 
 The decision routes refuse the `ai_bot` user (every in-task credential
 resolves to it), so a task can never approve the plan it runs under;

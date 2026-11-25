@@ -35,3 +35,24 @@ export function waitBadgeKey(kind: WaitKind): string {
   if (kind === 'children') return 'waiting.subtasks'
   return kind === 'email' ? 'waiting.autoEmail' : 'waiting.manual'
 }
+
+const DAY_MS = 86_400_000
+
+/**
+ * When the wait ends unmet: `waiting_since` + `max_wait_days` — the
+ * server's `wait_deadline` (app/scheduler/waiting.py), the moment its
+ * checker stops the task. Null for a wait with no clock.
+ */
+export function waitDeadline(cond: Record<string, unknown>): Date | null {
+  if (typeof cond.waiting_since !== 'string') return null
+  const since = Date.parse(cond.waiting_since)
+  if (Number.isNaN(since)) return null
+  const days = Number(cond.max_wait_days ?? 30)
+  return new Date(since + (Number.isFinite(days) ? days : 30) * DAY_MS)
+}
+
+/** Whole days left until *deadline*, rounded up: "1 day left" up to
+ * the last minute, 0 only once the deadline has passed. */
+export function daysLeft(deadline: Date, now: number): number {
+  return Math.max(0, Math.ceil((deadline.getTime() - now) / DAY_MS))
+}

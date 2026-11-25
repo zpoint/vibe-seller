@@ -83,3 +83,42 @@ describe('a task entering WAITING live', () => {
     expect(api.get).not.toHaveBeenCalledWith('/api/tasks/p1')
   })
 })
+
+describe('a task failing live', () => {
+  it('takes its error category with its error, as a reload would', async () => {
+    const p = params()
+    renderHook(() => useSSE(p))
+    act(() => emit({
+      type: 'task_update', task_id: 'p1', status: 'failed',
+      error: 'Nobody replied within 7 days, so the task stopped.',
+      error_category: 'wait_timeout',
+    }))
+    const setSelected = p.setSelectedTask as unknown as ReturnType<typeof vi.fn>
+    await waitFor(() => {
+      const before = makeTask({ id: 'p1', status: 'waiting' })
+      const got = setSelected.mock.calls
+        .map(c => (c[0] as (t: Task) => Task)(before))
+        .find(t => t.status === 'failed')
+      expect(got?.error_category).toBe('wait_timeout')
+      expect(got?.error).toContain('Nobody replied')
+    })
+  })
+
+  it('retires a parked question the open page still shows', () => {
+    const p = params()
+    renderHook(() => useSSE(p))
+    act(() => emit({
+      type: 'task_update', task_id: 'p1', status: 'failed',
+      error: 'Nobody replied within 7 days, so the task stopped.',
+      error_category: 'wait_timeout',
+    }))
+    expect(p.setPendingQuestions).toHaveBeenCalledWith(null)
+  })
+
+  it('a status that can still be asked leaves the question alone', () => {
+    const p = params()
+    renderHook(() => useSSE(p))
+    act(() => emit({ type: 'task_update', task_id: 'p1', status: 'waiting' }))
+    expect(p.setPendingQuestions).not.toHaveBeenCalled()
+  })
+})
