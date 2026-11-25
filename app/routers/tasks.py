@@ -24,10 +24,12 @@ from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
 from app.email.access import mailboxes_for
 from app.events.bus import event_bus
+from app.models.schedule import Schedule
 from app.models.store import Store
 from app.models.task import Task
 from app.models.task_step import TaskStep
 from app.models.user import User
+from app.plan_states import plan_auto_accepted
 from app.routers.task_submission import (
     SetTaskResultRequest,
     apply_round,
@@ -472,6 +474,15 @@ async def toggle_task_mode(
 
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
+    # A session already running keeps the mode it was launched in
+    # unless told: switched to Auto mid-run, its next plan would still
+    # wait for a Confirm the Auto view never shows. Same rule as launch.
+    schedule = (
+        await db.get(Schedule, task.schedule_id) if task.schedule_id else None
+    )
+    agent_manager.set_auto_approve_plan(
+        task_id, plan_auto_accepted(task, schedule)
+    )
     # Auto means "run without review". A plan already parked for review
     # runs now, exactly as Confirm would: left PLANNED it would wait
     # for an approval whose button exists only in Review mode.

@@ -95,6 +95,21 @@ class AIAgentBackend(ABC):
         """Check if an agent is currently running for a task."""
         ...
 
+    def get_session(self, task_id: str):
+        """The task's live session, if the backend keeps one."""
+        return None
+
+    def set_auto_approve_plan(self, task_id: str, value: bool) -> None:
+        """Apply a task's switched mode to its live session.
+
+        A session's ``auto_approve_plan`` is set at launch, but the user
+        can switch Auto/Review while it runs; its next ExitPlanMode must
+        follow the switch, not the mode it was launched in.
+        """
+        session = self.get_session(task_id)
+        if session is not None:
+            session.auto_approve_plan = value
+
     async def wait_question_park_settled(
         self, task_id: str, request_id: str, timeout_s: float = 60
     ) -> bool:

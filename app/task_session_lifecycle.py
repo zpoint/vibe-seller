@@ -77,18 +77,32 @@ async def _wait_for_session_end(task_id: str, my_session) -> bool:
     )
 
     waiters: list[asyncio.Task] = []
+    done_waiter: asyncio.Task | None = None
     if done is not None:
-        waiters.append(asyncio.create_task(done.wait()))
-    # Auto-approved sessions execute straight through, so plan-save
-    # isn't a stopping point — we wait for actual session end.
-    if plan_saved is not None and not getattr(
-        my_session, 'auto_approve_plan', False
-    ):
+        done_waiter = asyncio.create_task(done.wait())
+        waiters.append(done_waiter)
+    # A parked plan is a stopping point; an auto-approved session runs
+    # straight through, so for it only the session end counts. The
+    # mode is read when the plan is saved, not when this wait starts:
+    # the user can switch Auto/Review while the session runs
+    # (``set_auto_approve_plan``), and a waiter that decided at start
+    # would miss a plan that now waits, leaving two owners once the
+    # user confirms it.
+    if plan_saved is not None:
         waiters.append(asyncio.create_task(plan_saved.wait()))
 
     if waiters:
         try:
-            await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+            while True:
+                finished, _ = await asyncio.wait(
+                    waiters, return_when=asyncio.FIRST_COMPLETED
+                )
+                if done_waiter is None or done_waiter in finished:
+                    break
+                if not getattr(my_session, 'auto_approve_plan', False):
+                    break
+                # Saved but auto-approved: not parked. Wait for the end.
+                waiters = [done_waiter]
         finally:
             for w in waiters:
                 if not w.done():
