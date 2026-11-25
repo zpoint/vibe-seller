@@ -44,9 +44,8 @@ Vibe Seller 负责调度和执行任务；进入店铺、读取邮件、发送�
 
 ### 同样叫 MCP，方向相反：MCP 接入和自定义 MCP
 
-- **MCP 接入**：Vibe Seller 是被调用的一方。你把它作为 MCP 服务添加到 Codex、Claude 等工具里，用 Vibe Seller 的 API Key 连接。
-- **自定义 MCP**：Vibe Seller 是调用的一方。管理员把外部 MCP 服务（例如西柚洞察）添加进来，任务执行时直接调用它的工具，用的是服务商给的 Token。
-- 两者互不影响，可以同时使用：比如在 Codex 里让 Vibe Seller 建一个任务，任务再用西柚洞察取数。详见[添加自定义 MCP](mcp-custom.md)。
+- **MCP 接入**：Vibe Seller 是被调用的一方。你把它作为 MCP 服务添加到 Codex、Claude 等工具里，用 Vibe Seller 的 API Key 连接。比如在 Codex 里说一句「导出店铺A过去 3 个月的交易报表」，Vibe Seller 就用紫鸟打开店铺下载报表，Codex 再拿报表算账，见[用 Codex 导出紫鸟店铺财务数据进行分析](example-mcp.md)。
+- **自定义 MCP**：Vibe Seller 是调用的一方。管理员把外部 MCP 服务添加进来，任务执行时直接调用它的工具，用的是服务商给的 Token。比如接入西柚洞察后，在任务里说「用西柚洞察查一下美国站 yoga mat 最近一周的搜索量」，AI 就会自己调用西柚的工具去查，见[添加自定义 MCP](mcp-custom.md)。
 
 ### 走接口还是走浏览器：广告操作
 

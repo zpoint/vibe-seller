@@ -32,9 +32,8 @@ Configuration lives in three places: `Settings → Integrations` (seven cards, i
 
 ### Both called MCP, opposite directions: MCP access vs custom MCP servers
 
-- **MCP access**: Vibe Seller is the one being called. You add it as an MCP server to Codex, Claude and the like, connecting with a Vibe Seller API key.
-- **Custom MCP servers**: Vibe Seller does the calling. An admin adds an outside MCP service (Xiyou Insight, say) and tasks call its tools while they work, using the token the service issued.
-- They don't affect each other and work together: Codex asks Vibe Seller for a task, and that task pulls data from Xiyou Insight. See [Add a custom MCP server](mcp-custom.en.md).
+- **MCP access**: Vibe Seller is the one being called. You add it as an MCP server to Codex, Claude and the like, connecting with a Vibe Seller API key. For example, say "export Store A's transaction reports for the last 3 months" in Codex: Vibe Seller opens the store in Ziniao and downloads the reports, and Codex works out the numbers — see [Export a Ziniao store's financial data with Codex](example-mcp.en.md).
+- **Custom MCP servers**: Vibe Seller does the calling. An admin adds an outside MCP service and tasks call its tools while they work, using the token the service issued. For example, with Xiyou Insight added, say "use Xiyou to look up last week's search volume for yoga mat in the US" in a task and the AI calls Xiyou's keyword tool itself — see [Add a custom MCP server](mcp-custom.en.md).
 
 ### API or browser: the Ads API vs ad tasks in a store browser
 
