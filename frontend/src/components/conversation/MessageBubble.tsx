@@ -46,7 +46,7 @@ function AnswerBubble({ pairs }: { pairs: AnswerPair[] }) {
 }
 
 function MessageBubbleView({ role, content, onOpenVisionSetup }: MessageBubbleProps) {
-  if (role === 'user') {
+  if (role === 'user' || role === 'answer') {
     const pairs = parseAnswerBubble(content)
     if (pairs) return <AnswerBubble pairs={pairs} />
     const { text, images } = parseUserContent(content)

@@ -268,6 +268,25 @@ async def test_answer_before_timeout_keeps_in_process_path(
     assert len(fake.get_calls(task_id, 'run')) == 1
 
 
+async def test_a_live_answer_is_shown_as_question_and_answer(
+    admin_client, install_fake_agent, monkeypatch
+):
+    fake = install_fake_agent
+    monkeypatch.setenv('VIBE_QUESTION_ANSWER_TIMEOUT_S', '5')
+    store_id = await _store(admin_client)
+    task_id = await _create(admin_client, fake, store_id, 'Ask', _asking())
+    await _wait_question(admin_client, task_id)
+    assert (await _answer(admin_client, task_id)).json() == {'ok': True}
+    await _wait_status(admin_client, task_id, 'completed')
+    msgs = (await admin_client.get(f'/api/tasks/{task_id}/messages')).json()
+    shown = [m['content'] for m in msgs if m['role'] == 'answer']
+    assert shown == ['Q: Which shipping option?\nA: Express']
+    # Not a user turn.
+    assert not [
+        m for m in msgs if m['role'] == 'user' and 'Express' in m['content']
+    ]
+
+
 async def test_answer_during_parking_window_resumes(
     admin_client, install_fake_agent
 ):

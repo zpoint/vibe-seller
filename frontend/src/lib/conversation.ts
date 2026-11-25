@@ -42,6 +42,28 @@ function insertByTime(items: ConversationItem[], item: ConversationItem): Conver
   return idx < 0 ? [...items, item] : [...items.slice(0, idx), item, ...items.slice(idx)]
 }
 
+/**
+ * Add a live result card. The agent recording its result shows a card at
+ * once (``provisional``). The turn's own result then takes that card's
+ * place and keeps the recorded text, which is ``task.result`` — what a
+ * reload shows (``refreshLatestResult``). An empty turn result leaves the
+ * recorded card where it is.
+ */
+export function addLiveResult(
+  items: ConversationItem[],
+  item: ConversationItem & { type: 'result' },
+  provisional: boolean,
+): ConversationItem[] {
+  if (provisional) return appendResult(items, { ...item, provisionalResult: true })
+  const pending = items.findIndex(i => i.type === 'result' && i.provisionalResult)
+  if (pending < 0) return appendResult(items, item)
+  if (!(item.result ?? '').trim()) {
+    return items.map((i, n) => (n === pending ? { ...i, provisionalResult: false } : i))
+  }
+  const merged = appendResult(items.filter((_, n) => n !== pending), item)
+  return refreshLatestResult(merged, items[pending].result ?? '')
+}
+
 export function buildConversationItems(
   msgs: RawMessage[],
   task: Task,
@@ -51,6 +73,8 @@ export function buildConversationItems(
     const ts = m.created_at || new Date().toISOString()
     if (m.role === 'user') {
       convItems.push({ id: `hist-user-${convItems.length}`, type: 'user_message', timestamp: ts, message: { role: 'user', content: m.content } })
+    } else if (m.role === 'answer') {
+      convItems.push({ id: `hist-answer-${convItems.length}`, type: 'answer', timestamp: ts, message: { role: 'answer', content: m.content } })
     } else if (m.role === 'assistant') {
       convItems.push({ id: `hist-asst-${convItems.length}`, type: 'agent_message', timestamp: ts, message: { role: 'assistant', content: m.content } })
     } else if (m.role === 'result') {

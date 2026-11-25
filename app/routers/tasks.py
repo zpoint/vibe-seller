@@ -695,6 +695,7 @@ async def set_task_result(
             'task_id': task_id,
             'role': 'result',
             'content': task.result,
+            'provisional': True,
         },
     )
     return {

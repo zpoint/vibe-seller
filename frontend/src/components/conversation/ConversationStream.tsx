@@ -304,6 +304,8 @@ export function ConversationStream({
             }
             return <MessageBubble key={item.id} role="user" content={item.message!.content} />
           }
+          case 'answer':
+            return <MessageBubble key={item.id} role="answer" content={item.message!.content} />
           case 'agent_message':
             return <MessageBubble key={item.id} role="assistant" content={item.message!.content} onOpenVisionSetup={onOpenVisionSetup} />
           case 'streaming':

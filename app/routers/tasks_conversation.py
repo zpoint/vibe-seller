@@ -35,6 +35,7 @@ from app.question_park import (
     answer_parked_question,
     pending_payload,
     record_answer_bubble,
+    record_live_answer,
 )
 from app.routers.dida365_oauth import refresh_token_if_needed
 from app.routers.schedule_planning import retry_schedule_plan
@@ -570,8 +571,14 @@ async def answer_question(
     question_cards.note(task_id)
 
     # Path 1: live session
+    live = agent_manager.get_pending_questions(task_id) or {}
     submitted = await agent_manager.submit_answer(task_id, request_id, answers)
     if submitted:
+        if live.get('request_id') == request_id:
+            await record_live_answer(
+                db, task_id, live.get('questions', []), answers
+            )
+            await db.commit()
         return {'ok': True}
 
     # Path 2: dead session + WAITING task with matching pending question

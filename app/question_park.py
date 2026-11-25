@@ -23,7 +23,7 @@ from app.ai.claude_backend_utils import get_next_seq
 from app.events.bus import event_bus
 from app.models.task import Task
 from app.models.task_message import TaskMessage
-from app.question_answers import expand_free_text_answers
+from app.question_answers import FREE_TEXT_KEY, expand_free_text_answers
 from app.task_runner import park_waiting_for_pending_question
 from app.task_states import TaskStatus
 from app.telemetry_tasks import send_question_parked, send_task_resumed
@@ -215,6 +215,27 @@ async def record_answer_bubble(
         )
 
 
+async def record_live_answer(
+    db, task_id: str, questions: list[dict], answers: dict
+) -> None:
+    """Show an answer the live session took (role ``answer``: shown as
+    the parked answer is, never read as a user turn). Added to the
+    caller's session; the caller commits."""
+    content = answered_lines(questions, answers)
+    db.add(
+        TaskMessage(
+            task_id=task_id,
+            role='answer',
+            content=content,
+            seq=await get_next_seq(db, task_id),
+        )
+    )
+    await event_bus.emit(
+        'task_message',
+        {'task_id': task_id, 'role': 'answer', 'content': content},
+    )
+
+
 def _parked_for(task: Task) -> float | None:
     try:
         parked_at = json.loads(task.wait_condition).get('parked_at')
@@ -226,17 +247,22 @@ def _parked_for(task: Task) -> float | None:
 
 
 def answered_lines(questions: list[dict], answers: dict) -> str:
-    """The transcript bubble for an answer given to a parked question.
+    """The transcript bubble for answers to an agent's questions.
 
     One ``Q:`` / ``A:`` pair per question, pairs apart by a blank line:
     the SPA lays it out as question and answer (``parseAnswerBubble`` in
     ``frontend/src/lib/answerBubble.ts``), and it reads the same way in
-    the chat context an agent gets. ``question → answer`` on one line ran
-    a long question and its answer together.
+    the chat context an agent gets. One free-text reply to all the
+    questions is one pair: every question, then the reply once.
     """
+    texts = [
+        q.get('question', '') if isinstance(q, dict) else str(q)
+        for q in questions
+    ]
+    free = answers.get(FREE_TEXT_KEY) if isinstance(answers, dict) else None
+    if isinstance(free, str) and free.strip() and len(answers) == 1:
+        return 'Q: ' + '\n'.join(texts) + '\nA: ' + free.strip()
     answers = expand_free_text_answers(answers, questions)
-    pairs = []
-    for q in questions:
-        text = q.get('question', '') if isinstance(q, dict) else str(q)
-        pairs.append(f'Q: {text}\nA: {answers.get(text, "")}')
-    return '\n\n'.join(pairs)
+    return '\n\n'.join(
+        f'Q: {text}\nA: {answers.get(text, "")}' for text in texts
+    )
