@@ -249,7 +249,7 @@ async def test_answer_resumes_parked_task_to_completed(
     msgs = (await admin_client.get(f'/api/tasks/{task_id}/messages')).json()
     users = [m['content'] for m in msgs if m['role'] == 'user']
     # The opening prompt once, then the answer as the user's turn.
-    assert users[-1] == 'Which shipping option? → Express'
+    assert users[-1] == 'Q: Which shipping option?\nA: Express'
     assert not any('earlier AskUserQuestion' in u for u in users)
 
 

@@ -226,10 +226,17 @@ def _parked_for(task: Task) -> float | None:
 
 
 def answered_lines(questions: list[dict], answers: dict) -> str:
-    """The transcript bubble for an answer given to a parked question."""
+    """The transcript bubble for an answer given to a parked question.
+
+    One ``Q:`` / ``A:`` pair per question, pairs apart by a blank line:
+    the SPA lays it out as question and answer (``parseAnswerBubble`` in
+    ``frontend/src/lib/answerBubble.ts``), and it reads the same way in
+    the chat context an agent gets. ``question → answer`` on one line ran
+    a long question and its answer together.
+    """
     answers = expand_free_text_answers(answers, questions)
-    lines = []
+    pairs = []
     for q in questions:
         text = q.get('question', '') if isinstance(q, dict) else str(q)
-        lines.append(f'{text} → {answers.get(text, "")}')
-    return '\n'.join(lines)
+        pairs.append(f'Q: {text}\nA: {answers.get(text, "")}')
+    return '\n\n'.join(pairs)

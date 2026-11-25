@@ -1,5 +1,7 @@
 import { memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
+import { parseAnswerBubble, type AnswerPair } from '../../lib/answerBubble'
 import { REMARK_PLUGINS } from '../../lib/markdownPlugins'
 import type { Components } from 'react-markdown'
 import { parseUserContent } from '../../lib/userContent'
@@ -24,8 +26,29 @@ interface MessageBubbleProps {
   onOpenVisionSetup?: () => void
 }
 
+/** The user's answers to the agent's questions: each question, then the answer. */
+function AnswerBubble({ pairs }: { pairs: AnswerPair[] }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex justify-end" data-answer-bubble>
+      <div className="ph-sensitive max-w-[80%] bg-gray-100 rounded-2xl rounded-br-md px-4 py-3 text-gray-800 divide-y divide-gray-200">
+        {pairs.map((p, i) => (
+          <div key={i} className={i === 0 ? 'pb-3 last:pb-0' : 'py-3 last:pb-0'}>
+            <div className="text-[12px] font-medium text-gray-400">{t('tasks.answerBubbleQuestion')}</div>
+            <div className="mt-0.5 text-[14px] leading-relaxed text-gray-500 whitespace-pre-wrap">{p.question}</div>
+            <div className="mt-2 text-[12px] font-medium text-gray-400">{t('tasks.answerBubbleAnswer')}</div>
+            <div className="mt-0.5 text-[16px] leading-relaxed font-medium text-gray-900 whitespace-pre-wrap">{p.answer}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function MessageBubbleView({ role, content, onOpenVisionSetup }: MessageBubbleProps) {
   if (role === 'user') {
+    const pairs = parseAnswerBubble(content)
+    if (pairs) return <AnswerBubble pairs={pairs} />
     const { text, images } = parseUserContent(content)
     return (
       <div className="flex justify-end">
