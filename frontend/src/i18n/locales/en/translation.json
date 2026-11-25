@@ -197,8 +197,6 @@
     "modePlan": "Review",
     "modeAutoDesc": "Skip review, run immediately",
     "modePlanDesc": "Draft a plan, run after approval",
-    "modeTooltipForced": "This task type always shows a plan for review before running.",
-    "planModeLabel": "Review plan first",
     "executePlan": "Execute Plan",
     "approvePlan": "Approve & Execute",
     "planReadyConfirm": "Plan is ready. Review above, then approve or edit.",
@@ -994,6 +992,8 @@
     "noWaiting": "No tasks waiting",
     "autoEmail": "Auto: Email",
     "manual": "Manual",
+    "subtasks": "Subtasks",
+    "subtasksHint": "Continues by itself once every subtask has finished. The results are collected here.",
     "wakeMessage": "Optional message for the AI...",
     "daysRemaining": "{{days}}d remaining",
     "hours": "{{hours}}h"

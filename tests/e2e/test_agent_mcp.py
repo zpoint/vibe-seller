@@ -131,8 +131,8 @@ def mcp(api_token) -> McpClient:
 def store_id(api_client, api_token):
     """A store for the auto-mode task.
 
-    A task with no store is always plan mode (the server forces it), so
-    an auto-mode task needs a real store to act on.
+    The auto task here is store-bound to exercise the queue path; a
+    no-store task follows the same mode rule as any other.
     """
     # A unique name and a delete on teardown: a second run on the same
     # server must not collide with the first one's store.
@@ -289,7 +289,7 @@ class TestMcpTaskLifecycle:
         assert task_id in {t['id'] for t in listing['data']['tasks']}
 
     def test_plan_task_is_reviewed_then_approved(self, mcp):
-        """A store-less task plans first; review_plan releases it.
+        """A plan-mode task parks for review; review_plan releases it.
 
         The mock CLI emits a plan and waits for the operator, so the
         task parks in ``planned`` until review_plan approves it.
@@ -298,11 +298,11 @@ class TestMcpTaskLifecycle:
             'create_task',
             title='MCP e2e plan task',
             description='Plan the work, then do it.',
+            plan_mode=True,
         )
         assert created['ok'], created['text']
         task_id = created['data']['task_id']
-        # A task with no store always plans first — the server forces
-        # it, whatever the caller asked for.
+        # Explicit plan_mode is honored, store or not.
         assert created['data']['plan_mode'] is True
 
         waited = wait_until(
@@ -335,6 +335,7 @@ class TestMcpTaskLifecycle:
             'create_task',
             title='MCP e2e plan rejection',
             description='Plan the work, then do it.',
+            plan_mode=True,
         )
         assert created['ok'], created['text']
         task_id = created['data']['task_id']
@@ -387,6 +388,8 @@ class TestMcpTaskLifecycle:
         echoes back what it received ('<question> => <answer>'), so the
         echo in the task result proves the key matched.
         """
+        # Plan mode explicitly (this flow was validated on the
+        # planning turn): the question arrives while the agent works.
         created = mcp.call_tool(
             'create_task',
             title='MCP e2e question',
@@ -394,6 +397,7 @@ class TestMcpTaskLifecycle:
                 '[[MOCK_ASK_FREE_TEXT]] audit the marketplaces and tell '
                 'me what you found.'
             ),
+            plan_mode=True,
         )
         assert created['ok'], created['text']
         task_id = created['data']['task_id']
@@ -433,6 +437,7 @@ class TestMcpTaskLifecycle:
             'create_task',
             title='MCP e2e stop and retry',
             description='Plan the work, then do it.',
+            plan_mode=True,
         )
         assert created['ok'], created['text']
         task_id = created['data']['task_id']

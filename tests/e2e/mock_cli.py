@@ -12,8 +12,10 @@ Responds to stdin JSON for:
 - user messages (follow-up instructions)
 """
 
+import asyncio
 import json
 import os
+import re
 import select
 import sys
 import time
@@ -405,6 +407,160 @@ def run_linger_wait():
         line = sys.stdin.readline()
         if not line:  # EOF — the watchdog closed the pipe
             break
+
+
+# The orchestrator-spawn markers: the mock plays the part of an agent
+# splitting per-store work into sub-tasks. It reads the vibe-seller
+# entry from the launch's --mcp-config file (the SAME registration a
+# real task agent is given, written by
+# ClaudeCodeBackend._register_vibe_seller_mcp), spawns that server
+# over stdio, and calls the real in-task tool vibe_seller_create_task
+# once per store listed in the prompt (``stores: <id1>,<id2>``), with
+# parent_task_id = its own task id. It then tries the two spawns the
+# server must refuse — a no-store child, and (with
+# [[MOCK_TRY_GRANDCHILD]]) a child of a sub-task — and echoes every
+# tool result into its final text, so the e2e can assert on the
+# refusals reaching the transcript.
+SPAWN_SUBTASKS_MARKER = '[[MOCK_SPAWN_SUBTASKS]]'
+TRY_GRANDCHILD_MARKER = '[[MOCK_TRY_GRANDCHILD]]'
+
+
+def mcp_server_entry() -> dict:
+    """The vibe-seller stdio server entry from the launch's MCP config."""
+    cfg_path = None
+    for i, arg in enumerate(sys.argv):
+        if arg == '--mcp-config' and i + 1 < len(sys.argv):
+            cfg_path = sys.argv[i + 1]
+        elif arg.startswith('--mcp-config='):
+            cfg_path = arg.split('=', 1)[1]
+    if cfg_path is None:
+        # The real CLI auto-discovers the project config from cwd.
+        cfg_path = os.path.join(os.getcwd(), '.mcp.json')
+    with open(cfg_path, encoding='utf-8') as fh:
+        servers = json.load(fh).get('mcpServers', {})
+    entry = servers.get('vibe-seller')
+    if not entry or not entry.get('command'):
+        raise RuntimeError(f'no vibe-seller server entry in {cfg_path}')
+    return entry
+
+
+def arg_after(args: list[str], flag: str) -> str:
+    return args[args.index(flag) + 1] if flag in args else ''
+
+
+async def _create_via_mcp(entry: dict, bodies: list[tuple[str, dict]]):
+    """Call vibe_seller_create_task once per body over the real stdio server."""
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    # Env: the entry carries none (the backend registers command/args/
+    # cwd only), and this process's env is the launch env the server
+    # built — VIBE_HOME, PATH, the works. A default-minimal env would
+    # aim app.config at the wrong home.
+    params = StdioServerParameters(
+        command=entry['command'],
+        args=list(entry.get('args', [])),
+        env=dict(entry.get('env') or os.environ),
+        cwd=entry.get('cwd'),
+    )
+    results = []
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            for tag, body in bodies:
+                res = await session.call_tool('vibe_seller_create_task', body)
+                text = ''.join(
+                    getattr(block, 'text', '') or ''
+                    for block in (res.content or [])
+                )
+                results.append((tag, text))
+    return results
+
+
+def run_spawn_subtasks(prompt: str):
+    """Spawn per-store children + the two forbidden attempts, echo all."""
+    emit_system()
+    time.sleep(DELAY)
+    entry = mcp_server_entry()
+    own_id = arg_after(list(entry.get('args', [])), '--task-id')
+    if not own_id:
+        raise RuntimeError('vibe-seller MCP entry carries no --task-id')
+    found = re.search(r'stores:\s*([0-9a-fA-F,\-\s]+)', prompt)
+    stores = (
+        [s for s in re.split(r'[,\s]+', found.group(1).strip()) if s]
+        if found
+        else []
+    )
+    bodies: list[tuple[str, dict]] = [
+        (
+            f'SPAWN[{sid[:8]}]',
+            {
+                'title': f'store work {sid[:8]}',
+                'store_id': sid,
+                'parent_task_id': own_id,
+                'description': f'Run the store-bound work for {sid}.',
+            },
+        )
+        for sid in stores
+    ]
+    bodies.append((
+        'NO_STORE',
+        {
+            'title': 'cross-store leftover',
+            'parent_task_id': own_id,
+            'description': 'No store on purpose — must be refused.',
+        },
+    ))
+    child_ids = []
+    try:
+        results = asyncio.run(
+            asyncio.wait_for(_create_via_mcp(entry, bodies), timeout=60)
+        )
+    except Exception as exc:  # noqa: BLE001 — report into the transcript
+        results = [('MCP_ERROR', f'{type(exc).__name__}: {exc}')]
+    lines = []
+    for tag, text in results:
+        lines.append(f'{tag}: {text}')
+        if tag.startswith('SPAWN'):
+            try:
+                parsed = json.loads(text)
+                if parsed.get('id'):
+                    child_ids.append(parsed['id'])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    if TRY_GRANDCHILD_MARKER in prompt:
+        # A spawn UNDER a sub-task: under the first child this run
+        # created, or — when every own spawn was refused — under
+        # itself, which is already a sub-task.
+        parent_id = child_ids[0] if child_ids else own_id
+        store_for = stores[0] if stores else own_id
+        try:
+            nested = asyncio.run(
+                asyncio.wait_for(
+                    _create_via_mcp(
+                        entry,
+                        [
+                            (
+                                'GRANDCHILD',
+                                {
+                                    'title': 'nested work',
+                                    'store_id': store_for,
+                                    'parent_task_id': parent_id,
+                                    'description': 'A child of a child.',
+                                },
+                            )
+                        ],
+                    ),
+                    timeout=60,
+                )
+            )
+            for tag, text in nested:
+                lines.append(f'{tag}: {text}')
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f'GRANDCHILD: {type(exc).__name__}: {exc}')
+    final = ' || '.join(lines)
+    emit_text(final)
+    emit_result(final)
 
 
 def read_initial_prompt(max_lines: int = 10) -> str:
@@ -803,6 +959,8 @@ if __name__ == '__main__':
         run_linger_wait()
     elif OUTPUT_FILES_MARKER in prompt:
         run_output_files()
+    elif SPAWN_SUBTASKS_MARKER in prompt:
+        run_spawn_subtasks(prompt)
     elif mode == 'plan_then_execute':
         run_plan_then_execute()
     else:

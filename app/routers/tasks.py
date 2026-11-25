@@ -24,8 +24,6 @@ from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
 from app.email.access import mailboxes_for
 from app.events.bus import event_bus
-from app.models.schedule import Schedule
-from app.models.schedule_constants import PhaseMode
 from app.models.store import Store
 from app.models.task import Task
 from app.models.task_step import TaskStep
@@ -42,6 +40,7 @@ from app.routers.tasks_files import resolve_store_rules
 from app.scheduler.task_queue import task_queue_scheduler
 from app.schemas.task import TaskCreate, TaskResponse, TaskStepResponse
 from app.schemas.user import TaskModeToggle
+from app.subtask_rules import validate_parent_task
 from app.task_delete import delete_task as delete_task_record
 from app.task_launch import schedule_or_run
 from app.task_outcome import apply_outcome, resolve_outcome
@@ -142,57 +141,6 @@ async def list_tasks(
     return _tasks_with_creator(tasks, names)
 
 
-async def _validate_parent_task(db: AsyncSession, parent_task_id: str) -> None:
-    """Refuse a sub-task that must not exist, from the ACTION, not prose.
-
-    Two checks, both about the task the caller names as parent:
-
-    * It must be a real task. ``parent_task_id`` is agent-supplied and
-      was never validated, so a typo left an orphan child pointing at
-      nothing, and ``reopen_parent_if_child_active`` quietly did
-      nothing.
-    * Its schedule must not be a FANOUT schedule. A fanout fire is
-      already one task per store per fire; a child spawned from one is
-      spawned once per store and would fan out again — the recursion
-      this rule exists to stop.
-
-    This replaced a scan of the PLAN TEXT for the strings
-    ``vibe_seller_create_task`` / ``parent_task_id`` at ExitPlanMode. That
-    check refused the plan that OBEYS: the prompt tells the agent "Do NOT
-    call ``vibe_seller_create_task``", so a plan quoting the instruction
-    contained the needle and was denied — with no round limit, because a
-    guess from the shape of prose has no unmet item to name. A plan may
-    now say anything; the sub-task is what gets refused.
-    """
-    parent = await db.get(Task, parent_task_id)
-    if parent is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f'parent_task_id {parent_task_id!r} names no task. A '
-                'sub-task points at the task it belongs to (your own '
-                'task id) and that task must still exist.'
-            ),
-        )
-    if not parent.schedule_id:
-        return
-    sched = await db.get(Schedule, parent.schedule_id)
-    if sched is None or sched.phase_mode != PhaseMode.FANOUT:
-        return
-    raise HTTPException(
-        status_code=400,
-        detail=(
-            f'Task {parent.id} is a fire of a FANOUT schedule '
-            f'({parent.schedule_id}), and the scheduler already creates '
-            'one task per store per fire. A sub-task spawned here would '
-            'be created once per store and would fan out again. Do the '
-            f'store-bound work inside this task (store {parent.store_id} '
-            'is already bound to it); if separate follow-up work is '
-            'needed, ask the user to create it.'
-        ),
-    )
-
-
 @router.post('', response_model=TaskResponse)
 async def create_task(
     data: TaskCreate,
@@ -204,13 +152,8 @@ async def create_task(
         store = await db.get(Store, data.store_id)
         if not store:
             raise HTTPException(status_code=404, detail='Store not found')
-    if data.parent_task_id and not data.store_id:
-        raise HTTPException(
-            status_code=400,
-            detail='Sub-tasks must have a store_id',
-        )
     if data.parent_task_id:
-        await _validate_parent_task(db, data.parent_task_id)
+        await validate_parent_task(db, data.parent_task_id, data.store_id)
 
     # Provenance is derived from the via channel (who is calling —
     # app.telemetry_via), never from a request field: a sub-task is
@@ -233,12 +176,15 @@ async def create_task(
     if auto_title:
         title = derive_placeholder(description)
 
-    # Resolve plan_mode
+    # Resolve plan_mode — one rule for every task, store or not:
+    # explicit wins, else a sub-task runs Auto (its parent's mode
+    # already decided review — auto was the user's choice, planned
+    # was a plan the user approved), else the user's default.
     plan_mode = data.plan_mode
-    if data.store_id is None:
-        plan_mode = True  # Non-store tasks always plan mode
-    elif plan_mode is None:
-        plan_mode = current_user.plan_mode_default
+    if plan_mode is None:
+        plan_mode = (
+            False if data.parent_task_id else (current_user.plan_mode_default)
+        )
 
     task = Task(
         store_id=data.store_id,
@@ -522,16 +468,25 @@ async def toggle_task_mode(
         raise HTTPException(status_code=404, detail='Task not found')
 
     if body.plan_mode is not None:
-        # Non-store tasks: reject turning off plan mode
-        if not body.plan_mode and not task.store_id:
-            raise HTTPException(
-                status_code=400,
-                detail='Non-store tasks require plan mode',
-            )
         task.plan_mode = body.plan_mode
 
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
+    # Auto means "run without review". A plan already parked for review
+    # runs now, exactly as Confirm would: left PLANNED it would wait
+    # for an approval whose button exists only in Review mode.
+    if (
+        body.plan_mode is False
+        and task.status == TaskStatus.PLANNED
+        and task.plan is not None
+        and not task.schedule_id
+    ):
+        started = await execute_plan(task_id, db, current_user)
+        return {
+            'ok': True,
+            'plan_mode': False,
+            'status': started['status'],
+        }
     return {
         'ok': True,
         'plan_mode': task.plan_mode,

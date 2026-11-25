@@ -197,8 +197,6 @@
     "modePlan": "先审核",
     "modeAutoDesc": "跳过审核，立即执行",
     "modePlanDesc": "先生成方案，确认后执行",
-    "modeTooltipForced": "此类任务在执行前会始终展示方案供你审阅。",
-    "planModeLabel": "先审方案",
     "executePlan": "执行计划",
     "approvePlan": "确认执行",
     "planReadyConfirm": "计划已就绪，请审核后确认执行或编辑修改。",
@@ -996,6 +994,8 @@
     "noWaiting": "没有等待中的任务",
     "autoEmail": "自动: 邮件",
     "manual": "手动",
+    "subtasks": "等待子任务",
+    "subtasksHint": "所有子任务结束后会自动继续，并在这里汇总结果。",
     "wakeMessage": "给 AI 的补充信息（可选）...",
     "daysRemaining": "剩余 {{days}} 天",
     "hours": "{{hours}} 小时"

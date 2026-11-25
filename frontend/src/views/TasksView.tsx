@@ -20,6 +20,7 @@ import { getUI, hasProgressingTask } from '../taskStates'
 import type { Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, Schedule, Store, ConversationItem, StagedAttachment } from '../types'
 import { TaskUsageMeter } from '../components/TaskUsageMeter'
 import { TaskOpenState, TranscriptLoading } from '../components/TaskOpenState'
+import { parseWaitCondition, waitBadgeKey } from '../lib/waitCondition'
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
@@ -335,16 +336,14 @@ export function TasksView({
                       {task.description && <div className="text-xs text-gray-400 truncate">{task.description}</div>}
                       <div className="flex items-center gap-2 mt-1 min-w-0">
                         <StatusBadge status={task.status} />
-                        {task.status === 'waiting' && task.wait_condition && (() => {
-                          try {
-                            const cond = JSON.parse(task.wait_condition)
-                            const strategy = cond.check_strategy || 'manual'
-                            return (
-                              <span className={`text-[10px] px-1 py-0.5 rounded whitespace-nowrap shrink-0 ${strategy === 'email' ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-500'}`}>
-                                {strategy === 'email' ? t('waiting.autoEmail') : t('waiting.manual')}
-                              </span>
-                            )
-                          } catch { return null }
+                        {task.status === 'waiting' && (() => {
+                          const wait = parseWaitCondition(task.wait_condition)
+                          if (!wait) return null
+                          return (
+                            <span className={`text-[10px] px-1 py-0.5 rounded whitespace-nowrap shrink-0 ${wait.kind === 'manual' ? 'bg-gray-100 text-gray-500' : 'bg-indigo-50 text-indigo-600'}`}>
+                              {t(waitBadgeKey(wait.kind))}
+                            </span>
+                          )
                         })()}
                         <span className="text-xs text-gray-400 truncate min-w-0 flex-1">{task.created_by_name || 'admin'}</span>
                         <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">{formatDate(task.created_at)}</span>
@@ -495,7 +494,7 @@ export function TasksView({
                     )}
                   </div>
                 )}
-                <SubtaskList parentTaskId={selectedTask.id} onSelect={selectTask} stores={stores} />
+                <SubtaskList parentTaskId={selectedTask.id} parentStatus={selectedTask.status} onSelect={selectTask} stores={stores} />
                 <div className="mt-2 flex gap-2 flex-wrap">
                   {getUI(selectedTask.status).isActive && (
                     <span className="text-xs text-indigo-600 animate-pulse self-center">
@@ -705,7 +704,7 @@ export function TasksView({
                       // Only this task: the default lives in Settings → General.
                     })
                   }
-                  return selectedTask.store_id ? (
+                  return (
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       <div aria-busy={busy('mode')} className={`inline-flex items-center rounded-md border border-gray-200 bg-gray-50 p-0.5${busyCls('mode')}`}>
                         <button
@@ -727,13 +726,6 @@ export function TasksView({
                       </div>
                       <span className="text-[11px] text-gray-400 hidden md:inline">{description}</span>
                     </div>
-                  ) : (
-                    <span
-                      className="text-xs text-gray-500 flex-shrink-0"
-                      title={t('tasks.modeTooltipForced')}
-                    >
-                      {t('tasks.planModeLabel')}
-                    </span>
                   )
                 })()}
                 <TaskUsageMeter usage={selectedTask} />

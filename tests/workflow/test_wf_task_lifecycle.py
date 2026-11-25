@@ -43,7 +43,7 @@ class TestTaskAutoRun:
     async def test_create_task_without_store(
         self, admin_client, install_fake_agent
     ):
-        """Storeless task forces plan_mode → pauses at planned."""
+        """Storeless task follows the user default (admin: Auto)."""
         r = await admin_client.post(
             '/api/tasks',
             json={
@@ -52,11 +52,9 @@ class TestTaskAutoRun:
             },
         )
         assert r.status_code == 200
-        assert r.json()['plan_mode'] is True
-        data = await wait_for_task(
-            admin_client, r.json()['id'], target='planned'
-        )
-        assert data['status'] == 'planned'
+        assert r.json()['plan_mode'] is False
+        data = await wait_for_task(admin_client, r.json()['id'])
+        assert data['status'] == 'completed'
 
     async def test_design_failure_marks_failed(
         self, admin_client, install_fake_agent

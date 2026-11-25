@@ -130,7 +130,7 @@ def bearer(api_token) -> httpx.Client:
 
 @pytest.fixture(scope='module')
 def store_id(api_client) -> str:
-    """A store: an auto-mode task needs one (no-store tasks plan)."""
+    """A store for the auto-mode task (the store-bound queue path)."""
     return create_store(api_client, f'MCP Files E2E Store {run_tag()}')['id']
 
 
@@ -344,7 +344,9 @@ class TestAttachments:
         task with its process alive, so the staged file must be
         promoted into the workspace while the agent waits."""
         created = mcp.call_tool(
-            'create_task', description='Plan the work, then do it.'
+            'create_task',
+            description='Plan the work, then do it.',
+            plan_mode=True,
         )
         assert created['ok'], created['text']
         task_id = created['data']['task_id']
@@ -420,7 +422,9 @@ class TestImageConfirmGate:
 
     def test_confirm_card_flow(self, mcp, api_client):
         created = mcp.call_tool(
-            'create_task', description='Plan the work, then do it.'
+            'create_task',
+            description='Plan the work, then do it.',
+            plan_mode=True,
         )
         assert created['ok'], created['text']
         task_id = created['data']['task_id']
@@ -487,7 +491,9 @@ class TestImageConfirmGate:
 
     def test_cancel_refuses_the_proposal(self, mcp, api_client):
         created = mcp.call_tool(
-            'create_task', description='Plan the work, then do it.'
+            'create_task',
+            description='Plan the work, then do it.',
+            plan_mode=True,
         )
         assert created['ok'], created['text']
         task_id = created['data']['task_id']

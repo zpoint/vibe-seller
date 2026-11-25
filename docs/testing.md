@@ -292,7 +292,7 @@ tests/
   - **What a test must not do:** bind a fixed port, or write a fixed path outside `tmp_path`.
   - **Tests that depend on each other's order:** `loadfile` keeps a file's tests on one worker, so put such tests in the same file.
 - **Waiting is an assertion.** `wait_for_task` raises when the status is not reached, so wait only for a state your scenario actually reaches.
-  - A no-store task is forced into plan mode and parks at `planned`.
+  - A no-store task resolves `plan_mode` like any other; the workflow admin's default is auto, so it completes unless the test asks for `plan_mode: True`.
   - To wait for "finished, either way", pass `target=TERMINAL_STATUSES`.
 
 ## FakeAgent

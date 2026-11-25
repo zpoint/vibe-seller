@@ -604,9 +604,14 @@ async def build_all_stores_context(
         'sub-task.',
         '',
         'IMPORTANT: You cannot wait for sub-task results '
-        'in this session. Create sub-tasks with clear '
-        'instructions. Check results later via '
-        '`vibe_seller_list_tasks(parent_task_id=<your_id>)`.',
+        'in this session. Create the sub-tasks with clear '
+        'instructions, then END YOUR TURN with a short note of what '
+        'you delegated. This task then waits and completes by itself '
+        "with every sub-task's result. Do not poll, sleep or monitor "
+        'for them here — this session cannot see them finish sooner, '
+        'and it holds a run slot the sub-tasks may be waiting for. '
+        '(`vibe_seller_list_tasks(parent_task_id=<your_id>)` is for a '
+        'later turn, e.g. when the user asks about them.)',
         '',
         'Do NOT create no-store sub-tasks. '
         'Every sub-task MUST have a store_id.',

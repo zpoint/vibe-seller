@@ -37,7 +37,7 @@ footer; it follows your default profile unless you pick another one.
 |---|---|---|
 | **Browser** | That store's Ziniao / Chrome profile — already logged in, straight into the seller center | A generic Chrome that can **only reach public web pages** (search, tracking/logistics sites); it cannot open any store's seller center |
 | **Memory** | Only that store's accumulated knowledge — never mixed with other stores | Cross-store shared knowledge |
-| **Execution mode** | **Auto** by default, switchable to **Review** | Always **Review** — it can never run on its own |
+| **Execution mode** | **Auto** by default, switchable to **Review** | The same rule: your default decides, the footer switch overrides per task |
 | **Typical use** | Ad tuning, report exports, listings for one shop | "Check every store for inactive listings", cross-store summaries, looking things up on the public web |
 
 The app says the same thing: while you're in the All Stores list, it states that
@@ -83,9 +83,14 @@ The **Auto / Review** switch sits in the **task-detail footer**, with a helper
 line ("Skip review, run immediately" / "Draft a plan, run after approval").
 Your default for new tasks is set in **Settings → General → Task Defaults →
 Default Execution Mode**. You can flip the switch after creating a task too;
-it changes only that task (not your default), from the next run (follow-ups included). An All Stores
-task has no switch — the footer just reads "Review plan first": this kind of
-task always shows you the plan before executing.
+it changes only that task (not your default), from the next run (follow-ups
+included). The switch works for every task, an All Stores one included —
+execution mode depends on your choice, not on the scope.
+
+Sub-tasks are the exception by design: a sub-task the parent creates always
+carries one store, always runs on the parent's already-decided mode (Auto
+unless the parent explicitly asks for a plan), and never spawns sub-tasks of
+its own — the tree is one level deep.
 
 ![Review mode: the plan is ready, waiting for Confirm & Execute or your feedback](images/using-tasks-app-plan-review_en.png)
 

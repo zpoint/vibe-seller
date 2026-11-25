@@ -264,15 +264,16 @@ class AgentSession(
         perm_mode = permission_mode_for_agent(self.mode)
 
         mock_cli = Options.MOCK_CLI.get()
+        ws_dir = self.task_dir or VIBE_SELLER_DIR
         if mock_cli:
             # Test mode: use mock CLI script instead of real claude.
             # Resolve to absolute path since cwd may differ.
             mock_cli_abs = os.path.abspath(mock_cli)
-            cmd = [
-                sys.executable,
-                mock_cli_abs,
-                f'--mode={self.mode}',
-            ]
+            cmd = [sys.executable, mock_cli_abs, f'--mode={self.mode}']
+            # The mock also gets the real vibe-seller MCP registration
+            # (mock_cli.py's [[MOCK_SPAWN_SUBTASKS]] spawns it).
+            await self._register_vibe_seller_mcp(ws_dir)
+            cmd.extend(['--mcp-config', str(ws_dir / '.mcp.json')])
         else:
             cmd = [
                 resolve_claude_binary(),
@@ -288,7 +289,6 @@ class AgentSession(
                 'stdio',
             ]
 
-        ws_dir = self.task_dir or VIBE_SELLER_DIR
         if not mock_cli:
             # Model is set via ANTHROPIC_MODEL in the subprocess env
             # (built from the profile).  Do NOT pass --model from

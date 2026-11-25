@@ -128,8 +128,8 @@ def plan_auto_accepted(task, schedule=None) -> bool:
     - a non-plan-mode task has no plan to review;
     - a plan-only planner's "approval" is only the hand-off of its plan
       to the schedule as a PROPOSAL — the owner still approves it;
-    - a task of an AUTO schedule (e.g. a no-store task, which is always
-      plan-mode) runs without review, as its schedule does;
+    - a task of an AUTO schedule runs without review, as its
+      schedule does;
     - anything else — standalone plan-mode tasks, and a task of a
       REVIEW schedule that ends up planning for itself (a retry or
       follow-up with no approved plan to copy) — waits for a human, so

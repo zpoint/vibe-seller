@@ -102,8 +102,8 @@ def test_a_task_answers_with_the_custom_servers_tool(
         fail_statuses={'failed', 'error', 'cancelled'},
     )
     if data['status'] == 'planned':
-        # A store-less task always plans first; approve it as the UI's
-        # "Confirm and run" does.
+        # A Review-default user's task plans first; approve it as the
+        # UI's "Confirm and run" does.
         r = api_client.post(f'{base}/api/tasks/{task_id}/execute-plan')
         assert r.status_code == 200, r.text
         data = e2e_helpers.poll_task_status(

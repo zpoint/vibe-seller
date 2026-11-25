@@ -1446,17 +1446,24 @@ class TestPlanModeParity:
         # outlive the test.
         await settle_task(admin_client, data['task_id'])
 
-    async def test_storeless_task_always_plans(
+    async def test_storeless_task_follows_the_same_rule(
         self, admin_client, install_fake_agent
     ):
-        """No store → plan mode is forced on, whatever the default."""
-        data, _ = await call_tool(
+        """No store → the same resolution as any task: explicit wins,
+        else the owner's default (admin default here is Auto)."""
+        omitted, _ = await call_tool(
+            admin_client, 'create_task', {'description': 'No store here'}
+        )
+        assert omitted['plan_mode'] is False
+        await wait_for_task(admin_client, omitted['task_id'])
+
+        planned, _ = await call_tool(
             admin_client,
             'create_task',
-            {'description': 'No store here', 'plan_mode': False},
+            {'description': 'No store, plan first', 'plan_mode': True},
         )
-        assert data['plan_mode'] is True
-        await settle_task(admin_client, data['task_id'])
+        assert planned['plan_mode'] is True
+        await settle_task(admin_client, planned['task_id'])
 
     async def test_explicit_plan_mode_false_runs_straight_through(
         self, admin_client, install_fake_agent
