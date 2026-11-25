@@ -1,69 +1,69 @@
-"""Guard: the auto_approve_plan gate on task_runner_auto.py.
+"""Guard: the one rule for whether a task's ExitPlanMode waits for a human.
 
-The gate decides whether the hook auto-approves the agent's plan at
-ExitPlanMode or blocks waiting for the user to click approve.
+``app.plan_states.plan_auto_accepted`` decides it for every launch path
+(``task_runner_auto``, the follow-up paths, and the Auto/Review switch
+on a running session). It is called here directly, so a change to the
+rule shows up in this table.
 
-Rule (one line):
-
-    auto_approve_plan = bool(task.schedule_id) or not task.plan_mode
-
-- Any task with a schedule_id (plan-only authoring OR a scheduled
-  fire) auto-approves. The frozen-plan architecture handles review
-  via SchedulePlanPanel + Re-plan. Nothing inspects the plan's
-  wording at ExitPlanMode; the fanout no-sub-tasks rule is enforced
-  on the action (POST /api/tasks refuses a fanout fire's sub-task).
-- Standalone tasks honor task.plan_mode (True → manual, False →
-  auto). user.plan_mode_default feeds into task.plan_mode at create
-  time for standalone tasks.
-
-This test pins the gate expression so a refactor must update both
-the code and this table at once.
+- A plan-only schedule planner hands its plan to the schedule as a
+  proposal; the owner approves it there, not at ExitPlanMode.
+- A task of an AUTO schedule runs without review, as its schedule does.
+- A task of a REVIEW schedule that plans for itself waits.
+- A standalone task honours its own ``plan_mode``.
+- A plan is reviewed once per task: after approval (``started_at``),
+  the agent's re-plans run.
 """
 
-from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
+
+from app.plan_states import plan_auto_accepted
 
 pytestmark = pytest.mark.unit
 
 
-@dataclass
-class _FakeTask:
-    schedule_id: str | None
-    plan_mode: bool
-    is_plan_only: bool = False
+def _task(**kw):
+    base = dict(
+        schedule_id=None, plan_mode=True, is_plan_only=False, started_at=None
+    )
+    return SimpleNamespace(**{**base, **kw})
 
 
-def _gate(task: _FakeTask) -> bool:
-    """Mirrors the gate expression in app/task_runner_auto.py."""
-    return bool(task.schedule_id) or not task.plan_mode
+def _schedule(*, review: bool, system: bool = False):
+    return SimpleNamespace(plan_mode=review, is_system=system)
 
 
 class TestAutoApproveGate:
     def test_plan_only_schedule_task_auto_approves(self):
-        """Plan-only authoring: always auto — creator pref does not
-        gate schedule review. Review is via SchedulePlanPanel (user
-        can Re-plan after the frozen plan lands)."""
-        task = _FakeTask(schedule_id='s1', plan_mode=True, is_plan_only=True)
-        assert _gate(task) is True
+        task = _task(schedule_id='s1', is_plan_only=True)
+        assert plan_auto_accepted(task, _schedule(review=True)) is True
 
-    def test_regular_scheduled_fire_auto_approves(self):
-        """Per-store fire: human already reviewed at schedule create."""
-        task = _FakeTask(schedule_id='s1', plan_mode=True, is_plan_only=False)
-        assert _gate(task) is True
+    def test_auto_schedule_task_auto_approves(self):
+        task = _task(schedule_id='s1')
+        assert plan_auto_accepted(task, _schedule(review=False)) is True
+
+    def test_system_schedule_task_auto_approves(self):
+        task = _task(schedule_id='s1')
+        assert (
+            plan_auto_accepted(task, _schedule(review=True, system=True))
+            is True
+        )
+
+    def test_review_schedule_task_planning_for_itself_waits(self):
+        task = _task(schedule_id='s1')
+        assert plan_auto_accepted(task, _schedule(review=True)) is False
 
     def test_standalone_plan_mode_waits(self):
-        """No schedule + plan_mode=True → manual approve."""
-        task = _FakeTask(schedule_id=None, plan_mode=True)
-        assert _gate(task) is False
+        assert plan_auto_accepted(_task()) is False
 
     def test_standalone_auto_mode_proceeds(self):
-        """No schedule + plan_mode=False → immediate execute."""
-        task = _FakeTask(schedule_id=None, plan_mode=False)
-        assert _gate(task) is True
+        assert plan_auto_accepted(_task(plan_mode=False)) is True
 
     def test_schedule_with_auto_mode_also_proceeds(self):
-        """plan_mode=False + schedule_id (future: non-plan-mode
-        schedules) also auto-approves."""
-        task = _FakeTask(schedule_id='s1', plan_mode=False)
-        assert _gate(task) is True
+        task = _task(schedule_id='s1', plan_mode=False)
+        assert plan_auto_accepted(task, _schedule(review=True)) is True
+
+    def test_approved_task_is_not_reviewed_again(self):
+        task = _task(started_at='2026-01-01T00:00:00+00:00')
+        assert plan_auto_accepted(task) is True

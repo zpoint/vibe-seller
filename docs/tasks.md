@@ -195,6 +195,14 @@ POST /api/tasks → status: "pending"
     4. Done → "completed" / "failed" / "waiting"
 ```
 
+**A plan is reviewed once per task** (`plan_auto_accepted` in
+`app/plan_states.py`). Approval stamps `started_at` (reset only by a
+full retry); after that, a follow-up runs auto, and a plan the agent
+writes again — in the live session or a new one — runs without another
+Confirm. The task's Auto/Review switch also reaches a running session
+(`set_auto_approve_plan`): switched to Auto while planning, the plan
+runs as soon as it is written.
+
 ### System Prompt
 
 Both modes use `DESIGN_SYSTEM_PROMPT` (knowledge recall, critical thinking, approach selection, subagent rules). Auto mode strips the `Phase 5 — Plan Output` and `ExitPlanMode Rules` sections via `<!-- PLAN_MODE_ONLY -->` delimiters. There is no post-task knowledge phase: the prompt's "Keeping knowledge correct" section has the agent fix stale `knowledge/` / `stores/` facts in place once its result is recorded, and write nothing when it learned nothing. Claude Code auto-memory is off for every agent (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`), so those two trees are the only memory.

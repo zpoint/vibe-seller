@@ -558,6 +558,10 @@ class _HookMixin:
             )
             return
 
+        # A plan is reviewed once per task (``plan_auto_accepted``): the
+        # agent's later re-plans in this session run without waiting.
+        self.auto_approve_plan = True
+
         # Regular plan-mode execution: PLANNED → RUNNING
         try:
             async with async_session() as db:

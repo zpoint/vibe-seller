@@ -685,6 +685,8 @@ class FakeAgent(AIAgentBackend):
             while True:
                 await session._plan_approval_event.wait()
                 if session._plan_approved:
+                    # As AgentSession: reviewed once per task.
+                    session.auto_approve_plan = True
                     break
                 # Rejected — simulate replan
                 replan_count += 1
