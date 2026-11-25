@@ -563,7 +563,7 @@
     "visionAdminOnly": "Only admins can set the image API key.",
     "visionSaved": "Saved.",
     "yuehulianNoAccount": "No account configured",
-    "yuehulianAddAccount": "Add account",
+    "addAccount": "Add account",
     "yuehulianOneAccount": "悦互联 supports only one account per machine. Delete all 悦互联 stores in Settings, then add the new account.",
     "ziniaoLocalOnlyNote": "Your login is stored only on this computer, never uploaded.",
     "ziniaoLoadingHint": "If Ziniao is closed or was opened by hand, Vibe Seller restarts it for you. This can take a minute or two.",

@@ -42,10 +42,9 @@ site they are marked as such.
 
 | File | Topics |
 |------|--------|
-| [faq-about.md](faq-about.md) / [faq-about.en.md](faq-about.en.md) | How Vibe Seller differs from Amazon's SP-API |
 | [faq-cost.md](faq-cost.md) / [faq-cost.en.md](faq-cost.en.md) | Cost, which LLM to pick |
 | [faq-login.md](faq-login.md) / [faq-login.en.md](faq-login.en.md) | Login password setup / recovery, no `vibe-seller` command on Windows |
-| [faq-data.md](faq-data.md) / [faq-data.en.md](faq-data.md) | Cloud servers, data privacy, where the agent's memory lives, English-only buttons |
+| [faq-data.md](faq-data.md) / [faq-data.en.md](faq-data.en.md) | Cloud servers, data privacy, where the agent's memory lives, why product names stay in English |
 | [faq.md](faq.md) / [faq.en.md](faq.en.md) | Section overview: index of every question |
 
 ## Integrations

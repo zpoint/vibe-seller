@@ -90,11 +90,11 @@ export function YuehulianSection(props: {
         <div className="min-w-0 flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs bg-gray-50 truncate">
           {status?.configured ? `${status.team_name} / ${status.subaccount}` : t('settings.yuehulianNoAccount')}
         </div>
-        <button type="button" onClick={() => (showForm ? setShowForm(false) : openAdd())} title={t('settings.yuehulianAddAccount')} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm rounded border border-gray-300 text-indigo-600 hover:bg-indigo-50">+</button>
+        <button type="button" onClick={() => (showForm ? setShowForm(false) : openAdd())} title={t('settings.addAccount')} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm rounded border border-gray-300 text-indigo-600 hover:bg-indigo-50">+</button>
       </div>
       {showForm && (
         <div className="space-y-1 p-2 bg-gray-50 rounded border border-gray-200">
-          <p className="text-xs font-medium text-gray-600 mb-1">{t('settings.yuehulianAddAccount')}</p>
+          <p className="text-xs font-medium text-gray-600 mb-1">{t('settings.addAccount')}</p>
           <input value={team} onChange={e => setTeam(e.target.value)} placeholder={t('settings.yuehulianTeamName')} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
           <input value={sub} onChange={e => setSub(e.target.value)} placeholder={t('settings.yuehulianSubaccount')} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
           <div className="relative">
@@ -184,7 +184,7 @@ export function ZiniaoSection(props: {
             <button onClick={() => { if (confirm(t('settings.deleteAccountConfirm'))) p.deleteZiniaoAccount(p.selectedZiniaoAccountId) }} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm text-red-500 hover:bg-red-50 rounded border border-gray-300" title={t('common.delete')}>&times;</button>
           </>
         )}
-        <button onClick={() => { p.setEditingAccountId(''); p.setNewAccount({ name: '', company: '', username: '', password: '' }); p.setShowAddAccount(!p.showAddAccount) }} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm text-indigo-600 hover:bg-indigo-50 rounded border border-gray-300" title="Add account">+</button>
+        <button onClick={() => { p.setEditingAccountId(''); p.setNewAccount({ name: '', company: '', username: '', password: '' }); p.setShowAddAccount(!p.showAddAccount) }} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm text-indigo-600 hover:bg-indigo-50 rounded border border-gray-300" title={t('settings.addAccount')}>+</button>
       </div>
       {p.showAddAccount && (
         <div className="space-y-1 p-2 bg-gray-50 rounded border border-gray-200">

@@ -125,7 +125,6 @@ plugins:
             Schedules: 定时任务
             Knowledge & Skills: 知识库与 Skill
             FAQ: 常见问题
-            About Vibe Seller: 了解 Vibe Seller
             "Ziniao: Setup & Common Errors": 紫鸟：开通与常见报错
             "Yuehulian: Setup Guide": 悦互联：配置指南
             Cost & Model Choice: 费用与模型选择
@@ -253,7 +252,6 @@ nav:
           - Schedules: schedules.md
           - Knowledge & Skills: knowledge.md
       - FAQ:
-          - About Vibe Seller: faq-about.md
           - Cost & Model Choice: faq-cost.md
           - Login & Accounts: faq-login.md
           - Deployment & Data: faq-data.md

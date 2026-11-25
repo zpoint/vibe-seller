@@ -27,16 +27,6 @@ Not using Yuehulian? Skip this page. Vibe Seller supports other browsers too; se
    Seller will then auto-launch and auto-sign-in to this client (see
    "Auto-login" below).
 
-Any install folder works: besides the default
-`C:\Program Files (x86)\YueHuLian`, an install on another drive or in a
-Chinese/space-containing folder (e.g. `D:\悦互联\用户端.exe`) is found
-too — Vibe Seller checks the running client, the registry (App Paths /
-Uninstall), Desktop and Start-Menu shortcuts, then the conventional
-folders on every fixed drive, and validates the hit is the client's
-main exe (`用户端.exe`), never an uninstaller or the `chrome.exe`
-kernel. If nothing is found the error lists what was searched; open
-the client by hand once and retry, or reinstall to the default folder.
-
 ## Create a team account
 
 Yuehulian uses a **team login**: team name + sub-account + password.
