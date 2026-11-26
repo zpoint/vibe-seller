@@ -178,7 +178,7 @@ so the AI cannot use them.
 
 ## FAQ
 
-<details markdown="1"><summary><b>Google says "Access blocked"?</b></summary>
+<details markdown="1" id="access-blocked"><summary><b>Google says "Access blocked"?</b></summary>
 
 The Google account you signed in with is not a test user of your app, or
 step 2.4 didn't save. In Google Cloud, open **Audience** in the left menu
@@ -186,7 +186,7 @@ and check the account is in the **Test users** list, then click
 **Connect** in Settings (or **Sign in again** if it is connected).
 </details>
 
-<details markdown="1"><summary><b>The row says "Sign-in expired"?</b></summary>
+<details markdown="1" id="sign-in-expired"><summary><b>The row says "Sign-in expired"?</b></summary>
 
 ![Sign-in expired; click Sign in again](images/gws_expired_en.png)
 
@@ -199,7 +199,7 @@ Seller's access under your Google Account's third-party connections does
 the same.
 </details>
 
-<details markdown="1"><summary><b>"That key is for a website"?</b></summary>
+<details markdown="1" id="key-for-a-website"><summary><b>"That key is for a website"?</b></summary>
 
 The client was created as a **Web application**. In Google Cloud, open
 **Clients**, create a new client with application type **Desktop app**,

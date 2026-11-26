@@ -25,7 +25,8 @@
     "search": "搜索",
     "filter": "筛选",
     "all": "全部",
-    "optional": "可选"
+    "optional": "可选",
+    "docsHelp": "查看解决办法"
   },
   "auth": {
     "signIn": "登录",

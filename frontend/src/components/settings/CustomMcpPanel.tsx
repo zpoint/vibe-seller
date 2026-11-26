@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
+import { DocsHelpLink } from '../ui/DocsHelpLink'
+import { MCP_CONFIG_ERROR_HELP, MCP_REASON_HELP, type DocsHelpTopic } from '../../lib/docsHelp'
 
 // One external MCP server an admin added for every task's agent
 // (backend: app/routers/custom_mcp.py). Credentials arrive masked —
@@ -46,7 +48,13 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
   const [config, setConfig] = useState('')
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setErrorText] = useState('')
+  const [errorHelp, setErrorHelp] = useState<DocsHelpTopic | null>(null)
+  /** Show *text* (nothing when empty), with the docs entry that explains it. */
+  const setError = (text: string, help: DocsHelpTopic | null = null) => {
+    setErrorText(text)
+    setErrorHelp(help)
+  }
   const [tests, setTests] = useState<Record<string, McpTestResult | 'running'>>({})
 
   const refresh = useCallback(async () => {
@@ -113,14 +121,14 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
         setError(t('customMcp.connectFailed', {
           name: err.detail?.label ?? err.detail?.name,
           why: reasonText(t, err.detail?.reason, err.detail?.error),
-        }))
+        }), MCP_REASON_HELP[err.detail?.reason ?? ''] ?? null)
       } else if (code.startsWith('config_')) {
         // Say the common mistakes in the user's language; anything else
         // falls back to the server's own sentence.
         setError(t(`customMcp.configErrors.${code.slice('config_'.length)}`, {
           ...err.detail,
           defaultValue: err.detail?.message ?? err.message,
-        }))
+        }), MCP_CONFIG_ERROR_HELP[code] ?? null)
       } else if (err.status === 409 && err.detail?.names) {
         const names = (err.detail.labels ?? err.detail.names).join(', ')
         if (confirm(t('customMcp.replaceConfirm', { names }))) {
@@ -174,6 +182,7 @@ export function CustomMcpPanel({ isAdmin = false }: { isAdmin?: boolean }) {
       {error && (
         <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700" data-testid="custom-mcp-error">
           {error}
+          {errorHelp && <> <DocsHelpLink topic={errorHelp} /></>}
           <button onClick={() => setError('')} className="ml-2 text-red-500 hover:text-red-700">&times;</button>
         </div>
       )}
@@ -264,6 +273,12 @@ function reasonText(
   error: string | undefined,
 ): string {
   return t(`customMcp.reasons.${reason ?? 'other'}`, { defaultValue: error ?? '' })
+}
+
+/** The docs FAQ entry for a connection that failed for *reason*. */
+function ReasonHelp({ reason }: { reason: string | undefined }) {
+  const topic = reason ? MCP_REASON_HELP[reason] : undefined
+  return topic ? <> <DocsHelpLink topic={topic} /></> : null
 }
 
 function typeLabel(type: CustomMcpServer['type'], t: (k: string) => string): string {
@@ -394,6 +409,7 @@ function ServerRow({
           ) : (
             <div className="text-red-600">
               {t('customMcp.testFailed', { error: reasonText(t, test.reason, test.error) })}
+              <ReasonHelp reason={test.reason} />
             </div>
           )}
         </div>

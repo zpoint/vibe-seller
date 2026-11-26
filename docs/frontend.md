@@ -260,6 +260,35 @@ back to the English fields. `group` stays the stable grouping key; its display
 text goes in `groupLabel`. The frontend keeps no preset translation table, and
 `presetI18n.test.ts` pins that.
 
+## Errors link their docs section
+
+Every failure the page shows that the user docs explain carries a
+"How to fix this ↗" link (查看解决办法) to that section, in the UI's
+language: `<DocsHelpLink topic="..." />`
+(`components/ui/DocsHelpLink.tsx`). `lib/docsHelp.ts` is the one place
+that says which failure goes where — `DOCS_HELP` holds each topic's zh
+and en URL (zh at the site root, en under `/en/`), and the per-screen
+maps beside it (`CLI_ERROR_HELP`, `MCP_CONFIG_ERROR_HELP`,
+`taskErrorHelp`, …) turn a screen's error code into a topic. A code
+missing from those maps has no docs section yet and shows no link.
+
+- **Adding an error with a docs section:** add the topic to `DOCS_HELP`
+  with both URLs written out in full, map the error to it, and render
+  `DocsHelpLink` next to the error text (beside, not inside, an element
+  whose exact text a test pins).
+- **Linking an FAQ entry:** an entry inside `<details markdown="1">` has
+  no heading anchor, so give the tag an `id` (the same in the zh and en
+  page) and link `#that-id`; the docs site opens the entry when the
+  link lands on it. A bold-paragraph FAQ entry takes `{: #id }` on the
+  line under it. A heading is addressed by its own anchor
+  (`pymdownx.slugs.slugify(case='lower')`, which keeps CJK).
+- **The contract:** `tests/unit/test_docs_links.py` reads every
+  `https://docs.vibe-sellers.com/...` link in `app/` and
+  `frontend/src/` and fails when its page or anchor is not in `docs/` —
+  so renaming a heading or moving an FAQ entry breaks CI, not a user's
+  link. `__tests__/docsHelpLinks.test.tsx` pins which failure shows
+  which topic.
+
 ## SSE Integration
 
 `useSSE` hook in `hooks/useSSE.ts` connects to `/api/sse` and dispatches events:

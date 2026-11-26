@@ -76,7 +76,7 @@ The bot can only post in groups it has talked in recently. Add the bot
 to the group, @-mention it once, then ask the AI again.
 </details>
 
-<details markdown="1"><summary><b>On Windows: "This computer can't run WeCom's official program"?</b></summary>
+<details markdown="1" id="does-not-run"><summary><b>On Windows: "This computer can't run WeCom's official program"?</b></summary>
 
 WeCom's official program needs the Microsoft VC++ runtime, which most
 computers already have. If yours doesn't, install the

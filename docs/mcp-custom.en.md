@@ -104,22 +104,26 @@ see which of its tools ran (here, Get keyword info):
 ## FAQ
 
 **Saving says "the token is wrong or no longer valid"**
+{: #token-invalid }
 
 The token is mistyped, deleted or switched off. Check it in the
 service's console, copy the config again and paste it.
 
 **It says a header still has the sample text**
+{: #sample-header }
 
 You pasted the sample from the service's docs, with its "your token here"
 text still in place. Copy the config with your real token from the
 service's console.
 
 **It says the service needs an OAuth sign-in**
+{: #oauth-sign-in }
 
 Tasks run on their own, so nobody is there to authorize. Use the
 token / API key option the service offers instead.
 
 **It says the config has a `${…}` variable**
+{: #config-variable }
 
 Replace the `${…}` with the real token and save again.
 

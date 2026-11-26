@@ -165,14 +165,14 @@ Classroom 等）没有授权，AI 用不了。
 
 ## 常见问题
 
-<details markdown="1"><summary><b>Google 提示「已拦截访问权限（Access blocked）」？</b></summary>
+<details markdown="1" id="access-blocked"><summary><b>Google 提示「已拦截访问权限（Access blocked）」？</b></summary>
 
 你登录的 Google 账号还不是这个应用的测试用户，或者 2.4 步没保存上。
 回到 Google Cloud 左侧「目标对象」页，确认这个账号在「测试用户」列表
 里，再在设置页点「开通」（已开通的点「重新登录」）。
 </details>
 
-<details markdown="1"><summary><b>那一行显示「登录已失效」？</b></summary>
+<details markdown="1" id="sign-in-expired"><summary><b>那一行显示「登录已失效」？</b></summary>
 
 ![登录已失效，点「重新登录」](images/gws_expired_zh.png)
 
@@ -184,7 +184,7 @@ AI 暂时用不了 Google Workspace，点「重新登录」，按第 3 步再登
 删掉了 Vibe Seller 的访问权限，也会这样。
 </details>
 
-<details markdown="1"><summary><b>选文件时提示「这个密钥是给网站用的」？</b></summary>
+<details markdown="1" id="key-for-a-website"><summary><b>选文件时提示「这个密钥是给网站用的」？</b></summary>
 
 创建客户端时应用类型选成了「Web 应用」。在 Google Cloud 左侧「客户端」
 页重新创建一个应用类型为「桌面应用」的客户端，在弹出的窗口里下载 JSON，

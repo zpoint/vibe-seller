@@ -342,7 +342,7 @@ Vibe Seller 的「设置 → AI」里，找到使用这个 Key 的配置，点�
 
 </details>
 
-<details markdown="1">
+<details markdown="1" id="auth-failed">
 <summary><b>测试连接报 401 / 认证失败</b></summary>
 
 按顺序检查：
@@ -354,7 +354,7 @@ Vibe Seller 的「设置 → AI」里，找到使用这个 Key 的配置，点�
 
 </details>
 
-<details markdown="1">
+<details markdown="1" id="balance-or-quota">
 <summary><b>报余额不足（402）/ 配额用完（429）</b></summary>
 
 - **余额不足**：按量付费账户余额用完了，到充值页充值。

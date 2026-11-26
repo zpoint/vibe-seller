@@ -110,13 +110,13 @@ You don't — it's automatic. The path follows the **store's binding state**: a 
 
 </details>
 
-<details markdown="1"><summary><b>The panel opens with a red "Could not reach the ads service …"</b></summary>
+<details markdown="1" id="ads-service-unreachable"><summary><b>The panel opens with a red "Could not reach the ads service …"</b></summary>
 
 This machine cannot reach the ads service (firewall / proxy / the service is briefly down). Reopen the page once connectivity is back — every open re-runs the sync and registration.
 
 </details>
 
-<details markdown="1"><summary><b>"Done authorizing" says "No authorization for this store yet"</b></summary>
+<details markdown="1" id="not-yet-authorized"><summary><b>"Done authorizing" says "No authorization for this store yet"</b></summary>
 
 The Amazon consent hasn't finished, or you clicked before the success page. Finish the consent in the store's browser, then click again.
 

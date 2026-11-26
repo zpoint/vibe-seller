@@ -195,7 +195,7 @@ AI 客户端都无法改动它。**前提是你开启了登录验证**——如�
 
 ## 常见问题
 
-<details markdown="1"><summary><b>「测试连接」失败，提示 "LOGIN Login error or password error"？</b></summary>
+<details markdown="1" id="test-connection-failed"><summary><b>「测试连接」失败，提示 "LOGIN Login error or password error"？</b></summary>
 
 这是邮箱服务器拒绝了登录，通常是这两种情况：
 
@@ -206,7 +206,7 @@ AI 客户端都无法改动它。**前提是你开启了登录验证**——如�
 修正后重新点击「测试连接」，具体原因会直接显示在红框里。
 </details>
 
-<details markdown="1"><summary><b>提示「这个邮箱已经添加过了」？</b></summary>
+<details markdown="1" id="already-added"><summary><b>提示「这个邮箱已经添加过了」？</b></summary>
 
 回到列表里找到这个邮箱即可；想更换授权码，先删除旧的，再重新添加。
 </details>
@@ -218,7 +218,7 @@ QQ 邮箱默认只向第三方客户端开放最近 30 天的邮件。在邮箱�
 改为「全部」即可。
 </details>
 
-<details markdown="1"><summary><b>添加时没有自动识别服务器怎么办？</b></summary>
+<details markdown="1" id="servers-not-detected"><summary><b>添加时没有自动识别服务器怎么办？</b></summary>
 
 自动识别覆盖了常见邮箱（163、126、yeah.net、QQ、Gmail 等）。
 没有识别出的域名会按 `imap.你的域名` 猜测一个地址，通常不正确——

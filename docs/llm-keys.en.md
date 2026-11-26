@@ -391,7 +391,7 @@ A leaked key lets anyone spend your money — don't wait.
 
 </details>
 
-<details markdown="1">
+<details markdown="1" id="auth-failed">
 <summary><b>The connection test says 401 / authentication failed</b></summary>
 
 Check in this order:
@@ -403,7 +403,7 @@ Check in this order:
 
 </details>
 
-<details markdown="1">
+<details markdown="1" id="balance-or-quota">
 <summary><b>Insufficient balance (402) / quota exhausted (429)</b></summary>
 
 - **Insufficient balance**: the pay-as-you-go account is empty — top up.

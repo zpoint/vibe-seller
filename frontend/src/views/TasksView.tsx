@@ -21,6 +21,7 @@ import { getUI, hasProgressingTask } from '../taskStates'
 import type { Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, Schedule, Store, ConversationItem, StagedAttachment } from '../types'
 import { TaskUsageMeter } from '../components/TaskUsageMeter'
 import { TaskOpenState, TranscriptLoading } from '../components/TaskOpenState'
+import { TaskErrorNote } from '../components/TaskErrorNote'
 import { parseWaitCondition, waitBadgeKey } from '../lib/waitCondition'
 
 function formatDate(dateStr: string): string {
@@ -488,14 +489,7 @@ export function TasksView({
                   </div>
                 )}
                 {selectedTask.error && (
-                  <div className="mt-2 text-sm text-red-600 bg-red-50 px-3 py-2 rounded whitespace-pre-line">
-                    {selectedTask.error_category
-                      ? t(`tasks.error_${selectedTask.error_category}`, selectedTask.error)
-                      : selectedTask.error}
-                    {selectedTask.error.includes('/api/ziniao/launcher') && (
-                      <a href="/api/ziniao/launcher" download className="ml-2 inline-block px-2 py-0.5 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoDownloadLauncher')}</a>
-                    )}
-                  </div>
+                  <TaskErrorNote error={selectedTask.error} category={selectedTask.error_category} />
                 )}
                 <SubtaskList parentTaskId={selectedTask.id} parentStatus={selectedTask.status} onSelect={selectTask} stores={stores} />
                 <div className="mt-2 flex gap-2 flex-wrap">

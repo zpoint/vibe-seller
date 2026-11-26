@@ -65,7 +65,7 @@ The BOSS (admin) account hasn't enabled WebDriver login for your sub-account yet
 
 The admin (BOSS) account has to do this once. After it's saved, your sub-account can log in via WebDriver and Vibe Seller will bind the store on the next refresh.
 
-In the app this shows as "WebDriver is not enabled for this account." followed by "The BOSS account must enable WebDriver in the developer console.", with a **How to enable WebDriver** button that opens the guide above.
+In the app this shows as Ziniao's own message (for example "无权限通过webdriver登录"), or, when Ziniao gives none, "WebDriver is not enabled for this account." followed by "The BOSS account must enable WebDriver in the developer console." Under it, **How to fix this** opens this section, and the **How to enable WebDriver** button opens Ziniao's guide above.
 
 ## "检测到您在新终端登录" when binding a store
 

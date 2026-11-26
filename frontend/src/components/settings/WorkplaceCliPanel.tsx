@@ -3,6 +3,8 @@ import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
+import { CLI_ERROR_HELP, CLI_NOTICE_HELP, DOCS_HELP } from '../../lib/docsHelp'
+import { DocsHelpLink } from '../ui/DocsHelpLink'
 
 /** Settings → Integrations: the official WeCom / Feishu / DingTalk CLIs,
  *  and Google Workspace's (its own card, same rows).
@@ -59,10 +61,7 @@ const NOTICE_GUIDES: Record<string, { zh: string; en: string }> = {
   },
   // What the withheld permissions do and how the Feishu app's admin
   // grants one (FAQ in docs/workplace-cli-feishu.md).
-  feishu_missing_scopes: {
-    zh: 'https://docs.vibe-sellers.com/workplace-cli-feishu/#admin-restricted-permissions',
-    en: 'https://docs.vibe-sellers.com/en/workplace-cli-feishu/#admin-restricted-permissions',
-  },
+  feishu_missing_scopes: DOCS_HELP.feishuMissingScopes,
 }
 
 /** Feishu permissions an org admin often withholds, named by the
@@ -145,9 +144,10 @@ const ERROR_CODES = new Set([
 function ErrorLine({ err, name }: { err: CliError; name: string }) {
   const { t } = useTranslation()
   const code = ERROR_CODES.has(err.code) ? err.code : 'unexpected'
+  const help = CLI_ERROR_HELP[code]
   return (
     <div className="text-sm text-red-600 break-words" data-testid="cli-error">
-      <p>{t(`integrations.cli.error.${code}`, { name })}</p>
+      <p>{t(`integrations.cli.error.${code}`, { name })}{help && <> <DocsHelpLink topic={help} /></>}</p>
       {err.message && <Details text={err.message} />}
     </div>
   )
@@ -374,6 +374,7 @@ function CliRow({
               // revoked): the AI's calls fail until someone signs in.
               <span className="text-amber-700" data-testid={`cli-needs-signin-${card.key}`}>
                 {t('integrations.cli.enabledNeedsSignIn')}
+                {card.key === 'gws' && <> <DocsHelpLink topic="googleSignInExpired" /></>}
               </span>
             ) : (
               <span className={card.enabled ? 'text-green-700' : ''}>
@@ -696,6 +697,7 @@ function LoginOutcome({
           {login.error
             ? t(`integrations.cli.loginError.${login.error}`, { button })
             : t('integrations.cli.loginFailed', { button })}
+          {login.error === 'denied' && <> <DocsHelpLink topic="googleAccessBlocked" /></>}
         </p>
       )}
       {notices.map((n) => (
@@ -735,6 +737,7 @@ function NoticeBlock({ notice, cardKey, button }: { notice: Notice; cardKey: str
   const { t, i18n } = useTranslation()
   const guide = NOTICE_GUIDES[notice.key]
   const guideUrl = guide && (i18n.language?.startsWith('zh') ? guide.zh : guide.en)
+  const help = CLI_NOTICE_HELP[notice.key]
   // What the person (often someone else: an admin) does, step by step.
   const stepsKey = `integrations.cli.noticeSteps.${notice.key}`
   const steps = i18n.exists(stepsKey)
@@ -756,7 +759,7 @@ function NoticeBlock({ notice, cardKey, button }: { notice: Notice; cardKey: str
           {steps.map((s, i) => <li key={i}>{s}</li>)}
         </ol>
       )}
-      {(notice.url || guideUrl) && (
+      {(notice.url || guideUrl || help) && (
         <p className="space-x-3">
           {notice.url && (
             <a href={notice.url} target="_blank" rel="noreferrer"
@@ -774,6 +777,7 @@ function NoticeBlock({ notice, cardKey, button }: { notice: Notice; cardKey: str
               })}
             </a>
           )}
+          {help && <DocsHelpLink topic={help} />}
         </p>
       )}
     </div>

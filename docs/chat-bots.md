@@ -143,7 +143,7 @@ Vibe Seller 粘贴并测试。差别只在入口位置和安全设置。
 开通的步骤见[企业微信 / 飞书 / 钉钉](workplace-cli.md)。两者可以同时用：比如 AI 先在企业微信里写好文档，再用群机器人把链接推到运营群。
 </details>
 
-<details markdown="1"><summary><b>测试失败，提示是什么意思？</b></summary>
+<details markdown="1" id="test-errors"><summary><b>测试失败，提示是什么意思？</b></summary>
 
 测试失败时，页面会显示平台返回的原文，括号里是平台的错误码。常见的有：
 
