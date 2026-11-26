@@ -499,6 +499,12 @@ UPDATE_STATUS_KEYS = {
     'ready_since',
     'last_update',
     'refusal',
+    # A release found but never downloaded (app/update_manual.py),
+    # whether the manual guide pops for it now, and the route by hand
+    # it shows — the failure guide renders from these three alone.
+    'download_failure',
+    'manual_due',
+    'manual_update',
 }
 
 RELEASE_NOTES_KEYS = {
@@ -547,6 +553,11 @@ class TestVersionContracts:
         assert body['popup_due'] is False
         assert body['ready_since'] is None
         assert body['last_update'] is None
+        # Nothing failed here, so the guide is quiet — but the route by
+        # hand is always answered, never left for the UI to invent.
+        assert body['download_failure'] is None
+        assert body['manual_due'] is False
+        assert set(body['manual_update']) == {'upgrade_command', 'download_url'}
 
     async def test_release_notes_shape(self, admin_client, monkeypatch):
         """`已更新到 v{x}` asks for the range it just crossed."""

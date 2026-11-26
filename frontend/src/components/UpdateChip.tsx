@@ -1,5 +1,9 @@
 import { useTranslation } from 'react-i18next'
-import { applyFailure, applyFailureLabel } from '../lib/updateOutcome'
+import {
+  applyFailure,
+  applyFailureLabel,
+  downloadFailure,
+} from '../lib/updateOutcome'
 import type { UpdateStatus } from '../types'
 
 const ACTIVE_STATES = ['downloading', 'ready', 'restarting']
@@ -19,7 +23,9 @@ const ACTIVE_STATES = ['downloading', 'ready', 'restarting']
  *
  * A failed or rolled-back apply is reported here too, once the machine
  * is no longer busy with a newer attempt — otherwise a server that came
- * back on the old version would look like nothing ever happened.
+ * back on the old version would look like nothing ever happened. So is
+ * a download that never arrived (`manual_due`): the chip is how the
+ * admin gets back to the manual guide after "稍后".
  */
 export function UpdateChip({
   status,
@@ -37,7 +43,10 @@ export function UpdateChip({
   const active =
     !!status.version && ACTIVE_STATES.includes(status.state)
   const failed = active ? null : applyFailure(status.last_update)
-  if (!active && !failed) return null
+  // Only ever set between attempts (the server's `manual_due`), so it
+  // never competes with a download or a ready update.
+  const download = downloadFailure(status)
+  if (!active && !failed && !download) return null
 
   const version = status.version ?? ''
   const pip = status.path === 'pip'
@@ -50,7 +59,9 @@ export function UpdateChip({
       : null
 
   let label: string
-  if (failed) {
+  if (download) {
+    label = t('update.chipAutoUpdateFailed', { version: download.version })
+  } else if (failed) {
     label = applyFailureLabel(t, failed)
   } else if (status.state === 'ready') {
     // A pip release this machine already rolled back is ready but WILL
@@ -82,7 +93,7 @@ export function UpdateChip({
       className={`mx-3 mb-2 rounded-lg border px-2.5 py-2 text-left text-xs transition-colors ${
         status.state === 'ready'
           ? 'border-indigo-200 bg-indigo-50 font-medium text-indigo-700 hover:bg-indigo-100'
-          : failed
+          : failed || download
             ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
             : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
       }`}
