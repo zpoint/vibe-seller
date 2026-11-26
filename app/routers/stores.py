@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import telemetry
+from app import store_platforms, telemetry
 from app.auth import get_current_user
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
 from app.browser.launch_guards import BrowserBusyError
@@ -153,16 +153,20 @@ async def create_store(
 ):
     async with _STORE_NAMES:
         await _refuse_taken_slug(db, data.name)
+        pc = store_platforms.merge_declared(
+            {},
+            data.platforms or None,
+            data.countries or None,
+            data.platform_countries,
+        )
         store = Store(
             name=data.name,
             browser_backend=data.browser_backend,
             browser_config=json.dumps(data.browser_config),
             ziniao_account_id=data.ziniao_account_id,
             browser_oauth=data.browser_oauth,
-            platforms=json.dumps(data.platforms),
-            countries=json.dumps(data.countries),
-            platform_countries=json.dumps(data.platform_countries),
         )
+        store_platforms.write(store, pc)
         db.add(store)
         await db.commit()
         await db.refresh(store)
@@ -174,8 +178,8 @@ async def create_store(
         TelemetryEvent.STORE_CREATED,
         {
             'browser_backend': data.browser_backend,
-            'platform_count': len(data.platforms or []),
-            'country_count': len(data.countries or []),
+            'platform_count': len(pc),
+            'country_count': len(store_platforms.flat_lists(pc)[1]),
             'is_first_store': existing_count <= 1,
         },
     )
@@ -195,14 +199,15 @@ async def create_store(
         meta_file = store_dir / 'metadata.json'
         if not meta_file.exists():
             payload = json.dumps(
-                {'platforms': data.platform_countries},
+                {'platforms': pc},
                 indent=2,
             )
             await asyncio.to_thread(meta_file.write_text, payload)
         # Scaffold profile files (STORE.md, notes, logistics,
         # browser-routing for Ziniao)
-        platform = data.platforms[0] if data.platforms else ''
-        country = data.countries[0] if data.countries else ''
+        platforms, countries = store_platforms.flat_lists(pc)
+        platform = platforms[0] if platforms else ''
+        country = countries[0] if countries else ''
         await workspace_manager.create_store_profile(
             slug=slug,
             name=data.name,
@@ -298,12 +303,22 @@ async def _update_store(
 
     if data.browser_config is not None:
         store.browser_config = json.dumps(data.browser_config)
-    if data.platforms is not None:
-        store.platforms = json.dumps(data.platforms)
-    if data.countries is not None:
-        store.countries = json.dumps(data.countries)
-    if data.platform_countries is not None:
-        store.platform_countries = json.dumps(data.platform_countries)
+    if (
+        data.platforms is not None
+        or data.countries is not None
+        or data.platform_countries is not None
+    ):
+        store_platforms.write(
+            store,
+            store_platforms.merge_declared(
+                store_platforms.parse_platform_countries(
+                    store.platform_countries
+                ),
+                data.platforms,
+                data.countries,
+                data.platform_countries,
+            ),
+        )
 
     store.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
@@ -480,17 +495,8 @@ async def start_browser(
 
 
 def _to_response(store: Store) -> dict:
-    pc = (
-        json.loads(store.platform_countries) if store.platform_countries else {}
-    )
-    # Compute platforms/countries from platform_countries for
-    # backward compat; fall back to legacy columns if pc is empty.
-    if pc:
-        platforms = list(pc.keys())
-        countries = sorted({c for cs in pc.values() for c in cs})
-    else:
-        platforms = json.loads(store.platforms) if store.platforms else []
-        countries = json.loads(store.countries) if store.countries else []
+    pc = store_platforms.parse_platform_countries(store.platform_countries)
+    platforms, countries = store_platforms.flat_lists(pc)
     return {
         'id': store.id,
         'name': store.name,
