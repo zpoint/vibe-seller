@@ -71,6 +71,10 @@ const baseStatus = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
   ready_since: 1765670400,
   last_update: null,
   refusal: null,
+  // Nothing failed to download: the server's quiet answer.
+  download_failure: null,
+  manual_due: false,
+  manual_update: { upgrade_command: null, download_url: null },
   ...over,
 })
 

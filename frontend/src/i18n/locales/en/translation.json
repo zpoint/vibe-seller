@@ -1280,7 +1280,9 @@
     "highlights": "Highlights",
     "upgradeNotes": "Upgrade notes",
     "expandRest": "Show {{count}} more",
-    "viewFullChangelog": "View the full changelog on GitHub"
+    "viewFullChangelog": "View the full changelog on GitHub",
+    "chipDownloadFailed": "v{{version}} download failed · update by hand",
+    "autoUpdateFailedHint": "Automatic update failed — please update by hand. Reason: {{error}}"
   },
   "waitingTaskBanner": {
     "message_one": "{{count}} task is waiting for your reply",

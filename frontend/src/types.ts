@@ -66,6 +66,26 @@ export interface LastUpdate {
   error_class: string | null
   seconds: number | null
 }
+/** A release the server found and could not download, kept across
+ *  restarts (`<VIBE_HOME>/updates/download-failed.json`). Reported only
+ *  while it is still newer than the running version: updating by hand
+ *  ends it. */
+export interface DownloadFailure {
+  version: string
+  path: UpdatePath
+  stage: string
+  error: string
+  /** Failures of THIS version so far; a newer release starts at 1. */
+  attempts: number
+  /** Epoch seconds of the latest failure. */
+  at: number
+}
+/** How to update by hand: a download link (Windows) or a command
+ *  (macOS/Linux). The same route `/update-check` hands out. */
+export interface ManualRoute {
+  upgrade_command: string | null
+  download_url: string | null
+}
 export interface UpdateStatus {
   supported: boolean
   state: AutoUpdateState
@@ -93,6 +113,12 @@ export interface UpdateStatus {
   /** Epoch seconds when this version reached `ready`, or null. */
   ready_since: number | null
   last_update: LastUpdate | null
+  download_failure: DownloadFailure | null
+  /** The server's answer to "send the admin the manual route now": a
+   *  download failed and no newer attempt is under way. Like
+   *  `popup_due`, the frontend keeps no rule of its own for it. */
+  manual_due: boolean
+  manual_update: ManualRoute
 }
 export interface Store {
   id: string; name: string; browser_backend: string; browser_config: Record<string, unknown>;

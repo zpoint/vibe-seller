@@ -11,7 +11,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app import auto_update, pip_update, telemetry
+from app import auto_update, pip_update, telemetry, update_manual
 from app.ai.claude_backend_manager import agent_manager
 from app.auth import get_current_user, require_admin
 from app.browser.ziniao_utils import get_platform
@@ -138,13 +138,13 @@ async def _compute_update_check() -> dict:
         releases = [r for r in releases if not is_newer(r['version'], latest)]
 
     platform = get_platform()
-    is_windows = platform == 'windows'
     # A nightly lives on the rolling prerelease, not on releases/latest.
     page = (
         NIGHTLY_PAGE_URL
         if channel_of(latest) == 'nightly'
         else RELEASES_PAGE_URL
     )
+    manual = update_manual.route(platform, latest)
     merged = merged_notes(releases)
     return {
         'dev': False,
@@ -153,8 +153,8 @@ async def _compute_update_check() -> dict:
         'latest_version': latest,
         'channel': channel,
         'platform': platform,
-        'upgrade_command': None if is_windows else 'vibe-seller upgrade',
-        'download_url': page if is_windows else None,
+        'upgrade_command': manual['upgrade_command'],
+        'download_url': manual['download_url'],
         'releases_page_url': page,
         # Whether the UI should show the in-app flow (background
         # download + "restart and update") or today's manual popup.
@@ -247,6 +247,16 @@ async def update_status(user=Depends(get_current_user)) -> dict:
         'ready_since': snap['ready_since'],
         'last_update': snap['last_update'],
         'refusal': snap['refusal'],
+        # A release found but never downloaded, while it is still newer
+        # than this server (app/update_manual.py) — and whether the
+        # manual guide should pop for it now.
+        'download_failure': snap['download_failure'],
+        'manual_due': snap['manual_due'],
+        # The route by hand: the same link / command update-check gives.
+        'manual_update': update_manual.route(
+            get_platform(),
+            (snap['download_failure'] or {}).get('version') or APP_VERSION,
+        ),
     }
 
 

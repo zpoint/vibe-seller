@@ -60,6 +60,7 @@ from app import (
     pip_update,
     update_events,
     update_idle,
+    update_manual,
     update_refusal,
     update_windows,
     windows_update as wu,
@@ -107,6 +108,9 @@ _state: dict = {
     # offer. Kept in the state because `snapshot()` answers the UI's
     # every-two-seconds poll without touching the disk (review 4).
     'refusal': None,
+    # The release this machine found and could not download — loaded at
+    # boot, kept across failed checks (app/update_manual.py).
+    'download_failure': None,
 }
 
 #: The detached apply child + its watcher (both paths).
@@ -144,6 +148,11 @@ def snapshot() -> dict:
         bool(refusal)
         or update_idle.popup_due(st['path'] or '', st['ready_since'])
     )
+    # A download that failed is news only while the machine is still
+    # older than that release: an update run by hand ends it here.
+    failure = update_manual.standing(st['download_failure'], get_version())
+    st['download_failure'] = failure
+    st['manual_due'] = update_manual.manual_due(st['state'], failure)
     return st
 
 
@@ -171,6 +180,7 @@ def reset_for_tests() -> None:
             'ready_since': None,
             'last_update': None,
             'refusal': None,
+            'download_failure': None,
         })
     _apply_proc = None
     _apply_task = None
@@ -298,6 +308,9 @@ def _mark_ready(version: str, path: str) -> None:
         if path == pip_update.PATH_PIP
         else None
     )
+    # A download reached ready: the in-app flow is back in charge, and
+    # the manual guide for an earlier failed attempt has nothing to say.
+    update_manual.clear()
     _update(
         state=READY,
         version=version,
@@ -307,6 +320,7 @@ def _mark_ready(version: str, path: str) -> None:
         downloaded_bytes=None,
         total_bytes=None,
         refusal=refusal,
+        download_failure=None,
     )
     if refusal:
         logger.warning(
@@ -334,8 +348,29 @@ def _mark_idle() -> None:
     )
 
 
-def _mark_error(message: str) -> None:
-    _settle(state=ERROR, error=message, downloaded_bytes=None)
+def _mark_fetch_failed(
+    version: str, path: str, stage: str, exc: BaseException
+) -> None:
+    """A release that could not be fetched: ``error``, said in the log,
+    and remembered on disk so the admin is sent the manual route until
+    a later attempt gets it (``app/update_manual.py``). The cycle
+    itself is unchanged — the next one retries as before.
+
+    Blocking file I/O: callers on the event loop use ``to_thread``."""
+    entry = update_manual.note(
+        version, path_kind=path, stage=stage, error=str(exc)
+    )
+    _settle(
+        state=ERROR,
+        error=str(exc),
+        downloaded_bytes=None,
+        download_failure=entry,
+    )
+
+
+def load_download_failure() -> None:
+    """Boot: pick up a failed download a previous process recorded."""
+    _update(download_failure=update_manual.load(get_version()))
 
 
 async def _pypi_target(client: httpx.AsyncClient) -> str | None:
@@ -403,7 +438,13 @@ async def _cycle_unix() -> None:
             to_version=target,
             seconds=time.monotonic() - started,
         )
-        _mark_error(str(exc))
+        await asyncio.to_thread(
+            _mark_fetch_failed,
+            target,
+            pip_update.PATH_PIP,
+            UpdateStage.PREFETCH,
+            exc,
+        )
         return
     update_events.downloaded(
         'ok',
@@ -411,7 +452,7 @@ async def _cycle_unix() -> None:
         to_version=target,
         seconds=time.monotonic() - started,
     )
-    _mark_ready(target, pip_update.PATH_PIP)
+    await asyncio.to_thread(_mark_ready, target, pip_update.PATH_PIP)
 
 
 async def run_cycle() -> None:
@@ -428,6 +469,7 @@ async def watch() -> None:
     """The lifespan background loop: first check after ~60 s, then every
     6 h. Exits silently when the feature is off/unsupported."""
     await asyncio.to_thread(load_last_update)
+    await asyncio.to_thread(load_download_failure)
     if not in_app_update():
         return
     await asyncio.sleep(FIRST_CHECK_DELAY_SECONDS)

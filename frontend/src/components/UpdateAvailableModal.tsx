@@ -1,7 +1,13 @@
 import { useTranslation } from 'react-i18next'
-import { applyFailure, applyFailureLabel } from '../lib/updateOutcome'
+import {
+  applyFailure,
+  applyFailureLabel,
+  downloadFailure,
+  manualRoute,
+} from '../lib/updateOutcome'
 import type {
   LastUpdate,
+  ManualRoute,
   UpdateCheckResult,
   UpdateStatus,
 } from '../types'
@@ -34,6 +40,10 @@ const MB = 1024 * 1024
  * - **Manual (pip / docker / source / switched-off)**: today's popup —
  *   the copy-able upgrade command (macOS/Linux) or the installer
  *   download link (Windows).
+ * - **The download failed**: an in-app install whose background
+ *   download did not arrive gets that same manual popup, plus one line
+ *   saying so and why — popped by the server's `manual_due`, until a
+ *   later attempt succeeds or the admin has updated by hand.
  *
  * All three show the merged release notes (every skipped version's
  * Highlights/Notes by section). A failed or rolled-back apply says so at
@@ -58,6 +68,7 @@ export function UpdateAvailableModal({
   const target = status?.version ?? check.latest_version ?? ''
   const current = check.current_version ?? status?.current_version ?? ''
   const failed = applyFailure(status?.last_update)
+  const route = manualRoute(check, status)
 
   const nightly = check.channel === 'nightly' && (
     <span className="ml-2 align-middle rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
@@ -99,7 +110,7 @@ export function UpdateAvailableModal({
               <p className="mb-2 font-medium">
                 {t('update.restartTimedOut', { version: target })}
               </p>
-              <ManualInstructions check={check} />
+              <ManualInstructions route={route} />
             </div>
           )}
         </div>
@@ -254,11 +265,16 @@ export function UpdateAvailableModal({
     )
   }
 
+  // The background download failed and nothing newer is under way: the
+  // popup is the manual one below — what is new and how to update by
+  // hand — with one line saying the automatic update did not work.
+  const download = downloadFailure(status)
+
   // The previous apply did not land and nothing newer is in flight:
   // this, and not "an update is available", is what the admin opened
   // the dialog for. Members get the same sentence and no way to act on
   // it — the manual route is the admin's to run.
-  if (failed && state === 'idle') {
+  if (failed && state === 'idle' && !download) {
     return (
       <ModalShell>
         <div className="border-b border-gray-100 p-6 pb-4">
@@ -270,7 +286,7 @@ export function UpdateAvailableModal({
               {failed.error}
             </div>
           )}
-          {isAdmin && <ManualInstructions check={check} />}
+          {isAdmin && <ManualInstructions route={route} />}
         </div>
         {notes}
         <div className="flex justify-end border-t border-gray-100 p-4">
@@ -295,18 +311,32 @@ export function UpdateAvailableModal({
         </h2>
         <p className="mt-1 text-sm text-gray-600">
           {t('updateCheck.versionLine', {
-            current: check.current_version,
-            latest: check.latest_version,
+            current,
+            // The check can come back empty on the network that broke
+            // the download; the release that failed is still news.
+            latest: check.latest_version ?? download?.version,
           })}
         </p>
         {failed && <ApplyFailureNote last={failed} />}
-        {supported && state === 'error' && status?.error && (
-          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            <span>{t('update.autoUpdateFailed')}</span>:{' '}
-            <span>{status.error}</span>
-          </div>
+        {download ? (
+          <p
+            data-testid="update-auto-failed-hint"
+            title={download.error}
+            className="mt-2 truncate text-xs text-red-600"
+          >
+            {t('update.autoUpdateFailedHint', { error: download.error })}
+          </p>
+        ) : (
+          supported &&
+          state === 'error' &&
+          status?.error && (
+            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <span>{t('update.autoUpdateFailed')}</span>:{' '}
+              <span>{status.error}</span>
+            </div>
+          )
         )}
-        <ManualInstructions check={check} />
+        <ManualInstructions route={route} />
       </div>
       {notes}
       <div className="flex justify-end border-t border-gray-100 p-4">
@@ -333,23 +363,23 @@ function ApplyFailureNote({ last }: { last: LastUpdate }) {
   )
 }
 
-function ManualInstructions({ check }: { check: UpdateCheckResult }) {
+function ManualInstructions({ route }: { route: ManualRoute }) {
   const { t } = useTranslation()
   const copy = async () => {
-    if (!check.upgrade_command) return
+    if (!route.upgrade_command) return
     try {
-      await navigator.clipboard.writeText(check.upgrade_command)
+      await navigator.clipboard.writeText(route.upgrade_command)
     } catch {
       /* clipboard blocked — user can still select+copy manually */
     }
   }
-  if (check.upgrade_command) {
+  if (route.upgrade_command) {
     return (
       <div className="mt-4">
         <p className="text-sm text-gray-700">{t('updateCheck.macLinuxInstructions')}</p>
         <div className="mt-2 flex items-center gap-2">
           <pre className="flex-1 overflow-auto rounded bg-gray-100 p-2.5 font-mono text-xs text-gray-900">
-            {check.upgrade_command}
+            {route.upgrade_command}
           </pre>
           <button
             onClick={() => void copy()}
@@ -361,12 +391,12 @@ function ManualInstructions({ check }: { check: UpdateCheckResult }) {
       </div>
     )
   }
-  if (check.download_url) {
+  if (route.download_url) {
     return (
       <div className="mt-4">
         <p className="text-sm text-gray-700">{t('updateCheck.windowsInstructions')}</p>
         <a
-          href={check.download_url}
+          href={route.download_url}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-2 inline-block rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GUIDE_SEEN_KEY } from './useOnboardingGuide'
+import { downloadFailure, downloadFailureKey } from '../lib/updateOutcome'
 import type {
   AuthUser,
   ReleaseNotesRange,
@@ -63,6 +64,13 @@ function writeStored(
  *   is visible either way, and a chip click opens the modal regardless
  *   of the flag. "稍后" hides it for this browser session only
  *   (sessionStorage), per version.
+ * - pops the manual guide (the download link / upgrade command this app
+ *   showed before it updated itself) when the server says a download
+ *   failed and nothing newer is under way — `manual_due`. The cycle
+ *   keeps retrying on its own; "稍后" dismisses THAT failure, so the
+ *   guide is back after the next failed attempt, and it is gone for
+ *   good once a download succeeds or the admin updated by hand (the
+ *   server stops reporting it).
  * - never auto-pops while the first-run guide is still un-seen (a
  *   fresh install gets the guide first; the update pops once the
  *   guide is closed — the chip stays visible meanwhile).
@@ -241,7 +249,18 @@ export function useUpdateFlow(currentUser: AuthUser | null) {
     !!updateCheck?.update_available &&
     updateCheck?.in_app_update === false &&
     dismissedVersion !== updateCheck?.latest_version
-  const open = userOpen || readyVisible || manualVisible || applying
+  // The in-app download failed: same manual route, for a supported
+  // install, until a later attempt or the admin's own update ends it.
+  const failure = downloadFailure(status)
+  const failureKey = failure ? downloadFailureKey(failure) : null
+  const failureVisible =
+    !!currentUser &&
+    guideSeen &&
+    !applying &&
+    !!failureKey &&
+    dismissedVersion !== failureKey
+  const open =
+    userOpen || readyVisible || manualVisible || failureVisible || applying
 
   // ── notes for the range the last apply crossed ───────────
   const appliedKey =
@@ -293,13 +312,14 @@ export function useUpdateFlow(currentUser: AuthUser | null) {
   const closeModal = useCallback(() => {
     setUserOpen(false)
     // "稍后" / "知道了": keep the modal from auto-popping again for
-    // this version in this browser session.
-    const v = status?.version ?? updateCheck?.latest_version
+    // this version in this browser session — or, for the failure guide,
+    // for this failed attempt (the next one pops again).
+    const v = failureKey ?? status?.version ?? updateCheck?.latest_version
     if (v) {
       setDismissedVersion(v)
       writeStored(DISMISSED_KEY, v)
     }
-  }, [status, updateCheck])
+  }, [failureKey, status, updateCheck])
 
   const closeUpdated = useCallback(() => setAppliedNotes(null), [])
 

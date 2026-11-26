@@ -871,6 +871,23 @@ admin clicks "重启并更新" in the UI.
   the admin already accepted interrupting running tasks, and the UI
   warned first). A failed upgrade leaves the OLD version serving and
   moves the state to `error`.
+- **A download that fails sends the admin to the manual route**
+  (`app/update_manual.py`). The cycle is unchanged — it retries six
+  hours later — but the failure is now logged, written to
+  `<VIBE_HOME>/updates/download-failed.json` (version, stage, error,
+  `attempts` for that version) and surfaced as `download_failure` +
+  `manual_due` on `update-status`. While it stands and nothing newer is
+  in flight (`idle`/`error`), the UI pops the manual-update popup (the
+  one from before auto-update, still used by installs that cannot update
+  themselves) with one line saying the automatic update failed and why:
+  the installer download link on Windows, `vibe-seller upgrade` on
+  macOS/Linux (`manual_update`, computed server-side so an empty
+  `update-check` cannot leave it blank). A failed CHECK does not clear
+  it (a network that cannot download usually cannot check either), nor
+  does a restart (loaded at boot). It ends when a later download
+  reaches `ready` (`_mark_ready` clears it) or when the running version
+  is no longer older than the failed one — an update run by hand; a
+  stale file is removed at boot.
 - **Release notes** for the whole gap (`app/release_notes.py`): every
   release body between current and latest is parsed
   (`## Highlights` zh/en paired 1:1 across the `---` line, `## Notes`
@@ -878,9 +895,12 @@ admin clicks "重启并更新" in the UI.
   section**, newest version first; a body outside the format becomes
   one highlight item carrying the whole body. `GET
   /api/system/update-check` returns them as `highlights` / `notes`.
-- Tests: unit/workflow (`test_auto_update.py`,
+- Tests: unit/workflow (`test_auto_update.py`, `test_update_manual.py`,
   `test_windows_update_staging.py`, `test_release_notes.py`,
-  `test_wf_update_restart.py`); real end-to-end on Linux/macOS
+  `test_wf_update_restart.py`); the failure guide in a real browser
+  (`tests/e2e/test_update_failure_ui.py`, e2e-mock-cli job — the
+  server's own update answers with the install fields twisted); real
+  end-to-end on Linux/macOS
   (`tests/releases/test_auto_update.sh`, wired into
   `cli-upgrade.yml`) and on the Windows host (auto-update gate in
   `windows-installer.yml`).

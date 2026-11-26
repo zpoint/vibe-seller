@@ -7,7 +7,7 @@ applied as a few MB of wheels or has to go through the ~700 MB installer — and
 it needs the staging machinery behind the second answer, so both live here.
 
 The two modules call each other's privates on purpose: `_mark_ready`,
-`_mark_error` and `_update` are ONE state machine's verbs, and duplicating them
+`_mark_fetch_failed` and `_update` are ONE state machine's verbs, and duplicating them
 here would let the two halves disagree about what ``ready`` means. The import
 is a cycle at module level and is only ever resolved at call time, which
 `tests/unit/test_module_import_cycles.py` pins.
@@ -67,7 +67,7 @@ def stage_installer(offer: dict, started: float) -> None:
             seconds=time.monotonic() - started,
             resumed=had_part,
         )
-        au._mark_error(str(exc))
+        au._mark_fetch_failed(version, pip_update.PATH_INSTALLER, stage, exc)
         return
     update_events.downloaded(
         'ok',
@@ -106,7 +106,9 @@ def pip_ready(version: str, started: float) -> str:
             to_version=version,
             seconds=time.monotonic() - started,
         )
-        au._mark_error(str(exc))
+        au._mark_fetch_failed(
+            version, pip_update.PATH_PIP, UpdateStage.PREFETCH, exc
+        )
         return PIP_FAILED
     reason = pip_update.offline_apply_proven(version)
     if reason:

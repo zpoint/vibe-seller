@@ -89,7 +89,16 @@ merged notes, `in_app_update`), polls `/api/system/update-status`
 modal visibility — no timers setting state in effects: a `ready`
 update auto-opens the modal once per browser session (`稍后` / `知道了`
 hide it via `sessionStorage`, keyed by version; a new browser session
-pops it again), and nothing auto-opens while downloading.
+pops it again), and nothing auto-opens while downloading. When the
+server says a download failed (`manual_due` + `download_failure`) it
+pops the same manual popup an install that cannot update itself gets
+(what is new + the download link / upgrade command), with one extra
+line: `自动更新失败，请手动更新。失败原因：…` (truncated to one line,
+full text on hover). `稍后` dismisses that ATTEMPT (key
+`download-failed:<version>:<attempts>`), so the next failed attempt
+pops it again, and it stops for good once the server no longer reports
+it (a download reached `ready`, or the admin updated by hand). The chip
+turns red (`v{x} 没能自动下载 · 点此手动更新`) and reopens it.
 
 `components/UpdateChip.tsx` is the sidebar footer entry, visible
 whenever `supported` and the state is downloading / ready /
