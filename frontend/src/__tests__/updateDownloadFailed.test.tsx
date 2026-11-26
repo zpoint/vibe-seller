@@ -207,7 +207,7 @@ describe('the chip after a failed download', () => {
   it('says the download failed and reopens the guide', () => {
     const onOpen = renderChip(failed({ state: 'idle', error: null }))
     const chip = screen.getByTestId('update-chip')
-    expect(chip.textContent).toBe('v0.3.6 没能自动下载 · 点此手动更新')
+    expect(chip.textContent).toBe('v0.3.6 自动更新失败 · 点此手动更新')
     expect(chip.className).toContain('bg-red-50')
     fireEvent.click(chip)
     expect(onOpen).toHaveBeenCalled()
@@ -216,7 +216,7 @@ describe('the chip after a failed download', () => {
   it('en wording', () => {
     renderChip(failed(), 'en')
     expect(screen.getByTestId('update-chip').textContent).toBe(
-      'v0.3.6 download failed · update by hand'
+      'v0.3.6 automatic update failed · update by hand'
     )
   })
 

@@ -214,7 +214,7 @@ def test_windows_download_failure_walk(authenticated_page: Page):
     page.get_by_role('button', name='稍后提醒').click()
     expect(guide).to_have_count(0)
     chip = _chip(page)
-    expect(chip).to_have_text('v0.3.6 没能自动下载 · 点此手动更新')
+    expect(chip).to_have_text('v0.3.6 自动更新失败 · 点此手动更新')
     _shot(ev, page, '02-later-leaves-the-chip')
     chip.click()
     expect(guide).to_be_visible()
@@ -339,5 +339,7 @@ def test_mac_guide_gives_the_command_even_without_a_check(
     expect(page.get_by_role('button', name='Copy')).to_be_visible()
     _shot(ev, page, '01-guide-gives-the-command')
     page.get_by_role('button', name='Remind me later').click()
-    expect(_chip(page)).to_have_text('v0.3.6 download failed · update by hand')
+    expect(_chip(page)).to_have_text(
+        'v0.3.6 automatic update failed · update by hand'
+    )
     _shot(ev, page, '02-chip-after-later')

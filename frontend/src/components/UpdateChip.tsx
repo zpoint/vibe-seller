@@ -60,7 +60,7 @@ export function UpdateChip({
 
   let label: string
   if (download) {
-    label = t('update.chipDownloadFailed', { version: download.version })
+    label = t('update.chipAutoUpdateFailed', { version: download.version })
   } else if (failed) {
     label = applyFailureLabel(t, failed)
   } else if (status.state === 'ready') {

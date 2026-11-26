@@ -98,7 +98,7 @@ full text on hover). `稍后` dismisses that ATTEMPT (key
 `download-failed:<version>:<attempts>`), so the next failed attempt
 pops it again, and it stops for good once the server no longer reports
 it (a download reached `ready`, or the admin updated by hand). The chip
-turns red (`v{x} 没能自动下载 · 点此手动更新`) and reopens it.
+turns red (`v{x} 自动更新失败 · 点此手动更新`) and reopens it.
 
 `components/UpdateChip.tsx` is the sidebar footer entry, visible
 whenever `supported` and the state is downloading / ready /

@@ -1283,7 +1283,7 @@
     "upgradeNotes": "升级须知",
     "expandRest": "展开其余 {{count}} 条",
     "viewFullChangelog": "在 GitHub 查看完整更新日志",
-    "chipDownloadFailed": "v{{version}} 没能自动下载 · 点此手动更新",
+    "chipAutoUpdateFailed": "v{{version}} 自动更新失败 · 点此手动更新",
     "autoUpdateFailedHint": "自动更新失败，请手动更新。失败原因：{{error}}"
   },
   "waitingTaskBanner": {
