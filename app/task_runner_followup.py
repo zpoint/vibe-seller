@@ -13,7 +13,6 @@ import logging
 
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.turn_hold_budget import reset_ledger
-from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.store import Store
@@ -64,7 +63,7 @@ async def spawn_followup_agent(
             profile_id=profile_id,
             resume=resume,
             auto_approve_plan=auto_approve_plan,
-            store_slug=(_store_slug(store.name, store.id) if store else None),
+            store_slug=(store.slug if store else None),
             # The conversation router already persisted the user's
             # message before spawning us — persisting the prompt
             # again in AgentSession.start() duplicated every

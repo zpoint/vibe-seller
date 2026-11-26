@@ -27,7 +27,6 @@ from app.ai.stop_gates.ad_tables import (
     EXECUTION_COLUMNS,
     read_table,
 )
-from app.browser.manager import store_slug
 from app.config import VIBE_SELLER_DIR
 from tests.e2e.conftest import BASE_URL
 from tests.e2e.e2e_helpers import (
@@ -177,12 +176,9 @@ def test_a_stated_standard_is_recorded_and_honoured(api_client, console):
     )
     _finish(api_client, task['id'])
 
-    notes = (
-        VIBE_SELLER_DIR
-        / 'stores'
-        / store_slug(store['name'], store['id'])
-        / 'notes.md'
-    ).read_text(encoding='utf-8')
+    notes = (VIBE_SELLER_DIR / 'stores' / store['slug'] / 'notes.md').read_text(
+        encoding='utf-8'
+    )
     rules = resolve_rules(notes)
     assert rules['acos_no_lower'] == 20, notes
     proposals = [

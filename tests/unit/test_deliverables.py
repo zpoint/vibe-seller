@@ -615,11 +615,10 @@ def _monthly_set(root, months=(OCT,)):
     runs — and so still proves the old check refused these submissions —
     on the commit before the declaration existed.
     """
-    from app.browser.wrapper import store_slug  # noqa: PLC0415
-
     store = types.SimpleNamespace(
         id='store-1',
         name='acme',
+        slug='acme',
         platform_countries=json.dumps(PLATFORM_COUNTRIES),
         capabilities='{}',
     )
@@ -628,7 +627,7 @@ def _monthly_set(root, months=(OCT,)):
     for month in months:
         for entry in derive_manifest(
             store,
-            store_slug('acme', 'store-1'),
+            store.slug,
             month,
             fee_month=month_before(month),
         ):

@@ -25,6 +25,7 @@ def _store(backend: str) -> Store:
     return Store(
         id='store-1',
         name='Alpha',
+        slug='alpha',
         browser_backend=backend,
         browser_config='{}',
         platforms='["amazon"]',

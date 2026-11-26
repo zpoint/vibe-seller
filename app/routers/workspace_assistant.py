@@ -8,7 +8,6 @@ from app import telemetry
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.workspace_assistant import ws_assistant_manager
 from app.auth import get_current_user
-from app.browser.manager import store_slug
 from app.database import async_session
 from app.models.store import Store
 from app.models.user import User
@@ -35,7 +34,7 @@ async def _build_system_prompt() -> str:
             if stores:
                 lines = []
                 for s in stores:
-                    slug = store_slug(s.name, s.id)
+                    slug = s.slug
                     backend = s.browser_backend or 'chrome'
                     lines.append(
                         f'- **{s.name}** (slug: `{slug}`, backend: {backend})'

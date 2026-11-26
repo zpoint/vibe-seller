@@ -9,7 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
-from app.browser.manager import store_slug
 from app.config import DATA_DIR, VIBE_SELLER_DIR
 
 
@@ -54,11 +53,11 @@ def child_task_ids(task_id: str) -> tuple[str, ...]:
 def store_slug_for(task_id: str) -> str | None:
     """The task's store slug, or None for a store-less task."""
     row = _query(
-        'SELECT s.name, s.id FROM tasks t JOIN stores s ON s.id = t.store_id '
+        'SELECT s.slug FROM tasks t JOIN stores s ON s.id = t.store_id '
         'WHERE t.id = ?',
         (task_id,),
     )
-    return store_slug(row[0], row[1]) if row else None
+    return row[0] if row and row[0] else None
 
 
 def task_started_at(task_id: str) -> str | None:

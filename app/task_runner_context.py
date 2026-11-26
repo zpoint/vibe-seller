@@ -12,7 +12,6 @@ from app import ads_routing
 from app.ai.unseen_images import agent_note, profile_model, unseen_images
 from app.browser.base import antidetect_display_name, is_antidetect
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
-from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
 from app.email.access import (
     MailboxAccess,
@@ -131,7 +130,7 @@ def build_store_context(
     task_platform: str | None = None,
     task_country: str | None = None,
 ) -> str:
-    slug = _store_slug(store.name, store.id)
+    slug = store.slug
     backend = store.browser_backend
     browser_name = antidetect_display_name(backend)
     if is_antidetect(backend):

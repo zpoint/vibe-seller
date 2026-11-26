@@ -6,7 +6,7 @@ from app import knowledge_contract
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.turn_hold_budget import reset_ledger
-from app.browser.manager import browser_manager, store_slug as _store_slug
+from app.browser.manager import browser_manager
 from app.config import VIBE_SELLER_DIR
 from app.database import async_session
 from app.email.access import MailboxAccess, mailboxes_for
@@ -119,11 +119,7 @@ async def auto_run_task(task_id: str, store: Store | None):
                 ):
                     cleanup_pending = cleanup_scope(task.store_id)
             if cleanup_pending is not None:
-                tier_slug = (
-                    None
-                    if task.store_id is None
-                    else _store_slug(store.name, store.id)
-                )
+                tier_slug = None if task.store_id is None else store.slug
                 knowledge_contract.watch_writes(task_id)
                 cleanup_snapshot = await asyncio.to_thread(
                     knowledge_contract.snapshot_tier, VIBE_SELLER_DIR, tier_slug
@@ -156,7 +152,7 @@ async def auto_run_task(task_id: str, store: Store | None):
                 )
             else:
                 # L3: per-store catalog only
-                store_slug = _store_slug(store.name, store.id)
+                store_slug = store.slug
                 _, l3_stale = knowledge_sync.catalog_needs_update(
                     store_slug,
                 )
@@ -263,7 +259,7 @@ async def auto_run_task(task_id: str, store: Store | None):
             # wording here: the fanout no-sub-tasks rule is enforced on
             # the action, at POST /api/tasks.
             auto_approve_plan=plan_auto_accepted(task, schedule),
-            store_slug=(_store_slug(store.name, store.id) if store else None),
+            store_slug=(store.slug if store else None),
             on_start=_on_start,
             resume=resume_existing_session,
             persist_prompt=not bundle.answered,

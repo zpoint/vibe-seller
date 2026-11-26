@@ -93,6 +93,7 @@ PLAINTEXT_FIELDS = frozenset({
     # grants nothing without the local Ziniao client.
     'id',
     'name',
+    'slug',  # the store's folder name under stores/
     'browser_backend',
     'browser_config',
     'ziniao_account_id',

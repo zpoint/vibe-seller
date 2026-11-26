@@ -34,7 +34,6 @@ import datetime as _dt
 from pathlib import Path
 
 from app.ai.stop_gates import GateDeny
-from app.browser.wrapper import store_slug
 from app.deliverables.declarations import declared_months
 from app.deliverables.manifest import (
     Deliverable,
@@ -97,7 +96,7 @@ async def check_deliverables(
         return None
 
     today = today or _dt.date.today()
-    slug = store_slug(store.name, store.id)
+    slug = store.slug
 
     manifest = manifest_for_months(store, slug, months)
     if not manifest:

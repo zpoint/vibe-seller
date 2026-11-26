@@ -31,7 +31,6 @@ import time
 import httpx
 import pytest
 
-from app.browser.manager import store_slug as _store_slug
 from app.knowledge_contract import KNOWLEDGE_CONTRACT, store_scope
 from tests.e2e.e2e_helpers import create_store
 from tests.e2e.own_server import owned_agent_stack
@@ -134,7 +133,7 @@ def test_first_catalog_sync_after_upgrade_removes_only_outdated_notes():
         countries=['US'],
         platform_countries={'amazon': ['US']},
     )
-    slug = _store_slug(store['name'], store['id'])
+    slug = store['slug']
     notes = STORES_DIR / slug / 'notes.md'
     write_file(notes, _notes())
     _owe_cleanup(store['id'])

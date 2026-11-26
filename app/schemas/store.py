@@ -25,6 +25,9 @@ class StoreResponse(BaseModel):
 
     id: str
     name: str
+    # The store's folder name (``stores/<slug>/``). Fixed at creation;
+    # a rename keeps it. See app/store_slugs.py.
+    slug: str
     browser_backend: str
     browser_config: dict
     ziniao_account_id: str | None

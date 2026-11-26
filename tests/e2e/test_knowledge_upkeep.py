@@ -13,7 +13,6 @@ import time
 
 import pytest
 
-from app.browser.manager import store_slug
 from app.config import VIBE_SELLER_DIR
 from tests.e2e.e2e_helpers import create_store, create_task, poll_task_status
 
@@ -60,7 +59,7 @@ def site():
 def _seed_store(api_client, name: str, site: str) -> tuple[dict, Path]:
     """A store whose notes say where tickets go — wrongly."""
     store = create_store(api_client, name)
-    root = STORES_DIR / store_slug(store['name'], store['id'])
+    root = STORES_DIR / store['slug']
     root.mkdir(parents=True, exist_ok=True)
     notes = root / 'notes.md'
     notes.write_text(

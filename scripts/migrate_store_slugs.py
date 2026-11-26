@@ -1,8 +1,9 @@
 """One-shot migration: rename on-disk store dirs whose slug changed.
 
 Run with the server stopped. Idempotent and re-runnable — for each
-store in the DB we compute the new slug with the current algorithm
-(``store_slug(name, id)``) and compare against the directories under
+store in the DB we take its stored slug (``Store.slug``, filled by the
+server's boot migration, app/store_slugs.py) and compare against the
+directories under
 ``~/.vibe-seller/stores``, ``bin``, and ``browser_profiles``. Any
 mismatched directory is moved to the new slug; targets that already
 exist are skipped.
@@ -23,7 +24,6 @@ import sys
 
 from sqlalchemy import select
 
-from app.browser.manager import store_slug
 from app.config import VIBE_SELLER_DIR
 from app.database import async_session
 from app.models.store import Store
@@ -69,7 +69,9 @@ async def _collect_moves() -> list[tuple[str, str, str]]:
         stores = result.scalars().all()
 
     for store in stores:
-        new = store_slug(store.name, store.id)
+        new = store.slug
+        if not new:
+            continue  # start the server once first: it assigns slugs
         # Enumerate every shape a previous algorithm could have
         # written to disk: the legacy UNICODE-preserving slug, the
         # raw name, a lower-cased name, and the new slug itself.

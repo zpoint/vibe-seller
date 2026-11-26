@@ -13,7 +13,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
-from app.browser.wrapper import store_slug
 from app.email.access import (
     NO_MAILBOX,
     NO_STORE_MAILBOX,
@@ -36,10 +35,9 @@ async def resolve_store(db: AsyncSession, store: str) -> Store:
     """
     found = await db.get(Store, store)
     if found is None:
-        stores = (await db.execute(select(Store))).scalars().all()
-        found = next(
-            (s for s in stores if store_slug(s.name, s.id) == store), None
-        )
+        found = (
+            await db.execute(select(Store).where(Store.slug == store))
+        ).scalar_one_or_none()
     if found is None:
         raise HTTPException(
             status_code=404,

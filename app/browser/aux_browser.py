@@ -28,7 +28,6 @@ import logging
 
 from app.browser.cdp_probe import cdp_proxy_alive
 from app.browser.chrome import ChromeBackend, _free_port
-from app.browser.manager import store_slug
 from app.config import LOCALHOST
 from app.models.store import Store
 
@@ -78,7 +77,7 @@ async def start_aux(store: Store, headless: bool) -> dict:
                     exc_info=True,
                 )
 
-        slug = store_slug(store.name, store.id)
+        slug = store.slug
         port = _free_port()
         backend = ChromeBackend()
         try:

@@ -30,7 +30,6 @@ import warnings
 import httpx
 import pytest
 
-from app.browser.manager import store_slug as _store_slug
 from app.models.schedule_constants import SYSTEM_CATALOG_SYNC_ID
 from tests.e2e import e2e_helpers
 from tests.e2e.e2e_helpers import (
@@ -339,8 +338,8 @@ class TestCatalogSystem:
         Uses one knowledge file with a SECRET so the same catalog
         sync serves both structure verification and agent testing.
         """
-        slug_a = _store_slug(store_a['name'])
-        slug_b = _store_slug(store_b['name'])
+        slug_a = store_a['slug']
+        slug_b = store_b['slug']
 
         # ── Setup: write knowledge + store files ──
         # Enforce the invariant "exactly one verification secret exists".

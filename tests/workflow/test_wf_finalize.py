@@ -26,7 +26,6 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select, text
 
-from app.browser.manager import store_slug
 from app.models.schedule import Schedule
 from app.models.store import Store
 from app.models.task import Task
@@ -273,18 +272,8 @@ class TestFanoutFinalize:
         payload = json.loads(results_path.read_text(encoding='utf-8'))
         assert payload['completed'] == 2 and payload['failed'] == 2
         by_slug = {c['store_slug']: c for c in payload['children']}
-        assert (
-            by_slug[store_slug(four_stores[0]['name'], four_stores[0]['id'])][
-                'status'
-            ]
-            == TaskStatus.COMPLETED
-        )
-        assert (
-            by_slug[store_slug(four_stores[2]['name'], four_stores[2]['id'])][
-                'status'
-            ]
-            == TaskStatus.FAILED
-        )
+        assert by_slug[four_stores[0]['slug']]['status'] == TaskStatus.COMPLETED
+        assert by_slug[four_stores[2]['slug']]['status'] == TaskStatus.FAILED
 
         # ── Run the parent reduce, then assert its output ──
         install_fake_agent.scenarios[finalize_id] = FakeAgentScenario(
@@ -302,12 +291,8 @@ class TestFanoutFinalize:
         assert '2 succeeded, 2 failed' in summary
         assert '4 succeeded' not in summary
         # Failed stores named.
-        assert (
-            store_slug(four_stores[2]['name'], four_stores[2]['id']) in summary
-        )
-        assert (
-            store_slug(four_stores[3]['name'], four_stores[3]['id']) in summary
-        )
+        assert four_stores[2]['slug'] in summary
+        assert four_stores[3]['slug'] in summary
 
         # Gathered destination holds BOTH successes' output, neither failure.
         gathered = (root / 'tasks' / finalize_id / 'gathered.txt').read_text()

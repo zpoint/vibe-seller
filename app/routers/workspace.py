@@ -14,7 +14,6 @@ from app import (
 )
 from app.ai.stop_gates import forget_attempt, record_attempt
 from app.auth import get_current_user
-from app.browser.manager import store_slug
 from app.browser.wrapper import validate_store_slug
 from app.database import get_db
 from app.models.schedule import Schedule
@@ -122,7 +121,7 @@ async def _cleanup_write_error(
     slug = None
     if task.store_id is not None:
         store = await db.get(Store, task.store_id)
-        slug = store_slug(store.name, store.id) if store else ''
+        slug = store.slug if store else ''
     err = knowledge_contract.tier_error(path, slug)
     if err:
         return err

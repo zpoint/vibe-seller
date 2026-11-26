@@ -20,7 +20,6 @@ from starlette.background import BackgroundTask
 
 from app.ai.stop_gates.ad_rules import resolve_rules
 from app.auth import get_current_user
-from app.browser.manager import store_slug
 from app.database import get_db
 from app.events.bus import event_bus
 from app.models.store import Store
@@ -187,7 +186,7 @@ async def resolve_store_rules(db, store_id: str | None) -> dict | None:
     store = await db.get(Store, store_id)
     if not store:
         return None
-    slug = store_slug(store.name, store.id)
+    slug = store.slug
     notes_path = VIBE_SELLER_DIR / 'stores' / slug / 'notes.md'
     try:
         notes_text = await asyncio.to_thread(

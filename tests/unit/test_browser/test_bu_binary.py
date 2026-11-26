@@ -148,7 +148,11 @@ class TestGeneratedWrappers:
         bin_dir = tmp_path / 'bin'
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             write_browser_use_wrapper(
-                'test-store', 'chrome', 9222, store_id='store-1'
+                'test-store',
+                'chrome',
+                9222,
+                store_id='store-1',
+                slug='test-store',
             )
         wrapper = next(bin_dir.glob('*/browser-use'))
         real_bu = self._real_bu_of(wrapper.read_text())
@@ -186,6 +190,10 @@ class TestGeneratedWrappers:
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             with pytest.raises(BrowserUseNotFound):
                 write_browser_use_wrapper(
-                    'test-store', 'chrome', 9222, store_id='store-1'
+                    'test-store',
+                    'chrome',
+                    9222,
+                    store_id='store-1',
+                    slug='test-store',
                 )
         assert not list(bin_dir.glob('*/browser-use'))

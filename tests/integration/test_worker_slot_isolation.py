@@ -97,7 +97,9 @@ async def slot_env(_browser, tmp_path):
     bin_dir = tmp_path / 'bin'
     real_bin, wrapper_mod._BIN_DIR = wrapper_mod._BIN_DIR, bin_dir
     try:
-        write_browser_use_wrapper(SLUG, 'chrome', pp, store_id='wslot-store')
+        write_browser_use_wrapper(
+            SLUG, 'chrome', pp, store_id='wslot-store', slug=SLUG
+        )
     finally:
         wrapper_mod._BIN_DIR = real_bin
 
