@@ -25,7 +25,6 @@ from app.browser.launch_guards import (
 from app.browser.web_wrapper import write_web_browser_use_wrapper
 from app.browser.wrapper import (
     remove_browser_use_wrapper,
-    store_slug,
     wipe_generated_wrappers,
     write_browser_use_wrapper,
 )
@@ -412,6 +411,7 @@ class BrowserManager:
                     api_token=token,
                     store_id=store.id,
                     headless=headless,
+                    slug=store.slug,
                 )
                 return session
 
@@ -454,7 +454,7 @@ class BrowserManager:
         existing_port = session.proxy_port if session else None
         proxy_port = self._allocate_proxy_port(store.id, existing_port)
         browser_config['proxy_port'] = proxy_port
-        browser_config['store_slug'] = store_slug(store.name, store.id)
+        browser_config['store_slug'] = store.slug
 
         # System-wide headless preference from app_settings. The Chrome
         # backend (also used as the Ziniao "aux" session for non-Amazon
@@ -483,6 +483,7 @@ class BrowserManager:
             api_token=token,
             store_id=store.id,
             headless=bool(browser_config.get('headless', False)),
+            slug=store.slug,
         )
 
         logger.info(
@@ -539,15 +540,6 @@ class BrowserManager:
         async with self._lock.hold(f'stop_session({store.name})'):
             await self._stop_session_locked(store, db)
 
-    def remove_browser_entry(
-        self,
-        store_name: str,
-        backend: str,
-        store_id: str | None = None,
-    ) -> None:
-        """Remove a store's browser-use wrapper."""
-        remove_browser_use_wrapper(store_name, store_id)
-
     async def _stop_session_locked(
         self, store: Store, db: AsyncSession
     ) -> None:
@@ -567,9 +559,7 @@ class BrowserManager:
             self._active_ziniao_account_id = None
 
         # Remove browser-use wrapper
-        await asyncio.to_thread(
-            remove_browser_use_wrapper, store.name, store.id
-        )
+        await asyncio.to_thread(remove_browser_use_wrapper, store.slug)
 
         result = await db.execute(
             select(BrowserSession).where(BrowserSession.store_id == store.id)
@@ -618,6 +608,7 @@ class BrowserManager:
                 api_token=token,
                 store_id=store.id,
                 headless=headless,
+                slug=store.slug,
             )
 
     async def _web_proxy_port(self, db: AsyncSession) -> int:

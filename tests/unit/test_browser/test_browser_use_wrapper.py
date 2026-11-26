@@ -19,7 +19,7 @@ from unittest import mock
 
 import pytest
 
-from app.browser.manager import store_slug, write_browser_use_wrapper
+from app.browser.manager import write_browser_use_wrapper
 from app.browser.web_wrapper import write_web_browser_use_wrapper
 from app.config import WEB_BROWSER_SLUG
 
@@ -43,16 +43,20 @@ def _generate_wrapper(
     backend: str = 'ziniao',
     proxy_port: int | None = 9222,
     store_id: str = 'store-1',
+    slug: str | None = None,
 ) -> Path:
     """Generate a wrapper with REAL_BU pointed at the env-printing stub
     and curl stubbed to /usr/bin/true so auto-start passes offline."""
     bin_dir = tmp_path / 'bin'
     with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
         write_browser_use_wrapper(
-            store_name, backend, proxy_port, store_id=store_id
+            store_name,
+            backend,
+            proxy_port,
+            store_id=store_id,
+            slug=slug or store_name,
         )
-    slug = store_slug(store_name)
-    wrapper = bin_dir / slug / 'browser-use'
+    wrapper = bin_dir / (slug or store_name) / 'browser-use'
     content = wrapper.read_text()
     content = re.sub(
         r'REAL_BU="[^"]*"', f'REAL_BU="{_stub_real_bu(tmp_path)}"', content
@@ -270,7 +274,7 @@ class TestWrapperEnvInjection:
         bin_dir = tmp_path / 'bin'
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             write_browser_use_wrapper(
-                'test-store', 'ziniao', 9222, store_id='s1'
+                'test-store', 'ziniao', 9222, store_id='s1', slug='test-store'
             )
         content = (bin_dir / 'test-store' / 'browser-use').read_text()
         assert 'export BU_NAME="$SESSION"' in content
@@ -285,7 +289,9 @@ class TestWrapperEnvInjection:
     def test_chrome_wrapper_injects_bu_env(self, tmp_path: Path):
         bin_dir = tmp_path / 'bin'
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
-            write_browser_use_wrapper('storec', 'chrome', 9222, store_id='s2')
+            write_browser_use_wrapper(
+                'storec', 'chrome', 9222, store_id='s2', slug='storec'
+            )
         content = (bin_dir / 'storec' / 'browser-use').read_text()
         assert 'export BU_NAME="$SESSION"' in content
         assert 'export BU_CDP_WS="ws://' in content
@@ -317,7 +323,7 @@ class TestWrapperEnvInjection:
         bin_dir = tmp_path / 'bin'
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             write_browser_use_wrapper(
-                'test-store', 'ziniao', 9222, store_id='s1'
+                'test-store', 'ziniao', 9222, store_id='s1', slug='test-store'
             )
         content = (bin_dir / 'test-store' / 'browser-use').read_text()
         assert '--max-time 90' in content
@@ -333,7 +339,7 @@ class TestWrapperWedgeRecovery:
         bin_dir = tmp_path / 'bin'
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             write_browser_use_wrapper(
-                'test-store', 'ziniao', 9222, store_id='s1'
+                'test-store', 'ziniao', 9222, store_id='s1', slug='test-store'
             )
         content = (bin_dir / 'test-store' / 'browser-use').read_text()
         # Hard timeout via perl alarm (macOS has no GNU timeout).
@@ -364,7 +370,7 @@ class TestWrapperWedgeRecovery:
         bin_dir = tmp_path / 'bin'
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             write_browser_use_wrapper(
-                'test-store', 'ziniao', 9222, store_id='s1'
+                'test-store', 'ziniao', 9222, store_id='s1', slug='test-store'
             )
         content = (bin_dir / 'test-store' / 'browser-use').read_text()
         assert '[ "$SESSION" != "test-store-aux" ]' not in content
@@ -401,9 +407,9 @@ class TestWrapperWedgeRecovery:
         bin_dir = tmp_path / 'bin'
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             write_browser_use_wrapper(
-                'test-store', 'ziniao', 9222, store_id='s1'
+                'test-store', 'ziniao', 9222, store_id='s1', slug='test-store'
             )
-        wrapper = bin_dir / store_slug('test-store') / 'browser-use'
+        wrapper = bin_dir / 'test-store' / 'browser-use'
         content = wrapper.read_text()
         content = re.sub(r'REAL_BU="[^"]*"', f'REAL_BU="{stub}"', content)
         content = content.replace('curl ', '/usr/bin/true ')

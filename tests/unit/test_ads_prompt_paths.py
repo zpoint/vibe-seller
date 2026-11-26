@@ -61,6 +61,7 @@ def _store(store_id: str, name: str, authorized: bool) -> Store:
     return Store(
         id=store_id,
         name=name,
+        slug=name,
         browser_backend='chrome',
         browser_config='{"headless": true}',
         platforms='["amazon"]',

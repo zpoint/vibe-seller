@@ -22,6 +22,7 @@ import re
 import shutil
 import stat
 import textwrap
+import unicodedata
 
 from app.browser.base import is_antidetect
 from app.browser.bu_binary import resolve_browser_use
@@ -89,30 +90,7 @@ WRAPPER_FORMAT_MARKER = 'vibe-seller-wrapper-format:'
 WEDGE_UNRECOVERABLE_RC = 75
 
 
-def store_slug(name: str, store_id: str | None = None) -> str:
-    """Slugify a store name for use in paths and sessions.
-
-    Produces an ASCII-only slug because ``BU_NAME`` must match
-    ``[A-Za-z0-9_-]{1,64}`` (browser_harness ``_check``). Non-ASCII
-    names (Chinese, Japanese, ...) fall back to ``store-<id_prefix>``
-    when their ASCII reduction is empty, so sessions, bin wrappers, and
-    on-disk directories stay portable. Pure-ASCII names keep the same
-    slug they had before this guard was introduced.
-    """
-    slug = re.sub(r'[^a-zA-Z0-9_-]', '-', name.lower())
-    slug = re.sub(r'_', '-', slug)
-    slug = re.sub(r'-+', '-', slug).strip('-')
-    if slug:
-        return slug
-    if not store_id:
-        raise ValueError(
-            f'store_slug: name {name!r} reduces to an empty ASCII '
-            'slug and no store_id was provided for fallback'
-        )
-    return f'store-{store_id[:8]}'
-
-
-# The shape every ``store_slug`` output has: lowercase alphanumerics
+# The shape every store slug has (app/store_slugs.py): lowercase alphanumerics
 # and hyphens, no leading/trailing/doubled hyphen. The single source
 # of truth for what a stores/<slug>/ path segment may contain: routes
 # that take a caller-supplied slug validate it against this pattern
@@ -123,10 +101,10 @@ STORE_SLUG_RE = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*')
 def validate_store_slug(slug: str) -> str:
     """Reject a caller-supplied slug that is not a store-slug shape.
 
-    ``routers/stores.py`` never takes a slug from the caller — it
-    DERIVES one with :func:`store_slug`, so every on-disk store path
-    there is this shape by construction. The workspace store-profile
-    route is the one surface where a raw slug string arrives (REST and
+    ``routers/stores.py`` never takes a slug from the caller — it uses
+    the stored ``Store.slug`` (app/store_slugs.py), so every on-disk
+    store path there is this shape by construction. The workspace
+    store-profile route is the one surface where a raw slug string arrives (REST and
     MCP alike), and it flows straight into ``root / 'stores' / slug``:
     an unvalidated ``'/tmp/evil'`` or ``'../../..'`` writes outside
     the workspace. Rejecting everything outside the derived alphabet
@@ -143,6 +121,19 @@ def validate_store_slug(slug: str) -> str:
     return slug
 
 
+def _comment_safe(text: str) -> str:
+    """*text* fit for one line of a bash comment.
+
+    A line break would end the comment, and the rest of the line would
+    run as a command. Store names are saved as typed, so one can hold a
+    line break; the script is where that must stop mattering.
+    """
+    return ''.join(
+        ' ' if ch.isspace() or unicodedata.category(ch) == 'Cc' else ch
+        for ch in text
+    )
+
+
 def write_browser_use_wrapper(
     store_name: str,
     backend: str,
@@ -151,6 +142,8 @@ def write_browser_use_wrapper(
     api_token: str | None = None,
     store_id: str | None = None,
     headless: bool = True,
+    *,
+    slug: str,
 ):
     """Generate a per-store bash wrapper around browser-use 0.13.
 
@@ -177,8 +170,10 @@ def write_browser_use_wrapper(
     used here: 0.13 attaches to the Chrome our backend already launched
     (via the CDP proxy), so window visibility is the backend's concern,
     not a browser-use flag.
+
+    ``slug`` is the store's stored ``Store.slug`` — never derived from
+    the name here (app/store_slugs.py).
     """
-    slug = store_slug(store_name, store_id)
     wrapper_dir = _BIN_DIR / slug
     wrapper_dir.mkdir(parents=True, exist_ok=True)
     wrapper_path = wrapper_dir / 'browser-use'
@@ -457,7 +452,7 @@ def write_browser_use_wrapper(
 
     script = textwrap.dedent(f"""\
         #!/usr/bin/env bash
-        # Auto-generated browser-use wrapper for store: {store_name}
+        # Auto-generated browser-use wrapper for store: {_comment_safe(store_name)}
         # {WRAPPER_FORMAT_MARKER} {WRAPPER_FORMAT_VERSION}
         # Do not edit — regenerated on session start.
         set -euo pipefail
@@ -580,7 +575,7 @@ def write_browser_use_wrapper(
 def _cleanup_legacy_store_dirs(store_name: str, slug: str) -> None:
     """Remove pre-slug-guard artifacts named after the raw store name.
 
-    Before ``store_slug`` gained the ASCII guard, non-ASCII store names
+    Before the slug gained its ASCII guard, non-ASCII store names
     produced wrapper/download dirs named after the raw name. The fixed
     slug regenerates everything under the id-fallback dir but the stale
     dirs survive — and mislead agents into watching an empty downloads
@@ -595,6 +590,12 @@ def _cleanup_legacy_store_dirs(store_name: str, slug: str) -> None:
         return
     if store_name in ('.', '..'):
         return  # would resolve to the base dir itself or its parent
+    if store_name.isascii():
+        # Only non-ASCII names ever had raw-name dirs. An ASCII one
+        # ("1", "ACME") names some store's SLUG dir — on a case-blind
+        # disk too — possibly ANOTHER store's, now that a store whose
+        # readable slug is taken gets a different one.
+        return
     legacy_bin = _BIN_DIR / store_name
     if legacy_bin.parent != _BIN_DIR:
         return  # name contains path separators — never traverse
@@ -612,7 +613,9 @@ def _cleanup_legacy_store_dirs(store_name: str, slug: str) -> None:
             head = legacy_wrapper.read_text(errors='replace')[:512]
         except OSError:
             head = ''
-        if f'wrapper for store: {store_name}' in head:
+        # The exact header line: a substring match took the wrapper of
+        # "云帆科技二店" for one of "云帆科技".
+        if f'wrapper for store: {store_name}\n' in head:
             shutil.rmtree(legacy_bin, ignore_errors=True)
             logger.info(
                 'Removed stale pre-slug-guard wrapper dir: %s '
@@ -641,9 +644,8 @@ def _cleanup_legacy_store_dirs(store_name: str, slug: str) -> None:
             pass  # non-empty — leave user files alone
 
 
-def remove_browser_use_wrapper(store_name: str, store_id: str | None = None):
+def remove_browser_use_wrapper(slug: str):
     """Remove the per-store browser-use wrapper directory."""
-    slug = store_slug(store_name, store_id)
     wrapper_dir = _BIN_DIR / slug
     if wrapper_dir.exists():
         shutil.rmtree(wrapper_dir)

@@ -8,7 +8,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import knowledge_contract, vision
-from app.browser.manager import store_slug as _store_slug
 from app.custom_mcp import load_prompt_servers, prompt_note
 from app.database import async_session
 from app.email.access import MailboxAccess, mailboxes_for
@@ -186,9 +185,7 @@ async def build_system_extra(
                 else CATALOG_RESTRICTION_PROMPT_L3
             )
             if store is not None:
-                guidance = guidance.replace(
-                    '<slug>', _store_slug(store.name, store.id)
-                )
+                guidance = guidance.replace('<slug>', store.slug)
     else:
         guidance = ''
     base = base.replace('{workspace_guidance}', guidance)
@@ -396,9 +393,7 @@ async def build_system_extra(
 
     result = '\n\n'.join(p.strip() for p in parts if p and p.strip())
     if store:
-        result = render_prompt(
-            result, store_slug=_store_slug(store.name, store.id)
-        )
+        result = render_prompt(result, store_slug=store.slug)
     return PromptBundle(prompt=prompt, system_extra=result, mode=mode)
 
 

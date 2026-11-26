@@ -56,7 +56,6 @@ import json
 from pathlib import Path
 import sqlite3
 
-from app.browser.wrapper import store_slug
 from app.config import VIBE_SELLER_DIR
 
 SCHEMA = 'reviews/v1'
@@ -83,7 +82,7 @@ def store_slug_for_task(task_id: str) -> str | None:
         con = sqlite3.connect(f'file:{db}?mode=ro', uri=True, timeout=2)
         try:
             row = con.execute(
-                'SELECT s.name, s.id FROM tasks t '
+                'SELECT s.slug FROM tasks t '
                 'JOIN stores s ON s.id = t.store_id WHERE t.id = ?',
                 (task_id,),
             ).fetchone()
@@ -91,12 +90,7 @@ def store_slug_for_task(task_id: str) -> str | None:
             con.close()
     except sqlite3.Error:
         return None
-    if not row or not row[0]:
-        return None
-    try:
-        return store_slug(row[0], row[1])
-    except ValueError:
-        return None
+    return row[0] if row and row[0] else None
 
 
 def reviews_dir(task_id: str) -> Path:

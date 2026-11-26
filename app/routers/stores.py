@@ -12,12 +12,11 @@ from app import telemetry
 from app.auth import get_current_user
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
 from app.browser.launch_guards import BrowserBusyError
-from app.browser.manager import (
-    browser_manager,
-    store_slug as _store_slug,
-)
+from app.browser.manager import browser_manager
+from app.browser.wrapper import remove_browser_use_wrapper
 from app.browser.ziniao_startup import ZiniaoAccountConflictError
 from app.database import get_db
+from app.loop_lock import LoopLock
 from app.models.browser_session import BrowserSession
 from app.models.event import Event
 from app.models.schedule import Schedule
@@ -27,6 +26,7 @@ from app.models.task import Task
 from app.models.user import User
 from app.scheduler.cron import remove_schedule_job
 from app.schemas.store import StoreCreate, StoreResponse, StoreUpdate
+from app.store_slugs import legacy_store_slug, new_store_slug
 from app.task_states import ACTIVE
 from app.telemetry_events import TelemetryEvent
 from app.workspace.manager import VIBE_SELLER_DIR, workspace_manager
@@ -38,24 +38,34 @@ router = APIRouter(prefix='/api/stores', tags=['stores'])
 # Statuses that block rename/delete
 _BLOCKING_STATUSES = {s.value for s in ACTIVE} | {'queued'}
 
-#: One store per slug. Everything a store owns on disk and in the
-#: browser layer is keyed by its slug, not its id — the browser-use
-#: wrapper (`bin/<slug>/`), the browser profile and its CDP proxy, the
-#: downloads dir and `stores/<slug>/` — so two stores whose names reduce
-#: to one slug ("Acme" and "acme!") silently share all of it: deleting
-#: one removes the other's wrapper and stops its browser. The slug is
-#: derived, not stored, so uniqueness is checked here, and the check and
-#: the write it guards run under this lock: two creates arriving in the
-#: same instant must not both see the slug free.
-_STORE_NAMES = asyncio.Lock()
+#: The name check and the write it guards run under this lock: two
+#: creates arriving in the same instant must not both see the name free.
+#: Folder names themselves are unique in the database (``Store.slug``,
+#: app/store_slugs.py), so two stores can no longer end up sharing one.
+#: Per event loop (``LoopLock``): a plain module-level ``asyncio.Lock``
+#: failed whichever test contended it second.
+_STORE_NAMES = LoopLock()
+
+
+def _same_name(a: str, b: str) -> bool:
+    return a.strip().casefold() == b.strip().casefold()
 
 
 async def _refuse_taken_slug(
     db: AsyncSession, name: str, store_id: str | None = None
 ) -> None:
-    """409 when another store's name already reduces to *name*'s slug."""
+    """409 when another store's name already reduces to *name*'s slug.
+
+    The rule users have always met, minus its bug. Names that are both
+    plain ASCII and reduce alike ("Acme" / "acme!") are still refused,
+    and so is the same name twice. A name with other characters used to
+    be refused whenever its ASCII leftovers matched another store's —
+    「示例甲1店」 and 「示例乙1店」 are both "1" — though nothing about
+    the names is alike; it now gets a folder of its own instead
+    (``new_store_slug``).
+    """
     try:
-        slug = _store_slug(name)
+        slug = legacy_store_slug(name)
     except ValueError:
         # A name with no ASCII falls back to `store-<id prefix>`, which
         # is unique by construction.
@@ -65,19 +75,24 @@ async def _refuse_taken_slug(
         if other_id == store_id:
             continue
         try:
-            other = _store_slug(other_name, other_id)
+            other = legacy_store_slug(other_name, other_id)
         except ValueError:
             continue
-        if other == slug:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f'Name collides with existing store {other_name!r}: '
-                    f'both reduce to the same folder name {slug!r} '
-                    '(names are slugified to ASCII for on-disk paths). '
-                    'Choose a different name.'
-                ),
-            )
+        if other != slug:
+            continue
+        if not (name.isascii() and other_name.isascii()) and not _same_name(
+            name, other_name
+        ):
+            continue
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f'Name collides with existing store {other_name!r}: '
+                f'both reduce to the same folder name {slug!r} '
+                '(names are slugified to ASCII for on-disk paths). '
+                'Choose a different name.'
+            ),
+        )
 
 
 def _store_managed_dirs(slug: str):
@@ -167,10 +182,10 @@ async def create_store(
 
     # Create store directory + seed metadata.json + profile files
     try:
-        slug = _store_slug(data.name, store.id)
-        # A new store always starts fresh. The slug passed the live-conflict
-        # check above, so any dir still on disk is an ORPHAN left by a
-        # deleted same-slug store — wipe it (workspace/notes/wrapper/
+        slug = store.slug
+        # A new store always starts fresh. Its slug is unique among live
+        # stores (the column is), so any dir still on disk is an ORPHAN
+        # left by a deleted same-slug store — wipe it (workspace/notes/wrapper/
         # profiles) before seeding so the new store never inherits the old
         # one's data, even across a different backend, and regardless of
         # whether the delete removed files. See _purge_store_dirs.
@@ -255,25 +270,29 @@ async def _update_store(
                 ' session. Stop the browser first.',
             )
 
-        # Unique by slug, which an identical name is a special case of.
         await _refuse_taken_slug(db, data.name, store_id)
 
-        old_slug = _store_slug(store.name, store.id)
-        new_slug = _store_slug(data.name, store.id)
+        # The folders follow the name, as they always have — by the same
+        # rule a new store's slug is picked with, against every OTHER
+        # store's slug.
+        others = (
+            await db.execute(
+                select(Store.slug).where(
+                    Store.id != store_id, Store.slug.is_not(None)
+                )
+            )
+        ).scalars()
+        old_slug = store.slug
+        new_slug = new_store_slug(data.name, store.id, set(others))
 
         if old_slug != new_slug:
             # Scalars only into the thread — an ORM attribute read off
             # the loop could trigger a lazy load on a session that is
             # not thread-safe.
             await asyncio.to_thread(
-                _rename_store_dirs,
-                store.browser_backend,
-                store.id,
-                old_slug,
-                new_slug,
-                store.name,
-                data.name,
+                _rename_store_dirs, old_slug, new_slug, store.name, data.name
             )
+            store.slug = new_slug
 
         store.name = data.name
 
@@ -375,7 +394,7 @@ async def delete_store(
         update(Event).where(Event.store_id == store_id).values(store_id=None)
     )
 
-    slug = _store_slug(store.name, store.id)
+    slug = store.slug
     age_days: float | None = None
     if store.created_at:
         try:
@@ -419,7 +438,7 @@ async def get_store_bookmarks(
     if not store:
         raise HTTPException(status_code=404, detail='Store not found')
     if store.browser_backend == 'chrome':
-        return read_bookmarks(_store_slug(store.name, store.id))
+        return read_bookmarks(store.slug)
     if store.browser_backend == 'ziniao' and store.browser_oauth:
         return read_ziniao_bookmarks(store.browser_oauth)
     return []
@@ -475,6 +494,7 @@ def _to_response(store: Store) -> dict:
     return {
         'id': store.id,
         'name': store.name,
+        'slug': store.slug,
         'browser_backend': store.browser_backend,
         'browser_config': json.loads(store.browser_config)
         if store.browser_config
@@ -490,8 +510,6 @@ def _to_response(store: Store) -> dict:
 
 
 def _rename_store_dirs(
-    backend: str,
-    store_id: str,
     old_slug: str,
     new_slug: str,
     old_name: str,
@@ -503,34 +521,28 @@ def _rename_store_dirs(
     grouped into one sync helper so the route can hand it to a thread
     with a single ``asyncio.to_thread`` hop. Takes plain scalars —
     never the ORM instance.
+
+    Every slug-keyed dir moves, whatever the backend: the run data under
+    ``store-data/`` and an anti-detect store's aux profile used to stay
+    behind under the old name, where the renamed store no longer looked.
     """
-    # Rename store knowledge dir
-    old_store_dir = workspace_manager.root / 'stores' / old_slug
-    new_store_dir = workspace_manager.root / 'stores' / new_slug
-    if old_store_dir.exists():
-        new_store_dir.parent.mkdir(parents=True, exist_ok=True)
-        old_store_dir.rename(new_store_dir)
-        # Find-replace old name → new name in .md files
-        _replace_name_in_md_files(new_store_dir, old_name, new_name)
+    root = workspace_manager.root
+    profiles = VIBE_SELLER_DIR / 'browser_profiles'
+    for old, new in (
+        (root / 'stores' / old_slug, root / 'stores' / new_slug),
+        (root / 'store-data' / old_slug, root / 'store-data' / new_slug),
+        (profiles / old_slug, profiles / new_slug),
+        (profiles / f'{old_slug}-aux', profiles / f'{new_slug}-aux'),
+    ):
+        if old.exists():
+            new.parent.mkdir(parents=True, exist_ok=True)
+            old.rename(new)
 
-    # Rename browser profile dir (Chrome only)
-    if backend == 'chrome':
-        old_profile = VIBE_SELLER_DIR / 'browser_profiles' / old_slug
-        new_profile = VIBE_SELLER_DIR / 'browser_profiles' / new_slug
-        if old_profile.exists():
-            new_profile.parent.mkdir(parents=True, exist_ok=True)
-            old_profile.rename(new_profile)
-
-    # Rename aux Chrome profile dir (Ziniao only)
-    if backend == 'ziniao':
-        old_aux = VIBE_SELLER_DIR / 'browser_profiles' / f'{old_slug}-aux'
-        new_aux = VIBE_SELLER_DIR / 'browser_profiles' / f'{new_slug}-aux'
-        if old_aux.exists():
-            new_aux.parent.mkdir(parents=True, exist_ok=True)
-            old_aux.rename(new_aux)
+    # Find-replace old name → new name in .md files
+    _replace_name_in_md_files(root / 'stores' / new_slug, old_name, new_name)
 
     # Remove old wrapper (re-add on next session start)
-    browser_manager.remove_browser_entry(old_name, backend, store_id)
+    remove_browser_use_wrapper(old_slug)
 
 
 def _replace_name_in_md_files(directory, old_name: str, new_name: str):

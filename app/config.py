@@ -122,9 +122,9 @@ BROWSER_USE_BIN_DIR.mkdir(parents=True, exist_ok=True)
 # session, not tied to any store, that no-store tasks use for neutral
 # public web work (search, tracking/logistics pages, research). Distinct
 # from a store's per-store ``{slug}-aux`` session — hence a reserved slug
-# that ``store_slug()`` can never produce for a real store (it strips
-# leading dashes, so no store slug starts with ``_``). Doubles as the
-# in-memory BrowserManager key and the wrapper/profile/downloads dir name.
+# no store can be given (app/store_slugs.py: a slug never starts with
+# ``_``). Doubles as the in-memory BrowserManager key and the
+# wrapper/profile/downloads dir name.
 WEB_BROWSER_SLUG = '_web'
 
 # Per-store download directory (used by CDP proxy to override

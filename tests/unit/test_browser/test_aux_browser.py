@@ -21,6 +21,7 @@ pytestmark = pytest.mark.unit
 class _Store:
     id = 'store-1'
     name = 'Example Store'
+    slug = 'example-store'
 
 
 class TestStopWithoutInfo:

@@ -25,7 +25,6 @@ from sqlalchemy import select
 
 from app import knowledge_contract
 from app.ai.profiles import resolve_schedule_profile
-from app.browser.manager import store_slug as _store_slug
 from app.config import DEFAULT_USER_ID
 from app.database import async_session
 from app.events.bus import event_bus
@@ -208,7 +207,7 @@ async def run_fanout_job(
     created_count = 0
 
     for store in stores:
-        slug = _store_slug(store.name, store.id)
+        slug = store.slug
         # Catalog-specific per-store description template is gated
         # on staleness_check (the catalog-payload flag), not on
         # phase_mode (orchestration shape). A future non-catalog

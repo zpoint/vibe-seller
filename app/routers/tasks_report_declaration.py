@@ -33,7 +33,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
-from app.browser.wrapper import store_slug
 from app.database import get_db
 from app.deliverables import declarations
 from app.deliverables.gate import manifest_for_months
@@ -133,7 +132,7 @@ async def declare_report_run(
     owed: list[str] = []
     if store is not None:
         months = await declarations.declared_months(db, task_id)
-        slug = store_slug(store.name, store.id)
+        slug = store.slug
         # Pure: reads the store's own JSON columns and the calendar. No
         # filesystem, so nothing to hand to a thread.
         owed = [

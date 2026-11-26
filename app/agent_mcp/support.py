@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.agent_mcp.lifecycle import schedule_fired, task_guidance
-from app.browser.wrapper import store_slug
 from app.models.store import Store
 from app.models.user import User
 from app.routers import (
@@ -141,7 +140,7 @@ async def store_slug_for(ctx: McpContext, store_id: str) -> str:
     store = await ctx.db.get(Store, store_id)
     if not store:
         raise ToolError(f'Store not found: {store_id}')
-    return store_slug(store.name, store.id)
+    return store.slug
 
 
 def callers_default_profile(ctx: McpContext) -> str:

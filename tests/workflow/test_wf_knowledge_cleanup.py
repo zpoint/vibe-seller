@@ -20,7 +20,6 @@ import pytest
 import pytest_asyncio
 
 from app import knowledge_contract
-from app.browser.manager import store_slug
 from app.config import VIBE_SELLER_DIR
 from app.models.app_settings import AppSettings
 from app.models.schedule import Schedule
@@ -99,9 +98,7 @@ async def _fire(session_maker, stores, admin_user_id) -> dict[str, str]:
                     schedule_id=SYSTEM_CATALOG_SYNC_ID,
                     created_by=admin_user_id,
                     title='Update Knowledge Catalogs',
-                    description=CATALOG_DESC_L3.replace(
-                        '<slug>', store_slug(s['name'])
-                    ),
+                    description=CATALOG_DESC_L3.replace('<slug>', s['slug']),
                     status=TaskStatus.PENDING,
                 )
             )
@@ -154,7 +151,7 @@ async def test_runs_once_then_never_again(
             task_id=first[s['id']], action='run'
         )[0].system_extra
         assert FORBID_LINE not in prompt
-        assert f'stores/{store_slug(s["name"])}/' in prompt
+        assert f'stores/{s["slug"]}/' in prompt
         assert 'stores/<slug>/' not in prompt
 
     second = await _fire(override_async_session, two_stores, admin_user.id)
@@ -275,7 +272,7 @@ class TestCleanupWritesOnlyDelete:
                 )
             )
             await db.commit()
-        path = f'stores/{store_slug(store["name"])}/notes.md'
+        path = f'stores/{store["slug"]}/notes.md'
         r = await admin_client.put(
             f'/api/workspace/file?path={path}', json={'content': self.NOTE}
         )
@@ -382,7 +379,7 @@ async def test_an_edit_made_around_the_tool_is_put_back(
     back and the store stays owing, so the next catalog sync retries."""
     r = await admin_client.post('/api/stores', json={'name': 'AroundStore'})
     store = r.json()
-    notes = VIBE_SELLER_DIR / 'stores' / store_slug(store['name']) / 'notes.md'
+    notes = VIBE_SELLER_DIR / 'stores' / store['slug'] / 'notes.md'
     notes.parent.mkdir(parents=True, exist_ok=True)
     original = TestCleanupWritesOnlyDelete.NOTE
     notes.write_text(original, encoding='utf-8')

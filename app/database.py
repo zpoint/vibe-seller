@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 import logging
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -12,6 +13,7 @@ from app.config import (
     AI_BOT_USER_ID,
     DATABASE_URL,
     DEFAULT_USER_ID,
+    VIBE_SELLER_DIR,
 )
 from app.env_options import Options
 from app.models import _all_models as _all_models  # register all models
@@ -26,6 +28,7 @@ from app.models.schedule_constants import (
 from app.models.user import User
 from app.password import hash_password
 from app.schedule_review_migration import migrate_forced_plan_schedules
+from app.store_slugs import SlugAssignment, migrate_store_slugs
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +83,9 @@ def _ensure_added_columns(conn) -> None:
         # Binding to an external Amazon Ads service. See app/ads_client.py.
         ('stores', 'ads_store_keys', "TEXT NOT NULL DEFAULT '{}'"),
         ('stores', 'ads_authorized', 'BOOLEAN NOT NULL DEFAULT 0'),
+        # The stored folder name. Filled — and made unique — right after
+        # this by app/store_slugs.migrate_store_slugs.
+        ('stores', 'slug', 'TEXT'),
         # Chat bots grew from WeCom-only to four platforms. The table
         # keeps its original name (`wecom_bots`) — see
         # app/models/chat_bot.py — so the platform of every existing row
@@ -185,10 +191,22 @@ def _backfill_finalize_enabled_at(conn) -> None:
     )
 
 
-async def init_db():
-    async with engine.begin() as conn:
+async def upgrade_schema(db_engine, home: Path) -> list[SlugAssignment]:
+    """Bring a database written by any earlier version up to this one.
+
+    Creates missing tables, adds missing columns, then gives every store
+    from an older version the folder name (slug) it always had — before
+    anything reads a store's folder (app/store_slugs.py). Idempotent;
+    returns the slugs it had to assign (none once migrated).
+    """
+    async with db_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_added_columns)
+    return await migrate_store_slugs(db_engine, home)
+
+
+async def init_db():
+    await upgrade_schema(engine, VIBE_SELLER_DIR)
 
     async with async_session() as session:
         # ── Seed app settings (first boot only) ──

@@ -20,7 +20,6 @@ import uuid
 import pytest
 import pytest_asyncio
 
-from app.browser.manager import store_slug
 from app.models.schedule import Schedule
 from app.models.schedule_constants import (
     SYSTEM_CATALOG_SYNC_ID,
@@ -97,7 +96,7 @@ async def _create_and_dispatch_catalog_tasks(
 
     for s in stores:
         task_id = str(uuid.uuid4())
-        slug = store_slug(s['name'])
+        slug = s['slug']
         desc = CATALOG_DESC_L3.replace('<slug>', slug)
         async with session_maker() as db:
             task = Task(
@@ -150,7 +149,7 @@ class TestCatalogSyncFanout:
         'Catalogs already up-to-date'.
         """
         stale_store = three_stores[0]  # CatDemoNorthshore
-        stale_slug = store_slug(stale_store['name'])
+        stale_slug = stale_store['slug']
 
         # Mark only CatDemoNorthshore as L3-stale (L2 up-to-date)
         mock_knowledge_sync.stale_overrides[stale_slug] = (
@@ -221,7 +220,7 @@ class TestCatalogSyncFanout:
         must run the agent."""
         # Mark ALL stores as L3-stale
         for s in three_stores:
-            slug = store_slug(s['name'])
+            slug = s['slug']
             mock_knowledge_sync.stale_overrides[slug] = (
                 False,
                 True,
@@ -299,7 +298,7 @@ class TestCatalogSyncFanout:
             tid = task_map[s['id']]
             async with override_async_session() as db:
                 task = await db.get(Task, tid)
-            slug = store_slug(s['name'])
+            slug = s['slug']
             assert '<slug>' not in task.description, (
                 f'Task for {s["name"]} has unresolved <slug>'
             )

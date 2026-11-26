@@ -25,7 +25,6 @@ from sqlalchemy import update
 
 from app import mcp_server
 from app.ai.tool_call_guards import tool_call_refusal
-from app.browser.wrapper import store_slug
 from app.config import EMAIL_DBS_DIR
 from app.email.access import NO_MAILBOX, NO_STORE_MAILBOX
 from app.models.email_account import EmailAccount
@@ -322,7 +321,7 @@ class TestTheSkillsCallShape:
 
     async def test_own_store_by_id_or_slug(self, shops, tool):
         a = shops['a']
-        for named in (a['id'], store_slug(a['name'], a['id'])):
+        for named in (a['id'], a['slug']):
             info = await tool(
                 shops['task_a'], 'vibe_seller_email_info', store_id=named
             )

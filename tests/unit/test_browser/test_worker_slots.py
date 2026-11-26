@@ -66,7 +66,7 @@ def _wrapper(tmp_path: Path, slots: int | None = None) -> Path:
         mock.patch.dict(os.environ, env),
     ):
         write_browser_use_wrapper(
-            'test-store', 'chrome', 9222, store_id='store-1'
+            'test-store', 'chrome', 9222, store_id='store-1', slug='test-store'
         )
     path = bin_dir / 'test-store' / 'browser-use'
     text = path.read_text()

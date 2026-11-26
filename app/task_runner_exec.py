@@ -11,7 +11,7 @@ from app.ai.question_policy import (
     may_wait_on_a_person,
 )
 from app.ai.turn_hold_budget import reset_ledger
-from app.browser.manager import browser_manager, store_slug as _store_slug
+from app.browser.manager import browser_manager
 from app.database import async_session
 from app.email.access import MailboxAccess, mailboxes_for
 from app.events.bus import event_bus
@@ -188,9 +188,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 message_history=history,
                 resume=True,
                 persist_prompt=not bundle.answered,
-                store_slug=(
-                    _store_slug(store.name, store.id) if store else None
-                ),
+                store_slug=(store.slug if store else None),
                 # RUNNING is committed only AFTER the concurrency
                 # semaphore is acquired (mirrors auto_run_task's
                 # _on_start). Setting it before run() left fan-out
@@ -485,7 +483,7 @@ async def execute_woken_task(task_id: str, store: Store | None):
             # RUNNING deferred to post-semaphore, same contract as
             # execute_planned_task above.
             on_start=_make_exec_on_start(task_id),
-            store_slug=(_store_slug(store.name, store.id) if store else None),
+            store_slug=(store.slug if store else None),
         )
 
         # Event-driven wait on the resumed session.  Bail on

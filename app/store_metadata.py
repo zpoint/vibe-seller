@@ -7,7 +7,6 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.browser.manager import store_slug as _store_slug
 from app.models.store import Store
 from app.models.task import Task
 from app.workspace.manager import workspace_manager
@@ -46,7 +45,7 @@ async def sync_store_metadata(
         store = await db.get(Store, store_id)
         if not store:
             return
-        slug = _store_slug(store.name, store.id)
+        slug = store.slug
         meta_path = workspace_manager.root / 'stores' / slug / 'metadata.json'
         task = await db.get(Task, task_id) if task_id else None
         if task is not None and task.platform:

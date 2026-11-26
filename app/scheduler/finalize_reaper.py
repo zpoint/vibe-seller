@@ -42,7 +42,6 @@ import uuid
 from sqlalchemy import select
 
 from app.ai.profiles import resolve_schedule_profile
-from app.browser.manager import store_slug
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
@@ -287,11 +286,7 @@ async def _fire_finalize(batch_id: str, sched: Schedule) -> None:
         records = []
         for c in children:
             store = store_by_id.get(c.store_id)
-            slug = (
-                store_slug(store.name, store.id)
-                if store
-                else (c.store_id or '')
-            )
+            slug = store.slug if store else (c.store_id or '')
             child_dir = str(task_root / c.id)
             records.append(_child_record(c, slug, child_dir))
 

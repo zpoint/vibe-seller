@@ -143,6 +143,7 @@ def store():
     return Store(
         id='store-1',
         name='Test Store Alpha',
+        slug='test-store-alpha',
         browser_backend='chrome',
         browser_config='{"headless": true}',
         platforms='["amazon"]',

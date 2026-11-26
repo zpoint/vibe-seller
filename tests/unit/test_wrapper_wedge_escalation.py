@@ -43,7 +43,9 @@ def wedged(tmp_path):
     the escalation ladder, the counter arithmetic, the reset — is the
     shipped script.
     """
-    write_browser_use_wrapper('acme', 'ziniao', 19222, 7777, 'tok', 'store-123')
+    write_browser_use_wrapper(
+        'acme', 'ziniao', 19222, 7777, 'tok', 'store-123', slug='acme'
+    )
     # conftest isolates ``_BIN_DIR`` per test; the generator logs the path
     # rather than returning it.
     generated = Path(wrapper_mod._BIN_DIR) / 'acme' / 'browser-use'

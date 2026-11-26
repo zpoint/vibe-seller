@@ -20,7 +20,6 @@ from app.ai.stop_gates import (
 )
 from app.ai.turn_hold_budget import reset_ledger
 from app.auth import get_current_user
-from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
 from app.email.access import mailboxes_for
 from app.events.bus import event_bus
@@ -374,7 +373,7 @@ async def start_agent(
     if task.plan:
         system_extra += f'\n\nExecution Plan:\n{task.plan}'
 
-    slug = _store_slug(store.name, store.id) if store else None
+    slug = store.slug if store else None
     started = await agent_manager.run(
         task_id,
         prompt,
@@ -437,7 +436,7 @@ async def design_task(
         mode=bundle.mode,
         profile_id=task.ai_profile_id or DEFAULT_PROFILE_ID,
         no_store=not task.store_id,
-        store_slug=(_store_slug(store.name, store.id) if store else None),
+        store_slug=(store.slug if store else None),
         on_start=_on_design_start,
     )
     if not started:

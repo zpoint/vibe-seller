@@ -71,7 +71,7 @@ class TestWipeStaleWrappers:
         # per-launch path calls this).
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             write_browser_use_wrapper(
-                'acme-store', 'ziniao', 9222, store_id='s1'
+                'acme-store', 'ziniao', 9222, store_id='s1', slug='acme-store'
             )
 
         content = legacy.read_text()
@@ -99,7 +99,9 @@ class TestWipeOrphanedWrappers:
     @staticmethod
     def _write_current(bin_dir: Path, slug: str, store_id: str) -> Path:
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
-            write_browser_use_wrapper(slug, 'ziniao', 9227, store_id=store_id)
+            write_browser_use_wrapper(
+                slug, 'ziniao', 9227, store_id=store_id, slug=slug
+            )
         return bin_dir / slug / 'browser-use'
 
     def test_orphan_reaped_live_store_kept(self, tmp_path: Path):
@@ -233,7 +235,9 @@ class TestVersionAwareWipe:
         format version and must NOT be wiped on the next boot."""
         bin_dir = tmp_path / 'bin'
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
-            write_browser_use_wrapper('acme', 'ziniao', 9222, store_id='s1')
+            write_browser_use_wrapper(
+                'acme', 'ziniao', 9222, store_id='s1', slug='acme'
+            )
         w = bin_dir / 'acme' / 'browser-use'
         assert (
             f'{WRAPPER_FORMAT_MARKER} {WRAPPER_FORMAT_VERSION}' in w.read_text()

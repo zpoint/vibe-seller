@@ -11,14 +11,16 @@ from app.browser.chrome import ChromeBackend
 from app.browser.manager import (
     BrowserManager,
     remove_browser_use_wrapper,
-    store_slug as _store_slug,
     write_browser_use_wrapper,
 )
+from app.store_slugs import legacy_store_slug as _store_slug
 from app.task_runner import build_store_context
 
 
 class TestStoreSlug:
-    """All slugs must match ``[A-Za-z0-9_-]+`` — browser-use's session
+    """The slug every version before the ``slug`` column derived — what
+    the boot migration gives each existing store, so its folders stay
+    put. All slugs must match ``[A-Za-z0-9_-]+`` — browser-use's session
     validator (``validate_session_name``) rejects anything else, so any
     name whose reduction contains non-ASCII characters must fall back
     to ``store-<id_prefix>``."""
@@ -78,7 +80,7 @@ class TestWriteBrowserUseWrapper:
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper(
-            'test-store', 'ziniao', 9222, store_id='store-1'
+            'test-store', 'ziniao', 9222, store_id='store-1', slug='test-store'
         )
 
         wrapper = tmp_path / 'bin' / 'test-store' / 'browser-use'
@@ -102,7 +104,9 @@ class TestWriteBrowserUseWrapper:
             'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
-        write_browser_use_wrapper('storec', 'chrome', 9222, store_id='store-2')
+        write_browser_use_wrapper(
+            'storec', 'chrome', 9222, store_id='store-2', slug='storec'
+        )
 
         wrapper = tmp_path / 'bin' / 'storec' / 'browser-use'
         assert wrapper.exists()
@@ -125,7 +129,7 @@ class TestWriteBrowserUseWrapper:
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper(
-            'test-store', 'ziniao', 9222, store_id='store-1'
+            'test-store', 'ziniao', 9222, store_id='store-1', slug='test-store'
         )
 
         content = (tmp_path / 'bin' / 'test-store' / 'browser-use').read_text()
@@ -140,7 +144,7 @@ class TestWriteBrowserUseWrapper:
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper(
-            'test-store', 'ziniao', 9222, store_id='store-1'
+            'test-store', 'ziniao', 9222, store_id='store-1', slug='test-store'
         )
 
         content = (tmp_path / 'bin' / 'test-store' / 'browser-use').read_text()
@@ -153,8 +157,12 @@ class TestWriteBrowserUseWrapper:
             'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
-        write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
-        write_browser_use_wrapper('test-store', 'ziniao', 9305, store_id='s1')
+        write_browser_use_wrapper(
+            'test-store', 'ziniao', 9222, store_id='s1', slug='test-store'
+        )
+        write_browser_use_wrapper(
+            'test-store', 'ziniao', 9305, store_id='s1', slug='test-store'
+        )
 
         content = (tmp_path / 'bin' / 'test-store' / 'browser-use').read_text()
         assert '9305' in content
@@ -166,8 +174,12 @@ class TestWriteBrowserUseWrapper:
             'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
-        write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
-        write_browser_use_wrapper('storeB', 'ziniao', 9223, store_id='s2')
+        write_browser_use_wrapper(
+            'test-store', 'ziniao', 9222, store_id='s1', slug='test-store'
+        )
+        write_browser_use_wrapper(
+            'storeB', 'ziniao', 9223, store_id='s2', slug='storeb'
+        )
 
         assert (tmp_path / 'bin' / 'test-store' / 'browser-use').exists()
         assert (tmp_path / 'bin' / 'storeb' / 'browser-use').exists()
@@ -201,7 +213,13 @@ class TestWriteBrowserUseWrapper:
         stale_dl_empty = tmp_path / 'downloads' / name
         stale_dl_empty.mkdir(parents=True)
 
-        write_browser_use_wrapper(name, 'ziniao', 9222, store_id='abcd1234ef')
+        write_browser_use_wrapper(
+            name,
+            'ziniao',
+            9222,
+            store_id='abcd1234ef',
+            slug=_store_slug(name, 'abcd1234ef'),
+        )
 
         assert (tmp_path / 'bin' / 'store-abcd1234' / 'browser-use').exists()
         assert not stale_bin.exists()
@@ -229,7 +247,13 @@ class TestWriteBrowserUseWrapper:
         stale_dl.mkdir(parents=True)
         (stale_dl / 'report.csv').write_text('data')
 
-        write_browser_use_wrapper(name, 'ziniao', 9222, store_id='abcd1234ef')
+        write_browser_use_wrapper(
+            name,
+            'ziniao',
+            9222,
+            store_id='abcd1234ef',
+            slug=_store_slug(name, 'abcd1234ef'),
+        )
 
         assert foreign_bin.exists()
         assert (stale_dl / 'report.csv').exists()
@@ -261,7 +285,11 @@ class TestWriteBrowserUseWrapper:
 
         for name in ('.', '..', 'a/b', '../store-abcd1234'):
             write_browser_use_wrapper(
-                name, 'ziniao', 9222, store_id='abcd1234ef'
+                name,
+                'ziniao',
+                9222,
+                store_id='abcd1234ef',
+                slug=_store_slug(name, 'abcd1234ef'),
             )
 
         assert tmp_path.exists()
@@ -289,7 +317,7 @@ class TestWriteBrowserUseWrapper:
         )
         with pytest.raises(BrowserUseNotFound):
             write_browser_use_wrapper(
-                'test-store', 'ziniao', 9222, store_id='s1'
+                'test-store', 'ziniao', 9222, store_id='s1', slug='test-store'
             )
         assert not (tmp_path / 'bin' / 'test-store' / 'browser-use').exists()
 
@@ -301,7 +329,7 @@ class TestWriteBrowserUseWrapper:
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper(
-            'test-store', 'ziniao', 9222, store_id='store-1'
+            'test-store', 'ziniao', 9222, store_id='store-1', slug='test-store'
         )
 
         content = (tmp_path / 'bin' / 'test-store' / 'browser-use').read_text()
@@ -316,7 +344,9 @@ class TestWriteBrowserUseWrapper:
             'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
-        write_browser_use_wrapper('storec', 'chrome', 9222, store_id='s2')
+        write_browser_use_wrapper(
+            'storec', 'chrome', 9222, store_id='s2', slug='storec'
+        )
 
         content = (tmp_path / 'bin' / 'storec' / 'browser-use').read_text()
         assert 'Auto-start' in content
@@ -336,7 +366,9 @@ class TestWriteBrowserUseWrapper:
             'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
-        write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
+        write_browser_use_wrapper(
+            'test-store', 'ziniao', 9222, store_id='s1', slug='test-store'
+        )
 
         content = (tmp_path / 'bin' / 'test-store' / 'browser-use').read_text()
         # v4: ziniao aux lazily starts its DEDICATED login-less browser
@@ -356,7 +388,9 @@ class TestWriteBrowserUseWrapper:
             'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
-        write_browser_use_wrapper('storec', 'chrome', 9222, store_id='s2')
+        write_browser_use_wrapper(
+            'storec', 'chrome', 9222, store_id='s2', slug='storec'
+        )
 
         content = (tmp_path / 'bin' / 'storec' / 'browser-use').read_text()
         assert 'client-aux' in content
@@ -370,7 +404,9 @@ class TestRemoveBrowserUseWrapper:
             'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
-        write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
+        write_browser_use_wrapper(
+            'test-store', 'ziniao', 9222, store_id='s1', slug='test-store'
+        )
         assert (tmp_path / 'bin' / 'test-store' / 'browser-use').exists()
 
         remove_browser_use_wrapper('test-store')
@@ -495,30 +531,12 @@ class TestZiniaoGuard:
         assert mgr._active_ziniao_account_id == 'account-1'
 
 
-class TestRemoveBrowserEntry:
-    """remove_browser_entry delegates to wrapper removal."""
-
-    def test_removes_wrapper(self, tmp_path: Path, monkeypatch):
-        """remove_browser_entry removes wrapper dir."""
-        monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
-        monkeypatch.setattr(
-            'app.browser.bu_binary.shutil.which',
-            lambda x: '/usr/local/bin/browser-use',
-        )
-        write_browser_use_wrapper('storec', 'chrome', 9222, store_id='s1')
-        assert (tmp_path / 'bin' / 'storec' / 'browser-use').exists()
-
-        mgr = BrowserManager()
-        mgr.remove_browser_entry('storec', 'chrome')
-
-        assert not (tmp_path / 'bin' / 'storec').exists()
-
-
 class TestBuildStoreContext:
     def test_ziniao_dual_browser_context(self):
         """Ziniao store context includes dual browser CLI info."""
         store = mock.MagicMock()
         store.name = 'test-store'
+        store.slug = 'test-store'
         store.browser_backend = 'ziniao'
         store.platform_countries = '{}'
         ctx = build_store_context(store)
@@ -543,6 +561,7 @@ class TestBuildStoreContext:
         """build_store_context references browser-use CLI."""
         store = mock.MagicMock()
         store.name = 'test-store'
+        store.slug = 'test-store'
         store.browser_backend = 'ziniao'
         store.platform_countries = '{}'
         ctx = build_store_context(store)

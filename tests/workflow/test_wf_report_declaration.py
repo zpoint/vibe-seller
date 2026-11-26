@@ -20,7 +20,6 @@ import types
 import pytest
 
 from app.agent_mcp.registry import tool_definitions
-from app.browser.wrapper import store_slug
 from app.config import VIBE_SELLER_DIR
 from app.deliverables.manifest import derive_manifest, month_before
 from app.mcp_tool_schemas import TOOLS
@@ -138,7 +137,7 @@ async def _monthly_ledger(admin_client, task_id, month):
     )
     entries = derive_manifest(
         row,
-        store_slug(store['name'], store['id']),
+        store['slug'],
         month,
         fee_month=month_before(month),
     )

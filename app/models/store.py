@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 import uuid
 
-from sqlalchemy import Boolean, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, String, Text, event, text
+from sqlalchemy.orm import Mapped, mapped_column, object_session
 
 from app.models.base import Base
+from app.store_slugs import new_store_slug
 
 
 class Store(Base):
@@ -14,6 +15,16 @@ class Store(Base):
         String, primary_key=True, default=lambda: str(uuid.uuid4())
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
+    # The store's folder name: ``stores/<slug>/``, ``store-data/<slug>/``,
+    # its browser-use wrapper, profile and session names. Set on insert
+    # (below) and by a rename (routers/stores.py), unique — never derived
+    # from the name at runtime. See app/store_slugs.py. Nullable in the
+    # DDL only so that an older version, if rolled back to, can still
+    # insert rows (the boot migration gives those a slug on the next
+    # upgrade).
+    slug: Mapped[str | None] = mapped_column(
+        String, nullable=True, unique=True, index=True
+    )
     browser_backend: Mapped[str] = mapped_column(
         String, nullable=False, default='chrome'
     )
@@ -64,3 +75,30 @@ class Store(Base):
     updated_at: Mapped[str] = mapped_column(
         String, default=lambda: datetime.now(UTC).isoformat()
     )
+
+
+@event.listens_for(Store, 'before_insert')
+def _assign_slug(_mapper, connection, target: Store) -> None:
+    """Every store row gets its slug here — the one place one is made.
+
+    Taken slugs are the stored ones plus those of stores pending in the
+    same flush (their INSERTs have not run yet).
+    """
+    if target.id is None:
+        target.id = str(uuid.uuid4())
+    if target.slug:
+        return
+    taken = {
+        row[0]
+        for row in connection.execute(
+            text('SELECT slug FROM stores WHERE slug IS NOT NULL')
+        )
+    }
+    session = object_session(target)
+    if session is not None:
+        taken |= {
+            obj.slug
+            for obj in session.new
+            if isinstance(obj, Store) and obj.slug and obj is not target
+        }
+    target.slug = new_store_slug(target.name, target.id, taken)
