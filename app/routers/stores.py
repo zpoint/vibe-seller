@@ -16,6 +16,7 @@ from app.browser.manager import browser_manager
 from app.browser.wrapper import remove_browser_use_wrapper
 from app.browser.ziniao_startup import ZiniaoAccountConflictError
 from app.database import get_db
+from app.loop_lock import LoopLock
 from app.models.browser_session import BrowserSession
 from app.models.event import Event
 from app.models.schedule import Schedule
@@ -41,7 +42,9 @@ _BLOCKING_STATUSES = {s.value for s in ACTIVE} | {'queued'}
 #: creates arriving in the same instant must not both see the name free.
 #: Folder names themselves are unique in the database (``Store.slug``,
 #: app/store_slugs.py), so two stores can no longer end up sharing one.
-_STORE_NAMES = asyncio.Lock()
+#: Per event loop (``LoopLock``): a plain module-level ``asyncio.Lock``
+#: failed whichever test contended it second.
+_STORE_NAMES = LoopLock()
 
 
 def _same_name(a: str, b: str) -> bool:
