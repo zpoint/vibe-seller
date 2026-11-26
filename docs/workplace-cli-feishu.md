@@ -79,7 +79,7 @@ AI 会按官方技能的说明选择身份，不用你指定。
 提示里列出的是别的权限时，开通方法相同。
 </details>
 
-<details markdown="1"><summary><b>开通后提示「这次登录不能自动续期」？</b></summary>
+<details markdown="1" id="no-refresh-token"><summary><b>开通后提示「这次登录不能自动续期」？</b></summary>
 
 授权已经成功，但飞书这次没有发放用于续期的凭证：用你的飞书账号做的
 操作，到提示里写的时间（登录后约 2 小时）就会失效，之后要重新登录；

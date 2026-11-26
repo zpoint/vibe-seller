@@ -70,7 +70,7 @@ AI 的每一个操作都由这个机器人完成，代扫码的人做事，不�
 说一句话，再让 AI 发。
 </details>
 
-<details markdown="1"><summary><b>Windows 上提示「这台电脑运行不了企业微信的官方程序」？</b></summary>
+<details markdown="1" id="does-not-run"><summary><b>Windows 上提示「这台电脑运行不了企业微信的官方程序」？</b></summary>
 
 企业微信的官方程序要用微软 VC++ 运行库，大多数电脑已经装了。没有的话，
 请安装

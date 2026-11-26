@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
 import { SecretReveal } from './SecretReveal'
+import { DocsHelpLink } from './ui/DocsHelpLink'
 
 /** Registry metadata from GET /api/chat-bots/platforms.
  *
@@ -126,7 +127,8 @@ export function ChatBotSection({ isAdmin = false }: { isAdmin?: boolean }) {
   const [securityError, setSecurityError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
-  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  // ``testFailed``: a failed test send, which the docs FAQ decodes.
+  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string; testFailed?: boolean } | null>(null)
 
   const refresh = async () => {
     setLoading(true)
@@ -311,10 +313,10 @@ export function ChatBotSection({ isAdmin = false }: { isAdmin?: boolean }) {
       if (r.ok) {
         setToast({ kind: 'ok', text: t('integrations.chat_bot.testSuccess') })
       } else {
-        setToast({ kind: 'err', text: t('integrations.chat_bot.testFailed', { message: r.message }) })
+        setToast({ kind: 'err', text: t('integrations.chat_bot.testFailed', { message: r.message }), testFailed: true })
       }
     } catch (e) {
-      setToast({ kind: 'err', text: t('integrations.chat_bot.testFailed', { message: e instanceof Error ? e.message : String(e) }) })
+      setToast({ kind: 'err', text: t('integrations.chat_bot.testFailed', { message: e instanceof Error ? e.message : String(e) }), testFailed: true })
     } finally {
       setTestingId(null)
     }
@@ -584,6 +586,7 @@ export function ChatBotSection({ isAdmin = false }: { isAdmin?: boolean }) {
           className={`text-sm mt-3 ${toast.kind === 'ok' ? 'text-green-700' : 'text-red-600'}`}
         >
           {toast.text}
+          {toast.testFailed && <> <DocsHelpLink topic="chatBotTestFailed" /></>}
         </p>
       )}
     </div>

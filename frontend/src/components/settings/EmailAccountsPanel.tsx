@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 import { SecretReveal } from '../SecretReveal'
+import { DocsHelpLink } from '../ui/DocsHelpLink'
+import type { DocsHelpTopic } from '../../lib/docsHelp'
 import type { EmailAccount, Store } from '../../types'
 
 interface StoreLink {
@@ -26,6 +28,12 @@ const KNOWN_ERROR_KEYS: Record<string, string> = {
   'Could not auto-discover IMAP settings. Please provide imap_host manually.':
     'email.errorAutoDiscover',
 }
+/** The docs FAQ entry for each of those. */
+const KNOWN_ERROR_HELP: Record<string, DocsHelpTopic> = {
+  'Email account already exists': 'emailAlreadyAdded',
+  'Could not auto-discover IMAP settings. Please provide imap_host manually.':
+    'emailServersNotDetected',
+}
 
 export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, isAdmin = false }: EmailAccountsPanelProps) {
   const { t } = useTranslation()
@@ -38,6 +46,7 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
   // from a mistyped server.
   const [testMessage, setTestMessage] = useState('')
   const [formError, setFormError] = useState('')
+  const [formErrorHelp, setFormErrorHelp] = useState<DocsHelpTopic | null>(null)
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [linksMap, setLinksMap] = useState<Record<string, StoreLink[]>>({})
@@ -145,6 +154,7 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
       const raw = e instanceof Error ? e.message : String(e)
       const key = KNOWN_ERROR_KEYS[raw]
       setFormError(key ? t(key) : raw)
+      setFormErrorHelp(KNOWN_ERROR_HELP[raw] ?? null)
     }
     setSaving(false)
   }
@@ -262,11 +272,13 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
               {testResult === 'failed' && testMessage && (
                 <p className="mt-1 font-mono break-all">{testMessage}</p>
               )}
+              {testResult === 'failed' && <p className="mt-1"><DocsHelpLink topic="emailLoginFailed" /></p>}
             </div>
           )}
           {formError && (
             <div className="text-xs px-3 py-2 rounded bg-red-50 text-red-700 break-all">
               {formError}
+              {formErrorHelp && <p className="mt-1"><DocsHelpLink topic={formErrorHelp} /></p>}
             </div>
           )}
           <div className="flex gap-2">

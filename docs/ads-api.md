@@ -111,13 +111,13 @@ description: 把亚马逊广告操作从「浏览器点卖家后台」切换为�
 
 </details>
 
-<details markdown="1"><summary><b>打开面板就红字报「Could not reach the ads service …」</b></summary>
+<details markdown="1" id="ads-service-unreachable"><summary><b>打开面板就红字报「Could not reach the ads service …」</b></summary>
 
 本机到广告服务的网络不通（防火墙、代理，或服务临时不可用）。恢复后重新打开页面即可——面板每次打开都会自动同步和注册。
 
 </details>
 
-<details markdown="1"><summary><b>点完「授权完成」提示「还没有看到这个店铺的授权」</b></summary>
+<details markdown="1" id="not-yet-authorized"><summary><b>点完「授权完成」提示「还没有看到这个店铺的授权」</b></summary>
 
 亚马逊那边的同意还没完成，或者没等到授权成功页。回店铺浏览器把授权走完，看到成功页后再点一次。
 

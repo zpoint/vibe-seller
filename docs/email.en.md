@@ -223,7 +223,7 @@ them through controlled tools.
 
 ## FAQ
 
-<details markdown="1"><summary><b>"Test Connection" fails with "LOGIN Login error or password error"?</b></summary>
+<details markdown="1" id="test-connection-failed"><summary><b>"Test Connection" fails with "LOGIN Login error or password error"?</b></summary>
 
 The mail server rejected the sign-in. Almost always one of:
 
@@ -234,7 +234,7 @@ The mail server rejected the sign-in. Almost always one of:
 Fix it and test again — the exact reason is shown in the red box.
 </details>
 
-<details markdown="1"><summary><b>It says "This mailbox is already added"?</b></summary>
+<details markdown="1" id="already-added"><summary><b>It says "This mailbox is already added"?</b></summary>
 
 The mailbox is already in the list. To rotate the authorization code,
 delete the old entry first, then add it again with the new code.
@@ -247,7 +247,7 @@ web mail under **Settings → Account & Security**, change the fetch
 option from "Last 30 days" to "All".
 </details>
 
-<details markdown="1"><summary><b>What if the servers are not auto-detected?</b></summary>
+<details markdown="1" id="servers-not-detected"><summary><b>What if the servers are not auto-detected?</b></summary>
 
 Auto-detection covers the common providers (163 / 126 / yeah.net, QQ,
 Gmail, …). For other domains it guesses `imap.yourdomain.com`, which is

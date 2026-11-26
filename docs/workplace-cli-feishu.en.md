@@ -94,7 +94,7 @@ If you do need it, the Feishu app's admin turns it on:
 If the message lists a different permission, the steps are the same.
 </details>
 
-<details markdown="1"><summary><b>"This sign-in can't renew itself"?</b></summary>
+<details markdown="1" id="no-refresh-token"><summary><b>"This sign-in can't renew itself"?</b></summary>
 
 The sign-in worked, but Feishu did not issue the credential used to
 renew it: what the AI does as your Feishu account stops working at the

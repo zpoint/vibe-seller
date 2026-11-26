@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
+import { DocsHelpLink } from '../ui/DocsHelpLink'
 
 /** How the service says the store's last Amazon consent ended. Amazon
  *  accepts a consent from a login with no Ads access and hands back zero
@@ -102,7 +103,7 @@ export function AmazonAdsPanel() {
    *  loop. Whatever the recheck has to say — not completed, or why it
    *  failed — is said in the panel's own failure red, like the
    *  wrong-account warning above. */
-  const [checkNote, setCheckNote] = useState<string | null>(null)
+  const [checkNote, setCheckNote] = useState<'noAdPermission' | 'consentFailed' | 'notYetAuthorized' | null>(null)
   const confirmAuthorized = async () => {
     if (!link) return
     setBusy(true); setCheckNote(null)
@@ -121,9 +122,9 @@ export function AmazonAdsPanel() {
       }
       const consent = consentAfter(storeRows, link.mintedAt)
       setCheckNote(
-        consent?.result === 'no_profiles' ? t('ads.noAdPermission')
-        : consent?.result === 'failed' ? t('ads.consentFailed')
-        : t('ads.notYetAuthorized'),
+        consent?.result === 'no_profiles' ? 'noAdPermission'
+        : consent?.result === 'failed' ? 'consentFailed'
+        : 'notYetAuthorized',
       )
     } finally {
       setBusy(false)
@@ -342,14 +343,19 @@ export function AmazonAdsPanel() {
             {busy ? t('ads.checking') : t('ads.recheck')}
           </button>
           {checkNote && (
-            <p data-testid="ads-check-note" className="text-xs font-medium text-red-600">
-              {checkNote}
-            </p>
+            <div className="space-y-1">
+              <p data-testid="ads-check-note" className="text-xs font-medium text-red-600">
+                {t(`ads.${checkNote}`)}
+              </p>
+              {checkNote === 'notYetAuthorized' && <DocsHelpLink topic="adsNotYetAuthorized" />}
+            </div>
           )}
         </section>
       )}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
+      {/* The service unreachable from this machine (app/ads_client.py) */}
+      {error?.includes('Could not reach the ads service') && <DocsHelpLink topic="adsServiceUnreachable" />}
       {message && <p data-testid="ads-message" className="text-xs font-medium text-green-700">{message}</p>}
     </div>
   )

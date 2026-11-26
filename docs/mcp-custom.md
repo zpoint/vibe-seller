@@ -97,19 +97,23 @@ Token 那一行点 **复制配置**：
 ## 常见问题
 
 **保存时提示「Token 不对或已失效」**
+{: #token-invalid }
 
 Token 填错、已删除或已停用。到服务商控制台检查 Token，重新复制配置再粘贴。
 
 **提示「请求头里还是示例文字」**
+{: #sample-header }
 
 粘贴的是文档里的示例，「请改成您的 MCP Token」还没换。到服务商控制台复制
 带真实 Token 的配置。
 
 **提示需要 OAuth 登录**
+{: #oauth-sign-in }
 
 任务在后台运行，没人能点授权。改用服务商提供的 Token / API Key 接入方式。
 
 **提示配置里有 `${…}` 变量**
+{: #config-variable }
 
 把 `${…}` 换成真实的 Token 再保存。
 

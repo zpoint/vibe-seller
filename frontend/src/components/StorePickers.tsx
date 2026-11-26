@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
 import { SecretReveal } from './SecretReveal'
+import { DocsHelpLink } from './ui/DocsHelpLink'
+import type { DocsHelpTopic } from '../lib/docsHelp'
 import type { ServerPlatform, Store, YuehulianStore, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 
 interface YuehulianLoginStatus { configured: boolean; team_name: string; subaccount: string }
@@ -73,6 +75,8 @@ export function YuehulianSection(props: {
     } finally { setBusy(false) }
   }
 
+  // The docs section that says how to fix what the picker shows.
+  const oneAccount = formErr === t('settings.yuehulianOneAccount')
   const statusHint = (() => {
     if (!p.yuehulianError) return ''
     const s = p.yuehulianError.replace('yuehulian:', '')
@@ -109,13 +113,19 @@ export function YuehulianSection(props: {
           </div>
         </div>
       )}
-      {formErr && <p className="text-[11px] text-red-600">{formErr}</p>}
+      {formErr && (
+        <p className="text-[11px] text-red-600">
+          {formErr}
+          {oneAccount && <> <DocsHelpLink topic="yuehulianOneAccount" /></>}
+        </p>
+      )}
       {/* Store area — mutually exclusive (like ziniao): error, else spinner,
           else the store select. */}
       {statusHint ? (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <p className="text-[11px] text-red-600">{statusHint}</p>
-          <button type="button" onClick={p.fetchYuehulianStores} disabled={p.fetchingYuehulian} className="text-[11px] text-indigo-600 hover:underline disabled:opacity-50">{t('common.refresh')}</button>
+          <button type="button" onClick={p.fetchYuehulianStores} disabled={p.fetchingYuehulian} className="shrink-0 text-[11px] text-indigo-600 hover:underline disabled:opacity-50">{t('common.refresh')}</button>
+          <DocsHelpLink topic="yuehulianErrors" />
         </div>
       ) : status?.configured && p.fetchingYuehulian ? (
         <div className="flex flex-col items-center justify-center py-6 px-4 bg-indigo-50 rounded-lg border border-indigo-200">
@@ -219,6 +229,8 @@ export function ZiniaoSection(props: {
           return { status, message }
         })() : null
         const isMac = p.serverPlatform === 'mac', isWsl = p.serverPlatform === 'wsl'
+        // The docs section for each failure (lib/docsHelp.ts), under its text.
+        const help = (topic: DocsHelpTopic) => <DocsHelpLink topic={topic} className="mb-3" />
         const editSelected = () => { const a = p.ziniaoAccounts.find(x => x.id === p.selectedZiniaoAccountId); if (a) { p.setNewAccount({ name: a.name, company: a.company, username: a.username, password: '' }); p.setEditingAccountId(a.id); p.setShowAddAccount(true) } }
 
         return p.fetchingBrowsers ? (
@@ -228,18 +240,21 @@ export function ZiniaoSection(props: {
             <p className="text-xs text-indigo-600 mt-1 text-center">{p.ziniaoStartingSecs > 0 ? t('settings.ziniaoStartingFor', { secs: p.ziniaoStartingSecs }) : t('settings.ziniaoLoadingHint')}</p>
           </div>
         ) : zs?.status === 'no_permission' ? (
-          // -10003: surface Ziniao's own err if present; otherwise generic
+          // -10003: surface Ziniao's own err if present; otherwise generic.
+          // Either way the fix is the same, so the guide is always offered.
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
-            {zs.message ? <p className="text-sm font-medium text-red-700 mb-3 break-all">{zs.message}</p> : <><p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoNoPermission')}</p><p className="text-xs text-red-600 mb-3">{t('settings.ziniaoNoPermissionHint')}</p></>}
+            {zs.message ? <p className="text-sm font-medium text-red-700 mb-2 break-all">{zs.message}</p> : <><p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoNoPermission')}</p><p className="text-xs text-red-600 mb-2">{t('settings.ziniaoNoPermissionHint')}</p></>}
+            {help('ziniaoNoPermission')}
             <div className="flex gap-2">
-              {!zs.message && <a href="https://open.ziniao.com/docSupport?docId=99" target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoEnableWebDriver')}</a>}
+              <a href="https://open.ziniao.com/docSupport?docId=99" target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoEnableWebDriver')}</a>
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
             </div>
           </div>
         ) : zs?.status === 'credentials_error' ? (
           // Stored password can't be decrypted (e.g. DB copied across installs).
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
-            <p className="text-sm font-medium text-red-700 mb-3 break-all">{t('settings.ziniaoCredentialsError')}</p>
+            <p className="text-sm font-medium text-red-700 mb-2 break-all">{t('settings.ziniaoCredentialsError')}</p>
+            {help('ziniaoCredentials')}
             <div className="flex gap-2">
               <button onClick={editSelected} className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.editZiniaoAccount')}</button>
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
@@ -249,7 +264,8 @@ export function ZiniaoSection(props: {
           // Mac: Ziniao not installed
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
             <p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoNotInstalled')}</p>
-            <p className="text-xs text-red-600 mb-3">{t('settings.ziniaoNotInstalledHint')}</p>
+            <p className="text-xs text-red-600 mb-2">{t('settings.ziniaoNotInstalledHint')}</p>
+            {help('ziniaoPage')}
             <div className="flex gap-2">
               <a href="https://www.ziniao.com/download" target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoDownloadZiniao')}</a>
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
@@ -258,7 +274,8 @@ export function ZiniaoSection(props: {
         ) : zs?.status === 'new_terminal_login' ? (
           // Ziniao new-device security check: manual login approval needed.
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-amber-50 rounded-lg border border-amber-200">
-            <p className="text-sm font-medium text-amber-700 mb-3 break-words text-center">{t('settings.ziniaoNewTerminalLogin')}</p>
+            <p className="text-sm font-medium text-amber-700 mb-2 break-words text-center">{t('settings.ziniaoNewTerminalLogin')}</p>
+            {help('ziniaoNewTerminal')}
             <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-amber-600 text-white rounded text-xs hover:bg-amber-700">{t('common.refresh')}</button>
           </div>
         ) : (zs?.status === 'start_failed' || zs?.status === 'account_conflict') ? (
@@ -266,14 +283,16 @@ export function ZiniaoSection(props: {
           // or another Ziniao account is in use: say why, offer a retry.
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
             <p className="text-sm font-medium text-red-700 mb-2">{zs.status === 'start_failed' ? t('settings.ziniaoStartFailed') : t('settings.ziniaoAccountConflict')}</p>
-            {zs.message && <p className="text-xs text-red-600 mb-3 break-words text-center">{zs.message}</p>}
+            {zs.message && <p className="text-xs text-red-600 mb-2 break-words text-center">{zs.message}</p>}
+            {help(zs.status === 'start_failed' ? 'ziniaoDeveloperMode' : 'ziniaoPage')}
             <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
           </div>
         ) : p.browserFetchError === 'connect_error' || (zs && !['no_profiles'].includes(zs.status)) ? (
           // Fallback connect error. Platform UI keys off serverPlatform.
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
             <p className="text-sm font-medium text-red-700 mb-2">{isMac ? t('settings.ziniaoConnectErrorMac') : t('settings.ziniaoConnectError')}</p>
-            {isWsl && <p className="text-xs text-red-600 mb-3">{t('settings.ziniaoLaunchHint')}</p>}
+            {isWsl && <p className="text-xs text-red-600 mb-2">{t('settings.ziniaoLaunchHint')}</p>}
+            {help(isWsl ? 'ziniaoWslLauncher' : 'ziniaoDeveloperMode')}
             <div className="flex gap-2">
               {isWsl && <a href="/api/ziniao/launcher" download className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoDownloadLauncher')}</a>}
               <button onClick={editSelected} className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.editZiniaoAccount')}</button>
@@ -283,6 +302,7 @@ export function ZiniaoSection(props: {
         ) : p.browserFetchError.startsWith('api_error:') ? (
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
             <p className="text-sm font-medium text-red-700 mb-2">{p.browserFetchError.slice('api_error:'.length)}</p>
+            {help('ziniaoPage')}
             <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
           </div>
         ) : p.browserFetchError === 'no_profiles' ? (

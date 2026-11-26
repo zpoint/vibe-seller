@@ -139,7 +139,7 @@ win over the official text:
 Who it can message directly: see [Who the AI can message](#who-the-ai-can-message). You can use both: for example, the AI writes a document in WeCom, then the chat bot posts its link to your operations group.
 </details>
 
-<details markdown="1"><summary><b>The download failed?</b></summary>
+<details markdown="1" id="download-failed"><summary><b>The download failed?</b></summary>
 
 The Settings page says what to do next; open **Details** to see why
 each address failed. Vibe Seller tries the official address first,

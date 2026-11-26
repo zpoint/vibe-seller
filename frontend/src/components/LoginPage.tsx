@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { LanguageSwitcher } from './ui'
+import { DocsHelpLink } from './ui/DocsHelpLink'
 
 interface LoginPageProps {
   loginIdentifier: string
@@ -17,7 +18,13 @@ export function LoginPage({ loginIdentifier, setLoginIdentifier, loginPassword, 
       <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm">
         <h1 className="text-xl font-bold mb-1">Vibe Seller</h1>
         <p className="text-sm text-gray-500 mb-6">{t('auth.signInTitle')}</p>
-        {loginError && <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded mb-4">{loginError}</div>}
+        {loginError && (
+          <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded mb-4">
+            {loginError}
+            {/* Forgot the password: the docs say how to reset it. */}
+            <p className="mt-1"><DocsHelpLink topic="loginPassword" /></p>
+          </div>
+        )}
         <input
           value={loginIdentifier} onChange={e => setLoginIdentifier(e.target.value)}
           placeholder={t('auth.identifierPlaceholder')} type="text" autoFocus

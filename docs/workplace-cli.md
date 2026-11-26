@@ -122,7 +122,7 @@ Vibe Seller 给每个平台的官方技能加了几条规则，优先于官方�
 能私信谁见上面的[能把消息发给谁](#能把消息发给谁)。两者可以同时用：比如 AI 先在企业微信里写好文档，再用群机器人把链接推到运营群。
 </details>
 
-<details markdown="1"><summary><b>下载失败怎么办？</b></summary>
+<details markdown="1" id="download-failed"><summary><b>下载失败怎么办？</b></summary>
 
 设置页会提示下一步；点开「详细信息」能看到每个地址失败的原因。
 Vibe Seller 先试官方地址，不通时改用国内镜像，并自动选择能用的代理

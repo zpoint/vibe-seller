@@ -25,7 +25,8 @@
     "search": "Search",
     "filter": "Filter",
     "all": "All",
-    "optional": "optional"
+    "optional": "optional",
+    "docsHelp": "How to fix this"
   },
   "auth": {
     "signIn": "Sign In",

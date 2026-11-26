@@ -157,7 +157,7 @@ too if you no longer want it.
 To connect, see [WeCom / Feishu / DingTalk](workplace-cli.en.md). You can use both: for example, the AI writes a document in WeCom, then the chat bot posts its link to your operations group.
 </details>
 
-<details markdown="1"><summary><b>What do the test errors mean?</b></summary>
+<details markdown="1" id="test-errors"><summary><b>What do the test errors mean?</b></summary>
 
 The Test button shows the platform's own reply; the platform's error
 code is in parentheses. The common ones:
