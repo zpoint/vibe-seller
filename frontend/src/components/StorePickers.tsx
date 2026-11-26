@@ -293,10 +293,11 @@ export function ZiniaoSection(props: {
             <p className="text-sm font-medium text-red-700 mb-2">{isMac ? t('settings.ziniaoConnectErrorMac') : t('settings.ziniaoConnectError')}</p>
             {isWsl && <p className="text-xs text-red-600 mb-2">{t('settings.ziniaoLaunchHint')}</p>}
             {help(isWsl ? 'ziniaoWslLauncher' : 'ziniaoDeveloperMode')}
-            <div className="flex gap-2">
-              {isWsl && <a href="/api/ziniao/launcher" download className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoDownloadLauncher')}</a>}
-              <button onClick={editSelected} className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.editZiniaoAccount')}</button>
-              <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
+            {/* Three buttons outgrow the sidebar on WSL: wrap, don't squeeze. */}
+            <div className="flex flex-wrap justify-center gap-2">
+              {isWsl && <a href="/api/ziniao/launcher" download className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700 whitespace-nowrap">{t('settings.ziniaoDownloadLauncher')}</a>}
+              <button onClick={editSelected} className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700 whitespace-nowrap">{t('settings.editZiniaoAccount')}</button>
+              <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 whitespace-nowrap">{t('common.refresh')}</button>
             </div>
           </div>
         ) : p.browserFetchError.startsWith('api_error:') ? (

@@ -353,9 +353,13 @@ export function AmazonAdsPanel() {
         </section>
       )}
 
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      {/* The service unreachable from this machine (app/ads_client.py) */}
-      {error?.includes('Could not reach the ads service') && <DocsHelpLink topic="adsServiceUnreachable" />}
+      {error && (
+        <div>
+          <p className="text-xs text-destructive">{error}</p>
+          {/* The service unreachable from this machine (app/ads_client.py) */}
+          {error.includes('Could not reach the ads service') && <DocsHelpLink topic="adsServiceUnreachable" />}
+        </div>
+      )}
       {message && <p data-testid="ads-message" className="text-xs font-medium text-green-700">{message}</p>}
     </div>
   )
