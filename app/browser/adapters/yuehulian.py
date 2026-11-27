@@ -4,9 +4,10 @@ Yuehulian ships no local automation API (unlike ziniao), so we drive its
 Electron client through a Node inspector + renderer DOM and inject a CDP
 debug port into the launched kernel. From the CDP endpoint onward it is
 identical to the ziniao / chrome backends (CDPMuxProxy → browser-use).
-On Windows the client is driven over PowerShell (WSL-on-Windows works
-through 127.0.0.1); on macOS natively, via the Mac process layer and a
-SIGUSR1-opened inspector (:mod:`yuehulian_mac`).
+On Windows the server drives the client over PowerShell; on macOS
+natively via the Mac process layer and a SIGUSR1-opened inspector
+(:mod:`yuehulian_mac`). A server inside WSL can also drive the Windows
+client over 127.0.0.1 (WSL is a third, separate mode).
 
 The engine (:class:`InjectCdpBackend`) holds the generic flow; this file
 is the thin adapter plus the vendor spec (``YUEHULIAN_VENDOR``) the
@@ -30,9 +31,9 @@ from app.browser.vendors import (
 from app.browser.win_app_locator import WinAppSpec
 from app.browser.ziniao_utils import get_platform
 
-# Needs the 悦互联 client: the Windows client (native or driven from
-# WSL over 127.0.0.1) or the Mac client (driven natively on macOS).
-# Pure Linux has no client to reach.
+# Needs the 悦互联 client: native Windows drives it over PowerShell,
+# macOS natively via the Mac layers; a server inside WSL can also
+# drive the Windows client over 127.0.0.1. Pure Linux has no client.
 _SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl', 'mac'})
 
 

@@ -1,8 +1,9 @@
 """Real client driver for Yuehulian (composes the IO + DOM layers).
 
 Implements :class:`InjectClient` on top of the platform IO layer
-(:mod:`yuehulian_win` on Windows/WSL, :mod:`yuehulian_mac` on macOS —
-picked in :func:`process_layer` / :func:`inspector_session`) and
+(native Windows and WSL both use :mod:`yuehulian_win`; macOS uses
+:mod:`yuehulian_mac` — picked in :func:`process_layer` /
+:func:`inspector_session`) and
 :mod:`yuehulian_dom` (pure parsing, shared by both platforms: the Mac
 client is the same Vue/Element-UI app). The read path (ensure_running /
 is_logged_in / list_stores) is validated live on both platforms; the
@@ -85,7 +86,7 @@ def inspector_session(proc) -> InspectorSession:
 
 
 class RealYuehulianClient(InjectClient):
-    """Drives the real 悦互联 Electron client (Windows/WSL and macOS)."""
+    """Drives the real 悦互联 Electron client (Windows, macOS, WSL)."""
 
     def __init__(self, browser_config: dict | None = None):
         cfg = browser_config or {}
