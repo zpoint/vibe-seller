@@ -16,6 +16,7 @@ Login    ``auth init --noninteractive --no-browser --output-qrcode`` binds
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 import re
@@ -41,6 +42,50 @@ _URL = re.compile(r'https?://\S+')
 SKILLS_MAIN = (
     'https://codeload.github.com/WecomTeam/wecom-cli/tar.gz/refs/heads/main'
 )
+
+
+#: Read-only calls, one per area WeCom authorizes its bot for (docs,
+#: contacts, messages, mail, drive, calendar, meetings, to-dos). The
+#: grant lasts 7 days (developer.work.weixin.qq.com/document/path/101468)
+#: and ``auth show`` keeps saying "authorized" after it expires — only a
+#: real call tells. Never a call that writes or sends.
+EXPIRY_PROBES: tuple[tuple[str, ...], ...] = (
+    ('doc', 'search', '--keywords', 'vibe', '--limit', '1'),
+    ('contact', 'users', 'search', '--keywords', 'vibe'),
+    ('message', 'aibot', 'sessions', 'list'),
+    ('mail', 'search', '--limit', '1'),
+    ('disk', 'files', 'list', '--limit', '1'),
+    ('calendar', 'schedules', 'list'),
+    ('meeting', 'list', '--limit', '1'),
+    ('todo', 'list', '--limit', '1'),
+)
+#: "authorization expired".
+EXPIRED_ERRCODE = 850003
+
+
+def _first_json(text: str) -> dict | None:
+    """The response object the CLI printed (it may print other lines)."""
+    start = text.find('{')
+    if start < 0:
+        return None
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text[start:])
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def answered_expired(rc: int, out: str, err: str) -> bool | None:
+    """One probe's answer: expired (True), allowed (False), or nothing
+    to go on (None). The reply's data is never kept."""
+    body = _first_json(out) or _first_json(err)
+    code = body.get('errcode') if body else None
+    if code == EXPIRED_ERRCODE:
+        return True
+    # Allowed: an answer with no error. Unreadable output says nothing.
+    if rc == 0 and body is not None and code in (None, 0):
+        return False
+    return None
 
 
 def _parse_login(line: str, view: LoginView) -> None:
@@ -124,6 +169,20 @@ class WeCom(CliIntegration):
         if state == 'unauthorized':
             return AuthStatus(False, 'not_logged_in')
         return AuthStatus(False, 'error', detail={'error': out[-300:]})
+
+    checks_expiry = True
+    expired_hint = (
+        " (WeCom's grant lasts 7 days; once it expired, a command answers "
+        '「…」使用权限已过期 / "authorization expired", errcode '
+        f'{EXPIRED_ERRCODE})'
+    )
+
+    async def check_expired(self, run) -> bool | None:
+        answers = await asyncio.gather(*(run(list(a)) for a in EXPIRY_PROBES))
+        found = [answered_expired(*a) for a in answers]
+        if True in found:
+            return True
+        return False if False in found else None
 
     def login_steps(self, status: AuthStatus) -> list[LoginStep]:
         # The QR path must sit under the working dir (the CLI sandboxes
