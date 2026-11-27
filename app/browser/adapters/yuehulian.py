@@ -93,6 +93,13 @@ YUEHULIAN_VENDOR = BrowserVendorSpec(
             ),
         ),
     },
+    # C4: yuehulian's stop path genuinely must close-and-reopen. Its
+    # client keeps listing an env as Opened after the kernel died (a
+    # crash, or all-profiles closed through the client), and only the
+    # client's own close clears that state — attaching to the stale
+    # row reopens nothing. Its docs describe close-and-reopen as
+    # intended behaviour.
+    reopens_hand_opened=True,
     client_factory=make_client,
     win_app=YUEHULIAN_WIN_APP,
     client_path_setting='yuehulian_client_path',
