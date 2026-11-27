@@ -495,15 +495,26 @@ def _item_mcp(client: httpx.Client, mcp_server) -> dict:
 
 
 def _item_ads(client: httpx.Client, store_name: str) -> dict:
+    # The deployment's authorization step: an admin uploads the stores
+    # and the service records which are authorized (a store whose name
+    # carries the fake service's mark). Without it the server's gate
+    # refuses every call — the first run proved it: the agent, denied
+    # its tool, went probing the server home and the checkout (both
+    # correctly denied by the guards) before giving up.
+    r = client.post(f'{h.BASE_URL}/api/ads/stores/sync')
+    assert r.status_code == 200, r.text
+    rows = r.json().get('stores', [])
+    ours = next(row for row in rows if row.get('name') == store_name)
+    assert ours.get('authorized'), f'store not authorized: {ours}'
     entry = _run_task(
         client,
         'smoke: one ads call',
         (
-            'This store is bound to the ads service. Call the '
-            'vibe_seller_ads_call tool with path "/facts/rollup" and '
-            f'store "{store_name}", and report the total spend figure it '
-            'returns. Do not open a browser — advertising work on this '
-            'store goes through that tool only.'
+            'This store is authorized for the ads service. Make exactly '
+            'ONE call with the vibe_seller_ads_call tool: '
+            'path="/facts/rollup", store="' + store_name + '". Report '
+            'the total spend figure it returns, then stop — no other '
+            'calls, no browser, no exploring.'
         ),
         store_id=_state_read().get('store_id'),
     )
