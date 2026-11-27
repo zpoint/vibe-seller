@@ -1,10 +1,11 @@
 """Windows I/O for the Yuehulian client (process + Node inspector).
 
-Thin wrappers over ``powershell.exe`` and the inspector WebSocket; the
-pure logic lives in :mod:`yuehulian_dom`, and install discovery in
-:mod:`app.browser.win_app_locator` (shared with Ziniao). Everything
-here only works on Windows (or WSL-on-Windows, driving the Windows side
-over 127.0.0.1).
+Thin wrappers over ``powershell.exe``; the pure logic lives in
+:mod:`yuehulian_dom`, install discovery in
+:mod:`app.browser.win_app_locator` (shared with Ziniao) and the Node
+inspector machinery in :mod:`app.browser.win_inspector` (shared with
+wenmai). Everything here only works on Windows (or WSL-on-Windows,
+driving the Windows side over 127.0.0.1).
 
 Validated live 2026-11-18: install location via registry/Start Menu,
 Electron MAIN pid (``用户端.exe`` with no ``--type=`` — the kernel's root
@@ -14,19 +15,28 @@ the inspector with ``ELECTRON_RUN_AS_NODE`` + ``process._debugProcess``,
 it with ``require('inspector').close()``.
 """
 
-import asyncio
 import json
 import logging
 import ntpath
 import os
-
-import aiohttp
 
 from app.browser import win_app_locator as win_locator
 from app.browser.win_app_locator import (
     run_powershell as _run_ps,
     win_path_to_local,
 )
+from app.browser.win_inspector import (
+    InspectorError,
+    InspectorSession as WinInspectorSession,
+)
+
+__all__ = [
+    'InspectorError',
+    'InspectorSession',
+    'ProcessLayer',
+    'SPAWN_HOOK_JS',
+    'SPAWN_UNHOOK_JS',
+]
 
 logger = logging.getLogger(__name__)
 
@@ -243,12 +253,14 @@ SPAWN_UNHOOK_JS = r"""
 """
 
 
-class InspectorError(RuntimeError):
-    """The Node inspector could not be opened or driven."""
+class InspectorSession(WinInspectorSession):
+    """Yuehulian's inspector: the shared protocol, exe from ProcessLayer.
 
-
-class InspectorSession:
-    """Open/drive/close the Electron main-process Node inspector."""
+    Kept as a subclass so existing callers/tests that construct
+    ``InspectorSession(proc)`` keep working; the genuinely shared
+    WebSocket/eval machinery now lives in
+    :mod:`app.browser.win_inspector` (also used by wenmai).
+    """
 
     def __init__(
         self,
@@ -256,92 +268,10 @@ class InspectorSession:
         host: str = '127.0.0.1',
         port: int = 9229,
     ):
-        self._proc = proc
-        self._host = host
-        self._port = port
-        self._ws_url: str | None = None
+        super().__init__(proc.exe_path_script, host=host, port=port)
 
-    async def open(self, main_pid: int) -> None:
-        script = (
-            self._proc.exe_path_script() + "$env:ELECTRON_RUN_AS_NODE='1';"
-            '$env:NODE_OPTIONS=$null;'
-            'Start-Process -FilePath $exe -ArgumentList '
-            f"'-e',('process._debugProcess({main_pid})') -NoNewWindow;'ok'"
-        )
-        await asyncio.to_thread(_run_ps, script)
-        for _ in range(12):
-            url = await self._discover_ws()
-            if url:
-                self._ws_url = url
-                return
-            await asyncio.sleep(0.5)
-        raise InspectorError('inspector did not open on 127.0.0.1:9229')
-
-    async def _discover_ws(self) -> str | None:
-        url = f'http://{self._host}:{self._port}/json'
-        try:
-            async with aiohttp.ClientSession() as s:
-                async with s.get(
-                    url, timeout=aiohttp.ClientTimeout(total=5)
-                ) as r:
-                    data = await r.json()
-            for target in data:
-                ws = target.get('webSocketDebuggerUrl')
-                if ws:
-                    return ws
-        except Exception:
-            return None
-        return None
-
-    async def evaluate(
-        self,
-        expr: str,
-        *,
-        await_promise: bool = False,
-        timeout: float = 25.0,
-    ):
-        if not self._ws_url:
-            raise InspectorError('inspector not open')
-        async with aiohttp.ClientSession() as s:
-            async with s.ws_connect(self._ws_url, max_msg_size=0) as ws:
-
-                async def call(mid, method, params):
-                    await ws.send_json({
-                        'id': mid,
-                        'method': method,
-                        'params': params,
-                    })
-                    while True:
-                        msg = await asyncio.wait_for(
-                            ws.receive_json(), timeout=timeout
-                        )
-                        if msg.get('id') == mid:
-                            return msg
-
-                await call(1, 'Runtime.enable', {})
-                r = await call(
-                    2,
-                    'Runtime.evaluate',
-                    {
-                        'expression': expr,
-                        'returnByValue': True,
-                        'awaitPromise': await_promise,
-                        'includeCommandLineAPI': True,
-                    },
-                )
-        res = r.get('result', {})
-        if 'exceptionDetails' in res:
-            raise InspectorError(json.dumps(res['exceptionDetails'])[:400])
-        return res.get('result', {}).get('value')
-
-    async def eval_in_renderer(self, js: str, *, timeout: float = 25.0):
-        """Run ``js`` in the first BrowserWindow's renderer DOM."""
-        expr = (
-            "require('electron').BrowserWindow.getAllWindows()[0]"
-            '.webContents.executeJavaScript(' + json.dumps(js) + ')'
-        )
-        return await self.evaluate(expr, await_promise=True, timeout=timeout)
-
+    # Spawn-hook helpers are yuehulian-specific (wenmai's kernel already
+    # launches with a debug port, so it needs no hook).
     async def install_spawn_hook(self) -> None:
         await self.evaluate(SPAWN_HOOK_JS)
 
@@ -357,10 +287,3 @@ class InspectorSession:
             return json.loads(val) if val else []
         except (ValueError, TypeError):
             return []
-
-    async def close(self) -> None:
-        try:
-            await self.evaluate("require('inspector').close()")
-        except Exception:
-            pass
-        self._ws_url = None

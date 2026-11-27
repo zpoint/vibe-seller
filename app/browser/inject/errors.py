@@ -1,9 +1,15 @@
 """Typed, actionable errors for inject-driven browser backends.
 
-Each carries a stable ``code`` and ``hint`` so the operator sees exactly
-what to do (log in vs fix the store name vs restart the client) instead
-of one generic failure. The classifier in the task layer surfaces these
-verbatim.
+Each carries a stable ``code`` and a vendor-neutral ``hint`` so the
+operator sees exactly what to do (log in vs fix the store vs restart
+the client) instead of one generic failure. The classifier in the task
+layer surfaces these verbatim.
+
+This taxonomy is shared by every vendor adapter. Product names never
+appear here: a vendor that needs product-specific guidance passes its
+own message to the constructor (``StoreUnavailable`` carries the
+vendor's own error text), and vendor display names / docs anchors come
+from the vendor's spec, not from these hints.
 """
 
 
@@ -27,9 +33,86 @@ class LoginRequired(InjectError):
     hint = 'Log into the client on this machine, then retry / refresh.'
 
 
+class AccountMismatch(InjectError):
+    """The client is logged into a different account than the saved one.
+
+    Never resolved automatically: logging someone out of their session
+    is the operator's decision. The constructor message names the
+    account (the vendor adapter fills in what the client reports).
+    """
+
+    code = 'ACCOUNT_MISMATCH'
+    hint = (
+        'The client is logged into a different account than the saved '
+        'credentials. Log out in the client, or re-save the matching '
+        'credentials, then retry.'
+    )
+
+
+class ApiNotEnabled(InjectError):
+    """The client ships a local API but it is switched off.
+
+    The #1 support case for vendors that gate their local API behind a
+    client setting (most vendors ship it disabled by default).
+    """
+
+    code = 'API_NOT_ENABLED'
+    hint = (
+        'The local API of the client is switched off. Enable it in '
+        'its settings (look for API / 自动化 / local API), then retry.'
+    )
+
+
+class PlanRequired(InjectError):
+    """The client's local API requires a paid plan."""
+
+    code = 'PLAN_REQUIRED'
+    hint = (
+        'The local API of the client requires a paid plan. Upgrade '
+        'the account (or pick a plan that includes API access), then '
+        'retry.'
+    )
+
+
 class StoreNotFound(InjectError):
     code = 'STORE_NOT_FOUND'
     hint = 'Check the store name, or that it is visible to this login.'
+
+
+class StoreUnavailable(InjectError):
+    """The store exists for this login but cannot be opened.
+
+    Carries the vendor's own message in the constructor (e.g. no device
+    bound to the store, the store is expired/disabled in the vendor
+    client). The vendor adapter appends its product-specific fix hint;
+    the class stays vendor-neutral.
+    """
+
+    code = 'STORE_UNAVAILABLE'
+    hint = 'The store exists but cannot be opened; the message says why.'
+
+
+class UnsupportedKernel(InjectError):
+    """The env runs a non-Chromium kernel the backend cannot drive.
+
+    Firefox-kernel envs expose no CDP endpoint, so they cannot be
+    driven by the inject engine. The surfaced text carries this
+    class's stable ``code`` (see ``__str__``) so the UI can link the
+    docs section for it by token, not by translatable prose.
+    """
+
+    code = 'UNSUPPORTED_KERNEL'
+    hint = (
+        'This store does not use a Chrome (Chromium) kernel; switch '
+        'its kernel to Chrome in the client. See the browsers guide.'
+    )
+
+    def __str__(self) -> str:
+        # The task-error text is what the UI matches docs links
+        # against; prose is vendor-supplied and translated, so the
+        # stable taxonomy CODE rides along instead. Only this class
+        # carries the token — existing errors read exactly as before.
+        return f'[{self.code}] {super().__str__()}'
 
 
 class CdpUnreachable(InjectError):

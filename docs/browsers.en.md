@@ -28,6 +28,12 @@ vendor's own site:
 > Windows also has a fourth backend, `winchrome` (set at deployment, not a
 > choice in the store form) — see the end of "Which browser backend?".
 
+## Stores must use a Chrome kernel
+
+Anti-detect browsers such as Ziniao, Yuehulian and Wenmai usually let you choose a browser kernel per store. **Vibe Seller can only drive stores that use a Chrome (Chromium) kernel.** Stores on a Firefox kernel, or any other non-Chrome kernel, are not supported: a task cannot open them and reports that the store does not use a Chrome kernel.
+
+Before you bind a store, open its settings in the anti-detect browser and set the browser kernel to Chrome (some apps call it Chromium or "Chrome kernel"). If the store is already bound, you do not need to bind it again after changing the kernel; just run the task again.
+
 ## Which browser backend?
 
 | | Ziniao (Browser Backend) | Yuehulian (Browser Backend) | Chrome |

@@ -56,6 +56,13 @@ export const DOCS_HELP = {
     en: 'https://docs.vibe-sellers.com/en/yuehulian/#one-account-per-machine',
   },
 
+  // ── Browser kernels (task errors) ──
+  /** A store on a Firefox / non-Chrome kernel: UNSUPPORTED_KERNEL. */
+  browserKernel: {
+    zh: 'https://docs.vibe-sellers.com/browsers/#店铺要用-chrome-内核',
+    en: 'https://docs.vibe-sellers.com/en/browsers/#stores-must-use-a-chrome-kernel',
+  },
+
   // ── AI models (task errors) ──
   aiAuthFailed: {
     zh: 'https://docs.vibe-sellers.com/llm-keys/#auth-failed',
@@ -217,5 +224,10 @@ const TASK_ERROR_HELP: Partial<Record<string, DocsHelpTopic>> = {
 export function taskErrorHelp(category: string | null | undefined, error: string): DocsHelpTopic | null {
   const topic = category ? TASK_ERROR_HELP[category] : undefined
   if (topic) return topic
-  return error.includes('/api/ziniao/launcher') ? 'ziniaoWslLauncher' : null
+  if (error.includes('/api/ziniao/launcher')) return 'ziniaoWslLauncher'
+  // A store on a Firefox / other non-Chrome kernel: keyed on the
+  // STABLE taxonomy code the error surfaces (UnsupportedKernel prefixes
+  // it to its text), never on translatable prose.
+  if (error.includes('UNSUPPORTED_KERNEL')) return 'browserKernel'
+  return null
 }

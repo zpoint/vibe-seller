@@ -11,10 +11,15 @@ import asyncio
 import os
 import sys
 import textwrap
+import types
 
 import pytest
 
-from app.browser.machine_lock import MachineLock, MachineLockTimeout
+import app.browser.machine_lock as ml
+from app.browser.machine_lock import (
+    MachineLock,
+    MachineLockTimeout,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -71,3 +76,50 @@ async def test_a_holder_that_is_killed_releases_the_lock(tmp_path):
     finally:
         if holder.returncode is None:
             holder.kill()
+
+
+# ── the platform byte-lock dispatch (fcntl vs msvcrt) ────────────────
+
+
+async def test_posix_branch_uses_fcntl_flock(monkeypatch, tmp_path):
+    """The non-Windows branch locks byte 0 with fcntl.flock (works on
+    Linux AND macOS — both POSIX); the msvcrt path is never taken."""
+    calls = []
+
+    class _FakeFcntl:
+        LOCK_EX = 2
+        LOCK_NB = 4
+
+        def flock(self, fd, flags):
+            calls.append(('flock', flags))
+
+    monkeypatch.setattr(ml, 'IS_WINDOWS', False)
+    monkeypatch.setitem(sys.modules, 'fcntl', _FakeFcntl())
+    fd = os.open(str(tmp_path / 'l'), os.O_RDWR | os.O_CREAT)
+    try:
+        ml._lock_byte0(fd)
+        assert calls == [('flock', _FakeFcntl.LOCK_EX | _FakeFcntl.LOCK_NB)]
+    finally:
+        os.close(fd)
+
+
+async def test_windows_branch_uses_msvcrt_locking(monkeypatch, tmp_path):
+    """The Windows branch locks byte 0 with msvcrt.locking(LK_NBLCK) —
+    exercised via a fake module so the test runs everywhere."""
+    calls = []
+
+    fake_msvcrt = types.ModuleType('msvcrt')
+    fake_msvcrt.LK_NBLCK = 1
+
+    def locking(fd, mode, nbytes):
+        calls.append(('locking', mode, nbytes))
+
+    fake_msvcrt.locking = locking
+    monkeypatch.setattr(ml, 'IS_WINDOWS', True)
+    monkeypatch.setitem(sys.modules, 'msvcrt', fake_msvcrt)
+    fd = os.open(str(tmp_path / 'l'), os.O_RDWR | os.O_CREAT)
+    try:
+        ml._lock_byte0(fd)
+        assert calls == [('locking', fake_msvcrt.LK_NBLCK, 1)]
+    finally:
+        os.close(fd)
