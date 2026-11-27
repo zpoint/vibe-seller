@@ -31,8 +31,8 @@ description: 紫鸟接入 Vibe Seller 的一页说明：开通前提（开发者
 
 两种模式共用同一个紫鸟进程，不能同时运行，切换模式等于重启紫鸟：
 
-- **macOS / 原生 Windows**：由 Vibe Seller 自动完成。任务第一次用到紫鸟店铺的浏览器时、以及新建店铺读取店铺列表时，只要紫鸟没在开发者模式下响应（没打开、你手动打开的普通模式、或上次异常退出留下的残留进程），它就会先关掉所有紫鸟进程，再用 `--run_type=web_driver` 重新打开，不会弹窗问你。所以你手动打开的紫鸟窗口会被关掉重开——只有用到浏览器时才会，不打开浏览器的任务不会动它。打开最多等 2 分钟，没响应会再关掉重试一次。
-- **Windows（WSL）**：WSL 无法跨越虚拟机边界去重启 Windows 上的紫鸟，因此需要在 Windows 侧运行一个单行的 `.bat` 启动器来完成停止和重启（双击运行一次即可）。步骤见下面 [Windows（WSL）：让紫鸟进入开发者模式](#windowswsl让紫鸟进入开发者模式ziniao_webdriverbat)。
+- **Windows / macOS**：由 Vibe Seller 自动完成。任务第一次用到紫鸟店铺的浏览器时、以及新建店铺读取店铺列表时，只要紫鸟没在开发者模式下响应（没打开、你手动打开的普通模式、或上次异常退出留下的残留进程），它就会先关掉所有紫鸟进程，再用 `--run_type=web_driver` 重新打开，不会弹窗问你。所以你手动打开的紫鸟窗口会被关掉重开——只有用到浏览器时才会，不打开浏览器的任务不会动它。打开最多等 2 分钟，没响应会再关掉重试一次。
+- **WSL**：WSL 无法跨越虚拟机边界去重启 Windows 上的紫鸟，因此需要在 Windows 侧运行一个单行的 `.bat` 启动器来完成停止和重启（双击运行一次即可）。步骤见下面 [WSL：让紫鸟进入开发者模式](#windowswsl让紫鸟进入开发者模式ziniao_webdriverbat)。
 
 ## 绑定时要填什么
 
@@ -55,7 +55,7 @@ description: 紫鸟接入 Vibe Seller 的一页说明：开通前提（开发者
 !!! warning "手动打开的紫鸟窗口会被关掉"
     你在紫鸟里手动打开的店铺窗口会一起关闭，未保存的操作会丢失。绑定店铺前，请先保存并结束紫鸟里正在进行的操作。
 
-重新打开通常需要几秒到一两分钟，页面会显示已等待的时间，完成后店铺列表自动出现。紫鸟已经在开发者模式下运行时不会重启。Windows（WSL）上 Vibe Seller 不会自动关闭紫鸟，按[启动器步骤](#windowswsl让紫鸟进入开发者模式ziniao_webdriverbat)操作。
+重新打开通常需要几秒到一两分钟，页面会显示已等待的时间，完成后店铺列表自动出现。紫鸟已经在开发者模式下运行时不会重启。WSL 上 Vibe Seller 不会自动关闭紫鸟，按[启动器步骤](#windowswsl让紫鸟进入开发者模式ziniao_webdriverbat)操作。
 
 ## 报错：「无权限通过 webdriver 登录」
 
@@ -79,7 +79,7 @@ description: 紫鸟接入 Vibe Seller 的一页说明：开通前提（开发者
 
 之后这台电脑就被紫鸟信任了，不会再出现这个提示。
 
-## Windows（WSL）：让紫鸟进入开发者模式（ziniao_webdriver.bat）
+## WSL：让紫鸟进入开发者模式（ziniao_webdriver.bat） {#windowswsl让紫鸟进入开发者模式ziniao_webdriverbat}
 
 紫鸟装在 Windows 一侧，Vibe Seller 运行在 WSL 里。WSL 无法跨越虚拟机边界重启 Windows 上的紫鸟，因此需要在 Windows 侧使用启动器：
 

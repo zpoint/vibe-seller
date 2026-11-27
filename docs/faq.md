@@ -16,7 +16,7 @@ description: 常见问题总览：了解 Vibe Seller、紫鸟开通与报错、�
 
 - [提示「无权限通过 webdriver 登录」怎么办](ziniao.md#报错无权限通过-webdriver-登录)
 - [提示「检测到您在新终端登录」怎么办](ziniao.md#报错检测到您在新终端登录)
-- [Windows（WSL）多出的 ziniao_webdriver.bat 一步](ziniao.md#windowswsl让紫鸟进入开发者模式ziniao_webdriverbat)
+- [WSL 多出的 ziniao_webdriver.bat 一步](ziniao.md#windowswsl让紫鸟进入开发者模式ziniao_webdriverbat)
 
 ## 费用与模型选择
 
