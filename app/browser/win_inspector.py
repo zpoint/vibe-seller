@@ -47,10 +47,12 @@ class InspectorBusy(InspectorError):
     Electron clients on one machine (or an outside probe) collide: the
     loser would silently attach to the WINNER's inspector — running one
     vendor's login JS in another vendor's window and closing someone
-    else's session on cleanup (both observed live). ``open`` refuses
-    instead: it never attaches to (and never closes) a session it did
-    not open itself. A caller may retry after a short backoff; the
-    other session ends when its owner closes it.
+    else's session on cleanup (both observed live). ``open`` probes a
+    served port before touching it: a leftover on the very pid it was
+    asked to debug is reused, anything else (a different or an
+    unreadable pid) is refused without closing it. A caller may retry
+    after a short backoff; the other session ends when its owner
+    closes it.
     """
 
 
@@ -71,9 +73,10 @@ class InspectorSession:
 
     ``open`` takes a MACHINE-WIDE lock (one inspector session on this
     machine at a time — two vendors, or two server instances, must not
-    both drive 9229), refuses when the port already serves a session it
-    did not open, and verifies the connected process IS the pid it was
-    asked to debug (an outside probe takes no lock of ours).
+    both drive 9229), probes an already-served port (reusing a leftover
+    on the target pid, refusing anything else without closing it), and
+    verifies the connected process IS the pid it was asked to debug (an
+    outside probe takes no lock of ours).
 
     Subclassing for another platform: override ONLY ``_trigger`` — the
     base ``open`` handles locking, the busy check and the pid
@@ -105,26 +108,47 @@ class InspectorSession:
     async def open(self, main_pid: int) -> None:
         """Open the inspector on ``main_pid`` (locked, checked, verified).
 
-        In order: take the machine-wide lock → refuse if 9229 already
-        serves an inspector we did not open → trigger (platform hook) →
-        connect → verify ``process.pid`` is the pid we asked for. On a
-        mismatch the socket is dropped WITHOUT ``inspector.close()``
+        In order: take the machine-wide lock → if 9229 already serves,
+        probe it (a leftover on the very pid we want is REUSED — one of
+        our operations dying between open and close must not block
+        auto-login forever; a different pid is refused untouched) →
+        trigger (platform hook) → connect → verify ``process.pid``. On
+        a mismatch the socket is dropped WITHOUT ``inspector.close()``
         (it is someone else's session) and ``InspectorBusy`` is raised
         after a short bounded retry.
         """
         if self._ws_url is not None:
             return  # already open
-        last_busy: InspectorBusy | None = None
+        last_busy_msg = ''
         for attempt in range(self.BUSY_RETRIES + 1):
             lock = MachineLock(self.LOCK_NAME)
             await lock.acquire(timeout=self.LOCK_WAIT_S)
             self._lock = lock
             try:
-                if await self._discover_ws():
+                existing = await self._discover_ws()
+                if existing:
+                    # The machine lock guarantees no session of OURS is
+                    # running, so this is either a leftover on the
+                    # target process (an operation died between open
+                    # and close) or a foreign session. Probe, never
+                    # close: reuse ours, refuse theirs.
+                    pid = await self._probe_pid(existing)
+                    if pid is not None and int(pid) == int(main_pid):
+                        logger.info(
+                            'reusing the leftover inspector on pid %s '
+                            '(a previous session never closed it)',
+                            main_pid,
+                        )
+                        self._ws_url = existing
+                        return
+                    whose = (
+                        f'a DIFFERENT process (pid {pid})'
+                        if pid is not None
+                        else 'an unidentified process'
+                    )
                     raise InspectorBusy(
-                        f'{self._host}:{self._port} is already serving '
-                        'an inspector session this process did not open; '
-                        'refusing to attach to (or close) it'
+                        f'{self._host}:{self._port} is serving {whose}, '
+                        f'expected {main_pid}; not touching that session'
                     )
                 await self._trigger(main_pid)
                 for _ in range(12):
@@ -137,7 +161,7 @@ class InspectorSession:
                     raise InspectorError(
                         f'inspector did not open on {self._host}:{self._port}'
                     )
-                pid = await self._probe_pid()
+                pid = await self._probe_pid(self._ws_url)
                 if pid is not None and int(pid) != int(main_pid):
                     # Attached to someone ELSE'S inspector (an outside
                     # probe holds 9229 and takes no lock of ours).
@@ -150,15 +174,16 @@ class InspectorSession:
                     )
                 return
             except InspectorBusy as e:
-                last_busy = e
+                last_busy_msg = str(e)
                 self._release_lock()
                 if attempt < self.BUSY_RETRIES:
                     await asyncio.sleep(self.BUSY_BACKOFF_S)
-                continue
             except Exception:
                 self._release_lock()
                 raise
-        raise last_busy  # type: ignore[misc]
+        raise InspectorBusy(
+            last_busy_msg or f'{self._host}:{self._port} stayed busy'
+        )
 
     async def _trigger(self, main_pid: int) -> None:
         """Platform hook: make THE target process open its inspector.
@@ -190,20 +215,29 @@ class InspectorSession:
             finally:
                 self._lock = None
 
-    async def _probe_pid(self) -> int | None:
-        """The pid of the process behind the connected inspector.
+    async def _probe_pid(self, ws_url: str | None = None) -> int | None:
+        """The pid of the process behind an inspector websocket.
 
-        None when it cannot be read (the connection is then kept: the
-        machine lock still guards our own instances).
+        ``ws_url`` defaults to the connected target; pass a discovered
+        URL to probe a session BEFORE adopting it (a leftover check).
+        None when it cannot be read — the caller treats that as
+        unidentified, never as a match.
         """
-        if not self._ws_url:
+        ws_url = ws_url or self._ws_url
+        if not ws_url:
             return None
         try:
             value = await self._evaluate_once(
-                self._ws_url, 'process.pid', False, 10.0
+                ws_url, 'process.pid', False, 10.0
             )
             return int(value)
-        except Exception:  # noqa: BLE001 — a failed probe is not fatal
+        except (
+            TimeoutError,
+            aiohttp.ClientError,
+            ValueError,
+            TypeError,
+            InspectorError,
+        ):
             return None
 
     async def _discover_ws(self) -> str | None:

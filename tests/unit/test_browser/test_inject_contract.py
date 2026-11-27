@@ -22,6 +22,9 @@ from app.browser.adapters.yuehulian_win import (
 )
 from app.browser.inject import engine as engine_mod, errors as errors_mod
 from app.browser.inject.client import (
+    UNAVAILABLE_NO_DEVICE,
+    UNAVAILABLE_OTHER,
+    UNAVAILABLE_TOKENS,
     InjectClient,
     OpenedStore,
     StoreRef,
@@ -184,11 +187,45 @@ def test_store_ref_defaults_to_name_as_ref():
 
 def test_store_ref_explicit_ref_and_unavailable():
     # Negative control: an explicit ref wins over the name, and an
-    # unavailable store keeps its flag (the UI greys it out).
-    ref = StoreRef('demo-store', ref='100000000001', available=False)
+    # unavailable store carries its reason TOKEN (vendor-neutral; the
+    # frontend translates browserVendor.unavailable.<token>) plus
+    # optional free-text detail for a tooltip.
+    ref = StoreRef(
+        'demo-store',
+        ref='100000000001',
+        available=False,
+        unavailable_reason=UNAVAILABLE_NO_DEVICE,
+        unavailable_detail='vendor said: no device bound',
+    )
     assert ref.open_ref == '100000000001'
     assert ref.available is False
+    assert ref.unavailable_reason == 'no_device'
+    assert ref.unavailable_detail == 'vendor said: no device bound'
     assert ref.name == 'demo-store'
+
+
+def test_unavailable_reason_is_a_closed_vocabulary():
+    """The tokens are the contract the frontend translates
+    (browserVendor.unavailable.<token>): every member is a short
+    snake_case slug, and a vendor reason outside the vocabulary maps
+    to `other` + detail — never to prose."""
+    assert UNAVAILABLE_TOKENS == frozenset({
+        'no_device',
+        'unsupported_kernel',
+        'expired',
+        'disabled',
+        'other',
+    })
+    for token in UNAVAILABLE_TOKENS:
+        assert token == token.lower()
+        assert ' ' not in token
+    assert UNAVAILABLE_OTHER in UNAVAILABLE_TOKENS
+
+
+def test_store_ref_defaults_empty_reason_and_detail():
+    ref = StoreRef('store-a')
+    assert ref.unavailable_reason == ''
+    assert ref.unavailable_detail == ''
 
 
 # ── error taxonomy: code + hint formatting, vendor-neutral ──────────
@@ -335,7 +372,7 @@ def test_shared_inspector_uses_any_exe_script_callable(monkeypatch, tmp_path):
         scripts.append(script)
         return 'ok'
 
-    async def fake_pid(self):
+    async def fake_pid(self, ws_url=None):
         return 4242
 
     _fake_lock(monkeypatch, tmp_path)
@@ -555,18 +592,24 @@ async def test_evaluate_gives_up_after_one_retry(monkeypatch):
 # ── P4: inspector sessions collide machine-wide ─────────────────────
 
 
-async def test_open_refuses_a_port_already_serving(monkeypatch, tmp_path):
-    """9229 already serves an inspector this process did not open →
-    refuse: never attach, never trigger, typed InspectorBusy. (Two
-    vendor clients / an outside probe share the one fixed port.)"""
+async def test_open_refuses_a_foreign_serving_port(monkeypatch, tmp_path):
+    """9229 already serves a DIFFERENT process → refuse: never trigger,
+    never close, typed InspectorBusy. (Two vendor clients / an outside
+    probe share the one fixed port.)"""
     _fake_lock(monkeypatch, tmp_path)
     triggers = []
 
     async def spy_trigger(pid):
         triggers.append(pid)
 
+    async def foreign_pid(self, ws_url=None):
+        return 9999
+
     monkeypatch.setattr(
         win_inspector_mod.InspectorSession, '_trigger', spy_trigger
+    )
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_probe_pid', foreign_pid
     )
 
     async def already_serving(self):
@@ -578,10 +621,78 @@ async def test_open_refuses_a_port_already_serving(monkeypatch, tmp_path):
         already_serving,
     )
     insp = WinInspectorSession(lambda: "$exe='x';")
-    with pytest.raises(win_inspector_mod.InspectorBusy):
+    with pytest.raises(win_inspector_mod.InspectorBusy) as ei:
         await insp.open(4242)
+    assert 'pid 9999' in str(ei.value)
     assert triggers == []  # never even tried to open our own
-    assert insp._ws_url is None  # and never attached
+    assert insp._ws_url is None  # and never adopted theirs
+
+
+async def test_open_reuses_a_leftover_inspector_on_the_target_pid(
+    monkeypatch, tmp_path
+):
+    """One of OUR operations died between open and close → the target
+    keeps its inspector on 9229. The busy check must not refuse
+    forever (that killed auto-login until a client restart): a
+    leftover on the VERY pid we were asked to debug is probed, adopted
+    and reused — no second trigger."""
+    _fake_lock(monkeypatch, tmp_path)
+    triggers = []
+
+    async def spy_trigger(pid):
+        triggers.append(pid)
+
+    async def leftover_pid(self, ws_url=None):
+        return 4242  # the same process we want
+
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_trigger', spy_trigger
+    )
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_probe_pid', leftover_pid
+    )
+
+    async def leftover_serving(self):
+        return 'ws://127.0.0.1:9229/devtools/browser/leftover'
+
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession,
+        '_discover_ws',
+        leftover_serving,
+    )
+    insp = WinInspectorSession(lambda: "$exe='x';")
+    await insp.open(4242)
+    assert triggers == []  # reused — no second inspector opened
+    assert insp._ws_url == 'ws://127.0.0.1:9229/devtools/browser/leftover'
+    await insp.close()
+
+
+async def test_open_refuses_an_unreadable_serving_port(monkeypatch, tmp_path):
+    """A serving port whose pid cannot be read is NOT adopted (treat as
+    unidentified, never as a match) — the conservative refusal."""
+    _fake_lock(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession,
+        '_probe_pid',
+        mock.AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession,
+        '_trigger',
+        mock.AsyncMock(),
+    )
+
+    async def serving(self):
+        return 'ws://127.0.0.1:9229/devtools/browser/opaque'
+
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_discover_ws', serving
+    )
+    insp = WinInspectorSession(lambda: "$exe='x';")
+    with pytest.raises(win_inspector_mod.InspectorBusy) as ei:
+        await insp.open(4242)
+    assert 'unidentified' in str(ei.value)
+    assert insp._ws_url is None
 
 
 async def test_open_pid_mismatch_never_closes_the_foreign_session(
@@ -628,7 +739,7 @@ async def test_open_pid_match_proceeds(monkeypatch, tmp_path):
     attached (the checks guard, they do not block the happy path)."""
     _fake_lock(monkeypatch, tmp_path)
 
-    async def same_pid(self):
+    async def same_pid(self, ws_url=None):
         return 4242
 
     monkeypatch.setattr(
@@ -682,7 +793,7 @@ async def test_open_serialises_two_sessions_machine_wide(monkeypatch, tmp_path):
         per_session_discover,
     )
 
-    async def ok_pid(self):
+    async def ok_pid(self, ws_url=None):
         return getattr(self, '_asked_pid', None)
 
     monkeypatch.setattr(

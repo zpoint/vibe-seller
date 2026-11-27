@@ -9,6 +9,28 @@ what lets the whole launcher be covered in CI without the real client.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+# ── Unavailability tokens (a stable, vendor-neutral vocabulary) ──────
+#
+# ``StoreRef.unavailable_reason`` carries ONE of these tokens — never
+# vendor-language prose (free text leaked Chinese into the English UI's
+# greyed picker row). The frontend translates the token via i18n
+# (``browserVendor.unavailable.<token>``). A vendor whose reason is
+# outside the vocabulary uses ``UNAVAILABLE_OTHER`` and puts its own
+# words in ``unavailable_detail`` (shown as a fallback / tooltip).
+UNAVAILABLE_NO_DEVICE = 'no_device'
+UNAVAILABLE_UNSUPPORTED_KERNEL = 'unsupported_kernel'
+UNAVAILABLE_EXPIRED = 'expired'
+UNAVAILABLE_DISABLED = 'disabled'
+UNAVAILABLE_OTHER = 'other'
+
+UNAVAILABLE_TOKENS = frozenset({
+    UNAVAILABLE_NO_DEVICE,
+    UNAVAILABLE_UNSUPPORTED_KERNEL,
+    UNAVAILABLE_EXPIRED,
+    UNAVAILABLE_DISABLED,
+    UNAVAILABLE_OTHER,
+})
+
 
 @dataclass
 class StoreRef:
@@ -19,9 +41,11 @@ class StoreRef:
     (clients whose only handle is the store name).
     ``available`` is False when the env exists but cannot be opened
     (e.g. no device bound in the vendor client) so the UI can grey it
-    out — with ``unavailable_reason`` (generic text the vendor adapter
-    fills, e.g. 未绑定设备 / Firefox 内核) shown next to it — instead of
-    offering a store every task would fail on.
+    out — with ``unavailable_reason`` (a token from
+    ``UNAVAILABLE_TOKENS``, which the frontend translates) shown next
+    to it — instead of offering a store every task would fail on.
+    ``unavailable_detail`` is optional free text (the vendor's own
+    words) for a tooltip or fallback display.
     """
 
     name: str
@@ -30,6 +54,7 @@ class StoreRef:
     ref: str = ''
     available: bool = True
     unavailable_reason: str = ''
+    unavailable_detail: str = ''
 
     @property
     def open_ref(self) -> str:
