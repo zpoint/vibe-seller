@@ -132,7 +132,7 @@ The consent page's domain, listwizard.cloud, is still going through its ICP fili
 
     ![What to send the agent (illustration)](images/ziniao_support_message.png){ width="640" }
 
-5. Once it is allowlisted, go back to Vibe Seller, click **Authorize** again and open the new link in Ziniao.
+5. Once it is allowlisted, go back to Vibe Seller, click **Authorize** again and open the new link in Ziniao. The link is short-lived: if it has timed out, click **Authorize** once more to generate a new one.
 
 The page's own 申请人工加白 (request a manual allowlist) button may come back rejected — go to Ziniao's human support instead.
 
