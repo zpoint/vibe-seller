@@ -335,7 +335,10 @@ class TestWriteBrowserUseWrapper:
         content = (tmp_path / 'bin' / 'test-store' / 'browser-use').read_text()
         assert 'Auto-start' in content
         assert 'curl' in content
-        assert '/json/version' in content
+        # v9: the liveness probe is an OWNERSHIP probe — it asks
+        # /vibe/instance for this server instance's id, never a bare
+        # /json/version liveness check.
+        assert '/vibe/instance' in content
 
     def test_chrome_has_auto_start(self, tmp_path: Path, monkeypatch):
         """Chrome wrapper now has auto-start logic (same as Ziniao)."""
@@ -351,7 +354,7 @@ class TestWriteBrowserUseWrapper:
         content = (tmp_path / 'bin' / 'storec' / 'browser-use').read_text()
         assert 'Auto-start' in content
         assert 'curl' in content
-        assert '/json/version' in content
+        assert '/vibe/instance' in content
 
     def test_ziniao_aux_routes_through_own_proxy(
         self, tmp_path: Path, monkeypatch
@@ -401,6 +404,9 @@ class TestRemoveBrowserUseWrapper:
         """Removes wrapper directory on session stop."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
+            'app.browser.wrapper_files._BIN_DIR', tmp_path / 'bin'
+        )
+        monkeypatch.setattr(
             'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
@@ -445,18 +451,18 @@ class TestBrowserManagerPerStore:
         b = mgr._get_backend('store-y', 'yuehulian')
         assert isinstance(b, YuehulianBackend)
 
-    def test_unique_proxy_ports(self):
+    async def test_unique_proxy_ports(self):
         """Each store gets a unique proxy port."""
         mgr = BrowserManager()
-        p1 = mgr._allocate_proxy_port('store-a')
-        p2 = mgr._allocate_proxy_port('store-b')
+        p1 = await mgr.ports.allocate('store-a')
+        p2 = await mgr.ports.allocate('store-b')
         assert p1 != p2
 
-    def test_same_store_same_port(self):
+    async def test_same_store_same_port(self):
         """Same store always gets the same proxy port."""
         mgr = BrowserManager()
-        p1 = mgr._allocate_proxy_port('store-a')
-        p2 = mgr._allocate_proxy_port('store-a')
+        p1 = await mgr.ports.allocate('store-a')
+        p2 = await mgr.ports.allocate('store-a')
         assert p1 == p2
 
 

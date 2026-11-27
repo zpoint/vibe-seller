@@ -23,6 +23,7 @@ from app.browser.worker_slots import (
     worker_resolve_block,
     worker_session_regex_fragment,
 )
+from app.browser.wrapper import atomic_write_script
 from app.config import (
     BACKEND_PORT,
     BH_RUNTIME_DIR,
@@ -44,6 +45,7 @@ def write_web_browser_use_wrapper(
     api_port: int | None = None,
     api_token: str | None = None,
     headless: bool = True,
+    instance_id: str | None = None,
 ) -> None:
     """Generate the orchestrator "web" browser-use wrapper (0.13).
 
@@ -53,7 +55,11 @@ def write_web_browser_use_wrapper(
     neutral public web work (search, tracking/logistics pages,
     research). It is Chrome-only — no Ziniao routing and no
     ``{slug}-aux`` split — so this is a deliberately simpler sibling of
-    :func:`write_browser_use_wrapper`.
+    :func:`write_browser_use_wrapper`, but shares its liveness
+    contract (PR C1): the auto-start probe requires the proxy to
+    answer ``/vibe/instance`` with THIS server instance's
+    ``instance_id``, and the port it ends on follows the typed
+    ``proxy_port`` the start API returns.
 
     Session naming: ``web`` (interactive) or ``web-{VIBE_TASK_ID[:8]}``
     (per task, so concurrent orchestrator tasks get isolated daemons,
@@ -74,7 +80,6 @@ def write_web_browser_use_wrapper(
     real_bu = resolve_browser_use()
 
     port = api_port or BACKEND_PORT
-    cdp_http_url = f'http://{LOCALHOST}:{proxy_port}'
 
     auth_header = ''
     if api_token:
@@ -108,6 +113,15 @@ def write_web_browser_use_wrapper(
         unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY
 
         REAL_BU="{real_bu}"
+
+        # This server's proxy port + instance id (PR C1 — see the
+        # per-store wrapper for the full contract): only a mux that
+        # answers /vibe/instance with VIBE_PROXY_ID is "alive", and
+        # PROXY_PORT may be refreshed by the start API's typed
+        # proxy_port when the baked port was reallocated.
+        PROXY_PORT={proxy_port}
+        VIBE_PROXY_ID="{instance_id or ''}"
+        CDP_HTTP="http://{LOCALHOST}:$PROXY_PORT"
 
         # Reject agent attempts to hijack the managed connection.
         for _v in BU_NAME BU_CDP_URL BU_CDP_WS BU_AUTOSPAWN; do
@@ -192,9 +206,15 @@ def write_web_browser_use_wrapper(
         # one dir for every session handed a task another store's picture.
         export BH_TMP_DIR="{BH_TMP_DIR}/$SESSION"
 
-        # Auto-start: ensure the web CDP proxy is responding.
-        if ! curl -sf -o /dev/null \\
-             --max-time 2 "{cdp_http_url}/json/version" 2>/dev/null; then
+        # Auto-start: ensure THIS server's web CDP proxy is answering.
+        # _vs_proxy_ours is an OWNERSHIP probe (PR C1), not a bare
+        # liveness check: the listener must answer /vibe/instance with
+        # this server's baked instance id, so another server's proxy
+        # (or an agent-spawned CDP bridge) never reads as alive.
+        _vs_proxy_ours() {{
+          curl -s --max-time 2 "$CDP_HTTP/vibe/instance" 2>/dev/null | grep -qF "\\"$VIBE_PROXY_ID\\""
+        }}
+        if ! _vs_proxy_ours; then
           _start_resp=$(curl -s -w '\\n%{{http_code}}' \\
             -X POST \\{auth_header}
             -H "Content-Type: application/json" \\
@@ -208,19 +228,24 @@ def write_web_browser_use_wrapper(
             echo "$_start_resp" | head -5 >&2
             exit 1
           fi
+          # Follow a REALLOCATED port, when the baked one was foreign.
+          _vs_port=$(printf '%s' "$_start_resp" | sed -n 's/.*"proxy_port"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p' | head -1)
+          case "$_vs_port" in
+            ''|*[!0-9]*) ;;
+            *) PROXY_PORT="$_vs_port"
+               CDP_HTTP="http://{LOCALHOST}:$PROXY_PORT" ;;
+          esac
           _n=0
           while [ "$_n" -lt 60 ]; do
-            if curl -sf -o /dev/null --max-time 2 \\
-                 "{cdp_http_url}/json/version" 2>/dev/null; then
+            if _vs_proxy_ours; then
               break
             fi
             sleep 1
             _n=$((_n + 1))
           done
         fi
-        if ! curl -sf -o /dev/null --max-time 2 \\
-             "{cdp_http_url}/json/version" 2>/dev/null; then
-          echo "ERROR: CDP proxy at {cdp_http_url} not ready after auto-start" >&2
+        if ! _vs_proxy_ours; then
+          echo "ERROR: CDP proxy at $CDP_HTTP not ready after auto-start (it does not serve this server's instance id)" >&2
           exit 1
         fi
 
@@ -231,7 +256,7 @@ def write_web_browser_use_wrapper(
         # name and the client id so the two can never disagree.
         export BU_NAME="$SESSION"
         CLIENT_ID="${{VIBE_TASK_ID:-$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')}}${{WORKER_SUFFIX}}"
-        export BU_CDP_WS="ws://{LOCALHOST}:{proxy_port}/client-${{CLIENT_ID}}"
+        export BU_CDP_WS="ws://{LOCALHOST}:$PROXY_PORT/client-${{CLIENT_ID}}"
 
         # Wedge recovery: bound each call with a hard timeout (perl alarm;
         # macOS has no GNU timeout). On a wedge, reload this session's
@@ -253,7 +278,10 @@ def write_web_browser_use_wrapper(
         exit "$_vs_rc"
     """)
 
-    wrapper_path.write_text(script, encoding='utf-8')
+    # Atomic write — same contract as the per-store wrapper (see
+    # atomic_write_script): the server may rewrite this file while an
+    # older invocation is mid-auto-start.
+    atomic_write_script(wrapper_path, script)
     safe_chmod(wrapper_path, stat.S_IRWXU)  # 700 — owner-only (contains token)
     logger.info(
         'Wrote web browser-use wrapper: %s (proxy=%s)',

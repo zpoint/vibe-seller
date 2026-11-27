@@ -110,7 +110,18 @@ async def sweep_idle_browsers() -> int:
     stopped = 0
 
     # ── Store main browsers (Ziniao / Chrome / winchrome) ──
-    for key in list(browser_manager._active_sessions.keys()):
+    # Iterate the UNION of live sessions and registered backends: a
+    # store whose active-session record was lost (an earlier stop that
+    # failed midway) still has a backend — and its CDPMuxProxy still
+    # LISTENS on the proxy port. That leaked listener kept holding the
+    # port long after the browser was gone (observed live on a swept
+    # store), and an occupied proxy port is exactly what the
+    # cross-server allocator has to work around. The union makes the
+    # sweep (and stop_session's total teardown) reap it.
+    store_keys = set(browser_manager._active_sessions) | set(
+        browser_manager._backends
+    )
+    for key in sorted(store_keys):
         if key == WEB_BROWSER_SLUG:
             # Store-less web browser: held by any live no-store task.
             if nostore_active:

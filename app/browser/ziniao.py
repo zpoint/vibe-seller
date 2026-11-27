@@ -314,15 +314,18 @@ class ZiniaoBackend(BrowserBackend):
             download_dir=str(dl_dir),
             keep_last_page=True,
             relaunch_upstream=_relaunch_upstream,
+            instance_id=browser_config.get('vibe_instance_id'),
+            listen_sock=browser_config.get('proxy_socket'),
         )
         await self._proxy.start()
 
         logger.info(
-            'CDPMuxProxy ready: %s:%d -> %s:%s',
+            'CDPMuxProxy ready: %s:%d -> %s:%s (instance %s)',
             LOCALHOST,
             proxy_port,
             target_host,
             cdp_port,
+            self._proxy.instance_id or '<none>',
         )
 
         # Verify the proxy can connect to the browser via HTTP.

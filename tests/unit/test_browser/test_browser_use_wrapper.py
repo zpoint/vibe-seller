@@ -46,7 +46,8 @@ def _generate_wrapper(
     slug: str | None = None,
 ) -> Path:
     """Generate a wrapper with REAL_BU pointed at the env-printing stub
-    and curl stubbed to /usr/bin/true so auto-start passes offline."""
+    and curl stubbed to the ownership-aware stand-in, so auto-start
+    passes offline (the probe must see THIS instance's id)."""
     bin_dir = tmp_path / 'bin'
     with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
         write_browser_use_wrapper(
@@ -55,6 +56,7 @@ def _generate_wrapper(
             proxy_port,
             store_id=store_id,
             slug=slug or store_name,
+            instance_id='test-instance',
         )
     wrapper = bin_dir / (slug or store_name) / 'browser-use'
     content = wrapper.read_text()
@@ -67,15 +69,21 @@ def _generate_wrapper(
 
 
 def _stub_curl(tmp_path: Path) -> Path:
-    """Offline curl stand-in: answers the aux/start API with a fixed ws
-    (so the v4 ziniao-aux lazy-start branch can be exercised) and
-    succeeds silently for everything else (health checks)."""
+    """Offline curl stand-in: answers the ownership probe (/vibe/instance
+    with the wrapper's baked test-instance id), the store start API
+    (typed proxy_port back), and the aux/start API with a fixed ws."""
     stub = tmp_path / 'curl-stub'
     if not stub.exists():
         stub.write_text(
             '#!/usr/bin/env bash\n'
             'for a in "$@"; do\n'
-            '  case "$a" in *browser/aux/start*)\n'
+            '  case "$a" in\n'
+            '    *vibe/instance*)\n'
+            '    echo \'{"instance": "test-instance"}\'; exit 0;;\n'
+            '    *browser/start*)\n'
+            '    echo \'{"ok":true,"proxy_port":9222,'
+            '"instance_id":"test-instance"}\'; exit 0;;\n'
+            '    *browser/aux/start*)\n'
             '    echo \'{"ok":true,"proxy_port":9450,'
             '"ws":"ws://127.0.0.1:9450/client-aux"}\'; exit 0;;\n'
             '  esac\n'
@@ -403,16 +411,24 @@ class TestWrapperWedgeRecovery:
         stub.chmod(0o755)
 
         # Real generated wrapper; point REAL_BU at the space-path stub and
-        # neutralise curl so the offline auto-start check passes.
+        # stub curl to answer the ownership probe, so the offline
+        # auto-start check passes and the exec is reached.
         bin_dir = tmp_path / 'bin'
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             write_browser_use_wrapper(
-                'test-store', 'ziniao', 9222, store_id='s1', slug='test-store'
+                'test-store',
+                'ziniao',
+                9222,
+                store_id='s1',
+                slug='test-store',
+                instance_id='test-instance',
             )
         wrapper = bin_dir / 'test-store' / 'browser-use'
         content = wrapper.read_text()
         content = re.sub(r'REAL_BU="[^"]*"', f'REAL_BU="{stub}"', content)
-        content = content.replace('curl ', '/usr/bin/true ')
+        # The stubbed curl must answer the ownership probe, or the
+        # wrapper takes the auto-start path and never reaches the exec.
+        content = content.replace('curl ', f'"{_stub_curl(tmp_path)}" ')
         wrapper.write_text(content)
 
         # No CLI args → empty PASSTHROUGH (the trigger); code on stdin.
@@ -428,6 +444,123 @@ class TestWrapperWedgeRecovery:
             'perl exec never reached $REAL_BU with a metachar path + empty '
             'PASSTHROUGH — the bare `exec @ARGV` shell-fallback regressed. '
             f'stdout={result.stdout!r} stderr={result.stderr!r}'
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.unit
+class TestWrapperOwnershipProbe:
+    """The wrapper's liveness probe is an OWNERSHIP probe (wrapper v9).
+
+    On main the probe was a bare ``/json/version`` liveness curl, which
+    a FOREIGN listener happily answers: with two servers on one
+    machine, server B's wrapper found server A's proxy "alive",
+    skipped the start API, and attached the agent straight onto server
+    A's browser. Here the stubbed curl dispatches by URL so the full
+    bash path runs: probe → foreign → start API → follow the typed
+    proxy_port → probe ours → attach.
+    """
+
+    @staticmethod
+    def _dispatching_curl(tmp_path: Path) -> Path:
+        """curl stand-in that answers by URL, like a real machine with
+        a foreign mux on the baked port and our mux on the fresh one."""
+        stub = tmp_path / 'curl-foreign'
+        stub.write_text(
+            '#!/usr/bin/env bash\n'
+            '_body=""\n'
+            'for a in "$@"; do\n'
+            '  case "$a" in\n'
+            '    *"/vibe/instance"*)\n'
+            '      case "$a" in\n'
+            '        *":9222/"*)\n'
+            '          _body=\'{"instance": "another-server"}\';;\n'
+            '        *)\n'
+            '          _body=\'{"instance": "test-instance"}\';;\n'
+            '      esac;;\n'
+            '    *browser/start*)\n'
+            '      _body=\'{"ok":true,"proxy_port":9225,'
+            '"instance_id":"test-instance"}\';;\n'
+            '  esac\n'
+            'done\n'
+            'printf \'%s\' "$_body"\n'
+            "# Emulate `-w '\\n%{http_code}'` on the start-API call.\n"
+            'for a in "$@"; do\n'
+            '  if [ "$a" = "-w" ]; then printf \'\\n200\'; fi\n'
+            'done\n'
+            'exit 0\n'
+        )
+        stub.chmod(0o755)
+        return stub
+
+    def _foreign_wrapper(self, tmp_path: Path) -> Path:
+        """A wrapper baked with the (foreign-held) port 9222."""
+        bin_dir = tmp_path / 'bin'
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+            write_browser_use_wrapper(
+                'test-store',
+                'chrome',
+                9222,
+                store_id='store-1',
+                slug='test-store',
+                instance_id='test-instance',
+            )
+        wrapper = bin_dir / 'test-store' / 'browser-use'
+        content = wrapper.read_text()
+        content = re.sub(
+            r'REAL_BU="[^"]*"',
+            f'REAL_BU="{_stub_real_bu(tmp_path)}"',
+            content,
+        )
+        content = content.replace(
+            'curl ', f'"{self._dispatching_curl(tmp_path)}" '
+        )
+        wrapper.write_text(content)
+        return wrapper
+
+    def test_foreign_listener_is_never_attached(self, tmp_path: Path):
+        """The baked port answers with ANOTHER server's instance id →
+        the wrapper calls the start API, follows its typed proxy_port,
+        and attaches THERE — never to the foreign listener."""
+        wrapper = self._foreign_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, env=_env_without_task())
+        assert result.returncode == 0, result.stderr
+        ws = [
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith('BU_CDP_WS=')
+        ]
+        assert len(ws) == 1
+        assert ws[0].startswith('BU_CDP_WS=ws://127.0.0.1:9225/client-'), (
+            result.stdout
+        )
+
+    def test_baked_probe_only_fires_when_the_listener_is_ours(
+        self, tmp_path: Path
+    ):
+        """Sanity on the negative direction: when the baked port answers
+        with OUR id, no start API call happens (the wrapper execs on
+        the first probe) — the single-instance fast path is intact."""
+        wrapper = self._foreign_wrapper(tmp_path)
+        # Flip the FOREIGN answer to ours on the baked port — in the
+        # dispatching stub, which is what answers the probe.
+        stub = tmp_path / 'curl-foreign'
+        stub.write_text(
+            stub.read_text().replace(
+                '{"instance": "another-server"}',
+                '{"instance": "test-instance"}',
+            )
+        )
+        result = _run_wrapper(wrapper, env=_env_without_task())
+        assert result.returncode == 0, result.stderr
+        ws = [
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith('BU_CDP_WS=')
+        ]
+        assert len(ws) == 1
+        assert ws[0].startswith('BU_CDP_WS=ws://127.0.0.1:9222/client-'), (
+            result.stdout
         )
 
 
@@ -507,16 +640,19 @@ class TestWrapperLeavesPageTitleAlone:
 
 def _generate_web_wrapper(tmp_path: Path) -> Path:
     """Generate the store-less orchestrator web wrapper, REAL_BU/curl
-    stubbed so it runs offline."""
+    stubbed so it runs offline (the ownership probe must see this
+    instance's id, like the store wrapper's helper)."""
     bin_dir = tmp_path / 'bin'
     with mock.patch('app.browser.web_wrapper._BIN_DIR', bin_dir):
-        write_web_browser_use_wrapper(9222, api_token='t0ken')
+        write_web_browser_use_wrapper(
+            9222, api_token='t0ken', instance_id='test-instance'
+        )
     wrapper = bin_dir / WEB_BROWSER_SLUG / 'browser-use'
     content = wrapper.read_text()
     content = re.sub(
         r'REAL_BU="[^"]*"', f'REAL_BU="{_stub_real_bu(tmp_path)}"', content
     )
-    content = content.replace('curl ', '/usr/bin/true ')
+    content = content.replace('curl ', f'"{_stub_curl(tmp_path)}" ')
     wrapper.write_text(content)
     return wrapper
 

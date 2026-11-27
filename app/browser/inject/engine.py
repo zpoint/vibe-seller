@@ -127,15 +127,19 @@ class InjectCdpBackend(BrowserBackend):
             target_host=opened.cdp_host,
             download_dir=str(dl_dir),
             keep_last_page=True,
+            instance_id=browser_config.get('vibe_instance_id'),
+            listen_sock=browser_config.get('proxy_socket'),
         )
         await self._proxy.start()
         logger.info(
-            'Inject backend CDPMuxProxy ready: %s:%d -> %s:%d (store %s)',
+            'Inject backend CDPMuxProxy ready: %s:%d -> %s:%d (store %s, '
+            'instance %s)',
             LOCALHOST,
             proxy_port,
             opened.cdp_host,
             opened.cdp_port,
             store_ref,
+            self._proxy.instance_id or '<none>',
         )
         return BrowserSessionInfo(cdp_port=opened.cdp_port)
 
