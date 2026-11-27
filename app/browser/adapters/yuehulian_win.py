@@ -213,6 +213,13 @@ class ProcessLayer:
 # user-data-dir so the caller can read the right DevToolsActivePort. Saves
 # the original first and restores it on uninstall (never `delete` — that
 # removes the client's native spawn).
+# The same injection also adds --disable-backgrounding-occluded-windows:
+# Chromium stops producing frames for a window that is minimized or fully
+# covered, so Page.captureScreenshot (what an agent's screenshot goes
+# through) hangs forever while the store window is not in the foreground.
+# The flag keeps the occluded kernel rendering — the same flag
+# Playwright's own Chrome launches with — and is skipped when the vendor's
+# own args already carry it.
 SPAWN_HOOK_JS = r"""
 (function(){
   var cp = require('child_process');
@@ -228,6 +235,10 @@ SPAWN_HOOK_JS = r"""
       if (/chrome\.exe/i.test(file) &&
           !args.some(function(a){return /--remote-debugging-port/.test(a);})){
         args.push('--remote-debugging-port=0');
+        if (!args.some(function(a){
+              return a.indexOf('--disable-backgrounding-occluded-windows') === 0;})){
+          args.push('--disable-backgrounding-occluded-windows');
+        }
         var udd='';
         args.forEach(function(a){
           var m=/--user-data-dir=(.*)/.exec(a); if(m) udd=m[1];
