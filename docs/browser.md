@@ -120,10 +120,13 @@ check, a health probe) call `api_call` — the one shared response path
 with the rate limit, auth headers, logged-out check (before the
 single rate-limit retry and before `map_error`) and the
 no-payload-logging rule. The parametrized contract suite
-(`tests/unit/test_browser/local_api_contract.py`) runs every subclass —
-fixtures from the vendors' published docs today, real vendor modules
-under `app/browser/adapters` auto-discovered — against a fake local API
-serving their documented responses.
+(`tests/unit/test_browser/local_api_contract.py`) runs every subclass
+against a fake local API serving its documented responses; a real
+vendor adds its adapter plus ONE fixture file
+`tests/unit/test_browser/local_api_vendors/<vendor_key>.py` exporting
+`CONTRACT = ContractFixture(...)` and gets every contract test for
+free — never an edit to the suite (a convention check fails the build
+until the fixture exists).
 
 `bitbrowser.py` (split into `bitbrowser_cdp.py` / `bitbrowser_launch.py`)
 is the first real subclass: the port and the optional `x-api-key` token
