@@ -60,8 +60,8 @@ flowchart LR
         S --> A2[Agent for Store B]
         S --> A3[Agent for Store C]
         A1 -->|CDP| Z1[Ziniao profile A]
-        A2 -->|CDP| Z2[BitBrowser store B]
-        A3 -->|CDP| Z3[Yuehulian store C]
+        A2 -->|CDP| Z2[Ziniao profile B]
+        A3 -->|CDP| Z3[plain Chrome]
     end
 ```
 
