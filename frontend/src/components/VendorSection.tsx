@@ -28,16 +28,13 @@ import { api } from '../api'
 import { vendorStoreOptionLabel } from '../lib/vendorStoreLabel'
 import { DocsHelpLink } from './ui/DocsHelpLink'
 import type { BrowserVendor, Store, VendorStoreRef } from '../types'
+import { camelCase, vendorText } from '../lib/vendorText'
 
 /** The machine-login status: configured + the non-secret field values. */
 interface VendorLoginStatus {
   configured: boolean
   [field: string]: unknown
 }
-
-/** camelCase('client_not_running') → 'ClientNotRunning'. */
-const camel = (s: string) =>
-  s.split('_').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('')
 
 const EYE_ON = (
   <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0020 10c-1.796-4.667-6-8-10-8a9.864 9.864 0 00-4.512 1.074L3.707 2.293zM10 15a9.864 9.864 0 004.512-1.074L13.06 12.474A3 3 0 017.526 6.94L5.534 4.948A7.966 7.966 0 002 10c1.194 3.1 3.672 5.457 6.676 6.725L10 15zm2.121-4.879A1 1 0 0010 9l-.707-.707A1 1 0 0010 11l2.121-2.121-.707-.707.707.707z" clipRule="evenodd" /></svg>
@@ -68,17 +65,10 @@ export function VendorSection(props: {
 
   const zh = (i18n.language || 'en').startsWith('zh')
   const displayName = zh ? v.display_name_zh : v.display_name_en
-  /** The fallback chain: the vendor's own override, else the shared
+  /** The fallback chain (one copy, in lib/vendorText — shared with the
+   *  task error banner): the vendor's own override, else the shared
    *  `browserVendor.<Suffix>` key with {{vendor}} interpolated. */
-  const vt = (suffix: string) => {
-    const own = t(`${v.i18n_prefix}${suffix}`, {
-      defaultValue: '', vendor: displayName,
-    })
-    if (own) return own
-    return t(`browserVendor.${suffix}`, {
-      defaultValue: '', vendor: displayName,
-    })
-  }
+  const vt = (suffix: string) => vendorText(t, v, displayName, suffix)
 
   /** Why a greyed-out env cannot be opened: the contract's stable
    *  token translated via the shared browserVendor.unavailable.<token>
@@ -174,7 +164,7 @@ export function VendorSection(props: {
   const statusHint = (() => {
     if (!p.error) return ''
     const s = p.error.replace(`${v.key}:`, '')
-    const text = vt(camel(s))
+    const text = vt(camelCase(s))
     if (text) return text
     if (p.errorMessage) return p.errorMessage
     return vt('LoadFailed')
