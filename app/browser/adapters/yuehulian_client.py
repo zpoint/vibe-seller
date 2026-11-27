@@ -169,7 +169,8 @@ class RealYuehulianClient(InjectClient):
             )
             if result != 'OK':
                 raise LoginRequired(
-                    f'team-login form could not be driven: {result}'
+                    f'team-login form could not be driven: {result}',
+                    credentials_stored=True,
                 )
             for _ in range(30):
                 await asyncio.sleep(1.0)
@@ -177,7 +178,8 @@ class RealYuehulianClient(InjectClient):
                 if is_logged_in_hash(route):
                     return
             raise LoginRequired(
-                'team-login submitted but the client stayed logged out'
+                'team-login submitted but the client stayed logged out',
+                credentials_stored=True,
             )
 
     async def list_stores(self) -> list[StoreRef]:

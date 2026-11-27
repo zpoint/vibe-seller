@@ -570,6 +570,84 @@ def run_spawn_subtasks(prompt: str):
     emit_result(final)
 
 
+# The store-browser-start marker: run the task's store wrapper for
+# real (``browser-use`` resolves through the agent PATH to the
+# per-store wrapper), emit its outcome as a real tool_use/tool_result
+# pair, and then — if still alive — carry on with more work. The C2
+# terminal browser-start contract stops the agent DURING the wrapper's
+# start call, so nothing after the pair may appear in the transcript.
+# (tests/e2e/test_browser_start_failure_mock.py)
+STORE_BROWSER_MARKER = '[[MOCK_STORE_BROWSER]]'
+
+
+def emit_tool_result(tool_use_id: str, output: str, is_error: bool = False):
+    """A real tool_result for an earlier tool_use (user message)."""
+    emit({
+        'type': 'user',
+        'message': {
+            'role': 'user',
+            'content': [
+                {
+                    'type': 'tool_result',
+                    'tool_use_id': tool_use_id,
+                    'content': output,
+                    'is_error': is_error,
+                }
+            ],
+        },
+    })
+
+
+def run_store_browser_start():
+    """Execute the store wrapper, then try to keep working.
+
+    The follow-up tool call + result exist to prove the agent was
+    stopped: when the start fails terminally, the server fails the
+    task and kills this process inside the wrapper's start call, so
+    they never reach the transcript. When the start succeeds (or the
+    failure is not terminal), they do.
+    """
+    import subprocess
+
+    emit_system()
+    time.sleep(DELAY)
+    tool_id = 'toolu_mock_browser_start_1'
+    emit({
+        'type': 'assistant',
+        'message': {
+            'role': 'assistant',
+            'content': [
+                {
+                    'type': 'tool_use',
+                    'id': tool_id,
+                    'name': 'Bash',
+                    'input': {
+                        'command': 'browser-use -c \'print("open")\'',
+                    },
+                }
+            ],
+        },
+    })
+    proc = subprocess.run(
+        ['browser-use', '-c', 'print("open")'],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    output = (proc.stdout or '') + (proc.stderr or '')
+    emit_tool_result(tool_id, output, is_error=proc.returncode != 0)
+    # Still alive: carry on like an agent that was NOT stopped.
+    emit_tool_calls([
+        {
+            'tool': 'Bash',
+            'input': {'command': 'echo still-alive'},
+        }
+    ])
+    final = 'browser start call finished; kept working'
+    emit_text(final)
+    emit_result(final)
+
+
 def read_initial_prompt(max_lines: int = 10) -> str:
     """Read the first stream-json ``user`` message from stdin and
     return its text. Skips the SDK initialize control_request and any
@@ -966,6 +1044,8 @@ if __name__ == '__main__':
         run_linger_wait()
     elif OUTPUT_FILES_MARKER in prompt:
         run_output_files()
+    elif STORE_BROWSER_MARKER in prompt:
+        run_store_browser_start()
     elif SPAWN_SUBTASKS_MARKER in prompt:
         run_spawn_subtasks(prompt)
     elif mode == 'plan_then_execute':

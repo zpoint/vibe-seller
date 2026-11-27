@@ -69,6 +69,70 @@ store form; you set it up at deployment time. See the "Browser automation —
 native Windows Chrome (`winchrome` backend)" section of the [Windows setup
 guide](windows-setup.md).
 
+## A task cannot open the store: error quick reference
+
+A task opens the store's browser first. When that fails, the task ends
+with a red banner saying why (the AI gets the same message and is
+stopped — it does not keep trying on its own). Match the banner text:
+
+<details markdown="1" id="error-login-required"><summary><b>"The browser client is signed out"</b></summary>
+
+The browser client the store lives in (Ziniao, Yuehulian and the like)
+was signed out, and no saved login exists to sign it back in
+automatically. Open that client on this machine, sign in once, then
+retry the task.
+
+</details>
+
+<details markdown="1" id="error-client-not-running"><summary><b>"The browser client is not running"</b></summary>
+
+The browser client the store lives in isn't open, or is still starting.
+Open it and retry the task; if it keeps happening, restart the client.
+
+</details>
+
+<details markdown="1" id="error-account-mismatch"><summary><b>"The client is signed into a different account than the saved one"</b></summary>
+
+The client is signed into a different account than the one saved when
+the store was bound (a teammate may have switched accounts). Sign out
+in the client and sign back into the account used at binding time; or
+delete the store here and re-bind it under the current account.
+
+</details>
+
+<details markdown="1" id="error-api-not-enabled"><summary><b>"The client's local API is switched off"</b></summary>
+
+These clients ship a "local API" for automation, usually switched off
+by default. Turn it on in the client's settings (look for API /
+automation / local API), then retry the task.
+
+</details>
+
+<details markdown="1" id="error-plan-required"><summary><b>"The client's local API needs a paid plan"</b></summary>
+
+This browser's local API is a paid feature the current account's plan
+does not include. Upgrade the account on the vendor's site (or pick a
+plan with API access), then retry the task.
+
+</details>
+
+<details markdown="1" id="error-store-unavailable"><summary><b>"The client opened this store but says it cannot be used"</b></summary>
+
+The store exists in the client but cannot be opened — for example no
+device is bound to it, or it is expired or disabled. The banner quotes
+the client's own words; open the client, find the store, fix what it
+asks for and retry.
+
+</details>
+
+<details markdown="1" id="error-store-not-found"><summary><b>"The store was not found in the browser client"</b></summary>
+
+The store bound here no longer exists in the client (deleted, or not
+visible to the signed-in account). Check it is still there and visible;
+if not, delete the store in Vibe Seller and bind it again.
+
+</details>
+
 ## Per-browser setup guides
 
 - [Ziniao: Setup & Common Errors](ziniao.en.md) — enable developer mode,
