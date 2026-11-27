@@ -5,7 +5,7 @@ description: 跨境卖家的 AI 自动化框架——本地部署，AI 通过 CD
 <h1 align="center">Vibe Seller</h1>
 
 <p align="center">
-  <b>跨境卖家的 AI 自动化框架（支持亚马逊、Noon、美客多、千牛等平台，紫鸟、悦互联、Chrome 等浏览器），自由接入任意大模型</b><br/>
+  <b>跨境卖家的 AI 自动化框架（支持亚马逊、Noon、美客多、千牛等平台，紫鸟、悦互联、比特、AdsPower、稳卖、Chrome 等浏览器），自由接入任意大模型</b><br/>
   支持 macOS、Linux、Windows（原生安装包）· 全程本地部署，代码和数据都在你自己机器上 · 兼容 Claude / DeepSeek / GLM / Qwen / Kimi / MiniMax 等主流模型
 </p>
 

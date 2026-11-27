@@ -3,7 +3,7 @@
 <h1 align="center">Vibe Seller</h1>
 
 <p align="center">
-  <b>AI automation framework for cross-border sellers (supports Amazon, Noon, Mercado Libre, Qianniu and more; Ziniao, Yuehulian, Chrome and other browsers). Freely connect any LLM.</b><br/>
+  <b>AI automation framework for cross-border sellers (supports Amazon, Noon, Mercado Libre, Qianniu and more; Ziniao, Yuehulian, BitBrowser, AdsPower, Wenmai, Chrome and other browsers). Freely connect any LLM.</b><br/>
   Runs on macOS, Linux, or Windows (native installer). Local-first — code on your machine, data on your disk. Works with Claude, DeepSeek, GLM, Qwen, Kimi, MiniMax — any Anthropic-compatible provider.
 </p>
 
