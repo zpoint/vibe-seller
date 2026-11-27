@@ -8,20 +8,21 @@ the agent and ends the task FAILED — so the failure banner and its
 「如何解决 ↗」 docs link render and the agent never treats a bare
 ``HTTP 500`` as a puzzle to solve.
 
-This module owns the task layer of that contract. The browser layer
-(the taxonomy) lives in :mod:`app.browser.inject.errors`; the wrapper
-line the agent reads is generated in :mod:`app.browser.wrapper`.
+This module owns the task layer of that contract: the typed body
+shapes, and the guard that decides which task a terminal failure may
+end. The browser layer (the taxonomy) lives in
+:mod:`app.browser.inject.errors`; the wrapper line the agent reads is
+generated in :mod:`app.browser.wrapper`. The terminal write itself is
+NOT done here — both this path and the user's Stop go through the one
+external-stop writer, :func:`app.task_finalize.stop_as_failed`.
 """
 
-from datetime import UTC, datetime
 import logging
 
-from app.ai.claude_backend_manager import agent_manager
 from app.browser.inject.errors import InjectError
 from app.database import async_session
-from app.events.bus import event_bus
 from app.models.task import Task
-from app.task_runner import check_parent_completion
+from app.task_finalize import stop_as_failed
 from app.task_states import TaskStatus, can_transition
 
 logger = logging.getLogger(__name__)
@@ -65,12 +66,6 @@ async def fail_task_for_start_error(
 ) -> bool:
     """End a task FAILED for a terminal browser-start failure.
 
-    Mirrors ``POST /api/tasks/{id}/agent/stop``: the FAILED commit
-    happens FIRST so the run's own finalizer
-    (``_finalize_terminal_state``) sees a terminal status and bails
-    instead of overwriting it; then the agent is stopped. Returns True
-    when the task was failed here, False when nothing was done.
-
     The task id arrives in a request HEADER the wrapper sends — which
     an agent can send too, with any value, since the wrapper's
     credentials live in its env. So the header only SELECTS a task;
@@ -81,6 +76,10 @@ async def fail_task_for_start_error(
     would allow FAILED from those, so this is an explicit check, not
     ``can_transition`` alone), and belong to THIS store. Anything
     else is ignored — the typed error still answers.
+
+    The selected task is then ended through the ONE external-stop
+    writer (:func:`app.task_finalize.stop_as_failed`) — the same one
+    the user's Stop route uses, not a second copy of its block.
     """
     error = typed_error_text(exc)
     async with async_session() as db:
@@ -92,33 +91,15 @@ async def fail_task_for_start_error(
             or not can_transition(task.status, TaskStatus.FAILED)
         ):
             return False
-        task.status = TaskStatus.FAILED
-        task.error = error
-        task.error_category = category_for(exc)
-        task.updated_at = datetime.now(UTC).isoformat()
-        await db.commit()
-    logger.warning(
-        '%s: task %s (store %s) ended FAILED — %s. '
-        'The agent was stopped: this error needs the operator, '
-        'not the agent.',
-        TERMINAL_STOP_LOG_MARKER,
-        task_id,
-        store_name,
-        error,
-    )
-    await event_bus.emit(
-        'task_update',
-        {
-            'task_id': task_id,
-            'status': TaskStatus.FAILED,
-            'error': error,
-            'error_category': category_for(exc),
-        },
-    )
-    await agent_manager.stop(task_id)
-    # A fanout child that dies here must not strand its WAITING
-    # parent — same call the user-stop route makes.
-    async with async_session() as db:
-        task = await db.get(Task, task_id)
-        await check_parent_completion(task, db)
-    return True
+    stopped = await stop_as_failed(task_id, error, category_for(exc))
+    if stopped:
+        logger.warning(
+            '%s: task %s (store %s) ended FAILED — %s. '
+            'The agent was stopped: this error needs the operator, '
+            'not the agent.',
+            TERMINAL_STOP_LOG_MARKER,
+            task_id,
+            store_name,
+            error,
+        )
+    return stopped

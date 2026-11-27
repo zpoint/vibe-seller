@@ -76,12 +76,22 @@ it would be otherwise. It exists because `set_task_error` means
 *unrecoverable failure* and was being used to explain caveats over real
 output, simply because it was the only door out.
 
-### Terminal-state writer
+### Terminal-state writers
 
-`app/task_finalize.py` (`finalize_terminal_state`) is the single writer of
-a terminal status for a RUNNING/DESIGNING task. It resolves the outcome
-first, so every branch below it — wait-condition, incomplete-todos,
-Q&A parking — reads the same `task.result` the user will see.
+A terminal status has exactly two writers, by role:
+
+- the run's OWN outcome → `app/task_finalize.py`
+  (`finalize_terminal_state`), which resolves the outcome first, so
+  every branch below it — wait-condition, incomplete-todos, Q&A
+  parking — reads the same `task.result` the user will see;
+- an EXTERNAL stop → `app/task_finalize.py` (`stop_as_failed`), used
+  by the user's Stop route and by a terminal browser-start failure
+  (`app/browser/start_failure.py`, after its store/status selection
+  guard). It commits FAILED first (so the run's own finalizer sees a
+  terminal status and bails), emits `task_update`, stops the agent,
+  and re-checks a parent waiting on children.
+
+Nothing else writes a terminal status.
 
 ## Task Status Lifecycle
 

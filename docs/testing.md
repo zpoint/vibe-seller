@@ -305,6 +305,42 @@ Configurable via `FakeAgentScenario` (fields: `plan`, `result`, `todos`, `should
 
 **Critical rule**: Don't mock away critical pipelines (like `_auto_run_task`) — use FakeAgent instead.
 
+## The fake start vendor fixture
+
+`tests/e2e/fixtures/fake_start_vendor/` is a tiny installable package
+(test-only, never shipped) that registers ONE browser backend,
+`fakestart`, whose `start()` raises the inject-taxonomy error the
+server environment names. It is how the C2 tier-1 e2e
+(`tests/e2e/test_browser_start_failure_mock.py`) and the banner repros
+drive a full server into any terminal browser-start failure state
+without a real vendor client.
+
+- **Install**: `uv pip install -e tests/e2e/fixtures/fake_start_vendor`
+  — the e2e-mock-cli CI job does this in its dependency step. The
+  package registers through the real `vibe_seller.plugins` entry-point
+  group, so no shared code names it.
+- **`FAKE_START_VENDOR=1`** on the SERVER env opts the backend in
+  (without it the package sits installed and invisible — verified by
+  the registry staying unchanged). The CI mock server sets it.
+- **`FAKE_START_VENDOR_CODE`** picks the raised code (default
+  `UNSUPPORTED_KERNEL`; any taxonomy code, or `OK` for a clean start);
+  `FAKE_START_VENDOR_MESSAGE` overrides the message.
+- **`MOCK_SERVER_LOG`** points a test at the server's stdout log, so
+  it can assert server-log lines (the tier-1 test asserts the
+  `terminal browser-start failure` marker). CI sets it to
+  `logs/mock_server_stdout.log`.
+- The mock-CLI marker **`[[MOCK_STORE_BROWSER]]`** in a task's title
+  or description makes `tests/e2e/mock_cli.py` EXECUTE the store's
+  browser-use wrapper for real (a mock launch skips
+  `build_launch_artifacts`, which is what puts the wrapper on a real
+  CLI's PATH — the marker's resolver falls back to the newest wrapper
+  under `$VIBE_HOME/bin/`) and then carry on with follow-up work,
+  proving whether the agent was stopped mid-call.
+
+Remember `BACKEND_PORT`: a server not started by `start.sh` must
+export it (see the rule in the lane docs), or the wrapper's start
+callbacks target 7777.
+
 ## Fake Anthropic server
 
 `tests/fixtures/fake_anthropic_server.py` is a stdlib, deterministic fake of the Anthropic Messages API (`POST /v1/messages`, streaming and non-streaming) for driving the **real** Claude Code CLI without a model or network. Point a profile's `ANTHROPIC_BASE_URL` at it; the requested model name selects the behaviour:

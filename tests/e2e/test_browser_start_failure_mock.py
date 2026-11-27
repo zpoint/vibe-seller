@@ -114,9 +114,20 @@ class TestTerminalStartFailureStopsTheAgent:
         assert data.get('result') is None
 
         # The server logged the terminal stop (asserted when the
-        # harness points MOCK_SERVER_LOG at the server's stdout).
+        # harness points MOCK_SERVER_LOG at the server's stdout). The
+        # line is written AFTER the agent stop completes (it audits
+        # the completed stop), which trails the task's FAILED flip by
+        # the stop's graceful-interrupt window — so poll for it
+        # briefly rather than reading once.
         if SERVER_LOG and os.path.isfile(SERVER_LOG):
-            log = open(SERVER_LOG, encoding='utf-8', errors='replace').read()
+            deadline = time.time() + 20.0
+            while time.time() < deadline:
+                log = open(
+                    SERVER_LOG, encoding='utf-8', errors='replace'
+                ).read()
+                if 'terminal browser-start failure' in log:
+                    break
+                time.sleep(1.0)
             assert 'terminal browser-start failure' in log, (
                 'the terminal-stop log line is missing'
             )
