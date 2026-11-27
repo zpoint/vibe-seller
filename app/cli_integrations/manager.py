@@ -460,6 +460,28 @@ async def _install_skills(
         )
 
 
+async def refresh_umbrellas(home: Path | None = None) -> list[str]:
+    """At boot: bring every enabled platform's umbrella rules to this
+    release (``skills.refresh_umbrella``; local, no network). Returns
+    the platforms whose rules changed."""
+    h = _home(home)
+    changed = []
+    for integ in INTEGRATIONS.values():
+        try:
+            if not await asyncio.to_thread(
+                paths.is_enabled, integ.key, integ.binary, h
+            ):
+                continue
+            async with skills_tree.hold():
+                if await asyncio.to_thread(skills.refresh_umbrella, integ, h):
+                    changed.append(integ.key)
+        except Exception:  # one platform's files never block the boot
+            logger.exception('%s umbrella refresh failed', integ.key)
+    if changed:
+        logger.info('umbrella rules refreshed: %s', ', '.join(changed))
+    return changed
+
+
 async def enable(integ: CliIntegration, home: Path | None = None) -> dict:
     """Give agents this CLI: requires an installed binary that is
     signed in (an agent must never be the one to log in)."""

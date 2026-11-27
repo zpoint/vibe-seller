@@ -29,6 +29,7 @@ from app.cli_integrations.paths import (
     SKILLS_VERSION_FILE,
     skill_dir,
     skills_root,
+    skills_version,
 )
 from app.workspace.skill_swap import swap_in
 
@@ -219,6 +220,35 @@ def install(
     backup = stage_root / f'{integ.key}-previous'
     swap_in(staging, skill_dir(integ.key, home), backup)
     return sorted(subs)
+
+
+def refresh_umbrella(integ: CliIntegration, home: Path) -> bool:
+    """Re-render an installed umbrella's own ``SKILL.md`` (blocking;
+    caller holds the tree lock). True when it changed.
+
+    Its rules are this release's text, not the vendor's: a release that
+    changes them must reach a platform enabled under the old text,
+    though its CLI version — all ``manager.update`` compares — did not
+    move. Local only: rendered from the sub-skills the umbrella already
+    holds, which stay untouched.
+    """
+    root = skill_dir(integ.key, home)
+    current = root / 'SKILL.md'
+    version = skills_version(integ.key, home)
+    if version is None or not current.is_file():
+        return False
+    subs = {
+        d.name: {'SKILL.md': (d / 'SKILL.md').read_bytes()}
+        for d in sorted(root.iterdir())
+        if d.is_dir() and (d / 'SKILL.md').is_file()
+    }
+    text = umbrella_md(integ, version, subs)
+    if current.read_text(encoding='utf-8') == text:
+        return False
+    tmp = root / '.SKILL.md.tmp'
+    tmp.write_text(text, encoding='utf-8')
+    tmp.replace(current)
+    return True
 
 
 def uninstall(integ: CliIntegration, home: Path) -> bool:

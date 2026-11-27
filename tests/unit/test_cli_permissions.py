@@ -12,7 +12,8 @@ import json
 
 import pytest
 
-from app.cli_integrations import skills
+from app import config
+from app.cli_integrations import manager, paths, skills
 from app.cli_integrations.base import CliIntegration
 from app.cli_integrations.registry import INTEGRATIONS
 from app.cli_integrations.wecom import (
@@ -165,3 +166,56 @@ def test_the_agent_sends_the_user_to_re_authorize_never_renews_itself():
     wecom = _umbrella(INTEGRATIONS['wecom'])
     assert '使用权限已过期' in wecom and str(EXPIRED_ERRCODE) in wecom
     assert '使用权限已过期' not in _umbrella(INTEGRATIONS['feishu'])
+
+
+# ── a release's rules reach a platform enabled under older ones ──────
+
+
+def _enabled_umbrella(tmp_path, monkeypatch):
+    home = tmp_path / 'home'
+    monkeypatch.setattr(config, 'VIBE_SELLER_DIR', home)
+    integ = INTEGRATIONS['wecom']
+    vdir = paths.version_dir('wecom', '1.3.4', home)
+    vdir.mkdir(parents=True)
+    exe = vdir / paths.exe_name(integ.binary)
+    exe.write_text('#!/bin/sh\n')
+    paths.write_manifest('wecom', {'version': '1.3.4'}, home)
+    subs = {
+        'shared': {'SKILL.md': b'---\nname: wecomcli-shared\n---\n# shared\n'},
+        'email': {
+            'SKILL.md': b'---\nname: wecomcli-email\ndescription: Mail.\n---\n',
+            'references/a.md': b'ref\n',
+        },
+    }
+    skills.install(integ, '1.3.4', subs, home)
+    return home
+
+
+async def test_boot_rewrites_an_umbrella_written_by_an_older_release(
+    tmp_path, monkeypatch
+):
+    home = _enabled_umbrella(tmp_path, monkeypatch)
+    umbrella = paths.skill_dir('wecom', home) / 'SKILL.md'
+    current = umbrella.read_text(encoding='utf-8')
+    ref = paths.skill_dir('wecom', home) / 'email' / 'references' / 'a.md'
+    # As an older release wrote it: no re-authorize link.
+    umbrella.write_text(
+        current.replace('[Settings → Integrations](#integrations)', ''),
+        encoding='utf-8',
+    )
+    ref_before = ref.read_bytes()
+
+    assert await manager.refresh_umbrellas(home) == ['wecom']
+    assert umbrella.read_text(encoding='utf-8') == current
+    assert ref.read_bytes() == ref_before  # the vendor's files untouched
+    # Already current: nothing rewritten.
+    assert await manager.refresh_umbrellas(home) == []
+
+
+async def test_boot_leaves_a_platform_that_is_not_enabled_alone(
+    tmp_path, monkeypatch
+):
+    home = _enabled_umbrella(tmp_path, monkeypatch)
+    skills.uninstall(INTEGRATIONS['wecom'], home)
+    assert await manager.refresh_umbrellas(home) == []
+    assert not (paths.skill_dir('wecom', home) / 'SKILL.md').exists()

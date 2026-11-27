@@ -490,7 +490,7 @@ export function TasksView({
                   </div>
                 )}
                 {selectedTask.error && (
-                  <TaskErrorNote error={selectedTask.error} category={selectedTask.error_category} />
+                  <TaskErrorNote error={selectedTask.error} category={selectedTask.error_category} onOpenSettings={onOpenSettings} />
                 )}
                 <SubtaskList parentTaskId={selectedTask.id} parentStatus={selectedTask.status} onSelect={selectTask} stores={stores} />
                 <div className="mt-2 flex gap-2 flex-wrap">

@@ -18,7 +18,7 @@ from app.api_token_scope import ApiTokenScopeMiddleware
 from app.browser import chromium_engine
 from app.browser.manager import browser_manager
 from app.channels import wecom_channel as wecom_channel  # registers channel
-from app.cli_integrations import gws_legacy
+from app.cli_integrations import gws_legacy, manager as cli_manager
 from app.cli_integrations.login import login_manager as cli_login_manager
 from app.config import (
     BACKEND_PORT,
@@ -214,6 +214,10 @@ async def lifespan(app: FastAPI):
     # before any task copies the skills tree.
     async with async_session() as db:
         await gws_legacy.migrate(db)
+    # An enabled workplace CLI's umbrella carries this release's rules
+    # for the agent (re-authorize, never sign in), even when its CLI
+    # version — what the daily update compares — did not move.
+    await cli_manager.refresh_umbrellas()
     # Sync built-in knowledge + skills from package (local, no network).
     # Skill dep installs are deferred to a background task — cold pip
     # installs must not delay /api/health past CI/user boot windows.
