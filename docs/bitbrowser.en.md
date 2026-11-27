@@ -6,14 +6,16 @@ description: "One page on connecting BitBrowser to Vibe Seller: download, the ac
 
 BitBrowser (比特浏览器) is a Chinese anti-detect browser ([site](https://www.bitbrowser.net/), [API docs](https://doc.bitbrowser.net/)). Once bound, Vibe Seller opens your stores through its local API and launches the client automatically when it is not running.
 
-**The BitBrowser backend runs on Windows, and also WSL.** A macOS client exists, but Vibe Seller does not drive it yet.
+**The BitBrowser backend runs on Windows, macOS, and also WSL.**
 
 Not using BitBrowser? Skip this page — Vibe Seller supports other browsers, see [Browsers](browsers.en.md).
 
 ## Download and install
 
-1. Download the Windows (64-bit) client from the [download page](https://www.bitbrowser.net/download/) and install it. The default location is `C:\Users\<user>\AppData\Local\Programs\bitbrowser`; any other location is found too.
-2. **Start it and sign in once by hand**, and check that you can see your browser profiles.
+- **Windows**: download the Windows (64-bit) client from the [download page](https://www.bitbrowser.net/download/) and install it. The default location is `C:\Users\<user>\AppData\Local\Programs\bitbrowser`; any other location is found too.
+- **macOS**: download the macOS (Apple Silicon or Intel) client from the same page and drop it into `/Applications` (`比特浏览器.app`). Vibe Seller finds it by its app identity; for a non-standard location, save the client path in Settings.
+
+**Start it and sign in once by hand**, and check that you can see your browser profiles.
 
 ## The account and auto-login
 
@@ -73,8 +75,8 @@ Firefox-kernel profiles are greyed out with the reason in the store picker, and 
 | Open failed: kernel update failed, please restart the client | BitBrowser failed to download a kernel (typically the Firefox one). Restart BitBrowser so it retries, then run the task. |
 | Open failed: the service was called successfully but no matching data was found | The profile was deleted in BitBrowser, or the signed-in account cannot see it. Check the profile still exists and is visible. |
 | No visible stores for this login | The signed-in (sub-)account has no profiles or none authorized to it. See the sub-account note above. |
-| Unsupported platform | The BitBrowser backend runs only on Windows, and also WSL. |
+| Unsupported platform | The BitBrowser backend runs only on Windows, macOS, and WSL. |
 
 ## Where credentials are stored
 
-The BitBrowser **account and password** are stored in your local `~/.vibe-seller/data/vibe_seller.db` (SQLite). The password is encrypted at rest with a key derived from this machine's install, and decrypted in memory only at the moment of an auto-login; the API never returns it to the frontend. The local API port and token are read live from BitBrowser's own config file (`%APPDATA%\BitBrowser\config.json`) and not stored separately.
+The BitBrowser **account and password** are stored in your local `~/.vibe-seller/data/vibe_seller.db` (SQLite). The password is encrypted at rest with a key derived from this machine's install, and decrypted in memory only at the moment of an auto-login; the API never returns it to the frontend. The local API port and token are read live from BitBrowser's own config file (Windows: `%APPDATA%\BitBrowser\config.json`; macOS: `~/Library/Application Support/BitBrowser/config.json`) and not stored separately.
