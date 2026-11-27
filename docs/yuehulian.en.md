@@ -1,5 +1,5 @@
 ---
-description: Yuehulian in Vibe Seller — download and install, create a team account, what to fill in when binding, one account per machine, auto-login, Windows-only, and where credentials are stored.
+description: Yuehulian in Vibe Seller — download and install, create a team account, what to fill in when binding, one account per machine, auto-login, Windows plus WSL, and where credentials are stored.
 ---
 
 # Yuehulian: Setup Guide
@@ -10,8 +10,7 @@ store is bound, Vibe Seller opens and signs in to the Yuehulian client
 itself and uses it to open your stores for tasks; you don't need to
 operate the client by hand.
 
-**The Yuehulian backend is Windows-only** (including WSL running on
-Windows). On macOS / plain Linux the option does not appear in the
+**The Yuehulian backend supports Windows, plus WSL.** On macOS / plain Linux the option does not appear in the
 "Browser Backend" dropdown — the Yuehulian client itself is Windows-only.
 
 Not using Yuehulian? Skip this page. Vibe Seller supports other browsers too; see [Browsers](browsers.md).
@@ -108,7 +107,7 @@ Likewise, if you opened a store in the Yuehulian client yourself, a task that ne
 | Couldn't start the 悦互联 client — open it manually (or check it's installed), then Refresh | Vibe Seller couldn't find / launch the client. Open the Yuehulian client manually, or confirm it's installed per "Download and install". |
 | No stores visible for this login | This sub-account has no stores yet, or no store permissions. Confirm in the Yuehulian admin that the sub-account can see stores. |
 | Yuehulian supports only one account per machine… | See "One account per machine" above. |
-| Unsupported platform | The Yuehulian backend is only available on Windows (including WSL-on-Windows). |
+| Unsupported platform | The Yuehulian backend is only available on Windows and WSL. |
 
 ## Where credentials are stored
 

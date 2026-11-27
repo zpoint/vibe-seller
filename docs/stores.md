@@ -78,6 +78,6 @@ description: 店铺与浏览器：怎么新建店铺、紫鸟和 Chrome 怎么�
 
 ## 紫鸟的开通与报错
 
-紫鸟要先由主账号（BOSS 账号）开通开发者模式、再给子账号勾选 WebDriver 登录；绑定时要填哪些字段、「无权限通过 webdriver 登录」「检测到您在新终端登录」两条报错怎么处理、Windows（WSL）多出的 ziniao_webdriver.bat 一步、凭据存在哪里，都写在单独一页：
+紫鸟要先由主账号（BOSS 账号）开通开发者模式、再给子账号勾选 WebDriver 登录；绑定时要填哪些字段、「无权限通过 webdriver 登录」「检测到您在新终端登录」两条报错怎么处理、WSL 多出的 ziniao_webdriver.bat 一步、凭据存在哪里，都写在单独一页：
 
 **[紫鸟：开通与常见报错 →](ziniao.md)**
