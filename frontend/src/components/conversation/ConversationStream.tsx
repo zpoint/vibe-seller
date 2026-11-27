@@ -9,6 +9,7 @@ import { api } from '../../api'
 import { PlanCard } from './PlanCard'
 import { TaskStartCard } from './TaskStartCard'
 import { MessageBubble } from './MessageBubble'
+import { MarkdownLink } from './MarkdownLink'
 import { NoticeBanner } from './NoticeBanner'
 import { ExecutionSeparator } from './ExecutionSeparator'
 import { ActivityGroup, ToolCallLine } from './ToolCallCard'
@@ -19,6 +20,7 @@ import { GeneratedImageCard } from './GeneratedImageCard'
 import { StepIcon } from '../ui'
 import type { ConversationItem, TodoItem, TaskStep, Task } from '../../types'
 import { daysLeft, parseWaitCondition, waitBadgeKey, waitDeadline } from '../../lib/waitCondition'
+import type { SettingsTab } from '../../views/SettingsView'
 
 type DisplayItem =
   | { kind: 'item'; item: ConversationItem }
@@ -176,12 +178,22 @@ interface ConversationStreamProps {
   questionBannerRef: React.RefObject<HTMLDivElement | null>
   isActive: boolean
   userNearBottom?: React.RefObject<boolean>
-  onOpenVisionSetup?: () => void
+  onOpenSettings?: (tab: SettingsTab, anchor?: string) => void
 }
 
 // The task result, often a long report: parsed as markdown only when its
-// text changes, not on every re-render of the stream.
-const ResultCard = memo(function ResultCard({ result, label }: { result: string; label: string }) {
+// text changes, not on every re-render of the stream. Its Settings links
+// (an expired workplace sign-in) are in-app buttons; the handler is left
+// out of the comparison — every version of it opens the same tab.
+const ResultCard = memo(function ResultCard({
+  result,
+  label,
+  onOpenSettings,
+}: {
+  result: string
+  label: string
+  onOpenSettings?: (tab: SettingsTab, anchor?: string) => void
+}) {
   return (
     <div>
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 sm:p-6">
@@ -190,12 +202,17 @@ const ResultCard = memo(function ResultCard({ result, label }: { result: string;
           <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-green-600">{label}</span>
         </div>
         <div className={`text-gray-800 ${PROSE_RESULT} overflow-x-auto`}>
-          <Markdown remarkPlugins={REMARK_PLUGINS}>{result}</Markdown>
+          <Markdown
+            remarkPlugins={REMARK_PLUGINS}
+            components={{ a: (props) => <MarkdownLink {...props} onOpenSettings={onOpenSettings} /> }}
+          >
+            {result}
+          </Markdown>
         </div>
       </div>
     </div>
   )
-})
+}, (a, b) => a.result === b.result && a.label === b.label)
 
 export function ConversationStream({
   items,
@@ -218,7 +235,7 @@ export function ConversationStream({
   questionBannerRef,
   isActive,
   userNearBottom,
-  onOpenVisionSetup,
+  onOpenSettings,
 }: ConversationStreamProps) {
   const { t } = useTranslation()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -309,9 +326,9 @@ export function ConversationStream({
           case 'answer':
             return <MessageBubble key={item.id} role="answer" content={item.message!.content} />
           case 'agent_message':
-            return <MessageBubble key={item.id} role="assistant" content={item.message!.content} onOpenVisionSetup={onOpenVisionSetup} />
+            return <MessageBubble key={item.id} role="assistant" content={item.message!.content} onOpenSettings={onOpenSettings} />
           case 'streaming':
-            return <MessageBubble key={item.id} role="_streaming" content={item.message!.content} onOpenVisionSetup={onOpenVisionSetup} />
+            return <MessageBubble key={item.id} role="_streaming" content={item.message!.content} onOpenSettings={onOpenSettings} />
           case 'notice':
             return <NoticeBanner key={item.id} notice={item.notice!} />
           case 'execution_separator':
@@ -331,7 +348,7 @@ export function ConversationStream({
             // turn-end signal, app/ai/claude_backend_stream.py) — there is
             // nothing to show, and an empty card reads as a lost answer.
             if (!(item.result ?? '').trim()) return null
-            return <ResultCard key={item.id} result={item.result || ''} label={t('tasks.result')} />
+            return <ResultCard key={item.id} result={item.result || ''} label={t('tasks.result')} onOpenSettings={onOpenSettings} />
           case 'question': {
             const isActive = pendingQuestions?.request_id === item.questions?.request_id
             if (isActive) {

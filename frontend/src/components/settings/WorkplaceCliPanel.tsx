@@ -5,6 +5,10 @@ import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 import { CLI_ERROR_HELP, CLI_NOTICE_HELP, DOCS_HELP } from '../../lib/docsHelp'
 import { DocsHelpLink } from '../ui/DocsHelpLink'
+import type { CliCard, LoginView, Notice } from './cliTypes'
+import { useCliExpiry } from '../../hooks/useCliExpiry'
+import { useScrollIntoViewOnHash } from '../../hooks/useScrollIntoViewOnHash'
+import { INTEGRATION_ATTENTION_EVENT } from '../../hooks/useIntegrationAttention'
 
 /** Settings → Integrations: the official WeCom / Feishu / DingTalk CLIs,
  *  and Google Workspace's (its own card, same rows).
@@ -17,38 +21,6 @@ import { DocsHelpLink } from '../ui/DocsHelpLink'
  *  PATH. Each platform is independent — agents see exactly the enabled
  *  ones. The backend owns the flow (`enable_after` finishes it even if
  *  this page is closed mid-login); the page only polls. */
-
-interface LoginView {
-  state: 'starting' | 'waiting' | 'succeeded' | 'failed' | 'cancelled'
-  url: string | null
-  user_code: string | null
-  qr: boolean
-  message: string | null
-  step: number
-  steps: number
-  hint: string | null
-  /** What the person must know about the outcome — several can apply
-   *  (scopes withheld AND a sign-in that cannot renew). Set by the
-   *  server's parsers: an i18n key, its detail and a link to act on. */
-  notices?: Notice[]
-  /** Why the sign-in ended badly when no notice explains it: the
-   *  runner's ``timeout`` or ``enable_failed`` (i18n key). */
-  error?: string | null
-  /** Signed in, and the server is still enabling the platform: the
-   *  outcome is not final yet, so the page keeps polling. */
-  finishing?: boolean
-  /** The approval comes back as a redirect to ``callback`` (a port on
-   *  the server's computer): a browser elsewhere cannot reach it, so the
-   *  page takes the address it ended on and the server relays it. */
-  paste_back?: boolean
-  callback?: string | null
-}
-
-interface Notice {
-  key: string
-  detail: string | null
-  url: string | null
-}
 
 /** Where to read how to act on a notice: the vendor's own guide, or
  *  ours. The link reads ``guideLink.<key>`` (default ``officialGuide``). */
@@ -77,24 +49,6 @@ const FEISHU_SCOPE_FEATURES: Record<string, string> = {
 /** The withheld scopes a ``feishu_missing_scopes`` notice carries. */
 function withheldScopes(n: Notice): string[] {
   return (n.detail ?? '').split(/\s+/).filter(Boolean)
-}
-
-interface CliCard {
-  key: string
-  title: string
-  binary: string
-  homepage: string
-  installed: boolean
-  version: string | null
-  enabled: boolean
-  auth: { usable: boolean; reason: string; identity: string | null } | null
-  login: Partial<LoginView> | null
-  /** The one-time setup a sign-in needs (its form), and whether the
-   *  sign-in waits on it now. */
-  setup?: string | null
-  needs_setup?: boolean
-  /** Said on the row until the platform is enabled (i18n key). */
-  notice?: string | null
 }
 
 /** Where each step of Google's one-time setup is done (Google Cloud
@@ -185,6 +139,7 @@ export function WorkplaceCliPanel({
       const all = Array.isArray(r?.integrations) ? r.integrations : []
       setCards(all.filter((c) => GOOGLE_KEYS.includes(c.key) === google))
       setError(null)
+      window.dispatchEvent(new Event(INTEGRATION_ATTENTION_EVENT))
     } catch (e) {
       setError(errView(e, 'load'))
     } finally {
@@ -343,6 +298,10 @@ function CliRow({
 
   const loginActive = login && inProgress(login)
   const signedIn = !!card.auth?.usable
+  const expiry = useCliExpiry(card.key, !!card.checks_expiry && card.enabled && signedIn, card)
+  useScrollIntoViewOnHash(`cli-${card.key}`)
+  // Signed in before (enabled), now the sign-in or a capability expired.
+  const reauth = card.enabled && !!card.auth && (!signedIn || expiry.expired === true)
   const name = t(`integrations.cli.platform.${card.key}`, { defaultValue: card.title })
   // The button on screen once a sign-in ended: "Sign in again" on an
   // enabled platform, otherwise "Connect" (the only one a stopped or
@@ -350,7 +309,7 @@ function CliRow({
   const retryButton = t(card.enabled ? 'integrations.cli.relogin' : 'integrations.cli.connect')
 
   return (
-    <div className="p-3 bg-gray-50 rounded-lg space-y-2" data-testid={`cli-row-${card.key}`}>
+    <div id={`cli-${card.key}`} className="p-3 bg-gray-50 rounded-lg space-y-2" data-testid={`cli-row-${card.key}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium">{name}</p>
@@ -375,6 +334,10 @@ function CliRow({
               <span className="text-amber-700" data-testid={`cli-needs-signin-${card.key}`}>
                 {t('integrations.cli.enabledNeedsSignIn')}
                 {card.key === 'gws' && <> <DocsHelpLink topic="googleSignInExpired" /></>}
+              </span>
+            ) : expiry.expired === true ? (
+              <span className="text-amber-700" data-testid={`cli-expired-${card.key}`}>
+                {t('integrations.cli.expired')}
               </span>
             ) : (
               <span className={card.enabled ? 'text-green-700' : ''}>
@@ -410,9 +373,9 @@ function CliRow({
                 onClick={relogin}
                 disabled={!!busy}
                 data-testid={`cli-relogin-${card.key}`}
-                className="px-3 py-1.5 text-sm rounded bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:opacity-40"
+                className={`px-3 py-1.5 text-sm rounded disabled:opacity-40 ${reauth ? 'font-medium bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'}`}
               >
-                {t('integrations.cli.relogin')}
+                {t(reauth ? 'integrations.cli.reauthorize' : 'integrations.cli.relogin')}
               </button>
             )}
             {card.enabled && (
@@ -428,6 +391,18 @@ function CliRow({
           </div>
         )}
       </div>
+
+      {expiry.expired === true && (
+        <p className="flex flex-wrap items-center gap-x-1 text-xs text-amber-800" data-testid={`cli-expiry-hint-${card.key}`}>
+          {t('integrations.cli.expiredHint')}
+          <DocsHelpLink topic="wecomPermissionExpired" />
+        </p>
+      )}
+      {expiry.loading && (
+        <p className="text-xs text-gray-500" data-testid={`cli-expiry-checking-${card.key}`}>
+          {t('integrations.cli.expiryChecking')}
+        </p>
+      )}
 
       {card.notice && !card.enabled && (
         <p className="text-sm text-amber-700" data-testid={`cli-row-notice-${card.key}`}>
