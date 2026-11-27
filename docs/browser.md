@@ -228,6 +228,22 @@ One bounded locator for where a Windows client's main exe lives, shared by Zinia
 
 Validation means an existing `.exe` that is the app's **main** binary — exact name for Ziniao; for 悦互联 (whose exe name is a locale string) the largest non-rejected `.exe` directly in the dir — never an uninstaller, a Chromium kernel under `resources\`, or an Electron helper. A hit is cached until the file disappears. Every hint logs at INFO what it tried, and a miss returns `not_found_message` listing every searched surface and advising to open the client once by hand (never "set the path" — there is no UI for it). `run_powershell` (UTF-8 both sides) and `win_path_to_local` / `win_path_to_wsl` live here — moved out of `yuehulian_win.py` so both clients share them.
 
+### `mac_app_locator.py` — macOS install discovery (shared by vendors)
+
+The macOS sibling of `win_app_locator.py`: one vendor-neutral way to find, launch and inspect a vendor's Mac client wherever it was installed. A vendor module declares a `MacAppSpec` (`key`, `display_name`, `bundle_ids`, `app_names`); the shared file names no vendor. Ordered hints; the first `.app` bundle that **validates** wins:
+
+1. `saved` — the vendor's saved client path: the `.app` bundle, the executable inside it, or a folder directly containing one of the spec's bundle names
+2. `process` — a running process whose executable sits inside a bundle named in the spec (the client is already up)
+3. `spotlight` — `mdfind` by `CFBundleIdentifier`, which finds the app anywhere Spotlight indexes
+4. `applications` — `/Applications` and `~/Applications` by bundle name (what LaunchServices itself scans; the fallback when Spotlight excludes a folder or has not indexed yet)
+
+Validation reads the bundle's `Contents/Info.plist` (`plistlib`) and requires `Contents/MacOS/<CFBundleExecutable>` to exist; nothing is executed during discovery. The result `LocatedMacApp` carries the bundle path, the executable and the bundle id. `not_found_message(spec)` lists every searched surface. Every hint logs at INFO what it tried.
+
+- **`launch(located, args=())`** — `open <app> [--args …]`, detached. The args may carry secrets (an API key), so they are **never logged and never appear in errors**: the `RuntimeError` carries only the app path, the return code and `open`'s stderr (truncated), and a timeout or `OSError` is reduced to a fixed message / `strerror` (a `TimeoutExpired`'s own text embeds the full command line). `open --args` passes args only when the app is not already running.
+- **`app_processes(located)`** — every process (psutil) whose real executable path is inside the bundle, main and helpers alike; the vendor layer filters (e.g. an Electron main has no `--type=` arg).
+
+All of it is blocking (subprocess, process scan, filesystem): call it from async code through `asyncio.to_thread`. The system probes are injectable (`MacLocatorRunners`), so the unit tests run on Linux.
+
 ### `ziniao_utils.py` — Ziniao Utilities
 
 Shared helpers used by both `ziniao.py` (task execution) and `ziniao_accounts` router (profile listing):
