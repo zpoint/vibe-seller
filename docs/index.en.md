@@ -91,13 +91,13 @@ scratch.
   ad tuning. Create a task and the system opens that store's browser
   and the agent operates it directly — usually right on the
   first try, no step-by-step guidance needed.
-- **Native anti-detect browser control.** CDP straight into the
-  logged-in store profile in Ziniao, Yuehulian, BitBrowser, AdsPower,
-  Wenmai and the like — not
-  Playwright on vanilla Chrome, not UI-coordinate clicks. Lower risk-control risk, more stable.
-- **Multi-browser by design.** Ziniao, Yuehulian, BitBrowser,
-  AdsPower, Wenmai and plain Chrome are all first-class backends — pick per store. Downloads, setup and how to
-  choose: [Browsers](browsers.en.md).
+- **Any browser, controlled natively.** Anti-detect browsers such as
+  Ziniao, Yuehulian, BitBrowser, AdsPower and Wenmai, and plain Chrome,
+  are all first-class backends — pick per store. The agent drives the
+  logged-in store profile over CDP — not Playwright on vanilla Chrome,
+  not UI-coordinate clicks — so risk-control risk stays low and runs
+  stay stable. Downloads, setup and how to choose:
+  [Browsers](browsers.en.md).
 - **Multi-LLM by design.** Built on top of the Claude Code CLI, so
   any Anthropic-compatible provider works — Claude, DeepSeek, Kimi,
   MiniMax, GLM, Qwen. Switch in Settings, no code changes. Your key,
