@@ -77,60 +77,66 @@ class InjectCdpBackend(BrowserBackend):
         self._store_ref = store_ref
         self._opened = opened
 
-        version = await self._cdp_version(opened.cdp_host, opened.cdp_port)
-        if version is None:
-            raise CdpUnreachable(
-                f'opened {store_ref} but CDP {opened.cdp_host}:'
-                f'{opened.cdp_port} never answered'
-            )
-        browser = str(version.get('Browser') or '')
-        if not browser.startswith(CHROMIUM_BROWSER_PREFIXES):
-            # A non-Chromium kernel CAN expose a partial CDP (Firefox's
-            # old Remote Agent) — reachable is not drivable. Close the
-            # env so nothing half-open lingers, and refuse before
-            # after_open or the proxy ever front it.
-            logger.warning(
-                'store %s: CDP endpoint reports Browser %r (not '
-                'Chromium-family); closing the env and refusing',
-                store_ref,
-                browser,
-            )
-            await self._close_browser(opened.cdp_host, opened.cdp_port)
-            self._opened = None
-            try:
-                await client.close_store(store_ref)
-            except Exception as e:  # never mask the kernel refusal
-                logger.warning(
-                    'inject backend close_store after kernel refusal '
-                    'failed: %s',
-                    e,
+        # The open has created a real env (windows, processes) that
+        # nothing else will ever close: EVERY post-open failure funnels
+        # through one best-effort cleanup before its own error
+        # propagates. Seen live pre-funnel: a Firefox/BiDi env whose CDP
+        # never answered outlived CdpUnreachable with 11 processes.
+        try:
+            version = await self._cdp_version(opened.cdp_host, opened.cdp_port)
+            if version is None:
+                raise CdpUnreachable(
+                    f'opened {store_ref} but CDP {opened.cdp_host}:'
+                    f'{opened.cdp_port} never answered'
                 )
-            finally:
-                self._store_ref = None
-            raise UnsupportedKernel(
-                f"this store's browser kernel reports {browser!r} via "
-                'CDP; only Chromium-family kernels are supported '
-                f'(expected one of {CHROMIUM_BROWSER_PREFIXES})'
+            browser = str(version.get('Browser') or '')
+            if not browser.startswith(CHROMIUM_BROWSER_PREFIXES):
+                # A non-Chromium kernel CAN expose a partial CDP
+                # (Firefox's old Remote Agent) — reachable is not
+                # drivable. Refuse before after_open or the proxy ever
+                # front it; the funnel below closes the env.
+                logger.warning(
+                    'store %s: CDP endpoint reports Browser %r (not '
+                    'Chromium-family); closing the env and refusing',
+                    store_ref,
+                    browser,
+                )
+                raise UnsupportedKernel(
+                    f"this store's browser kernel reports {browser!r} "
+                    'via CDP; only Chromium-family kernels are '
+                    'supported (expected one of '
+                    f'{CHROMIUM_BROWSER_PREFIXES})'
+                )
+
+            # A client-specific entry step (an intermediate store-info
+            # page) must run
+            # BEFORE the proxy: the proxy's startup cleanup closes
+            # orphan web tabs, so the store page this produces has to
+            # exist first (the engine's keep_last_page keeps it).
+            await client.after_open(opened)
+
+            dl_dir = await asyncio.to_thread(prepare_download_dir, slug)
+            self._proxy = CDPMuxProxy(
+                listen_port=proxy_port,
+                target_port=opened.cdp_port,
+                target_host=opened.cdp_host,
+                download_dir=str(dl_dir),
+                keep_last_page=True,
+                instance_id=browser_config.get('vibe_instance_id'),
+                listen_sock=browser_config.get('proxy_socket'),
             )
+            await self._proxy.start()
+        except BaseException:
+            # Best-effort, never masking: the ORIGINAL error (the
+            # CdpUnreachable / UnsupportedKernel / vendor failure that
+            # tripped the funnel) is re-raised after the cleanup.
+            # BaseException, not Exception: a CANCELLED start (a task
+            # stop or a server shutdown mid-start) leaks the env just
+            # the same, so it funnels too — and a second cancel during
+            # the cleanup simply ends it.
+            await self._abandon_open_env()
+            raise
 
-        # A client-specific entry step (an intermediate store-info
-        # page) must run
-        # BEFORE the proxy: the proxy's startup cleanup closes orphan web
-        # tabs, so the store page this produces has to exist first (the
-        # engine's keep_last_page keeps it).
-        await client.after_open(opened)
-
-        dl_dir = await asyncio.to_thread(prepare_download_dir, slug)
-        self._proxy = CDPMuxProxy(
-            listen_port=proxy_port,
-            target_port=opened.cdp_port,
-            target_host=opened.cdp_host,
-            download_dir=str(dl_dir),
-            keep_last_page=True,
-            instance_id=browser_config.get('vibe_instance_id'),
-            listen_sock=browser_config.get('proxy_socket'),
-        )
-        await self._proxy.start()
         logger.info(
             'Inject backend CDPMuxProxy ready: %s:%d -> %s:%d (store %s, '
             'instance %s)',
@@ -165,6 +171,43 @@ class InjectCdpBackend(BrowserBackend):
                 await self._client.close_store(self._store_ref)
             except Exception as e:
                 logger.warning('inject backend close_store failed: %s', e)
+            finally:
+                self._store_ref = None
+
+    async def _abandon_open_env(self) -> None:
+        """Best-effort teardown of the env a FAILED start leaves behind.
+
+        Every post-open failure on the start path funnels here: the env
+        the open created (windows, processes) must not outlive the error
+        (seen live: a Firefox/BiDi env survived ``CdpUnreachable`` with
+        11 processes). A CANCELLED start reaches here too — the funnel
+        catches BaseException. ``Browser.close`` runs FIRST so the
+        kernel exits
+        cleanly and the vendor's ``close_store`` reopens a fresh env on
+        the next task; a half-started proxy is stopped too. Each step is
+        guarded and logged — cleanup must never mask the original error
+        the caller re-raises. (The stop path stays separate: it owns a
+        SUCCESSFUL session's teardown.)
+        """
+        if self._opened is not None:
+            await self._close_browser(
+                self._opened.cdp_host, self._opened.cdp_port
+            )
+            self._opened = None
+        if self._proxy is not None:
+            try:
+                await self._proxy.stop()
+            except Exception as e:
+                logger.warning('inject backend proxy stop failed: %s', e)
+            self._proxy = None
+        if self._client is not None and self._store_ref is not None:
+            try:
+                await self._client.close_store(self._store_ref)
+            except Exception as e:
+                logger.warning(
+                    'inject backend close_store cleanup failed: %s',
+                    e,
+                )
             finally:
                 self._store_ref = None
 

@@ -43,6 +43,10 @@ from app.browser.wrapper_files import (  # noqa: F401 — re-export
     remove_browser_use_wrapper,
     wipe_generated_wrappers,
 )
+from app.browser.wrapper_start import (
+    START_FAILURE_FN as _START_FAILURE_FN,
+    auto_start_block as _auto_start_block,
+)
 from app.config import (
     BACKEND_PORT,
     BH_RUNTIME_DIR,
@@ -262,84 +266,17 @@ def write_browser_use_wrapper(
     else:
         aux_autostart_arm = ''
 
-    auto_start_block = textwrap.dedent(f"""\
-        # Auto-start: ensure THIS server's CDP proxy is answering.
-        # _vs_proxy_ours is an OWNERSHIP probe, not a bare liveness
-        # check: the listener on the port must answer /vibe/instance
-        # with this server's baked instance id (PR C1). Liveness alone
-        # glued this agent onto whatever won the port — another
-        # vibe-seller server on the machine, or an agent-spawned CDP
-        # bridge. A listener without our id reads as "down": ask the
-        # server to start the browser (it reallocates the port when the
-        # baked one is foreign) and follow the port it hands back.
-        _vs_proxy_ours() {{
-          curl -s --max-time 2 "$CDP_HTTP/vibe/instance" 2>/dev/null | grep -qF "\\"$VIBE_PROXY_ID\\"" || return 1
-          # Upstream liveness: the mux serves the ownership
-          # handshake itself, so a 200 there says nothing about
-          # the browser behind it — the mux answers
-          # /json/version 502 while its browser is dead, and
-          # the start call must still fire (found live: dead
-          # browser + live mux = hard failures).
-          curl -sf -o /dev/null --max-time 2 "$CDP_HTTP/json/version" 2>/dev/null
-        }}
-        case "$SESSION" in
-          {aux_autostart_arm}{slug}|{slug}-*)
-            if ! _vs_proxy_ours; then
-              # Attempt to start browser via API. 503 = busy, or Ziniao
-              # still starting (the server relaunches it by itself): the
-              # start call is idempotent, so ask again, a bounded number
-              # of times.
-              _try=0
-              while :; do
-                _start_resp=$(curl -s -w '\\n%{{http_code}}' \\
-                  -X POST \\{auth_header}
-                  -H "Content-Type: application/json" \\
-                  --max-time 90 \\
-                  "http://{LOCALHOST}:{port}/api/stores/{store_id or 'UNKNOWN'}/browser/start" \\
-                  2>/dev/null) || true
-                _start_http=${{_start_resp##*$'\\n'}}
-                _try=$((_try + 1))
-                if [ "$_start_http" = "503" ] && [ "$_try" -lt 3 ]; then
-                  echo "browser start busy (try $_try/3): $(printf '%s' "$_start_resp" | head -1 | head -c 300)" >&2
-                  sleep 5
-                  continue
-                fi
-                break
-              done
-              if ! [ "$_start_http" -ge 200 ] 2>/dev/null \\
-                 || ! [ "$_start_http" -lt 300 ] 2>/dev/null; then
-                echo "ERROR: browser start API failed (HTTP ${{_start_http:-unavailable}})" >&2
-                echo "$_start_resp" | head -5 >&2
-                exit 1
-              fi
-              # The server may have REALLOCATED the proxy port (the
-              # baked one was foreign): follow the typed proxy_port the
-              # start API hands back — same pattern as the aux arm
-              # following its ws endpoint.
-              _vs_port=$(printf '%s' "$_start_resp" | sed -n 's/.*"proxy_port"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p' | head -1)
-              case "$_vs_port" in
-                ''|*[!0-9]*) ;;
-                *) PROXY_PORT="$_vs_port"
-                   CDP_HTTP="http://{LOCALHOST}:$PROXY_PORT" ;;
-              esac
-              # Poll for the proxy to answer as OURS.
-              _n=0
-              while [ "$_n" -lt 60 ]; do
-                if _vs_proxy_ours; then
-                  break
-                fi
-                sleep 1
-                _n=$((_n + 1))
-              done
-            fi
-            # Final readiness check: our instance must answer.
-            if ! _vs_proxy_ours; then
-              echo "ERROR: CDP proxy at $CDP_HTTP not ready after auto-start (it does not serve this server's instance id)" >&2
-              exit 1
-            fi
-            ;;
-        esac
-    """)
+    # Auto-start arm + typed failure reporting: C2's contract, built
+    # in its own module (see app/browser/wrapper_start.py) so this
+    # file's liveness-probe side stays C1's to edit.
+    _start_failure_fn = _START_FAILURE_FN
+    auto_start_block = _auto_start_block(
+        slug=slug,
+        aux_autostart_arm=aux_autostart_arm,
+        auth_header=auth_header,
+        port=port,
+        store_id=store_id,
+    )
 
     # Inject the CDP endpoint + daemon identity as ENV VARS (0.13 model).
     #   BU_NAME    — session/daemon name (reaper keys off bu-<BU_NAME>.pid)
@@ -634,6 +571,7 @@ def write_browser_use_wrapper(
 
     """)
 
+    script += _start_failure_fn + '\n'
     script += auto_start_block + '\n'
     script += env_inject + '\n'
     # Every session (aux included) runs the bounded self-heal path.
