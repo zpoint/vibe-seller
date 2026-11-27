@@ -922,3 +922,64 @@ drives the user's installed Chrome — no bundled browser. Built on a
 GitHub-hosted `windows-latest` runner
 (`.github/workflows/windows-installer.yml`); see
 `installer/windows/README.md`.
+
+## Agent guard layers (`ai/agent_lateral_guard.py` + friends)
+
+Three server-side layers keep a task agent inside its lane. They are
+interception of our own tool calls, **not a sandbox** — the agent
+runs as the same OS user with a full shell — so the deny lists are
+best-effort against a determined agent; what they buy is that the
+observed runaway behaviours cannot happen by accident, and that
+deliberate evasion is loud.
+
+- **Pre-tool deny** (`app/ai/vendor_guard.py` +
+  `app/ai/agent_lateral_guard.py`, chained in
+  `app/ai/tool_call_guards.py`): vendor-declared `private_paths` and
+  `local_ports`, browser-profile databases, CDP/inspector/vendor
+  ports that are not the task's own, ssh & remote access, foreign
+  `/proc/<pid>` reads and system-wide process listings (the
+  self-scoped forms `bash_safety` recommends stay allowed),
+  OS-settings mutation (registry / `netsh` / `setx` / `schtasks` /
+  hosts / `networksetup` / `defaults write` / rc-file writes),
+  agent-built port forwarders (`socat` listen, `netsh portproxy`,
+  firewall rules, bind+connect one-liners — in Bash text and in
+  written file content), the store wrappers under `bin/`
+  (READ-never, EXECUTE-always — they embed a task-scoped JWT), any
+  vibe-seller home that is not the task's own (the default-named
+  family plus `vibe_seller.db` / `profiles.json` in absolute paths),
+  and the task's own home beyond its workspace (`data/`,
+  `profiles.json`, `r/`, `vendors/`, other sessions' `bh-tmp`).
+  Every deny is logged server-side with the tool_use id.
+- **The ONE normal form** (`normalize_path_text` in
+  `agent_lateral_guard.py`): every home-family matcher runs against
+  text and spellings normalised the same way — separators to `/`
+  with runs collapsed, Windows-way case folding, and home-variable
+  expansion covering `~` (bare and slashed), `$HOME`, `${HOME}`,
+  `"$HOME"`, `$USERPROFILE`, `%USERPROFILE%`, the PowerShell
+  `$env:USERPROFILE` / `${env:USERPROFILE}` / `$env:HOMEPATH` forms,
+  and the MSYS drive form `/c/Users/...` → `c:/users/...` (Claude
+  Code's Bash on Windows is Git-Bash). `cd_home_relative`
+  (best-effort, same command line only): after a `cd`/`pushd` to the
+  bare user home, a later bare `.vibe-seller` token is treated as
+  home-relative. Documented limit: a cd in one Bash call and the
+  read in the next is out of reach, as is a cd into a subdirectory.
+- **Output tripwire** (`app/ai/output_tripwire.py`): a tool RESULT
+  carrying a vendor private path or a vibe-seller server-state path
+  (paths only — no key formats, no content signatures) stops the
+  task FAILED with error category `security_tripwire`. The guard's
+  own deny messages never trip it (refused tool_use ids are
+  skipped).
+- **Task-end reaping** (`app/task_reaper.py`): on any terminal state
+  or external stop (both go through `task_finalize.stop_as_failed`),
+  every process whose environment carries the task's `VIBE_TASK_ID`
+  is reaped however it was detached — procfs scan on Linux/WSL,
+  `ps eww` on macOS, per-task Windows job objects.
+  `stop.sh --scoped` reaps the same leftovers for its own
+  `VIBE_HOME` only.
+
+Test surface: `tests/unit/test_vendor_guard.py` (every runaway
+spelling, every separator spelling × every deny category, the
+no-false-positive corpus), `tests/unit/test_task_reaper.py`,
+`tests/unit/test_stop_sh.py`, the tier-1 replay
+`tests/e2e/test_guard_replay.py`, and
+`tests/workflow/test_wf_stop_as_failed_reap.py`.
