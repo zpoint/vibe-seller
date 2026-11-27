@@ -7,6 +7,7 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import store_platforms
 from app.models.store import Store
 from app.models.task import Task
 from app.workspace.manager import workspace_manager
@@ -93,7 +94,7 @@ async def sync_store_metadata(
             existing[p] = sorted(set(existing[p]) | set(cs))
             count += 1
 
-        store.platform_countries = json.dumps(existing)
+        store_platforms.write(store, existing)
         await db.commit()
     except Exception as e:
         logger.warning(

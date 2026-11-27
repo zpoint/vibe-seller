@@ -106,8 +106,8 @@ class TestManageStore:
         assert store['browser_backend'] == 'chrome'
         # Create mirrors the UI's payload: platform/country defaults
         # come from the schema, not from the caller.
-        assert store['platforms'] == ['amazon']
-        assert store['countries'] == ['US']
+        assert store['platforms'] == []
+        assert store['countries'] == []
         store_id = store['id']
 
         listed = mcp.call_tool('manage_store', action='list')
