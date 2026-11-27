@@ -43,10 +43,20 @@ $env:PATH = "$env:LOCALAPPDATA\Programs\VibeSeller\claude;" +
   "$env:LOCALAPPDATA\Programs\VibeSeller\git\cmd;" +
   "$env:LOCALAPPDATA\Programs\VibeSeller\git\usr\bin;$env:PATH"
 
+# ── a port we PROVE is ours (up to three candidates) ───────────────
+foreach ($candidate in @($Port, $Port + 1, $Port + 2)) {
+  if (-not (Get-NetTCPConnection -State Listen -LocalPort $candidate -ErrorAction SilentlyContinue)) {
+    $Port = $candidate
+    break
+  }
+  Write-Output "port $candidate is already listening — trying the next"
+}
 if (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue) {
-  Write-Output "port $Port is already listening — refusing to share it"
+  Write-Output 'no candidate port free — giving up'
   exit 2
 }
+$Out = Join-Path $Root "smoke-out-$Port"
+$Home_ = Join-Path $Out 'home'
 
 Remove-Item -Recurse -Force $Out -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Home_ | Out-Null
