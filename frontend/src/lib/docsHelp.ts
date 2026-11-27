@@ -136,6 +136,11 @@ export const DOCS_HELP = {
     zh: 'https://docs.vibe-sellers.com/workplace-cli/#download-failed',
     en: 'https://docs.vibe-sellers.com/en/workplace-cli/#download-failed',
   },
+  /** WeCom grants each permission for 7 days; renewing it. */
+  wecomPermissionExpired: {
+    zh: 'https://docs.vibe-sellers.com/workplace-cli-wecom/#permission-expired',
+    en: 'https://docs.vibe-sellers.com/en/workplace-cli-wecom/#permission-expired',
+  },
   cliDoesNotRun: {
     zh: 'https://docs.vibe-sellers.com/workplace-cli-wecom/#does-not-run',
     en: 'https://docs.vibe-sellers.com/en/workplace-cli-wecom/#does-not-run',
