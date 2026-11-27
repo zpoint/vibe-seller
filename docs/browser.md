@@ -99,8 +99,14 @@ are class attributes (port + discovery, auth mode + field, list/open/
 close paths, rate-limit interval, timeouts), the vendor parts are small
 overridables (`parse_stores`, `parse_opened` — `opened_from_ws` parses a
 ws URL, a port-only answer passes through because the engine verifies
-the endpoint — `is_logged_out`, `map_error`). The paid gate most vendors
-share maps to `ApiNotEnabled`. The parametrized contract suite
+the endpoint — `is_logged_out` on every call, `map_error`,
+`discover_port`, async `auth_headers`, `is_rate_limited`, the
+`list_request`/`open_request`/`close_request` request hooks and
+`next_page` pagination). Subclasses needing extra endpoints (a kernel
+check, a health probe) call `api_call` — the one shared response path
+with the rate limit, auth headers, logged-out check (before the
+single rate-limit retry and before `map_error`) and the
+no-payload-logging rule. The parametrized contract suite
 (`tests/unit/test_browser/local_api_contract.py`) runs every subclass —
 fixtures from the vendors' published docs today, real vendor modules
 under `app/browser/adapters` auto-discovered — against a fake local API

@@ -57,7 +57,16 @@ Responses:
   (the engine verifies the endpoint itself); :func:`opened_from_ws`
   parses a ws URL, and a port-only answer is just
   ``OpenedStore('127.0.0.1', port)``.
-``is_logged_out(status, payload) -> bool`` — ONE function per vendor.
+``discover_port() -> int | None`` — overridable port discovery (a
+  vendor reading the client's own config file MUST use
+  ``asyncio.to_thread`` for the read).
+``auth_headers() -> dict`` — async and overridable (a token may come
+  from a client file); called before every request; never logged.
+``is_rate_limited(status, payload) -> bool`` — default ``status == 429``;
+  on a hit the base waits and retries ONCE.
+``is_logged_out(status, payload) -> bool`` — ONE function per vendor,
+  checked on EVERY call in the shared response path (before the retry
+  decision and before ``map_error``).
 ``map_error(status, payload) -> InjectError | None`` — ONE function per
   vendor, mapping raw responses onto the shared taxonomy. The paid-gate
   codes most vendors share (API not enabled / plan required — the #1
@@ -69,6 +78,11 @@ cookies and proxy credentials. The base NEVER logs a raw payload or
 request body — log lines carry the method, URL and error text only —
 and ``parse_stores`` must return bare :class:`StoreRef` rows so nothing
 secret can flow into a response (pinned by the contract suite).
+
+Subclasses needing EXTRA endpoints (a kernel check, a health probe)
+call :meth:`api_call` — the same shared response path the built-ins
+use, with the rate limit, auth headers, logged-out check and
+no-payload-logging rules applied.
 
 Optional hooks: ``ensure_running`` (default: discover the port and
 probe; override to launch the client), ``after_open``,
@@ -188,14 +202,14 @@ class LocalApiClient(InjectClient):
         concerns surface later in the flow.
         """
         if self._port is None:
-            self._port = await self._discover_port()
+            self._port = await self.discover_port()
         if self._port is None:
             raise ClientNotRunning(
                 f'no local API port found for {type(self).__name__}'
             )
         path, body = self.list_request(0)
         try:
-            await self._api_call(self.list_method, path, json_body=body)
+            await self.api_call(self.list_method, path, json_body=body)
         except ClientNotRunning:
             raise
         except InjectError:
@@ -232,11 +246,9 @@ class LocalApiClient(InjectClient):
                     f'a next page after {self.max_list_pages} pages'
                 )
             path, body = self.list_request(page)
-            status, payload = await self._api_call(
+            status, payload = await self.api_call(
                 self.list_method, path, json_body=body
             )
-            if self.is_logged_out(status, payload):
-                raise LoginRequired()
             err = self.map_error(status, payload)
             if err is not None:
                 raise err
@@ -251,7 +263,7 @@ class LocalApiClient(InjectClient):
 
     async def open_store(self, ref: str) -> OpenedStore:
         path, body = self.open_request(ref)
-        status, payload = await self._api_call(
+        status, payload = await self.api_call(
             self.open_method, path, json_body=body
         )
         err = self.map_error(status, payload)
@@ -263,7 +275,7 @@ class LocalApiClient(InjectClient):
         """Best-effort; never raises for cleanup."""
         try:
             path, body = self.close_request(ref)
-            await self._api_call(self.close_method, path, json_body=body)
+            await self.api_call(self.close_method, path, json_body=body)
         except Exception as e:  # cleanup must never raise
             logger.info('close_store(%s) failed (ignored): %s', ref, e)
 
@@ -309,12 +321,32 @@ class LocalApiClient(InjectClient):
     def is_logged_out(self, status: int, payload) -> bool:
         return False
 
+    def is_rate_limited(self, status: int, payload) -> bool:
+        """Whether a response says 'slow down'.
+
+        The default is an HTTP 429. A vendor that answers a 200 with a
+        rate-limit body (e.g. 'Too many request per second') overrides
+        this to recognise it. On a hit the base waits
+        ``max(1.0, min_interval_s)`` and retries ONCE; the retried
+        response goes to ``map_error`` as-is.
+        """
+        return status == 429
+
     def map_error(self, status: int, payload) -> InjectError | None:
         return None
 
     # ── shared plumbing ─────────────────────────────────────────────
 
-    async def _discover_port(self) -> int | None:
+    async def discover_port(self) -> int | None:
+        """Find the local API port; None when nothing answers.
+
+        Overridable — a vendor may read the port from the client's own
+        config file (e.g. a ``config.json`` under ``%APPDATA%``). Any
+        file read inside an override MUST go through
+        ``asyncio.to_thread`` (no blocking I/O on the event loop). The
+        default honours ``discovery``: 'fixed' (``api_port``), 'scan'
+        (``api_port`` then ``scan_ports``), or 'file' (``port_file``).
+        """
         if self.discovery == 'file' and self.port_file:
             try:
                 text = await asyncio.to_thread(
@@ -341,43 +373,73 @@ class LocalApiClient(InjectClient):
             self._session = aiohttp.ClientSession()
         return self._session
 
-    def _auth_headers(self) -> dict[str, str]:
+    async def auth_headers(self) -> dict[str, str]:
+        """The auth headers for one request.
+
+        Overridable and async because a vendor may read a token from a
+        client file (read it with ``asyncio.to_thread``; a vendor may
+        cache). The default builds them from the credential config:
+        none, a named header, or a bearer token. Its result is never
+        logged.
+        """
         if self.auth == 'none' or not self._auth_value:
             return {}
         if self.auth == 'bearer':
             return {'Authorization': f'Bearer {self._auth_value}'}
         return {self.auth_header: self._auth_value}
 
-    async def _api_call(
+    async def api_call(
         self, method: str, path: str, json_body: dict | None = None
     ) -> tuple[int, object]:
-        """One rate-limited API call → (HTTP status, parsed payload).
+        """One API call → (HTTP status, parsed payload).
 
-        ``json_body`` (when a request hook returns one) is sent as the
-        JSON request body. Transport failures raise ClientNotRunning;
-        an API that answers with an error payload returns it for the
-        vendor's map_error. Payloads and bodies are never logged — list
-        rows carry site passwords and cookies.
+        THE shared response path — every call (the built-ins and a
+        vendor's own extra endpoints, e.g. a kernel check or a health
+        probe) goes through it, so all of them get the same rules:
+
+        - rate-limited (``min_interval_s``), with the auth headers
+          (:meth:`auth_headers`) attached;
+        - a logged-out response raises :class:`LoginRequired` — checked
+          BEFORE the rate-limit retry decision and before the caller's
+          ``map_error``, so a vendor that answers a logged-out open
+          with an HTTP-200 error body surfaces LOGIN_REQUIRED, not a
+          mapped store error;
+        - a rate-limited response (``is_rate_limited``) is retried
+          ONCE after ``max(1.0, min_interval_s)``; the retried response
+          goes to the caller's ``map_error`` as-is;
+        - transport failures raise :class:`ClientNotRunning`;
+        - payloads and bodies are never logged — list rows carry site
+          passwords and cookies.
         """
         if self._port is None:
             raise ClientNotRunning('no API port resolved')
-        await self._rate_limit()
         url = f'{self._base}:{self._port}{path}'
         session = await self._ensure_session()
-        try:
-            async with session.request(
-                method,
-                url,
-                headers=self._auth_headers(),
-                json=json_body,
-                timeout=aiohttp.ClientTimeout(
-                    total=self.request_timeout_s,
-                    connect=self.connect_timeout_s,
-                ),
-            ) as resp:
-                return resp.status, await _json_or_text(resp)
-        except (aiohttp.ClientError, TimeoutError) as e:
-            raise ClientNotRunning(f'{method} {url}: {e}') from e
+        for attempt in (0, 1):
+            await self._rate_limit()
+            headers = await self.auth_headers()
+            try:
+                async with session.request(
+                    method,
+                    url,
+                    headers=headers,
+                    json=json_body,
+                    timeout=aiohttp.ClientTimeout(
+                        total=self.request_timeout_s,
+                        connect=self.connect_timeout_s,
+                    ),
+                ) as resp:
+                    status = resp.status
+                    payload = await _json_or_text(resp)
+            except (aiohttp.ClientError, TimeoutError) as e:
+                raise ClientNotRunning(f'{method} {url}: {e}') from e
+            if self.is_logged_out(status, payload):
+                raise LoginRequired()
+            if attempt == 0 and self.is_rate_limited(status, payload):
+                await asyncio.sleep(max(1.0, self.min_interval_s))
+                continue
+            return status, payload
+        raise AssertionError('unreachable')  # pragma: no cover
 
     async def _rate_limit(self) -> None:
         """Space calls at least ``min_interval_s`` apart (vendor limits)."""

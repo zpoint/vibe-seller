@@ -28,8 +28,10 @@ proves the opposite shape (logged-out ≠ empty list, paid gate ≠ generic
 failure, unknown ref ≠ raw 404).
 """
 
+import asyncio
 from dataclasses import asdict
 import importlib
+import json
 import logging
 import pkgutil
 import time
@@ -41,6 +43,7 @@ import app.browser.adapters as adapters_pkg
 from app.browser.inject.client import OpenedStore, StoreRef
 from app.browser.inject.errors import (
     ClientNotRunning,
+    InjectError,
     LoginRequired,
     StoreNotFound,
 )
@@ -765,9 +768,267 @@ async def test_bit_store_refs_carry_only_store_ref_fields():
     refs = await client.list_stores()
     rows = [asdict(ref) for ref in refs]
     for row in rows:
-        assert set(row) <= {'name', 'platform', 'remote_env'}
+        assert set(row) <= {
+            'name',
+            'platform',
+            'remote_env',
+            'ref',
+            'available',
+            'unavailable_reason',
+        }
     for sentinel in BIT_SENTINELS:
         assert sentinel not in str(rows)
+
+
+# ── the shared response path: extra endpoints, logged-out on every
+# call, retries, file-sourced port + auth (addendum 2 + 3) ────────────
+
+
+class _FixtureRateLimited(InjectError):
+    """What the rate-limit fixture's map_error raises (test-only)."""
+
+    code = 'FIXTURE_RATE_LIMITED'
+    hint = 'slow down'
+
+
+class _RateLimitFixture(LocalApiClient):
+    """Answers 429 (or a 200 rate-limit body) then success; maps the
+    rate-limit payload through map_error like a real vendor would."""
+
+    vendor_key = 'ratelimit'
+    api_port = 45690
+    list_method = 'GET'
+    list_path = '/list'
+    open_method = 'GET'
+    open_path = '/open'
+    close_method = 'GET'
+    close_path = '/close'
+
+    def parse_stores(self, payload):
+        return [StoreRef(name=r) for r in payload.get('list', [])]
+
+    def parse_opened(self, payload):
+        return OpenedStore('127.0.0.1', int(payload['debugPort']))
+
+    def map_error(self, status, payload):
+        if isinstance(payload, dict) and payload.get('code') == (
+            'rate_limited'
+        ):
+            return _FixtureRateLimited('slow down')
+        return None
+
+
+def _counting_routes(hits: int, body_kind: str):
+    """A route that answers the rate-limit shape ``hits`` times, then
+    the success payload; every request is counted."""
+    state = {'calls': 0}
+
+    async def route(request: web.Request) -> tuple:
+        state['calls'] += 1
+        if state['calls'] <= hits:
+            if body_kind == '429':
+                return 429, {'code': 'rate_limited'}
+            return 200, {
+                'code': 'rate_limited',
+                'msg': 'Too many request per second',
+            }
+        return 200, {'list': ['s1']}
+
+    return route, state
+
+
+async def test_rate_limited_429_retried_once_then_succeeds():
+    route, state = _counting_routes(hits=1, body_kind='429')
+    server = await _serve({('GET', '/list'): route})
+    client = _client(_RateLimitFixture, server.port)
+    refs = await client.list_stores()
+    assert [r.name for r in refs] == ['s1']
+    assert state['calls'] == 2  # exactly one retry
+
+
+async def test_rate_limited_twice_surfaces_map_error_after_two_calls():
+    route, state = _counting_routes(hits=2, body_kind='429')
+    server = await _serve({('GET', '/list'): route})
+    client = _client(_RateLimitFixture, server.port)
+    with pytest.raises(_FixtureRateLimited):
+        await client.list_stores()
+    assert state['calls'] == 2  # one retry, then map_error sees it
+
+
+async def test_rate_limit_override_recognises_a_200_body():
+    """The AdsPower shape: a 200 whose BODY says 'too fast' — the
+    override catches it, the retry succeeds."""
+
+    class TooFastFixture(_RateLimitFixture):
+        vendor_key = 'toofast'
+
+        def is_rate_limited(self, status, payload):
+            return 'Too many request' in str(payload or '')
+
+    route, state = _counting_routes(hits=1, body_kind='200')
+    server = await _serve({('GET', '/list'): route})
+    client = _client(TooFastFixture, server.port)
+    refs = await client.list_stores()
+    assert [r.name for r in refs] == ['s1']
+    assert state['calls'] == 2
+
+
+async def test_twist_without_the_override_a_200_body_is_not_retried():
+    """Negative control: the default is_rate_limited (status == 429)
+    does not catch the 200-body shape — the response goes straight to
+    map_error, which is exactly what the override exists to fix."""
+    route, state = _counting_routes(hits=1, body_kind='200')
+    server = await _serve({('GET', '/list'): route})
+    client = _client(_RateLimitFixture, server.port)  # no override
+    with pytest.raises(_FixtureRateLimited):
+        await client.list_stores()
+    assert state['calls'] == 1  # never retried
+
+
+async def test_logged_out_open_is_login_required_not_a_store_error():
+    """Addendum 3 item 1: a vendor that answers a logged-out OPEN with
+    an HTTP-200 error body surfaces LOGIN_REQUIRED — the check lives in
+    the shared response path, before map_error."""
+    server = await _serve({
+        ('POST', '/browser/list'): BIT_ROUTES[('POST', '/browser/list')],
+        ('POST', '/browser/open'): (200, {'notLoggedIn': True}),
+    })
+    client = _client(BitBrowserFixture, server.port)
+    with pytest.raises(LoginRequired):
+        await client.open_store('100000000001')
+
+
+async def test_twist_a_real_open_error_still_maps():
+    """Negative control: the logged-out check does not swallow the
+    vendor's own open errors — a no_env body maps to StoreNotFound."""
+    server = await _serve({
+        ('POST', '/browser/list'): BIT_ROUTES[('POST', '/browser/list')],
+        ('POST', '/browser/open'): (
+            200,
+            {'code': 'no_env', 'msg': 'gone'},
+        ),
+    })
+    client = _client(BitBrowserFixture, server.port)
+    with pytest.raises(StoreNotFound):
+        await client.open_store('100000000001')
+
+
+async def test_api_call_serves_a_vendor_extra_endpoint():
+    """Addendum 3 item 2: subclasses call api_call for their extra
+    endpoints — same rate limit, auth headers and logged-out check."""
+
+    class DetailFixture(BitBrowserFixture):
+        vendor_key = 'detailfixture'
+
+        async def kernel_check(self, ref: str) -> bool:
+            status, payload = await self.api_call(
+                'POST', '/browser/detail', json_body={'id': ref}
+            )
+            return bool(payload.get('chrome'))
+
+    async def detail_route(request: web.Request) -> tuple:
+        body = await request.json()
+        if body.get('id') == 'broken':
+            return 200, {'chrome': False}
+        return 200, {'chrome': True}
+
+    server = await _serve({
+        ('POST', '/browser/list'): BIT_ROUTES[('POST', '/browser/list')],
+        ('POST', '/browser/detail'): detail_route,
+    })
+    client = _client(DetailFixture, server.port)
+    assert await client.kernel_check('100000000001') is True
+    assert await client.kernel_check('broken') is False
+    # The extra endpoint went through the shared path: its JSON body
+    # was sent and counted like any built-in call.
+    details = [r for r in server.requests if r['path'] == '/browser/detail']
+    assert [r['json'] for r in details] == [
+        {'id': '100000000001'},
+        {'id': 'broken'},
+    ]
+
+
+async def test_api_call_extra_endpoint_is_logged_out_checked():
+    """The shared path applies to extra endpoints too: a logged-out
+    /browser/detail raises LoginRequired, not a payload parse error."""
+    server = await _serve({
+        ('POST', '/browser/list'): BIT_ROUTES[('POST', '/browser/list')],
+        ('POST', '/browser/detail'): (200, {'notLoggedIn': True}),
+    })
+    client = _client(BitBrowserFixture, server.port)
+    with pytest.raises(LoginRequired):
+        await client.api_call('POST', '/browser/detail', {'id': 'x'})
+
+
+async def test_discover_port_override_reads_a_client_config_file(tmp_path):
+    """Addendum 2 item 2: a vendor reads the port from the client's own
+    config file (the read goes through asyncio.to_thread)."""
+    config = tmp_path / 'config.json'
+    config.write_text(
+        json.dumps({'localServerAddress': '127.0.0.1:45691'}),
+        encoding='utf-8',
+    )
+
+    class ConfigPortFixture(_RateLimitFixture):
+        vendor_key = 'configport'
+        api_port = 0  # discovery only
+        config_path = str(config)
+
+        async def discover_port(self) -> int | None:
+            def _read() -> str:
+                with open(self.config_path, encoding='utf-8') as fh:
+                    return fh.read()
+
+            text = await asyncio.to_thread(_read)
+            return int(json.loads(text)['localServerAddress'].rsplit(':', 1)[1])
+
+    server = await _serve({
+        ('GET', '/list'): (200, {'list': ['s1']}),
+    })
+    # Point the fixture's config at the live server's port.
+    port = server.port
+    config.write_text(
+        json.dumps({'localServerAddress': f'127.0.0.1:{port}'}),
+        encoding='utf-8',
+    )
+    client = _client(ConfigPortFixture, 0)  # no api_port in the config
+    # The engine's flow: ensure_running resolves the port first (the
+    # discovery override), then the list runs against it.
+    await client.ensure_running()
+    refs = await client.list_stores()
+    assert [r.name for r in refs] == ['s1']
+
+
+async def test_auth_headers_override_reads_a_token_file(tmp_path, caplog):
+    """Addendum 2 item 3: a vendor's token comes from a client file;
+    the header rides the request, and its value never reaches logs."""
+    token_file = tmp_path / 'token.txt'
+    token_file.write_text('sentinel-secret-token', encoding='utf-8')
+
+    class FileTokenFixture(_RateLimitFixture):
+        vendor_key = 'filetoken'
+        auth = 'header'
+        auth_header = 'x-api-key'
+
+        async def auth_headers(self) -> dict:
+            def _read() -> str:
+                with open(token_file, encoding='utf-8') as fh:
+                    return fh.read().strip()
+
+            token = await asyncio.to_thread(_read)
+            return {'x-api-key': token}
+
+    server = await _serve({
+        ('GET', '/list'): (200, {'list': ['s1']}),
+    })
+    client = _client(FileTokenFixture, server.port)
+    with caplog.at_level(logging.DEBUG, logger='app.browser'):
+        await client.list_stores()
+    headers = [r['headers'] for r in server.requests if r['path'] == '/list'][
+        -1
+    ]
+    assert headers.get('x-api-key') == 'sentinel-secret-token'
+    assert 'sentinel-secret-token' not in caplog.text
 
 
 # ── discovery: real vendor modules join the suite automatically ─────
