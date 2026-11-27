@@ -334,6 +334,14 @@ export function AmazonAdsPanel() {
           <p className="text-xs text-muted-foreground">
             {t('ads.linkExpires', { minutes: Math.round(link.expires_in / 60) })}
           </p>
+          {/* Ziniao blocks the consent page's domain until it is
+              allowlisted; the docs say how to get that done. */}
+          {link.open_in === 'ziniao' && (
+            <p data-testid="ads-ziniao-blocked" className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+              {t('ads.ziniaoBlocked')}
+              <DocsHelpLink topic="adsZiniaoBlocked" />
+            </p>
+          )}
           <button
             data-testid="ads-recheck"
             disabled={busy}
