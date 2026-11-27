@@ -272,6 +272,23 @@ describe('the generic vendor section', () => {
     expect(option.textContent).toContain(' — cannot open right now')
   })
 
+  it('an empty remote_env renders no stray space in the option label', () => {
+    renderSection({
+      stores: [
+        { name: 'test1', platform: 'amazon.com', remote_env: '' },
+        { name: 'test2', platform: '', remote_env: 'US' },
+        { name: 'test3', platform: '', remote_env: '' },
+      ],
+    })
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    expect([...select.options].map(o => o.textContent)).toEqual([
+      enTranslation.settings.yuehulianSelectStore,
+      'test1 (amazon.com)',   // no stray space before ')'
+      'test2 (US)',
+      'test3',                // both empty: no parentheses at all
+    ])
+  })
+
   it('greys out an unavailable env with its reason instead of hiding it', () => {
     renderSection({
       stores: [

@@ -117,10 +117,12 @@ export function VendorSection(props: {
   // Auto-load stores when a stored login is configured — like ziniao
   // fetching profiles on account-select; no separate "Load" button. A
   // vendor that stores nothing fetches on mount directly.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (hasCredentialFields) void refresh(true)
     else void p.fetchStores()
+    // Mount/key-change only: refresh and fetchStores are recreated
+    // every render; depending on them would refetch endlessly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v.key])
 
   // One account per machine, like ziniao's picker but with only [+]:
@@ -241,19 +243,25 @@ export function VendorSection(props: {
           className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs bg-white"
         >
           <option value="">{vt('SelectStore')}</option>
-          {p.stores.map(s => (
+          {p.stores.map(s => {
+            // Only the non-empty parts inside the parentheses: a row
+            // with a platform but no remote_env must not render a
+            // stray space before ')'.
+            const meta = [s.platform, s.remote_env].filter(Boolean).join(' ')
+            return (
             <option
               key={bindValue(s)}
               value={bindValue(s)}
               disabled={s.available === false}
               title={s.available === false ? s.unavailable_detail || undefined : undefined}
             >
-              {s.name}{s.platform ? ` (${s.platform} ${s.remote_env})` : ''}
+              {s.name}{meta ? ` (${meta})` : ''}
               {s.available === false && unavailableLabel(s)
                 ? ` — ${unavailableLabel(s)}`
                 : ''}
             </option>
-          ))}
+            )
+          })}
         </select>
       ) : null}
     </div>
