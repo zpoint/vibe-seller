@@ -48,7 +48,7 @@ Opening a profile in BitBrowser shows a workbench tab (IP and fingerprint info) 
 ## Closed the client / opened a store by hand
 
 - **Killed BitBrowser mid-task**: nothing to do. The next browser use relaunches the client (it comes back signed in) and reopens the store. The store browser dies with the client — no orphan processes to clean up.
-- **Opened the store by hand in the client**: the task attaches to that already-open profile (same debug port) and closes its workbench tab; no close-and-reopen needed.
+- **Opened the store by hand in the client**: when Vibe Seller has no old session for the store, the task attaches to that already-open profile (same debug port) and closes its workbench tab. But if an old session is still recorded (for example the window was closed by hand after the last task), Vibe Seller closes and reopens the profile first — the hand-opened window and its page state are lost.
 
 ## Stores must use a Chrome kernel
 
