@@ -9,7 +9,6 @@ base URL's HOST, see ``app.ai.profiles.custom_profile_labels``).
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-import json
 import logging
 from zoneinfo import ZoneInfo
 
@@ -39,6 +38,7 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
 from app.release_channel import channel_of
+from app.store_platforms import parse_platform_countries
 from app.sync.scheduler import sync_scheduler
 from app.telemetry_events import TelemetryEvent
 from app.telemetry_mcp import mcp_calls_last_24h
@@ -159,21 +159,17 @@ async def send_install_heartbeat() -> None:
             store_backend_counts: dict[str, int] = {}
             store_platform_counts: dict[str, int] = {}
             ads_api_bound_store_count = 0
-            for backend, platforms, ads_authorized in await db.execute(
+            for backend, raw_pc, ads_authorized in await db.execute(
                 select(
                     Store.browser_backend,
-                    Store.platforms,
+                    Store.platform_countries,
                     Store.ads_authorized,
                 )
             ):
                 store_backend_counts[backend] = (
                     store_backend_counts.get(backend, 0) + 1
                 )
-                try:
-                    platform_list = json.loads(platforms or '[]')
-                except ValueError:
-                    platform_list = []
-                for platform in platform_list:
+                for platform in parse_platform_countries(raw_pc):
                     store_platform_counts[platform] = (
                         store_platform_counts.get(platform, 0) + 1
                     )
