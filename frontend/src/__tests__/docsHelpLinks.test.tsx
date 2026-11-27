@@ -126,9 +126,41 @@ describe('failed task', () => {
     // surfaces (UnsupportedKernel prefixes it), not on prose.
     [null, '[UNSUPPORTED_KERNEL] Failed to start browser: 这个店铺用的不是 Chrome 内核', 'browserKernel'],
     [null, 'Failed to start browser: [UNSUPPORTED_KERNEL] vendor message here', 'browserKernel'],
+    // A terminal browser-start failure records the taxonomy code
+    // (snake-cased) as the category; every terminal category links
+    // its browsers-page entry.
+    ['unsupported_kernel', '[UNSUPPORTED_KERNEL] kernel is Firefox', 'browserKernel'],
+    ['login_required', '[LOGIN_REQUIRED] client signed out', 'browserLoginRequired'],
+    ['client_not_running', '[CLIENT_NOT_RUNNING] not up', 'browserClientNotRunning'],
+    ['account_mismatch', '[ACCOUNT_MISMATCH] other account', 'browserAccountMismatch'],
+    ['api_not_enabled', '[API_NOT_ENABLED] api off', 'browserApiNotEnabled'],
+    ['plan_required', '[PLAN_REQUIRED] needs a plan', 'browserPlanRequired'],
+    ['store_unavailable', '[STORE_UNAVAILABLE] no device bound', 'browserStoreUnavailable'],
+    ['store_not_found', '[STORE_NOT_FOUND] gone', 'browserStoreNotFound'],
   ])('links the docs for %s', (category, error, topic) => {
     renderNote(error, category)
     expect(helpLink().dataset.topic).toBe(topic)
+  })
+
+  it('shows the plain-language sentence for a terminal browser-start category', () => {
+    // The banner renders the i18n sentence for the category, with the
+    // raw error as fallback — the user never sees the bare code only.
+    renderNote('[UNSUPPORTED_KERNEL] kernel is Firefox', 'unsupported_kernel')
+    expect(screen.getByText(enTranslation.tasks.error_unsupported_kernel)).toBeTruthy()
+    expect(helpLink().dataset.topic).toBe('browserKernel')
+  })
+
+  it('shows the plain-language sentence for client_not_running too', () => {
+    // Transient, so it rarely ends a task — but the docs link exists,
+    // so the banner owes it the same plain-language sentence.
+    renderNote(
+      '[CLIENT_NOT_RUNNING] Start the browser client, or check its install path.',
+      'client_not_running',
+    )
+    expect(
+      screen.getByText(enTranslation.tasks.error_client_not_running),
+    ).toBeTruthy()
+    expect(helpLink().dataset.topic).toBe('browserClientNotRunning')
   })
 
   it('links nothing for a failure the docs do not cover', () => {
