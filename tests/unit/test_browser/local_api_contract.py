@@ -1,9 +1,18 @@
-"""The LocalApiClient contract, proven on doc-derived fixture vendors.
+"""The LocalApiClient contract, proven on fixture vendors.
 
-Every LocalApiClient subclass — the test fixtures below today, and any
-real vendor module under ``app/browser/adapters`` (auto-discovered) —
-must satisfy the same contract against a fake local HTTP API serving
-its documented responses:
+Every LocalApiClient subclass must satisfy the same contract against a
+fake local HTTP API serving its documented responses. The suite runs
+over TWO fixture sources, treated identically:
+
+- the in-suite doc-derived fixtures below (test-only vendors from the
+  published API docs; no user-facing vendor is registered in this PR);
+- every real vendor fixture in
+  ``tests/unit/test_browser/local_api_vendors/<vendor_key>.py`` — a
+  vendor adds ONE file exporting ``CONTRACT = ContractFixture(...)``
+  and gets every parametrized contract test for free. NEVER edit this
+  suite to add a vendor: the convention check below fails until the
+  fixture file exists, and fails again if a fixture stops matching a
+  discovered vendor.
 
 - ``list_stores`` parses the vendor's documented list payload into
   StoreRefs, and a logged-out response is ``LoginRequired`` (NEVER an
@@ -55,6 +64,8 @@ from app.browser.local_api_client import (
     PaginationOverflow,
     opened_from_ws,
 )
+from tests.unit.test_browser.local_api_fixture import ContractFixture
+import tests.unit.test_browser.local_api_vendors as vendors_pkg
 
 pytestmark = pytest.mark.unit
 
@@ -429,88 +440,152 @@ MORE_ROUTES = {
 }
 
 
-VENDOR_FIXTURES = [
-    (BitBrowserFixture, BIT_ROUTES),
-    (AdsPowerFixture, ADS_ROUTES),
-    (MoreLoginFixture, MORE_ROUTES),
+# The in-suite doc-derived fixtures, in the ONE fixture shape the suite
+# (and a real vendor's local_api_vendors/<key>.py file) uses.
+IN_SUITE_FIXTURES = [
+    ContractFixture(
+        client_cls=BitBrowserFixture,
+        routes=BIT_ROUTES,
+        expected_refs=[row['id'] for row in BIT_ROWS],
+        expected_cdp_port=54321,
+        logged_out_routes={
+            ('POST', '/browser/list'): (200, {'notLoggedIn': True})
+        },
+        paid_gate_routes={
+            ('POST', '/browser/list'): (
+                200,
+                {'apiNotEnabled': True, 'msg': 'buy a plan'},
+            )
+        },
+        unknown_ref_routes={
+            ('POST', '/browser/open'): (
+                200,
+                {'code': 'no_env', 'msg': 'gone'},
+            )
+        },
+    ),
+    ContractFixture(
+        client_cls=AdsPowerFixture,
+        routes=ADS_ROUTES,
+        expected_refs=['acme-us', 'acme-uk'],
+        expected_cdp_port=54322,
+        auth_env={'adsfixture_api_key': 'sekrit'},
+        logged_out_routes={
+            ('GET', '/api/v1/user/list'): (200, {'code': 'auth_expired'})
+        },
+    ),
+    ContractFixture(
+        client_cls=MoreLoginFixture,
+        routes=MORE_ROUTES,
+        expected_refs=['main-store'],
+        expected_cdp_port=54323,
+        auth_env={'morefixture_token': 'sekrit'},
+        logged_out_routes={('POST', '/api/env/list'): (401, 'no token')},
+    ),
 ]
+
+
+def _registered_vendor_fixtures() -> list:
+    """Every real vendor's CONTRACT from local_api_vendors/<key>.py.
+
+    Collected by convention (pkgutil, like the adapter discovery), so a
+    vendor PR adds its fixture file and nothing in this suite changes.
+    """
+    fixtures = []
+    for mod_info in pkgutil.iter_modules(vendors_pkg.__path__):
+        mod = importlib.import_module(
+            f'tests.unit.test_browser.local_api_vendors.{mod_info.name}'
+        )
+        contract = getattr(mod, 'CONTRACT', None)
+        if contract is not None:
+            assert isinstance(contract, ContractFixture), (
+                f'{mod_info.name}.py: CONTRACT must be a '
+                'ContractFixture (tests/unit/test_browser/'
+                'local_api_fixture.py)'
+            )
+            fixtures.append(contract)
+    return fixtures
+
+
+# Every fixture the contract tests run over: in-suite + real vendors.
+VENDOR_FIXTURES = IN_SUITE_FIXTURES + _registered_vendor_fixtures()
 
 
 # ── the contract suite (parametrized over every vendor) ──────────────
 
 
 @pytest.mark.parametrize(
-    'vendor_cls,routes',
+    'fx',
     VENDOR_FIXTURES,
-    ids=[v.vendor_key for v, _ in VENDOR_FIXTURES],
+    ids=[fx.client_cls.vendor_key for fx in VENDOR_FIXTURES],
 )
-async def test_contract_list_stores(vendor_cls, routes):
-    server = await _serve(routes)
-    client = _client(vendor_cls, server.port)
+async def test_contract_list_stores(fx):
+    server = await _serve(fx.routes)
+    client = _client(fx.client_cls, server.port)
     refs = await client.list_stores()
-    assert [r.name for r in refs] == _EXPECTED_REFS[vendor_cls.vendor_key]
+    assert [r.name for r in refs] == fx.expected_refs
     assert all(r.name for r in refs)
 
 
 @pytest.mark.parametrize(
-    'vendor_cls,routes',
+    'fx',
     VENDOR_FIXTURES,
-    ids=[v.vendor_key for v, _ in VENDOR_FIXTURES],
+    ids=[fx.client_cls.vendor_key for fx in VENDOR_FIXTURES],
 )
-async def test_contract_open_store(vendor_cls, routes):
-    server = await _serve(routes)
-    client = _client(vendor_cls, server.port)
+async def test_contract_open_store(fx):
+    server = await _serve(fx.routes)
+    client = _client(fx.client_cls, server.port)
     refs = await client.list_stores()
     opened = await client.open_store(refs[0].name)
     assert opened.cdp_host == '127.0.0.1'
-    assert opened.cdp_port in (54321, 54322, 54323)
+    assert opened.cdp_port == fx.expected_cdp_port
 
 
 @pytest.mark.parametrize(
-    'vendor_cls,routes',
+    'fx',
     VENDOR_FIXTURES,
-    ids=[v.vendor_key for v, _ in VENDOR_FIXTURES],
+    ids=[fx.client_cls.vendor_key for fx in VENDOR_FIXTURES],
 )
-async def test_contract_ensure_running_ok(vendor_cls, routes):
-    server = await _serve(routes)
-    client = _client(vendor_cls, server.port)
+async def test_contract_ensure_running_ok(fx):
+    server = await _serve(fx.routes)
+    client = _client(fx.client_cls, server.port)
     await client.ensure_running()  # the API answers
 
 
 @pytest.mark.parametrize(
-    'vendor_cls,routes',
+    'fx',
     VENDOR_FIXTURES,
-    ids=[v.vendor_key for v, _ in VENDOR_FIXTURES],
+    ids=[fx.client_cls.vendor_key for fx in VENDOR_FIXTURES],
 )
-async def test_contract_close_never_raises(vendor_cls, routes):
+async def test_contract_close_never_raises(fx):
     server = await _serve({})  # even with every route 404ing
-    client = _client(vendor_cls, server.port)
+    client = _client(fx.client_cls, server.port)
     await client.close_store('whatever')
 
 
 @pytest.mark.parametrize(
-    'vendor_cls,routes',
+    'fx',
     VENDOR_FIXTURES,
-    ids=[v.vendor_key for v, _ in VENDOR_FIXTURES],
+    ids=[fx.client_cls.vendor_key for fx in VENDOR_FIXTURES],
 )
-async def test_contract_not_running(vendor_cls, routes):
+async def test_contract_not_running(fx):
     # Port 1: nothing listens (and on WSL an unbound loopback connect
     # HANGS rather than refusing — the connect timeout must bound it).
     # → ClientNotRunning, never a hang or a generic error.
-    client = _client(vendor_cls, 1)
+    client = _client(fx.client_cls, 1)
     client.connect_timeout_s = 0.3
     with pytest.raises(ClientNotRunning):
         await client.ensure_running()
 
 
 @pytest.mark.parametrize(
-    'vendor_cls,routes',
+    'fx',
     VENDOR_FIXTURES,
-    ids=[v.vendor_key for v, _ in VENDOR_FIXTURES],
+    ids=[fx.client_cls.vendor_key for fx in VENDOR_FIXTURES],
 )
-async def test_contract_rate_limit_spaces_calls(vendor_cls, routes):
-    server = await _serve(routes)
-    client = _client(vendor_cls, server.port)
+async def test_contract_rate_limit_spaces_calls(fx):
+    server = await _serve(fx.routes)
+    client = _client(fx.client_cls, server.port)
     client.min_interval_s = 0.12
     start = time.monotonic()
     await client.list_stores()
@@ -520,60 +595,72 @@ async def test_contract_rate_limit_spaces_calls(vendor_cls, routes):
 
 
 @pytest.mark.parametrize(
-    'vendor_cls,routes',
+    'fx',
     VENDOR_FIXTURES,
-    ids=[v.vendor_key for v, _ in VENDOR_FIXTURES],
+    ids=[fx.client_cls.vendor_key for fx in VENDOR_FIXTURES],
 )
-async def test_contract_auth_material_rides_the_call(vendor_cls, routes):
-    if vendor_cls.auth == 'none':
+async def test_contract_auth_material_rides_the_call(fx):
+    cls = fx.client_cls
+    if cls.auth == 'none' or not fx.auth_env:
         pytest.skip('fixture vendor without auth')
-    server = await _serve(routes)
-    client = _client(
-        vendor_cls,
-        server.port,
-        **{f'{vendor_cls.vendor_key}_{vendor_cls.auth_field}': 'sekrit'},
-    )
+    server = await _serve(fx.routes)
+    client = _client(cls, server.port, **fx.auth_env)
     await client.list_stores()
     assert server.requests, 'no call reached the fake API'
     headers = server.requests[-1]['headers']
-    if vendor_cls.auth == 'bearer':
-        assert headers.get('Authorization') == 'Bearer sekrit'
+    if cls.auth == 'bearer':
+        expected = fx.auth_env.get(
+            f'{cls.vendor_key}_{cls.auth_field}', 'sekrit'
+        )
+        assert headers.get('Authorization') == f'Bearer {expected}'
     else:
-        assert headers.get(vendor_cls.auth_header) == 'sekrit'
+        expected = fx.auth_env.get(
+            f'{cls.vendor_key}_{cls.auth_field}', 'sekrit'
+        )
+        assert headers.get(cls.auth_header) == expected
 
 
 # ── logged-out / paid-gate / unknown-ref shapes (per fixture) ────────
+# Parametrized over every fixture that declares the corresponding
+# documented shape — a real vendor's fixture file joins these for free.
 
 
-async def test_bit_logged_out_is_login_required_not_empty():
-    server = await _serve({
-        ('POST', '/browser/list'): (200, {'notLoggedIn': True})
-    })
-    client = _client(BitBrowserFixture, server.port)
+def _with(variant: str) -> list:
+    return [fx for fx in VENDOR_FIXTURES if getattr(fx, variant)]
+
+
+@pytest.mark.parametrize(
+    'fx',
+    _with('logged_out_routes'),
+    ids=[fx.client_cls.vendor_key for fx in _with('logged_out_routes')],
+)
+async def test_contract_logged_out_is_login_required_not_empty(fx):
+    server = await _serve(fx.logged_out_routes)
+    client = _client(fx.client_cls, server.port)
     with pytest.raises(LoginRequired):
         await client.list_stores()
 
 
-async def test_bit_paid_gate_maps_to_api_not_enabled():
-    server = await _serve({
-        ('POST', '/browser/list'): (
-            200,
-            {'apiNotEnabled': True, 'msg': 'buy a plan'},
-        )
-    })
-    client = _client(BitBrowserFixture, server.port)
+@pytest.mark.parametrize(
+    'fx',
+    _with('paid_gate_routes'),
+    ids=[fx.client_cls.vendor_key for fx in _with('paid_gate_routes')],
+)
+async def test_contract_paid_gate_maps_to_api_not_enabled(fx):
+    server = await _serve(fx.paid_gate_routes)
+    client = _client(fx.client_cls, server.port)
     with pytest.raises(ApiNotEnabled):
         await client.list_stores()
 
 
-async def test_bit_unknown_ref_is_store_not_found():
-    server = await _serve({
-        ('POST', '/browser/open'): (
-            200,
-            {'code': 'no_env', 'msg': 'gone'},
-        )
-    })
-    client = _client(BitBrowserFixture, server.port)
+@pytest.mark.parametrize(
+    'fx',
+    _with('unknown_ref_routes'),
+    ids=[fx.client_cls.vendor_key for fx in _with('unknown_ref_routes')],
+)
+async def test_contract_unknown_ref_is_store_not_found(fx):
+    server = await _serve(fx.unknown_ref_routes)
+    client = _client(fx.client_cls, server.port)
     with pytest.raises(StoreNotFound):
         await client.open_store('nope')
 
@@ -588,15 +675,6 @@ async def test_bit_ref_keyed_404_is_store_not_found():
         await client.open_store('nope')
 
 
-async def test_ads_logged_out_is_login_required():
-    server = await _serve({
-        ('GET', '/api/v1/user/list'): (200, {'code': 'auth_expired'})
-    })
-    client = _client(AdsPowerFixture, server.port)
-    with pytest.raises(LoginRequired):
-        await client.list_stores()
-
-
 async def test_ads_port_only_open():
     server = await _serve({
         ('GET', '/api/v1/browser/start?user_id=u9'): (
@@ -607,13 +685,6 @@ async def test_ads_port_only_open():
     client = _client(AdsPowerFixture, server.port)
     opened = await client.open_store('u9')
     assert (opened.cdp_host, opened.cdp_port) == ('127.0.0.1', 54399)
-
-
-async def test_more_logged_out_is_login_required():
-    server = await _serve({('POST', '/api/env/list'): (401, 'no token')})
-    client = _client(MoreLoginFixture, server.port)
-    with pytest.raises(LoginRequired):
-        await client.list_stores()
 
 
 # ── POST-JSON requests + pagination (the addendum's shapes) ──────────
@@ -1213,18 +1284,107 @@ def _is_contract_vendor(cls) -> bool:
     )
 
 
-def test_adapters_local_api_subclasses_are_discovered():
-    """Every LocalApiClient subclass defined under app/browser/adapters
-    is a contract vendor — adding a real vendor means adding its
-    fixtures, never editing this suite's list. (None exist yet: this PR
-    registers no user-facing vendor.)"""
+def _discovered_contract_vendors() -> list:
+    """Every LocalApiClient subclass under app/browser/adapters."""
     found = []
     for mod_info in pkgutil.iter_modules(adapters_pkg.__path__):
         mod = importlib.import_module(f'app.browser.adapters.{mod_info.name}')
         found.extend(
             attr for attr in vars(mod).values() if _is_contract_vendor(attr)
         )
-    assert found == []
+    return found
+
+
+def _fixture_coverage_problems(discovered: list, registered: list) -> list:
+    """Convention failures between adapters and fixture files.
+
+    (a) a discovered LocalApiClient vendor with no fixture file under
+    local_api_vendors/ (or whose fixture's client_cls is a different
+    class);
+    (b) a fixture file whose client_cls is not a discovered vendor
+    (a stale fixture, or one that never pointed at a real adapter).
+    """
+    problems = []
+    registered_classes = {fx.client_cls for fx in registered}
+    for cls in discovered:
+        if cls not in registered_classes:
+            problems.append(
+                f'{cls.__module__}.{cls.__name__}: a LocalApiClient '
+                'vendor with no contract fixture — add '
+                'tests/unit/test_browser/local_api_vendors/'
+                f'<vendor_key>.py exporting CONTRACT = ContractFixture('
+                'client_cls=<the real class>, ...)'
+            )
+    for fx in registered:
+        if fx.client_cls not in discovered:
+            problems.append(
+                f'{fx.client_cls.__module__}.'
+                f'{fx.client_cls.__name__}: a fixture file whose '
+                'client_cls is not a discovered LocalApiClient vendor '
+                'under app/browser/adapters (stale fixture, or it never '
+                'pointed at a real adapter)'
+            )
+    return problems
+
+
+def test_every_contract_vendor_has_a_fixture_and_vice_versa():
+    """The convention: a LocalApiClient vendor under app/browser/adapters
+    and a fixture file under local_api_vendors/ come in pairs — the
+    contract suite runs every vendor's behaviour with ZERO edits to the
+    suite itself. (No real vendor exists in this PR, so the sets are
+    empty today; the check below is what makes #334/#333-style vendor
+    PRs add one fixture file instead of editing this suite.)"""
+    discovered = _discovered_contract_vendors()
+    registered = _registered_vendor_fixtures()
+    problems = _fixture_coverage_problems(discovered, registered)
+    assert not problems, '\n'.join(problems)
+
+
+def test_the_convention_check_catches_a_missing_fixture():
+    """Negative control (a): a discovered vendor with no fixture file is
+    reported, naming the file to add."""
+
+    class PlantedVendor(LocalApiClient):
+        __module__ = 'app.browser.adapters.planted'
+
+    problems = _fixture_coverage_problems([PlantedVendor], [])
+    assert len(problems) == 1
+    assert 'local_api_vendors' in problems[0]
+    assert 'planted' in problems[0]
+
+
+def test_the_convention_check_catches_an_orphan_fixture():
+    """Negative control (b): a fixture whose client_cls is not a
+    discovered vendor is reported as orphaned."""
+
+    class OrphanClient(LocalApiClient):
+        __module__ = 'tests.somewhere.not_adapters'
+
+    orphan = ContractFixture(
+        client_cls=OrphanClient,
+        routes={},
+        expected_refs=[],
+        expected_cdp_port=1,
+    )
+    problems = _fixture_coverage_problems([], [orphan])
+    assert len(problems) == 1
+    assert 'not a discovered' in problems[0]
+
+
+def test_the_convention_check_passes_a_matched_pair():
+    """Twist: a discovered vendor WITH its matching fixture reports
+    nothing."""
+
+    class MatchedVendor(LocalApiClient):
+        __module__ = 'app.browser.adapters.matched'
+
+    matched = ContractFixture(
+        client_cls=MatchedVendor,
+        routes={},
+        expected_refs=[],
+        expected_cdp_port=1,
+    )
+    assert _fixture_coverage_problems([MatchedVendor], [matched]) == []
 
 
 def test_the_discovery_predicate_matches_a_planted_vendor():
@@ -1242,12 +1402,3 @@ def test_the_discovery_predicate_matches_a_planted_vendor():
     assert _is_contract_vendor(planted)
     assert not _is_contract_vendor(LocalApiClient)
     assert not _is_contract_vendor(BitBrowserFixture)
-
-
-# The refs each fixture's list must produce (page 1 repeats a row, so
-# the BitBrowser order also pins de-duplication).
-_EXPECTED_REFS = {
-    'bitfixture': [row['id'] for row in BIT_ROWS],
-    'adsfixture': ['acme-us', 'acme-uk'],
-    'morefixture': ['main-store'],
-}

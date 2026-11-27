@@ -425,22 +425,34 @@ class RealWenmaiClient(LocalApiClient):
     # ── open_store: the base flow + the wedged-kernel recovery ──────
 
     async def open_store(self, ref: str) -> OpenedStore:
-        """``openEnv`` → the kernel's own CDP endpoint.
+        """``openEnv`` → the kernel's own CDP endpoint (the base flow).
 
-        The base flow (request → map_error → parse_opened) plus two
-        wenmai realities: an id no login can see is StoreNotFound
-        (checked against the list, because a wrong id and a transient
-        failure must not read alike), and a kernel the client still
-        lists as open whose endpoint never answers (the client can pick
-        a debug port in a Windows reserved range; the bind silently
-        fails and closeEnv does not clear it) is recovered — close,
-        re-open, then kill exactly the kernel matching all three of
-        the port flag, the 稳卖 kernel exe path and this store's env id
-        — nothing else on the machine is ever touched.
+        Plus one wenmai reality: an id no login can see is
+        StoreNotFound (checked against the list, because a wrong id
+        and a transient failure must not read alike). The wedged-kernel
+        recovery (a kernel the client still lists as open whose
+        endpoint never answers) lives in
+        :meth:`recover_wedged_env` — the backend runs it when the
+        engine's CDP verification fails, keeping this method the pure
+        contract shape.
         """
-        opened = await self._open_env(ref)
-        if await self._endpoint_answers(opened):
-            return opened
+        return await self._open_env(ref)
+
+    async def recover_wedged_env(
+        self, ref: str, opened: OpenedStore
+    ) -> OpenedStore:
+        """Recover a kernel whose debug-port bind silently failed.
+
+        Seen live: the client can pick a port in a Windows reserved
+        range, the kernel's bind silently fails, the kernel RUNS with
+        no debug port, and closeEnv does not clear it. The recovery:
+        close the env, re-open, then kill exactly the kernel matching
+        all three of the port flag, the 稳卖 kernel exe path and this
+        store's env id — nothing else on the machine is ever touched —
+        and open fresh. Raises CdpUnreachable when the env cannot be
+        recovered (nothing matched the safe-kill identity: another
+        app's browser may hold the port — never guess at a kill).
+        """
         logger.warning(
             '稳卖 store %s: endpoint %s:%s never answered; closing it '
             'in the client and re-opening fresh',

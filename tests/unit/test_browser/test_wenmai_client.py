@@ -234,10 +234,12 @@ def test_map_error_covers_the_vendor_shapes():
 # ── open_store: a dead endpoint is closed and re-opened ──────────────
 
 
-async def test_open_store_recovers_a_dead_endpoint(api, monkeypatch):
+async def test_recover_wedged_env_recovers_a_dead_endpoint(api, monkeypatch):
     """A kernel the client still lists as open whose endpoint never
     answers (seen live: openEnv kept returning a port nothing listened
-    on) is closed through the client and re-opened fresh."""
+    on) is closed through the client and re-opened fresh. The recovery
+    lives on the client (the backend calls it when the engine's CDP
+    verification fails) so open_store stays the pure contract shape."""
     cdp = FakeMiddlePageCdp()
     await cdp.start()
     try:
@@ -252,14 +254,16 @@ async def test_open_store_recovers_a_dead_endpoint(api, monkeypatch):
 
         monkeypatch.setattr(mod.asyncio, 'sleep', fake_sleep)
         # (the real probe is used; a refused port fails fast)
-        opened = await client.open_store('100000000001')
+        opened = await client.recover_wedged_env(
+            '100000000001', OpenedStore('127.0.0.1', cdp.port + 1)
+        )
         assert opened.cdp_port == cdp.port
         assert 'closeEnv' in api.call_log  # the dead env was closed
     finally:
         await cdp.stop()
 
 
-async def test_open_store_dead_endpoint_twice_is_cdp_unreachable(
+async def test_recover_wedged_env_dead_twice_is_cdp_unreachable(
     api, monkeypatch
 ):
     """Negative control: the re-opened endpoint is STILL dead after a
@@ -283,7 +287,9 @@ async def test_open_store_dead_endpoint_twice_is_cdp_unreachable(
             client._proc, 'kill_kernel_by_debug_port', fake_kill
         )
         with pytest.raises(CdpUnreachable) as ei:
-            await client.open_store('100000000001')
+            await client.recover_wedged_env(
+                '100000000001', OpenedStore('127.0.0.1', cdp.port + 1)
+            )
         assert 'never answered' in str(ei.value)
         assert 'closeEnv' in api.call_log
         assert kills == [(cdp.port + 1, '100000000001')]
@@ -291,7 +297,7 @@ async def test_open_store_dead_endpoint_twice_is_cdp_unreachable(
         await cdp.stop()
 
 
-async def test_open_store_unidentified_kernel_is_a_safe_refusal(
+async def test_recover_wedged_env_unidentified_kernel_is_a_safe_refusal(
     api, monkeypatch
 ):
     """W2: when the stuck kernel cannot be CONFIRMED as this store's
@@ -315,7 +321,9 @@ async def test_open_store_unidentified_kernel_is_a_safe_refusal(
             client._proc, 'kill_kernel_by_debug_port', no_match_kill
         )
         with pytest.raises(CdpUnreachable) as ei:
-            await client.open_store('100000000001')
+            await client.recover_wedged_env(
+                '100000000001', OpenedStore('127.0.0.1', cdp.port + 1)
+            )
         assert 'could not be identified for a safe kill' in str(ei.value)
         assert '稳卖 client' in str(ei.value)  # the operator hint
         assert len(kills) == 1  # the check ran once; nothing was killed

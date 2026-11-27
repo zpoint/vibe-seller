@@ -17,6 +17,7 @@ from app.browser.inject.client import (
     OpenedStore,
     StoreRef,
 )
+from app.browser.inject.engine import InjectCdpBackend
 from app.browser.inject.errors import (
     CdpUnreachable,
     ClientNotRunning,
@@ -256,3 +257,39 @@ async def test_after_open_failure_fails_the_start_loudly(
     with pytest.raises(CdpUnreachable):
         await _backend(fake).start(_cfg())
     _mocked_proxy.return_value.start.assert_not_called()
+
+
+async def test_start_recovers_a_wedged_kernel_then_retries(
+    cdp_version_port, _mocked_proxy
+):
+    """The backend wires the client's wedged-kernel recovery into the
+    engine flow: the first CDP verification fails, the recovery runs,
+    the retry succeeds — a task recovers by itself instead of failing
+    on a dead port."""
+    probes = {'n': 0}
+    real_version = InjectCdpBackend._cdp_version
+
+    async def fail_once_then_ok(self, host, port):
+        probes['n'] += 1
+        if probes['n'] == 1:
+            return None  # the engine's verification fails: dead port
+        return await real_version(self, host, port)
+
+    class _Recovering(FakeWenmaiClient):
+        def __init__(self, cdp_port):
+            super().__init__(cdp_port=cdp_port)
+            self.recovered: list[str] = []
+
+        async def recover_wedged_env(self, ref, opened):
+            self.recovered.append(ref)
+            return opened
+
+    fake = _Recovering(cdp_port=cdp_version_port)
+    backend = WenmaiBackend(client_factory=lambda cfg: fake)
+    with mock.patch.object(
+        InjectCdpBackend, '_cdp_version', new=fail_once_then_ok
+    ):
+        info = await backend.start(_cfg())
+    assert info.cdp_port == cdp_version_port
+    assert fake.recovered == ['100000000001']  # the recovery ran once
+    assert probes['n'] == 2  # and the start was retried

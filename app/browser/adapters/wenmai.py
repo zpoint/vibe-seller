@@ -15,12 +15,17 @@ generic routes / UI / manager read. The real client lives in
 ``client_factory`` seam.
 """
 
+import logging
+
 from app.browser.adapters.wenmai_client import RealWenmaiClient
 from app.browser.adapters.wenmai_win import WENMAI_WIN_APP
 from app.browser.base import BrowserSessionInfo
-from app.browser.inject.client import InjectClient
+from app.browser.inject.client import InjectClient, OpenedStore
 from app.browser.inject.engine import ClientFactory, InjectCdpBackend
-from app.browser.inject.errors import UnsupportedPlatform
+from app.browser.inject.errors import (
+    CdpUnreachable,
+    UnsupportedPlatform,
+)
 from app.browser.vendors import (
     CARDINALITY_SINGLE,
     CLIENT_LOCAL_API,
@@ -30,6 +35,8 @@ from app.browser.vendors import (
     VendorDocsLink,
 )
 from app.browser.ziniao_utils import get_platform
+
+logger = logging.getLogger(__name__)
 
 # Needs the Windows 稳卖 client, ON Windows (native Windows is the
 # platform; a WSL server on the same machine reaches the client's
@@ -104,4 +111,25 @@ class WenmaiBackend(InjectCdpBackend):
             raise UnsupportedPlatform(
                 f'wenmai is Windows-only; platform is {platform}'
             )
-        return await super().start(browser_config)
+        try:
+            return await super().start(browser_config)
+        except CdpUnreachable as e:
+            # The engine's CDP verification failed: for 稳卖 that is
+            # usually a wedged kernel (the client picked a debug port
+            # in a Windows reserved range; the bind silently failed;
+            # closeEnv does not clear it) — recover it once instead of
+            # failing the task on a dead port (seen live).
+            client = self._client
+            ref = browser_config.get('browser_ref', '')
+            if client is None or not hasattr(client, 'recover_wedged_env'):
+                raise
+            logger.info(
+                'wenmai: CDP verification failed (%s); trying the '
+                'wedged-kernel recovery for %r',
+                e,
+                ref,
+            )
+            await client.recover_wedged_env(
+                ref, self._opened or OpenedStore('127.0.0.1', 0)
+            )
+            return await super().start(browser_config)
