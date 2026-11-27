@@ -44,7 +44,6 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 import threading
 import time
 
@@ -156,29 +155,42 @@ def _proc_env(pid: int) -> dict:
         return {}
 
 
+def _listener_pids(port: int) -> set[int]:
+    """The pids LISTENING on *port*.
+
+    psutil's global socket walk needs root on macOS (it reads every
+    process's FD list and protected daemons deny it — found live: the
+    driver died at startup on a psutil.AccessDenied). lsof finds OUR
+    listener without root, so it is the fallback.
+    """
+    try:
+        return {
+            c.pid
+            for c in psutil.net_connections(kind='tcp')
+            if c.status == psutil.CONN_LISTEN and c.laddr.port == port
+        }
+    except psutil.AccessDenied:
+        out = subprocess.run(
+            ['lsof', '-ti', f':{port}', '-sTCP:LISTEN'],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return {int(x) for x in out.stdout.split() if x.isdigit()}
+
+
 def _task_procs(task_id: str) -> list[dict]:
-    """Every live process whose env carries this task's VIBE_TASK_ID."""
+    """Every live process whose env carries this task's VIBE_TASK_ID.
+
+    psutil's process_iter is the cross-platform enumeration (the old
+    /proc walk was silently empty on macOS — the stray check there
+    was vacuous); each pid's env is the driver's own lens, which
+    returns {} for anything it may not read.
+    """
     found = []
     try:
-        if sys.platform == 'win32':
-            out = subprocess.run(
-                [
-                    'powershell',
-                    '-NoProfile',
-                    '-Command',
-                    'Get-CimInstance Win32_Process | '
-                    'Select-Object -ExpandProperty ProcessId',
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            pids = [int(x) for x in out.stdout.split() if x.isdigit()]
-        else:
-            pids = [
-                int(p.name) for p in Path('/proc').iterdir() if p.name.isdigit()
-            ]
-    except (OSError, subprocess.SubprocessError):
+        pids = [p.pid for p in psutil.process_iter()]
+    except psutil.Error:
         return found
     for pid in pids:
         env = _proc_env(pid)
@@ -242,13 +254,7 @@ def _verify_server_ownership() -> None:
     from urllib.parse import urlparse
 
     port = urlparse(_ARGS.base_url).port
-    import psutil
-
-    listeners = {
-        c.pid
-        for c in psutil.net_connections(kind='tcp')
-        if c.status == psutil.CONN_LISTEN and c.laddr.port == port
-    }
+    listeners = _listener_pids(port)
     for pid in listeners:
         if _proc_env(pid).get('VIBE_HOME') == str(_HOME):
             _log(f'server ownership verified: pid {pid} carries our home')
