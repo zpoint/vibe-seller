@@ -110,9 +110,17 @@ def _log(msg: str) -> None:
 
 
 def _save_evidence() -> None:
-    (_OUT / 'evidence.json').write_text(
-        json.dumps(_EVIDENCE, indent=2), encoding='utf-8'
-    )
+    path = _OUT / 'evidence.json'
+    merged: dict = {'tag': TAG, 'items': {}}
+    if path.is_file():
+        try:
+            merged = json.loads(path.read_text(encoding='utf-8'))
+        except ValueError:
+            pass
+    items = merged.setdefault('items', {})
+    items.update(_EVIDENCE['items'])
+    merged.setdefault('tag', TAG)
+    path.write_text(json.dumps(merged, indent=2), encoding='utf-8')
 
 
 def _state_write(**kw) -> None:
