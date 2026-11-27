@@ -247,6 +247,16 @@ def test_yuehulian_spec_is_the_single_account_shape():
     assert spec.client_path_setting == 'yuehulian_client_path'
 
 
+def test_yuehulian_spec_lists_mac_among_its_platforms():
+    """The macOS client is driven natively, so the spec (and the vendor
+    list route that serves ``public_metadata``) must offer 悦互联 on
+    'mac' alongside windows/wsl — and still not on plain linux."""
+    spec = vendor_spec('yuehulian')
+    assert spec is not None
+    assert spec.platforms == frozenset({'windows', 'wsl', 'mac'})
+    assert 'mac' in spec.public_metadata()['platforms']
+
+
 # ── machine-scope credential storage (vendor_creds) ─────────────────
 
 

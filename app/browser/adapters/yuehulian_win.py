@@ -174,6 +174,18 @@ class ProcessLayer:
         out = _run_ps(script)
         return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
+    def terminate_kernels(self, user_data_dir: str) -> list[int]:
+        """No-op on Windows: kernels die with their client here.
+
+        The Mac layer kills kernels left over by a SIGKILLed client
+        (they are re-parented to launchd and keep the profile's
+        singleton lock); on Windows the client's own close path reaches
+        them, so this exists to give both process layers the same
+        interface and keep the client's orphan-recovery path
+        platform-neutral.
+        """
+        return []
+
     def read_devtools_port(
         self, user_data_dir: str, newer_than: float | None = None
     ) -> int | None:

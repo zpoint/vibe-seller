@@ -1,5 +1,5 @@
 ---
-description: Yuehulian in Vibe Seller — download and install, create a team account, what to fill in when binding, one account per machine, auto-login, Windows plus WSL, and where credentials are stored.
+description: Yuehulian in Vibe Seller — download and install (Windows / macOS), create a team account, what to fill in when binding, one account per machine, auto-login, Windows and macOS plus WSL, and where credentials are stored.
 ---
 
 # Yuehulian: Setup Guide
@@ -10,21 +10,32 @@ store is bound, Vibe Seller opens and signs in to the Yuehulian client
 itself and uses it to open your stores for tasks; you don't need to
 operate the client by hand.
 
-**The Yuehulian backend supports Windows, plus WSL.** On macOS / plain Linux the option does not appear in the
-"Browser Backend" dropdown — the Yuehulian client itself is Windows-only.
+**The Yuehulian backend supports Windows and macOS, plus WSL.** On plain
+Linux the option does not appear in the "Browser Backend" dropdown — the
+Yuehulian client has no Linux build.
 
 Not using Yuehulian? Skip this page. Vibe Seller supports other browsers too; see [Browsers](browsers.md).
 
 ## Download and install
 
 1. Open the Yuehulian site <https://kj.chinafic.com/>, go to the client
-   download on the home page, and install the Windows client. (The client
-   is Windows-first; per the vendor a Mac build is still in development,
-   and Vibe Seller's Yuehulian backend only talks to the Windows side.)
+   download on the home page, and install the client for your system:
+   - **Windows**: download the Windows client and run the installer.
+   - **macOS**: download the Mac client and drop "悦互联.app" into the
+     Applications folder — or anywhere else; Vibe Seller finds it
+     either way. If macOS asks on first launch whether to open an app
+     "downloaded from the internet", click **Open** (it asks only
+     once).
 2. Launch and sign in to the Yuehulian client by hand at least once, so
    you can confirm the account works and your store list shows up. Vibe
    Seller will then auto-launch and auto-sign-in to this client (see
    "Auto-login" below).
+
+Creating a store and running tasks on the Mac (identical to Windows):
+
+![Creating a store on the Mac: pick Yuehulian, the team account, and the store from the list](images/yuehulian_mac_store_form.png)
+
+![A task running in the Yuehulian store browser](images/yuehulian_mac_task.png)
 
 ## Create a team account
 
@@ -107,7 +118,7 @@ Likewise, if you opened a store in the Yuehulian client yourself, a task that ne
 | Couldn't start the 悦互联 client — open it manually (or check it's installed), then Refresh | Vibe Seller couldn't find / launch the client. Open the Yuehulian client manually, or confirm it's installed per "Download and install". |
 | No stores visible for this login | This sub-account has no stores yet, or no store permissions. Confirm in the Yuehulian admin that the sub-account can see stores. |
 | Yuehulian supports only one account per machine… | See "One account per machine" above. |
-| Unsupported platform | The Yuehulian backend is only available on Windows and WSL. |
+| Unsupported platform | The Yuehulian backend is only available on Windows, macOS or WSL. |
 
 ## Where credentials are stored
 
