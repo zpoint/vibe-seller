@@ -94,13 +94,12 @@ async def fail_task_for_start_error(
         task.updated_at = datetime.now(UTC).isoformat()
         await db.commit()
     logger.warning(
-        '%s: task %s (store %s) ended FAILED — [%s] %s. '
+        '%s: task %s (store %s) ended FAILED — %s. '
         'The agent was stopped: this error needs the operator, '
         'not the agent.',
         TERMINAL_STOP_LOG_MARKER,
         task_id,
         store_name,
-        exc.code,
         error,
     )
     await event_bus.emit(

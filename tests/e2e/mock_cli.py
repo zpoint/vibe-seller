@@ -598,6 +598,37 @@ def emit_tool_result(tool_use_id: str, output: str, is_error: bool = False):
     })
 
 
+def _resolve_browser_use() -> str:
+    """The browser-use binary the agent would run.
+
+    A real CLI gets the store wrapper's dir first on PATH from
+    ``build_launch_artifacts`` (``apply_agent_venv_path``) — but a
+    MOCK-CLI launch skips that whole artifact build, so the wrapper is
+    not on our PATH. Fall back to the NEWEST wrapper under
+    ``$VIBE_HOME/bin/``: the task's own store wrapper is written
+    moments before the agent starts, and the mock e2e runs
+    sequentially, so newest-is-ours holds.
+    """
+    from pathlib import Path
+    import shutil
+
+    exe = shutil.which('browser-use')
+    if exe:
+        return exe
+    home = os.environ.get('VIBE_HOME')
+    if home:
+        wrappers = sorted(
+            Path(home).glob('bin/*/browser-use'),
+            key=lambda p: p.stat().st_mtime,
+        )
+        if wrappers:
+            return str(wrappers[-1])
+    raise RuntimeError(
+        'no browser-use found on PATH or under $VIBE_HOME/bin/ — '
+        'the store wrapper was not written before the agent started'
+    )
+
+
 def run_store_browser_start():
     """Execute the store wrapper, then try to keep working.
 
@@ -611,6 +642,7 @@ def run_store_browser_start():
 
     emit_system()
     time.sleep(DELAY)
+    browser_use = _resolve_browser_use()
     tool_id = 'toolu_mock_browser_start_1'
     emit({
         'type': 'assistant',
@@ -622,14 +654,14 @@ def run_store_browser_start():
                     'id': tool_id,
                     'name': 'Bash',
                     'input': {
-                        'command': 'browser-use -c \'print("open")\'',
+                        'command': f'{browser_use} -c \'print("open")\'',
                     },
                 }
             ],
         },
     })
     proc = subprocess.run(
-        ['browser-use', '-c', 'print("open")'],
+        [browser_use, '-c', 'print("open")'],
         capture_output=True,
         text=True,
         timeout=120,
