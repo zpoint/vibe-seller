@@ -1,5 +1,5 @@
 ---
-description: One page on connecting BitBrowser to Vibe Seller: download, sign in once, nothing to fill in, the local API port and token read automatically, the workbench tab closed for you, any install location, and every error message.
+description: "One page on connecting BitBrowser to Vibe Seller: download, sign in once, nothing to fill in, the local API port and token read automatically, the workbench tab closed for you, any install location, and every error message."
 ---
 
 # BitBrowser: Setup Guide

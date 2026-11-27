@@ -5,7 +5,8 @@ Split out of ``bitbrowser`` (the client + spec) per the vendor-module
 convention for large adapters. The helpers speak the kernel's CDP
 surface directly (/json/list, /json/version + the browser-level
 WebSocket for Target.closeTarget / Target.activateTarget), the same
-aiohttp pattern the wenmai client's after_open uses — everything here
+aiohttp-over-CDP pattern the inject family's tab handling uses —
+everything here
 is best-effort: a failed command logs a warning and never fails the
 open (the env IS open and CDP answers; tab hygiene must not turn into
 a task failure).
