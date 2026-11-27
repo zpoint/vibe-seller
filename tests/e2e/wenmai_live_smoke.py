@@ -41,6 +41,7 @@ from app.browser.inject.errors import (
     LoginRequired,
     StoreUnavailable,
 )
+from app.browser.win_inspector import InspectorSession
 from app.browser.ziniao_utils import get_platform
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -142,7 +143,7 @@ def _ps(script: str) -> str:
 async def _running_store_ids(client: RealWenmaiClient) -> set[str]:
     """GET /QueueRunningStoreList — answered by the shell itself.
 
-    Verified live: a BARE JSON array of open env ids (``[497793]``),
+    Verified live: a BARE JSON array of open env ids (``[100000000001]``),
     empty when none run. Fetched raw because the client's _request
     only returns dict bodies.
     """
@@ -202,7 +203,7 @@ async def _logout_via_client(client: RealWenmaiClient) -> bool:
                     await asyncio.sleep(1.0)
                     try:
                         h = str(await insp.eval_in_renderer('location.hash'))
-                    except Exception:  # noqa: BLE001 — mid-reload blip
+                    except Exception:
                         continue  # each eval reconnects on its own
                     if h.startswith('#/login'):
                         on_login = True
@@ -214,7 +215,7 @@ async def _logout_via_client(client: RealWenmaiClient) -> bool:
                     return True
                 await asyncio.sleep(1.0)
             return False
-        except Exception:  # noqa: BLE001 — reload raced the eval; retry
+        except Exception:
             if attempt == 2:
                 return False
             await asyncio.sleep(2.0)
@@ -224,7 +225,7 @@ async def _logout_via_client(client: RealWenmaiClient) -> bool:
 async def _running_store_ids(client: RealWenmaiClient) -> set[str]:
     """GET /QueueRunningStoreList — answered by the shell itself.
 
-    Verified live: a BARE JSON array of open env ids (``[497793]``),
+    Verified live: a BARE JSON array of open env ids (``[100000000001]``),
     empty when none run. Fetched raw because the client's _request
     only returns dict bodies.
     """
@@ -330,14 +331,69 @@ async def _run(client: RealWenmaiClient, cfg: dict, args) -> None:
                     _record('wrong password → LoginRequired', False, 'no raise')
                 except LoginRequired:
                     _record('wrong password → LoginRequired', True)
-                except Exception as e:  # noqa: BLE001 — report, don't die
+                except Exception as e:
                     _record('wrong password → LoginRequired', False, repr(e))
             # The client must not be left stuck: the real login still works.
             try:
                 await client.ensure_logged_in()
                 _record('client not stuck after a failed login', True)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 _record('client not stuck after a failed login', False, repr(e))
+
+            # S: a leftover inspector on the target pid is REUSED, not
+            # refused. Simulate an operation dying between open and
+            # close while the client is LOGGED OUT: open an inspector
+            # on the client's main process, then release ONLY the
+            # machine lock (a killed process frees the OS lock but
+            # leaves the target's inspector serving on 9229) without
+            # inspector.close(). The next auto-login must adopt that
+            # leftover and drive the form through it (the pre-P5
+            # behavior refused forever — auto-login was dead until a
+            # client restart).
+            try:
+                if not await _logout_via_client(client):
+                    _record(
+                        'leftover inspector on the target pid → reused',
+                        False,
+                        'could not log out for the setup',
+                    )
+                else:
+                    pid = await asyncio.to_thread(client._proc.main_pid)
+                    leftover = InspectorSession(client._proc.exe_path_script)
+                    await leftover.open(pid)
+                    leftover._release_lock()  # crash: lock freed, the
+                    # inspector stays; NO inspector.close() happened.
+
+                    reuse_seen = []
+
+                    class _ReuseSpot(logging.Handler):
+                        def emit(self, record):
+                            if 'reusing the leftover' in record.getMessage():
+                                reuse_seen.append(record.getMessage())
+
+                    spot = _ReuseSpot()
+                    logging.getLogger('app.browser.win_inspector').addHandler(
+                        spot
+                    )
+                    try:
+                        await client.ensure_logged_in()
+                    finally:
+                        logging.getLogger(
+                            'app.browser.win_inspector'
+                        ).removeHandler(spot)
+                    ok = await client.is_logged_in()
+                    _record(
+                        'leftover inspector on the target pid → reused',
+                        ok and bool(reuse_seen),
+                        reuse_seen[0] if reuse_seen else 'no reuse log',
+                    )
+                    await leftover.close()  # tidy: now OUR session again
+            except Exception as e:
+                _record(
+                    'leftover inspector on the target pid → reused',
+                    False,
+                    repr(e),
+                )
 
     # S: open → CDP reachable → after_open (the ENGINE's entry-page
     # hook, driven here exactly as InjectCdpBackend.start does) → a
@@ -426,7 +482,7 @@ async def _run(client: RealWenmaiClient, cfg: dict, args) -> None:
                 ok,
                 f'port {fourth.cdp_port}',
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             _record('client killed → next use recovers', False, repr(e))
 
     # S: device unbound → StoreUnavailable; restored via bindEnvDevice.
@@ -451,7 +507,7 @@ async def _run(client: RealWenmaiClient, cfg: dict, args) -> None:
         _record('device unbound → StoreUnavailable', False, 'no raise')
     except StoreUnavailable as e:
         _record('device unbound → StoreUnavailable', True, str(e)[:120])
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _record('device unbound → StoreUnavailable', False, repr(e))
     # RESTORE — if this fails, stop and report (the store must not be
     # left unusable).
@@ -472,7 +528,7 @@ async def _run(client: RealWenmaiClient, cfg: dict, args) -> None:
         fifth = await client.open_store(store_ref)
         ok = await _cdp_ok(fifth.cdp_host, fifth.cdp_port)
         _record('device restored → store opens again', ok)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _record('device restored → store opens again', False, repr(e))
 
     # Leave the store browser closed (the handoff state).
@@ -517,7 +573,7 @@ async def main() -> int:
     try:
         await client.ensure_running()
         _record('ensure_running', True)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _record('ensure_running', False, repr(e))
         return _summary()
 
@@ -530,7 +586,7 @@ async def main() -> int:
 
     try:
         await _run(client, cfg, args)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _record('scenario run', False, repr(e))
 
     print(f'\n(elapsed {time.time() - t0:.0f}s)')

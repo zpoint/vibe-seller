@@ -113,9 +113,10 @@ async def test_list_stores_carries_device_bound_state(api):
     assert by_name['bound-store'].available is True
     assert by_name['bound-store'].unavailable_reason == ''
     assert by_name['unbound-store'].available is False
-    # The reason is carried for the picker to show next to the greyed
-    # out profile (generic vendor text, filled by the adapter).
-    assert by_name['unbound-store'].unavailable_reason == '未绑定设备'
+    # The reason is a stable TOKEN the frontend translates; the
+    # vendor's own words ride in the detail.
+    assert by_name['unbound-store'].unavailable_reason == 'no_device'
+    assert by_name['unbound-store'].unavailable_detail == '未绑定设备'
 
 
 async def test_list_stores_logged_out_is_login_required(api):

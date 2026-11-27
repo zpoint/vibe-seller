@@ -56,7 +56,12 @@ from app.browser.adapters.wenmai_win import (
     DEFAULT_API_PORT,
     WenmaiProcessLayer,
 )
-from app.browser.inject.client import InjectClient, OpenedStore, StoreRef
+from app.browser.inject.client import (
+    UNAVAILABLE_NO_DEVICE,
+    InjectClient,
+    OpenedStore,
+    StoreRef,
+)
 from app.browser.inject.errors import (
     AccountMismatch,
     CdpUnreachable,
@@ -213,8 +218,9 @@ class RealWenmaiClient(InjectClient):
 
         Carries the device-bound state: an env with no device bound
         (``ipId`` null) cannot be opened, so it is returned with
-        ``available=False`` and the reason (未绑定设备) for the UI to
-        grey it out with an explanation.
+        ``available=False`` and the ``no_device`` token (the frontend
+        translates it; the vendor's own wording rides in the detail)
+        for the UI to grey it out with an explanation.
         """
         envs = resp.get('envs') or []
         out = []
@@ -228,7 +234,8 @@ class RealWenmaiClient(InjectClient):
                     ),
                     ref=str(e['id']),
                     available=bound,
-                    unavailable_reason='' if bound else '未绑定设备',
+                    unavailable_reason='' if bound else UNAVAILABLE_NO_DEVICE,
+                    unavailable_detail='' if bound else '未绑定设备',
                 )
             )
         return out
