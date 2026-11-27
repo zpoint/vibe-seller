@@ -22,7 +22,7 @@ import pytest
 from app.browser.manager import write_browser_use_wrapper
 from app.browser.web_wrapper import write_web_browser_use_wrapper
 from app.browser.wrapper import atomic_write_script
-from app.config import WEB_BROWSER_SLUG
+from app.config import DOWNLOADS_DIR, WEB_BROWSER_SLUG
 
 
 def _stub_real_bu(tmp_path: Path) -> str:
@@ -32,7 +32,7 @@ def _stub_real_bu(tmp_path: Path) -> str:
     stub.write_text(
         '#!/usr/bin/env bash\n'
         'echo "ARGS: $*"\n'
-        'env | grep -E "^(BU_|BH_)" | sort\n'
+        'env | grep -E "^(BU_|BH_|VIBE_STORE)" | sort\n'
     )
     stub.chmod(0o755)
     return str(stub)
@@ -304,6 +304,34 @@ class TestWrapperEnvInjection:
         content = (bin_dir / 'storec' / 'browser-use').read_text()
         assert 'export BU_NAME="$SESSION"' in content
         assert 'export BU_CDP_WS="ws://' in content
+
+    def test_wrapper_exports_resolved_downloads_dir(self, tmp_path: Path):
+        """VIBE_STORE_DOWNLOADS is baked in RESOLVED for this server's
+        VIBE_HOME — the one path a doc must never spell. A hardcoded
+        default-home path sent a live agent into another server's home
+        on a multi-home machine."""
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        content = wrapper.read_text()
+        expected = str(DOWNLOADS_DIR / 'test-store')
+        assert f'export VIBE_STORE_DOWNLOADS="{expected}"' in content
+        # And it actually reaches the exec'd browser-use process:
+        result = _run_wrapper(wrapper, env=_env_without_task())
+        assert result.returncode == 0, result.stderr
+        assert f'VIBE_STORE_DOWNLOADS={expected}' in result.stdout
+
+    def test_wrapper_downloads_dir_overrides_inherited_value(
+        self, tmp_path: Path
+    ):
+        """An inherited (e.g. agent-guessed) VIBE_STORE_DOWNLOADS is
+        overwritten by the wrapper's authoritative value, not honored."""
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        env = _env_without_task()
+        env['VIBE_STORE_DOWNLOADS'] = '/home/guessed/downloads'
+        result = _run_wrapper(wrapper, env=env)
+        assert result.returncode == 0, result.stderr
+        expected = str(DOWNLOADS_DIR / 'test-store')
+        assert f'VIBE_STORE_DOWNLOADS={expected}' in result.stdout
+        assert '/home/guessed' not in result.stdout
 
     def test_ziniao_aux_gets_own_proxy_client(self, tmp_path: Path):
         """Ziniao -aux gets an EXPLICIT endpoint on this store's proxy.

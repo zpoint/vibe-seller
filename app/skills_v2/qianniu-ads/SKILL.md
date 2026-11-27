@@ -23,7 +23,7 @@ can approve that.
 itself warns 「页面数据仅供参考，历史推广数据以报表数据为准」). Default flow:
 
 1. **Download the 报表** for the audit window (`报表` on `one.alimama.com`;
-   export lands in `~/.vibe-seller/downloads/<slug>/`, GB18030 CSV or `.xlsx`).
+   export lands in `$VIBE_STORE_DOWNLOADS/`, GB18030 CSV or `.xlsx`).
 2. **Parse it** — `scripts/ads_report.py FILE` normalises the rows (计划/宝贝
    × 花费/成交/ROI/点击…) into TSV for the analysis.
 3. Read the **live plan list** (`references/mechanics.md`) only for *current

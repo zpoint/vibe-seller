@@ -33,6 +33,14 @@ The wrapper takes the heredoc form only, so every statement goes inside it.
   and never set `BU_NAME`, `BU_CDP_URL`, `BU_CDP_WS`, `VIBE_TASK_ID` or
   `--mcp` yourself; the wrapper rejects them, as it rejects local-profile
   and cloud-daemon helpers (`start_remote_daemon`, profile sync).
+- **Downloads land in `$VIBE_STORE_DOWNLOADS` automatically — you
+  never configure where the browser saves files.** If a file you
+  expect is missing: (1) confirm the click landed (re-read the page),
+  (2) wait and re-check the directory — large exports take tens of
+  seconds, (3) only then report the gap. Do not redirect where the
+  browser saves files and do not create download directories —
+  downloads are pinned by the platform, and any manual attempt breaks
+  them for every later download.
 - **Seller-center work runs in the default session only.** For
   non-seller-center sites on the same store (tracking pages, supplier
   sites) use `--session <slug>-aux`; no other `--session` value is
@@ -69,7 +77,9 @@ next call instead of assuming where you left off.
 1. **Navigate with `new_tab(url)`** — for the first page and every later
    one. There is no `page` object (`page.goto` is a `NameError`), and
    `goto_url(url)` moves whichever tab is current, which after a timeout
-   may not be the one you think.
+   may not be the one you think. **Then call `activate_tab(tid)` before
+   any click**: a background tab silently drops every `click_at_xy` —
+   the click is sent and reported as fine, but the page never sees it.
 2. **Read state from the DOM:** `page_info()` for url/title/size, `js(...)`
    for text, values and element coordinates (`getBoundingClientRect`).
 3. **Interact:** click with `click_at_xy(x, y)` at coordinates read in
@@ -84,8 +94,8 @@ next call instead of assuming where you left off.
 
 ## Screenshots: DOM for data, pictures for confirmation
 
-`capture_screenshot()` saves a PNG (default
-`~/.vibe-seller/bh-tmp/<session>/shot.png`, overwritten each call) and
+`capture_screenshot()` saves a PNG (into this server's browser-harness
+tmp dir, overwritten each call) and
 returns its path; call it **inside** the heredoc, print the path, then Read
 the PNG. A screenshot is good for confirming what the page looks like —
 that a dialog opened, a file was staged, a layout is what you expect — and
@@ -145,6 +155,15 @@ http_get(url, headers=None, timeout=20.0)  # plain HTTP from the agent, no brows
 
 Notes:
 
+- **`click_at_xy` takes CSS pixels** — the same numbers
+  `getBoundingClientRect` and `page_info()` give you. A screenshot's
+  pixels are device pixels: on a Windows display at 150% scaling they
+  are 1.5x larger, so a point read off a picture misses by that much
+  (the middle of a large button may still land inside it; a corner or
+  a small control never does). Prefer reading the point from the DOM
+  (step 2's `getBoundingClientRect`); if you must click a point you
+  took from a screenshot, divide its x and y by
+  `window.devicePixelRatio` first.
 - **Inputs:** `fill_input` focuses, clears, types real keys and fires
   `input`/`change`, so framework-controlled fields (most seller centers)
   register the value and their Submit buttons enable. Assigning
@@ -249,7 +268,7 @@ PY
 ## Uploading a file to `<input type=file>`
 
 **Stage the file in the store's downloads dir,
-`~/.vibe-seller/downloads/<slug>/`, and pass its absolute path.** The
+`$VIBE_STORE_DOWNLOADS/`, and pass its absolute path.** The
 browser process reads the file, not you: macOS Ziniao's Chrome is sandboxed
 and can't read `/tmp`, and on the winchrome backend (WSL
 agent → native Windows Chrome) pass the Windows form of the path
@@ -348,7 +367,7 @@ cookies, same downloads dir, no second login.
 - `--worker` and `--session` are mutually exclusive; slots live on the main
   store browser, not on `-aux`. Out-of-range or non-numeric slots are
   rejected.
-- Downloads are shared across slots (`~/.vibe-seller/downloads/<slug>/`),
+- Downloads are shared across slots (`$VIBE_STORE_DOWNLOADS/`),
   so have workers report the filenames they downloaded rather than assume
   the newest file is theirs.
 

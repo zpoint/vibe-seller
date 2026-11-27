@@ -33,10 +33,14 @@ Download path override (``download_dir``):
   every restart, and files end up in an unpredictable temp dir.
 
   Fix: when ``download_dir`` is set, the proxy intercepts every
-  ``Browser.setDownloadBehavior`` call from any client and rewrites
-  ``downloadPath`` to the stable per-store directory.  This makes
-  downloads deterministic regardless of how many times the daemon
-  restarts.
+  ``Browser.setDownloadBehavior`` AND ``Page.setDownloadBehavior`` call
+  from any client and rewrites ``downloadPath`` to the stable per-store
+  directory.  This makes downloads deterministic regardless of how many
+  times the daemon restarts, and ENFORCES the pin: a client (typically a
+  task agent following a stale hardcoded path) that tries to redirect
+  downloads outside the store's pinned dir is rewritten — not refused —
+  and the attempt is logged. See ``cdp_mux_routing`` for why rewrite
+  beats refuse.
 """
 
 from __future__ import annotations

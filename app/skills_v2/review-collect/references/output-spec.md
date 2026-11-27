@@ -19,7 +19,7 @@ reviews/<platform>/<country>/<product_id>.json  # one per product
 ```
 
 Paths are relative to the task CWD
-(`~/.vibe-seller/tasks/<task_id>/reviews/`). A retry wipes the task
+(`reviews/` inside it). A retry wipes the task
 workspace, so every run starts from an empty `reviews/` and every file in
 it was written this run. Write them with the built-in **Write** tool;
 `vibe_seller_write_workspace_file` targets the shared `stores/` /

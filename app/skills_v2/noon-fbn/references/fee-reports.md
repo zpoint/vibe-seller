@@ -144,7 +144,7 @@ If the modal submit is not found, the modal is probably not an
 ## 3. Downloading — naming, checking, empty files
 
 `Download` in the Actions column is a real `<button>` that writes the CSV
-straight to `~/.vibe-seller/downloads/<slug>/`. No modal, no signed URL.
+straight to `$VIBE_STORE_DOWNLOADS/`. No modal, no signed URL.
 
 **The filename carries only the report type** (e.g.
 `fbn_finance_monthlystoragechargereport.csv`) — no country, no service
@@ -207,7 +207,7 @@ else:
     print(f'row {CODE} not on screen: {r}')
 PY
 # then, in the shell, rename the newest file before the next download:
-#   mv ~/.vibe-seller/downloads/<slug>/fbn_finance_monthlystoragechargereport.csv \
+#   mv $VIBE_STORE_DOWNLOADS/fbn_finance_monthlystoragechargereport.csv \
 #      reports_noon_06_<slug>/monthly_storage_sa_2026-06.csv
 ```
 

@@ -20,6 +20,9 @@ Parameters (environment, on the same line as browser-use):
   CA_EXPORT        1 (default) clicks Export; 0 only reads the tile
   CA_DOWNLOAD_DIR  optional -- the store's downloads dir; when set, waits
                    for metric-data.xlsx to land there and reports its path
+                   ($VIBE_STORE_DOWNLOADS; if that is empty on an older
+                   Vibe Seller, use the downloads folder the store
+                   context names)
 
 Prints exactly one ``RESULT {json}`` line:
   ok          -- true when the tile loaded (and the export landed, if
