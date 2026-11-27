@@ -363,15 +363,43 @@ def normalize_path_text(text: str) -> str:
     - case folds the Windows way: a differently-cased spelling of the
       same directory is the same file there, and on POSIX it is a path
       that does not exist — matching it is harmless either way
-    - ``~/``, ``$HOME/`` and ``%USERPROFILE%/`` expand to the user's
-      home, so every spelling of the vibe home reaches the matchers as
-      its absolute form (the multi-spelling regexes collapse to one)
+    - MSYS drive form ``/c/Users/...`` becomes ``c:/users/...``
+      (Claude Code's Bash on Windows is Git-Bash; a single-letter
+      first segment after a boundary is a drive, nothing else)
+    - every home-variable spelling expands to the user's home:
+      ``~/``, bare ``~``, ``$HOME``, ``${HOME}``, ``"$HOME"``,
+      ``$USERPROFILE``, ``%USERPROFILE%``, and the PowerShell
+      ``$env:USERPROFILE`` / ``${env:USERPROFILE}`` /
+      ``$env:HOMEPATH`` forms — so every spelling of the vibe home
+      reaches the matchers as its absolute form (the multi-spelling
+      regexes collapse to one)
     """
     t = text.replace('\\', '/')
     t = re.sub(r'(?<!:)/{2,}', '/', t)
+    # MSYS drive form: /c/... -> c:/... (single-letter first segment
+    # at a command boundary; http://x/c/y does not match — the
+    # preceding character is not a boundary)
+    t = re.sub(r'(^|[\s\'"(=;|&])/([A-Za-z])/', r'\1\2:/', t)
     t = t.replace('%USERPROFILE%/', _HOME_NORM + '/')
-    t = t.replace('$HOME/', _HOME_NORM + '/')
+    # quoted/braced forms FIRST (the bare replace would leave their
+    # quotes stranded around the expansion)
+    t = t.replace('"${HOME}"', _HOME_NORM)
+    t = t.replace('${HOME}', _HOME_NORM)
+    t = t.replace('"$HOME"', _HOME_NORM)
+    t = t.replace('$HOME', _HOME_NORM)
+    t = t.replace('"$USERPROFILE"', _HOME_NORM)
+    t = t.replace('$USERPROFILE', _HOME_NORM)
+    t = re.sub(r'"\$\{?env:USERPROFILE\}?"', _HOME_NORM, t, flags=re.IGNORECASE)
+    t = re.sub(r'\$\{?env:USERPROFILE\}?', _HOME_NORM, t, flags=re.IGNORECASE)
+    # HOMEPATH is the drive-less \Users\<u>; with the usual C: drive
+    # it names the same directory as the user home
+    t = re.sub(r'\$\{?env:HOMEPATH\}?', _HOME_NORM, t, flags=re.IGNORECASE)
     t = t.replace('~/', _HOME_NORM + '/')
+    # a BARE ~ (a cd target: ``cd ~ && ...``) expands too
+    t = re.sub(r'~(?=$|[\s;|&)"\'])', _HOME_NORM, t)
+    # any quotes the expansions landed inside come off, so the
+    # matchers see one contiguous path
+    t = t.replace('"' + _HOME_NORM + '"', _HOME_NORM)
     return t.lower()
 
 
@@ -601,6 +629,38 @@ _VIBE_HOME_FILE_RE = re.compile(
     r'(?<![\w.-])(profiles\.json|vibe_seller\.db)(?![\w.-])'
 )
 _PATH_CHARS = re.compile(r'[a-z0-9_\-./$%~]')
+
+
+def cd_home_relative(norm_text: str) -> str:
+    """Best-effort: a bare ``.vibe-seller*`` after a cd to the home.
+
+    Git-Bash agents write ``cd ~ && ls -la .vibe-seller/`` — by the
+    time text reaches this, every home spelling is the expanded
+    absolute form, so a ``cd``/``pushd`` to the BARE user home
+    followed by a bare ``.vibe-seller`` token in the SAME command
+    line is home-relative; rewrite it absolute so the home-family
+    matchers see it. Out of reach (stated): the cd in one Bash call
+    and the read in the next — cwd state does not survive into a text
+    matcher — and a cd into a SUBDIRECTORY of the home (the bare
+    token there is sub-relative, not the family root).
+    """
+    if '.vibe-seller' not in norm_text:
+        return norm_text
+    m = re.search(
+        r'(?:^|[;&|]\s*|\band\b\s*)(?:cd|pushd)\s+"?'
+        + re.escape(_HOME_NORM)
+        + r'"?(?=$|[\s;&|])',
+        norm_text,
+    )
+    if not m:
+        return norm_text
+    rest = norm_text[m.end() :]
+    rest = re.sub(
+        r'(?<![\w./-])\.vibe-seller',
+        _HOME_NORM + '/.vibe-seller',
+        rest,
+    )
+    return norm_text[: m.end()] + rest
 
 
 def foreign_home_hit(norm_text: str) -> str | None:

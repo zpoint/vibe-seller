@@ -15,6 +15,7 @@ import websockets
 from websockets.asyncio.server import ServerConnection
 from websockets.http11 import Request, Response
 
+from app.browser.cdp_mux_types import UpstreamIdentityMismatch
 from app.config import LOCALHOST
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,10 @@ class _UpstreamMixin:
         websockets doesn't allow concurrent recv() calls.
         """
         ws_url = await self._discover_ws_url()
+        # Record WHO we connected to (the browser GUID from the
+        # debugger URL). Reconnects compare against it: a port re-served
+        # by a different browser is an impostor, never our upstream.
+        self._upstream_browser_id = browser_guid(ws_url)
         logger.debug('CDPMuxProxy connecting upstream: %s', ws_url)
         self._upstream = await websockets.connect(
             ws_url,
@@ -43,14 +48,58 @@ class _UpstreamMixin:
         self._upstream_task = asyncio.create_task(self._read_upstream())
 
     async def _connect_upstream(self) -> None:
-        """Re-establish upstream WebSocket (reconnect path)."""
+        """Re-establish upstream WebSocket (reconnect path).
+
+        Identity-checked: when the endpoint answers with a browser
+        GUID other than the one recorded at first connect, the browser
+        we fronted is gone and something else holds the port — raise
+        :class:`UpstreamIdentityMismatch` instead of attaching to a
+        stranger's store. (A legitimate same-port restart re-records
+        the identity through the relaunch hook before we get here.)
+
+        Paths that legitimately restart an upstream on the SAME port,
+        and how each survives the check (enumerated so a future
+        backend cannot silently reintroduce the impostor hole):
+
+        - **ziniao**: ports rotate per startBrowser, so a same-port
+          new GUID is exactly the impostor case; the per-store
+          relaunch hook (``browserOauth``-keyed) re-records the
+          identity of THIS store's fresh env.
+        - **chrome**: every launch picks a FRESH ``_free_port()``
+          debug port and the manager's recovery builds a whole new
+          backend+proxy — this proxy never legitimately reconnects
+          to a restarted same-port Chrome. Refusal is correct.
+        - **winchrome**: the Task Scheduler restarts Chrome on the
+          store's FIXED debug port. That restart has no relaunch
+          hook, so the reconnect is refused and the mux gives up —
+          recovery then falls back to the manager's full restart on
+          the next ``browser/start`` (the documented path for an
+          exhausted reconnect). Deliberate: accepting a same-port
+          new GUID here would also accept store B's browser.
+        - **inject engine**: vendor kernels get their debug port from
+          the client; same treatment as winchrome — refuse, and let
+          the manager-level restart recover.
+        """
         ws_url = await self._discover_ws_url()
+        served = browser_guid(ws_url)
+        recorded = self._upstream_browser_id
+        if recorded is not None and served is not None and served != recorded:
+            raise UpstreamIdentityMismatch(
+                f'upstream {self.target_host}:{self.target_port} now '
+                f'serves browser {served}, not the recorded {recorded} — '
+                'refusing to attach to a different browser'
+            )
         self._upstream = await websockets.connect(
             ws_url,
             ping_interval=30,
             ping_timeout=30,
             max_size=50 * 1024 * 1024,
         )
+        # The relaunch hook clears the recorded id before reconnecting
+        # (its target is by construction THIS store's fresh browser);
+        # re-record from what we just attached to.
+        if recorded is None and served is not None:
+            self._upstream_browser_id = served
         await self._startup_download_behavior()
         self._upstream_task = asyncio.create_task(self._read_upstream())
 
@@ -108,7 +157,17 @@ class _UpstreamMixin:
             asyncio.create_task(self._reconnect_upstream())
 
     async def _reconnect_upstream(self) -> None:
-        """Reconnect with exponential backoff (max 10 attempts)."""
+        """Reconnect with exponential backoff (max 10 attempts).
+
+        An identity mismatch is NOT retried: the recorded browser is
+        gone and something else holds the port (a vendor rotating
+        debugging ports re-serves them fast — e.g. store B's fresh
+        browser landing on store A's dead port). Retrying would only
+        re-meet the impostor; go straight to the relaunch hook, which
+        asks the backend for THIS store's fresh endpoint. Without a
+        hook the proxy gives up exactly as before — it never attaches
+        to the impostor.
+        """
         delay = 1.0
         max_delay = 30.0
         max_attempts = 10
@@ -127,6 +186,13 @@ class _UpstreamMixin:
                     await self._connect_upstream()
                     logger.info('CDPMuxProxy upstream reconnected')
                     return
+                except UpstreamIdentityMismatch as e:
+                    logger.warning(
+                        'CDPMuxProxy upstream identity changed: %s — '
+                        'going to relaunch',
+                        e,
+                    )
+                    break
                 except Exception as e:
                     logger.warning('CDPMuxProxy reconnect failed: %s', e)
                     delay = min(delay * 2, max_delay)
@@ -195,6 +261,11 @@ class _UpstreamMixin:
         )
         self.target_host = new_host
         self.target_port = new_port
+        # The hook's target is by construction THIS store's fresh
+        # browser — the recorded identity describes the dead one, so
+        # clear it: the connect below re-records from what we attach
+        # to, instead of refusing the fresh browser as an impostor.
+        self._upstream_browser_id = None
         # A freshly-relaunched browser's debugging port is not accepting
         # connections the instant startBrowser returns — connecting once
         # races the port coming up ("fresh port not up yet") and would
@@ -464,7 +535,8 @@ class _UpstreamMixin:
         return closed
 
     # ------------------------------------------------------------------
-    # HTTP handler (for /json/version, /json/list, /vibe/reset-tabs)
+    # HTTP handler (for /json/version, /json/list, /vibe/instance,
+    # /vibe/reset-tabs)
     # ------------------------------------------------------------------
 
     async def _process_http(
@@ -498,6 +570,33 @@ class _UpstreamMixin:
                 )
             return Response(
                 HTTPStatus.BAD_GATEWAY, 'Bad Gateway', websockets.Headers(), b''
+            )
+
+        if path.split('?', 1)[0] == '/vibe/instance':
+            # Ownership handshake (PR C1): which server instance owns
+            # this listener? The manager's port allocator and the
+            # wrappers' liveness probe compare this against their own
+            # instance id before reusing or attaching to the port — a
+            # foreign answer (another server, an agent-spawned CDP
+            # bridge, any non-vibe listener) means "not ours, move on".
+            # No id configured (aux browsers) → nothing to confirm, so
+            # every probe reads foreign — fail safe.
+            if not self.instance_id:
+                return Response(
+                    HTTPStatus.NOT_FOUND,
+                    'Not Found',
+                    websockets.Headers(),
+                    b'',
+                )
+            body = json.dumps({'instance': self.instance_id}).encode()
+            return Response(
+                HTTPStatus.OK,
+                'OK',
+                websockets.Headers({
+                    'Content-Type': 'application/json',
+                    'Content-Length': str(len(body)),
+                }),
+                body,
             )
 
         if path.split('?', 1)[0] == '/vibe/reset-tabs':
@@ -552,3 +651,18 @@ class _UpstreamMixin:
         except Exception as e:
             logger.warning('CDPMuxProxy fetch %s failed: %s', url, e)
             return None
+
+
+def browser_guid(ws_url: str) -> str | None:
+    """The browser GUID from a ``/devtools/browser/<guid>`` URL.
+
+    Chrome hands every browser instance a fresh GUID there, so it is a
+    cheap, stable identity for "is the endpoint still the SAME browser"
+    — see the upstream-identity check in ``_connect_upstream``. None
+    when the URL carries no marker (never treated as a match).
+    """
+    marker = '/devtools/browser/'
+    if marker not in ws_url:
+        return None
+    guid = ws_url.rsplit(marker, 1)[-1]
+    return guid or None

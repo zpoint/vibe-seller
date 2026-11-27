@@ -331,16 +331,20 @@ class ChromeBackend(BrowserBackend):
             target_port=debug_port,
             target_host=LOCALHOST,
             download_dir=str(dl_dir),
+            instance_id=browser_config.get('vibe_instance_id'),
+            listen_sock=browser_config.get('proxy_socket'),
         )
         await self._proxy.start()
 
         logger.info(
-            'CDPMuxProxy ready for Chrome store %s: %s:%d -> %s:%d',
+            'CDPMuxProxy ready for Chrome store %s: %s:%d -> %s:%d '
+            '(instance %s)',
             store_slug,
             LOCALHOST,
             proxy_port,
             LOCALHOST,
             debug_port,
+            self._proxy.instance_id or '<none>',
         )
 
         # Verify proxy connectivity.

@@ -662,6 +662,117 @@ class TestTripwireFalsePositiveCorpus:
         )
 
 
+class TestWindowsHomeSpellings:
+    """Every way a Git-Bash / PowerShell agent spells the home.
+
+    The Windows incident (REVIEW-WIN-SPELLINGS): test agents listed
+    the installed app's home and read its key files, spelling it the
+    MSYS way (/c/Users/...), the PowerShell way ($env:USERPROFILE),
+    braced or quoted (${HOME}, "$HOME"), or relatively after a cd.
+    The ONE normal form expands all of them; these tests pin each
+    spelling in both deny categories, with the task's OWN home and a
+    non-home directory as the allowed counterparts.
+    """
+
+    USER_HOME = 'C:/Users/example'
+    WIN_HOME = 'c:/users/example/smoke-home'
+
+    @pytest.fixture(autouse=True)
+    def _win_home(self, fake_vendor, monkeypatch):
+        monkeypatch.setattr(alg, '_NORM_HOME', self.WIN_HOME)
+        monkeypatch.setattr(alg, '_HOME_NORM', self.USER_HOME.lower())
+        yield
+
+    #: how the user's home can be written, expanding to C:/Users/example
+    HOME_PREFIXES = {
+        'msys': '/c/Users/example',
+        'msys-upper-drive': '/C/Users/example',
+        'ps-env': '$env:USERPROFILE',
+        'ps-env-braced': '${env:USERPROFILE}',
+        'ps-hompath': '$env:HOMEPATH',
+        'braced': '${HOME}',
+        'quoted': '"$HOME"',
+        'userprofile': '$USERPROFILE',
+    }
+
+    @pytest.mark.parametrize(
+        'prefix', HOME_PREFIXES.values(), ids=HOME_PREFIXES
+    )
+    @pytest.mark.parametrize(
+        'rest',
+        [
+            '/.vibe-seller/',
+            '/.vibe-seller/profiles.json',
+            '/.vibe-seller/data/vibe_seller.db',
+            '/.vibe-seller/.env',
+        ],
+        ids=['listing', 'profiles-json', 'data-db', 'env-file'],
+    )
+    def test_every_spelling_every_key_file_denied(self, prefix, rest):
+        cmd = f'cat {prefix}{rest}'
+        assert denied(cmd), cmd
+
+    @pytest.mark.parametrize(
+        'text',
+        [
+            'leaked /c/Users/example/smoke-home/data/vibe_seller.db keys',
+            'read $env:USERPROFILE/smoke-home/profiles.json ok',
+            'found in "${HOME}/smoke-home/vendors/x/login-state.json"',
+        ],
+        ids=['msys', 'ps-env', 'braced'],
+    )
+    def test_tripwire_sees_the_same_spellings(self, text):
+        # the output tripwire runs on the SAME normal form — the
+        # server-state paths of THIS task's home, in every spelling
+        assert scan_tool_result(text) is not None, text
+
+    @pytest.mark.parametrize(
+        'cmd',
+        [
+            # the cd-relative forms (best-effort, same command line)
+            'cd ~ && ls -la .vibe-seller/',
+            'cd $HOME; cat .vibe-seller/profiles.json',
+            'pushd ~ && cat .vibe-seller/data/vibe_seller.db',
+            'cd "$HOME" && cat .vibe-seller/.env',
+        ],
+        ids=['cd-tilde', 'cd-dollar', 'pushd', 'cd-quoted'],
+    )
+    def test_cd_relative_forms_denied(self, cmd):
+        assert denied(cmd), cmd
+
+    @pytest.mark.parametrize(
+        'prefix', HOME_PREFIXES.values(), ids=HOME_PREFIXES
+    )
+    def test_own_home_every_spelling_allowed(self, prefix):
+        cmd = f'cat {prefix}/smoke-home/stores/x/STORE.md'
+        assert not denied(cmd), cmd
+
+    @pytest.mark.parametrize(
+        'cmd',
+        [
+            # a cd into the home with the task's OWN workspace files
+            'cd ~ && ls -la smoke-home/stores/',
+            # not a home at all — the MSYS spelling of a code dir
+            'ls /c/Users/example/codes/',
+            'cat /c/Users/example/codes/x/notes.md',
+            # a cd into a SUBdirectory: the bare token is sub-relative
+            # (out of reach, by design — the family root is not named)
+            'cd ~/sub && ls .vibe-seller-not-the-root',
+            # http paths with single-letter segments are not drives
+            'curl -s http://x/c/y',
+        ],
+        ids=[
+            'cd-own-workspace',
+            'codes-listing',
+            'codes-read',
+            'cd-subdir-out-of-reach',
+            'http-not-a-drive',
+        ],
+    )
+    def test_allowed_counterparts(self, cmd):
+        assert not denied(cmd), cmd
+
+
 class TestIncident3ReadToolAndPorts:
     """The Read tool lifting the wrapper's JWT, and runtime vendor
     ports (BitBrowser's 54345/54346 once its spec declares them)."""

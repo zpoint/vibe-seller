@@ -496,7 +496,7 @@ async def start_browser(
     if not store:
         raise HTTPException(status_code=404, detail='Store not found')
     try:
-        await browser_manager.start_session(store, db)
+        session = await browser_manager.start_session(store, db)
     except BrowserBusyError as e:
         # 503, not 500: nothing is known to be wrong with THIS store —
         # somebody else holds the launch lock, or Ziniao is still
@@ -528,7 +528,15 @@ async def start_browser(
             status_code=500,
             detail=f'Failed to start browser: {e}',
         ) from e
-    return {'ok': True}
+    # The typed fields let the store wrapper follow a REALLOCATED proxy
+    # port: the allocator moves a store off a port held by another
+    # server instance, and the wrapper that triggered this call is
+    # still running with the old port baked in (PR C1).
+    return {
+        'ok': True,
+        'proxy_port': getattr(session, 'proxy_port', None),
+        'instance_id': browser_manager.instance_id,
+    }
 
 
 def _to_response(store: Store) -> dict:

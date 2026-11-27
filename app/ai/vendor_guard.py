@@ -62,6 +62,7 @@ from app.ai.agent_lateral_guard import (
     SSH_DENY,
     SSH_DIR_DENY,
     WRAPPER_READ_DENY,
+    cd_home_relative,
     foreign_home_hit,
     home_bare_re,
     home_deny_re,
@@ -583,7 +584,7 @@ def _deny_bash(
         return deny('os-settings', OS_SETTINGS_DENY, what)
     # the home family matches in the ONE normal form — text and
     # spellings normalised the same way (native-Windows proofs)
-    norm = normalize_path_text(cmd)
+    norm = cd_home_relative(normalize_path_text(cmd))
     m = home_bare_re().search(norm) or home_deny_re(
         task_prefix, owned_session_names
     ).search(norm)

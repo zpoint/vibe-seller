@@ -334,6 +334,7 @@ jobs:
           tests/e2e/test_workplace_expiry_ui.py
           tests/e2e/test_update_failure_ui.py
           tests/e2e/test_guard_replay.py --e2e -v
+          tests/e2e/test_cdp_instance_ports.py
           tests/e2e/test_browser_start_failure_mock.py --e2e -v
           --log-cli-level=INFO
 
