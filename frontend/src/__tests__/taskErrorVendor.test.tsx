@@ -166,4 +166,30 @@ describe('TaskErrorNote speaks the store vendor', () => {
     )
     expect(container.textContent).not.toContain('vendor')
   })
+
+  it('(c, the trap) a registry vendor with NO text namespace (a plain browser) keeps today\'s text and link too', () => {
+    // Chrome sits in /api/browser-vendors with an EMPTY i18n_prefix —
+    // without the namespace gate, the shared browserVendor.LoginRequired
+    // text would hijack the banner for plain-browser stores (seen live
+    // in the first screenshot round). The gate keeps them on the
+    // generic category sentence and the shared browsers-page link.
+    const plainBrowser: BrowserVendor = {
+      ...noOverrideVendor,
+      key: 'chrome',
+      display_name_en: 'Chrome',
+      display_name_zh: 'Chrome',
+      i18n_prefix: '',
+      docs: {},
+    }
+    renderNote({
+      error: '[LOGIN_REQUIRED] Log into the client on this machine, then retry / refresh.',
+      category: 'login_required',
+      vendor: plainBrowser,
+    })
+    expect(note().textContent).toContain(
+      enTranslation.tasks.error_login_required
+    )
+    expect(note().textContent).not.toContain('Chrome client')
+    expect(helpLink().dataset.topic).toBe('browserLoginRequired')
+  })
 })

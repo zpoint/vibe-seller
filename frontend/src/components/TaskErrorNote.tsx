@@ -35,14 +35,19 @@ export function TaskErrorNote({
   const help = taskErrorHelp(category, error)
   const { text, links } = settingsLinksIn(error)
   const platforms = useIntegrationAttention()
+  // Only a vendor with its own text namespace (a non-empty
+  // i18n_prefix) makes the banner speak vendor-first. Plain browsers
+  // and legacy backends sit in the registry without one — they keep
+  // the shared category text and link exactly as before.
+  const speakingVendor = vendor && vendor.i18n_prefix ? vendor : null
   // The vendor's display name in the UI's language — the {{vendor}}
   // slot of the shared browserVendor.* keys.
   const zh = (i18n.language || 'en').startsWith('zh')
-  const vendorSentence = vendor && category
-    ? vendorText(t, vendor, zh ? vendor.display_name_zh : vendor.display_name_en, camelCase(category))
+  const vendorSentence = speakingVendor && category
+    ? vendorText(t, speakingVendor, zh ? speakingVendor.display_name_zh : speakingVendor.display_name_en, camelCase(category))
     : ''
   const sentence = vendorSentence || (category ? t(`tasks.error_${category}`, text) : text)
-  const vendorDocs = vendor?.docs.errors
+  const vendorDocs = speakingVendor?.docs.errors
   // The agent may say "re-authorize" in prose without writing the link.
   // Offer it only for an enabled platform the server says is expired,
   // and only when this error names that platform and says it expired.
