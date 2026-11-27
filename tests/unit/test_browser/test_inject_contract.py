@@ -36,6 +36,7 @@ from app.browser.inject.errors import (
     StoreUnavailable,
     UnsupportedKernel,
 )
+from app.browser.machine_lock import MachineLock
 import app.browser.win_inspector as win_inspector_mod
 from app.browser.win_inspector import (
     InspectorError,
@@ -303,7 +304,29 @@ def test_yuehulian_inspector_is_the_shared_one():
     assert 'D:\\custom dir' in script
 
 
-def test_shared_inspector_uses_any_exe_script_callable(monkeypatch):
+def _not_busy_then_serving(url='ws://127.0.0.1:9229/devtools/browser/x'):
+    """A discovery fake: busy-check sees nothing, then the target."""
+    state = {'serving': False}
+
+    async def fake_discover(self):
+        if not state['serving']:
+            state['serving'] = True
+            return None  # the pre-open busy check: nothing serving
+        return url
+
+    return fake_discover
+
+
+def _fake_lock(monkeypatch, tmp_path):
+    """Point the session's machine lock at the test's tmp dir."""
+    monkeypatch.setattr(
+        win_inspector_mod,
+        'MachineLock',
+        lambda name: MachineLock(name, tmp_path),
+    )
+
+
+def test_shared_inspector_uses_any_exe_script_callable(monkeypatch, tmp_path):
     """The shared session needs no client knowledge beyond the callable
     that resolves ``$exe`` — any vendor can supply it."""
     scripts = []
@@ -312,12 +335,18 @@ def test_shared_inspector_uses_any_exe_script_callable(monkeypatch):
         scripts.append(script)
         return 'ok'
 
-    async def fake_discover(self):
-        return 'ws://127.0.0.1:9229/devtools/browser/x'
+    async def fake_pid(self):
+        return 4242
 
+    _fake_lock(monkeypatch, tmp_path)
     monkeypatch.setattr(win_inspector_mod, '_run_inspector_ps', fake_run)
     monkeypatch.setattr(
-        win_inspector_mod.InspectorSession, '_discover_ws', fake_discover
+        win_inspector_mod.InspectorSession,
+        '_discover_ws',
+        _not_busy_then_serving(),
+    )
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_probe_pid', fake_pid
     )
     insp = WinInspectorSession(lambda: "$exe='C:\\x\\app.exe';")
     asyncio.run(insp.open(4242))
@@ -327,7 +356,7 @@ def test_shared_inspector_uses_any_exe_script_callable(monkeypatch):
     assert "$env:ELECTRON_RUN_AS_NODE='1';" in scripts[0]
 
 
-def test_shared_inspector_raises_when_discovery_fails(monkeypatch):
+def test_shared_inspector_raises_when_discovery_fails(monkeypatch, tmp_path):
     """Negative control: no inspector websocket ⇒ InspectorError, not a
     silent session."""
     monkeypatch.setattr(
@@ -521,3 +550,188 @@ async def test_evaluate_gives_up_after_one_retry(monkeypatch):
     with pytest.raises(win_inspector_mod.InspectorError):
         await insp.evaluate('1+1')
     assert session.connects.count('ws://127.0.0.1:9229/new') == 1
+
+
+# ── P4: inspector sessions collide machine-wide ─────────────────────
+
+
+async def test_open_refuses_a_port_already_serving(monkeypatch, tmp_path):
+    """9229 already serves an inspector this process did not open →
+    refuse: never attach, never trigger, typed InspectorBusy. (Two
+    vendor clients / an outside probe share the one fixed port.)"""
+    _fake_lock(monkeypatch, tmp_path)
+    triggers = []
+
+    async def spy_trigger(pid):
+        triggers.append(pid)
+
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_trigger', spy_trigger
+    )
+
+    async def already_serving(self):
+        return 'ws://127.0.0.1:9229/devtools/browser/someone-else'
+
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession,
+        '_discover_ws',
+        already_serving,
+    )
+    insp = WinInspectorSession(lambda: "$exe='x';")
+    with pytest.raises(win_inspector_mod.InspectorBusy):
+        await insp.open(4242)
+    assert triggers == []  # never even tried to open our own
+    assert insp._ws_url is None  # and never attached
+
+
+async def test_open_pid_mismatch_never_closes_the_foreign_session(
+    monkeypatch, tmp_path
+):
+    """We attached to someone ELSE'S inspector (an outside probe takes
+    no lock of ours): drop the socket WITHOUT inspector.close() and
+    raise the typed busy error — closing their session was the live
+    incident."""
+    _fake_lock(monkeypatch, tmp_path)
+    monkeypatch.setattr(win_inspector_mod.InspectorSession, 'BUSY_RETRIES', 0)
+    exprs = []
+
+    async def recording_once(self, ws_url, expr, await_promise, timeout):
+        exprs.append(expr)
+        if expr == 'process.pid':
+            return 9999  # a DIFFERENT process
+        return None
+
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_evaluate_once', recording_once
+    )
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession,
+        '_trigger',
+        mock.AsyncMock(),
+    )
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession,
+        '_discover_ws',
+        _not_busy_then_serving(),
+    )
+    insp = WinInspectorSession(lambda: "$exe='x';")
+    with pytest.raises(win_inspector_mod.InspectorBusy) as ei:
+        await insp.open(4242)
+    assert 'pid 9999' in str(ei.value)
+    closer = "require('inspector').close()"
+    assert closer not in exprs  # never closed their session
+    assert insp._ws_url is None  # disconnected
+
+
+async def test_open_pid_match_proceeds(monkeypatch, tmp_path):
+    """Negative control: the SAME pid → the session opens and stays
+    attached (the checks guard, they do not block the happy path)."""
+    _fake_lock(monkeypatch, tmp_path)
+
+    async def same_pid(self):
+        return 4242
+
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_probe_pid', same_pid
+    )
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession,
+        '_trigger',
+        mock.AsyncMock(),
+    )
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession,
+        '_discover_ws',
+        _not_busy_then_serving(),
+    )
+    insp = WinInspectorSession(lambda: "$exe='x';")
+    await insp.open(4242)
+    assert insp._ws_url is not None
+    await insp.close()
+
+
+async def test_open_serialises_two_sessions_machine_wide(monkeypatch, tmp_path):
+    """Two concurrent open→close cycles (two vendors, two instances)
+    take the machine-wide lock in turn: one trigger fully finishes
+    before the other starts — proved with the REAL lock on the REAL
+    filesystem. Without the lock the two 0.1 s triggers interleave."""
+    _fake_lock(monkeypatch, tmp_path)
+    events = []
+
+    async def slow_trigger(self, pid):
+        self._asked_pid = pid  # the probe must confirm exactly this
+        events.append(f'start-{pid}')
+        await asyncio.sleep(0.1)
+        events.append(f'end-{pid}')
+
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_trigger', slow_trigger
+    )
+
+    async def per_session_discover(self):
+        # Not-busy on each session's FIRST call (the busy check), the
+        # target on later ones.
+        if not getattr(self, '_served', False):
+            self._served = True
+            return None
+        return 'ws://127.0.0.1:9229/devtools/browser/x'
+
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession,
+        '_discover_ws',
+        per_session_discover,
+    )
+
+    async def ok_pid(self):
+        return getattr(self, '_asked_pid', None)
+
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_probe_pid', ok_pid
+    )
+
+    async def cycle(insp, pid):
+        await insp.open(pid)
+        await insp.close()  # releases the machine lock
+
+    a = WinInspectorSession(lambda: "$exe='a';")
+    b = WinInspectorSession(lambda: "$exe='b';")
+    await asyncio.gather(cycle(a, 1), cycle(b, 2))
+    # Serialized: each span is contiguous — no start between another
+    # start and its end — and BOTH sessions ran.
+    current = None
+    started = set()
+    for e in events:
+        kind, pid = e.split('-', 1)
+        if kind == 'start':
+            assert current is None, f'interleaved triggers: {events}'
+            current = pid
+            started.add(pid)
+        else:
+            assert current == pid, f'interleaved triggers: {events}'
+            current = None
+    assert started == {'1', '2'}
+    assert current is None  # every span closed
+
+
+async def test_open_busy_retries_are_bounded(monkeypatch, tmp_path):
+    """Negative control: a persistently-busy port fails after the
+    bounded retries, not an endless loop."""
+    _fake_lock(monkeypatch, tmp_path)
+    attempts = {'n': 0}
+
+    async def always_busy(self):
+        attempts['n'] += 1
+        return 'ws://127.0.0.1:9229/devtools/browser/x'
+
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_discover_ws', always_busy
+    )
+
+    async def fast_sleep(_s):
+        return None
+
+    monkeypatch.setattr(win_inspector_mod.asyncio, 'sleep', fast_sleep)
+    insp = WinInspectorSession(lambda: "$exe='x';")
+    with pytest.raises(win_inspector_mod.InspectorBusy):
+        await insp.open(1)
+    assert attempts['n'] == win_inspector_mod.InspectorSession.BUSY_RETRIES + 1
