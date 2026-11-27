@@ -58,6 +58,35 @@ export const DOCS_HELP = {
     zh: 'https://docs.vibe-sellers.com/browsers/#店铺要用-chrome-内核',
     en: 'https://docs.vibe-sellers.com/en/browsers/#stores-must-use-a-chrome-kernel',
   },
+  /** A store-browser start failure the operator must fix (browsers page). */
+  browserLoginRequired: {
+    zh: 'https://docs.vibe-sellers.com/browsers/#error-login-required',
+    en: 'https://docs.vibe-sellers.com/en/browsers/#error-login-required',
+  },
+  browserClientNotRunning: {
+    zh: 'https://docs.vibe-sellers.com/browsers/#error-client-not-running',
+    en: 'https://docs.vibe-sellers.com/en/browsers/#error-client-not-running',
+  },
+  browserAccountMismatch: {
+    zh: 'https://docs.vibe-sellers.com/browsers/#error-account-mismatch',
+    en: 'https://docs.vibe-sellers.com/en/browsers/#error-account-mismatch',
+  },
+  browserApiNotEnabled: {
+    zh: 'https://docs.vibe-sellers.com/browsers/#error-api-not-enabled',
+    en: 'https://docs.vibe-sellers.com/en/browsers/#error-api-not-enabled',
+  },
+  browserPlanRequired: {
+    zh: 'https://docs.vibe-sellers.com/browsers/#error-plan-required',
+    en: 'https://docs.vibe-sellers.com/en/browsers/#error-plan-required',
+  },
+  browserStoreUnavailable: {
+    zh: 'https://docs.vibe-sellers.com/browsers/#error-store-unavailable',
+    en: 'https://docs.vibe-sellers.com/en/browsers/#error-store-unavailable',
+  },
+  browserStoreNotFound: {
+    zh: 'https://docs.vibe-sellers.com/browsers/#error-store-not-found',
+    en: 'https://docs.vibe-sellers.com/en/browsers/#error-store-not-found',
+  },
 
   // ── AI models (task errors) ──
   aiAuthFailed: {
@@ -222,6 +251,17 @@ const TASK_ERROR_HELP: Partial<Record<string, DocsHelpTopic>> = {
   billing_error: 'aiBalanceOrQuota',
   rate_limit: 'aiBalanceOrQuota',
   invalid_request: 'aiFaq',
+  // A terminal browser-start failure (app/browser/start_failure.py)
+  // records the inject taxonomy code, snake-cased, as the category.
+  // Every terminal category maps to its browsers-page entry.
+  unsupported_kernel: 'browserKernel',
+  login_required: 'browserLoginRequired',
+  client_not_running: 'browserClientNotRunning',
+  account_mismatch: 'browserAccountMismatch',
+  api_not_enabled: 'browserApiNotEnabled',
+  plan_required: 'browserPlanRequired',
+  store_unavailable: 'browserStoreUnavailable',
+  store_not_found: 'browserStoreNotFound',
 }
 
 /** The docs section for a failed task's error, or null when the docs

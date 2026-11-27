@@ -19,6 +19,7 @@ from app.models.store import Store
 from app.models.task import Task
 from app.plugins import registered_prompt_fragments
 from app.prompts import (
+    BROWSER_FAILURE_RULES_PROMPT,
     CATALOG_CLEANUP_PROMPT_L2,
     CATALOG_CLEANUP_PROMPT_L3,
     CATALOG_RESTRICTION_PROMPT_L2,
@@ -194,6 +195,7 @@ async def build_system_extra(
     parts: list[str] = [base]
     parts.append(detect_language_hint(task.title, task.description))
     parts.append(WAITING_INSTRUCTION_PROMPT)
+    parts.append(BROWSER_FAILURE_RULES_PROMPT)
 
     if store:
         emails = store_emails
