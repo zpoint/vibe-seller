@@ -55,14 +55,15 @@ import re
 
 from app.ai.agent_lateral_guard import (
     FORWARDER_DENY,
-    HOME_BARE_RE,
     HOME_DENY,
     OS_SETTINGS_DENY,
     PROC_DENY,
     SSH_DENY,
     SSH_DIR_DENY,
     WRAPPER_READ_DENY,
+    home_bare_re,
     home_deny_re,
+    normalize_path_text,
     os_settings_hit,
     port_forwarder_hit,
     process_inspection_hit,
@@ -244,7 +245,7 @@ def _mask(text: str, paths: tuple[str, ...]) -> str:
         if not path:
             continue
         p = str(path)
-        spellings = {p}
+        spellings = {p, p.replace('\\', '/')}
         if p.startswith(_HOME + os.sep):
             spellings.add('~' + p[len(_HOME) :])
             spellings.add('$HOME' + p[len(_HOME) :])
@@ -578,9 +579,12 @@ def _deny_bash(
     what = os_settings_hit(cmd)
     if what:
         return deny('os-settings', OS_SETTINGS_DENY, what)
-    m = HOME_BARE_RE.search(cmd) or home_deny_re(
+    # the home family matches in the ONE normal form — text and
+    # spellings normalised the same way (native-Windows proofs)
+    norm = normalize_path_text(cmd)
+    m = home_bare_re().search(norm) or home_deny_re(
         task_prefix, owned_session_names
-    ).search(cmd)
+    ).search(norm)
     if m:
         return deny('home', HOME_DENY.format(path=m.group(0)), m.group(0))
     # incident 3: reading a store wrapper (it embeds the task JWT).
@@ -636,10 +640,14 @@ def _deny_file_tool(
     what = process_inspection_hit(path)
     if what:
         return deny('process-inspect', PROC_DENY, what)
+    norm = normalize_path_text(path)
     if (
-        HOME_BARE_RE.search(path)
-        or home_deny_re(task_prefix, owned_session_names).search(path)
-        or under_closed_home(expanded, task_prefix, owned_session_names)
+        home_bare_re().search(norm)
+        or home_deny_re(task_prefix, owned_session_names).search(norm)
+        # the RAW path: under_closed_home expands the prefix forms
+        # itself (a pre-expanduser'd '~' resolves through the real
+        # user home and would miss a swapped home in the seams)
+        or under_closed_home(path, task_prefix, owned_session_names)
     ):
         return deny('home', HOME_DENY.format(path=path), path)
     if tool_name in ('Edit', 'Write', 'MultiEdit', 'NotebookEdit'):
@@ -654,9 +662,10 @@ def _deny_file_tool(
             # task's own mailbox paths are masked first — a script
             # that queries them is the legitimate email flow.
             body = _mask(content, tuple(str(p) for p in readable if p))
-            m = HOME_BARE_RE.search(body) or home_deny_re(
+            norm_body = normalize_path_text(body)
+            m = home_bare_re().search(norm_body) or home_deny_re(
                 task_prefix, owned_session_names
-            ).search(body)
+            ).search(norm_body)
             if m:
                 return deny(
                     'home', HOME_DENY.format(path=m.group(0)), m.group(0)

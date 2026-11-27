@@ -40,7 +40,6 @@ accident.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import re
 
@@ -336,47 +335,88 @@ _HOME_CLOSED_CHILDREN = (
 )
 
 
-def _home_spellings() -> tuple[str, ...]:
-    home = str(Path(VIBE_SELLER_DIR).resolve())
-    out = {home}
-    if home.startswith(_HOME + os.sep):
-        rest = home[len(_HOME) :]
-        out.add('~' + rest)
-        out.add('$HOME' + rest)
-        out.add('%USERPROFILE%' + rest.replace('/', os.sep))
-    return tuple(sorted(out))
+# ── ONE normal form for every path the home family matches ────────
+# Found by the native-Windows proofs, twice: the wrapper matcher
+# flattened the command's backslashes but not its regex spellings
+# (proof 3), and under_closed_home lstripped only '/' so backslash-
+# joined children (\data, \vendors) passed. Path normalisation had
+# been done ad hoc per matcher; now ONE helper is applied to BOTH the
+# command / Write content AND the home spelling, and every home-family
+# matcher runs in that form.
 
 
-_HOME_SPELLINGS = _home_spellings()
+def normalize_home(path: str) -> str:
+    """The normal form of an absolute path (no prefix expansion)."""
+    return re.sub(r'(?<!:)/{2,}', '/', path.replace('\\', '/')).lower()
+
+
+def normalize_path_text(text: str) -> str:
+    """The single normal form for path matching.
+
+    - separators become ``/`` and runs collapse (``http://`` survives)
+    - case folds the Windows way: a differently-cased spelling of the
+      same directory is the same file there, and on POSIX it is a path
+      that does not exist — matching it is harmless either way
+    - ``~/``, ``$HOME/`` and ``%USERPROFILE%/`` expand to the user's
+      home, so every spelling of the vibe home reaches the matchers as
+      its absolute form (the multi-spelling regexes collapse to one)
+    """
+    t = text.replace('\\', '/')
+    t = re.sub(r'(?<!:)/{2,}', '/', t)
+    t = t.replace('%USERPROFILE%/', _HOME_NORM + '/')
+    t = t.replace('$HOME/', _HOME_NORM + '/')
+    t = t.replace('~/', _HOME_NORM + '/')
+    return t.lower()
+
+
+#: the user's home, normalised (prefix expansion target).
+_HOME_NORM = normalize_home(str(Path.home()))
+
+#: the vibe home, normalised — the ONE spelling every matcher uses.
+_NORM_HOME = normalize_home(str(Path(VIBE_SELLER_DIR).resolve()))
+
+
+def norm_home_now() -> str:
+    """The vibe home's normal form, read at CALL time (test seam)."""
+    return _NORM_HOME
+
 
 # <home> bare (end of token, a trailing '/', or a separator right after
 # the slash), or <home> followed by a CLOSED child. Paths into the open
 # children (tasks/stores/…) and into unknown top-level names do not
 # match: the shared workspace is the task's own, and a future home
 # entry gets its own rule when it appears.
-HOME_BARE_RE = re.compile(
-    '(?:'
-    + '|'.join(re.escape(s) for s in _HOME_SPELLINGS)
-    + r')(?:(?=$|[\s\'";|&)])|(?=/($|[\s\'";|&)])))'
-)
-_HOME_CLOSED_RE_TEMPLATE = (
-    '(?:'
-    + '|'.join(re.escape(s) for s in _HOME_SPELLINGS)
-    + r')/(?:data|profiles\.json|r|vendors)(?=$|[/\s\'";|&)])'
-)
-# bh-tmp is closed ONLY for other sessions: browser-use writes this
-# task's screenshots to ``<home>/bh-tmp/<session>/``. The session kinds
-# a task really gets (derived from the generated wrappers, D-C3-9):
-# the store default ``{slug}-{task8}``, worker slots
-# ``{slug}-{task8}-w{N}`` and the store-less ``web-{task8}`` all carry
-# the task's 8-char id prefix; the store's ``{slug}-aux`` session does
-# NOT (the wrapper assigns it that exact name in task mode), so it is
-# exempted by exact owned name instead.
-_HOME_BH_TMP_RE_TEMPLATE = (
-    '(?:'
-    + '|'.join(re.escape(s) for s in _HOME_SPELLINGS)
-    + r')/bh-tmp/(?![^/\s\'"]*(?:{owned}))'
-)
+def _home_bare_re(home: str) -> re.Pattern:
+    return re.compile(
+        re.escape(home) + r'(?:(?=$|[\s\'";|&)])|(?=/($|[\s\'";|&)])))'
+    )
+
+
+def _closed_re_for(home: str) -> str:
+    return (
+        re.escape(home) + r'/(?:data|profiles\.json|r|vendors)'
+        r'(?=$|[/\s\'";|&)])'
+    )
+
+
+def _bh_tmp_re_for(home: str) -> str:
+    # bh-tmp is closed ONLY for other sessions: browser-use writes
+    # this task's screenshots to ``<home>/bh-tmp/<session>/``. The
+    # session kinds a task really gets (D-C3-9) all carry the task's
+    # 8-char id prefix; the store's ``{slug}-aux`` session does NOT,
+    # so it is exempted by exact owned name instead.
+    return re.escape(home) + r'/bh-tmp/(?![^/\s\'"]*(?:{owned}))'
+
+
+HOME_BARE_RE = _home_bare_re(_NORM_HOME)
+
+
+def home_bare_re() -> re.Pattern:
+    """The bare-home regex, read at CALL time (test seam — a direct
+    ``from … import`` freezes the module-level original)."""
+    return _home_bare_re(norm_home_now())
+
+
 _HOME_RE_CACHE: dict[tuple, re.Pattern] = {}
 
 
@@ -384,18 +424,23 @@ def home_deny_re(
     task_prefix: str, owned_session_names: frozenset[str] = frozenset()
 ) -> re.Pattern:
     """The home-deny regex for one task (cached by prefix + names)."""
-    key = (task_prefix, tuple(sorted(owned_session_names)))
+    key = (
+        task_prefix,
+        tuple(sorted(owned_session_names)),
+        norm_home_now(),
+    )
     rx = _HOME_RE_CACHE.get(key)
     if rx is None:
-        owned = [re.escape(task_prefix)] if task_prefix else []
-        owned += [re.escape(n) for n in sorted(owned_session_names)]
+        owned = [re.escape(task_prefix.lower())] if task_prefix else []
+        owned += [re.escape(n.lower()) for n in sorted(owned_session_names)]
         # Nothing owned (unit calls without a task): every bh-tmp child
         # is another session's — but an EMPTY lookahead would deny even
         # the literal text, so fall back to a never-matching pattern.
+        home = norm_home_now()
         pattern = (
-            _HOME_CLOSED_RE_TEMPLATE
+            _closed_re_for(home)
             + '|'
-            + _HOME_BH_TMP_RE_TEMPLATE.format(owned='|'.join(owned) or r'(?!)')
+            + _bh_tmp_re_for(home).format(owned='|'.join(owned) or r'(?!)')
         )
         rx = re.compile(pattern)
         _HOME_RE_CACHE[key] = rx
@@ -411,20 +456,24 @@ def under_closed_home(
 
     ``bh-tmp`` children carrying this task's id prefix, or named
     exactly one of its owned sessions (the ``{slug}-aux`` kind that
-    carries no prefix), are open; every other session's is not.
+    carries no prefix), are open; every other session's is not. The
+    path is compared in the ONE normal form — separators, case and
+    duplicate slashes alike (proof: ``\\data`` used to pass a
+    ``lstrip('/')``).
     """
-    home = str(Path(VIBE_SELLER_DIR).resolve())
-    if not expanded.startswith(home):
+    home = norm_home_now()
+    norm = normalize_path_text(expanded)
+    if not norm.startswith(home):
         return False
-    rest = expanded[len(home) :].lstrip('/').replace('\\', '/')
+    rest = norm[len(home) :].lstrip('/')
     if not rest:
         return True
     first = rest.split('/', 1)[0]
     if first == 'bh-tmp':
         session = rest.split('/', 2)[1] if '/' in rest else ''
         return not (
-            (task_prefix and task_prefix in session)
-            or session in owned_session_names
+            (task_prefix and task_prefix.lower() in session)
+            or session in {n.lower() for n in owned_session_names}
         )
     return first in _HOME_CLOSED_CHILDREN
 
@@ -440,11 +489,16 @@ def under_closed_home(
 # is denied. Path checks (Read/Grep/Glob tools) go through
 # :func:`under_closed_home`, where ``bin`` is simply closed: no agent
 # tool ever needs to read a wrapper.
-_WRAPPER_FILE_RE = re.compile(
-    '(?:'
-    + '|'.join(re.escape(s) for s in _HOME_SPELLINGS)
-    + r')/bin/[^\s\'";|&)]*?/(?:browser-use|_guard)'
-)
+def _wrapper_file_re(home: str) -> re.Pattern:
+    """The wrapper-file regex, from the ONE normalised home spelling
+    (the command text is normalised before matching — both sides in
+    the same form)."""
+    return re.compile(
+        re.escape(home) + r'/bin/[^\s\'";|&)]*?/(?:browser-use|_guard)'
+    )
+
+
+_WRAPPER_FILE_RE = _wrapper_file_re(_NORM_HOME)
 # Tokens that hand the command position to what follows them. A
 # wrapper after one of these (possibly behind flags, numbers or env
 # assignments) is being RUN.
@@ -514,12 +568,15 @@ def wrapper_read_hit(text: str) -> str | None:
 
     Returns the matched path when the occurrence reads or copies the
     wrapper; ``None`` when every occurrence is an execution of it.
+    Runs in the ONE normal form: the text and the regex both
+    normalised (proof 3 found the flattened-text/raw-regex mismatch).
     """
     if '/bin/' not in text and '\\bin\\' not in text:
         return None
-    flat = text.replace('\\', '/')
-    for m in _WRAPPER_FILE_RE.finditer(flat):
-        if _command_position_before(flat, m.start()):
+    norm = normalize_path_text(text)
+    rx = _wrapper_file_re(norm_home_now())
+    for m in rx.finditer(norm):
+        if _command_position_before(norm, m.start()):
             continue
         return m.group(0)
     return None

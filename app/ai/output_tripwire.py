@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import re
 
-from app.ai.agent_lateral_guard import _HOME_SPELLINGS
+from app.ai.agent_lateral_guard import norm_home_now, normalize_path_text
 from app.ai.vendor_guard import (
     _PROFILE_DB_SEGMENT_RE,
     dir_name_hits,
@@ -51,6 +51,7 @@ TRIP_REASON = (
     'believe this is a mistake, report it to the user.'
 )
 
+
 # Incident 3's backstop: a result that PRINTS a vibe-seller server-state
 # path (the vendors tree, profiles.json, the data dir) means the agent
 # walked somewhere the pre-tool guard refuses — the output is the
@@ -58,11 +59,12 @@ TRIP_REASON = (
 # are exempt: ``vibe_seller_email_info`` hands exactly those paths to
 # the agent, so they are normal output, never a leak. ``bin`` is not
 # matched: wrapper paths appear in ordinary browser tooling output.
-_HOME_LEAK_RE = re.compile(
-    '(?:'
-    + '|'.join(re.escape(s) for s in _HOME_SPELLINGS)
-    + r')/(?:vendors|profiles\.json|data(?!/email_dbs))(?=$|[/\s\'";|&)])'
-)
+def _home_leak_re(home: str) -> re.Pattern:
+    """Built from the ONE normalised home; text is normalised too."""
+    return re.compile(
+        re.escape(home)
+        + r'/(?:vendors|profiles\.json|data(?!/email_dbs))(?=$|[/\s\'";|&)])'
+    )
 
 
 def _scan_paths(text: str) -> str | None:
@@ -78,7 +80,7 @@ def _scan_paths(text: str) -> str | None:
     m = _PROFILE_DB_SEGMENT_RE.search(text)
     if m:
         return f'{m.group(0)!r} (browser profile database)'
-    m = _HOME_LEAK_RE.search(text)
+    m = _home_leak_re(norm_home_now()).search(normalize_path_text(text))
     if m:
         return f'{m.group(0)!r} (vibe-seller server state)'
     return None

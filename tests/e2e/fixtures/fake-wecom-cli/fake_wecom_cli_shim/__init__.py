@@ -10,16 +10,25 @@ that launches THIS venv's python.
 
 The behaviour is not duplicated: the shim calls straight through to
 :func:`tests.e2e.fake_wecom_cli.main`, the same code the POSIX stand-in
-runs. It therefore only works inside an environment where the main
-repo is importable — which is every environment that can build the
-exe in the first place (the server's own clone venv).
+runs. The console-script entry point does NOT run with the repo root
+on ``sys.path`` (only the editable ``app`` package is guaranteed
+importable), so the shim adds the root itself — the fixture lives in
+the repo tree, five levels up from this file.
 """
 
 import sys
 
 
 def console_main() -> int:
-    from tests.e2e.fake_wecom_cli import main
+    try:
+        from tests.e2e.fake_wecom_cli import main
+    except ImportError:
+        from pathlib import Path
+
+        root = str(Path(__file__).resolve().parents[5])
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        from tests.e2e.fake_wecom_cli import main
 
     return main(sys.argv[1:])
 

@@ -14,6 +14,7 @@ import re
 import pytest
 
 from app.ai import bash_safety
+import app.ai.agent_lateral_guard as alg
 from app.ai.agent_lateral_guard import under_closed_home
 from app.ai.output_tripwire import scan_tool_result
 from app.ai.vendor_guard import vendor_guard_deny
@@ -292,7 +293,117 @@ class TestRunawayShapes:
             )
 
 
-# ── the corpus: ordinary task commands, allowed ────────────────────
+class TestWindowsShapedPaths:
+    """Native-Windows paths (found by the c3 proofs, twice).
+
+    The wrapper matcher flattened the command but not its regex; then
+    under_closed_home lstripped only '/' — backslash-joined children
+    passed. ONE normal form now serves both sides of every home-family
+    matcher. These tests pin every deny category across the separator
+    spellings an agent can write: forward, backslash, mixed, doubled,
+    and the ~ / $HOME / %USERPROFILE% prefixes.
+    """
+
+    USER_HOME = 'C:/Users/Administrator'
+    WIN_HOME = 'c:/users/administrator/smoke-home'
+
+    @pytest.fixture(autouse=True)
+    def _win_home(self, fake_vendor, monkeypatch):
+        # the ONE seam the normal form gives: two module attrs, read
+        # at call time by every matcher (bare, closed, bh-tmp, wrapper,
+        # under_closed_home, the tripwire leak line)
+        monkeypatch.setattr(alg, '_NORM_HOME', self.WIN_HOME)
+        monkeypatch.setattr(alg, '_HOME_NORM', self.USER_HOME.lower())
+        yield
+
+    def _styled(self, rest: str, style: str) -> str:
+        home = self.USER_HOME
+        full = home + '/smoke-home' + rest
+        if style == 'fwd':
+            return full
+        if style == 'backslash':
+            return full.replace('/', '\\')
+        if style == 'mixed':
+            return (
+                home.replace('/', '\\')
+                + '/smoke-home'
+                + rest.replace('/', '\\')
+            )
+        if style == 'double':
+            return home + '/smoke-home' + rest.replace('/', '//')
+        if style == 'tilde':
+            return '~' + '/smoke-home' + rest
+        if style == 'dollar':
+            return '$HOME' + '/smoke-home' + rest
+        assert style == 'pct'
+        return '%USERPROFILE%' + '/smoke-home' + rest
+
+    STYLES = ('fwd', 'backslash', 'mixed', 'double', 'tilde', 'dollar', 'pct')
+
+    #: every deny category: (rest-of-path, command template)
+    DENY_CATEGORIES = {
+        'data-db': ('/data/vibe_seller.db', 'type {p}'),
+        'vendors-state': (
+            '/vendors/ziniao/login-state.json',
+            'cat {p}',
+        ),
+        'profiles-json': ('/profiles.json', 'Get-Content {p}'),
+        'other-session-bhtmp': (
+            '/bh-tmp/other-session/shot.png',
+            'cat {p}',
+        ),
+        'wrapper-read': ('/bin/s/browser-use', 'cat {p}'),
+        'bare-home': ('', 'ls {p}'),
+        'ssh-config': ('/../../../.ssh/config', 'cat {p}'),
+    }
+
+    @pytest.mark.parametrize('style', STYLES)
+    @pytest.mark.parametrize('category', DENY_CATEGORIES)
+    def test_every_category_every_style_denied(self, category, style):
+        rest, tpl = self.DENY_CATEGORIES[category]
+        cmd = tpl.format(p=self._styled(rest, style))
+        assert denied(cmd), (category, style, cmd)
+
+    @pytest.mark.parametrize('style', STYLES)
+    def test_wrapper_execution_every_style_allowed(self, style):
+        cmd = self._styled('/bin/s/browser-use', style) + ' --worker 1'
+        assert not denied(cmd), (style, cmd)
+
+    @pytest.mark.parametrize('style', STYLES)
+    def test_workspace_open_children_every_style_allowed(self, style):
+        cmd = 'cat ' + self._styled('/stores/x/STORE.md', style)
+        assert not denied(cmd), (style, cmd)
+
+    @pytest.mark.parametrize('style', STYLES)
+    def test_read_tool_every_style_denied(self, style):
+        assert read_denied(self._styled('/bin/s/browser-use', style)), style
+        assert read_denied(self._styled('/data/vibe_seller.db', style)), style
+
+    @pytest.mark.parametrize('style', STYLES)
+    def test_tripwire_every_style_trips(self, style):
+        p = self._styled('/data/vibe_seller.db', style)
+        assert scan_tool_result(f'leaked {p} contents') is not None, style
+        p = self._styled('/profiles.json', style)
+        assert scan_tool_result(f'db {p} read ok') is not None, style
+
+    def test_windows_mailbox_flat_mask(self):
+        # a mailbox path written with forward slashes is still masked
+        # (the legitimate email flow), not re-denied as a data/ child
+        mailbox = self.USER_HOME + '\\smoke-home\\data\\email_dbs\\a.db'
+        assert (
+            vendor_guard_deny(
+                'Bash',
+                {
+                    'command': (
+                        'sqlite3 C:/Users/Administrator/smoke-home/data/'
+                        'email_dbs/a.db "select 1"'
+                    )
+                },
+                task_id=TASK,
+                readable=(mailbox,),
+            )
+            is None
+        )
 
 
 class TestCorpus:
@@ -531,3 +642,20 @@ class TestTripwireFalsePositiveCorpus:
             )
             is not None
         )
+
+
+class TestIncident3ReadToolAndPorts:
+    """The Read tool lifting the wrapper's JWT, and runtime vendor
+    ports (BitBrowser's 54345/54346 once its spec declares them)."""
+
+    def test_read_tool_on_wrapper_denied(self, fake_vendor):
+        assert read_denied(f'{VH}/bin/store-a/browser-use')
+        assert read_denied(f'{VH}/bin/_web/browser-use')
+        assert read_denied(f'{VH}/bin')
+
+    def test_incident3_runtime_vendor_ports(self):
+        for port in (54345, 54346):
+            assert denied(
+                f'curl -s http://127.0.0.1:{port}/status',
+                extra_vendor_ports=frozenset({port}),
+            )
