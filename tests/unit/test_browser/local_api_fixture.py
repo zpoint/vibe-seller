@@ -10,6 +10,23 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
+class NoPaidGate:
+    """A real vendor's explicit declaration that it HAS no paid gate.
+
+    A registered vendor's CONTRACT must never silently omit
+    ``paid_gate_routes``: either it documents the paid-gate shape, or it
+    declares ``paid_gate_routes=NO_PAID_GATE`` with a reason (e.g. "the
+    vendor's local API has no paid tier"). Skipping the check by
+    omission is refused by the convention check.
+    """
+
+    reason: str
+
+
+NO_PAID_GATE = NoPaidGate(reason="the vendor's local API has no paid tier")
+
+
+@dataclass(frozen=True)
 class ContractFixture:
     """Everything the contract suite runs against one vendor.
 
@@ -29,13 +46,17 @@ class ContractFixture:
             ``<vendor_key>_<field>``); the auth test asserts the value
             rides the request per the client's declared auth mode.
         logged_out_routes: routes whose list answer is the vendor's
-            documented logged-out shape → ``LoginRequired``. Optional;
-            providing it joins the logged-out shape test.
+            documented logged-out shape → ``LoginRequired``; for a
+            REGISTERED (real) vendor this is REQUIRED (the
+            "logged-out ≠ empty list" guarantee is the point of the
+            suite — it may never be skipped by omission).
         paid_gate_routes: routes whose list answer is the vendor's
-            documented paid-gate shape → ``ApiNotEnabled``. Optional.
+            documented paid-gate shape → ``ApiNotEnabled``; for a
+            REGISTERED (real) vendor this is required — either routes
+            or the explicit ``NO_PAID_GATE`` sentinel.
         unknown_ref_routes: routes whose open answer is the vendor's
-            documented unknown-ref shape → ``StoreNotFound``.
-            Optional.
+            documented unknown-ref shape → ``StoreNotFound``; for a
+            REGISTERED (real) vendor this is REQUIRED.
     """
 
     client_cls: type
@@ -44,5 +65,5 @@ class ContractFixture:
     expected_cdp_port: int
     auth_env: dict = field(default_factory=dict)
     logged_out_routes: dict | None = None
-    paid_gate_routes: dict | None = None
+    paid_gate_routes: 'dict | NoPaidGate | None' = None
     unknown_ref_routes: dict | None = None

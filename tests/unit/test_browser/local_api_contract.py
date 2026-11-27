@@ -64,7 +64,9 @@ from app.browser.local_api_client import (
     PaginationOverflow,
     opened_from_ws,
 )
-from tests.unit.test_browser.local_api_fixture import ContractFixture
+from tests.unit.test_browser.local_api_fixture import (
+    ContractFixture,
+)
 import tests.unit.test_browser.local_api_vendors as vendors_pkg
 
 pytestmark = pytest.mark.unit
