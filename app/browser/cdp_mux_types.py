@@ -14,6 +14,21 @@ from websockets.asyncio.server import ServerConnection
 DUPLICATE_CLIENT_CLOSE_CODE = 4409
 
 
+class UpstreamIdentityMismatch(Exception):
+    """The upstream endpoint answers, but with a DIFFERENT browser.
+
+    Raised by the reconnect path when ``/json/version`` on the target
+    host:port reports a browser GUID other than the one this proxy
+    recorded at first connect. Vendors rotate debugging ports (Ziniao
+    especially), so the port can be re-served by ANOTHER store's fresh
+    browser while ours is down — attaching to it would drive the wrong
+    store. The reconnect loop treats this as "the upstream is gone",
+    not as a transient error: no retry, straight to the relaunch hook.
+    Lives here (like the close code) so the mixins can share it
+    without a circular import.
+    """
+
+
 def short_cid(client_id: str, width: int = 8) -> str:
     """Log-friendly client id that still distinguishes worker slots.
 

@@ -326,6 +326,8 @@ class WinChromeBackend(BrowserBackend):
             target_host=LOCALHOST,
             download_dir=dl_win,
             keep_last_page=False,
+            instance_id=browser_config.get('vibe_instance_id'),
+            listen_sock=browser_config.get('proxy_socket'),
         )
         await self._proxy.start()
 

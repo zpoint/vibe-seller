@@ -24,6 +24,8 @@ from pathlib import Path
 import tempfile
 import threading
 
+from app.config import VIBE_SELLER_DIR
+
 # Serialises read-modify-write across threads (see module docstring).
 # Not reentrant: ``mutate`` must not call :func:`update_json_file`.
 _WRITE_LOCK = threading.Lock()
@@ -85,3 +87,27 @@ def update_json_file(path: Path, mutate: Callable[[dict], None]) -> None:
             except OSError:
                 pass
             raise
+
+
+def atomic_write_json(path, data):
+    """Write JSON atomically via tempfile + rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, str(path))
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def read_mcp_config():
+    """Read vibe-seller's ``.mcp.json``, empty config if missing."""
+    mcp_path = VIBE_SELLER_DIR / '.mcp.json'
+    if mcp_path.exists():
+        return json.loads(mcp_path.read_text())
+    return {'mcpServers': {}}
