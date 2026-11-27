@@ -62,6 +62,14 @@ WENMAI_VENDOR = BrowserVendorSpec(
     kind=KIND_ANTIDETECT,
     platforms=_SUPPORTED_PLATFORMS,
     account_cardinality=CARDINALITY_SINGLE,
+    # C3's task-agent guard: the vendor's on-disk data (the client's
+    # userData tree carries the logged-in session and every env's
+    # profile — ``WenMaiAIBrowser`` covers the Windows %APPDATA% dir,
+    # the macOS Application Support dir and the userData's own
+    # ``WenMaiAIBrowser`` subtree in one distinctive name) and its
+    # local API port (3980, the Express server every launch runs).
+    private_paths=('WenMaiAIBrowser',),
+    local_ports=(3980,),
     credential_fields=(
         VendorCredentialField('company', 'settings.wenmaiCompany'),
         VendorCredentialField('username', 'settings.wenmaiUsername'),
