@@ -1,14 +1,18 @@
 """稳卖 (Wenmai) — the contract fixture for the real vendor.
 
 The verified live shapes (client v5.1.0715, 2026-11-27), placeholders
-only. 稳卖 has NO paid gate on its local API (the API runs on every
-launch) — no ``paid_gate_routes`` for that reason.
+only. 稳卖 has NO paid gate on its local API — declared with the
+NO_PAID_GATE sentinel (the API runs on every launch; there is no plan
+to buy and no setting to enable).
 
 Placeholders only: acme / demo-store / 100000000001 / 203.0.113.10.
 """
 
 from app.browser.adapters.wenmai_client import RealWenmaiClient
-from tests.unit.test_browser.local_api_fixture import ContractFixture
+from tests.unit.test_browser.local_api_fixture import (
+    ContractFixture,
+    NoPaidGate,
+)
 
 _ROWS = [
     # ipId null = no device bound → the no_device unavailability token.
@@ -105,4 +109,12 @@ CONTRACT = ContractFixture(
         ),
         ('POST', '/openEnv'): (200, _UNKNOWN_REF),
     },
+    # 稳卖 has NO paid gate on its local API: the API (Express, port
+    # 3980) runs on every client launch — no plan to buy, no setting
+    # to enable. Declared with the sentinel so B10's enforcement sees
+    # an explicit decision, not an omission.
+    paid_gate_routes=NoPaidGate(
+        reason='the 稳卖 local API (Express, port 3980) runs on every '
+        'client launch — no plan to buy, no setting to enable'
+    ),
 )

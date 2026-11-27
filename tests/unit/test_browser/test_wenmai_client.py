@@ -118,7 +118,9 @@ async def test_list_stores_carries_device_bound_state(api):
     # The reason is a stable TOKEN the frontend translates; the
     # vendor's own words ride in the detail.
     assert by_name['unbound-store'].unavailable_reason == 'no_device'
-    assert by_name['unbound-store'].unavailable_detail == '未绑定设备'
+    # W4-3: no vendor field carries its own wording — the detail is
+    # empty and the TOKEN is what the frontend translates.
+    assert by_name['unbound-store'].unavailable_detail == ''
 
 
 async def test_list_stores_logged_out_is_login_required(api):

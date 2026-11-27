@@ -186,7 +186,12 @@ class RealWenmaiClient(LocalApiClient):
                     ref=str(e['id']),
                     available=bound,
                     unavailable_reason=('' if bound else UNAVAILABLE_NO_DEVICE),
-                    unavailable_detail='' if bound else '未绑定设备',
+                    # W4-3: the vendor's own wording would ride in
+                    # unavailable_detail; the payload has no such
+                    # field, and a hard-coded literal would show in
+                    # the other-language UI (the token is what the
+                    # frontend translates).
+                    unavailable_detail='',
                 )
             )
         return out
@@ -313,7 +318,7 @@ class RealWenmaiClient(LocalApiClient):
         """The API token answers this — getUserInfo, not the list.
 
         (The base's one-page list probe would also work, but the
-        account-mismatch check needs companyName anyway.)
+        account check needs companyName anyway.)
         """
         info = await self._user_info()
         return bool(info and info.get('token'))
@@ -332,14 +337,15 @@ class RealWenmaiClient(LocalApiClient):
         if info is None:
             raise ClientNotRunning('the 稳卖 client API is not answering')
         if info.get('token'):
-            # R8 case C (known issue, user decision 2026-11-27): the
-            # client can be signed into ANOTHER sub-account of the SAME
-            # company behind our back. Nothing breaks functionally —
-            # envs open by id, and the companyName check below only
-            # guards a DIFFERENT company — but a sub-account switch
+            # R8 (known issue, user decision 2026-11-27): the client
+            # can be signed into another account behind our back — a
+            # same-company sub-account switch or a different company.
+            # The companyName check below only DETECTS a different
+            # company (it never logs anyone out); a sub-account switch
             # silently changes which stores are visible/authorised
-            # (store permissions are per member). The user configures
-            # the client themselves; may be fixed later.
+            # (store permissions are per member) and is NOT detected.
+            # The user configures the client themselves; may be fixed
+            # later.
             current = str(info.get('companyName') or '').strip()
             if self._company and current and current != self._company.strip():
                 raise AccountMismatch(

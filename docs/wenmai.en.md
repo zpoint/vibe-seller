@@ -61,8 +61,6 @@ If any Wenmai store is already bound on this machine, adding a new account is re
 
 To switch accounts: delete every Wenmai store under Settings → Stores, then click [+] and bind the stores again. All Wenmai stores on this machine share the one account.
 
-If the client is currently logged into a **different** account than the saved one (someone switched it by hand), binding and tasks report "the client is logged into a different account" and never log the other session out — log out in the Wenmai client, or re-save the matching credentials.
-
 ## Auto-login
 
 If the client was closed or its session expired, Vibe Seller logs back in with the saved enterprise login, so a task never stalls on "not logged in". Configure the enterprise login once and you never log into the Wenmai client by hand.
@@ -83,7 +81,6 @@ A store browser you closed by hand reopens the same way. When a task ends, Vibe 
 |---|---|
 | Not logged in — log into the 稳卖 client, then Refresh | No enterprise login configured, or auto-login failed. Check the company name / username / password in [+] and that the client can log in by hand. |
 | Couldn't start the 稳卖 client — open it manually (or check it's installed), then Refresh | Vibe Seller could not find / launch the client. Open the Wenmai client once by hand, or confirm the install per [Download and install](#download-and-install). |
-| The 稳卖 client is logged into a different account | The client's session is not the saved account. Log out in the client, or re-save the matching credentials. |
 | 当前店铺未绑定可用设备，无法启动 — 在稳卖客户端给这个店铺绑定设备 | The store has no device bound in Wenmai. Bind one in the Wenmai client, then retry. |
 | …Firefox kernel… only Chromium-kernel stores are supported | The store runs a Firefox kernel in Wenmai, which exposes no debug port. Switch it to a Chromium kernel in the Wenmai client. |
 | 稳卖一台机器只支持一个账号… | See [One account per machine](#one-account-per-machine). |
