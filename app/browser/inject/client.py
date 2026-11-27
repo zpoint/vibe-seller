@@ -123,6 +123,35 @@ class InjectClient(ABC):
         """
         return None
 
+    async def env_was_open(self, ref: str) -> bool | None:
+        """Whether ``ref`` was ALREADY open, checked just before open.
+
+        The attach-ownership signal for the C4 teardown rule: an env
+        that was already open when ``open_store`` ran (a profile the
+        user opened by hand, or another server's) is one the engine
+        ATTACHED to — neither ``stop()`` nor the start-failure funnel
+        may close it.
+
+        FINAL contract for an implementation (the vendor lanes wire
+        this in; the registry contract test requires it of every
+        vendor whose open ATTACHES):
+
+        - return ``True`` — the env was already open (the engine
+          attached; it is never ours to close);
+        - return ``False`` — the env was not running (our open
+          spawns it; it is ours);
+        - RAISE — or hang; the engine bounds the call — when the
+          vendor's status API cannot answer. The engine then treats
+          the env as NOT ours (losing a hand-opened window is worse
+          than leaving an env open) and logs one WARNING.
+
+        The base default here returns ``None`` = NOT IMPLEMENTED:
+        the engine treats such an env as ours (the pre-C4 teardown),
+        which only a vendor declared NON-attaching
+        (``reopens_hand_opened`` on its spec) may rely on.
+        """
+        return None
+
     @abstractmethod
     async def close_store(self, ref: str) -> None:
         """Close a store env (best-effort; never raises for cleanup)."""
