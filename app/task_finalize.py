@@ -55,7 +55,9 @@ async def finalize_terminal_state(
     included). Reaping runs only when the task actually landed in a
     terminal state: a WAITING park must keep its browser daemon.
     """
-    await _finalize_terminal_state_impl(task_id, my_session, is_followup)
+    await _finalize_terminal_state_impl(
+        task_id, my_session, is_followup=is_followup
+    )
     try:
         async with async_session() as db:
             task = await db.get(Task, task_id)
