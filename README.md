@@ -65,8 +65,8 @@ flowchart LR
 相比常见的自动化工具，Vibe Seller 更贴近卖家的实际工作方式，也更贴近当前 AI 真正能做好的水平：从设计上就由 AI 驱动，内置 Skill，多店铺隔离，全程本地部署。浏览器操作基于 [browser-use](https://github.com/browser-use/browser-use)，而不是靠截图猜坐标——比让 AI 从零摸索页面快得多，也省 token 得多。
 
 - **开箱即用，无需引导**——亚马逊（全站点）、Noon 等平台内置 Skill，覆盖卖家真正需要的操作：报表与对账单导出、Listing 上架与更新、广告调优。创建任务后，系统自动打开这家店的浏览器，AI 直接上手操作，通常一次就能完成，不需要逐步引导。
-- **不挑浏览器**——紫鸟、悦互联、比特、AdsPower、稳卖等防关联浏览器和普通 Chrome 都是一等公民，可以按店铺分别选择。AI 通过 CDP 直接控制浏览器里已登录的店铺环境，不是用 Playwright 驱动裸 Chrome，也不是按界面坐标点击，因此风控风险低、运行稳定。各自的下载、配置与选型见 [浏览器](https://docs.vibe-sellers.com/browsers/)。
-- **模型可自由切换**——底层使用 Claude Code CLI，凡是兼容 Anthropic 协议的供应商都能接入：Claude、DeepSeek、Kimi、MiniMax、智谱 GLM、通义千问。在设置里切换即可，不需要改代码；API Key 由你自己充值。
+- **不挑浏览器**——**紫鸟、悦互联、比特、AdsPower、稳卖**等防关联浏览器和**普通 Chrome** 都是一等公民，可以按店铺分别选择。AI 通过 CDP 直接控制浏览器里已登录的店铺环境，不是用 Playwright 驱动裸 Chrome，也不是按界面坐标点击，因此风控风险低、运行稳定。各自的下载、配置与选型见 [浏览器](https://docs.vibe-sellers.com/browsers/)。
+- **模型可自由切换**——底层使用 Claude Code CLI，凡是兼容 Anthropic 协议的供应商都能接入：**Claude、DeepSeek、Kimi、MiniMax、智谱 GLM、通义千问**。在设置里切换即可，不需要改代码；API Key 由你自己充值。
 - **没有 SaaS 绑定**——代码在你机器上，数据在你硬盘里，不需要注册账号。
 - **可审计**——每一步操作、每条 Prompt、每张截图都有日志，可以回放，出了问题能追溯原因。
 - **天然多店隔离**——每个店铺有自己的平台、数据、SOP 和经验积累。店铺 A 运营 Amazon US，店铺 B 运营 Noon EG，店铺 C 运营 Shopify 独立站，三者可以同时执行，数据互不连通。

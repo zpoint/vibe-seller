@@ -91,15 +91,15 @@ scratch.
   and the agent operates it directly — usually right on the
   first try, no step-by-step guidance needed.
 - **Any browser, controlled natively.** Anti-detect browsers such as
-  Ziniao, Yuehulian, BitBrowser, AdsPower and Wenmai, and plain Chrome,
+  **Ziniao, Yuehulian, BitBrowser, AdsPower and Wenmai**, and **plain Chrome**,
   are all first-class backends — pick per store. The agent drives the
   logged-in store profile over CDP — not Playwright on vanilla Chrome,
   not UI-coordinate clicks — so risk-control risk stays low and runs
   stay stable. Downloads, setup and how to choose:
   [Browsers](browsers.en.md).
 - **Multi-LLM by design.** Built on top of the Claude Code CLI, so
-  any Anthropic-compatible provider works — Claude, DeepSeek, Kimi,
-  MiniMax, GLM, Qwen. Switch in Settings, no code changes. Your key,
+  any Anthropic-compatible provider works — **Claude, DeepSeek, Kimi,
+  MiniMax, GLM, Qwen**. Switch in Settings, no code changes. Your key,
   your bill.
 - **No SaaS lock-in.** Code on your machine, data on your disk, no
   account required.
