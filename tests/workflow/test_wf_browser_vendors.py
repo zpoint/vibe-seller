@@ -23,11 +23,13 @@ from app.browser.inject.errors import (
     StoreUnavailable,
     UnsupportedKernel,
 )
+from app.browser.vendor_rules import validate_spec
 from app.browser.vendors import (
-    CARDINALITY_NONE,
     CARDINALITY_SINGLE,
     BrowserVendorSpec,
     VendorCredentialField,
+    registered_vendor_specs,
+    vendor_spec,
 )
 from app.models.store import Store
 import app.plugins as plugins_mod
@@ -62,11 +64,16 @@ _SPEC = BrowserVendorSpec(
 )
 
 
+# The credential-less shape (R8): 'single' (one account per machine —
+# there is just nothing stored to refuse) with EMPTY credential_fields
+# — the user signs in once in the client; the local API acts as that
+# login.
 _REFLESS_SPEC = BrowserVendorSpec(
     key='fakerefless',
     display_name_en='ReflessVendor',
     display_name_zh='免登录浏览器',
-    account_cardinality=CARDINALITY_NONE,
+    account_cardinality=CARDINALITY_SINGLE,
+    credential_fields=(),
     lists_profiles=True,
     i18n_prefix='vendors.fakerefless',
     client_factory=_factory,
@@ -245,13 +252,13 @@ async def test_fake_vendor_structured_statuses(admin_client, fake_vendor):
     assert json.loads(r.json()['detail'])['status'] == ('client_not_running')
 
 
-async def test_none_cardinality_vendor_lists_without_credentials(
+async def test_credential_less_vendor_lists_without_stored_login(
     admin_client, fake_vendor
 ):
-    """Addendum 2 item 1: a 'none' vendor (no stored credentials — the
-    user signs in once in the client, the local API acts as that login)
-    is served by the generic stores route, and the credential routes
-    keep refusing it."""
+    """R8 / addendum 2 item 1: a credential-less vendor ('single' with
+    empty credential_fields — the user signs in once in the client, the
+    local API acts as that login) is served by the generic stores
+    route, and the credential routes keep refusing it."""
     _client_behavior(stores=[StoreRef('rf-a')])
     r = await admin_client.get('/api/browser-vendors/fakerefless/stores')
     assert r.status_code == 200
@@ -262,6 +269,132 @@ async def test_none_cardinality_vendor_lists_without_credentials(
         '/api/browser-vendors/fakerefless/credentials', json={}
     )
     assert r.status_code == 400
+
+
+def _single_vendors_with_credentials():
+    """Every registered 'single' vendor that stores credential fields —
+    the R8 contract (A/B) runs against each of them, so a new vendor
+    joins automatically."""
+    return sorted(
+        spec.key
+        for spec in registered_vendor_specs().values()
+        if spec.account_cardinality == CARDINALITY_SINGLE
+        and spec.credential_fields
+    )
+
+
+async def _save_credentials(admin_client, key, tag):
+    """Save a vendor's machine login with placeholder values."""
+    spec = vendor_spec(key)
+    return await admin_client.post(
+        f'/api/browser-vendors/{key}/credentials',
+        json={f.key: f'{tag}-{f.key}' for f in spec.credential_fields},
+    )
+
+
+@pytest.mark.parametrize('key', _single_vendors_with_credentials())
+async def test_r8_a_save_refused_while_stores_exist(admin_client, key):
+    """(A) one account per machine: while any of the vendor's stores is
+    bound, saving credentials is refused with `one_account` — a bound
+    store belongs to the current account."""
+    r = await _save_credentials(admin_client, key, 'first')
+    assert r.status_code == 200
+    async with tasks_mod.async_session() as db:
+        db.add(Store(name=f'r8-{key}', browser_backend=key))
+        await db.commit()
+    r = await _save_credentials(admin_client, key, 'second')
+    assert r.status_code == 400
+    assert json.loads(r.json()['detail'])['status'] == 'one_account'
+
+
+@pytest.mark.parametrize('key', _single_vendors_with_credentials())
+async def test_r8_b_after_stores_deleted_save_replaces(admin_client, key):
+    """(B) the same vendor after its stores are deleted: the save is
+    accepted and REPLACES the stored account."""
+    r = await _save_credentials(admin_client, key, 'first')
+    assert r.status_code == 200
+    async with tasks_mod.async_session() as db:
+        store = Store(name=f'r8-{key}', browser_backend=key)
+        db.add(store)
+        await db.commit()
+    r = await _save_credentials(admin_client, key, 'second')
+    assert r.status_code == 400  # still bound → refused
+    async with tasks_mod.async_session() as db:
+        await db.delete(store)
+        await db.commit()
+    r = await _save_credentials(admin_client, key, 'second')
+    assert r.status_code == 200
+    status = (
+        await admin_client.get(f'/api/browser-vendors/{key}/credentials')
+    ).json()
+    spec = vendor_spec(key)
+    non_secret = [f.key for f in spec.credential_fields if not f.secret]
+    assert all(
+        status[f.key] == f'second-{f.key}'
+        for f in spec.credential_fields
+        if f.key in non_secret
+    )
+
+
+@pytest.mark.parametrize('key', _single_vendors_with_credentials())
+async def test_r8_twist_a_without_stores_the_save_is_accepted(
+    admin_client, key
+):
+    """Negative control for (A): the refusal is the bound STORE, not the
+    vendor — with no store the same save is accepted."""
+    r = await _save_credentials(admin_client, key, 'free')
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize('key', _single_vendors_with_credentials())
+async def test_r8_twist_b_a_refused_save_does_not_replace(admin_client, key):
+    """Negative control for (B): while the store exists, the refused
+    save leaves the ORIGINAL account in place."""
+    await _save_credentials(admin_client, key, 'first')
+    async with tasks_mod.async_session() as db:
+        db.add(Store(name=f'r8-{key}', browser_backend=key))
+        await db.commit()
+    await _save_credentials(admin_client, key, 'second')
+    status = (
+        await admin_client.get(f'/api/browser-vendors/{key}/credentials')
+    ).json()
+    spec = vendor_spec(key)
+    assert all(
+        status[f.key] == f'first-{f.key}'
+        for f in spec.credential_fields
+        if not f.secret
+    )
+
+
+async def test_r8_registration_refuses_wrong_account_rules(
+    admin_client,
+):
+    """R8 spec validation: an anti-detect vendor cannot be 'none' (a
+    credential-less vendor is 'single' + empty fields); 'multi' needs
+    a MULTI_ACCOUNT_VENDORS entry; a plain browser must be 'none'.
+    Each refusal happens at registration, before anything runs."""
+
+    def spec(**kw):
+        base = dict(
+            key='rulesprobe',
+            display_name_en='Probe',
+            display_name_zh='探针',
+        )
+        base.update(kw)
+        return BrowserVendorSpec(**base)
+
+    # anti-detect + 'none' → refused (use 'single' + empty fields).
+    with pytest.raises(ValueError, match='cannot be'):
+        validate_spec(spec(account_cardinality='none'))
+    # anti-detect + 'multi' without an allowlist entry → refused.
+    with pytest.raises(ValueError, match='MULTI_ACCOUNT_VENDORS'):
+        validate_spec(spec(account_cardinality='multi'))
+    # plain + 'single' → refused (plain browsers are 'none').
+    with pytest.raises(ValueError, match='plain browser'):
+        validate_spec(spec(kind='plain'))
+    # And the two legal shapes pass.
+    validate_spec(spec(account_cardinality='single', credential_fields=()))
+    validate_spec(spec(kind='plain', account_cardinality='none'))
 
 
 async def test_twist_single_cardinality_keeps_its_credentials(

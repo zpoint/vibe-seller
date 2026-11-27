@@ -252,6 +252,12 @@ class RealYuehulianClient(InjectClient):
             await asyncio.sleep(1.5)  # let the next page re-render
 
     async def open_store(self, ref: str) -> OpenedStore:
+        # KNOWN ISSUE (R8 case C, user decision 2026-11-27): the store is
+        # matched by NAME in whatever team the client currently shows.
+        # The user configures this client's login themselves, so if they
+        # hand-sign it into another team, a same-named store there opens
+        # just as well — the user knows this risk. May be fixed later
+        # (match by a team-scoped identity instead of the name).
         async with self._inspector() as insp:
             await self._ensure_store_list(insp)
             # Page through until the store's row is on the current page (it

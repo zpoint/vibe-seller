@@ -61,10 +61,16 @@ module (+ translations + one docs page), zero shared-code edits" true:
 
 - identity: key, zh/en display names, kind (`antidetect` / `plain`),
   platforms, `selectable` (offered in the store form);
-- accounts: `account_cardinality` (`none` / `single` — one machine login,
-  the generic credential routes — / `multi` — an account list, ziniao's
-  shape), `credential_fields` (form + storage schema, secrets encrypted),
-  `profiles_scope`;
+- accounts — two SEPARATE concepts (R8: one account per machine unless
+  the vendor's official API serves several at once): the account rule
+  `account_cardinality` (`single` — the anti-detect default; `multi` —
+  the API takes the account on every call, allowed only with a
+  `MULTI_ACCOUNT_VENDORS` entry citing the vendor's API docs, today
+  only ziniao; `none` — plain browsers only) and whether anything is
+  stored, `credential_fields` (form + storage schema, secrets
+  encrypted; empty = the user signs in in the client and the local API
+  acts as that login). Validated at registration
+  (`app/browser/vendor_rules.py`). Also `profiles_scope`;
 - picker: `picker_kind` (`generic` — the shared `VendorSection` — vs
   `custom` — the vendor keeps its own UI, ziniao until migrated);
 - wiring: `client_factory` (the `InjectClient` the engine runs),

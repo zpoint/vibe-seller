@@ -6,10 +6,11 @@ context appears here (and in the generic frontend) with zero edits to
 this module:
 
 - ``GET /api/browser-vendors`` — the UI-facing metadata (no secrets).
-- ``GET|POST /api/browser-vendors/{key}/credentials`` — the machine login
-  of a ``CARDINALITY_SINGLE`` vendor: masked status (secret fields are
-  never returned) and a save that refuses while the vendor's stores are
-  bound (the one-account-per-machine constraint, spec-driven).
+- ``GET|POST /api/browser-vendors/{key}/credentials`` — the stored
+  machine login of a vendor that DECLARES ``credential_fields``: masked
+  status (secret fields are never returned) and a save that refuses
+  while the vendor's stores are bound (the one-account-per-machine
+  rule, R8 — applies to ``CARDINALITY_SINGLE`` vendors).
 - ``GET /api/browser-vendors/{key}/stores`` — the profiles the vendor's
   logged-in client can see, ``StoreRef`` serialized generically (asdict)
   so new fields flow through untouched, with the structured statuses the
@@ -136,7 +137,7 @@ async def get_vendor_credentials(
     """Whether the vendor's machine login is configured + the non-secret
     fields (never the secrets) so the form can show/prefill them."""
     spec = _require_spec(key)
-    if spec.account_cardinality != CARDINALITY_SINGLE:
+    if not spec.credential_fields:
         raise HTTPException(
             status_code=400,
             detail='This vendor has no machine-level credentials',
@@ -153,14 +154,16 @@ async def save_vendor_credentials(
 ):
     """Store the vendor's machine login (secrets encrypted).
 
-    A ``CARDINALITY_SINGLE`` vendor (one account per machine) refuses the
-    save while any of its stores is bound: a bound store belongs to the
-    current account, so changing the account would orphan it. The user
-    deletes those stores first, then adds — the whole account-conflict
-    story, spec-driven instead of per-vendor code.
+    A ``CARDINALITY_SINGLE`` vendor (one account per machine, R8)
+    refuses the save while any of its stores is bound: a bound store
+    belongs to the current account, so changing the account would
+    orphan it. The user deletes those stores first, then adds — the
+    whole account-conflict story, spec-driven instead of per-vendor
+    code. Vendors that store nothing (empty ``credential_fields`` —
+    the user signs in in the client) have no credentials route at all.
     """
     spec = _require_spec(key)
-    if spec.account_cardinality != CARDINALITY_SINGLE:
+    if not spec.credential_fields:
         raise HTTPException(
             status_code=400,
             detail='This vendor has no machine-level credentials',
@@ -178,7 +181,10 @@ async def save_vendor_credentials(
             status_code=400,
             detail=f'{names} are all required',
         )
-    if await vendor_store_count(db, spec.key) > 0:
+    if (
+        spec.account_cardinality == CARDINALITY_SINGLE
+        and await vendor_store_count(db, spec.key) > 0
+    ):
         raise HTTPException(
             status_code=400,
             detail=json.dumps({'status': 'one_account'}),

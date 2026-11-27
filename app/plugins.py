@@ -41,6 +41,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app.browser.vendor_rules import validate_spec
+
 if TYPE_CHECKING:
     from app.browser.vendors import BrowserVendorSpec
     from app.sync.scheduler import SyncJob
@@ -149,11 +151,13 @@ class ExtensionContext:
         vendor (the routes key on one, the manager on the other), so it
         is refused here rather than misbehaving at runtime.
         """
-        if spec is not None and spec.key != name:
-            raise ValueError(
-                f'spec key {spec.key!r} does not match the registration '
-                f'name {name!r}'
-            )
+        if spec is not None:
+            if spec.key != name:
+                raise ValueError(
+                    f'spec key {spec.key!r} does not match the '
+                    f'registration name {name!r}'
+                )
+            validate_spec(spec)
         self._browser_backends[name] = cls
         if spec is not None:
             self._vendor_specs[name] = spec
