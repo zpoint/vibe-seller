@@ -38,6 +38,7 @@ from app.browser.base import BrowserSessionInfo
 from app.browser.inject import engine as engine_mod
 from app.browser.inject.client import InjectClient, OpenedStore, StoreRef
 from app.browser.inject.engine import InjectCdpBackend
+from app.browser.inject.errors import CdpUnreachable
 from app.browser.vendors import (
     CARDINALITY_SINGLE,
     BrowserVendorSpec,
@@ -121,11 +122,12 @@ def _cfg(**extra) -> dict:
 
 
 class _FastProbeBackend(InjectCdpBackend):
-    """The start path's CDP probe with zero retry delay — every kernel
+    """The start path's CDP probe with zero retry cost — every kernel
     here is a live local server (first attempt answers) or provably
     dead (nothing restarts it mid-test), so the retry budget only
-    costs wall-clock."""
+    costs wall-clock: one attempt, no delay."""
 
+    _CDP_ATTEMPTS = 1
     _CDP_DELAY = 0.0
 
 
@@ -299,6 +301,95 @@ async def test_reopens_declarant_closes_even_on_a_stale_stop(tmp_path):
         assert closer.await_count == 0
         assert client.closed == ['store-a']
         assert proxy.return_value.stop.await_count == 1
+    finally:
+        ours.stop()
+
+
+# ── R1: the dead-kernel recovery path (scenarios 8/9) ───────────────
+#
+# Our kernel dies on its own (the client was killed mid-task, or the
+# user closed the store window mid-task) and the session row survives.
+# Pre-C4, the stale stop's close_store(ref) also cleared VENDOR-side
+# state; post-C4 a dead endpoint skips it. These pin that the NEXT
+# start still recovers, per vendor behaviour.
+
+
+async def test_dead_kernel_honest_client_next_start_opens_fresh(tmp_path):
+    """Scenario 8/9, a client that notices its kernel died (the
+    profile is listed CLOSED after the crash): the stale stop skips
+    close_store — a no-op on an already-closed profile, exactly like
+    pre-C4 — and the next start recovers through the vendor's own
+    open: open_store answers with a FRESH kernel's endpoint."""
+    ours = _Kernel('opened-by-server')
+    fresh = _Kernel('reopened-by-vendor')
+    client = _StaleClient()
+    client.open_port = ours.port
+    backend = _backend(client)
+    closer = _recording_close(backend)
+    try:
+        with _mocked_proxy(tmp_path):
+            await backend.start(_cfg())
+            ours.stop()  # the kernel died on its own
+            client.open_port = fresh.port  # the client now opens fresh
+            await backend.stop(BrowserSessionInfo())
+            recovered = await _backend(client).start(_cfg())
+        assert client.closed == []  # nothing to clear — already closed
+        assert closer.await_count == 0
+        assert recovered.cdp_port == fresh.port  # a fresh kernel
+        assert client.opens == ['store-a', 'store-a']
+    finally:
+        fresh.stop()
+
+
+async def test_dead_kernel_stale_lister_with_flag_recovers(tmp_path):
+    """Scenario 8/9, a client that KEEPS listing a dead env as Opened
+    (yuehulian's documented behaviour — only its own close clears the
+    row): such a vendor declares ``reopens_hand_opened``, so the stale
+    stop STILL clears the listing through close_store, and the next
+    start opens a fresh kernel. The declaration is what keeps the
+    dead-kernel recovery working for stale-listing clients."""
+    ours = _Kernel('opened-by-server')
+    fresh = _Kernel('reopened-by-vendor')
+    client = _StaleClient()
+    client.open_port = ours.port
+    backend = _backend(client)
+    _recording_close(backend)
+    try:
+        with _mocked_proxy(tmp_path):
+            await backend.start(_cfg(reopens_hand_opened=True))
+            ours.stop()  # the kernel died; the client still lists Opened
+            client.open_port = fresh.port
+            await backend.stop(BrowserSessionInfo())
+            recovered = await _backend(client).start(_cfg())
+        assert client.closed == ['store-a']  # the listing was cleared
+        assert recovered.cdp_port == fresh.port
+    finally:
+        fresh.stop()
+
+
+async def test_dead_endpoint_reported_open_is_refused_visibly(tmp_path):
+    """Out of contract — a vendor whose client reports a DEAD endpoint
+    for an "open" profile but did NOT declare ``reopens_hand_opened``:
+    the engine refuses the start with ``CdpUnreachable`` (the
+    documented contract: an env whose debug endpoint never answers is
+    never driven) instead of closing a listing it cannot prove holds
+    no live kernel. The failure is visible — the start route answers
+    HTTP 500 'Failed to start browser: … never answered' — and
+    retrying re-runs open_store; it never destroys a live window."""
+    ours = _Kernel('opened-by-server')
+    client = _StaleClient()
+    client.open_port = ours.port
+    backend = _backend(client)
+    try:
+        with _mocked_proxy(tmp_path):
+            await backend.start(_cfg())
+            ours.stop()  # died mid-task; the client keeps the row Open
+            await backend.stop(BrowserSessionInfo())
+            # open_store hands back the dead endpoint again — the
+            # engine refuses to drive it.
+            with pytest.raises(CdpUnreachable):
+                await _backend(client).start(_cfg())
+        assert client.closed == []
     finally:
         ours.stop()
 
