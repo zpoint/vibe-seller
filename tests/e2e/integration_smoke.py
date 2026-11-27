@@ -468,6 +468,9 @@ def _item_wecom(client: httpx.Client) -> dict:
 def _item_mcp(client: httpx.Client, mcp_server) -> dict:
     from tests.e2e import fake_mcp_server
 
+    # custom MCP servers are server-global and PERSIST across runs on
+    # a reused home, so the name carries this run's tag
+    server_name = f'smoke-widgets-{TAG}'
     r = client.post(
         f'{h.BASE_URL}/api/custom-mcp-servers',
         json={
@@ -476,7 +479,7 @@ def _item_mcp(client: httpx.Client, mcp_server) -> dict:
                     'widgets': fake_mcp_server.http_config(mcp_server)
                 }
             },
-            'name': 'smoke-widgets',
+            'name': server_name,
         },
     )
     assert r.status_code == 201, r.text
@@ -489,10 +492,11 @@ def _item_mcp(client: httpx.Client, mcp_server) -> dict:
         client,
         'smoke: custom MCP tool call',
         (
-            'A custom MCP server "smoke-widgets" is available to you. Use '
-            f'its lookup_widget_code tool to find the internal catalog code '
-            f'of the widget with SKU {MCP_SKU}, and report that code. Do not '
-            'guess it and do not use a browser — only that tool knows it.'
+            f'A custom MCP server "{server_name}" is available to you. '
+            f'Use its lookup_widget_code tool to find the internal catalog '
+            f'code of the widget with SKU {MCP_SKU}, and report that code. '
+            'Do not guess it and do not use a browser — only that tool '
+            'knows it.'
         ),
     )
     calls = mcp_server.tool_calls()
