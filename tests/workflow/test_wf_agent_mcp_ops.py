@@ -72,10 +72,9 @@ class TestManageStore:
         assert store['browser_config']['proxy_server'] == (
             'http://127.0.0.1:7890'
         )
-        # Create mirrors the UI's payload: platforms/countries come
-        # from the schema defaults, not from the caller.
-        assert store['platforms'] == ['amazon']
-        assert store['countries'] == ['US']
+        # Create mirrors the UI's payload: no platform is assumed.
+        assert store['platforms'] == []
+        assert store['countries'] == []
         store_id = store['id']
 
         listed, _ = await call_tool(
