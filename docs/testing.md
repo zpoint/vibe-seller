@@ -334,8 +334,11 @@ without a real vendor client.
   browser-use wrapper for real (a mock launch skips
   `build_launch_artifacts`, which is what puts the wrapper on a real
   CLI's PATH — the marker's resolver falls back to the newest wrapper
-  under `$VIBE_HOME/bin/`) and then carry on with follow-up work,
-  proving whether the agent was stopped mid-call.
+  under the server's vibe home's `bin/`, resolving that home exactly
+  like the server does: `$VIBE_HOME`, else the default
+  `~/.vibe-seller`, because the server never writes the variable back
+  into the child's environment) and then carry on with follow-up
+  work, proving whether the agent was stopped mid-call.
 
 Remember `BACKEND_PORT`: a server not started by `start.sh` must
 export it (see the rule in the lane docs), or the wrapper's start

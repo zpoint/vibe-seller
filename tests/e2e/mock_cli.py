@@ -610,28 +610,37 @@ def _resolve_browser_use() -> str:
     browser-use CLI — the mock then bypasses the store wrapper (and
     its start contract) entirely, the scenario's task completes, and
     the e2e asserts on a flow that never ran (the CI failure this
-    fixed). The wrapper comes FIRST — the NEWEST under
-    ``$VIBE_HOME/bin/``: the task's own store wrapper is written
+    fixed). The wrapper comes FIRST — the NEWEST under the server's
+    vibe home's ``bin/``: the task's own store wrapper is written
     moments before the agent starts, and the mock e2e runs
     sequentially, so newest-is-ours holds — with ``which`` only as
     the fallback when no wrapper exists yet.
+
+    The home is resolved EXACTLY like the server resolves it
+    (``app.config``: ``$VIBE_HOME``, else ``~/.vibe-seller``): the
+    server never writes the variable back into the environment, so a
+    server started WITHOUT ``VIBE_HOME`` (the default configuration —
+    CI's mock server, every packaged install) serves the default home
+    while its child mock still sees no ``VIBE_HOME``. Reading only
+    the env var made the resolver skip the wrapper glob there and
+    fall back to the real CLI again (the second CI failure this
+    fixed).
     """
     from pathlib import Path
     import shutil
 
-    home = os.environ.get('VIBE_HOME')
-    if home:
-        wrappers = sorted(
-            Path(home).glob('bin/*/browser-use'),
-            key=lambda p: p.stat().st_mtime,
-        )
-        if wrappers:
-            return str(wrappers[-1])
+    home = os.environ.get('VIBE_HOME') or str(Path.home() / '.vibe-seller')
+    wrappers = sorted(
+        Path(home).glob('bin/*/browser-use'),
+        key=lambda p: p.stat().st_mtime,
+    )
+    if wrappers:
+        return str(wrappers[-1])
     exe = shutil.which('browser-use')
     if exe:
         return exe
     raise RuntimeError(
-        'no browser-use wrapper under $VIBE_HOME/bin/ and none on '
+        f'no browser-use wrapper under {home}/bin/ and none on '
         'PATH — the store wrapper was not written before the agent '
         'started'
     )

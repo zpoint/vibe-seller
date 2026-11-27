@@ -80,6 +80,29 @@ class TestResolveBrowserUse:
         ):
             assert mock_cli._resolve_browser_use() == str(real)
 
+    def test_default_home_when_vibe_home_unset(self, tmp_path):
+        """The CI condition (the second failure this pinned): the mock
+        server is started WITHOUT ``VIBE_HOME`` — the default
+        configuration — so the server serves ``~/.vibe-seller`` while
+        the mock child sees no ``VIBE_HOME`` and a PATH binary. The
+        resolver must resolve the home the way the server does
+        (default ``~/.vibe-seller``) and run THAT wrapper, not the
+        PATH binary.
+        """
+        home = tmp_path / 'home-dir'
+        wrapper = _make_wrapper(home / '.vibe-seller', 'store-a', 2000.0)
+        real = tmp_path / 'bin' / 'browser-use'
+        real.parent.mkdir()
+        real.write_text('#!/bin/sh\ntrue\n')
+        real.chmod(stat.S_IRWXU)
+        env = {
+            'VIBE_HOME': '',
+            'HOME': str(home),
+            'PATH': f'{real.parent}:{os.environ["PATH"]}',
+        }
+        with mock.patch.dict(os.environ, env):
+            assert mock_cli._resolve_browser_use() == str(wrapper)
+
     def test_raises_when_nothing_exists(self, tmp_path):
         """Neither a wrapper nor a PATH binary: the resolver must SAY so
         instead of running something else.
