@@ -81,8 +81,23 @@ class TestResolveBrowserUse:
             assert mock_cli._resolve_browser_use() == str(real)
 
     def test_raises_when_nothing_exists(self, tmp_path):
+        """Neither a wrapper nor a PATH binary: the resolver must SAY so
+        instead of running something else.
+
+        PATH is CONTROLLED here. The CI runner has the real
+        browser-use on PATH (the venv's bin, because the server runs
+        under ``uv run``) — a PATH that leaks into this test finds it
+        and turns the raise into a silent fallback, which is the same
+        environment difference that broke the e2e.
+        """
+        empty_bin = tmp_path / 'empty-bin'
+        empty_bin.mkdir()
         with mock.patch.dict(
-            os.environ, {'VIBE_HOME': str(tmp_path / 'empty-home')}
+            os.environ,
+            {
+                'VIBE_HOME': str(tmp_path / 'empty-home'),
+                'PATH': str(empty_bin),
+            },
         ):
             with pytest.raises(RuntimeError, match='wrapper'):
                 mock_cli._resolve_browser_use()
