@@ -2,11 +2,11 @@
 
 import json
 from pathlib import Path
-import shutil
 import sys
 
 from app.cli_integrations import paths, skills
 from app.cli_integrations.registry import INTEGRATIONS
+from tests.e2e.wecom_standin import install_executable
 
 STANDIN = Path(__file__).with_name('fake_expiring_workplace_cli.py')
 VERSION = '1.0.0'
@@ -21,8 +21,7 @@ def install(key: str, home: Path, *, expired: bool = True) -> None:
     vdir = paths.version_dir(key, VERSION, home)
     vdir.mkdir(parents=True, exist_ok=True)
     exe = vdir / paths.exe_name(integ.binary)
-    shutil.copyfile(STANDIN, exe)
-    exe.chmod(0o755)
+    install_executable(STANDIN, exe)
     paths.write_manifest(
         key, {'version': VERSION, 'source': 'e2e stand-in'}, home
     )

@@ -7,8 +7,8 @@ runs; ``renew`` also changes the stored sign-in, as a fresh scan does.
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
+import tempfile
 import time
 
 from app.cli_integrations import paths, skills
@@ -23,6 +23,31 @@ _MINIMAL_SUBS = {
 }
 
 
+def install_executable(source: Path, destination: Path) -> None:
+    """Atomically replace *destination* with an executable *source*.
+
+    A previous test's server may still be executing the old file. Opening
+    that inode for writing raises ETXTBSY; replacing its directory entry
+    does not. The temporary file lives in the same directory, so
+    ``os.replace`` is atomic, and it is closed before the swap.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(
+        dir=destination.parent, prefix=f'.{destination.name}.'
+    )
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, 'wb') as out:
+            out.write(source.read_bytes())
+            out.flush()
+            os.fsync(out.fileno())
+        temporary.chmod(0o755)
+        os.replace(temporary, destination)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def install(home: Path, *, subs: dict | None = None) -> None:
     if sys.platform == 'win32':
         raise RuntimeError('the stand-in is a shebang script')
@@ -30,8 +55,7 @@ def install(home: Path, *, subs: dict | None = None) -> None:
     vdir = paths.version_dir('wecom', VERSION, home)
     vdir.mkdir(parents=True, exist_ok=True)
     exe = vdir / paths.exe_name(integ.binary)
-    shutil.copyfile(STANDIN, exe)
-    exe.chmod(0o755)
+    install_executable(STANDIN, exe)
     paths.write_manifest(
         'wecom', {'version': VERSION, 'source': 'e2e stand-in'}, home
     )
