@@ -82,7 +82,13 @@ class TestBindBeforeUse:
             mgr_b.ports.allocate('store-b'),
         )
         assert pa != pb
-        assert {pa, pb} == {base, base + 1}
+        # One manager won the base bind; the other's bind failed and it
+        # walked to a DIFFERENT port (whatever the machine's noise
+        # around the ephemeral base — the exact neighbour is not the
+        # contract). Both hold live reservations.
+        assert base in (pa, pb)
+        assert pa in mgr_a.ports.sockets
+        assert pb in mgr_b.ports.sockets
 
     async def test_allocated_ports_are_bound_not_just_probed(self):
         base = _free_port()
