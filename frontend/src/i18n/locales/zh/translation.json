@@ -584,6 +584,13 @@
     "LoginRequired": "请先在{{vendor}}客户端里登录，再点「刷新」。",
     "ClientNotRunning": "没能自动打开{{vendor}}客户端——请先手动打开（或确认已安装），再点「刷新」。",
     "NoStores": "当前登录的账号下没有可见的店铺。",
+    "unavailable": {
+      "no_device": "未绑定设备",
+      "unsupported_kernel": "不是 Chrome 内核",
+      "expired": "已过期",
+      "disabled": "已被停用",
+      "other": "暂时无法打开"
+    },
     "LoadFailed": "加载店铺失败——请检查客户端后重试。",
     "AccountMismatch": "客户端现在登录的账号和这里保存的不一致。请先在客户端里退出登录，或重新保存一致的账号。",
     "ApiNotEnabled": "客户端的本地 API 没有开启。请在{{vendor}}的设置里打开（找「API / 自动化 / 本地 API」），然后点「刷新」。",

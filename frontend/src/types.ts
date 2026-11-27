@@ -241,8 +241,12 @@ export interface VendorStoreRef {
   ref?: string;
   /** False when the env exists but cannot be opened (greyed out). */
   available?: boolean;
-  /** Why an unavailable env cannot be opened (shown in the label). */
+  /** Why an unavailable env cannot be opened — a stable token from
+   *  the contract's UNAVAILABLE_TOKENS, translated via
+   *  browserVendor.unavailable.<token>. */
   unavailable_reason?: string;
+  /** The vendor's own words about it (tooltip / fallback text). */
+  unavailable_detail?: string;
 }
 /** One credential field of a browser vendor's machine login (spec-driven). */
 export interface VendorCredentialField {

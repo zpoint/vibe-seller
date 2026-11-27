@@ -236,16 +236,52 @@ describe('the generic vendor section', () => {
     ])
   })
 
+  it('translates the unavailability token and puts the detail in the tooltip', () => {
+    renderSection({
+      stores: [
+        { name: 'Broken', platform: '', remote_env: '', available: false,
+          unavailable_reason: 'no_device', unavailable_detail: '机器 A 未绑定' },
+      ],
+    })
+    const option = (screen.getByRole('combobox') as HTMLSelectElement).options[1]
+    // The label shows the TRANSLATED token, never the raw token or the
+    // vendor-language detail.
+    expect(option.textContent).toContain(' — no device bound')
+    expect(option.textContent).not.toContain('no_device')
+    expect(option.textContent).not.toContain('机器 A 未绑定')
+    // The vendor's own words ride the tooltip.
+    expect(option.title).toBe('机器 A 未绑定')
+  })
+
+  it('an unknown token falls back to the detail, then the generic string', () => {
+    renderSection({
+      stores: [
+        { name: 'Odd', platform: '', remote_env: '', available: false,
+          unavailable_reason: 'nosuchtoken', unavailable_detail: 'vendor said why' },
+      ],
+    })
+    let option = (screen.getByRole('combobox') as HTMLSelectElement).options[1]
+    expect(option.textContent).toContain(' — vendor said why')
+    // And with neither a token nor a detail, the generic 'other' string.
+    renderSection({
+      stores: [
+        { name: 'Bare', platform: '', remote_env: '', available: false },
+      ],
+    })
+    option = (screen.getAllByRole('combobox').at(-1) as HTMLSelectElement).options[1]
+    expect(option.textContent).toContain(' — cannot open right now')
+  })
+
   it('greys out an unavailable env with its reason instead of hiding it', () => {
     renderSection({
       stores: [
-        { name: 'Broken', platform: '', remote_env: '', available: false, unavailable_reason: 'no device bound' },
+        { name: 'Broken', platform: '', remote_env: '', available: false, unavailable_reason: 'expired' },
       ],
     })
     const select = screen.getByRole('combobox') as HTMLSelectElement
     const option = select.options[1]
     expect(option.disabled).toBe(true)
-    expect(option.textContent).toContain('no device bound')
+    expect(option.textContent).toContain(' — expired')
   })
 
   it('falls back to the shared browserVendor strings with the vendor name', () => {

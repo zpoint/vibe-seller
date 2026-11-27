@@ -10,7 +10,10 @@ label × both locales (zh + en).
 
 Keep ``DERIVED_SUFFIXES`` in sync with the ``vt('<Suffix>')`` calls in
 ``frontend/src/components/VendorSection.tsx`` (the fixed UI strings)
-plus the shared per-code status keys.
+plus the shared per-code status keys. The greyed-out picker rows
+additionally translate the contract's unavailability tokens
+(``UNAVAILABLE_TOKENS``) via ``browserVendor.unavailable.<token>`` —
+every token must resolve in both locales too.
 """
 
 import json
@@ -18,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from app.browser.inject.client import UNAVAILABLE_TOKENS
 from app.browser.vendors import (
     PICKER_GENERIC,
     registered_vendor_specs,
@@ -105,6 +109,38 @@ def test_every_generic_vendor_string_resolves(locale):
         'Vendor UI strings that render as raw keys:\n'
         + json.dumps(broken, indent=1, ensure_ascii=False)
     )
+
+
+@pytest.mark.parametrize('locale', ['en', 'zh'])
+def test_every_unavailability_token_resolves(locale):
+    """The contract's closed token vocabulary — every token a vendor
+    can put in ``unavailable_reason`` has a shared translation, so a
+    greyed picker row never shows the raw token."""
+    strings = _load(locale)
+    missing = [
+        token
+        for token in sorted(UNAVAILABLE_TOKENS)
+        if not _lookup(strings, f'browserVendor.unavailable.{token}')
+    ]
+    assert not missing, (
+        f'untranslated unavailability tokens ({locale}): {missing}'
+    )
+
+
+def test_the_token_check_catches_a_missing_translation():
+    """Negative control: delete one token's translation and the check
+    reports exactly that token."""
+    strings = _load('en')
+    stripped = json.loads(json.dumps(strings))
+    del stripped['browserVendor']['unavailable']['expired']
+    missing = [
+        token
+        for token in sorted(UNAVAILABLE_TOKENS)
+        if not _lookup(stripped, f'browserVendor.unavailable.{token}')
+    ]
+    assert missing == ['expired']
+    # And the vocabulary is closed: an unknown token is not in it.
+    assert 'nosuchtoken' not in UNAVAILABLE_TOKENS
 
 
 def test_the_checker_catches_a_missing_key():

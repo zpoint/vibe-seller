@@ -76,6 +76,25 @@ export function VendorSection(props: {
     })
   }
 
+  /** Why a greyed-out env cannot be opened: the contract's stable
+   *  token translated via the shared browserVendor.unavailable.<token>
+   *  key, with the vendor's own detail as the fallback (and always as
+   *  the tooltip). Free text never leaks into the label untranslated —
+   *  a token with no translation falls back to the detail, then to the
+   *  generic 'other' string. */
+  const unavailableLabel = (s: VendorStoreRef): string => {
+    if (s.available !== false) return ''
+    const detail = s.unavailable_detail || ''
+    if (s.unavailable_reason) {
+      const token = t(`browserVendor.unavailable.${s.unavailable_reason}`, {
+        defaultValue: '',
+      })
+      if (token) return token
+    }
+    if (detail) return detail
+    return t('browserVendor.unavailable.other', { defaultValue: '' })
+  }
+
   // A 'single' vendor has a machine login to configure (the account row
   // + form); a 'none' vendor has none — the user signs in once in the
   // client and the local API acts as that login — so its stores load
@@ -223,10 +242,11 @@ export function VendorSection(props: {
               key={bindValue(s)}
               value={bindValue(s)}
               disabled={s.available === false}
+              title={s.available === false ? s.unavailable_detail || undefined : undefined}
             >
               {s.name}{s.platform ? ` (${s.platform} ${s.remote_env})` : ''}
-              {s.available === false && s.unavailable_reason
-                ? ` — ${s.unavailable_reason}`
+              {s.available === false && unavailableLabel(s)
+                ? ` — ${unavailableLabel(s)}`
                 : ''}
             </option>
           ))}

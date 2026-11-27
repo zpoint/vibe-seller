@@ -582,6 +582,13 @@
     "LoginRequired": "Log into the {{vendor}} client first, then click Refresh.",
     "ClientNotRunning": "Couldn't start the {{vendor}} client — open it manually (or check it's installed), then click Refresh.",
     "NoStores": "No stores visible for the current login.",
+    "unavailable": {
+      "no_device": "no device bound",
+      "unsupported_kernel": "not a Chrome kernel",
+      "expired": "expired",
+      "disabled": "disabled",
+      "other": "cannot open right now"
+    },
     "LoadFailed": "Couldn't load stores — check the client and try again.",
     "AccountMismatch": "The client is signed into a different account than the saved one. Log out in the client, or re-save the matching credentials.",
     "ApiNotEnabled": "The client's local API is switched off. Enable it in {{vendor}}'s settings (look for API / automation / local API), then click Refresh.",
