@@ -688,8 +688,18 @@ def _setup_profile(client: httpx.Client) -> None:
             'env': env,
         },
     )
-    if r.status_code not in (200, 201):  # already there from a re-run
-        raise AssertionError(f'profile create failed: {r.status_code} {r.text}')
+    if r.status_code not in (200, 201):
+        # a re-run against an existing home: the profile may already be
+        # there — confirm via the list, else the create failure is real
+        listed = client.get(f'{h.BASE_URL}/api/profiles').json()
+        ids = {p.get('id') for p in listed}
+        if PROFILE_ID not in ids:
+            raise AssertionError(
+                f'profile create failed: {r.status_code} {r.text}'
+            )
+        client.put(
+            f'{h.BASE_URL}/api/profiles/{PROFILE_ID}', json={'env': env}
+        ).raise_for_status()
     r = client.patch(f'{h.BASE_URL}/api/profiles/{PROFILE_ID}/set-default')
     assert r.status_code == 200, r.text
     _log(f'profile {PROFILE_ID} set as default')
