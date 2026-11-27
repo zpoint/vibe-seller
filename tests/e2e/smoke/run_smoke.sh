@@ -71,21 +71,39 @@ start_server() {
   return 1
 }
 
+# ── port helpers (Linux has ss; macOS has lsof) ────────────────────
+listener_pid() {
+  if command -v ss >/dev/null 2>&1; then
+    ss -tlnp "sport = :$PORT" 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2
+  else
+    lsof -ti ":$PORT" -sTCP:LISTEN 2>/dev/null | head -1
+  fi
+}
+
 # The listener on $PORT must be OUR server: its process environment
 # carries our VIBE_HOME. A foreign server (another session's e2e that
 # won the bind race) answers health just as well — this is the tell.
 verify_ownership() {
   local pid
-  pid=$(ss -tlnp "sport = :$PORT" 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
+  pid=$(listener_pid)
   if [ -z "$pid" ]; then
     echo "no listener on $PORT to verify" >&2
     return 1
   fi
-  if ! tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
-      | grep -qx "VIBE_HOME=$HOME_DIR"; then
-    echo "port $PORT is owned by pid $pid whose env does NOT carry our" \
-         "VIBE_HOME — a foreign server is answering; aborting this port" >&2
-    return 1
+  if [ -r "/proc/$pid/environ" ]; then
+    if ! tr '\0' '\n' < "/proc/$pid/environ" | grep -qx "VIBE_HOME=$HOME_DIR"; then
+      echo "port $PORT is owned by pid $pid whose env does NOT carry our" \
+           "VIBE_HOME — a foreign server is answering; aborting this port" >&2
+      return 1
+    fi
+  else
+    # macOS: ps eww shows our own process's env appended to the command
+    if ! ps eww -o command= -p "$pid" 2>/dev/null \
+        | tr ' ' '\n' | grep -qx "VIBE_HOME=$HOME_DIR"; then
+      echo "port $PORT is owned by pid $pid whose env does NOT carry our" \
+           "VIBE_HOME — a foreign server is answering; aborting this port" >&2
+      return 1
+    fi
   fi
   echo "port $PORT owned by pid $pid (VIBE_HOME verified)"
 }
@@ -107,7 +125,7 @@ for CANDIDATE in "$PORT" "$((PORT + 1))" "$((PORT + 2))"; do
   OUT="${SMOKE_OUT:-/tmp/vibe-smoke-$PORT}"
   HOME_DIR="$OUT/home"
   mkdir -p "$OUT"
-  if ss -tln "sport = :$PORT" 2>/dev/null | grep -q LISTEN; then
+  if [ -n "$(listener_pid)" ]; then
     echo "port $PORT is already listening — trying the next" >&2
     continue
   fi
