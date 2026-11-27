@@ -112,10 +112,31 @@ class CDPMuxProxy(_UpstreamMixin, _RoutingMixin):
         keep_last_page: bool = False,
         relaunch_upstream: Callable[[], Awaitable[tuple[int, str] | int | None]]
         | None = None,
+        instance_id: str | None = None,
+        listen_sock=None,
     ):
         self.listen_port = listen_port
         self.target_port = target_port
         self.target_host = target_host
+        # Ownership signal (PR C1): the id of the server instance this
+        # proxy belongs to, served on ``GET /vibe/instance``. The
+        # manager and the wrappers probe it before reusing or attaching
+        # to a listener on a proxy port, so two vibe-seller servers on
+        # one machine (and agent-spawned CDP bridges squatting in the
+        # proxy range) can never be mistaken for each other. ``None``
+        # (e.g. the aux browsers, which listen on ephemeral ports)
+        # serves no id — every ownership probe then reads "foreign".
+        self.instance_id = instance_id
+        # Pre-bound listening socket handed over by the manager's
+        # allocator (bind-before-use, PR C1): when set, ``start()``
+        # serves on THIS socket instead of binding ``listen_port``
+        # itself. The allocator binds the port at allocation time, so
+        # two servers allocating "the same free port" at the same
+        # moment cannot both win — one bind fails and that server
+        # walks to the next port. The socket is transferred, not
+        # copied: after ``start()`` it belongs to this server object
+        # and is closed by ``stop()``.
+        self._listen_sock = listen_sock
         # Self-heal hook: when reconnecting to the current upstream fails
         # for good (the browser died / its debugging port rotated — e.g.
         # after a Ziniao restart), this relaunches the upstream browser
@@ -137,6 +158,12 @@ class CDPMuxProxy(_UpstreamMixin, _RoutingMixin):
         # Upstream connection to browser
         self._upstream: websockets.ClientConnection | None = None
         self._upstream_lock = asyncio.Lock()
+        # Identity of the upstream browser (the GUID from its
+        # webSocketDebuggerUrl), recorded at first connect and compared
+        # on every reconnect — see ``_connect_upstream``. A port
+        # re-served by a DIFFERENT browser (a vendor rotating debug
+        # ports under us) is refused, never attached to.
+        self._upstream_browser_id: str | None = None
 
         # Downstream clients
         self._clients: dict[str, ClientState] = {}
@@ -196,19 +223,25 @@ class CDPMuxProxy(_UpstreamMixin, _RoutingMixin):
         # hits a closed socket).
         self._server = await websockets.serve(
             self._handle_client_ws,
-            LOCALHOST,
-            self.listen_port,
+            LOCALHOST if self._listen_sock is None else None,
+            self.listen_port if self._listen_sock is None else None,
+            sock=self._listen_sock,
             process_request=self._process_http,
             ping_interval=None,
             ping_timeout=None,
         )
+        # The socket is now owned by the server; forget our reference
+        # so nothing closes it out from under the listener.
+        self._listen_sock = None
 
         logger.info(
-            'CDPMuxProxy listening: %s:%d -> %s:%d (max_clients=%d)',
+            'CDPMuxProxy listening: %s:%d -> %s:%d (instance=%s, '
+            'max_clients=%d)',
             LOCALHOST,
             self.listen_port,
             self.target_host,
             self.target_port,
+            self.instance_id or '<none>',
             self.max_clients,
         )
 

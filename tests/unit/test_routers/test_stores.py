@@ -208,6 +208,33 @@ class TestBrowserStart:
         )
 
     @pytest.mark.asyncio
+    async def test_start_returns_typed_proxy_port_and_instance_id(
+        self,
+        authenticated_client: AsyncClient,
+        async_db_session: AsyncSession,
+    ):
+        """PR C1 contract: the success body carries the proxy port and
+        the server's instance id, so a wrapper that triggered the start
+        can follow a REALLOCATED port instead of attaching to whatever
+        listener holds its baked one."""
+        from app.browser.manager import browser_manager  # noqa: PLC0415
+
+        store = await self._make_ziniao_store(async_db_session)
+        session = mock.Mock(proxy_port=9227)
+        with mock.patch(
+            'app.routers.stores.browser_manager.start_session',
+            new=mock.AsyncMock(return_value=session),
+        ):
+            response = await authenticated_client.post(
+                f'/api/stores/{store.id}/browser/start'
+            )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data['ok'] is True
+        assert data['proxy_port'] == 9227
+        assert data['instance_id'] == browser_manager.instance_id
+
+    @pytest.mark.asyncio
     async def test_an_old_wrapper_sending_force_still_works(
         self,
         authenticated_client: AsyncClient,
