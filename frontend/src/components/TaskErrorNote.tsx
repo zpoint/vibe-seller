@@ -43,11 +43,24 @@ export function TaskErrorNote({
   // The vendor's display name in the UI's language — the {{vendor}}
   // slot of the shared browserVendor.* keys.
   const zh = (i18n.language || 'en').startsWith('zh')
+  // Task context: the banner may only name what the task view offers
+  // (「重试」), never a store-form button — and only a category the
+  // vendor-start taxonomy covers resolves vendor-first at all, so an
+  // AI-provider failure (billing, rate limit, …) keeps its generic
+  // text and link.
   const vendorSentence = speakingVendor && category
-    ? vendorText(t, speakingVendor, zh ? speakingVendor.display_name_zh : speakingVendor.display_name_en, camelCase(category))
+    ? vendorText(
+        t,
+        speakingVendor,
+        zh ? speakingVendor.display_name_zh : speakingVendor.display_name_en,
+        camelCase(category),
+        'task',
+      )
     : ''
   const sentence = vendorSentence || (category ? t(`tasks.error_${category}`, text) : text)
-  const vendorDocs = speakingVendor?.docs.errors
+  // The vendor's own errors page goes with the vendor's own sentence —
+  // a vendor store's billing failure keeps the billing doc link.
+  const vendorDocs = vendorSentence ? speakingVendor?.docs.errors : undefined
   // The agent may say "re-authorize" in prose without writing the link.
   // Offer it only for an enabled platform the server says is expired,
   // and only when this error names that platform and says it expired.

@@ -69,7 +69,13 @@ const en = { translation: { ...enTranslation } }
 // contributes to the translation tree (placeholder names only).
 ;(en.translation as Record<string, unknown>).vendors = {
   acmebrowser: {
-    LoginRequired: 'Acme Browser uses an API key — check the key in the client settings.',
+    // Task-context override — what the banner resolves.
+    task: {
+      LoginRequired: 'Acme Browser uses an API key — check the key in the client settings, then click Retry.',
+    },
+    // Form-context keys — for the store form; must NEVER reach the banner.
+    LoginRequired: 'Acme Browser is not signed in — click Refresh.',
+    RateLimit: 'Acme Browser form: rate limited, click Refresh.',
   },
 }
 const i18nEn = i18n.createInstance()
@@ -99,8 +105,10 @@ describe('TaskErrorNote speaks the store vendor', () => {
       vendor: apiKeyVendor,
     })
     expect(note().textContent).toContain(
-      'Acme Browser uses an API key — check the key in the client settings.'
+      'Acme Browser uses an API key — check the key in the client settings, then click Retry.'
     )
+    // The FORM-context sentence (with its Refresh button) must not leak.
+    expect(note().textContent).not.toContain('click Refresh.')
     // The shared login_required sentence must NOT be there.
     expect(note().textContent).not.toContain('no saved login exists')
     expect(helpLink().href).toBe(
@@ -126,12 +134,12 @@ describe('TaskErrorNote speaks the store vendor', () => {
       category: 'client_not_running',
       vendor: noOverrideVendor,
     })
-    // browserVendor.ClientNotRunning with {{vendor}} interpolated —
+    // browserVendor.task.ClientNotRunning with {{vendor}} interpolated —
     // main's banner shows the tasks.error_client_not_running sentence
     // instead (the negative control below).
-    const shared = enTranslation.browserVendor.ClientNotRunning
+    const shared = enTranslation.browserVendor.task.ClientNotRunning
     expect(note().textContent).toContain(
-      shared.replace('{{vendor}}', 'Kaaaaaaa1 Browser')
+      shared.replace(/\{\{vendor\}\}/g, 'Kaaaaaaa1 Browser')
     )
     // No vendor docs entry → the shared topic link, as before.
     expect(helpLink().dataset.topic).toBe('browserClientNotRunning')
@@ -165,6 +173,50 @@ describe('TaskErrorNote speaks the store vendor', () => {
       'https://docs.vibe-sellers.com/en/browsers/#error-login-required'
     )
     expect(container.textContent).not.toContain('vendor')
+  })
+
+  it('(e) a vendor store + billing_error: the generic text + the generic billing link, not the vendor page', () => {
+    renderNote({
+      error: 'billing error: insufficient credit',
+      category: 'billing_error',
+      vendor: apiKeyVendor,
+    })
+    expect(note().textContent).toContain(
+      enTranslation.tasks.error_billing_error
+    )
+    expect(note().textContent).not.toContain('Acme Browser')
+    expect(helpLink().dataset.topic).toBe('aiBalanceOrQuota')
+    expect(helpLink().href).not.toContain('acmebrowser')
+  })
+
+  it('(f) a vendor that defines its own FORM RateLimit key: rate_limit keeps the generic text', () => {
+    // acmebrowser defines vendors.acmebrowser.RateLimit (a form
+    // sentence). The banner reads the TASK namespace only, so an
+    // AI-provider failure never resolves vendor-first.
+    renderNote({
+      error: 'rate limit exceeded, retry later',
+      category: 'rate_limit',
+      vendor: apiKeyVendor,
+    })
+    expect(note().textContent).toContain(
+      enTranslation.tasks.error_rate_limit
+    )
+    expect(note().textContent).not.toContain('Acme Browser form')
+  })
+
+  it('(g) a vendor store + login_required: the shared task text with {{vendor}}, and no Refresh/刷新', () => {
+    renderNote({
+      error: '[LOGIN_REQUIRED] Log into the client on this machine, then retry / refresh.',
+      category: 'login_required',
+      vendor: noOverrideVendor,
+    })
+    const shared = enTranslation.browserVendor.task.LoginRequired
+    expect(note().textContent).toContain(
+      shared.replace(/\{\{vendor\}\}/g, 'Kaaaaaaa1 Browser')
+    )
+    // The task sentence names Retry, never the form's Refresh button.
+    expect(note().textContent).not.toContain('Refresh')
+    expect(note().textContent).not.toContain('刷新')
   })
 
   it('(c, the trap) a registry vendor with NO text namespace (a plain browser) keeps today\'s text and link too', () => {
