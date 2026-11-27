@@ -106,6 +106,11 @@ See [Browsers → Stores must use the Chrome kernel](browsers.en.md#stores-must-
   your saved API key (the vendor's documented `--headless --api-key`
   mode); your open client window is left untouched. Only when that
   also fails are you asked to sign in by hand.
+- Signing in through the AdsPower window itself (typing the account
+  password in the client) can ask for a verification code (a
+  new-device check). **Vibe Seller does not need that step**: when
+  AdsPower is not signed in, it starts it in the background with
+  your API key — no code needed.
 - Expired sign-in: same flow; the final error says AdsPower is not
   signed in.
 

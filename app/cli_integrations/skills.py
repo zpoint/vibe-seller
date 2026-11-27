@@ -29,6 +29,7 @@ from app.cli_integrations.paths import (
     SKILLS_VERSION_FILE,
     skill_dir,
     skills_root,
+    skills_version,
 )
 from app.workspace.skill_swap import swap_in
 
@@ -138,11 +139,15 @@ def umbrella_md(
         'These rules win over anything the sub-skills below say about '
         'installing, updating or signing in.\n\n'
         f'- Never run {forbidden}. If a command fails because the sign-in '
-        'is missing or expired, stop — do not try to sign in yourself — '
-        'and tell the user in plain words, without command names or error '
-        'codes, that an admin should open Settings → Integrations (设置 → '
-        f'集成) and click "Sign in again" (重新登录) on the {integ.title} '
-        'row.\n'
+        'is missing or expired, or its authorization has '
+        f'expired{integ.expired_hint}, stop — do not try to sign in or renew it '
+        'yourself, and do not pass on a link from the error — and tell '
+        'the user in plain words, without command names or error codes, '
+        'what stopped working and that an admin should open Settings → '
+        'Integrations (设置 → 集成) and click "Re-authorize" (重新授权) on '
+        f'the {integ.title} row. Include this exact markdown link, which '
+        'opens that page (you may translate its text, never its target): '
+        f'[Settings → Integrations](#integrations-{integ.key}).\n'
         '- If it fails because a permission is missing or restricted, '
         'signing in again does not help: stop and tell the user which '
         f'permission the platform named, and that their {integ.title} '
@@ -215,6 +220,35 @@ def install(
     backup = stage_root / f'{integ.key}-previous'
     swap_in(staging, skill_dir(integ.key, home), backup)
     return sorted(subs)
+
+
+def refresh_umbrella(integ: CliIntegration, home: Path) -> bool:
+    """Re-render an installed umbrella's own ``SKILL.md`` (blocking;
+    caller holds the tree lock). True when it changed.
+
+    Its rules are this release's text, not the vendor's: a release that
+    changes them must reach a platform enabled under the old text,
+    though its CLI version — all ``manager.update`` compares — did not
+    move. Local only: rendered from the sub-skills the umbrella already
+    holds, which stay untouched.
+    """
+    root = skill_dir(integ.key, home)
+    current = root / 'SKILL.md'
+    version = skills_version(integ.key, home)
+    if version is None or not current.is_file():
+        return False
+    subs = {
+        d.name: {'SKILL.md': (d / 'SKILL.md').read_bytes()}
+        for d in sorted(root.iterdir())
+        if d.is_dir() and (d / 'SKILL.md').is_file()
+    }
+    text = umbrella_md(integ, version, subs)
+    if current.read_text(encoding='utf-8') == text:
+        return False
+    tmp = root / '.SKILL.md.tmp'
+    tmp.write_text(text, encoding='utf-8')
+    tmp.replace(current)
+    return True
 
 
 def uninstall(integ: CliIntegration, home: Path) -> bool:

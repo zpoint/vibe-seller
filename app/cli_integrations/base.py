@@ -259,6 +259,19 @@ class CliIntegration(ABC):
     async def auth_status(self, run: Runner) -> AuthStatus:
         """Whether the installed CLI can act (offline where possible)."""
 
+    #: The sign-in can expire while the CLI still reports it signed in
+    #: (WeCom: its grant lasts 7 days, ``auth show`` keeps saying
+    #: "authorized"), so the page and the bar ask ``check_expired``.
+    checks_expiry = False
+    #: How the CLI says the grant expired, for the agent's rules
+    #: (``skills.umbrella_md``) — e.g. `` (…: "authorization expired")``.
+    expired_hint = ''
+
+    async def check_expired(self, run: Runner) -> bool | None:
+        """Whether the sign-in expired, checked online with read-only
+        calls (None: could not tell). Only for ``checks_expiry``."""
+        return None
+
     @abstractmethod
     def login_steps(self, status: AuthStatus) -> list[LoginStep]:
         """The steps of a sign-in that starts from *status*.
