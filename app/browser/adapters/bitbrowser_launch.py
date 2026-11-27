@@ -25,7 +25,12 @@ import os
 from urllib.parse import urlsplit
 
 from app.browser import mac_app_locator as _mac_locator
-from app.browser.win_app_locator import run_powershell, win_path_to_local
+from app.browser.win_app_locator import (
+    WinAppSpec,
+    locate as locate_win_app,
+    run_powershell,
+    win_path_to_local,
+)
 from app.browser.ziniao_utils import get_platform
 
 logger = logging.getLogger(__name__)
@@ -131,6 +136,30 @@ def port_from_address(address: object) -> int | None:
     return None
 
 
+def locate_exe_script(install_dir: str | None = None) -> str:
+    """A PowerShell preamble resolving the installed exe to ``$exe``.
+
+    The inspector's Windows trigger launches the exe under
+    ``ELECTRON_RUN_AS_NODE``; this mirrors the yuehulian launcher's
+    preamble (the locator's dir, the largest non-uninstaller .exe
+    directly in it). ASCII-only except the install dir, which the
+    locator itself resolves."""
+    d = install_dir
+    if not d:
+        located = locate_win_app(BITBROWSER_WIN_APP)
+        d = (
+            located.exe_path.rsplit('\\', 1)[0]
+            if located
+            else ('$env:LOCALAPPDATA\\Programs\\bitbrowser')
+        )
+    return (
+        f"$exe=(Get-ChildItem (Join-Path '{d}' '*.exe') | "
+        'Where-Object {$_.Length -gt 1MB} | '
+        'Sort-Object Length -Descending | '
+        'Select-Object -First 1).FullName;'
+    )
+
+
 def launch_exe(exe_path: str) -> bool:
     """Launch the client detached (UTF-8 both sides, so the Chinese
     exe path survives any console codepage — the run_powershell
@@ -155,6 +184,18 @@ def launch_exe(exe_path: str) -> bool:
 # BitFox.app) inside the data dir — it must never be matched as the
 # client (app_names stays Chinese-only; the launch path refuses
 # Chrome-bin/Firefox-bin paths).
+# Install descriptor: the client exe is Chinese-named (比特浏览器.exe),
+# so no exe_names — the main exe is discovered inside the install dir;
+# the registry match rides the Publisher / dir tokens, never the
+# DisplayName (it carries the version).
+BITBROWSER_WIN_APP = WinAppSpec(
+    key='bitbrowser',
+    display_name='比特浏览器 (BitBrowser)',
+    exe_names=(),
+    match_tokens=('bitbrowser', '比特浏览器'),
+    dir_names=('bitbrowser',),
+)
+
 _MAC_BUNDLE_IDS = ('com.bitnet.bitbrowser',)
 _MAC_APP_NAMES = ('比特浏览器.app',)
 

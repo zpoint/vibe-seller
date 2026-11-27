@@ -572,7 +572,9 @@
     "ziniaoLoadingHint": "紫鸟没打开或是手动打开的，Vibe Seller 会自动帮你重新打开，可能要一两分钟。",
     "ziniaoStartingFor": "正在打开紫鸟…已等待 {{secs}} 秒（最长约 4 分钟）。",
     "ziniaoStartFailed": "紫鸟没能打开。",
-    "ziniaoAccountConflict": "这台电脑上正在使用另一个紫鸟账号。"
+    "ziniaoAccountConflict": "这台电脑上正在使用另一个紫鸟账号。",
+    "bitbrowserUsername": "比特浏览器账号",
+    "bitbrowserPassword": "比特浏览器密码"
   },
   "browserVendor": {
     "NoAccount": "还未配置账号",

@@ -521,7 +521,10 @@ async def test_after_open_twist_extension_tabs_are_not_pages():
 def test_spec_declares_the_sign_in_once_local_api_shape():
     assert BITBROWSER_VENDOR.key == 'bitbrowser'
     assert BITBROWSER_VENDOR.account_cardinality == 'single'
-    assert BITBROWSER_VENDOR.credential_fields == ()
+    assert [(f.key, f.secret) for f in BITBROWSER_VENDOR.credential_fields] == [
+        ('username', False),
+        ('password', True),
+    ]
     assert BITBROWSER_VENDOR.lists_profiles is True
     assert BITBROWSER_VENDOR.picker_kind == 'generic'
     assert BITBROWSER_VENDOR.client_kind == 'local_api'
@@ -530,7 +533,10 @@ def test_spec_declares_the_sign_in_once_local_api_shape():
     assert BITBROWSER_VENDOR.client_path_setting == ('bitbrowser_client_path')
     meta = BITBROWSER_VENDOR.public_metadata()
     assert meta['display_name_zh'] == '比特浏览器'
-    assert meta['credential_fields'] == []
+    assert [f['key'] for f in meta['credential_fields']] == [
+        'username',
+        'password',
+    ]
 
 
 def test_rate_limit_spacing_is_the_documented_budget():

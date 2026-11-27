@@ -52,9 +52,9 @@ async def test_bitbrowser_lists_stores_without_any_credentials(
     admin_client,
     monkeypatch,
 ):
-    """The sign-in-once shape (a `single` vendor with no credential
-    fields): nothing to configure, no stored credentials — the picker
-    lists profiles straight from the (signed-in) client."""
+    """The stored-credentials shape (option B): the account + password
+    are configurable through the generic route; unconfigured here —
+    the picker lists profiles from a mocked (signed-in) client."""
     _patch_platform(monkeypatch)
     _fake_client_behavior(
         stores=[
@@ -78,10 +78,13 @@ async def test_bitbrowser_lists_stores_without_any_credentials(
     assert [s['ref'] for s in body] == ['100000000001', '100000000002']
     assert body[0]['name'] == '#1 demo-store-one'
     assert body[1]['available'] is False  # greyed in the picker
-    # 'single' with no fields (the sign-in-once shape): the generic
-    # credential routes refuse a vendor with nothing to configure.
+    # 'single' WITH fields (option B): the credentials route answers
+    # — nothing configured yet, and no secret is ever returned.
     r = await admin_client.get('/api/browser-vendors/bitbrowser/credentials')
-    assert r.status_code == 400
+    assert r.status_code == 200
+    body = r.json()
+    assert body['configured'] is False
+    assert 'password' not in body
 
 
 async def test_bitbrowser_store_binds_by_profile_ref(admin_client):

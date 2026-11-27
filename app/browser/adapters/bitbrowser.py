@@ -46,6 +46,7 @@ import asyncio
 import logging
 import time
 
+from app.browser.adapters import bitbrowser_login as login
 from app.browser.adapters.bitbrowser_cdp import (
     WORKBENCH_HOST as _WORKBENCH_HOST,
     activate_target as _activate_target,
@@ -56,6 +57,7 @@ from app.browser.adapters.bitbrowser_cdp import (
     preferred_tab as _preferred,
 )
 from app.browser.adapters.bitbrowser_launch import (
+    BITBROWSER_WIN_APP,
     _mac_locator,
     launch_exe as _launch_exe,
     mac_app_descriptor,
@@ -88,13 +90,12 @@ from app.browser.vendors import (
     PICKER_GENERIC,
     PROFILES_LOGIN,
     BrowserVendorSpec,
+    VendorCredentialField,
     VendorDocsLink,
 )
-from app.browser.win_app_locator import (
-    WinAppSpec,
-    locate as locate_win_app,
-)
+from app.browser.win_app_locator import locate as locate_win_app
 from app.browser.ziniao_utils import get_platform
+from app.config import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,31 @@ _TOKEN_EXPIRED_MARKS = (
     'token is invalid',
     'Login out！',
 )
+
+
+# Auto-login hints (zh, per the module's message convention).
+_KICK_HINT = (
+    '这个比特浏览器账号在另一台电脑登录了，本机已退出。请在比特浏览器里重新'
+    '登录（或确认只在一台电脑上使用）'
+)
+_NO_CREDENTIALS_HINT = (
+    '比特浏览器未登录且没有保存的账号密码。请在设置里填写比特浏览器账号和'
+    '密码，或在比特浏览器里手动登录'
+)
+
+
+def _form_failure_hint(code: str) -> str:
+    if code == 'WRONGCREDS':
+        return '比特浏览器账号或密码不对，请在设置里重新填写'
+    if code == 'VERIFY':
+        return (
+            '需要在比特浏览器里完成登录验证（短信/邮箱/二次验证），完成后重试'
+        )
+    return (
+        '自动登录没有成功，请手动打开比特浏览器登录一次，然后重试任务'
+        f'（{code}）'
+    )
+
 
 # The cloud-served "unknown id" message (observed live on /browser/open
 # and /browser/detail with an unknown id, HTTP 200). The English
@@ -165,8 +191,112 @@ class BitBrowserClient(LocalApiClient):
     # workbench setting — a missing field means expected).
     _platform_host: str = ''
     _expects_workbench: bool = True
+    # The most recent logged-out message (stashed by is_logged_out;
+    # '' when never seen logged out).
+    _last_logged_out_msg: str = ''
 
     # ── requests / pagination ───────────────────────────────────────
+
+    def __init__(self, browser_config: dict | None = None):
+        super().__init__(browser_config)
+        self._read_login_credentials()
+        # The persisted login policy (kick / ping-pong) under
+        # VIBE_HOME; the seam tests swap.
+        self._login_state = login.load_login_state(VIBE_SELLER_DIR)
+
+    def _read_login_credentials(self) -> None:
+        """The stored account + password (injected by the manager as
+        bitbrowser_username / bitbrowser_password)."""
+        self._login_username = str(self._cfg.get('bitbrowser_username') or '')
+        self._login_password = str(self._cfg.get('bitbrowser_password') or '')
+
+    # ── auto-login (the ONLY place it happens) ─────────────────────
+
+    async def ensure_logged_in(self) -> None:
+        """Auto-login an expired session through the client's own login
+        page (option B). The ONE place auto-login runs:
+
+        1. already signed in → return (and lift any kick refusal);
+        2. classify the logged-out state — a DEVICE KICK (Login
+           out！, one account per computer) or a recent auto-login
+           (ping-pong) REFUSES with the kick hint until a sign-in we
+           did not do;
+        3. otherwise drive the login form over the shared inspector
+           (generic selectors, native value setters), release it, then
+           decide by the LOCAL API — poll /browser/list until
+           success:true;
+        4. failures (wrong credentials, a verification step, selectors
+           missing, the inspector unavailable) → LOGIN_REQUIRED with a
+           plain hint; the inspector lock is always released.
+        """
+        if await self.is_logged_in():
+            self._login_state.record_signed_in()
+            return
+        reason = await self._logged_out_reason()
+        refusal = self._login_state.refuse_auto_login(reason)
+        if refusal is not None:  # kick or ping-pong — never loop
+            self._login_state.record_kick()
+            raise LoginRequired(_KICK_HINT)
+        if not (self._login_username and self._login_password):
+            raise LoginRequired(_NO_CREDENTIALS_HINT)
+        result = await self._drive_login_form()
+        if result != 'SUBMITTED':
+            raise LoginRequired(_form_failure_hint(result))
+        self._login_state.record_auto_login()
+        if not await login.poll_until_signed_in(self.api_call):
+            classification = await self._classify_login_failure()
+            raise LoginRequired(_form_failure_hint(classification))
+        self._login_state.record_signed_in()
+
+    async def _logged_out_reason(self) -> str:
+        """The logged-out message (for the kick classification).
+
+        is_logged_in()'s probe already raised through OUR
+        is_logged_out, which stashed the message; the extra call only
+        runs when that stash is empty.
+        """
+        if self._last_logged_out_msg:
+            return self._last_logged_out_msg
+        try:
+            status, payload = await self.api_call(
+                'POST',
+                '/browser/list',
+                json_body={'page': 0, 'pageSize': 1},
+            )
+        except LoginRequired:
+            return self._last_logged_out_msg
+        except Exception:
+            return ''
+        if isinstance(payload, dict):
+            return str(payload.get('msg') or '')
+        return ''
+
+    async def _drive_login_form(self) -> str:
+        """Open the inspector, fill + submit the form, close it. The
+        main pid is the API port's owner (Windows) or the bundle's
+        main process (macOS) — never guessed."""
+        session = login.make_session()
+        pid = await self._client_main_pid()
+        if not pid:
+            return 'NOCLIENT'
+        driver = login.LoginDriver(
+            self._login_username, self._login_password, pid, session
+        )
+        return await driver.run()
+
+    async def _client_main_pid(self) -> int | None:
+        """The Electron main pid that owns the local API."""
+        return await login.main_pid_for_platform(self._port or self.api_port)
+
+    async def _classify_login_failure(self) -> str:
+        session = login.make_session()
+        pid = await self._client_main_pid()
+        if not pid:
+            return 'UNKNOWN'
+        driver = login.LoginDriver(
+            self._login_username, self._login_password, pid, session
+        )
+        return await driver.classify_failure()
 
     def list_request(self, page: int) -> tuple[str, dict | None]:
         return self.list_path, {'page': page, 'pageSize': self.page_size}
@@ -280,7 +410,13 @@ class BitBrowserClient(LocalApiClient):
         if not isinstance(payload, dict):
             return False
         msg = str(payload.get('msg') or '')
-        return any(mark in msg for mark in _TOKEN_EXPIRED_MARKS)
+        matched = any(mark in msg for mark in _TOKEN_EXPIRED_MARKS)
+        if matched:
+            # The shared response path raises a BARE LoginRequired, so
+            # this is the one place the logged-out REASON (expiry vs
+            # device kick) is visible — stash it for ensure_logged_in.
+            self._last_logged_out_msg = msg
+        return matched
 
     def map_error(self, status: int, payload) -> InjectError | None:
         if not isinstance(payload, dict):
@@ -532,18 +668,6 @@ def make_client(browser_config: dict) -> BitBrowserClient:
     return BitBrowserClient(browser_config)
 
 
-# Install descriptor: the client exe is Chinese-named (比特浏览器.exe),
-# so no exe_names — the main exe is discovered inside the install dir;
-# the registry match rides the Publisher / dir tokens, never the
-# DisplayName (it carries the version).
-BITBROWSER_WIN_APP = WinAppSpec(
-    key='bitbrowser',
-    display_name='比特浏览器 (BitBrowser)',
-    exe_names=(),
-    match_tokens=('bitbrowser', '比特浏览器'),
-    dir_names=('bitbrowser',),
-)
-
 # One login per machine, but NOTHING is stored by us: the user signs
 # in once in the client and the local API acts as that login. The
 # profiles the picker lists follow that login (own + authorized-to-it).
@@ -558,11 +682,17 @@ BITBROWSER_VENDOR = BrowserVendorSpec(
     display_name_zh='比特浏览器',
     kind=KIND_ANTIDETECT,
     platforms=_SUPPORTED_PLATFORMS,
-    # 'single' with no credential fields: the #327 spec split — an
-    # anti-detect vendor declares its one-login-per-machine shape even
-    # when nothing is stored (the sign-in lives in the client).
+    # 'single' (the #327 spec split): one machine login, stored so
+    # the client can AUTO-LOG-IN an expired session (option B, the
+    # user's binding decision — the password is Fernet-encrypted at
+    # rest through the generic credentials route).
     account_cardinality=CARDINALITY_SINGLE,
-    credential_fields=(),
+    credential_fields=(
+        VendorCredentialField('username', 'settings.bitbrowserUsername'),
+        VendorCredentialField(
+            'password', 'settings.bitbrowserPassword', secret=True
+        ),
+    ),
     lists_profiles=True,
     profiles_scope=PROFILES_LOGIN,
     picker_kind=PICKER_GENERIC,

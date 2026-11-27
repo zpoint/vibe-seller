@@ -1,5 +1,5 @@
 ---
-description: "One page on connecting BitBrowser to Vibe Seller: download, sign in once, nothing to fill in, the local API port and token read automatically, the workbench tab closed for you, any install location, and every error message."
+description: "One page on connecting BitBrowser to Vibe Seller: download, the account and auto-login, what to fill in, the local API port and token read automatically, the workbench tab closed for you, any install location, and every error message."
 ---
 
 # BitBrowser: Setup Guide
@@ -15,20 +15,23 @@ Not using BitBrowser? Skip this page — Vibe Seller supports other browsers, se
 1. Download the Windows (64-bit) client from the [download page](https://www.bitbrowser.net/download/) and install it. The default location is `C:\Users\<user>\AppData\Local\Programs\bitbrowser`; any other location is found too.
 2. **Start it and sign in once by hand**, and check that you can see your browser profiles.
 
-## Sign in once — that is all
+## The account and auto-login
 
-Vibe Seller stores **no BitBrowser credentials**. Sign in once in the client and it stays signed in — across restarts and even a forced kill — so tasks never fail over a missing login.
+Save your BitBrowser **account and password** in Vibe Seller: when the session expires, Vibe Seller signs in again automatically, so tasks never fail over a missing login. The password is stored encrypted on this machine (see "Where credentials are stored" below).
 
-- You only sign in again when the session expires (the UI says "not logged in").
+- The client stays signed in across restarts and even a forced kill; auto-login only runs when the session actually expires.
+- **One BitBrowser account is signed in on one computer at a time.** On a device kick (the same account signed in elsewhere) Vibe Seller does **not** auto-login — two computers would kick each other; it asks you to sign in again or to use the account on only one computer.
+- If the account requires a new-device verification (SMS / email code / 2FA), Vibe Seller cannot complete it; finish it in BitBrowser by hand, then retry.
 - Sub-accounts work: a sub-account sees its own profiles plus the ones the main account authorized to it. An empty list usually means "not authorized", not broken — ask the main account to grant profile permissions under 员工管理 (Users).
 - The free plan includes 10 browser profiles, permanently.
 
 ## What to fill in when binding
 
-Nothing. Create a store with the browser backend "BitBrowser":
+Create a store with the browser backend "BitBrowser":
 
-1. The profile list loads automatically (as long as the client is signed in).
-2. Pick this store's profile in the "Select store..." dropdown (shown as `seq + name`, e.g. `#1 test1`) and click Create.
+1. Click [+] next to the account row, fill in the **BitBrowser account and password** and save (one account per machine; adding again overwrites it).
+2. The profile list loads automatically (as long as the client is signed in).
+3. Pick this store's profile in the "Select store..." dropdown (shown as `seq + name`, e.g. `#1 test1`) and click Create.
 
 Binding uses the profile's internal ID (not its name), so renaming a profile in BitBrowser does not break a bound store.
 
@@ -60,7 +63,10 @@ Firefox-kernel profiles are greyed out with the reason in the store picker, and 
 
 | Message | Meaning / what to do |
 |---|---|
-| Not logged in — sign in to the BitBrowser client, then Refresh | The client's session expired, or the same account was signed in on another computer (one account, one computer at a time), which signed this one out. Open BitBrowser and sign in once; it stays signed in. |
+| Not logged in — sign in to the BitBrowser client, then Refresh | The session expired and no account + password are saved (or the auto-login did not take). Check the saved credentials in Settings, or sign in by hand once. |
+| 这个比特浏览器账号在另一台电脑登录了，本机已退出…… ("This BitBrowser account was signed in on another computer; this one is signed out") | A device kick: the same account signed in elsewhere. Vibe Seller will not auto-login (the two computers would kick each other). Sign in again in BitBrowser, or use the account on only one computer. |
+| 比特浏览器账号或密码不对，请在设置里重新填写 ("The BitBrowser account or password is wrong; re-enter it in Settings") | The saved credentials were rejected. Check and re-enter them in Settings. |
+| 需要在比特浏览器里完成登录验证（短信/邮箱/二次验证），完成后重试 ("Complete the login verification in BitBrowser — SMS/email/2FA — then retry") | The account needs a new-device verification. Finish it in BitBrowser by hand, then retry the task. |
 | Could not start the BitBrowser client — open it by hand (or check the install), then Refresh | Vibe Seller could not find or launch the client. Open BitBrowser by hand; if it is installed somewhere unusual, save the client path in Settings. |
 | 请在比特浏览器 → 设置 → Local API 里检查「鉴权控制」，再重试任务。 ("Check 鉴权控制 in BitBrowser → Settings → Local API, then retry the task") | The local API's auth toggle or token is off. Check the 鉴权控制 toggle in BitBrowser → Settings → Local API, then retry the task. |
 | 这个窗口用的不是 Chrome（Chromium）内核…… ("This profile does not use a Chrome (Chromium) kernel") | The profile runs a Firefox or other non-Chromium kernel. Switch it to Chrome in BitBrowser (see the section above). |
@@ -71,4 +77,4 @@ Firefox-kernel profiles are greyed out with the reason in the store picker, and 
 
 ## Where credentials are stored
 
-**Nowhere.** The BitBrowser login lives in its own client; the local API port and token are read live from its config file (`%APPDATA%\BitBrowser\config.json`) — never saved or returned by Vibe Seller.
+The BitBrowser **account and password** are stored in your local `~/.vibe-seller/data/vibe_seller.db` (SQLite). The password is encrypted at rest with a key derived from this machine's install, and decrypted in memory only at the moment of an auto-login; the API never returns it to the frontend. The local API port and token are read live from BitBrowser's own config file (`%APPDATA%\BitBrowser\config.json`) and not stored separately.

@@ -570,7 +570,9 @@
     "ziniaoLoadingHint": "If Ziniao is closed or was opened by hand, Vibe Seller restarts it for you. This can take a minute or two.",
     "ziniaoStartingFor": "Starting Ziniao… {{secs}}s so far (can take up to 4 minutes).",
     "ziniaoStartFailed": "Ziniao didn't start.",
-    "ziniaoAccountConflict": "Another Ziniao account is in use on this computer."
+    "ziniaoAccountConflict": "Another Ziniao account is in use on this computer.",
+    "bitbrowserUsername": "BitBrowser account",
+    "bitbrowserPassword": "BitBrowser password"
   },
   "browserVendor": {
     "NoAccount": "No account configured",
