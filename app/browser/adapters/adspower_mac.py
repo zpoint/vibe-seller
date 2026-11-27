@@ -38,19 +38,34 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 
 import psutil
 
 from app.browser import mac_app_locator as mac_locator
 from app.browser.adapters.adspower_common import (
-    USER_DATA_DIR_RE,
     KernelProcess,
     parse_local_api_port_text,
 )
 from app.browser.mac_app_locator import MacAppSpec
 
 logger = logging.getLogger(__name__)
+
+#: The macOS twin of the shared ``USER_DATA_DIR_RE`` — tolerant of
+#: SPACES in the path. This layer matches ONE argv element at a time
+#: (psutil's ``cmdline`` is a list, so a space cannot cross an
+#: argument boundary), and the real macOS kernel path carries one
+#: (``…/Library/Application Support/adspower_global/…/cache/<id>_<…>``
+#: — verified live on macOS, client 8.9.23). The shared pattern's
+#: ``\S*`` is load-bearing only for the Windows twin, whose input is
+#: a JOINED command line; applied here it matched nothing, leaving
+#: the kernel evidence (and with it the D7 orphan retry and the
+#: FlowerBrowser cleanup) blind on macOS.
+MAC_USER_DATA_DIR_RE = re.compile(
+    r'--user-data-dir=(?P<dir>.*[/\\]cache[/\\](?P<id>[^\s/\\]+))',
+    re.IGNORECASE,
+)
 
 #: Install discovery for THIS vendor on macOS (R1: vendor knowledge
 #: lives in the vendor module). The bundle id is the vendor's
@@ -114,7 +129,7 @@ def list_kernel_processes() -> list[KernelProcess]:
         info = proc.info
         cmdline = info.get('cmdline') or []
         for arg in cmdline:
-            match = USER_DATA_DIR_RE.search(arg)
+            match = MAC_USER_DATA_DIR_RE.search(arg)
             if match:
                 out.append(
                     KernelProcess(

@@ -202,6 +202,39 @@ def test_kernel_evidence_attributes_by_user_data_dir(monkeypatch):
     ]
 
 
+def test_kernel_evidence_matches_paths_with_spaces(monkeypatch):
+    # The real macOS kernel path carries a space ("Application
+    # Support" — verified live on macOS, client 8.9.23). psutil hands
+    # us ONE argv element at a time, so a space inside the path cannot
+    # cross an argument boundary — the match must tolerate it. (The
+    # shared Windows pattern's \S* could not, which left the kernel
+    # evidence — D7's orphan retry, the FlowerBrowser cleanup — blind
+    # on macOS until this test's fix.)
+    path = (
+        '/Users/demo/Library/Application Support/adspower_global/'
+        'cwd_global/source/cache/p1_i1'
+    )
+    _iter_procs(
+        monkeypatch,
+        [
+            FakeProc(
+                21,
+                'SunBrowser',
+                [
+                    '/Applications/Some Client.app/Contents/MacOS/SunBrowser',
+                    f'--user-data-dir={path}',
+                    '--no-sandbox',
+                ],
+            ),
+        ],
+    )
+    kernels = mac_mod.list_kernel_processes()
+    assert [k.user_data_dir for k in kernels] == [path]
+    # And the D7 attribution still keys off the LAST path segment.
+    assert ads_mod.AdsPowerClient._kernels_for(kernels, 'p1') == kernels
+    assert ads_mod.AdsPowerClient._kernels_for(kernels, 'p') == []
+
+
 def test_kill_targets_only_that_tree(monkeypatch):
     killed = []
 
