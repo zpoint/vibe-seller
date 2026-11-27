@@ -192,6 +192,8 @@ def test_runaway_replay_through_the_real_hook_path(
         'vendor-log-grep-cd-relative',
         'profile-db-copy',
         'profile-db-find',
+        'profile-db-copy-item',
+        'profile-db-sqlite',
         'vendor-port-curl',
         'ssh-lateral',
         'os-settings-reg',

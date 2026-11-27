@@ -308,17 +308,27 @@ def _segment_hit_at(text: str, at: int, max_spaces: int = 3) -> bool:
 
 def dir_name_hits(text: str) -> list[tuple[str, str]]:
     """(vendor key, name) hits: dir names as segments of absolute
-    paths, or inside a ``find -name`` glob."""
+    paths, or inside a ``find -name`` glob.
+
+    Searched on BOTH the quote-normalised text (a quoted path's spaces
+    blanked, so its token walks back whole) and the raw text — a
+    MULTI-WORD dir name (``GuardTest Global``) inside quotes survives
+    normalisation only as ``GuardTest\\x00Global``, so the raw pass is
+    what catches it.
+    """
     m = vendor_matcher()
     hits: list[tuple[str, str]] = []
-    lowered = _quote_normalize(text).lower()
-    for key, name in m.dir_names:
-        for mm in re.finditer(
-            r'[/\\]' + re.escape(name) + r'(?=$|[/\\\s\'";&|)])',
-            lowered,
-        ):
-            if _segment_hit_at(lowered, mm.start()):
-                hits.append((key, mm.group(0).lstrip('/\\')))
+    for lowered in {
+        _quote_normalize(text).lower(),
+        text.lower(),
+    }:
+        for key, name in m.dir_names:
+            for mm in re.finditer(
+                r'[/\\]' + re.escape(name) + r'(?=$|[/\\\s\'";&|)])',
+                lowered,
+            ):
+                if _segment_hit_at(lowered, mm.start()):
+                    hits.append((key, mm.group(0).lstrip('/\\')))
     for gm in _FIND_GLOB_RE.finditer(text):
         pat = gm.group(1).lower().strip()
         for key, name in m.dir_names:

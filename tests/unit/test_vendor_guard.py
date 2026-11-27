@@ -147,6 +147,17 @@ class TestRunawayShapes:
             'systemctl --user enable myunit',
             'echo "export HTTP_PROXY=1" >> ~/.bashrc',
             'sed -i s/a/b/ ~/.profile',
+            # incident 2 (native Windows, task d7ba7202): profile DBs
+            # copied into %TEMP% and queried with sqlite
+            'Copy-Item "C:\\Users\\u\\AppData\\Roaming\\GuardTest'
+            ' Global\\p1\\Default\\History" $env:TEMP\\h.db',
+            'xcopy "C:\\Users\\u\\AppData\\Roaming\\GuardTest'
+            ' Global\\p1\\Default\\Login Data" %TEMP%\\l.db',
+            'robocopy "C:\\Users\\u\\AppData\\Roaming\\GuardTest'
+            ' Global\\p1\\Default" %TEMP%\\p',
+            'python3 -c "import shutil;'
+            " shutil.copy('/x/p1/Default/History', '/tmp/h.db')\"",
+            'sqlite3 "/x/p1/Default/Cookies" .tables',
             # agent-built port forwarders (the 7777->7797 incident)
             'socat tcp-listen:17797,fork tcp:127.0.0.1:7777',
             'nc -l 17797',
@@ -208,6 +219,9 @@ class TestCorpus:
             'python3 -c "print(sum(range(9222)))"',
             'socat -u file:a file:b',
             'nc -z 127.0.0.1 7777',
+            # the renamed-copy evasion is a stated residual: the copy
+            # itself is denied at the SOURCE, so there is no copy
+            'sqlite3 /tmp/h.db "select * from urls"',
         ],
     )
     def test_allowed(self, fake_vendor, cmd):

@@ -1009,6 +1009,15 @@ def _guard_replay_calls() -> list[dict]:
                    'Internet Settings" /v ProxyServer /d 192.0.2.10:7890'}},
         {'label': 'proc-env-read', 'tool': 'Bash',
          'input': {'command': 'tr "\\0" "\\n" < /proc/1/environ'}},
+        # incident 2: profile DBs copied into %TEMP% and queried
+        {'label': 'profile-db-copy-item', 'tool': 'Bash',
+         'input': {'command':
+                   f'Copy-Item "{vh}/cache/profile-1/Default/History"'
+                   ' $env:TEMP/h.db'}},
+        {'label': 'profile-db-sqlite', 'tool': 'Bash',
+         'input': {'command':
+                   'sqlite3 "/x/cache/profile-1/Default/Cookies"'
+                   ' .tables'}},
         # agent-built port forwarders (the 7777->7797 incident)
         {'label': 'forwarder-socat', 'tool': 'Bash',
          'input': {'command':
