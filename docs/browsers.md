@@ -50,7 +50,6 @@ WSL 部署还有第四种后端 `winchrome`：以 systemd 服务方式运行在 
 ## 各浏览器配置指南
 
 - [紫鸟：开通与常见报错](ziniao.md) —— 开通开发者模式、绑定、报错、WSL 启动器、凭据存储。
-- [悦互联：配置指南](yuehulian.md) —— 下载、创建团队账号、绑定、一台机器一个账号、自动登录、仅 Windows。
 - [AdsPower：配置指南](adspower.md) —— 下载、生成 API Key、绑定、环境要用 SunBrowser 内核、自动启动。
 - [悦互联：配置指南](yuehulian.md) —— 下载、创建团队账号、绑定、一台机器一个账号、自动登录。
 - Chrome —— 无需额外配置，新建店铺时浏览器后端选「Chrome」即可，见 [店铺与浏览器 → 新建店铺](stores.md#新建店铺)。
