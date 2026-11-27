@@ -1563,7 +1563,12 @@
   "vendors": {
     "adspower": {
       "apiKey": "API Key",
-      "LoginRequired": "AdsPower has no API key yet: generate it under API & MCP in AdsPower, paste it into Vibe Seller, then refresh."
+      "LoginRequired": "AdsPower has no API key yet: generate it under API & MCP in AdsPower, paste it into Vibe Seller, then refresh.",
+      "AccountMismatch": "AdsPower doesn't accept this API key: copy the key of the account currently signed in to AdsPower (under API & MCP) and re-paste it into Vibe Seller; re-paste it after any account or key change.",
+      "ApiNotEnabled": "AdsPower's API is unavailable: team members need their admin to grant API access in the team settings. Check that, then refresh.",
+      "StoreNotFound": "AdsPower can't find this profile: it may have been deleted, or isn't authorised for the signed-in account. Check that, then retry.",
+      "UnsupportedKernel": "This profile uses the FlowerBrowser (Firefox) kernel; Vibe Seller can only drive SunBrowser (Chrome kernel) profiles. Create a new profile with 浏览器 set to SunBrowser in AdsPower, then re-bind this store to it.",
+      "StoreUnavailable": "This profile can't be opened right now. If it says the browser kernel is missing, open the AdsPower app and download that kernel in its settings, then retry."
     }
   }
 }
