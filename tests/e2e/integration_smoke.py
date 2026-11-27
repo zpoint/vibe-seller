@@ -190,9 +190,15 @@ def _win_proc_env(pid: int) -> dict:
                 raise OSError('read failed')
             return buf.raw[: got.value]
 
-        peb = read(api.PebBaseAddress, 0x10)  # ProcessParameters ptr is at
-        params = int.from_bytes(peb[0x20:0x28], 'little')  # PEB+0x20 (64-bit)
-        block = read(params, 0x84)
+        # PEB+0x20 holds ProcessParameters (x64); +0x80/+0x88 in that
+        # block hold the Environment pointer and size. Each read must
+        # COVER its offset — a short buffer slices to b'' and every
+        # env read silently comes back empty (found live: the Windows
+        # ownership check read nothing and called its own server
+        # foreign).
+        peb = read(api.PebBaseAddress, 0x28)
+        params = int.from_bytes(peb[0x20:0x28], 'little')
+        block = read(params, 0x90)
         ptr = int.from_bytes(block[0x80:0x88], 'little')
         size = int.from_bytes(block[0x88:0x90], 'little')
         raw = read(ptr, size)
