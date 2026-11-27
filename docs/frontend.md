@@ -49,6 +49,7 @@ src/
     SettingsView.tsx          # Stores, general, AI, email, account, integrations tabs (delegates to components/settings/*Panel.tsx)
   lib/
     activity.ts               # Plain-language names for the agent's steps (pure): describeStep, summarizeRun, buildRows, liveLabel; Vibe Seller tools named by what they do (Ads API, email, result…); zh/en strings under `activity.*`
+    vendorText.ts             # The ONE vendor-first text chain (camelCase + vendorText): a vendor's own override, else the shared browserVendor.* key with {{vendor}} interpolated — with a context ('form' names the store form's buttons, 'task' may only name Retry), shared by the settings vendor panel and the task error banner
     userContent.ts            # parseUserContent: split a stored user message into text + attachments (app/attachment_markdown.py encoding)
     notice.ts                 # parseNotice: the JSON body of a `notice` transcript row (app/ai/unseen_images.py)
     answerBubble.ts           # parseAnswerBubble: a user turn of `Q:` / `A:` pairs, the answers to an agent's questions, live (role `answer`) or parked (the user's turn) (app/question_park.py answered_lines); anything else is an ordinary message
@@ -288,7 +289,26 @@ missing from those maps has no docs section yet and shows no link.
   name for the UI language), else the backend's own message. A vendor
   with no overrides of its own ships only its credential field labels.
   `tests/unit/test_vendor_ui_strings.py` fails the PR where any derived
-  key resolves nowhere, in either locale.
+  key resolves nowhere, in either locale. The chain lives ONCE in
+  `lib/vendorText.ts` (with the camel-casing), and takes a *context*:
+  'form' resolves the keys above (the store form's sentences may name
+  the form's buttons, 「刷新」); 'task' resolves
+  `<i18n_prefix>task.<Suffix>` then `browserVendor.task.<Suffix>` —
+  task-view sentences may only name what that view offers (「重试」).
+- **The task error banner speaks the store's vendor**
+  (`components/TaskErrorNote.tsx`): when the task's store uses a
+  registry vendor with a text namespace (a non-empty `i18n_prefix` —
+  plain browsers and legacy backends sit in the registry without one
+  and keep the generic text), the banner's sentence resolves through
+  the task-context chain above, falling back to `tasks.error_<category>`
+  then the raw error; and the help link goes to the vendor's
+  `docs.errors` page **only when the sentence came from the vendor
+  chain** — a vendor store's billing/rate-limit failure keeps the
+  generic text and its `docsHelp` topic. `TasksView` resolves the
+  vendor from the task's store's `browser_backend` via the shared
+  `useBrowserVendors` hook (one fetch per app load, module-cached —
+  the same data the store form renders from) and passes it as the
+  optional `vendor` prop.
 - **Linking an FAQ entry:** an entry inside `<details markdown="1">` has
   no heading anchor, so give the tag an `id` (the same in the zh and en
   page) and link `#that-id`; the docs site opens the entry when the

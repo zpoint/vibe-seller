@@ -9,6 +9,7 @@ import { StatusBadge } from '../components/ui'
 import { ConversationStream } from '../components/conversation/ConversationStream'
 import { useChatUploads } from '../hooks/useChatUploads'
 import { useTaskAction } from '../hooks/useTaskAction'
+import { useBrowserVendors } from '../hooks/useBrowserVendors'
 import { TaskComposer } from '../components/conversation/TaskComposer'
 import type { DraftStore } from '../lib/draftStore'
 import { isAwaitingUser } from '../handlers/composerGate'
@@ -180,6 +181,17 @@ export function TasksView({
 }: TasksViewProps) {
 
   const { t } = useTranslation()
+  // The browser-vendor registry (one fetch per app load, shared via the
+  // hook's module-level cache — the same data the store form renders
+  // from). The task error banner speaks the selected task's store's
+  // vendor when that store uses a registry vendor.
+  const browserVendors = useBrowserVendors()
+  const taskStore = selectedTask?.store_id
+    ? stores.find(s => s.id === selectedTask.store_id) ?? null
+    : null
+  const taskVendor = taskStore && browserVendors
+    ? browserVendors.find(v => v.key === taskStore.browser_backend) ?? null
+    : null
   // Gating predicate for the schedule "Run Now" button: true
   // when ANY status is still progressing (pending / queued /
   // designing / planned / running — NOT just `running`). See
@@ -490,7 +502,7 @@ export function TasksView({
                   </div>
                 )}
                 {selectedTask.error && (
-                  <TaskErrorNote error={selectedTask.error} category={selectedTask.error_category} onOpenSettings={onOpenSettings} />
+                  <TaskErrorNote error={selectedTask.error} category={selectedTask.error_category} vendor={taskVendor} onOpenSettings={onOpenSettings} />
                 )}
                 <SubtaskList parentTaskId={selectedTask.id} parentStatus={selectedTask.status} onSelect={selectTask} stores={stores} />
                 <div className="mt-2 flex gap-2 flex-wrap">
