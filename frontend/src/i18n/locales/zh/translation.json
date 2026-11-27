@@ -599,6 +599,7 @@
       "other": "暂时无法打开"
     },
     "LoadFailed": "加载店铺失败——请检查客户端后重试。",
+    "PaginationOverflow": "店铺列表太长，没能全部加载——请把这个情况反馈给我们。",
     "AccountMismatch": "客户端现在登录的账号和这里保存的不一致。请先在客户端里退出登录，或重新保存一致的账号。",
     "ApiNotEnabled": "客户端的本地 API 没有开启。请在{{vendor}}的设置里打开（找「API / 自动化 / 本地 API」），然后点「刷新」。",
     "PlanRequired": "{{vendor}}的本地 API 需要付费套餐。请升级账号（或选择包含 API 权限的套餐）后重试。",
