@@ -75,6 +75,7 @@ from app.database import async_session
 from app.env_options import Options
 from app.models.task import Task
 from app.platform import IS_WINDOWS, find_processes_by_pattern
+from app.task_reaper import arm_agent_job, win_spawn_creationflags
 from app.workspace.manager import (
     VIBE_SELLER_DIR,
     workspace_manager,
@@ -421,6 +422,9 @@ class AgentSession(
         # isolated group is what `_force_kill` signals via
         # `os.killpg` so the whole subtree (claude → MCP server →
         # tools) tears down atomically.
+        # On Windows `nohup`-style children escape the group kill:
+        # spawn frozen into this task's job object, then resume, so
+        # task-end reaping (app/task_reaper.py) reaches them too.
         self._proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
@@ -430,7 +434,9 @@ class AgentSession(
             env=env,
             cwd=str(ws_dir) if ws_dir.exists() else None,
             start_new_session=True,
+            creationflags=win_spawn_creationflags(),
         )
+        await arm_agent_job(self.task_id, self._proc.pid)
 
         # Start readers FIRST so we can process responses to
         # SDK initialize and user messages as they arrive.

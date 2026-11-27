@@ -54,6 +54,12 @@ ZINIAO_WIN_APP = WinAppSpec(
 # per-account credentials, profiles listed per selected account, and a
 # launch-mode client. See ~/vendor-refactor-glm/REPORT.md § "How ziniao
 # would map onto the spec".
+#
+# private_paths / local_ports (agent guard metadata): the install dirs
+# by name (ziniao / 紫鸟 / 紫鸟浏览器), and the client's local API port
+# — 16851 is the default socket_port a store's browser_config carries
+# (a custom port is a documented limit: the adapter talks to it, and a
+# task agent must not talk to any of them).
 ZINIAO_VENDOR = BrowserVendorSpec(
     key='ziniao',
     display_name_en='Ziniao',
@@ -65,6 +71,8 @@ ZINIAO_VENDOR = BrowserVendorSpec(
     picker_kind=PICKER_CUSTOM,
     client_kind=CLIENT_LAUNCH_MODE,
     win_app=ZINIAO_WIN_APP,
+    private_paths=('ziniao', '紫鸟', '紫鸟浏览器'),
+    local_ports=(16851,),
 )
 
 # updateCore downloads all browser kernels. Run it once per process,

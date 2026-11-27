@@ -45,6 +45,7 @@ from app.subtask_rules import validate_parent_task
 from app.task_delete import delete_task as delete_task_record
 from app.task_launch import schedule_or_run
 from app.task_outcome import apply_outcome, resolve_outcome
+from app.task_reaper import reap_task_processes
 from app.task_runner import (
     TaskHeader,
     build_store_context,
@@ -583,6 +584,10 @@ async def stop_agent(
     )
 
     await agent_manager.stop(task_id)
+    # The stop route bypasses finalize_terminal_state, so it owns its
+    # own reaping: every process the agent left behind (nohup / ssh -f
+    # / setsid escape the process group stop above) dies here.
+    asyncio.create_task(reap_task_processes(task_id))
     await check_parent_completion(task, db)
 
     return {'ok': True, 'task_id': task_id, 'status': 'agent_stopped'}

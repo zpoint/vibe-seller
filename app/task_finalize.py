@@ -13,6 +13,7 @@ Both entry points in ``task_runner_auto`` call
 status for a RUNNING/DESIGNING task.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 import json
 import logging
@@ -28,6 +29,7 @@ from app.events.bus import event_bus
 from app.models.task import Task
 from app.question_park import settle_question_park
 from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
+from app.task_reaper import reap_task_processes
 from app.task_runner import (
     check_parent_completion,
     has_incomplete_todos,
@@ -42,6 +44,35 @@ logger = logging.getLogger(__name__)
 
 
 async def finalize_terminal_state(
+    task_id: str, my_session, *, is_followup: bool = False
+):
+    """Shared terminal-state writer — now also the reaping trigger.
+
+    Every natural end of a run funnels through here, so this is the
+    single place that turns "the task is over" into "everything the
+    agent left running is gone" (:func:`app.task_reaper.
+    reap_task_processes` — detached ``nohup`` / ``ssh -f`` children
+    included). Reaping runs only when the task actually landed in a
+    terminal state: a WAITING park must keep its browser daemon.
+    """
+    await _finalize_terminal_state_impl(task_id, my_session, is_followup)
+    try:
+        async with async_session() as db:
+            task = await db.get(Task, task_id)
+            terminal = task is not None and task.status in (
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+            )
+    except Exception:
+        logger.debug(
+            'Post-finalize status read failed for %s', task_id, exc_info=True
+        )
+        return
+    if terminal:
+        asyncio.create_task(reap_task_processes(task_id))
+
+
+async def _finalize_terminal_state_impl(
     task_id: str, my_session, *, is_followup: bool = False
 ):
     """Shared terminal-state writer.

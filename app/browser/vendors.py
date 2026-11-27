@@ -153,6 +153,20 @@ class BrowserVendorSpec:
     client_factory: Callable[[dict], InjectClient] | None = None
     win_app: WinAppSpec | None = None
     client_path_setting: str = ''
+    # The vendor's private on-disk data and local API ports, read by
+    # the task-agent guard (app/ai/vendor_guard.py). An entry WITHOUT
+    # a path separator is a distinctive directory NAME (matched as a
+    # whole path segment, case-insensitively, wherever it appears —
+    # use it when the vendor builds that dir wherever it installs);
+    # an entry WITH separators is a path template ('~' = the user's
+    # home, '*' = one path segment; matched with the usual '~' /
+    # '$HOME' / '%APPDATA%' / '/mnt/c/Users/*' spellings). The FINAL
+    # segment of a path template is also matched as a directory name.
+    # Ports: the client's local API port(s) — the adapter talks to
+    # them, a task agent never does. Defaults only: a vendor whose
+    # port is dynamic declares what it can.
+    private_paths: tuple[str, ...] = ()
+    local_ports: tuple[int, ...] = ()
 
     def credential_field(self, key: str) -> VendorCredentialField | None:
         for f in self.credential_fields:
