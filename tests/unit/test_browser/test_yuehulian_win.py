@@ -286,14 +286,36 @@ def test_spawn_hook_node_never_duplicates_vendor_occlusion_flag():
 
 
 @pytest.mark.skipif(not shutil.which('node'), reason='needs node')
-def test_spawn_hook_node_vendor_debug_port_means_no_injection():
+def test_spawn_hook_node_vendor_debug_port_still_gets_occlusion_flag():
+    # A kernel the vendor already launches with its own debug port gets
+    # no port injected and no spawn recorded (the vendor's port makes
+    # the recording meaningless) — but it STILL gets the occlusion flag
+    # exactly once: a minimized kernel hangs the same way regardless of
+    # who opened the debug port.
     out = _run_spawn_hook({
         'file': 'chrome.exe',
         'args': ['chrome.exe', '--remote-debugging-port=1234'],
     })
     args = out['captured'][0]['args']
     assert '--remote-debugging-port=0' not in args
-    assert '--disable-backgrounding-occluded-windows' not in args
+    assert args.count('--disable-backgrounding-occluded-windows') == 1
+    assert out['spawns'] == []
+
+
+@pytest.mark.skipif(not shutil.which('node'), reason='needs node')
+def test_spawn_hook_node_vendor_port_and_flag_not_duplicated():
+    # Vendor port + vendor flag: nothing of ours is added at all.
+    out = _run_spawn_hook({
+        'file': 'chrome.exe',
+        'args': [
+            'chrome.exe',
+            '--remote-debugging-port=1234',
+            '--disable-backgrounding-occluded-windows',
+        ],
+    })
+    args = out['captured'][0]['args']
+    assert args.count('--disable-backgrounding-occluded-windows') == 1
+    assert '--remote-debugging-port=0' not in args
     assert out['spawns'] == []
 
 
