@@ -1337,7 +1337,8 @@
   },
   "integrationBanner": {
     "message": "{{name}}授权已过期，需要重新授权",
-    "action": "去重新授权"
+    "action": "去重新授权",
+    "taskError": "{{name}}授权已过期"
   },
   "aiSetup": {
     "prompt": {

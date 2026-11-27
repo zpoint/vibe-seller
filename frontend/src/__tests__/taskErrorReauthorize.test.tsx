@@ -4,6 +4,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { TaskErrorNote } from '../components/TaskErrorNote'
+import { I18nextProvider } from 'react-i18next'
+import { i18nTestInstance } from '../test/helpers'
 
 const attention = vi.hoisted(() => ({ items: [] as { key: string; title: string }[] }))
 vi.mock('../hooks/useIntegrationAttention', () => ({
@@ -18,12 +20,16 @@ describe('failed task re-authorize fallback', () => {
     attention.items = [{ key: 'wecom', title: 'WeCom (企业微信)' }]
     const onOpenSettings = vi.fn()
     render(
-      <TaskErrorNote
-        error="无法读取企业微信邮箱：授权已过期，需要管理员重新授权。"
-        category="agent_reported"
-        onOpenSettings={onOpenSettings}
-      />,
+      <I18nextProvider i18n={i18nTestInstance}>
+        <TaskErrorNote
+          error="无法读取企业微信邮箱：授权已过期，需要管理员重新授权。"
+          category="agent_reported"
+          onOpenSettings={onOpenSettings}
+        />
+      </I18nextProvider>,
     )
+    expect(screen.getByTestId('task-error').textContent).toContain('WeCom authorization has expired')
+    expect(screen.getByTestId('task-error').textContent).not.toContain('无法读取企业微信邮箱')
     fireEvent.click(screen.getByTestId('task-error-settings-integrations'))
     expect(onOpenSettings).toHaveBeenCalledWith('integrations', 'cli-wecom')
   })

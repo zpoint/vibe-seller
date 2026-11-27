@@ -25,17 +25,21 @@ export function TaskErrorNote({
   const platforms = useIntegrationAttention()
   // The agent may say "re-authorize" in prose without writing the link.
   // Offer it only for an enabled platform the server says is expired,
-  // and only when this error actually names that platform.
-  const named = platforms.find(item => {
+  // and only when this error names that platform and says it expired.
+  const named = /expired|过期/i.test(error) ? platforms.find(item => {
     const names = item.title.split(/[()]/).map(n => n.trim()).filter(n => n.length > 1)
     return names.some(name => error.toLowerCase().includes(name.toLowerCase()))
-  })
+  }) : undefined
   if (named && !links.some(link => link.anchor === `cli-${named.key}`)) {
     links.push({ label: t('integrationBanner.action'), tab: 'integrations', anchor: `cli-${named.key}` })
   }
   return (
     <div data-testid="task-error" className="mt-2 text-sm text-red-600 bg-red-50 px-3 py-2 rounded whitespace-pre-line">
-      {category ? t(`tasks.error_${category}`, text) : text}
+      {named
+        ? t('integrationBanner.taskError', {
+            name: t(`integrations.cli.platform.${named.key}`, { defaultValue: named.title }),
+          })
+        : category ? t(`tasks.error_${category}`, text) : text}
       {onOpenSettings && links.map(link => (
         <button
           key={`${link.tab}${link.anchor ?? ''}`}
