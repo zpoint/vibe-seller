@@ -20,6 +20,14 @@ from app.browser.inject.errors import LoginRequired
 pytestmark = pytest.mark.workflow
 
 
+def _patch_platform(monkeypatch, platform='windows'):
+    """The generic stores route gates on the spec's platforms; pin the
+    platform so the tests run on any CI OS (linux would 400)."""
+    monkeypatch.setattr(
+        'app.routers.browser_vendors.get_platform', lambda: platform
+    )
+
+
 def _fake_client_behavior(*, stores=None, logged_out=False):
     BitBrowserClient.ensure_running = mock.AsyncMock(return_value=None)
     BitBrowserClient.ensure_logged_in = mock.AsyncMock(
@@ -42,10 +50,12 @@ def _restore_client_methods():
 
 async def test_bitbrowser_lists_stores_without_any_credentials(
     admin_client,
+    monkeypatch,
 ):
     """The sign-in-once shape (a `single` vendor with no credential
     fields): nothing to configure, no stored credentials — the picker
     lists profiles straight from the (signed-in) client."""
+    _patch_platform(monkeypatch)
     _fake_client_behavior(
         stores=[
             StoreRef(
@@ -97,7 +107,9 @@ async def test_bitbrowser_store_binds_by_profile_ref(admin_client):
 
 async def test_bitbrowser_logged_out_is_the_structured_status(
     admin_client,
+    monkeypatch,
 ):
+    _patch_platform(monkeypatch)
     _fake_client_behavior(logged_out=True)
     r = await admin_client.get('/api/browser-vendors/bitbrowser/stores')
     assert r.status_code == 502
