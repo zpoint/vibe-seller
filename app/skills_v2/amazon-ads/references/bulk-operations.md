@@ -41,7 +41,7 @@ modal checkboxes and the 5–15 min job time. When the row's status flips
 to Success, click its **Download** link. The file lands in:
 
 ```
-~/.vibe-seller/downloads/<store-slug>/          # vibe-seller-monitored (reliable)
+$VIBE_STORE_DOWNLOADS/          # vibe-seller-monitored (reliable)
 ```
 
 (On some setups Ziniao also drops a copy under its own profile download
@@ -52,7 +52,7 @@ dir; the vibe-seller path is the one to read.)
 ```bash
 PY=python3   # the agent venv's python; install requirements.txt if openpyxl is missing
 S=.claude/skills/amazon-ads/scripts/ads_bulk.py
-EXPORT=~/.vibe-seller/downloads/<slug>/<the-export>.xlsx
+EXPORT=$VIBE_STORE_DOWNLOADS/<the-export>.xlsx
 
 # Summarise: entity counts, per-campaign spend/sales/ACOS, and the
 # store's real SKU naming scheme (Product Ad rows). Feed for a report.
@@ -68,7 +68,7 @@ $PY "$S" clone-campaign "$EXPORT" \
     --new "acme widgets 006 manual keyword US" \
     --sku WIDGET-006-Blue-M --asin B0EXAMPLE1 \
     --daily-budget 10 --default-bid 0.75 \
-    --out ~/.vibe-seller/downloads/<slug>/bulk_create.xlsx
+    --out $VIBE_STORE_DOWNLOADS/bulk_create.xlsx
 
 # BID UPDATE from a change list: each raise/lower row of the CHANGES.tsv
 # you pass, at its own target_bid, in its own ad_group, nothing else
@@ -76,19 +76,19 @@ $PY "$S" clone-campaign "$EXPORT" \
 # that sits in several). Pass the list the user approved — in an
 # execution child, the parent task's CHANGES.tsv.
 $PY "$S" bid-update "$EXPORT" --from-changes path/to/CHANGES.tsv \
-    --out ~/.vibe-seller/downloads/<slug>/bulk_bid_update.xlsx
+    --out $VIBE_STORE_DOWNLOADS/bulk_bid_update.xlsx
 
 # --scale / --set-bid move EVERY keyword in the campaign: use them only
 # when the user approved exactly that ("cut all of campaign X by 15%").
 $PY "$S" bid-update "$EXPORT" \
     --campaign "acme widgets 004 manual keyword US" --scale 0.85 \
-    --out ~/.vibe-seller/downloads/<slug>/bulk_bid_update.xlsx
+    --out $VIBE_STORE_DOWNLOADS/bulk_bid_update.xlsx
 
 # ARCHIVE (disable + clean up) a campaign — needs only its Campaign Id,
 # read from the export.
 $PY "$S" archive-campaign "$EXPORT" \
     --campaign "acme widgets 006 manual keyword US" \
-    --out ~/.vibe-seller/downloads/<slug>/bulk_archive.xlsx
+    --out $VIBE_STORE_DOWNLOADS/bulk_archive.xlsx
 
 # CLONE an AUTO campaign — same command; it detects auto from the source
 # (which has product-targeting rows, not keywords) and copies those match
@@ -96,14 +96,14 @@ $PY "$S" archive-campaign "$EXPORT" \
 # Clone from a working auto campaign rather than hand-writing the tokens.
 $PY "$S" clone-campaign "$EXPORT" \
     --src "acme widgets 004 auto US" --new "acme widgets 006 auto US" \
-    --sku WIDGET-006-Blue-M --daily-budget 10 --out ~/.vibe-seller/downloads/<slug>/bulk_auto.xlsx
+    --sku WIDGET-006-Blue-M --daily-budget 10 --out $VIBE_STORE_DOWNLOADS/bulk_auto.xlsx
 
 # NEGATE zero-sales terms on a campaign (decided from the export, not the
 # on-screen grid). Campaign-level by default; --level adgroup for ad-group.
 $PY "$S" negate "$EXPORT" \
     --campaign "acme widgets 006 manual keyword US" \
     --keywords "generic term a,generic term b" --match negativePhrase \
-    --out ~/.vibe-seller/downloads/<slug>/bulk_negate.xlsx
+    --out $VIBE_STORE_DOWNLOADS/bulk_negate.xlsx
 ```
 
 > **Negate from the export, not the grid.** The on-screen keyword and

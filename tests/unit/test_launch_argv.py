@@ -21,6 +21,7 @@ import pytest
 from app.ai import launch_artifacts
 from app.ai.claude_backend import AgentSession, ProfileManager
 from app.ai.workspace_assistant import WorkspaceAgentSession
+from app.config import DOWNLOADS_DIR
 from app.workspace.manager import workspace_manager
 
 pytestmark = pytest.mark.unit
@@ -138,3 +139,52 @@ def test_the_workspace_assistant_spawns_the_binary_tasks_use(
 
     ((cmd, _kw),) = captured
     assert cmd[0] == '/opt/vibe/node_modules/.bin/claude', cmd[:2]
+
+
+def test_the_task_launch_env_exports_resolved_downloads_dir(
+    tmp_path, monkeypatch
+):
+    """VIBE_STORE_DOWNLOADS rides the agent env, RESOLVED for this
+    server's home — the machine-readable channel skills reference
+    instead of a hardcoded default-home path (which sent a live agent
+    into another server's home on a multi-home machine)."""
+    captured = _prepare(monkeypatch, tmp_path)
+    task_dir = tmp_path / 'task'
+    task_dir.mkdir()
+    session = AgentSession(
+        task_id='dl-env',
+        prompt='do the thing',
+        store_slug='acme',
+        mode='auto',
+        task_dir=task_dir,
+    )
+    session._register_vibe_seller_mcp = _async_noop
+
+    with pytest.raises(_Spawned):
+        asyncio.run(session.start())
+
+    ((cmd, kw),) = captured
+    env = kw['env']
+    assert env['VIBE_STORE_DOWNLOADS'] == str(DOWNLOADS_DIR / 'acme')
+    assert env['VIBE_TASK_ID'] == 'dl-env'
+
+
+def test_no_store_launch_env_has_no_downloads_var(tmp_path, monkeypatch):
+    """A no-store (orchestrator) session gets no store downloads var —
+    there is no store folder to name."""
+    captured = _prepare(monkeypatch, tmp_path)
+    task_dir = tmp_path / 'task'
+    task_dir.mkdir()
+    session = AgentSession(
+        task_id='no-store-dl-env',
+        prompt='do the thing',
+        mode='auto',
+        task_dir=task_dir,
+    )
+    session._register_vibe_seller_mcp = _async_noop
+
+    with pytest.raises(_Spawned):
+        asyncio.run(session.start())
+
+    ((cmd, kw),) = captured
+    assert 'VIBE_STORE_DOWNLOADS' not in kw['env']

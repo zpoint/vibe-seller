@@ -67,7 +67,8 @@ Password login (fallback) fills the `havanalogin.taobao.com` iframe
 but still lands on the slider + SMS human step. Credentials, when used, come
 from the store profile (`stores/<slug>/STORE.md`), format `店铺名:子账号名`.
 
-The chrome **profile persists** at `~/.vibe-seller/browser_profiles/<slug>/`,
+The chrome **profile persists** across restarts (per-store, under
+this server's vibe-seller home),
 so login survives restarts — re-login is only needed when the session expires.
 
 ### 2.1 Confirm the logged-in account
@@ -141,7 +142,7 @@ PY
 ## 5. Per-store download dir & CSV encoding
 
 Exports (Excel/CSV) the browser downloads land in the per-store dir
-`~/.vibe-seller/downloads/<slug>/` (list newest first with `ls -lt`). Copy
+`$VIBE_STORE_DOWNLOADS/` (list newest first with `ls -lt`). Copy
 what the task delivers into the task CWD; exports later runs will reuse go
 to `store-data/<slug>/<area>/<YYYY-MM>/`. Keep captures out of `knowledge/`
 and `stores/`, which hold curated facts every task reads.

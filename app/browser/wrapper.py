@@ -11,6 +11,9 @@ identity moved from flags to env vars:
 
   * ``BU_NAME``   — the session/daemon name (was ``--session``)
   * ``BU_CDP_WS`` — the CDP websocket to attach to (was ``--cdp-url``)
+  * ``VIBE_STORE_DOWNLOADS`` — the store's download dir, resolved for
+    this server's ``VIBE_HOME`` (skills reference it instead of a
+    hardcoded default-home path)
 
 The daemon (``browser_harness``) records itself as
 ``bu-<BU_NAME>.pid``/``.sock`` under ``BH_RUNTIME_DIR``; the reaper keys
@@ -28,6 +31,7 @@ import unicodedata
 
 from app.browser.base import is_antidetect
 from app.browser.bu_binary import resolve_browser_use
+from app.browser.downloads import store_downloads_dir
 from app.browser.worker_slots import (
     indent_block,
     max_worker_slots,
@@ -266,9 +270,9 @@ def write_browser_use_wrapper(
     else:
         aux_autostart_arm = ''
 
-    # Auto-start arm + typed failure reporting: C2's contract, built
-    # in its own module (see app/browser/wrapper_start.py) so this
-    # file's liveness-probe side stays C1's to edit.
+    # Auto-start arm: BOTH contracts live in wrapper_start.py — C2's
+    # typed failure reporting and C1's ownership probe against the
+    # runtime $CDP_HTTP/$VIBE_PROXY_ID the script body defines above.
     _start_failure_fn = _START_FAILURE_FN
     auto_start_block = _auto_start_block(
         slug=slug,
@@ -503,6 +507,12 @@ def write_browser_use_wrapper(
         # a horse emoji — a change the page itself can observe, and no
         # person's browser does that. Keep store pages untouched.
         export BH_TAB_MARKER=0
+        # The store's download dir, resolved for THIS server's home.
+        # Skills and scripts reference $VIBE_STORE_DOWNLOADS instead of
+        # spelling a default-home path (wrong on any machine running
+        # more than one vibe-seller home). Overwrites any inherited
+        # value: this wrapper, like the pin itself, is authoritative.
+        export VIBE_STORE_DOWNLOADS="{store_downloads_dir(slug)}"
 
         # Per-task session: each task gets its own daemon to avoid
         # "Session already running with different config".
