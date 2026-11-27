@@ -155,13 +155,18 @@ def _win_proc_env(pid: int) -> dict:
     import ctypes
 
     class _PS_API(ctypes.Structure):
+        """PROCESS_BASIC_INFORMATION (x64): the ULONG_PTR fields are
+        EIGHT bytes — 4-byte c_ulong fields shrink the struct below
+        what NtQueryInformationProcess requires and it answers
+        STATUS_INFO_LENGTH_MISMATCH with a null PEB."""
+
         _fields_ = [
-            ('ExitStatus', ctypes.c_ulong),
+            ('ExitStatus', ctypes.c_long),
             ('PebBaseAddress', ctypes.c_void_p),
-            ('AffinityMask', ctypes.c_ulong),
-            ('BasePriority', ctypes.c_ulong),
-            ('UniqueProcessId', ctypes.c_ulong),
-            ('InheritedFromUniqueProcessId', ctypes.c_ulong),
+            ('AffinityMask', ctypes.c_size_t),
+            ('BasePriority', ctypes.c_long),
+            ('UniqueProcessId', ctypes.c_size_t),
+            ('InheritedFromUniqueProcessId', ctypes.c_size_t),
         ]
 
     ntdll = ctypes.windll.ntdll
@@ -176,9 +181,10 @@ def _win_proc_env(pid: int) -> dict:
         return {}
     try:
         api = _PS_API()
-        if not ntdll.NtQueryInformationProcess(
+        rc = ntdll.NtQueryInformationProcess(
             handle, 0, ctypes.byref(api), ctypes.sizeof(api), None
-        ):
+        )
+        if rc != 0 or not api.PebBaseAddress:  # NTSTATUS < 0 is failure
             return {}
 
         def read(addr: int, size: int) -> bytes:
