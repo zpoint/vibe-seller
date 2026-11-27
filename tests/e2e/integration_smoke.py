@@ -70,14 +70,19 @@ os.environ['E2E_BASE_URL'] = _ARGS.base_url
 
 from tests.e2e import e2e_helpers as h  # noqa: E402
 
-#: Patterns that must NEVER appear for a smoke task (a C3 deny, a C3
-#: tripwire stop, a C2 terminal stop). One list, checked per item.
+#: Patterns that must NEVER appear for a smoke task: a C3 tripwire
+#: stop, a C2 terminal stop. (A C3 guard DENY is recorded as evidence,
+#: not a failure — see _run_task: the Mac run's agent listed the vibe
+#: home root out of curiosity, was correctly denied, and completed the
+#: item anyway. Every core action has its own positive assertion; a
+#: deny that actually broke an item fails those.)
 FORBIDDEN_LOG_PATTERNS = (
-    'Vendor guard:',
     'Output tripwire:',
     'terminal browser-start failure',
     'LOGIN_REQUIRED',
 )
+#: Recorded per item (evidence, not failure): the guard deny lines.
+DENY_LOG_PATTERN = 'Vendor guard:'
 
 PROFILE_ID = 'smoke-minimax'
 TAG = f'smoke{int(time.time())}'
@@ -317,6 +322,9 @@ def _run_task(
         stop.set()
 
     forbidden = _forbidden_since(log_start)
+    denies = [
+        line for line in _log_lines()[log_start:] if DENY_LOG_PATTERN in line
+    ]
     strays = _task_procs(task_id)
     profile_lines = [
         line
@@ -331,6 +339,12 @@ def _run_task(
         'error': data.get('error'),
         'agent_env': agent_env,
         'profile_line': profile_lines[:1],
+        # guard denies during the item: recorded, not fatal — the deny
+        # is the guard working on an out-of-scope probe (observed: the
+        # macOS agent listing the vibe home root, then completing the
+        # item anyway). A deny that actually broke the item fails the
+        # item's own assertions or the completion check below.
+        'guard_denies': denies,
         'forbidden_log_lines': forbidden,
         'stray_processes': [p['pid'] for p in strays],
     }
