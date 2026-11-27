@@ -250,8 +250,26 @@ async def test_cdp_unreachable_engine_probe_when_port_dead(
     proxy.assert_not_called()
 
 
-# ── platform gating: mac/linux refused, windows/wsl allowed ──────────
-async def test_platform_gating_blocks_mac(cdp_version_port, tmp_path):
+# ── platform gating: linux refused, windows/wsl/mac allowed ─────────
+# 'mac' moved into the supported set by this PR (the macOS client is
+# driven natively); the refused platform is now plain linux.
+async def test_platform_gating_blocks_linux(cdp_version_port, tmp_path):
+    be, _ = _backend(
+        FakeScenario(stores=[StoreRef('store-a')], cdp_port=cdp_version_port)
+    )
+    with (
+        mock.patch(
+            'app.browser.adapters.yuehulian.get_platform',
+            return_value='linux',
+        ),
+        _mocked_proxy(tmp_path) as proxy,
+    ):
+        with pytest.raises(UnsupportedPlatform):
+            await be.start(_cfg(9299, 'store-a'))
+    proxy.assert_not_called()
+
+
+async def test_platform_gating_mac_allowed(cdp_version_port, tmp_path):
     be, _ = _backend(
         FakeScenario(stores=[StoreRef('store-a')], cdp_port=cdp_version_port)
     )
@@ -260,11 +278,10 @@ async def test_platform_gating_blocks_mac(cdp_version_port, tmp_path):
             'app.browser.adapters.yuehulian.get_platform',
             return_value='mac',
         ),
-        _mocked_proxy(tmp_path) as proxy,
+        _mocked_proxy(tmp_path),
     ):
-        with pytest.raises(UnsupportedPlatform):
-            await be.start(_cfg(9299, 'store-a'))
-    proxy.assert_not_called()
+        info = await be.start(_cfg(9299, 'store-a'))
+    assert info.cdp_port == cdp_version_port
 
 
 async def test_platform_gating_twist_wsl_allowed(cdp_version_port, tmp_path):
