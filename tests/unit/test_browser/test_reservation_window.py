@@ -45,8 +45,11 @@ class TestReservationWindow:
         sock = ProxyPortAllocator._reserve_socket(port)
         assert sock is not None
         try:
+            # No settimeout: a refused connect fails immediately on
+            # every platform (a timeout would put the socket in
+            # non-blocking mode on Windows, where connect_ex then
+            # reports WSAEWOULDBLOCK instead of the refusal).
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as c:
-                c.settimeout(0.5)
                 t0 = time.monotonic()
                 rc = c.connect_ex(('127.0.0.1', port))
                 elapsed = time.monotonic() - t0
