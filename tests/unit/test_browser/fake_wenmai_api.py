@@ -85,6 +85,12 @@ class FakeWenmaiApi:
         #: mid-boot, then goes stable. Popped per getUserInfo call; an
         #: exhausted script holds the steady (non-loading) state.
         self.user_info_script: list[bool] | None = None
+        #: GET /QueueRunningStoreList answers these env ids (the
+        #: env_was_open source; a bare JSON array, verified live).
+        self.running_stores: list[str] = []
+        #: When set, /QueueRunningStoreList answers the generic error
+        #: payload instead — the API-cannot-answer case.
+        self.running_stores_error = False
         #: openEnv result overrides per env id: 'unbound' | 'firefox' |
         #: 'unknown' | None (normal).
         self.open_results: dict[int, str] = {}
@@ -106,6 +112,7 @@ class FakeWenmaiApi:
         app = web.Application()
         app.router.add_post('/{method}', self._post)
         app.router.add_get('/getAllInfo', self._get_all_info)
+        app.router.add_get('/QueueRunningStoreList', self._running_stores)
         self.runner = web.AppRunner(app)
         await self.runner.setup()
         site = web.TCPSite(self.runner, '127.0.0.1', 0)
@@ -125,6 +132,23 @@ class FakeWenmaiApi:
         self.call_log.append('getAllInfo')
         with self._watch():
             return web.json_response({'code': 200, 'msg': 'success'})
+
+    async def _running_stores(self, _request: web.Request) -> web.Response:
+        """GET /QueueRunningStoreList — the client's running-store API.
+
+        A bare JSON array of open env ids (verified live). Knobs:
+        ``running_stores`` (the ids) and ``running_stores_error``
+        (answer the generic error payload instead — the API-cannot-
+        answer case for env_was_open).
+        """
+        self.call_log.append('QueueRunningStoreList')
+        if self.running_stores_error:
+            return web.json_response({
+                'msg': '未知请求，请检查配置信息！',
+                'status': 'error',
+                'code': '400',
+            })
+        return web.json_response(list(self.running_stores))
 
     async def _post(self, request: web.Request) -> web.Response:
         method = request.match_info['method']

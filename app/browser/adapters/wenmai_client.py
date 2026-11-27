@@ -123,6 +123,11 @@ def inspector_session(proc) -> InspectorSession:
     return InspectorSession(proc.exe_path_script)
 
 
+def _parse_running_ids(payload: list) -> set[str]:
+    """Env ids from a QueueRunningStoreList array (ids or dicts)."""
+    return {str(x.get('id') if isinstance(x, dict) else x) for x in payload}
+
+
 class RealWenmaiClient(LocalApiClient):
     """Drives the real 稳卖 Electron client (Windows, macOS) via its API."""
 
@@ -628,7 +633,23 @@ class RealWenmaiClient(LocalApiClient):
             return set()
         if not isinstance(payload, list):
             return set()
-        return {str(x.get('id') if isinstance(x, dict) else x) for x in payload}
+        return _parse_running_ids(payload)
+
+    async def env_was_open(self, ref: str) -> bool | None:
+        """Whether ``ref`` was already open (the C4 #345 attach signal).
+
+        Membership of ``str(ref)`` in ``GET /QueueRunningStoreList``
+        (a bare JSON array). Unlike ``_running_env_ids`` (whose
+        swallowing serves the recovery loop), an API that cannot
+        answer PROPAGATES — the engine bounds the call and treats a
+        raise as NOT ours; an unparseable payload raises too.
+        """
+        _status, payload = await self.api_call('GET', '/QueueRunningStoreList')
+        if not isinstance(payload, list):
+            raise ClientNotRunning(
+                'QueueRunningStoreList answered an unparseable payload'
+            )
+        return str(ref) in _parse_running_ids(payload)
 
     async def _endpoint_answers(
         self, opened: OpenedStore, *, timeout: float = 8.0

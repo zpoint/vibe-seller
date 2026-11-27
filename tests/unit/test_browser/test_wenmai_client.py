@@ -21,6 +21,7 @@ from app.browser.inject.errors import (
     AccountMismatch,
     CdpUnreachable,
     ClientNotRunning,
+    InjectError,
     LoginRequired,
     StoreNotFound,
     StoreUnavailable,
@@ -790,3 +791,42 @@ async def test_calls_are_serialised_one_at_a_time(api):
     await asyncio.gather(client.is_logged_in(), client.list_stores())
     assert api.peak == 1
     assert len(api.call_log) >= 2  # both callers finished their calls
+
+
+# ── env_was_open: the attach-ownership signal (W8, C4 #345) ──────────
+
+
+async def test_env_was_open_true_for_a_running_env(api):
+    """An env id in QueueRunningStoreList → True (the engine attached;
+    never ours to close)."""
+    api.running_stores = ['100000000001']
+    assert await _client(api).env_was_open('100000000001') is True
+
+
+async def test_env_was_open_false_when_not_running(api):
+    """An id the running-store list does not carry → False (our open
+    spawns it; it is ours)."""
+    api.running_stores = []
+    assert await _client(api).env_was_open('100000000001') is False
+    api.running_stores = ['999999999999']  # another env runs
+    assert await _client(api).env_was_open('100000000001') is False
+
+
+async def test_env_was_open_raises_when_the_api_cannot_answer(api):
+    """An error payload PROPAGATES (the engine bounds the call and
+    treats a raise as NOT ours — losing a hand-opened window is worse
+    than leaving an env open). Unlike _running_env_ids (the recovery
+    loop's swallowing path), this hook must not mask the failure."""
+    api.running_stores_error = True
+    with pytest.raises(InjectError):
+        await _client(api).env_was_open('100000000001')
+
+
+async def test_env_was_open_raises_on_transport_failure(api, monkeypatch):
+    """A dead client API → ClientNotRunning propagates (bounded by the
+    engine, treated as NOT ours)."""
+    client = _client(api)
+    monkeypatch.setattr(client, 'connect_timeout_s', 0.2)
+    client._port = 1  # nothing listens
+    with pytest.raises(ClientNotRunning):
+        await client.env_was_open('100000000001')
