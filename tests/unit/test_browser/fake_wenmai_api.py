@@ -79,6 +79,12 @@ class FakeWenmaiApi:
         #: is still loading — it refuses with the generic error shape
         #: until the account state finishes loading.
         self.user_info_loading = False
+        #: Scripted per-call loading flags for the rebind-flap scenario
+        #: (None = use ``user_info_loading``): a freshly launched
+        #: client answers getUserInfo once, briefly refuses again
+        #: mid-boot, then goes stable. Popped per getUserInfo call; an
+        #: exhausted script holds the steady (non-loading) state.
+        self.user_info_script: list[bool] | None = None
         #: openEnv result overrides per env id: 'unbound' | 'firefox' |
         #: 'unknown' | None (normal).
         self.open_results: dict[int, str] = {}
@@ -234,7 +240,10 @@ class FakeWenmaiApi:
         return web.json_response({'response': {'code': 200, 'msg': 'success'}})
 
     async def _get_user_info(self, method, _body) -> web.Response:
-        if self.user_info_loading:
+        loading = self.user_info_loading
+        if self.user_info_script is not None and self.user_info_script:
+            loading = self.user_info_script.pop(0)
+        if loading:
             # Cold-boot loading (C4's native run, 2026-11-27): the relay
             # answers queryEnvV2 while getUserInfo is not ready — the
             # client refuses it with the generic top-level error shape

@@ -553,6 +553,43 @@ async def test_ensure_running_times_out_when_user_info_never_loads(
     assert 'account state' in str(excinfo.value)
 
 
+async def test_ensure_running_requires_stability_after_a_launch(monkeypatch):
+    """The live W5-4 re-run found the deeper variant: a freshly
+    LAUNCHED client answered getUserInfo definitively once (fast
+    session restore), then briefly refused connections again while
+    the rest of the boot completed (the rebind gap — the live shape
+    was a refused connection; an error payload reads identically to
+    the gate), then went stable. One answer races the gap, so a cold
+    client is ready only after TWO consecutive definitive polls."""
+    proc = _FakeProc()
+    monkeypatch.setattr(mod, 'WenmaiProcessLayer', lambda _p=None: proc)
+    api = FakeWenmaiApi()
+    # getUserInfo per call: definitive (bind #1) → gap → stable.
+    api.user_info_script = [False, True, False]
+    await api.start()
+    try:
+        client = RealWenmaiClient({'api_port': api.port + 1})
+
+        def fake_launch():
+            proc.launched = True
+            client._port = api.port
+            return True
+
+        proc.launch = fake_launch
+        monkeypatch.setattr(client, 'relay_poll_s', 0.02)
+        await client.ensure_running()
+        assert proc.launched
+        # It rode through the gap: the first definitive answer started
+        # the streak, the gap broke it, and it returned only after two
+        # consecutive definitive polls (>= 4 getUserInfo calls: one
+        # pre-gap, one in-gap, two consecutive post-gap).
+        assert api.call_log.count('getUserInfo') >= 4
+        # And the login step right after answers cleanly.
+        assert await client.is_logged_in() is True
+    finally:
+        await api.stop()
+
+
 # ── login state + account check ──────────────────────────────────────
 
 

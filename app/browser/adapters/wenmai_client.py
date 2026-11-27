@@ -299,7 +299,10 @@ class RealWenmaiClient(LocalApiClient):
         getUserInfo is still loading (seen 2/2 in a native run after a
         client kill: the first browser/start failed typed
         client_not_running for ~15 s and an immediate retry succeeded).
-        Both gates poll within the same ``relay_timeout_s`` budget.
+        A client WE launched must hold that state on TWO consecutive
+        polls (its API can bind, answer once, and briefly rebind while
+        the boot completes — seen live); a warm client needs one. All
+        within the same ``relay_timeout_s`` budget.
         """
         if self._port is None:
             self._port = await self.discover_port()
@@ -315,10 +318,29 @@ class RealWenmaiClient(LocalApiClient):
                     or 'could not launch the WenMaiAIBrowser client'
                 )
                 raise ClientNotRunning(detail)
+            # A freshly LAUNCHED client can bind its API, answer
+            # getUserInfo definitively once (fast session restore), and
+            # then briefly REFUSE connections again while the rest of
+            # the boot completes (seen live 2026-11-27: the readiness
+            # gate passed ~1 s after our launch, the very next call
+            # hit a refused connection, and the start failed typed
+            # client_not_running; an immediate retry succeeded). A
+            # cold client is therefore ready only after TWO
+            # consecutive definitive polls — one answer races the
+            # rebind. A warm client (up for a while, no boot in
+            # flight) cannot flap this way and stays at one.
+            need = 2
+        else:
+            need = 1
+        streak = 0
         deadline = time.monotonic() + self.relay_timeout_s
         while time.monotonic() < deadline:
             if await self._ready():
-                return
+                streak += 1
+                if streak >= need:
+                    return
+            else:
+                streak = 0
             await asyncio.sleep(self.relay_poll_s)
         raise ClientNotRunning(
             'client is running but its API never finished loading '
