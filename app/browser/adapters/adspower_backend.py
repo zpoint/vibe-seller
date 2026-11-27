@@ -7,6 +7,7 @@ limit).
 """
 
 from app.browser.adapters.adspower import AdsPowerClient
+from app.browser.adapters.adspower_common import DEFAULT_API_PORT
 from app.browser.adapters.adspower_win import ADSPOWER_SPEC
 from app.browser.base import BrowserSessionInfo
 from app.browser.inject.client import InjectClient
@@ -72,6 +73,27 @@ ADSPOWER_VENDOR = BrowserVendorSpec(
     profiles_scope=PROFILES_LOGIN,
     client_kind=CLIENT_LOCAL_API,
     i18n_prefix='vendors.adspower.',
+    # R20 / C3's task-agent guard (app/ai/vendor_guard.py): the
+    # vendor's DISTINCTIVE dir names, as FACTS records them — the
+    # data dir (local_api, the logs that carry the API key in plain
+    # text, cwd_global with the kernels) appears as adspower_global
+    # under %APPDATA%, ~/Library/Application Support and ~/.config,
+    # so the bare NAME covers every OS; .ADSPOWER_GLOBAL is the
+    # Windows profile cache (C:\.ADSPOWER_GLOBAL\cache — the cookie
+    # DBs runaway 2 copied). No generic names.
+    private_paths=(
+        'adspower_global',
+        '.ADSPOWER_GLOBAL',
+    ),
+    # The documented default is all a static tuple can say: the real
+    # Local API port is RANDOM per launch (discovered from the
+    # client's local_api file, only inside the adapter). The runtime
+    # seam C3 offers (extra_vendor_ports) is fed from Ziniao account
+    # rows today — wiring AdsPower's live port into it is a shared-
+    # code change, routed to the coordinator; until then the dynamic
+    # port is protected only as far as the guard's other rules go
+    # (the CDP-range and connect-context rules).
+    local_ports=(DEFAULT_API_PORT,),
     docs={
         'errors': VendorDocsLink(
             topic='adspowerErrors',
