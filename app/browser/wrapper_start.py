@@ -69,32 +69,37 @@ def auto_start_block(
     *,
     slug: str,
     aux_autostart_arm: str,
-    cdp_http_url: str,
     auth_header: str,
     port: int,
     store_id: str | None,
 ) -> str:
-    """The auto-start arm: ensure the CDP proxy is responding.
+    """The auto-start arm: ensure THIS server's CDP proxy is answering.
 
-    Mirrors the block ``app/browser/wrapper.py`` always generated, with
-    the typed-failure handling above folded into its failure path.
+    Folds BOTH contracts into one block:
+    - C1's OWNERSHIP probe: the listener on ``$CDP_HTTP`` must answer
+      ``/vibe/instance`` with ``$VIBE_PROXY_ID`` (both defined by the
+      wrapper body before this block). Liveness alone glued an agent
+      onto whatever won the port — another server, or an agent-spawned
+      CDP bridge. A listener without our id reads as "down": call the
+      start API and follow the typed ``proxy_port`` it hands back (the
+      server reallocates a foreign port).
+    - C2's typed failure handling (``_vs_start_failed`` above): a
+      taxonomy-coded start failure is reported as-is and ends the
+      call; TRANSIENT codes get exactly one retry.
     """
     return textwrap.dedent(f"""\\
         # Auto-start: ensure THIS server's CDP proxy is answering.
         # _vs_proxy_ours is an OWNERSHIP probe, not a bare liveness
-        # check (PR C1): the listener on the port must answer
-        # /vibe/instance with this server's baked instance id, and
-        # the browser behind the mux must answer /json/version (the
-        # mux serves the handshake itself, so a 200 there says
-        # nothing about the browser — a dead browser behind a live
-        # mux must still fire the start call). Liveness alone glued
-        # this agent onto whatever won the port — another server on
-        # the machine, or an agent-spawned CDP bridge. A listener
-        # without our id reads as "down": ask the server to start
-        # the browser (it reallocates the port when the baked one is
-        # foreign) and follow the port it hands back.
+        # check (PR C1). Liveness alone glued this agent onto whatever
+        # won the port — another vibe-seller server on the machine, or
+        # an agent-spawned CDP bridge.
         _vs_proxy_ours() {{
           curl -s --max-time 2 "$CDP_HTTP/vibe/instance" 2>/dev/null | grep -qF "\"$VIBE_PROXY_ID\"" || return 1
+          # Upstream liveness: the mux serves the ownership handshake
+          # itself, so a 200 there says nothing about the browser
+          # behind it — the mux answers /json/version 502 while its
+          # browser is dead, and the start call must still fire
+          # (found live: dead browser + live mux = hard failures).
           curl -sf -o /dev/null --max-time 2 "$CDP_HTTP/json/version" 2>/dev/null
         }}
         case "$SESSION" in
@@ -155,33 +160,30 @@ def auto_start_block(
                 esac
                 _vs_start_failed
               done
-              # Poll for readiness. Ownership is already proven by
-              # the transaction: the 2xx came from THIS server, which
-              # binds the port before handing it out and told us the
-              # (possibly reallocated) port to use. What is left to
-              # wait for is the upstream: the mux answers while its
-              # browser is still coming up.
+              # The server may have REALLOCATED the proxy port (the
+              # baked one was foreign): follow the typed proxy_port the
+              # start API hands back — same pattern as the aux arm
+              # following its ws endpoint.
+              _vs_port=$(printf '%s' "$_start_resp" | sed -n 's/.*"proxy_port"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p' | head -1)
+              case "$_vs_port" in
+                ''|*[!0-9]*) ;;
+                *) PROXY_PORT="$_vs_port"
+                   CDP_HTTP="http://{LOCALHOST}:$PROXY_PORT" ;;
+              esac
+              # Poll for the proxy to answer as OURS.
               _n=0
               while [ "$_n" -lt 60 ]; do
-                if curl -sf -o /dev/null --max-time 2 \
-                     "$CDP_HTTP/json/version" 2>/dev/null; then
+                if _vs_proxy_ours; then
                   break
                 fi
                 sleep 1
                 _n=$((_n + 1))
               done
-              if curl -sf -o /dev/null --max-time 2 \
-                   "$CDP_HTTP/json/version" 2>/dev/null; then
-                :
-              else
-                echo "ERROR: CDP proxy at $CDP_HTTP not ready after auto-start" >&2
-                exit 1
-              fi
-            else
-              # No start call was needed: the proxy answered the
-              # OWNERSHIP probe (our instance id + a live upstream)
-              # before this arm — that is the readiness proof.
-              :
+            fi
+            # Final readiness check: our instance must answer.
+            if ! _vs_proxy_ours; then
+              echo "ERROR: CDP proxy at $CDP_HTTP not ready after auto-start (it does not serve this server's instance id)" >&2
+              exit 1
             fi
             ;;
         esac

@@ -269,19 +269,17 @@ def write_browser_use_wrapper(
     # Auto-start arm + typed failure reporting: C2's contract, built
     # in its own module (see app/browser/wrapper_start.py) so this
     # file's liveness-probe side stays C1's to edit. The probe reads
-    # the wrapper's runtime $CDP_HTTP (C1: the port can be reallocated
-    # by the start call and followed); the baked URL below is the
-    # initial value the wrapper exports.
-    cdp_http_url = f'http://{LOCALHOST}:{proxy_port}'
+    # the wrapper's runtime $CDP_HTTP (the baked port can be
+    # reallocated by the start call and followed).
     _start_failure_fn = _START_FAILURE_FN
     auto_start_block = _auto_start_block(
         slug=slug,
         aux_autostart_arm=aux_autostart_arm,
-        cdp_http_url=cdp_http_url,
         auth_header=auth_header,
         port=port,
         store_id=store_id,
     )
+
     # Inject the CDP endpoint + daemon identity as ENV VARS (0.13 model).
     #   BU_NAME    — session/daemon name (reaper keys off bu-<BU_NAME>.pid)
     #   BU_CDP_WS  — always explicit; NO session is ever endpoint-less

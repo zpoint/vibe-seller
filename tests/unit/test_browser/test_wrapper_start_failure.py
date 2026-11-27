@@ -63,6 +63,14 @@ if 'browser/start' in url:
     # What ``curl -s -w '\\n%{http_code}'`` writes: body, newline, code.
     print(body + '\\n' + code)
     sys.exit(0)
+if '/vibe/instance' in url:
+    # The C1 ownership probe: serve the wrapper's baked instance id
+    # once the store is healthy (same contract as the real mux).
+    with open(os.environ['CURL_STATE'], encoding='utf-8') as fh:
+        state = json.load(fh)
+    if state.get('healthy'):
+        print('"instance_id":"test-instance"')
+    sys.exit(0 if state.get('healthy') else 1)
 if '/json/version' in url:
     # Healthy only after a successful start (2xx) answered earlier.
     with open(os.environ['CURL_STATE'], encoding='utf-8') as fh:
@@ -102,6 +110,7 @@ def _generate(
             9222,
             store_id='s1',
             slug='test-store',
+            instance_id='test-instance',
         )
     wrapper = bin_dir / 'test-store' / 'browser-use'
     content = wrapper.read_text()
