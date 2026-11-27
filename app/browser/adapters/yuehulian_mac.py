@@ -65,10 +65,12 @@ _MAC_KERNEL_JS_RE = r'Chromium\.app\/Contents\/MacOS\/Chromium'
 
 # Spawn hook: DERIVED from the Windows SPAWN_HOOK_JS by swapping only
 # the kernel regex, so any future fix to the hook logic reaches both
-# platforms (the Windows text stays byte-identical in its own module;
-# a test pins it AND that the swap happened exactly once). Same
-# behaviour: a kernel launch with no debug port gets
-# --remote-debugging-port=0 and its user-data-dir recorded.
+# platforms (the Windows text is MAIN's, unchanged by this PR; a test
+# pins it to main's text AND that the swap happened exactly once).
+# Same behaviour as Windows: a kernel launch with no debug port gets
+# --remote-debugging-port=0 and its user-data-dir recorded, and EVERY
+# kernel spawn gets --disable-backgrounding-occluded-windows (deduped)
+# — inherited from #339's Windows fix.
 MAC_SPAWN_HOOK_JS = SPAWN_HOOK_JS.replace(_WIN_KERNEL_JS_RE, _MAC_KERNEL_JS_RE)
 
 

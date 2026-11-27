@@ -247,6 +247,23 @@ class TestSpawnHook:
         assert '--remote-debugging-port=0' in ym.MAC_SPAWN_HOOK_JS
         assert '--user-data-dir' in ym.MAC_SPAWN_HOOK_JS
 
+    def test_mac_hook_injects_the_occlusion_flag_once(self):
+        # Inherited from #339's Windows hook through the derivation:
+        # every Mac kernel spawn gets the flag, deduped (the guard
+        # appears once, the push once — same count as the Windows
+        # hook).
+        assert ym.MAC_SPAWN_HOOK_JS.count(
+            '--disable-backgrounding-occluded-windows'
+        ) == yuehulian_win.SPAWN_HOOK_JS.count(
+            '--disable-backgrounding-occluded-windows'
+        )
+        assert (
+            ym.MAC_SPAWN_HOOK_JS.count(
+                '--disable-backgrounding-occluded-windows'
+            )
+            >= 2
+        )
+
     def test_mac_hook_is_the_windows_hook_with_the_kernel_swapped(self):
         """The Mac hook is DERIVED from the Windows text (one string
         replace), so a future fix to the hook logic reaches both
@@ -270,9 +287,11 @@ class TestSpawnHook:
         assert not pat.search(r'C:\Program Files\YueHuLian\chrome.exe')
 
     def test_windows_spawn_hook_text_is_pinned(self):
-        """The Windows hook must stay byte-identical (this PR adds a Mac
-        twin; it must not rewrite the Windows one). Update this literal
-        ONLY with an intentional Windows change, in its own PR."""
+        """The Windows hook must stay MAIN's text (this PR adds a
+        Mac twin; it must not rewrite the Windows one — #339 owns
+        that text now, including the occlusion flag). Update this
+        literal ONLY with an intentional Windows change, in its own
+        PR."""
         assert (
             yuehulian_win.SPAWN_HOOK_JS
             == r"""
@@ -287,14 +306,19 @@ class TestSpawnHook:
     try {
       var args = (options && options.args) || [];
       var file = (options && options.file) || args[0] || '';
-      if (/chrome\.exe/i.test(file) &&
-          !args.some(function(a){return /--remote-debugging-port/.test(a);})){
-        args.push('--remote-debugging-port=0');
-        var udd='';
-        args.forEach(function(a){
-          var m=/--user-data-dir=(.*)/.exec(a); if(m) udd=m[1];
-        });
-        global.__vsSpawns.push({udd: udd, ts: Date.now()});
+      if (/chrome\.exe/i.test(file)){
+        if (!args.some(function(a){
+              return a.indexOf('--disable-backgrounding-occluded-windows') === 0;})){
+          args.push('--disable-backgrounding-occluded-windows');
+        }
+        if (!args.some(function(a){return /--remote-debugging-port/.test(a);})){
+          args.push('--remote-debugging-port=0');
+          var udd='';
+          args.forEach(function(a){
+            var m=/--user-data-dir=(.*)/.exec(a); if(m) udd=m[1];
+          });
+          global.__vsSpawns.push({udd: udd, ts: Date.now()});
+        }
       }
     } catch(e){}
     return proto.__vsOrigSpawn.apply(this, arguments);
