@@ -23,6 +23,7 @@ import { TaskUsageMeter } from '../components/TaskUsageMeter'
 import { TaskOpenState, TranscriptLoading } from '../components/TaskOpenState'
 import { TaskErrorNote } from '../components/TaskErrorNote'
 import { parseWaitCondition, waitBadgeKey } from '../lib/waitCondition'
+import type { SettingsTab } from './SettingsView'
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
@@ -107,7 +108,7 @@ export interface TasksViewProps {
   onScheduleUpdated: (schedule: Schedule) => void
   selectedStore: Store | null
   stores: Store[]
-  onOpenVisionSetup?: () => void
+  onOpenSettings?: (tab: SettingsTab) => void
 }
 
 export function TasksView({
@@ -175,7 +176,7 @@ export function TasksView({
   onScheduleUpdated,
   selectedStore,
   stores,
-  onOpenVisionSetup,
+  onOpenSettings,
 }: TasksViewProps) {
 
   const { t } = useTranslation()
@@ -629,7 +630,7 @@ export function TasksView({
                   }}
                   questionBannerRef={questionBannerRef}
                   isActive={isActive} userNearBottom={userNearBottom}
-                  onOpenVisionSetup={onOpenVisionSetup}
+                  onOpenSettings={onOpenSettings}
                 />
               )}
 

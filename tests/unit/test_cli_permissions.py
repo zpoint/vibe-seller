@@ -159,6 +159,9 @@ def test_the_agent_sends_the_user_to_re_authorize_never_renews_itself():
         text = _umbrella(integ)
         assert '重新授权' in text and 'Re-authorize' in text, key
         assert 'do not pass on a link from the error' in text, key
+        # The page renders this target as a button to Settings →
+        # Integrations (MessageBubble SETTINGS_LINKS).
+        assert '](#integrations)' in text, key
     wecom = _umbrella(INTEGRATIONS['wecom'])
     assert '使用权限已过期' in wecom and str(EXPIRED_ERRCODE) in wecom
     assert '使用权限已过期' not in _umbrella(INTEGRATIONS['feishu'])

@@ -19,6 +19,7 @@ import { GeneratedImageCard } from './GeneratedImageCard'
 import { StepIcon } from '../ui'
 import type { ConversationItem, TodoItem, TaskStep, Task } from '../../types'
 import { daysLeft, parseWaitCondition, waitBadgeKey, waitDeadline } from '../../lib/waitCondition'
+import type { SettingsTab } from '../../views/SettingsView'
 
 type DisplayItem =
   | { kind: 'item'; item: ConversationItem }
@@ -176,7 +177,7 @@ interface ConversationStreamProps {
   questionBannerRef: React.RefObject<HTMLDivElement | null>
   isActive: boolean
   userNearBottom?: React.RefObject<boolean>
-  onOpenVisionSetup?: () => void
+  onOpenSettings?: (tab: SettingsTab) => void
 }
 
 // The task result, often a long report: parsed as markdown only when its
@@ -218,7 +219,7 @@ export function ConversationStream({
   questionBannerRef,
   isActive,
   userNearBottom,
-  onOpenVisionSetup,
+  onOpenSettings,
 }: ConversationStreamProps) {
   const { t } = useTranslation()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -309,9 +310,9 @@ export function ConversationStream({
           case 'answer':
             return <MessageBubble key={item.id} role="answer" content={item.message!.content} />
           case 'agent_message':
-            return <MessageBubble key={item.id} role="assistant" content={item.message!.content} onOpenVisionSetup={onOpenVisionSetup} />
+            return <MessageBubble key={item.id} role="assistant" content={item.message!.content} onOpenSettings={onOpenSettings} />
           case 'streaming':
-            return <MessageBubble key={item.id} role="_streaming" content={item.message!.content} onOpenVisionSetup={onOpenVisionSetup} />
+            return <MessageBubble key={item.id} role="_streaming" content={item.message!.content} onOpenSettings={onOpenSettings} />
           case 'notice':
             return <NoticeBanner key={item.id} notice={item.notice!} />
           case 'execution_separator':
