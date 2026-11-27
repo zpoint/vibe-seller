@@ -348,3 +348,64 @@ class TestTripwire:
     )
     def test_non_paths_do_not_trip(self, fake_vendor, text):
         assert scan_tool_result(text) is None, text
+
+
+class TestTripwireFalsePositiveCorpus:
+    """The integration no-regression rule: email bodies, CLI output,
+    page text and arbitrary result strings must NEVER trip the
+    tripwire (it matches paths only). A false trip kills a legitimate
+    task. Shapes follow the real outputs of email_info / email
+    queries, the workplace CLIs' status/list commands, custom MCP and
+    ads results — plus the coordinator's corpus additions."""
+
+    CORPUS = [
+        # email_info + a mailbox query result
+        '{"store_id": "x", "accounts": [{"email": "team@example.com",'
+        ' "db_path": "/home/u/.vibe-seller/data/email_dbs/a.db"}],'
+        ' "note": "No mailbox is connected to this store."}',
+        'Inbox 12 unread: order confirmation from buyer + shipping'
+        ' notice with tracking 1Z999AA10123456784 and a 48-char-ish'
+        ' id a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6',
+        # a workplace CLI status/list shape
+        'wecom-cli 1.2.3: logged in as bot@example.com, cached'
+        ' contacts: 152, last sync 2026-11-27T09:00:00Z',
+        'lark-cli status: ok (user token valid until 2026-12-01)',
+        'dws: 3 DingTalk groups, last poll ok',
+        'gws: drive mounted, 4 files synced',
+        # a custom MCP tool result
+        '{"result": "query returned 3 rows", "took_ms": 41}',
+        # an ads result (the service's own JSON)
+        '{"code": 0, "msg": "success", "data": {"stores": 2,'
+        ' "authorized": ["store-a", "store-b"]}}',
+        # page text with cookies prose (D-C3-1)
+        'Accept Cookies and our privacy policy; this site uses'
+        ' cookies to improve your experience.',
+        # an Amazon page dump
+        'Amazon.com: online shopping. Your Account. cookies'
+        ' preferences. Hello, sign in.',
+        # the coordinator's corpus additions: key shapes and SQLite
+        # header bytes in ordinary output must NOT trip (PATH ONLY)
+        'token check: 835c2c116969925958c5c754acfe405000a44297311a9d42'
+        ' is valid',
+        'file type: SQLite format 3, 4096-byte pages',
+        'tables: moz_cookies is not something we read here',
+        # checksums of other lengths
+        'sha256: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2'
+        'c3d4e5f6a1b2',
+        'commit abc1234567890abc1234567890abc1234567890 merged',
+    ]
+
+    @pytest.mark.parametrize('index', range(len(CORPUS)))
+    def test_no_trip(self, fake_vendor, index):
+        assert scan_tool_result(self.CORPUS[index]) is None
+
+    def test_the_negative_control_trips(self, fake_vendor):
+        # A REAL vendor-path leak DOES trip — the corpus is not a
+        # tripwire turned off.
+        assert (
+            scan_tool_result(
+                'found in /mnt/c/Users/u/AppData/Roaming/'
+                'GuardTest Global/log: key'
+            )
+            is not None
+        )
