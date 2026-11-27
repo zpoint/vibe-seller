@@ -106,6 +106,12 @@ scratch.
   data, SOPs, accumulated knowledge. Store A on Amazon US with its
   own listing strategy, Store B on Noon EG with totally different
   SOPs, Store C on Shopify DTC — they coexist without cross-talk.
+- **Every store remembers.** A built-in memory system gives each store
+  its own memory and knowledge: paths that worked, store rules, the way
+  you taught it. The next run follows them, so it gets smoother over
+  time; rules shared across stores live in common knowledge. It is all
+  plain markdown on your machine that you can read and edit — see
+  [Knowledge & Skills](https://docs.vibe-sellers.com/en/knowledge/).
 
 ## Install
 
