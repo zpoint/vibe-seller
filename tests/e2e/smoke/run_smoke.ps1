@@ -25,7 +25,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
-$Root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+$Root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath)))
 Set-Location $Root
 # Under the CLONE, not %TEMP%: every native-Windows artifact of the
 # smoke lives inside codes\<clone> (the coordinator's placement rule).
