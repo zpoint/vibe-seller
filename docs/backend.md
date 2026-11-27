@@ -212,6 +212,16 @@ The dead-proxy check (`agent_proxy`) only counts the user settings file's proxy 
 - `tests/workflow/test_wf_profile_config_isolation.py` — a non-default profile is created, made default and runs while a cc-switch `settings.json` exists.
 - `tests/integration/test_claude_cli_config_isolation.py` — the real CLI against a fake Anthropic endpoint: which endpoint/model each profile kind reaches, that no user `CLAUDE.md` / rule / `~/CLAUDE.md` reaches the provider while the workspace `CLAUDE.md` does, and the global-MCP toggle.
 
+## Vendor private-data guard (`ai/vendor_guard.py`, `ai/agent_lateral_guard.py`, `ai/output_tripwire.py`, `task_reaper.py`)
+
+Task agents run as the machine user, and observed runaways improvised: reading a browser vendor's on-disk cache for its API key, copying profile `Cookies` / `Login Data` databases, calling the vendor's local API port, ssh'ing to other machines, and rewriting the OS proxy to make a page load. The guard is interception of our own tool calls, judged by **where** an access goes:
+
+- **Pre-tool deny** (`ai/vendor_guard.py` + `ai/agent_lateral_guard.py`, chained in `ai/tool_call_guards.py`): vendor specs declare `private_paths` (dir names / path templates, every `~` / `$HOME` / `%APPDATA%` / `/mnt/c/Users/*` spelling) and `local_ports`; the guard also denies browser-profile databases by file name, CDP-proxy / inspector / vendor ports that are not the task's own (a runtime ziniao account's `socket_port` included), ssh/scp/sftp + `~/.ssh`, foreign `/proc/<pid>` reads and system-wide process listings (the self-scoped forms `bash_safety` recommends stay allowed), OS-settings mutation (registry / `netsh` / `setx` / `schtasks` / hosts / `networksetup` / `defaults write` / rc-file writes), and the vibe-seller home beyond the task workspace (`data/`, `profiles.json`, other sessions' `bh-tmp`). Denies are logged server-side with the tool_use id.
+- **Output tripwire** (`ai/output_tripwire.py`, wired via `ai/claude_backend_tripwire.py`): a tool RESULT carrying a vendor private path (paths only — no key shapes, no content signatures) stops the task FAILED with error category `security_tripwire`.
+- **Task-end reaping** (`task_reaper.py`): on any terminal state or user stop, every process whose environment carries the task's `VIBE_TASK_ID` is reaped however it was detached (`nohup` / `ssh -f` / setsid; procfs scan on Linux/WSL, `ps eww` on macOS, per-task Windows job objects with a suspended-then-assigned spawn). `stop.sh --scoped` reaps the same way, scoped to its own `VIBE_HOME`.
+
+Test surface: `tests/unit/test_vendor_guard.py` (every runaway spelling + the no-false-positive corpus), `tests/unit/test_task_reaper.py`, `tests/unit/test_stop_sh.py`, and the tier-1 replay `tests/e2e/test_guard_replay.py` (a fake vendor registered through the real plugin entry point, canaries, the mock CLI driving the real hook path).
+
 ## AI setup check (`ai/ai_readiness.py`)
 
 Decides whether the UI asks a user to set up AI before creating a task

@@ -373,3 +373,56 @@ def test_locator_serves_descriptors_from_the_registry(fake_vendor):
 def test_unknown_spec_attribute_still_raises():
     with pytest.raises(AttributeError):
         wal.NOSUCH_SPEC  # noqa: B018
+
+
+class TestPrivateDataDeclaration:
+    """D-C3-6: an anti-detect vendor that declares neither
+    private_paths nor local_ports gets a registration warning (the
+    next vendor PRs must declare theirs); plain browsers are exempt."""
+
+    def test_undeclared_antidetect_vendor_warns(self, fake_vendor, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            fake_vendor(
+                _spec(
+                    key='nodeclare',
+                    private_paths=(),
+                    local_ports=(),
+                )
+            )
+            # Registration is lazy: touching the registry loads the
+            # plugin (and runs validate_spec) inside this block.
+            assert vendor_spec('nodeclare') is not None
+        assert 'private_paths/local_ports' in caplog.text
+
+    def test_declared_vendor_does_not_warn(self, fake_vendor, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            fake_vendor(
+                _spec(key='declared', private_paths=('SomeData',))
+            )
+        assert 'declares no private_paths' not in caplog.text
+
+    def test_plain_browser_is_exempt(self, caplog):
+        import logging
+
+        from app.browser.vendors import BrowserVendorSpec
+        from app.browser.vendor_rules import (
+            CARDINALITY_NONE,
+            KIND_PLAIN,
+            validate_spec,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            validate_spec(
+                BrowserVendorSpec(
+                    key='plainx',
+                    display_name_en='P',
+                    display_name_zh='p',
+                    kind=KIND_PLAIN,
+                    account_cardinality=CARDINALITY_NONE,
+                )
+            )
+        assert 'private_paths' not in caplog.text
