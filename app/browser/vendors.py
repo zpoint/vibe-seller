@@ -153,6 +153,16 @@ class BrowserVendorSpec:
     client_factory: Callable[[dict], InjectClient] | None = None
     win_app: WinAppSpec | None = None
     client_path_setting: str = ''
+    # C4: a vendor whose stop path genuinely must close-and-reopen a
+    # hand-opened kernel (its own docs describe it) declares it here.
+    # The default is ATTACH: a stale server session never calls the
+    # vendor's close_store(ref) when the kernel it opened is gone —
+    # that call closes whatever kernel the profile has NOW, including
+    # one the user opened by hand. Only a vendor with this flag may
+    # the stale path close (e.g. yuehulian: its client keeps listing
+    # a closed-crashed env as Opened, and only its own close clears
+    # that state — see its spec for the reason).
+    reopens_hand_opened: bool = False
 
     def credential_field(self, key: str) -> VendorCredentialField | None:
         for f in self.credential_fields:

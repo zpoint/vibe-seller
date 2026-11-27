@@ -29,6 +29,20 @@ logger = logging.getLogger(__name__)
 
 ClientFactory = Callable[[dict], InjectClient]
 
+
+def _browser_guid(version: dict) -> str | None:
+    """The kernel's browser GUID from a ``/json/version`` payload.
+
+    The tail of ``webSocketDebuggerUrl`` (``.../devtools/browser/
+    <uuid>``) is the per-kernel identity CDP exposes; two kernels of
+    the same profile on different ports (or the same port at different
+    times) never share it.
+    """
+    ws = str(version.get('webSocketDebuggerUrl') or '')
+    marker = '/devtools/browser/'
+    return ws.rsplit(marker, 1)[-1] or None if marker in ws else None
+
+
 # The Browser families the engine can drive: Chromium's CDP. Firefox
 # kernels can also expose a PARTIAL CDP (the old Remote Agent — seen
 # live: a Firefox/100 kernel answered /json/version with a
@@ -55,6 +69,13 @@ class InjectCdpBackend(BrowserBackend):
         self._proxy: CDPMuxProxy | None = None
         self._store_ref: str | None = None
         self._opened: OpenedStore | None = None
+        self._reopens_hand_opened: bool = False
+        # The browser GUID (/json/version's webSocketDebuggerUrl tail)
+        # of the kernel THIS backend opened — the identity a later stop
+        # matches before tearing anything down (C4: a stale stop may
+        # only close what this server opened, never a kernel the user
+        # opened by hand on the same profile).
+        self._browser_guid: str | None = None
 
     async def start(self, browser_config: dict) -> BrowserSessionInfo:
         store_ref = browser_config.get('browser_ref', '')
@@ -63,6 +84,11 @@ class InjectCdpBackend(BrowserBackend):
 
         client = self._client_factory(browser_config)
         self._client = client
+        # The vendor's C4 declaration: its stop path may close-and-reopen
+        # a hand-opened kernel (injected from the spec by the manager).
+        self._reopens_hand_opened = bool(
+            browser_config.get('reopens_hand_opened')
+        )
 
         await client.ensure_running()
         # Auto-login if logged out and credentials are stored (no-op for a
@@ -83,6 +109,8 @@ class InjectCdpBackend(BrowserBackend):
                 f'opened {store_ref} but CDP {opened.cdp_host}:'
                 f'{opened.cdp_port} never answered'
             )
+        # The identity of the kernel we just opened, for stop().
+        self._browser_guid = _browser_guid(version)
         browser = str(version.get('Browser') or '')
         if not browser.startswith(CHROMIUM_BROWSER_PREFIXES):
             # A non-Chromium kernel CAN expose a partial CDP (Firefox's
@@ -144,16 +172,52 @@ class InjectCdpBackend(BrowserBackend):
         return BrowserSessionInfo(cdp_port=opened.cdp_port)
 
     async def stop(self, info: BrowserSessionInfo) -> None:
-        # Close the store env itself (CDP Browser.close) BEFORE tearing
-        # down the proxy, so the kernel exits cleanly and the next task
-        # re-opens a fresh env. Without this, close_store is a no-op and a
-        # second task on the same store finds it already open (no new
-        # spawn → CdpUnreachable).
-        if self._opened is not None:
+        """Tear down ONLY what this backend opened (C4).
+
+        The kernel this backend opened is identified by the endpoint it
+        recorded at open plus the kernel's browser GUID. A stale stop
+        (the session row survived the vendor closing the kernel — the
+        user closed the store window, or the client restarted, and then
+        opened the profile BY HAND) must never close the hand-opened
+        kernel: ``close_store(ref)`` closes whatever kernel the profile
+        has NOW, and the fresh start would reopen the profile, losing
+        the user's window and tabs. So:
+
+        - endpoint alive + GUID matches (or was never recorded) → the
+          kernel is ours: CDP ``Browser.close`` first, then the
+          vendor's ``close_store`` (the healthy path, unchanged);
+        - endpoint alive + GUID DIFFERS → the port was reused by
+          another kernel (another instance): close neither;
+        - endpoint dead → the kernel we opened is gone. A
+          ``close_store(ref)`` here can only close a kernel that is not
+          ours — a hand-opened one. Skip it, unless the vendor's spec
+          declares ``reopens_hand_opened`` (its own docs describe
+          close-and-reopen, and only its close clears a stale vendor
+          state).
+
+        The proxy is always stopped: it is this backend's own.
+        """
+        owns_kernel = await self._kernel_is_ours()
+        reopens = self._client is not None and self._reopens_hand_opened
+        if self._opened is not None and owns_kernel:
+            # Close the store env itself (CDP Browser.close) BEFORE
+            # tearing down the proxy, so the kernel exits cleanly and
+            # the next task re-opens a fresh env. Without this,
+            # close_store is a no-op and a second task on the same
+            # store finds it already open (no new spawn →
+            # CdpUnreachable).
             await self._close_browser(
                 self._opened.cdp_host, self._opened.cdp_port
             )
-            self._opened = None
+        elif self._opened is not None:
+            logger.info(
+                'stale stop: the kernel this backend opened is gone or '
+                'no longer ours (endpoint %s:%s); leaving the profile '
+                'kernel alone',
+                self._opened.cdp_host,
+                self._opened.cdp_port,
+            )
+        self._opened = None
         try:
             if self._proxy:
                 await self._proxy.stop()
@@ -161,12 +225,55 @@ class InjectCdpBackend(BrowserBackend):
         except Exception as e:
             logger.warning('inject backend proxy stop failed: %s', e)
         if self._client is not None and self._store_ref is not None:
-            try:
-                await self._client.close_store(self._store_ref)
-            except Exception as e:
-                logger.warning('inject backend close_store failed: %s', e)
-            finally:
+            if owns_kernel or reopens:
+                try:
+                    await self._client.close_store(self._store_ref)
+                except Exception as e:
+                    logger.warning('inject backend close_store failed: %s', e)
+                finally:
+                    self._store_ref = None
+            else:
+                logger.info(
+                    'stale stop: skipping close_store(%r) — the kernel '
+                    'this backend opened is gone and the profile may '
+                    'hold a kernel the user opened by hand '
+                    '(vendor does not declare reopens_hand_opened)',
+                    self._store_ref,
+                )
                 self._store_ref = None
+
+    async def _kernel_is_ours(self) -> bool:
+        """Whether the kernel this backend opened is still the one on
+        the recorded endpoint.
+
+        Probes the recorded endpoint's ``/json/version``: dead → not
+        ours (gone); alive with the same browser GUID we recorded at
+        open → ours; alive with a DIFFERENT GUID → the port was reused
+        by another kernel — not ours. Without a recorded GUID (older
+        sessions, or a client that reports none) a live endpoint counts
+        as ours — the pre-C4 behaviour for the healthy path.
+        """
+        if self._opened is None:
+            return False
+        version = await self._cdp_version(
+            self._opened.cdp_host, self._opened.cdp_port
+        )
+        if version is None:
+            return False
+        guid = _browser_guid(version)
+        if self._browser_guid is None or guid is None:
+            return True
+        if guid != self._browser_guid:
+            logger.warning(
+                'endpoint %s:%s now serves browser %r (opened %r) — '
+                'the port was reused; not closing it',
+                self._opened.cdp_host,
+                self._opened.cdp_port,
+                guid,
+                self._browser_guid,
+            )
+            return False
+        return True
 
     @staticmethod
     async def _close_browser(host: str, port: int) -> None:
