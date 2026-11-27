@@ -753,3 +753,48 @@ async def test_kernel_updating_then_not_ready_keeps_downloading_hint(api):
             await c.open_store('kaaaaaa1')
     assert '正在下载浏览器内核' in str(ei.value)
     assert '后台不会自动下载' not in str(ei.value)
+
+
+# ── R14: the start response itself names the kernel (flower_159) ──
+
+
+async def test_flower159_start_refused_from_the_webdriver_path(api):
+    # R14: on flower_159 (today's default FlowerBrowser kernel) the
+    # start SUCCEEDS and returns a WebDriver-BiDi endpoint whose
+    # /json/version 404s — the engine would report a generic
+    # CdpUnreachable. The webdriver path (webdriver_flower_159) names
+    # the kernel, so the adapter refuses BEFORE the engine fronts it.
+    api.start_results['kaaaaaa2'] = 'flower159'
+    c = _client(api)
+    stopped: list[str] = []
+    with mock.patch.object(c, 'close_store', side_effect=stopped.append):
+        with pytest.raises(UnsupportedKernel) as ei:
+            await c.open_store('kaaaaaa2')
+    assert 'SunBrowser' in str(ei.value)
+    assert 'Chrome 内核' in str(ei.value)
+    assert stopped == ['kaaaaaa2']  # the profile was stopped
+
+
+async def test_flower159_twist_the_sunbrowser_shape_passes(api):
+    # The SunBrowser start response (chromedriver path) is unaffected.
+    c = _client(api)
+    opened = await c.open_store('kaaaaaa1')
+    assert opened.cdp_port == api.cdp_port
+
+
+async def test_start_names_firefox_shape():
+    c = AdsPowerClient({})
+    assert (
+        c.start_names_firefox({
+            'data': {'webdriver': 'x\\\\webdriver_flower_100\\\\driver.exe'}
+        })
+        is True
+    )
+    assert (
+        c.start_names_firefox({
+            'data': {'webdriver': 'x\\\\chrome_156\\\\chromedriver.exe'}
+        })
+        is False
+    )
+    assert c.start_names_firefox({'data': {}}) is False
+    assert c.start_names_firefox(None) is False

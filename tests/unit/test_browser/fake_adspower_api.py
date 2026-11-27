@@ -74,8 +74,8 @@ class FakeAdsPowerApi:
         )
         #: The key the API accepts ('' = no security verification).
         self.api_key = 'test-key-123'
-        #: start result overrides per user_id: 'firefox' | 'downloading'
-        #: | 'not_ready' | None (normal CDP answer).
+        #: start result overrides per user_id: 'firefox' | 'flower159'
+        #: | 'downloading' | 'not_ready' | None (normal CDP answer).
         self.start_results: dict[str, str] = {}
         #: Consecutive rate-limit answers before the real one (0 = off).
         self.rate_limit_burst = 0
@@ -217,6 +217,8 @@ class FakeAdsPowerApi:
                 return web.json_response(_load('errors')['kernel_not_ready'])
             if result == 'firefox':
                 return web.json_response(_load('start_firefox_empty'))
+            if result == 'flower159':
+                return web.json_response(_load('start_flower159'))
             body = _load('start_ok')
             body = json.loads(json.dumps(body))
             body['data']['ws'] = {

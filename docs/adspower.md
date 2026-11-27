@@ -102,7 +102,7 @@ AdsPower 本地接口的端口**每次启动都可能变**（默认 50325，被�
 | AdsPower 不认这个 API Key：Key 要从 AdsPower 当前登录的账号里复制；换过账号或重置过 Key，都要重新填。 | Key 和当前登录的账号不匹配。重新生成 / 复制 Key。 |
 | AdsPower 没有登录，后台启动也没成功：请在 AdsPower 窗口登录后点刷新。 | 客户端停在登录页且后台启动失败。手动登录一次。 |
 | AdsPower 里找不到这个环境：可能被删了，或者没有授权给当前登录的账号。 | 环境被删了，或当前账号没有它的授权。 |
-| 这个环境用的是 FlowerBrowser（火狐内核）…… | 见上面「环境要用 Chrome 内核」：新建 SunBrowser 环境。 |
+| 这个环境用的是 FlowerBrowser（火狐内核），Vibe Seller 只能操作 SunBrowser（Chrome 内核）的环境。请在 AdsPower 新建一个「浏览器」选 SunBrowser 的环境，再把这家店铺改绑到新环境。 | 见上面「环境要用 Chrome 内核」：新建 SunBrowser 环境。 |
 | AdsPower 正在下载浏览器内核，下载完再试一次。 | 第一次用某个内核版本，AdsPower 在下载。等一会重试。 |
 | AdsPower 的接口用不了：……（原文）。团队成员需要管理员在团队设置里开通 API 权限。 | 接口被拒（原文会带上 AdsPower 的消息）。一般是权限或套餐问题。 |
 | 没找到 AdsPower：请先安装并打开 AdsPower；如果装在别的位置，请在设置里选一下它的安装位置。 | 没安装，或装在找不到的位置。 |

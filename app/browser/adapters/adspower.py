@@ -262,6 +262,23 @@ class AdsPowerClient(LocalApiClient):
             return None
         return OpenedStore(host, port)
 
+    @staticmethod
+    def start_names_firefox(payload) -> bool:
+        """Whether a code-0 start response names a FlowerBrowser kernel.
+
+        The webdriver path carries the kernel (verified live, FACTS
+        §j): ``…\\chrome_<N>\\chromedriver.exe`` for SunBrowser vs
+        ``…\\webdriver_flower_<N>\\driver.exe`` for FlowerBrowser.
+        On flower_159 (today's default) the start SUCCEEDS with a
+        WebDriver-BiDi endpoint that /json/version 404s — the engine
+        would report a generic CdpUnreachable. Deciding here, from the
+        response, refuses the profile with the typed
+        UnsupportedKernel + the plain-language hint instead.
+        """
+        data = (payload or {}).get('data') or {}
+        webdriver = str(data.get('webdriver') or '')
+        return 'webdriver_flower' in webdriver.lower()
+
     def is_logged_out(self, status: int, payload) -> bool:
         """True for the no-credential shape — AdsPower's "not
         authenticated" answer.
@@ -513,14 +530,23 @@ class AdsPowerClient(LocalApiClient):
         data = await self.api_call(self.open_method, path, json_body=body)
         data = await self._resolve_start(ref, path, data)
         _, payload = data
+        if self.start_names_firefox(payload):
+            # R14: the start response itself names a FlowerBrowser
+            # kernel (webdriver_flower in the driver path) — refuse
+            # BEFORE the engine ever fronts the BiDi endpoint (which
+            # /json/version 404s and would surface as a generic
+            # CdpUnreachable). _refuse_firefox stops the profile and
+            # raises UnsupportedKernel with the plain-language hint.
+            await self._refuse_firefox(ref)
         opened = self.parse_opened(payload)
         if opened is not None:
-            # The ENGINE verifies the kernel positively (contract P9):
-            # a Firefox kernel can answer a real-looking partial CDP
-            # (Firefox's old Remote Agent), and the engine refuses it
-            # from /json/version's Browser field before anything fronts
-            # it. Our close_store then cleans the window up (the API
-            # cannot stop a FlowerBrowser).
+            # The ENGINE verifies the kernel positively (contract P9,
+            # the backstop for unknown future shapes): a Firefox kernel
+            # can answer a real-looking partial CDP (Firefox's old
+            # Remote Agent), and the engine refuses it from
+            # /json/version's Browser field. Our close_store then
+            # cleans the window up (the API cannot stop a
+            # FlowerBrowser).
             return opened
         return await self._decide_failed_start(ref, data)
 
