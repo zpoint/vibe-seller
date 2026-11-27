@@ -27,6 +27,8 @@ Wenmai logs in with the **enterprise login**: company name + company username + 
 
 Every store in Wenmai needs a device (network environment) bound before it can be opened. A store without one still shows in the list but reads "no device bound" and cannot be selected — bind a device to it in the Wenmai client, then refresh.
 
+Also set the store's browser kernel to **Chrome**: a store on a Firefox or other non-Chrome kernel cannot be opened by a task — see [Stores must use a Chrome kernel](browsers.en.md#stores-must-use-a-chrome-kernel).
+
 ## What to fill in when binding
 
 When creating a store, pick Wenmai as the browser backend — the same form as Ziniao:

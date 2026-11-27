@@ -50,6 +50,7 @@ import aiohttp
 from app.browser.adapters.wenmai_dom import (
     CLICK_OPEN_STORE_JS,
     LOGIN_HASH_JS,
+    MIDDLE_READY_JS,
     fill_enterprise_login_js,
     is_logged_in_hash,
 )
@@ -211,20 +212,25 @@ class RealWenmaiClient(InjectClient):
 
         Carries the device-bound state: an env with no device bound
         (``ipId`` null) cannot be opened, so it is returned with
-        ``available=False`` for the UI to grey out.
+        ``available=False`` and the reason (未绑定设备) for the UI to
+        grey it out with an explanation.
         """
         envs = resp.get('envs') or []
-        return [
-            StoreRef(
-                name=str(e.get('storeName') or e.get('name') or e['id']),
-                platform=str(
-                    e.get('platform') or e.get('actualPlatform') or ''
-                ),
-                ref=str(e['id']),
-                available=e.get('ipId') is not None,
+        out = []
+        for e in envs:
+            bound = e.get('ipId') is not None
+            out.append(
+                StoreRef(
+                    name=str(e.get('storeName') or e.get('name') or e['id']),
+                    platform=str(
+                        e.get('platform') or e.get('actualPlatform') or ''
+                    ),
+                    ref=str(e['id']),
+                    available=bound,
+                    unavailable_reason='' if bound else '未绑定设备',
+                )
             )
-            for e in envs
-        ]
+        return out
 
     def parse_opened(self, resp: dict) -> OpenedStore:
         """openEnv's ``response`` → the kernel's own CDP endpoint.
@@ -234,10 +240,11 @@ class RealWenmaiClient(InjectClient):
         endpoint (its /json/version serves webSocketDebuggerUrl).
         """
         if not resp.get('webdriverPath'):
+            # Wording matches docs/browsers.md § 店铺要用 Chrome 内核
+            # (the docsHelp link the task error shows).
             raise UnsupportedKernel(
-                'this store runs a non-Chromium (Firefox) kernel; only '
-                'Chromium-kernel stores are supported (在稳卖客户端把 '
-                '这个店铺切换为 Chromium 内核)'
+                '这个店铺用的不是 Chrome（Chromium）内核，任务无法打开它；'
+                '在稳卖客户端把这个店铺的浏览器内核切换为 Chrome 后重试'
             )
         parsed = urlparse(str(resp.get('selenium') or ''))
         if not parsed.port:
@@ -407,8 +414,78 @@ class RealWenmaiClient(InjectClient):
         StoreNotFound (checked against the list, because a wrong id and
         a transient failure must not read alike). Opening an already-
         open store returns the SAME pid and port, so a store a person
-        opened by hand attaches without reopening.
+        opened by hand attaches without reopening — but a kernel the
+        client still lists as open whose endpoint never answers (a
+        leftover of a crash, or a kernel that failed to bind its port)
+        is closed through the client and re-opened fresh, so a task
+        recovers by itself instead of failing on a dead port (seen
+        live: openEnv kept returning a port nothing listened on).
         """
+        opened = await self._open_env(ref)
+        if await self._endpoint_answers(opened):
+            return opened
+        logger.warning(
+            '稳卖 store %s: endpoint %s:%s never answered; closing it '
+            'in the client and re-opening fresh',
+            ref,
+            opened.cdp_host,
+            opened.cdp_port,
+        )
+        await self.close_store(ref)
+        await asyncio.sleep(2.0)
+        opened = await self._open_env(ref)
+        if await self._endpoint_answers(opened):
+            return opened
+        # Still dead: the env is wedged — a kernel that RUNS but never
+        # bound its debug port (seen live: the client can pick a port
+        # in a Windows reserved range, the kernel's bind silently
+        # fails, and closeEnv does not clear it). Kill THAT kernel —
+        # matched by its own debug-port flag, nothing else — wait for
+        # the client to notice, and open fresh.
+        logger.warning(
+            '稳卖 store %s: endpoint %s:%s still dead after closeEnv; '
+            'killing the kernel that holds the port and re-opening',
+            ref,
+            opened.cdp_host,
+            opened.cdp_port,
+        )
+        await asyncio.to_thread(
+            self._proc.kill_kernel_by_debug_port, opened.cdp_port
+        )
+        for _ in range(10):
+            if str(ref) not in await self._running_env_ids():
+                break
+            await asyncio.sleep(1.0)
+        opened = await self._open_env(ref)
+        if await self._endpoint_answers(opened):
+            return opened
+        raise CdpUnreachable(
+            f'opened {ref!r} but its CDP endpoint '
+            f'{opened.cdp_host}:{opened.cdp_port} never answered, '
+            'even after closing and re-opening the env'
+        )
+
+    async def _running_env_ids(self) -> set[str]:
+        """Open env ids per ``GET /QueueRunningStoreList``.
+
+        A bare JSON array (verified live), so it cannot go through
+        ``_request`` (which returns dict bodies only).
+        """
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(
+                    f'{self._base}/QueueRunningStoreList',
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as r:
+                    raw = await r.json(content_type=None)
+        except (TimeoutError, aiohttp.ClientError, ValueError):
+            return set()
+        if not isinstance(raw, list):
+            return set()
+        return {str(x.get('id') if isinstance(x, dict) else x) for x in raw}
+
+    async def _open_env(self, ref: str) -> OpenedStore:
+        """The raw openEnv call + typed error mapping."""
         data = await self._call(
             self.M_OPEN, {'id': str(ref), 'option': 'default'}
         )
@@ -424,6 +501,23 @@ class RealWenmaiClient(InjectClient):
                     raise StoreNotFound(ref) from err
                 raise err
         return self.parse_opened(resp)
+
+    async def _endpoint_answers(
+        self, opened: OpenedStore, *, timeout: float = 8.0
+    ) -> bool:
+        """Does the kernel's CDP endpoint answer /json/version?"""
+        url = f'http://{opened.cdp_host}:{opened.cdp_port}/json/version'
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(
+                    url, timeout=aiohttp.ClientTimeout(total=timeout)
+                ) as r:
+                    data = await r.json(content_type=None)
+            return bool(
+                isinstance(data, dict) and data.get('webSocketDebuggerUrl')
+            )
+        except (TimeoutError, aiohttp.ClientError, ValueError):
+            return False
 
     async def _knows_env(self, ref: str) -> bool:
         """Whether ``ref`` (env id) is visible to the current login."""
@@ -445,15 +539,44 @@ class RealWenmaiClient(InjectClient):
         BEFORE the CDPMuxProxy fronts the env, and the proxy's
         keep_last_page keeps the produced page alive.
         """
-        pages = await self._cdp_pages(opened)
-        if self._store_page(pages):
-            return  # auto-open, or a person opened the store by hand
-        middle = self._middle_page(pages)
+        # The middle page renders async: openEnv answers as soon as the
+        # KERNEL is up, but the page's button (and its click handler)
+        # appears a moment later. A click fired into a half-loaded page
+        # is lost and the store page never opens (seen live). So: wait
+        # for the page to be ready, click, and if the store page still
+        # does not appear, click again — an early click is silently
+        # dropped, and clicking when the store page is already open
+        # never happens (we return first). A target listing that fails,
+        # or succeeds before the kernel has created its initial page,
+        # is retried — "no middle page" is only concluded after the
+        # full budget (an early empty listing skipped the click
+        # entirely, seen live).
+        clicks = 0
+        middle: dict | None = None
+        for _ in range(15):
+            pages = await self._cdp_pages(opened)
+            if pages:
+                if self._store_page(pages):
+                    return  # auto-open, or a person opened the store
+                if middle is None:
+                    middle = self._middle_page(pages)
+            if middle is not None:
+                ready = await self._cdp_eval(middle, MIDDLE_READY_JS)
+                if ready is True and clicks < 2:
+                    clicked = await self._cdp_eval(middle, CLICK_OPEN_STORE_JS)
+                    clicks += 1
+                    logger.info(
+                        'middlePage 打开店铺 click #%d → %s',
+                        clicks,
+                        clicked,
+                    )
+            await asyncio.sleep(2.0)
         if middle is None:
-            # Nothing to click and no store page: the env may open
-            # straight to the store in a future client. Loud failure is
-            # wrong here (the env IS open and CDP answers) — log and let
-            # the agent navigate.
+            # Never saw a middle page and no store page across the
+            # whole budget (a failed or pre-page listing is retried,
+            # not concluded on): the env may open straight to the store
+            # in a future client. Loud failure is wrong here (the env
+            # IS open and CDP answers) — log and let the agent navigate.
             logger.warning(
                 '稳卖 env on %s:%s has no middlePage and no store page; '
                 'continuing without clicking 打开店铺',
@@ -461,20 +584,6 @@ class RealWenmaiClient(InjectClient):
                 opened.cdp_port,
             )
             return
-        clicked = await self._cdp_eval(middle, CLICK_OPEN_STORE_JS)
-        if clicked != 'OK':
-            # The button may be gone because auto-open already fired;
-            # give the page a moment before failing.
-            logger.info(
-                'middlePage had no 打开店铺 button (%s); waiting for the '
-                'store page anyway',
-                clicked,
-            )
-        for _ in range(15):
-            await asyncio.sleep(2.0)
-            pages = await self._cdp_pages(opened)
-            if self._store_page(pages):
-                return
         raise CdpUnreachable(
             'clicked 打开店铺 on the middle page but no store page opened '
             f'({opened.cdp_host}:{opened.cdp_port})'
@@ -496,8 +605,16 @@ class RealWenmaiClient(InjectClient):
                 return p
         return None
 
-    async def _cdp_pages(self, opened: OpenedStore) -> list[dict]:
-        """Page targets from the kernel's CDP ``/json/list``."""
+    async def _cdp_pages(self, opened: OpenedStore) -> list[dict] | None:
+        """Page targets from the kernel's CDP ``/json/list``.
+
+        ``None`` means the LISTING failed (transient — the engine has
+        already verified /json/version answers); ``[]`` means it
+        succeeded and there are no pages. Callers must not read a
+        failed listing as "no middle page": that skipped the 打开店铺
+        click entirely (seen live — one failed listing made a whole
+        scenario run without ever clicking).
+        """
         url = f'http://{opened.cdp_host}:{opened.cdp_port}/json/list'
         try:
             async with aiohttp.ClientSession() as s:
@@ -506,9 +623,9 @@ class RealWenmaiClient(InjectClient):
                 ) as r:
                     targets = await r.json(content_type=None)
         except (TimeoutError, aiohttp.ClientError, ValueError):
-            return []
+            return None
         if not isinstance(targets, list):
-            return []
+            return None
         return [t for t in targets if t.get('type') == 'page']
 
     async def _cdp_eval(self, target: dict, js: str):

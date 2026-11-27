@@ -111,7 +111,11 @@ async def test_list_stores_carries_device_bound_state(api):
     stores = await _client(api).list_stores()
     by_name = {s.name: s for s in stores}
     assert by_name['bound-store'].available is True
+    assert by_name['bound-store'].unavailable_reason == ''
     assert by_name['unbound-store'].available is False
+    # The reason is carried for the picker to show next to the greyed
+    # out profile (generic vendor text, filled by the adapter).
+    assert by_name['unbound-store'].unavailable_reason == '未绑定设备'
 
 
 async def test_list_stores_logged_out_is_login_required(api):
@@ -224,6 +228,55 @@ def test_map_error_covers_the_vendor_shapes():
     )
 
 
+# ── open_store: a dead endpoint is closed and re-opened ──────────────
+
+
+async def test_open_store_recovers_a_dead_endpoint(api, monkeypatch):
+    """A kernel the client still lists as open whose endpoint never
+    answers (seen live: openEnv kept returning a port nothing listened
+    on) is closed through the client and re-opened fresh."""
+    cdp = FakeMiddlePageCdp()
+    await cdp.start()
+    try:
+        api.cdp_port = cdp.port + 1  # dead: nothing listens there
+        client = _client(api)
+        flips = {'n': 0}
+
+        async def fake_sleep(_s):
+            flips['n'] += 1
+            if flips['n'] >= 1:  # the re-open lands on the live port
+                api.cdp_port = cdp.port
+
+        monkeypatch.setattr(mod.asyncio, 'sleep', fake_sleep)
+        # (the real probe is used; a refused port fails fast)
+        opened = await client.open_store('100000000001')
+        assert opened.cdp_port == cdp.port
+        assert 'closeEnv' in api.call_log  # the dead env was closed
+    finally:
+        await cdp.stop()
+
+
+async def test_open_store_dead_endpoint_twice_is_cdp_unreachable(
+    api, monkeypatch
+):
+    """Negative control: the re-opened endpoint is STILL dead → a clear
+    CdpUnreachable naming the recovery, not a hang or a wrong error."""
+    cdp = FakeMiddlePageCdp()
+    await cdp.start()
+    try:
+        api.cdp_port = cdp.port + 1  # dead now and after the recovery
+        client = _client(api)
+        monkeypatch.setattr(
+            client, '_endpoint_answers', mock.AsyncMock(return_value=False)
+        )
+        with pytest.raises(CdpUnreachable) as ei:
+            await client.open_store('100000000001')
+        assert 'never answered' in str(ei.value)
+        assert 'closeEnv' in api.call_log
+    finally:
+        await cdp.stop()
+
+
 # ── after_open: the middle page ──────────────────────────────────────
 
 
@@ -235,6 +288,34 @@ async def test_after_open_clicks_open_store_on_the_middle_page():
         await client.after_open(OpenedStore('127.0.0.1', cdp.port))
         assert cdp.evals, 'the 打开店铺 button was never clicked'
         assert cdp.store_page_open is True
+    finally:
+        await cdp.stop()
+
+
+async def test_after_open_waits_for_the_page_to_be_ready():
+    """The middle page renders async: openEnv answers when the KERNEL
+    is up, but the button (and its handler) appears a moment later. A
+    click fired before that is silently dropped — after_open must wait
+    for readiness and click again, not lose the race (seen live)."""
+    cdp = FakeMiddlePageCdp()
+    await cdp.start()
+    try:
+        cdp.ready = False  # the page has not rendered its button yet
+        client = RealWenmaiClient({})
+        # Flip to ready after the first readiness probe.
+        real_eval = client._cdp_eval
+
+        async def flipping_eval(target, js):
+            if js == wenmai_dom.MIDDLE_READY_JS and not cdp.ready:
+                cdp.ready = True
+            return await real_eval(target, js)
+
+        client._cdp_eval = flipping_eval
+        await client.after_open(OpenedStore('127.0.0.1', cdp.port))
+        assert cdp.store_page_open is True
+        # Every click on the fake is recorded; the lost-early-click
+        # case would leave store_page_open False (the fake drops
+        # clicks made before ready).
     finally:
         await cdp.stop()
 
@@ -301,11 +382,15 @@ async def test_ensure_running_launches_when_the_api_is_dead(monkeypatch):
     try:
         # The client's base points at a DEAD port first: only after
         # launch does the fake API answer (simulating the launch).
+        # NB: launch runs via asyncio.to_thread, so it must be SYNC —
+        # an async fake would return an un-awaited coroutine and the
+        # readiness loop would spin on the dead port for its 120 s
+        # budget (this exact hang was why the suite stalled).
         client = RealWenmaiClient({})
         dead = f'http://127.0.0.1:{api.port + 1}'
         client._base = dead
 
-        async def fake_launch():
+        def fake_launch():
             proc.launched = True
             client._base = f'http://127.0.0.1:{api.port}'
             return True
@@ -451,23 +536,12 @@ async def test_ensure_logged_in_form_failure_names_what_was_missing(
 # ── serialization ────────────────────────────────────────────────────
 
 
-async def test_calls_are_serialised_one_at_a_time(api, monkeypatch):
+async def test_calls_are_serialised_one_at_a_time(api):
     """Two concurrent calls never overlap: the per-loop gate holds one
-    request at a time (the documented one-request-per-0.5s limit)."""
-    in_flight = 0
-    peak = 0
-    real_request = RealWenmaiClient._request
-
-    async def counting_request(self_inner, method, payload=None):
-        nonlocal in_flight, peak
-        in_flight += 1
-        peak = max(peak, in_flight)
-        try:
-            return await real_request(self_inner, method, payload)
-        finally:
-            in_flight -= 1
-
-    monkeypatch.setattr(RealWenmaiClient, '_request', counting_request)
+    request at a time (the documented one-request-per-0.5s limit).
+    Measured SERVER-side, inside the fake API's handlers — wrapping the
+    client method would count queueing, not the gate."""
     client = _client(api)
     await asyncio.gather(client.is_logged_in(), client.list_stores())
-    assert peak == 1
+    assert api.peak == 1
+    assert len(api.call_log) >= 2  # both callers finished their calls

@@ -27,7 +27,6 @@ Exit code 0 ⇒ every scenario passed; 1 ⇒ at least one failed.
 import argparse
 import asyncio
 from contextlib import suppress
-import json
 from pathlib import Path
 import subprocess
 import sys
@@ -140,19 +139,21 @@ def _ps(script: str) -> str:
 
 
 async def _running_store_ids(client: RealWenmaiClient) -> set[str]:
-    """GET /QueueRunningStoreList — answered by the shell itself."""
-    data = await client._request('QueueRunningStoreList')
-    if not isinstance(data, dict):
+    """GET /QueueRunningStoreList — answered by the shell itself.
+
+    Verified live: a BARE JSON array of open env ids (``[497793]``),
+    empty when none run. Fetched raw because the client's _request
+    only returns dict bodies.
+    """
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(
+                f'{client._base}/QueueRunningStoreList',
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as r:
+                raw = await r.json(content_type=None)
+    except (TimeoutError, aiohttp.ClientError, ValueError):
         return set()
-    # The shape is a list of open store ids; be liberal in what we read.
-    raw = data.get('data') or data.get('response') or data.get('list')
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except ValueError:
-            return set()
-    if isinstance(raw, dict):
-        raw = raw.get('list') or raw.get('data')
     if not isinstance(raw, list):
         return set()
     return {str(x.get('id') if isinstance(x, dict) else x) for x in raw}
@@ -218,18 +219,28 @@ async def _run(client: RealWenmaiClient, cfg: dict, args) -> None:
                 _record('logged out → auto-login', ok)
             except LoginRequired as e:
                 _record('logged out → auto-login', False, str(e))
-            # S: wrong password → a clear LoginRequired, client not stuck.
-            bad = RealWenmaiClient({
-                **_creds(cfg),
-                'password': 'definitely-wrong-password',
-            })
-            try:
-                await bad.ensure_logged_in()
-                _record('wrong password → LoginRequired', False, 'no raise')
-            except LoginRequired:
-                _record('wrong password → LoginRequired', True)
-            except Exception as e:  # noqa: BLE001 — report, don't die
-                _record('wrong password → LoginRequired', False, repr(e))
+            # S: wrong password → a clear LoginRequired, client not
+            # stuck. The client must be LOGGED OUT first: a logged-in
+            # client short-circuits at the token check and would make
+            # this scenario "pass" for the wrong reason.
+            if not await _logout_via_client(client):
+                _record(
+                    'wrong password → LoginRequired',
+                    False,
+                    'could not log out for the setup',
+                )
+            else:
+                bad = RealWenmaiClient({
+                    **_creds(cfg),
+                    'password': 'definitely-wrong-password',
+                })
+                try:
+                    await bad.ensure_logged_in()
+                    _record('wrong password → LoginRequired', False, 'no raise')
+                except LoginRequired:
+                    _record('wrong password → LoginRequired', True)
+                except Exception as e:  # noqa: BLE001 — report, don't die
+                    _record('wrong password → LoginRequired', False, repr(e))
             # The client must not be left stuck: the real login still works.
             try:
                 await client.ensure_logged_in()

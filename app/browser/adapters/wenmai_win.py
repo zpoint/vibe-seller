@@ -56,15 +56,13 @@ class WenmaiProcessLayer:
         trusted as-is, a dir resolves to the main exe inside it), then
         the shared locator's hints (registry, shortcuts, conventional
         dirs) — so any install location works, exactly like 悦互联.
+        The spec is THIS module's WENMAI_SPEC (vendor knowledge stays
+        in the vendor module; the locator itself is generic).
         """
-        located = win_locator.locate(
-            win_locator.WENMAI_SPEC, configured_path=self._dir
-        )
+        located = win_locator.locate(WENMAI_SPEC, configured_path=self._dir)
         if located:
             return located.exe_path
-        self.locate_error = win_locator.not_found_message(
-            win_locator.WENMAI_SPEC
-        )
+        self.locate_error = win_locator.not_found_message(WENMAI_SPEC)
         return None
 
     def exe_path_script(self) -> str:
@@ -101,3 +99,25 @@ class WenmaiProcessLayer:
             except ValueError:
                 continue
         return None
+
+    def kill_kernel_by_debug_port(self, port: int) -> bool:
+        """Kill the store kernel whose command line carries this port.
+
+        A kernel whose ``--remote-debugging-port`` bind silently failed
+        (seen live: the client had picked a port in a Windows reserved
+        range, so the kernel RUNS but its endpoint never answers, and
+        closeEnv does not clear it) is matched by its OWN debug-port
+        flag and stopped — never by name, so the client, other stores'
+        kernels and unrelated processes are untouched. Returns True
+        when the PowerShell ran (best-effort, like every kill).
+        """
+        script = (
+            'Get-CimInstance Win32_Process | '
+            'Where-Object { $_.CommandLine -match '
+            f"'--remote-debugging-port={port}(\\D|$)' }} | "
+            'ForEach-Object { Stop-Process -Id $_.ProcessId -Force '
+            "-ErrorAction SilentlyContinue };'ok'; exit 0"
+        )
+        # exit 0: a stopped-for-already-gone pid must not read as a
+        # failed kill (the match itself is the contract).
+        return _run_ps(script).strip().endswith('ok')

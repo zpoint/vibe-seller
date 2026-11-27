@@ -86,3 +86,12 @@ CLICK_OPEN_STORE_JS = (
     "var b=document.querySelector('button.btn-primary');"
     "if(!b)return 'NOBTN';b.click();return 'OK';})()"
 )
+
+# Whether the middle page has rendered its button and finished loading
+# (a click fired into a half-loaded page is silently dropped).
+# true / false.
+MIDDLE_READY_JS = (
+    '(function(){'
+    "return document.readyState==='complete'&&"
+    "!!document.querySelector('button.btn-primary');})()"
+)

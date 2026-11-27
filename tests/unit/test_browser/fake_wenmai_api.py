@@ -13,9 +13,15 @@ Placeholder data only (acme / demo-store / 203.0.113.10).
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import json
 
 from aiohttp import web
+
+from app.browser.adapters.wenmai_dom import (
+    CLICK_OPEN_STORE_JS,
+    MIDDLE_READY_JS,
+)
 
 
 def _env(
@@ -77,6 +83,10 @@ class FakeWenmaiApi:
         self.cdp_port = 0  # set to a listener for the happy path
         self.cdp_host = '127.0.0.1'
         self.call_log: list[str] = []
+        #: Server-side concurrency watch (the rate-limit contract is
+        # ONE request at a time): peak concurrent handlers.
+        self.in_flight = 0
+        self.peak = 0
         self.runner: web.AppRunner | None = None
         self.port = 0
 
@@ -103,7 +113,8 @@ class FakeWenmaiApi:
     async def _get_all_info(self, _request: web.Request) -> web.Response:
         # Shell-answered: always responds, login or not.
         self.call_log.append('getAllInfo')
-        return web.json_response({'code': 200, 'msg': 'success'})
+        with self._watch():
+            return web.json_response({'code': 200, 'msg': 'success'})
 
     async def _post(self, request: web.Request) -> web.Response:
         method = request.match_info['method']
@@ -126,7 +137,17 @@ class FakeWenmaiApi:
                 'status': 'error',
                 'code': '404',
             })
-        return await handler(method, body)
+        with self._watch():
+            return await handler(method, body)
+
+    @contextmanager
+    def _watch(self):
+        self.in_flight += 1
+        self.peak = max(self.peak, self.in_flight)
+        try:
+            yield
+        finally:
+            self.in_flight -= 1
 
     async def _relay_logged_out(self, method: str) -> web.Response:
         # The REAL logged-out shape of the relayed methods (the docs
@@ -251,6 +272,9 @@ class FakeMiddlePageCdp:
         self.port = 0
         self.store_page_open = False
         self.evals: list[str] = []
+        #: True once the middle page has rendered its button; a click
+        #: fired before this is silently dropped (the live race).
+        self.ready = True
 
     async def start(self) -> int:
         app = web.Application()
@@ -320,11 +344,14 @@ class FakeMiddlePageCdp:
                 if data.get('method') == 'Runtime.evaluate':
                     expr = data['params']['expression']
                     self.evals.append(expr)
-                    if expr == self.CLICK_JS:
+                    if expr == MIDDLE_READY_JS:
+                        value = self.ready
+                    elif expr == CLICK_OPEN_STORE_JS and self.ready:
                         self.store_page_open = True
                         value = 'OK'
                     else:
-                        value = None
+                        # A click into a half-loaded page is dropped.
+                        value = 'NOBTN' if expr == CLICK_OPEN_STORE_JS else None
                     await ws.send_json({
                         'id': data['id'],
                         'result': {'result': {'value': value}},
