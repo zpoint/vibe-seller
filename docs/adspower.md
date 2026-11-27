@@ -65,6 +65,7 @@ API Key 必须和 AdsPower 客户端里登录的账号对应：一台机器同�
 - 客户端没开：Vibe Seller 会自动拉起 AdsPower 客户端。客户端记住了登录（Remember me），拉起后接口就可用。
 - 客户端开着但**没登录**（停在登录页）：Vibe Seller 会用你保存的 API Key 在后台启动一个无窗口的 AdsPower 服务（官方的 `--headless --api-key` 模式）登录，不会动你开着的客户端窗口。都不行时才提示你手动登录。
 - 客户端登录过期：同上，先自动拉起，不行就后台用 Key 启动；还不行会提示「AdsPower 没有登录」。
+- AdsPower 窗口自己的登录（在客户端里手动输入账号密码）有时会要求输入验证码（新设备确认）。**Vibe Seller 不需要这一步**：没登录时它在后台用你的 API Key 启动，不需要验证码。
 
 **说明**：后台启动时，你的 API Key 会出现在 AdsPower 的启动命令行参数里（这是 AdsPower 官方设计的用法，Key 本来就是给它验的）。Key 在 Vibe Seller 里加密保存，除此之外不会出现在日志或接口返回里。
 
