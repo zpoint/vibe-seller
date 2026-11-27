@@ -989,9 +989,7 @@ def execute_tool_call(name: str, tool_input: dict) -> tuple[bool, str]:
     try:
         if name == 'Bash':
             runner = (
-                ['cmd', '/c']
-                if sys.platform == 'win32'
-                else ['bash', '-c']
+                ['cmd', '/c'] if sys.platform == 'win32' else ['bash', '-c']
             )
             proc = subprocess.run(
                 runner + [tool_input['command']],
@@ -1147,24 +1145,43 @@ def _spawn_forwarder_leftover() -> int | None:
     probe.bind(('127.0.0.1', 0))
     port = probe.getsockname()[1]
     probe.close()
+    code = (
+        'import socket, time\n'
+        's = socket.socket()\n'
+        's.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n'
+        f"s.bind(('127.0.0.1', {port}))\n"
+        's.listen(4)\n'
+        'time.sleep(600)\n'
+    )
+    # The agent's minimal env lacks SystemRoot, without which
+    # CreateProcess itself fails with a bare WinError 2.
+    env = {**os.environ}
+    env.setdefault('SYSTEMROOT', 'C:\\Windows')
     try:
-        subprocess.Popen(
-            [
-                'setsid',
-                sys.executable,
-                '-c',
-                'import socket, time\n'
-                's = socket.socket()\n'
-                's.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n'
-                f"s.bind(('127.0.0.1', {port}))\n"
-                's.listen(4)\n'
-                'time.sleep(600)\n',
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        if sys.platform == 'win32':
+            # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: escapes the
+            # process group like setsid does — exactly what the
+            # Windows job object (not the group) must still catch.
+            subprocess.Popen(
+                [sys.executable, '-c', code],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=0x00000008 | 0x00000200,
+                env=env,
+            )
+        else:
+            subprocess.Popen(
+                ['setsid', sys.executable, '-c', code],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         return port
-    except OSError:
+    except OSError as exc:
+        print(
+            f'spawn-forwarder failed: {exc!r} exe={sys.executable!r}',
+            file=sys.stderr,
+            flush=True,
+        )
         return None
 
 
