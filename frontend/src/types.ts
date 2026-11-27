@@ -232,10 +232,44 @@ export interface ZiniaoBrowserProfile {
   browser_name: string;
   browser_oauth: string;
 }
-export interface YuehulianStore {
+/** One store/profile a browser vendor's client lists (generic StoreRef). */
+export interface VendorStoreRef {
   name: string;
   platform: string;
   remote_env: string;
+}
+/** One credential field of a browser vendor's machine login (spec-driven). */
+export interface VendorCredentialField {
+  key: string;
+  label_i18n: string;
+  secret: boolean;
+  required: boolean;
+}
+/** A docs help link a vendor's UI shows (zh/en URLs + the link's label). */
+export interface VendorDocsLink {
+  topic: string;
+  zh: string;
+  en: string;
+}
+/**
+ * A browser vendor's metadata, from GET /api/browser-vendors (the backend
+ * BrowserVendorSpec). The store form renders backend options, credential
+ * fields and the profile picker from this — no per-vendor branches.
+ */
+export interface BrowserVendor {
+  key: string;
+  display_name_en: string;
+  display_name_zh: string;
+  kind: 'antidetect' | 'plain';
+  platforms: string[];
+  selectable: boolean;
+  account_cardinality: 'none' | 'single' | 'multi';
+  credential_fields: VendorCredentialField[];
+  lists_profiles: boolean;
+  profiles_scope: 'login' | 'account';
+  picker_kind: 'none' | 'generic' | 'custom';
+  i18n_prefix: string;
+  docs: Record<string, VendorDocsLink>;
 }
 export interface Profile {
   id: string
