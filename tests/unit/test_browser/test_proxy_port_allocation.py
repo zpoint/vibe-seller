@@ -105,8 +105,10 @@ class TestBindBeforeUse:
         # handshake failed" per store start is gone; see
         # _reserve_socket).
         assert port in mgr.ports.sockets
+        # No settimeout: on Windows it makes the socket non-blocking,
+        # and connect_ex then reports WSAEWOULDBLOCK instead of the
+        # refusal. A refused connect fails immediately anyway.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.5)
             assert s.connect_ex(('127.0.0.1', port)) == errno.ECONNREFUSED
 
     async def test_a_foreign_server_on_the_candidate_is_skipped(self):
