@@ -156,7 +156,7 @@ async def test_list_pages_until_short_page(api):
     assert [s.name for s in stores] == ['demo-store', 'demo-firefox']
     assert [s.open_ref for s in stores] == ['kaaaaaa1', 'kaaaaaa2']
     assert stores[0].remote_env == '#1 demo-store (acme)'
-    assert stores[0].platform == 'https://www.amazon.com'
+    assert stores[0].platform == 'www.amazon.com'
     assert stores[0].available is True
 
 
@@ -627,7 +627,7 @@ def test_parse_stores_shapes():
     (store,) = c.parse_stores(resp)
     assert store == StoreRef(
         name='demo-store',
-        platform='https://www.amazon.com',
+        platform='www.amazon.com',
         remote_env='#7 demo-store (acme)',
         ref='kaaaaaa1',
         available=True,
@@ -644,7 +644,7 @@ def test_picker_row_binds_by_the_profile_id():
     (store,) = c.parse_stores(resp)
     assert store.name == '示例甲1店'
     assert store.remote_env == '#1 示例甲1店 (acme)'
-    assert store.platform == 'https://www.amazon.com'
+    assert store.platform == 'www.amazon.com'
     assert store.ref == 'kaaaaaa1'
     # the BIND value — what the picker binds and the engine reopens
     # by — is the profile id, unchanged.

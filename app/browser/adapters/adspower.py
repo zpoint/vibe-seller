@@ -39,14 +39,14 @@ base cannot express stays here as overrides (the review's list):
 - **D7 failed-start decision**: an empty endpoint is ambiguous
   (Firefox kernel vs orphaned SunBrowser) — kernel process evidence
   decides; only THIS profile's tree is killed.
-- **R11 kernel states** and the bounded rate-limit resend; **R16**
-  the not-authenticated wordings (``adspower_common``'s constants).
+- **R11 kernel states**, the bounded rate-limit resend, **R16** the
+  not-authenticated wordings (``adspower_common``'s constants).
 """
 
 import asyncio
 import logging
 import time
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from app.browser.adapters import adspower_mac, adspower_win
 from app.browser.adapters.adspower_common import (
@@ -220,7 +220,8 @@ class AdsPowerClient(LocalApiClient):
         reopens by (the picker's bind value / the engine's
         ``browser_ref``; never changes). ``name`` is the profile's
         own name, ``remote_env`` the display (``#<serial> <name>
-        (<group>)``), so the picker's opaque-ref label shows the
+        (<group>)``) and ``platform`` the bare host, so the picker's
+        opaque-ref label shows the
         display first, the id last (#346 / R18). Every profile is
         ``available=True``: the list carries NO kernel field (verified
         live), so a Firefox profile cannot be greyed out here — it is
@@ -238,10 +239,14 @@ class AdsPowerClient(LocalApiClient):
             group = str(e.get('group_name') or '')
             if group:
                 display = f'{display} ({group})'
+            # The bare host: the row's width is precious, and the
+            # trailing profile id tells same-named profiles apart.
+            domain = str(e.get('domain_name') or '')
+            host = urlsplit(domain).hostname or domain if domain else ''
             out.append(
                 StoreRef(
                     name=name,
-                    platform=str(e.get('domain_name') or ''),
+                    platform=host,
                     remote_env=display,
                     ref=user_id,
                     available=True,
@@ -714,21 +719,21 @@ class AdsPowerClient(LocalApiClient):
         ``GET /api/v1/browser/active?user_id=<id>`` → ``data.status``
         "Active" → True (already open: never closed by us, only our
         proxy stops); "Inactive" → False (not running → ours). ANY
-        error RAISES — a transport failure (ClientNotRunning from the
-        shared path), a mapped code -1 (rate-limit exhaustion →
-        StoreUnavailable, vendor errors via map_error), or a
-        missing/unrecognized status (CdpUnreachable naming it): the
-        engine bounds the call at 10 s and treats a raise as NOT ours
-        (no close, one WARNING). NEVER returns None — "unknown ⇒ ours"
-        is reserved for vendors declaring reopens_hand_opened, which
+        error RAISES — transport (ClientNotRunning), a mapped code -1
+        (rate-limit exhaustion → StoreUnavailable, vendor errors via
+        map_error), or a missing/unrecognized status (CdpUnreachable):
+        the engine bounds the call at 10 s and treats a raise as NOT
+        ours (no close, one WARNING). NEVER returns None — "unknown ⇒
+        ours" is reserved for reopens_hand_opened vendors, which
         AdsPower is not (a close would kill the user's window).
-        Limits (FACTS): a FlowerBrowser window reads "Inactive"
-        (refused at open anyway) and an orphaned kernel of a killed
-        client is invisible to the new service — both answer False,
-        "not ours". No vendor-storage reads.
+        Limits (FACTS): a FlowerBrowser window and an orphaned kernel
+        both read "Inactive" → False → treated as OURS (not running):
+        an orphan's close goes through the existing D7 per-profile
+        cleanup; the Firefox case is refused at open anyway.
         """
         status_code, payload = await self.api_call(
-            'GET', f'/api/v1/browser/active?user_id={ref}'
+            'GET',
+            '/api/v1/browser/active?user_id=' + quote(str(ref), safe=''),
         )
         err = self.map_error(status_code, payload)
         if err is not None:
@@ -741,8 +746,8 @@ class AdsPowerClient(LocalApiClient):
         if word == 'Inactive':
             return False
         raise CdpUnreachable(
-            f'AdsPower answered an unknown active status for {ref!r}: '
-            f'{word or (payload if not isinstance(payload, dict) else payload)}'
+            f'AdsPower active status for {ref!r} is not '
+            f'Active/Inactive: {word or type(payload).__name__}'
         )
 
     async def _refuse_firefox(self, ref: str) -> None:

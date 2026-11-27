@@ -16,7 +16,7 @@ import { vendorStoreOptionLabel } from '../lib/vendorStoreLabel'
 /** The recorded parse_stores row for one AdsPower profile. */
 const recordedRow = {
   name: '示例甲1店',
-  platform: 'https://www.amazon.com',
+  platform: 'www.amazon.com',
   remote_env: '#1 示例甲1店 (acme)',
   ref: 'kaaaaaa1',
 }
@@ -24,7 +24,7 @@ const recordedRow = {
 describe('vendorStoreOptionLabel — AdsPower recorded row', () => {
   it('shows the display first and the profile id last', () => {
     expect(vendorStoreOptionLabel(recordedRow)).toBe(
-      '#1 示例甲1店 (acme) · https://www.amazon.com · kaaaaaa1',
+      '#1 示例甲1店 (acme) · www.amazon.com · kaaaaaa1',
     )
   })
 
@@ -43,7 +43,7 @@ describe('vendorStoreOptionLabel — AdsPower recorded row', () => {
   it('a profile with no serial or group falls back to the bare name', () => {
     expect(
       vendorStoreOptionLabel({ ...recordedRow, remote_env: '示例甲1店' }),
-    ).toBe('示例甲1店 · https://www.amazon.com · kaaaaaa1')
+    ).toBe('示例甲1店 · www.amazon.com · kaaaaaa1')
   })
 
   it('the bind value stays visible: the ref is the last part', () => {
