@@ -1,5 +1,5 @@
 ---
-description: AI automation framework for cross-border sellers — locally deployed agents drive anti-detect browsers such as Ziniao and Yuehulian, or Chrome, via CDP for ad tuning, listing launches, report exports and inventory checks, with any LLM provider.
+description: AI automation framework for cross-border sellers — locally deployed agents drive anti-detect browsers such as Ziniao, Yuehulian, BitBrowser, AdsPower and Wenmai, or Chrome, via CDP for ad tuning, listing launches, report exports and inventory checks, with any LLM provider.
 ---
 
 <h1 align="center">Vibe Seller</h1>
@@ -39,8 +39,8 @@ description: AI automation framework for cross-border sellers — locally deploy
 ## What is Vibe Seller?
 
 A local-first **browser-automation framework**. AI agents drive your
-store's real browser — an anti-detect browser such as Ziniao or
-Yuehulian, or plain Chrome —
+store's real browser — an anti-detect browser such as Ziniao,
+Yuehulian, BitBrowser, AdsPower or Wenmai, or plain Chrome —
 through CDP (Chrome's low-level remote-control protocol), the same
 way you'd click through pages yourself. Ad tuning, listing launches, inventory checks, invoicing,
 returns, warehouse setup, logistics lookup — whatever you can do in
@@ -92,10 +92,11 @@ scratch.
   and the agent operates it directly — usually right on the
   first try, no step-by-step guidance needed.
 - **Native anti-detect browser control.** CDP straight into the
-  logged-in store profile in Ziniao, Yuehulian and the like — not
+  logged-in store profile in Ziniao, Yuehulian, BitBrowser, AdsPower,
+  Wenmai and the like — not
   Playwright on vanilla Chrome, not UI-coordinate clicks. Lower risk-control risk, more stable.
-- **Multi-browser by design.** Ziniao, Yuehulian and plain Chrome are
-  all first-class backends — pick per store. Downloads, setup and how to
+- **Multi-browser by design.** Ziniao, Yuehulian, BitBrowser,
+  AdsPower, Wenmai and plain Chrome are all first-class backends — pick per store. Downloads, setup and how to
   choose: [Browsers](browsers.en.md).
 - **Multi-LLM by design.** Built on top of the Claude Code CLI, so
   any Anthropic-compatible provider works — Claude, DeepSeek, Kimi,
@@ -137,8 +138,8 @@ illustrated walkthrough is the [Quickstart](quickstart.en.md):
    provider, paste its API key and click **Create**. No key yet? DeepSeek
    is the easiest first choice; how to get one from each provider:
    [Configure AI Models](llm-keys.en.md);
-2. **Add a store**: click **+ New Store**. If your store uses Ziniao or
-   Yuehulian, pick that browser; otherwise pick Chrome. Using Ziniao? Its
+2. **Add a store**: click **+ New Store**. If your store uses Ziniao,
+   Yuehulian, BitBrowser, AdsPower or Wenmai, pick that browser; otherwise pick Chrome. Using Ziniao? Its
    main account has to grant access first; see
    [Ziniao: Prerequisites](ziniao.en.md#prerequisites-developer-mode-and-webdriver-login);
 3. **Create a task**: select the store, click **+ New Task**, say what you
@@ -215,7 +216,7 @@ review next week" todo into TickTick. Start at the
 
 Any marketplace you can work in a browser — Amazon, Noon, Mercado Libre, Qianniu (Taobao /
 Tmall), AliExpress, Shopee, TikTok Shop… **If it runs in a browser, Vibe Seller can work it.**
-At its core it is **an AI agent + the store's browser (an anti-detect browser such as Ziniao or Yuehulian, or plain Chrome) + built-in tools**: the
+At its core it is **an AI agent + the store's browser (an anti-detect browser such as Ziniao, Yuehulian, BitBrowser, AdsPower or Wenmai, or plain Chrome) + built-in tools**: the
 agent opens the store's back office and storefront the way you would — clicking, reading,
 filling in forms, downloading.
 
