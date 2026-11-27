@@ -57,7 +57,12 @@ def browsers(monkeypatch):
 
     async def _stop_session(store, db):
         stopped.append(store.id)
+        # Model the REAL stop_session contract: both the session record
+        # AND the backend go (the sweep iterates their union since PR
+        # C1 — a fake that leaves the backend makes a swept store look
+        # sweepable forever).
         browser_manager._active_sessions.pop(store.id, None)
+        browser_manager._backends.pop(store.id, None)
 
     monkeypatch.setattr(browser_manager, 'stop_session', _stop_session)
     monkeypatch.setattr(browser_manager, '_active_sessions', {})
