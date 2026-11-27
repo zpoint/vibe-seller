@@ -35,7 +35,7 @@ function renderWaiting(waitCondition: string, overrides: Partial<Task> = {}) {
         onSubmitAll={() => {}}
         onConfirmPlan={() => {}}
         onRequestChanges={() => {}}
-        onOpenVisionSetup={() => {}}
+        onOpenSettings={() => {}}
         questionBannerRef={createRef<HTMLDivElement>()}
         isActive={false}
       />

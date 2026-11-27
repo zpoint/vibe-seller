@@ -45,7 +45,7 @@ function stream(items: ConversationItem[]) {
         onSubmitAll={() => {}}
         onConfirmPlan={() => {}}
         onRequestChanges={() => {}}
-        onOpenVisionSetup={() => {}}
+        onOpenSettings={() => {}}
         questionBannerRef={createRef<HTMLDivElement>()}
         isActive={false}
       />
