@@ -334,6 +334,14 @@ class RealWenmaiClient(InjectClient):
         if info is None:
             raise ClientNotRunning('the 稳卖 client API is not answering')
         if info.get('token'):
+            # R8 case C (known issue, user decision 2026-11-27): the
+            # client can be signed into ANOTHER sub-account of the SAME
+            # company behind our back. Nothing breaks functionally —
+            # envs open by id, and the companyName check below only
+            # guards a DIFFERENT company — but a sub-account switch
+            # silently changes which stores are visible/authorised
+            # (store permissions are per member). The user configures
+            # the client themselves; may be fixed later.
             current = str(info.get('companyName') or '').strip()
             if self._company and current and current != self._company.strip():
                 raise AccountMismatch(

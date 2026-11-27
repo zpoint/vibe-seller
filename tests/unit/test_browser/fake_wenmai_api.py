@@ -296,7 +296,9 @@ class FakeMiddlePageCdp:
 
     async def _version(self, _request: web.Request) -> web.Response:
         return web.json_response({
-            'Browser': 'FakeChrome/1.0',
+            # A real Chromium family string: the engine refuses a
+            # non-Chromium kernel by this field.
+            'Browser': 'Chrome/135.0.0.0',
             'webSocketDebuggerUrl': (
                 f'ws://127.0.0.1:{self.port}/devtools/browser/x'
             ),
