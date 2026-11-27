@@ -1,154 +1,73 @@
 /**
  * Store backend pickers extracted from Sidebar (keeps files under the
- * line limit): the Ziniao account + profile picker and the Yuehulian
- * account + store picker. Rendered by StoreCreationForm in Sidebar.
+ * line limit): the Ziniao account + profile picker, and the generic
+ * vendor section. Rendered by StoreCreationForm in Sidebar.
  */
-import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { api } from '../api'
 import { SecretReveal } from './SecretReveal'
 import { DocsHelpLink } from './ui/DocsHelpLink'
+import { VendorSection } from './VendorSection'
 import type { DocsHelpTopic } from '../lib/docsHelp'
-import type { ServerPlatform, Store, YuehulianStore, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
+import type { BrowserVendor, ServerPlatform, Store, VendorStoreRef, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 
-interface YuehulianLoginStatus { configured: boolean; team_name: string; subaccount: string }
+// ─── vendor-compat: yuehulian ────────────────────────────────────────────
+// The pre-registry YuehulianSection, kept as a thin shim over the generic
+// VendorSection because an existing test renders it with the old props
+// (docsHelpLinks.test.tsx). The live create-store flow uses VendorSection
+// with the spec from /api/browser-vendors. Remove this block — and the
+// test's import — when that test migrates; nothing else may copy it.
+const YUEHULIAN_COMPAT_VENDOR: BrowserVendor = {
+  key: 'yuehulian',
+  display_name_en: 'Yuehulian',
+  display_name_zh: '悦互联',
+  kind: 'antidetect',
+  platforms: ['windows', 'wsl'],
+  selectable: true,
+  account_cardinality: 'single',
+  credential_fields: [
+    { key: 'team_name', label_i18n: 'settings.yuehulianTeamName', secret: false, required: true },
+    { key: 'subaccount', label_i18n: 'settings.yuehulianSubaccount', secret: false, required: true },
+    { key: 'password', label_i18n: 'settings.yuehulianPassword', secret: true, required: true },
+  ],
+  lists_profiles: true,
+  profiles_scope: 'login',
+  picker_kind: 'generic',
+  i18n_prefix: 'settings.yuehulian',
+  docs: {
+    errors: {
+      topic: 'yuehulianErrors',
+      zh: 'https://docs.vibe-sellers.com/yuehulian/#常见提示--报错',
+      en: 'https://docs.vibe-sellers.com/en/yuehulian/#common-statuses--errors',
+    },
+    one_account: {
+      topic: 'yuehulianOneAccount',
+      zh: 'https://docs.vibe-sellers.com/yuehulian/#一台机器只支持一个账号',
+      en: 'https://docs.vibe-sellers.com/en/yuehulian/#one-account-per-machine',
+    },
+  },
+}
 
-// ─── Yuehulian account + store picker (Windows; one account per machine) ──
-// Like the ziniao account picker but with ONLY a [+]: 悦互联 has one account
-// per machine, so [+] overwrites the single login and there is no edit or
-// delete. The one difference from ziniao: if any yuehulian store is bound,
-// [+] is refused (the store belongs to the current account) — delete all
-// yuehulian stores first, then add. Stores auto-load once configured.
+/** vendor-compat: yuehulian — see the block above. */
 export function YuehulianSection(props: {
   selectedBrowserOauth: string; setSelectedBrowserOauth: (v: string) => void
-  yuehulianStores: YuehulianStore[]; yuehulianError: string
+  yuehulianStores: VendorStoreRef[]; yuehulianError: string
   fetchingYuehulian: boolean; fetchYuehulianStores: () => void
   stores: Store[]
 }) {
-  const { t } = useTranslation()
-  const p = props
-  const [status, setStatus] = useState<YuehulianLoginStatus | null>(null)
-  const [showForm, setShowForm] = useState(false)
-  const [team, setTeam] = useState('')
-  const [sub, setSub] = useState('')
-  const [pw, setPw] = useState('')
-  const [showPw, setShowPw] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [formErr, setFormErr] = useState('')
-
-  const refresh = async (thenFetch = false) => {
-    try {
-      const s = (await api.get('/api/yuehulian/credentials')) as YuehulianLoginStatus
-      setStatus(s)
-      if (thenFetch && s.configured) p.fetchYuehulianStores()
-    } catch { /* unsupported / not configured — leave null */ }
-  }
-  // Auto-load stores when an account is configured — same as ziniao fetching
-  // profiles on account-select; no separate "Load" button.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void refresh(true) }, [])
-
-  // One account per machine, like ziniao's picker but with only [+]:
-  // adding OVERWRITES the single account. If any yuehulian store is bound
-  // it belongs to the current account, so [+] is blocked — surfaced the
-  // moment it's clicked — until the user deletes those stores. There is no
-  // separate edit/delete; re-adding via [+] is how you change the account.
-  const hasYuehulianStores = p.stores.some(s => s.browser_backend === 'yuehulian')
-  const openAdd = () => {
-    if (hasYuehulianStores) {
-      setShowForm(false); setFormErr(t('settings.yuehulianOneAccount')); return
-    }
-    setTeam(''); setSub(''); setPw(''); setFormErr(''); setShowForm(true)
-  }
-
-  const save = async () => {
-    if (!team.trim() || !sub.trim() || !pw) { setFormErr(t('settings.yuehulianLoginAllRequired')); return }
-    setBusy(true); setFormErr('')
-    try {
-      await api.post('/api/yuehulian/credentials', { team_name: team, subaccount: sub, password: pw })
-      setShowForm(false); setPw(''); await refresh(true)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      let code = ''
-      try { const d = JSON.parse(msg); if (d?.status) code = d.status } catch { /* non-JSON */ }
-      setFormErr(code === 'one_account' ? t('settings.yuehulianOneAccount') : msg)
-    } finally { setBusy(false) }
-  }
-
-  // The docs section that says how to fix what the picker shows.
-  const oneAccount = formErr === t('settings.yuehulianOneAccount')
-  const statusHint = (() => {
-    if (!p.yuehulianError) return ''
-    const s = p.yuehulianError.replace('yuehulian:', '')
-    if (s === 'login_required') return t('settings.yuehulianLoginRequired')
-    if (s === 'client_not_running') return t('settings.yuehulianClientNotRunning')
-    if (s === 'no_stores') return t('settings.yuehulianNoStores')
-    return t('settings.yuehulianLoadFailed')
-  })()
-
   return (
-    <div className="mb-2 space-y-2">
-      {/* Account row — always visible (like ziniao's account select), with
-          only [+]: it toggles the add form, which overwrites the account. */}
-      <div className="flex items-center gap-1">
-        <div className="min-w-0 flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs bg-gray-50 truncate">
-          {status?.configured ? `${status.team_name} / ${status.subaccount}` : t('settings.yuehulianNoAccount')}
-        </div>
-        <button type="button" onClick={() => (showForm ? setShowForm(false) : openAdd())} title={t('settings.addAccount')} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm rounded border border-gray-300 text-indigo-600 hover:bg-indigo-50">+</button>
-      </div>
-      {showForm && (
-        <div className="space-y-1 p-2 bg-gray-50 rounded border border-gray-200">
-          <p className="text-xs font-medium text-gray-600 mb-1">{t('settings.addAccount')}</p>
-          <input value={team} onChange={e => setTeam(e.target.value)} placeholder={t('settings.yuehulianTeamName')} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
-          <input value={sub} onChange={e => setSub(e.target.value)} placeholder={t('settings.yuehulianSubaccount')} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
-          <div className="relative">
-            <input type={showPw ? 'text' : 'password'} value={pw} onChange={e => setPw(e.target.value)} placeholder={t('settings.yuehulianPassword')} className="w-full px-2 py-1 pr-7 border border-gray-300 rounded text-xs" />
-            <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" tabIndex={-1}>
-              {showPw ? <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0020 10c-1.796-4.667-6-8-10-8a9.864 9.864 0 00-4.512 1.074L3.707 2.293zM10 15a9.864 9.864 0 004.512-1.074L13.06 12.474A3 3 0 017.526 6.94L5.534 4.948A7.966 7.966 0 002 10c1.194 3.1 3.672 5.457 6.676 6.725L10 15zm2.121-4.879A1 1 0 0010 9l-.707-.707A1 1 0 0010 11l2.121-2.121-.707-.707.707.707z" clipRule="evenodd" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>}
-            </button>
-          </div>
-          <div className="flex gap-1">
-            <button type="button" onClick={save} disabled={busy} className="px-2 py-1 bg-indigo-600 text-white rounded text-xs disabled:opacity-50">{busy ? t('settings.yuehulianLoginSaving') : t('common.save')}</button>
-            <button type="button" onClick={() => { setShowForm(false); setFormErr('') }} className="px-2 py-1 bg-gray-200 rounded text-xs">{t('common.cancel')}</button>
-          </div>
-        </div>
-      )}
-      {formErr && (
-        <p className="text-[11px] text-red-600">
-          {formErr}
-          {oneAccount && <> <DocsHelpLink topic="yuehulianOneAccount" /></>}
-        </p>
-      )}
-      {/* Store area — mutually exclusive (like ziniao): error, else spinner,
-          else the store select. */}
-      {statusHint ? (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <p className="text-[11px] text-red-600">{statusHint}</p>
-          <button type="button" onClick={p.fetchYuehulianStores} disabled={p.fetchingYuehulian} className="shrink-0 text-[11px] text-indigo-600 hover:underline disabled:opacity-50">{t('common.refresh')}</button>
-          <DocsHelpLink topic="yuehulianErrors" />
-        </div>
-      ) : status?.configured && p.fetchingYuehulian ? (
-        <div className="flex flex-col items-center justify-center py-6 px-4 bg-indigo-50 rounded-lg border border-indigo-200">
-          <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-          <p className="text-sm font-medium text-indigo-700">{t('settings.yuehulianLoading')}</p>
-        </div>
-      ) : p.yuehulianStores.length > 0 ? (
-        <select
-          value={p.selectedBrowserOauth}
-          onChange={e => p.setSelectedBrowserOauth(e.target.value)}
-          className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs bg-white"
-        >
-          <option value="">{t('settings.yuehulianSelectStore')}</option>
-          {p.yuehulianStores.map(s => (
-            <option key={s.name} value={s.name}>
-              {s.name}{s.platform ? ` (${s.platform} ${s.remote_env})` : ''}
-            </option>
-          ))}
-        </select>
-      ) : null}
-    </div>
+    <VendorSection
+      vendor={YUEHULIAN_COMPAT_VENDOR}
+      selectedRef={props.selectedBrowserOauth}
+      setSelectedRef={props.setSelectedBrowserOauth}
+      stores={props.yuehulianStores}
+      error={props.yuehulianError}
+      fetching={props.fetchingYuehulian}
+      fetchStores={props.fetchYuehulianStores}
+      allStores={props.stores}
+    />
   )
 }
+// ─── end vendor-compat: yuehulian ────────────────────────────────────────
 
 // ─── Ziniao account + browser picker ─────────────────
 export function ZiniaoSection(props: {

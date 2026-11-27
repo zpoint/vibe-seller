@@ -24,7 +24,7 @@ from unittest import mock
 
 import pytest
 
-from app.browser import win_app_locator as wal
+from app.browser import win_app_locator as wal, win_app_registry as war
 import app.browser.adapters.yuehulian_win as yw
 
 if sys.platform == 'win32':
@@ -47,7 +47,7 @@ def _run(script: str) -> subprocess.CompletedProcess:
     script fails the test with PowerShell's own stderr.
     """
     proc = subprocess.run(
-        [PWSH, '-NoProfile', '-NonInteractive', '-Command', wal._UTF8 + script],
+        [PWSH, '-NoProfile', '-NonInteractive', '-Command', war._UTF8 + script],
         capture_output=True,
         text=True,
         encoding='utf-8',
@@ -81,13 +81,13 @@ def _generated() -> list[tuple[str, str]]:
     ):
         wal._default_shortcut_targets()
     with mock.patch.object(
-        wal, 'run_powershell', record('locator: App Paths (WSL)')
+        war, 'run_powershell', record('locator: App Paths (WSL)')
     ):
-        wal._ps_app_paths()
+        war._ps_app_paths()
     with mock.patch.object(
-        wal, 'run_powershell', record('locator: Uninstall (WSL)')
+        war, 'run_powershell', record('locator: Uninstall (WSL)')
     ):
-        wal._ps_uninstall_entries()
+        war._ps_uninstall_entries()
     custom = yw.ProcessLayer(r'D:\悦互联')
     with mock.patch.object(yw, '_run_ps', record('yuehulian: is_running')):
         custom.is_running()
@@ -117,7 +117,7 @@ _SCRIPTS = [
 
 def _parse_errors(script: str) -> list[str]:
     """The engine's parse errors for ``script`` (empty when it parses)."""
-    literal = "'" + (wal._UTF8 + script).replace("'", "''") + "'"
+    literal = "'" + (war._UTF8 + script).replace("'", "''") + "'"
     proc = _run(
         '$e=$null;$t=$null;[void][System.Management.Automation.Language'
         '.Parser]::ParseInput('
