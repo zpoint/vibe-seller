@@ -1551,5 +1551,13 @@
         "liveBare": "正在查看技能"
       }
     }
+  },
+  "vendors": {
+    "bitbrowserSelectStore": "选择窗口...",
+    "bitbrowserLoading": "加载中...",
+    "bitbrowserLoginRequired": "未登录——请先在比特浏览器客户端登录（登录一次即可），再点「刷新」。",
+    "bitbrowserClientNotRunning": "无法自动启动比特浏览器客户端——请先手动打开（或确认已安装），再点「刷新」。",
+    "bitbrowserNoStores": "该登录身份下没有可见窗口——子账号需要主账号在「员工管理」里授权窗口。",
+    "bitbrowserLoadFailed": "加载窗口列表失败，请重试。"
   }
 }

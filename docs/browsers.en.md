@@ -24,6 +24,7 @@ vendor's own site:
 | Chrome | The system's own Chrome / Chromium (launched by Playwright) | Running a single store yourself; public-web work | macOS / Linux / WSLg | Built in, no install | — | [Stores & Browsers → Creating a store](stores.en.md#creating-a-store) |
 | Ziniao | Third-party anti-detect browser (developer / WebDriver mode, driven over CDP) | One team managing many accounts; strict risk control | macOS / Linux / Windows | [ziniao.com](https://www.ziniao.com) · [download](https://www.ziniao.com/download) | Register an enterprise account → BOSS enables developer mode on the [Open Platform](https://open.ziniao.com/docSupport?docId=99) and ticks WebDriver login for the sub-account | [Ziniao setup](ziniao.en.md) |
 | Yuehulian | Chinese anti-detect e-commerce browser | One team managing many accounts (Windows) | Windows only (incl. WSL-on-Windows) | [kj.chinafic.com](https://kj.chinafic.com/) · client download on the site | Register an enterprise account → create sub-accounts and grant store permissions in the console (team login = team name + sub-account + password) | [Yuehulian setup](yuehulian.en.md) |
+| BitBrowser | Chinese anti-detect browser (driven over its local API) | One team managing many accounts (Windows); the free plan works | Windows only (incl. WSL-on-Windows) | [bitbrowser.net](https://www.bitbrowser.net/) · [download](https://www.bitbrowser.net/download/) | Register an account (10 windows on the free plan); sub-accounts need windows authorized by the main account | [BitBrowser setup](bitbrowser.en.md) |
 
 > Windows also has a fourth backend, `winchrome` (set at deployment, not a
 > choice in the store form) — see the end of "Which browser backend?".
@@ -56,6 +57,12 @@ signs in to its client itself, and it is **Windows-only**; a machine keeps a sin
 auto-signs-in when the session expires. Download, team-account creation,
 binding and errors: [Yuehulian: Setup Guide](yuehulian.en.md).
 
+BitBrowser is an anti-detect browser driven through its own local API,
+**Windows-only**. Sign in once in its client — Vibe Seller stores no
+credentials and reads the API port and token from its settings
+automatically. Download, binding and errors: [BitBrowser: Setup
+Guide](bitbrowser.en.md).
+
 The Chrome backend has Playwright bring up a profile dedicated to the
 store — no extra software, and no handing the system an anti-detect
 browser password; on a headless Linux box you need a virtual display such
@@ -73,6 +80,8 @@ guide](windows-setup.md).
 
 - [Ziniao: Setup & Common Errors](ziniao.en.md) — enable developer mode,
   binding, errors, the WSL launcher, credential storage.
+- [BitBrowser: Setup Guide](bitbrowser.en.md) — download, sign in once,
+  binding, port and token read automatically, Windows-only.
 - [Yuehulian: Setup Guide](yuehulian.en.md) — download, create a team
   account, binding, one account per machine, auto-login, Windows-only.
 - Chrome — no extra setup; pick "Chrome" as the backend when you create a

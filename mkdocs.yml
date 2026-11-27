@@ -207,6 +207,7 @@ nav:
           - Store Browser & Auxiliary Browser: store-and-aux-browser.md
           - "Ziniao: Setup & Common Errors": ziniao.md
           - "Yuehulian: Setup Guide": yuehulian.md
+          - "BitBrowser: Setup Guide": bitbrowser.md
       - Integrations:
           - Overview: integrations.md
           - Amazon Ads API: ads-api.md

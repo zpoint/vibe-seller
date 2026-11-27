@@ -1549,5 +1549,13 @@
         "liveBare": "Checking skills"
       }
     }
+  },
+  "vendors": {
+    "bitbrowserSelectStore": "Select a window...",
+    "bitbrowserLoading": "Loading...",
+    "bitbrowserLoginRequired": "Not logged in — sign in to the BitBrowser client once (that is enough), then Refresh.",
+    "bitbrowserClientNotRunning": "Could not start the BitBrowser client — open it by hand (or check the install), then Refresh.",
+    "bitbrowserNoStores": "No visible windows for this login — a sub-account needs windows authorized by the main account.",
+    "bitbrowserLoadFailed": "Failed to load the window list; please retry."
   }
 }
