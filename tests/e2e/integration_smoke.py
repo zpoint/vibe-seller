@@ -49,6 +49,7 @@ import threading
 import time
 
 import httpx
+import psutil
 
 # The server URL must be known before e2e_helpers reads it at import.
 _PARSER = argparse.ArgumentParser(description=__doc__)
@@ -134,88 +135,17 @@ def _state_read() -> dict:
 
 
 def _proc_env(pid: int) -> dict:
-    """A foreign process's environment, or {} (best effort)."""
+    """A process's environment, or {} (best effort).
+
+    psutil's own implementation everywhere — on Windows it walks the
+    PEB WOW64-aware, which a hand-rolled ctypes walk got wrong twice
+    (short buffers, then 32-bit-offset assumptions against a 32-bit
+    interpreter: the smoke's server base python is 32-bit).
+    """
     try:
-        if sys.platform == 'win32':
-            return _win_proc_env(pid)
-        data = Path(f'/proc/{pid}/environ').read_bytes()
-    except OSError:
+        return dict(psutil.Process(pid).environ())
+    except (psutil.Error, OSError, ValueError):
         return {}
-    out = {}
-    for chunk in data.split(b'\0'):
-        if b'=' in chunk:
-            k, _, v = chunk.partition(b'=')
-            out[k.decode('utf-8', 'replace')] = v.decode('utf-8', 'replace')
-    return out
-
-
-def _win_proc_env(pid: int) -> dict:
-    """Read a Windows process's environment via its PEB (ps eww's
-    equivalent there — nothing on Windows ships one)."""
-    import ctypes
-
-    class _PS_API(ctypes.Structure):
-        """PROCESS_BASIC_INFORMATION (x64): the ULONG_PTR fields are
-        EIGHT bytes — 4-byte c_ulong fields shrink the struct below
-        what NtQueryInformationProcess requires and it answers
-        STATUS_INFO_LENGTH_MISMATCH with a null PEB."""
-
-        _fields_ = [
-            ('ExitStatus', ctypes.c_long),
-            ('PebBaseAddress', ctypes.c_void_p),
-            ('AffinityMask', ctypes.c_size_t),
-            ('BasePriority', ctypes.c_long),
-            ('UniqueProcessId', ctypes.c_size_t),
-            ('InheritedFromUniqueProcessId', ctypes.c_size_t),
-        ]
-
-    ntdll = ctypes.windll.ntdll
-    kernel32 = ctypes.windll.kernel32
-    kernel32.OpenProcess.restype = ctypes.c_void_p
-    PROCESS_QUERY_INFORMATION = 0x0400
-    PROCESS_VM_READ = 0x0010
-    handle = kernel32.OpenProcess(
-        PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid
-    )
-    if not handle:
-        return {}
-    try:
-        api = _PS_API()
-        rc = ntdll.NtQueryInformationProcess(
-            handle, 0, ctypes.byref(api), ctypes.sizeof(api), None
-        )
-        if rc != 0 or not api.PebBaseAddress:  # NTSTATUS < 0 is failure
-            return {}
-
-        def read(addr: int, size: int) -> bytes:
-            buf = ctypes.create_string_buffer(size)
-            got = ctypes.c_size_t()
-            if not kernel32.ReadProcessMemory(
-                handle, ctypes.c_void_p(addr), buf, size, ctypes.byref(got)
-            ):
-                raise OSError('read failed')
-            return buf.raw[: got.value]
-
-        # PEB+0x20 holds ProcessParameters (x64); +0x80/+0x88 in that
-        # block hold the Environment pointer and size. Each read must
-        # COVER its offset — a short buffer slices to b'' and every
-        # env read silently comes back empty (found live: the Windows
-        # ownership check read nothing and called its own server
-        # foreign).
-        peb = read(api.PebBaseAddress, 0x28)
-        params = int.from_bytes(peb[0x20:0x28], 'little')
-        block = read(params, 0x90)
-        ptr = int.from_bytes(block[0x80:0x88], 'little')
-        size = int.from_bytes(block[0x88:0x90], 'little')
-        raw = read(ptr, size)
-        out = {}
-        for chunk in raw.decode('utf-16-le', 'replace').split('\0'):
-            if '=' in chunk:
-                k, _, v = chunk.partition('=')
-                out[k] = v
-        return out
-    finally:
-        kernel32.CloseHandle(handle)
 
 
 def _task_procs(task_id: str) -> list[dict]:
