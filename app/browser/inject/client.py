@@ -12,11 +12,29 @@ from dataclasses import dataclass
 
 @dataclass
 class StoreRef:
-    """One store/env as seen in the client's list for the current login."""
+    """One store/env as seen in the client's list for the current login.
+
+    ``ref`` is the value to bind and reopen by: the stable identifier a
+    store is opened with (an env id). Empty means "the name is the ref"
+    (clients whose only handle is the store name, e.g. yuehulian).
+    ``available`` is False when the env exists but cannot be opened
+    (e.g. no device bound in the vendor client) so the UI can grey it
+    out — with ``unavailable_reason`` (generic text the vendor adapter
+    fills, e.g. 未绑定设备 / Firefox 内核) shown next to it — instead of
+    offering a store every task would fail on.
+    """
 
     name: str
     platform: str = ''
     remote_env: str = ''
+    ref: str = ''
+    available: bool = True
+    unavailable_reason: str = ''
+
+    @property
+    def open_ref(self) -> str:
+        """The identifier ``open_store`` expects for this env."""
+        return self.ref or self.name
 
 
 @dataclass
@@ -65,6 +83,20 @@ class InjectClient(ABC):
 
         Raises ``LoginRequired`` / ``StoreNotFound`` / ``CdpUnreachable``.
         """
+
+    async def after_open(self, opened: OpenedStore) -> None:
+        """Drive the freshly opened env past its entry step.
+
+        Default no-op: most clients land the env directly on the store.
+        A client whose env opens on an intermediate page (e.g. wenmai's
+        store-info middle page with a 打开店铺 button) overrides this
+        to click through to the real store page, so the agent never has
+        to discover that step. The engine calls it once CDP is reachable
+        and BEFORE the CDPMuxProxy fronts the env (the proxy's startup
+        cleanup reaps orphan web tabs, so the page this produces must
+        exist first — with ``keep_last_page`` it is kept).
+        """
+        return None
 
     @abstractmethod
     async def close_store(self, ref: str) -> None:

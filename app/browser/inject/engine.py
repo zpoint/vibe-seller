@@ -67,6 +67,12 @@ class InjectCdpBackend(BrowserBackend):
                 f'{opened.cdp_port} never answered'
             )
 
+        # Client-specific entry step (e.g. wenmai's middle page) must run
+        # BEFORE the proxy: the proxy's startup cleanup closes orphan web
+        # tabs, so the store page this produces has to exist first (the
+        # engine's keep_last_page keeps it).
+        await client.after_open(opened)
+
         dl_dir = await asyncio.to_thread(prepare_download_dir, slug)
         self._proxy = CDPMuxProxy(
             listen_port=proxy_port,
