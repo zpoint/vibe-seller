@@ -174,6 +174,18 @@ class ProcessLayer:
         out = _run_ps(script)
         return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
+    def terminate_kernels(self, user_data_dir: str) -> list[int]:
+        """No-op on Windows: kernels die with their client here.
+
+        The Mac layer kills kernels left over by a SIGKILLed client
+        (they are re-parented to launchd and keep the profile's
+        singleton lock); on Windows the client's own close path reaches
+        them, so this exists to give both process layers the same
+        interface and keep the client's orphan-recovery path
+        platform-neutral.
+        """
+        return []
+
     def read_devtools_port(
         self, user_data_dir: str, newer_than: float | None = None
     ) -> int | None:
@@ -213,6 +225,16 @@ class ProcessLayer:
 # user-data-dir so the caller can read the right DevToolsActivePort. Saves
 # the original first and restores it on uninstall (never `delete` — that
 # removes the client's native spawn).
+# The same hook also adds --disable-backgrounding-occluded-windows to
+# EVERY kernel spawn it sees (deduped): Chromium stops producing frames
+# for a window that is minimized or fully covered, so
+# Page.captureScreenshot (what an agent's screenshot goes through) hangs
+# forever while the store window is not in the foreground. The flag keeps
+# the occluded kernel rendering — the same flag Playwright's own Chrome
+# launches with. It is added even when the vendor launches the kernel
+# with its own debug port (that branch only guards the port injection
+# and the user-data-dir recording, which the vendor's port makes
+# meaningless).
 SPAWN_HOOK_JS = r"""
 (function(){
   var cp = require('child_process');
@@ -225,14 +247,19 @@ SPAWN_HOOK_JS = r"""
     try {
       var args = (options && options.args) || [];
       var file = (options && options.file) || args[0] || '';
-      if (/chrome\.exe/i.test(file) &&
-          !args.some(function(a){return /--remote-debugging-port/.test(a);})){
-        args.push('--remote-debugging-port=0');
-        var udd='';
-        args.forEach(function(a){
-          var m=/--user-data-dir=(.*)/.exec(a); if(m) udd=m[1];
-        });
-        global.__vsSpawns.push({udd: udd, ts: Date.now()});
+      if (/chrome\.exe/i.test(file)){
+        if (!args.some(function(a){
+              return a.indexOf('--disable-backgrounding-occluded-windows') === 0;})){
+          args.push('--disable-backgrounding-occluded-windows');
+        }
+        if (!args.some(function(a){return /--remote-debugging-port/.test(a);})){
+          args.push('--remote-debugging-port=0');
+          var udd='';
+          args.forEach(function(a){
+            var m=/--user-data-dir=(.*)/.exec(a); if(m) udd=m[1];
+          });
+          global.__vsSpawns.push({udd: udd, ts: Date.now()});
+        }
       }
     } catch(e){}
     return proto.__vsOrigSpawn.apply(this, arguments);

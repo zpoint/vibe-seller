@@ -581,6 +581,85 @@ async def test_contract_not_running(fx):
         await client.ensure_running()
 
 
+# ── the content-type quirk (W5-2: shared base, every vendor) ────────
+
+
+async def test_json_body_served_as_text_html_parses():
+    """A JSON body mislabeled text/html (稳卖's relayed POST endpoints
+    answer exactly this — verified live) still parses as JSON: the
+    base's _json_or_text uses content_type=None, not the strict
+    resp.json(). The strict parse made every payload "a string" →
+    login detection and parsing failed on the real client.
+    """
+
+    async def text_html_json(request):
+        return web.Response(
+            text=json.dumps({'list': ['s1']}),
+            content_type='text/html',
+        )
+
+    app = web.Application()
+    app.router.add_get('/list', text_html_json)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '127.0.0.1', 0)
+    await site.start()
+    port = runner.addresses[0][1]
+    try:
+        client = _client(_ListFixture, port)
+        refs = await client.list_stores()
+        assert [r.name for r in refs] == ['s1']
+    finally:
+        await runner.cleanup()
+
+
+async def test_non_json_text_html_is_still_text():
+    """Negative control: a NON-JSON text/html body is still treated as
+    text (the parse fails gracefully, not an exception) — the fix
+    parses when it can, never forces.
+    """
+
+    async def text_html_plain(request):
+        return web.Response(text='not json at all', content_type='text/html')
+
+    app = web.Application()
+    app.router.add_get('/list', text_html_plain)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '127.0.0.1', 0)
+    await site.start()
+    port = runner.addresses[0][1]
+    try:
+        client = _client(_ListFixture, port)
+        # The payload is a string, not a dict — parse_stores returns
+        # [] (the vendor's shape doesn't match), NOT an exception.
+        refs = await client.list_stores()
+        assert refs == []
+    finally:
+        await runner.cleanup()
+
+
+class _ListFixture(LocalApiClient):
+    """A minimal GET-list vendor for the content-type tests."""
+
+    vendor_key = 'listfixture'
+    api_port = 45699
+    list_method = 'GET'
+    list_path = '/list'
+    open_method = 'GET'
+    open_path = '/open'
+    close_method = 'GET'
+    close_path = '/close'
+
+    def parse_stores(self, payload):
+        if isinstance(payload, dict):
+            return [StoreRef(name=r) for r in payload.get('list', [])]
+        return []
+
+    def parse_opened(self, payload):
+        return OpenedStore('127.0.0.1', int(payload['debugPort']))
+
+
 @pytest.mark.parametrize(
     'fx',
     VENDOR_FIXTURES,

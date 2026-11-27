@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import store_platforms, telemetry
 from app.auth import get_current_user
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
+from app.browser.inject.errors import InjectError
 from app.browser.launch_guards import BrowserBusyError
 from app.browser.manager import browser_manager
 from app.browser.wrapper import remove_browser_use_wrapper
@@ -486,6 +487,19 @@ async def start_browser(
         raise HTTPException(status_code=503, detail=str(e)) from e
     except ZiniaoAccountConflictError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
+    except InjectError as e:
+        # The vendor's typed taxonomy (LOGIN_REQUIRED, STORE_UNAVAILABLE,
+        # UNSUPPORTED_KERNEL, CDP_UNREACHABLE, …): the same structured
+        # body the vendor enumerate route produces, so C2's typed body
+        # and the docs link reach the user instead of a raw 500.
+        raise HTTPException(
+            status_code=502,
+            detail=json.dumps({
+                'status': e.code.lower(),
+                'message': str(e),
+                'hint': e.hint,
+            }),
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=500,
