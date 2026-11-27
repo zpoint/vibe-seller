@@ -12,7 +12,8 @@ BrowserBackend (abstract)         BrowserManager (singleton)
     ├── WinChromeBackend              native Windows Chrome (WSL2-on-Windows)
     ├── ZiniaoBackend                 anti-detect, HTTP API → CDP proxy
     └── InjectCdpBackend              anti-detect, no API → inject CDP port
-          └── YuehulianBackend        悦互联 (Windows/WSL-on-Windows only)
+          ├── YuehulianBackend        悦互联 (Windows/WSL-on-Windows only)
+          └── WenmaiBackend           稳卖 (Windows/WSL-on-Windows for now)
 
 All backends front their browser with CDPMuxProxy for shared access and
 cookie persistence; BrowserManager generates a per-store browser-use
@@ -22,6 +23,21 @@ the inject family (yuehulian) drives the GUI client via a Node inspector +
 renderer DOM and plants `--remote-debugging-port` into the launched kernel
 (see the yuehulian section below). Downstream of the CDP endpoint they are
 identical.
+
+**WenmaiBackend** (稳卖) is the inject family's hybrid: the client ships a
+local HTTP API (Express, port 3980, running on every launch), so list /
+open / close go over HTTP like ziniao's — no GUI scraping, no port
+injection — and the kernel's OWN debug endpoint comes back from `openEnv`
+(even for a store a person opened by hand, and unchanged on reopen). The
+Node inspector (the shared `app/browser/win_inspector.py`) is used only
+for what the API cannot do: the enterprise login form (the official API
+has no password login) and the store-entry middle page's 打开店铺 click
+(over CDP, after open). **Windows/WSL-on-Windows for now** (a macOS path
+is being verified); one account per machine; the credential fields
+(company / username / password) are injected into the browser config as
+`wenmai_<field>` by the machine-credential storage. See the
+`adapters/wenmai*.py` module docstrings and
+[docs/wenmai.md](wenmai.md).
 
 Agent interaction: browser-use CLI wrapper scripts at
 ~/.vibe-seller/bin/{slug}/browser-use (not MCP)

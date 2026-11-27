@@ -71,11 +71,13 @@ def _load_config() -> dict | None:
 
 
 def _creds(cfg: dict) -> dict:
-    """Credentials straight into the browser config (neutral keys)."""
+    """Credentials into the browser config under the key names the
+    registry injects (wenmai_<field>) — exactly what auto-login will
+    read once the generic credential storage lands."""
     return {
-        'company': str(cfg.get('company') or ''),
-        'username': str(cfg.get('username') or ''),
-        'password': str(cfg.get('password') or ''),
+        'wenmai_company': str(cfg.get('company') or ''),
+        'wenmai_username': str(cfg.get('username') or ''),
+        'wenmai_password': str(cfg.get('password') or ''),
     }
 
 
@@ -324,7 +326,7 @@ async def _run(client: RealWenmaiClient, cfg: dict, args) -> None:
             else:
                 bad = RealWenmaiClient({
                     **_creds(cfg),
-                    'password': 'definitely-wrong-password',
+                    'wenmai_password': 'definitely-wrong-password',
                 })
                 try:
                     await bad.ensure_logged_in()

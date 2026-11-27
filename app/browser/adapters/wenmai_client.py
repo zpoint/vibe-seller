@@ -30,12 +30,16 @@ docs are unreliable (they say 401 for logged-out; the real shapes are
 in :meth:`is_logged_out`) and rate-limit to one request per 0.5 s, so
 every call is serialised through one per-loop gate.
 
-Credential schema (arrives in ``browser_config`` under neutral keys,
-matching the future generic credential storage): ``company``
-(企业名称), ``username`` (企业用户名), ``password`` (企业密码) —
-enterprise login only; the phone tab has an image captcha. One account
-per machine. Until the registry lands, a caller (the live smoke / a
-test server's store config) passes them straight into the config.
+Credential schema: ``company`` (企业名称), ``username`` (企业用户名),
+``password`` (企业密码) — enterprise login only; the phone tab has an
+image captcha. One account per machine. The keys arrive in
+``browser_config`` as the registry injects machine credentials,
+``wenmai_<field>`` (``wenmai_company`` / ``wenmai_username`` /
+``wenmai_password`` — see vendor_creds.inject_vendor_config); the
+spec's field keys stay ``company`` / ``username`` / ``password``
+(declared in wenmai.py). Until the registry lands, a caller (the live
+smoke / a test server's store config) passes the injected names
+straight into the config.
 """
 
 import asyncio
@@ -139,9 +143,9 @@ class RealWenmaiClient(InjectClient):
         self._proc = WenmaiProcessLayer(cfg.get('client_path') or None)
         # Enterprise-login credentials (neutral schema — module
         # docstring). Empty → no auto-login.
-        self._company = cfg.get('company') or ''
-        self._username = cfg.get('username') or ''
-        self._password = cfg.get('password') or ''
+        self._company = cfg.get('wenmai_company') or ''
+        self._username = cfg.get('wenmai_username') or ''
+        self._password = cfg.get('wenmai_password') or ''
         self._base = f'http://{_LOCALHOST}:{self.API_PORT}'
 
     # ── HTTP layer ──────────────────────────────────────────────────
@@ -466,18 +470,30 @@ class RealWenmaiClient(InjectClient):
         # bound its debug port (seen live: the client can pick a port
         # in a Windows reserved range, the kernel's bind silently
         # fails, and closeEnv does not clear it). Kill THAT kernel —
-        # matched by its own debug-port flag, nothing else — wait for
-        # the client to notice, and open fresh.
+        # matched on its port flag AND its 稳卖 kernel path AND this
+        # store's env id, so nothing else on the machine is ever
+        # touched — wait for the client to notice, and open fresh.
         logger.warning(
             '稳卖 store %s: endpoint %s:%s still dead after closeEnv; '
-            'killing the kernel that holds the port and re-opening',
+            'killing the stuck kernel that holds the port and re-opening',
             ref,
             opened.cdp_host,
             opened.cdp_port,
         )
-        await asyncio.to_thread(
-            self._proc.kill_kernel_by_debug_port, opened.cdp_port
+        killed = await asyncio.to_thread(
+            self._proc.kill_kernel_by_debug_port, opened.cdp_port, str(ref)
         )
+        if not killed:
+            # Nothing matched the three-check kernel identity: do NOT
+            # keep guessing at a kill — another app's browser may hold
+            # the port. The operator can always close the store in the
+            # client by hand.
+            raise CdpUnreachable(
+                f'store {ref!r}: its kernel holds port '
+                f'{opened.cdp_port} but never answers, and the stuck '
+                'kernel could not be identified for a safe kill — '
+                'close this store in the 稳卖 client and retry'
+            )
         for _ in range(10):
             if str(ref) not in await self._running_env_ids():
                 break

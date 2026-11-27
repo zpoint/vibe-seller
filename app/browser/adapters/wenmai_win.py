@@ -14,7 +14,9 @@ client v5.1.0715. All functions are blocking; call via
 ``asyncio.to_thread``.
 """
 
+import json
 import logging
+import re
 
 from app.browser import win_app_locator as win_locator
 from app.browser.win_app_locator import (
@@ -100,24 +102,81 @@ class WenmaiProcessLayer:
                 continue
         return None
 
-    def kill_kernel_by_debug_port(self, port: int) -> bool:
-        """Kill the store kernel whose command line carries this port.
+    def kill_kernel_by_debug_port(self, port: int, env_id: str) -> bool:
+        """Kill THIS store's stuck 稳卖 kernel, and nothing else.
 
-        A kernel whose ``--remote-debugging-port`` bind silently failed
-        (seen live: the client had picked a port in a Windows reserved
-        range, so the kernel RUNS but its endpoint never answers, and
-        closeEnv does not clear it) is matched by its OWN debug-port
-        flag and stopped — never by name, so the client, other stores'
-        kernels and unrelated processes are untouched. Returns True
-        when the PowerShell ran (best-effort, like every kill).
+        PowerShell only LISTS the processes whose command line carries
+        the debug-port flag; the safety-critical match — all three of
+        the port flag, the 稳卖 kernel exe path, and this store's env
+        id in ``--user-data-dir`` — runs in :func:`is_wenmai_kernel`,
+        pure and unit-tested. Returns True when the kernel was
+        identified (the kill itself is best-effort, like every kill);
+        False means nothing matched — the caller must NOT keep
+        guessing.
         """
         script = (
-            'Get-CimInstance Win32_Process | '
-            'Where-Object { $_.CommandLine -match '
-            f"'--remote-debugging-port={port}(\\D|$)' }} | "
-            'ForEach-Object { Stop-Process -Id $_.ProcessId -Force '
-            "-ErrorAction SilentlyContinue };'ok'; exit 0"
+            '@(Get-CimInstance Win32_Process | Where-Object { '
+            f"($_.CommandLine -match '--remote-debugging-port={port}(\\D|$)')"
+            ' } | Select-Object ProcessId, ExecutablePath, CommandLine'
+            ' | ConvertTo-Json -Compress)'
         )
-        # exit 0: a stopped-for-already-gone pid must not read as a
-        # failed kill (the match itself is the contract).
-        return _run_ps(script).strip().endswith('ok')
+        out = _run_ps(script).strip()
+        try:
+            procs = json.loads(out) if out else []
+        except ValueError:
+            return False
+        if isinstance(procs, dict):  # one result is not an array
+            procs = [procs]
+        victims = [
+            int(p['ProcessId'])
+            for p in procs
+            if isinstance(p, dict)
+            and is_wenmai_kernel(
+                str(p.get('CommandLine') or ''),
+                str(p.get('ExecutablePath') or ''),
+                port,
+                env_id,
+            )
+        ]
+        if not victims:
+            return False
+        pid_list = ','.join(str(v) for v in victims)
+        _run_ps(
+            f'Stop-Process -Id {pid_list} -Force '
+            "-ErrorAction SilentlyContinue;'ok'"
+        )
+        return True
+
+
+# The live kernel exe runs from the client's Browser tree, wherever the
+# client's userData lives (verified: NOT under Program Files — the
+# kernel exe is ``<userData>\WenMaiAIBrowser\...\Browser\...
+# \WenMaiAIBrowser.exe``). The dir names identify the vendor; another
+# app's browser carrying the same debug-port flag fails this check.
+_KERNEL_PATH_RE = r'wenmaiaibrowser\\.*\\browser\\'
+# The kernel's user-data-dir ends with this store's env id (verified:
+# ``<userData>\WenMaiAIBrowser\storeCache\<envId>``).
+_UDD_TAIL_RE = r'--user-data-dir=+"?[^"]*\\{env_id}("|\s|$)'
+
+
+def is_wenmai_kernel(
+    cmdline: str, exe_path: str, port: int, env_id: str
+) -> bool:
+    """Whether a process is THIS store's stuck 稳卖 kernel.
+
+    All three must hold — the debug-port flag, the 稳卖 kernel exe
+    path, and the env id at the tail of ``--user-data-dir``. The port
+    alone is NOT enough: anything on the machine can carry a
+    ``--remote-debugging-port`` (other vendors' kernels, a debug
+    Chrome), and a plausible cause of OUR kernel's bind failing is
+    that one of them already holds the port — matching on the port
+    alone would kill a production store browser of another app.
+    """
+    lowered = (exe_path or '').replace('/', '\\').lower()
+    if not re.search(_KERNEL_PATH_RE, lowered):
+        return False
+    if not re.search(f'--remote-debugging-port={port}(\\D|$)', cmdline or ''):
+        return False
+    return bool(
+        re.search(_UDD_TAIL_RE.format(env_id=re.escape(env_id)), cmdline or '')
+    )

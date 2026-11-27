@@ -260,8 +260,9 @@ async def test_open_store_recovers_a_dead_endpoint(api, monkeypatch):
 async def test_open_store_dead_endpoint_twice_is_cdp_unreachable(
     api, monkeypatch
 ):
-    """Negative control: the re-opened endpoint is STILL dead → a clear
-    CdpUnreachable naming the recovery, not a hang or a wrong error."""
+    """Negative control: the re-opened endpoint is STILL dead after a
+    confirmed kernel kill → a clear CdpUnreachable naming the
+    recovery, not a hang or a wrong error."""
     cdp = FakeMiddlePageCdp()
     await cdp.start()
     try:
@@ -270,10 +271,52 @@ async def test_open_store_dead_endpoint_twice_is_cdp_unreachable(
         monkeypatch.setattr(
             client, '_endpoint_answers', mock.AsyncMock(return_value=False)
         )
+        kills = []
+
+        def fake_kill(port, env_id):
+            kills.append((port, env_id))
+            return True  # the stuck kernel WAS identified and killed
+
+        monkeypatch.setattr(
+            client._proc, 'kill_kernel_by_debug_port', fake_kill
+        )
         with pytest.raises(CdpUnreachable) as ei:
             await client.open_store('100000000001')
         assert 'never answered' in str(ei.value)
         assert 'closeEnv' in api.call_log
+        assert kills == [(cdp.port + 1, '100000000001')]
+    finally:
+        await cdp.stop()
+
+
+async def test_open_store_unidentified_kernel_is_a_safe_refusal(
+    api, monkeypatch
+):
+    """W2: when the stuck kernel cannot be CONFIRMED as this store's
+    (another app may hold the port), kill nothing and fail with the
+    close-it-in-the-client hint — never guess at a kill."""
+    cdp = FakeMiddlePageCdp()
+    await cdp.start()
+    try:
+        api.cdp_port = cdp.port + 1
+        client = _client(api)
+        monkeypatch.setattr(
+            client, '_endpoint_answers', mock.AsyncMock(return_value=False)
+        )
+        kills = []
+
+        def no_match_kill(port, env_id):
+            kills.append((port, env_id))
+            return False  # the three-check match found nothing
+
+        monkeypatch.setattr(
+            client._proc, 'kill_kernel_by_debug_port', no_match_kill
+        )
+        with pytest.raises(CdpUnreachable) as ei:
+            await client.open_store('100000000001')
+        assert 'could not be identified for a safe kill' in str(ei.value)
+        assert '稳卖 client' in str(ei.value)  # the operator hint
+        assert len(kills) == 1  # the check ran once; nothing was killed
     finally:
         await cdp.stop()
 
@@ -458,7 +501,14 @@ async def test_is_logged_in_reads_the_token(api):
 
 
 async def test_ensure_logged_in_noop_when_logged_in(api):
-    client = _client(api, {'company': 'acme', 'username': 'u', 'password': 'p'})
+    client = _client(
+        api,
+        {
+            'wenmai_company': 'acme',
+            'wenmai_username': 'u',
+            'wenmai_password': 'p',
+        },
+    )
     await client.ensure_logged_in()  # no inspector touched
 
 
@@ -466,7 +516,14 @@ async def test_ensure_logged_in_account_mismatch(api):
     # Logged in as a DIFFERENT company than the saved one → a clear
     # AccountMismatch; never an automatic logout.
     api.company = 'other-company'
-    client = _client(api, {'company': 'acme', 'username': 'u', 'password': 'p'})
+    client = _client(
+        api,
+        {
+            'wenmai_company': 'acme',
+            'wenmai_username': 'u',
+            'wenmai_password': 'p',
+        },
+    )
     with pytest.raises(AccountMismatch) as ei:
         await client.ensure_logged_in()
     assert 'other-company' in str(ei.value)
@@ -513,11 +570,54 @@ async def test_ensure_logged_in_auto_logs_in_via_the_inspector(
     api.logged_out = True
     insp = _FakeInspector(api)
     _patch_login(monkeypatch, insp)
-    client = _client(api, {'company': 'acme', 'username': 'u', 'password': 'p'})
+    client = _client(
+        api,
+        {
+            'wenmai_company': 'acme',
+            'wenmai_username': 'u',
+            'wenmai_password': 'p',
+        },
+    )
     await client.ensure_logged_in()
     assert insp.submitted and insp.opened
     # The poll confirmed the LOGIN (the API token), not a UI hash.
     assert await client.is_logged_in() is True
+
+
+async def test_credentials_arrive_under_the_registry_key_names(
+    api, monkeypatch
+):
+    """W1: the registry injects machine credentials as
+    ``wenmai_<field>`` (vendor_creds.inject_vendor_config) — the client
+    must read THOSE keys, or auto-login would find no credentials once
+    the spec registers. The spec's own field keys stay
+    company/username/password (declared in wenmai.py)."""
+    api.logged_out = True
+    insp = _FakeInspector(api)
+    _patch_login(monkeypatch, insp)
+    client = _client(
+        api,
+        {
+            'wenmai_company': 'acme',
+            'wenmai_username': 'u',
+            'wenmai_password': 'p',
+        },
+    )
+    await client.ensure_logged_in()
+    assert insp.submitted  # the credentials were found and driven
+
+
+async def test_neutral_credential_keys_are_not_read(api, monkeypatch):
+    """Negative control: a config carrying ONLY the neutral field names
+    (pre-registry shape) has no credentials as far as the client is
+    concerned — LoginRequired, not a silent half-login."""
+    api.logged_out = True
+    insp = _FakeInspector(api)
+    _patch_login(monkeypatch, insp)
+    client = _client(api, {'company': 'acme', 'username': 'u', 'password': 'p'})
+    with pytest.raises(LoginRequired):
+        await client.ensure_logged_in()
+    assert insp.submitted is False
 
 
 async def test_ensure_logged_in_no_creds_raises(api):
@@ -532,7 +632,14 @@ async def test_ensure_logged_in_form_failure_names_what_was_missing(
     api.logged_out = True
     insp = _FakeInspector(api, form_result='NOFIELDS')
     _patch_login(monkeypatch, insp)
-    client = _client(api, {'company': 'acme', 'username': 'u', 'password': 'p'})
+    client = _client(
+        api,
+        {
+            'wenmai_company': 'acme',
+            'wenmai_username': 'u',
+            'wenmai_password': 'p',
+        },
+    )
     with pytest.raises(LoginRequired) as ei:
         await client.ensure_logged_in()
     assert 'NOFIELDS' in str(ei.value)  # pinpointed, not a generic raise
@@ -549,7 +656,14 @@ async def test_ensure_logged_in_submitted_but_stays_logged_out_raises(
     api.logged_out = True
     insp = _FakeInspector(api, logs_in=False)
     _patch_login(monkeypatch, insp)
-    client = _client(api, {'company': 'acme', 'username': 'u', 'password': 'p'})
+    client = _client(
+        api,
+        {
+            'wenmai_company': 'acme',
+            'wenmai_username': 'u',
+            'wenmai_password': 'p',
+        },
+    )
     with pytest.raises(LoginRequired) as ei:
         await client.ensure_logged_in()
     assert 'stayed logged out' in str(ei.value)

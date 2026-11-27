@@ -5,10 +5,16 @@ notice a missing brace); behaviour under a real engine is covered by
 test_powershell_scripts.py's harness and the live e2e.
 """
 
+import json
+
 import pytest
 
 import app.browser.adapters.wenmai_win as win_mod
-from app.browser.adapters.wenmai_win import WENMAI_SPEC, WenmaiProcessLayer
+from app.browser.adapters.wenmai_win import (
+    WENMAI_SPEC,
+    WenmaiProcessLayer,
+    is_wenmai_kernel,
+)
 import app.browser.win_app_locator as locator
 
 pytestmark = pytest.mark.unit
@@ -107,3 +113,137 @@ def test_wenmai_spec_is_declared_in_the_vendor_module():
     assert '稳卖' in WENMAI_SPEC.match_tokens
     # And the shared locator module no longer carries it.
     assert not hasattr(locator, 'WENMAI_SPEC')
+
+
+# ── W2: the stuck-kernel kill matches ONLY this store's kernel ──────
+
+_KERNEL_EXE = (
+    'C:\\Users\\<user>\\AppData\\Roaming\\WenMaiAIBrowser'
+    '\\instances\\userdata1\\Browser\\135\\5.1.0716'
+    '\\WenMaiAIBrowser.exe'
+)
+_FOREIGN_EXE = (
+    'C:\\Users\\<user>\\AppData\\Roaming\\adspower_global'
+    '\\cwd_global\\chrome_156\\SunBrowser.exe'
+)
+
+
+def _kernel_cmdline(port, env):
+    udd = (
+        '--user-data-dir="C:\\Users\\<user>\\AppData\\Roaming'
+        '\\WenMaiAIBrowser\\storeCache\\' + env + '"'
+    )
+    return (
+        '--force-color-profile=srgb '
+        '--remote-debugging-port=' + str(port) + ' ' + udd
+    )
+
+
+def test_stuck_kernel_is_matched():
+    assert is_wenmai_kernel(
+        _kernel_cmdline(2030, '100000000001'),
+        _KERNEL_EXE,
+        2030,
+        '100000000001',
+    )
+
+
+def test_foreign_app_with_the_same_port_is_not_matched():
+    """W2's incident class: another vendor's kernel (or a debug Chrome)
+    holding OUR port carries the same debug-port flag — the kill must
+    not touch it."""
+    assert not is_wenmai_kernel(
+        _kernel_cmdline(2030, '100000000001'),
+        _FOREIGN_EXE,
+        2030,
+        '100000000001',
+    )
+
+
+def test_wenmai_kernel_of_another_store_is_not_matched():
+    """A 稳卖 kernel of a DIFFERENT env is a production store browser
+    of the same vendor — still not ours to kill."""
+    assert not is_wenmai_kernel(
+        _kernel_cmdline(2030, '100000000002'),
+        _KERNEL_EXE,
+        2030,
+        '100000000001',
+    )
+    # And a near-miss env id (a superstring, not the same id) is not
+    # matched either.
+    assert not is_wenmai_kernel(
+        _kernel_cmdline(2030, '1100000000010'),
+        _KERNEL_EXE,
+        2030,
+        '100000000001',
+    )
+
+
+def test_wrong_port_or_missing_pieces_are_not_matched():
+    assert not is_wenmai_kernel(
+        _kernel_cmdline(9999, '100000000001'),
+        _KERNEL_EXE,
+        2030,
+        '100000000001',
+    )
+    # No exe path at all (a protected system process): never matched.
+    assert not is_wenmai_kernel(
+        _kernel_cmdline(2030, '100000000001'), '', 2030, '100000000001'
+    )
+    assert not is_wenmai_kernel('', _KERNEL_EXE, 2030, '100000000001')
+
+
+def test_kill_identifies_nothing_without_a_confirmed_match(monkeypatch):
+    """When the port flag's owner is NOT our kernel, kill NOTHING and
+    report False — the caller surfaces the safe close-it-in-the-client
+    hint instead of guessing."""
+    kills = []
+
+    def fake_run(script, *a, **kw):
+        if 'ConvertTo-Json' in script:
+            foreign = {
+                'ProcessId': 123,
+                'ExecutablePath': _FOREIGN_EXE,
+                'CommandLine': _kernel_cmdline(2030, '100000000001'),
+            }
+            return json.dumps([foreign])
+        kills.append(script)
+        return 'ok'
+
+    monkeypatch.setattr(win_mod, '_run_ps', fake_run)
+    assert (
+        win_mod.WenmaiProcessLayer().kill_kernel_by_debug_port(
+            2030, '100000000001'
+        )
+        is False
+    )
+    assert kills == []  # no Stop-Process was ever issued
+
+
+def test_kill_stops_only_the_confirmed_kernel(monkeypatch):
+    kills = []
+
+    def fake_run(script, *a, **kw):
+        if 'ConvertTo-Json' in script:
+            ours = {
+                'ProcessId': 123,
+                'ExecutablePath': _KERNEL_EXE,
+                'CommandLine': _kernel_cmdline(2030, '100000000001'),
+            }
+            foreign = {
+                'ProcessId': 777,
+                'ExecutablePath': _FOREIGN_EXE,
+                'CommandLine': _kernel_cmdline(2030, '100000000001'),
+            }
+            return json.dumps([ours, foreign])
+        kills.append(script)
+        return 'ok'
+
+    monkeypatch.setattr(win_mod, '_run_ps', fake_run)
+    assert (
+        win_mod.WenmaiProcessLayer().kill_kernel_by_debug_port(
+            2030, '100000000001'
+        )
+        is True
+    )
+    assert len(kills) == 1 and 'Stop-Process -Id 123' in kills[0]
