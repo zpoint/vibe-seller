@@ -39,8 +39,10 @@ from app.prompts import (
     CATALOG_RESTRICTION_PROMPT_L2,
     DESIGN_SYSTEM_PROMPT,
     DESIGN_SYSTEM_PROMPT_AUTO,
+    WAITING_INSTRUCTION_PROMPT,
 )
 from app.task_runner import (
+    BROWSER_FAILURE_RULES_PROMPT,
     VISION_SETUP_BREADCRUMB,
     PromptBundle,
     TaskHeader,
@@ -250,6 +252,64 @@ def no_store_task():
 
 
 # ── Tests ────────────────────────────────────────────────────
+
+
+class TestBrowserFailureRules:
+    """The browser-failure rules block rides along EVERY task prompt.
+
+    A typed store-browser start failure must reach the agent as
+    "report and stop", and a login page with no saved credentials as
+    "ask the user" — never "search the disk" (incident 97db66d2).
+    Both modes, store and no-store: the wrapper line and login pages
+    are not store-specific.
+    """
+
+    @pytest.mark.asyncio
+    async def test_block_present_auto_mode(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
+        )
+        assert BROWSER_FAILURE_RULES_PROMPT in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_block_present_plan_mode(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.DESIGN, store_emails=TEST_EMAILS
+        )
+        assert BROWSER_FAILURE_RULES_PROMPT in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_block_present_no_store(self, _patch_async_session, task):
+        bundle = await build_system_extra(task, None, header=TaskHeader.AUTO)
+        assert BROWSER_FAILURE_RULES_PROMPT in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_block_after_waiting_instruction(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
+        )
+        # Assembly order: waiting instruction, then the browser rules.
+        assert bundle.system_extra.index(
+            WAITING_INSTRUCTION_PROMPT
+        ) < bundle.system_extra.index(BROWSER_FAILURE_RULES_PROMPT)
+
+    @pytest.mark.asyncio
+    async def test_block_states_both_rules(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
+        )
+        body = bundle.system_extra
+        assert 'ERROR: [CODE]' in body
+        assert 'AskUserQuestion' in body
+        assert 'Never search the disk' in body
 
 
 class TestVisionSetupBreadcrumb:

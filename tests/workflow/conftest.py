@@ -82,6 +82,8 @@ ASYNC_SESSION_MODULES = [
     'app.update_idle',
     'app.scheduler.heartbeat',
     'app.browser.idle_sweep',
+    # The terminal browser-start failure path writes the task row.
+    'app.browser.start_failure',
     'app.scheduler.cron',
     'app.scheduler.fanout',
     'app.scheduler.plan_reaper',
