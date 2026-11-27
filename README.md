@@ -48,8 +48,8 @@ flowchart LR
         S --> A2[店铺B 的 Agent]
         S --> A3[店铺C 的 Agent]
         A1 -->|CDP| Z1[紫鸟店铺A]
-        A2 -->|CDP| Z2[比特店铺B]
-        A3 -->|CDP| C1[悦互联店铺C]
+        A2 -->|CDP| Z2[紫鸟店铺B]
+        A3 -->|CDP| C1[普通 Chrome]
     end
 ```
 
