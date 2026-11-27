@@ -123,6 +123,19 @@ class InjectClient(ABC):
         """
         return None
 
+    async def env_was_open(self, ref: str) -> bool | None:
+        """Whether ``ref`` was ALREADY open, checked just before open.
+
+        The attach-ownership signal for the C4 teardown rule: an env
+        that was already open when ``open_store`` ran (a profile the
+        user opened by hand, or another server's) is one the engine
+        ATTACHED to — neither ``stop()`` nor the start-failure funnel
+        may close it. ``None`` (the default — a client without a
+        running-list) means UNKNOWN, and the engine treats an unknown
+        env as one it opened itself, preserving the pre-C4 teardown.
+        """
+        return None
+
     @abstractmethod
     async def close_store(self, ref: str) -> None:
         """Close a store env (best-effort; never raises for cleanup)."""
