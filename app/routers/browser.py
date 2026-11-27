@@ -10,7 +10,8 @@ from app.auth import get_current_user
 from app.browser import aux_browser
 from app.browser.launch_guards import BrowserBusyError
 from app.browser.manager import browser_manager
-from app.browser.win_app_locator import ZINIAO_SPEC, locate
+from app.browser.vendors import vendor_spec
+from app.browser.win_app_locator import locate
 from app.browser.ziniao_launcher import build_launcher_bat
 from app.database import get_db
 from app.models.app_settings import AppSettings
@@ -32,7 +33,16 @@ async def download_ziniao_launcher():
     folder on any drive — exactly like a default one. When nothing is
     located, the script keeps the conventional-path fallback list.
     """
-    located = await asyncio.to_thread(locate, ZINIAO_SPEC)
+    # Ziniao's install descriptor comes from the vendor registry (the
+    # spec carries it); read at request time so importing this module
+    # never triggers a plugin load. Without a descriptor the launcher
+    # keeps its conventional-path fallback list.
+    spec = vendor_spec('ziniao')
+    located = (
+        await asyncio.to_thread(locate, spec.win_app)
+        if spec is not None and spec.win_app is not None
+        else None
+    )
     if located:
         logger.info(
             'ziniao launcher baked with located exe: %s', located.exe_path
