@@ -106,13 +106,25 @@ _LAUNCH_POLL_DELAY_S = 2.0
 
 _SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl'})
 
-# The logged-out body: {"success":false,"msg":"token 失效，请检查登录状态"}.
-# The string is a hardcoded literal in the client's cloud-request layer
-# (electron-main.js, the only 「请检查登录状态」 occurrence) — there is no
-# English variant of the API response and no locale-independent code
-# field, so the zh text is the signal ('token is invalid' matches the
-# client's own English LOG line, kept in case a build localizes it).
-_TOKEN_EXPIRED_MARKS = ('token 失效', 'token is invalid')
+# The logged-out bodies. TWO shapes, both HTTP 200 + success:false:
+# 1. {"success":false,"msg":"token 失效，请检查登录状态"} — the session
+#    token expired / the user logged out in the client. A hardcoded
+#    literal in the client's cloud-request layer (electron-main.js, the
+#    only 「请检查登录状态」 occurrence); no English variant of that
+#    response and no locale-independent code field, so the zh text is
+#    the signal ('token is invalid' matches the client's own English
+#    LOG line, kept in case a build localizes it).
+# 2. {"success":false,"msg":"Login out！"} — a DEVICE KICK: one
+#    BitBrowser account is signed in on one computer at a time, and
+#    signing in elsewhere kicks this client out (recorded verbatim on
+#    a live kick; English message, FULLWIDTH !).
+# Only these marks — never a blanket success:false, which also carries
+# genuine store errors.
+_TOKEN_EXPIRED_MARKS = (
+    'token 失效',
+    'token is invalid',
+    'Login out！',
+)
 
 # The cloud-served "unknown id" message (observed live on /browser/open
 # and /browser/detail with an unknown id, HTTP 200). The English

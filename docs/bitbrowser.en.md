@@ -60,7 +60,7 @@ Firefox-kernel profiles are greyed out with the reason in the store picker, and 
 
 | Message | Meaning / what to do |
 |---|---|
-| Not logged in — sign in to the BitBrowser client, then Refresh | The client's session expired. Open BitBrowser and sign in once; it stays signed in. |
+| Not logged in — sign in to the BitBrowser client, then Refresh | The client's session expired, or the same account was signed in on another computer (one account, one computer at a time), which signed this one out. Open BitBrowser and sign in once; it stays signed in. |
 | Could not start the BitBrowser client — open it by hand (or check the install), then Refresh | Vibe Seller could not find or launch the client. Open BitBrowser by hand; if it is installed somewhere unusual, save the client path in Settings. |
 | BitBrowser Local API auth failed … toggle 鉴权控制 off and on | The client's Local API Token was reset and the config has not caught up. In BitBrowser → Settings → Local API, toggle 鉴权控制 off and on (or restart BitBrowser), then retry. |
 | This store does not use a Chrome kernel | The profile runs a Firefox or other non-Chrome kernel. Switch it to Chrome in BitBrowser (see the section above). |

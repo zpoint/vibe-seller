@@ -950,3 +950,59 @@ async def test_after_open_twist_lone_workbench_tab_is_never_closed():
     )
     assert not _closed_ids(cdp)
     assert not _activated_ids(cdp)
+
+
+# ── the device-kick logged-out shape (addendum 16) ───────────────────
+
+
+@pytest.mark.parametrize(
+    'path', ['/browser/list', '/browser/detail', '/browser/open']
+)
+async def test_device_kick_is_login_required_on_every_endpoint(path):
+    """One BitBrowser account = one signed-in device: signing in on
+    another computer kicks this client, which answers HTTP 200
+    {"success":false,"msg":"Login out！"} (English, FULLWIDTH !) — a
+    SECOND logged-out shape beside 「token 失效…」. Whatever endpoint it
+    surfaces on, it must read as LOGIN_REQUIRED, never a store error.
+    """
+    shape = (200, {'success': False, 'msg': 'Login out！'})
+    routes = {
+        ('POST', '/browser/list'): shape,
+        ('POST', '/browser/detail'): shape,
+        ('POST', '/browser/open'): shape,
+        ('POST', '/health'): (200, {'success': True}),
+    }
+    server = await _serve(routes)
+    client = _client(server.port)
+    if path == '/browser/list':
+        with pytest.raises(LoginRequired):
+            await client.list_stores()
+    else:
+        with pytest.raises(LoginRequired):
+            await client.open_store('100000000001')
+
+
+async def test_device_kick_twist_fails_on_the_pre_fix_marks():
+    """Negative control: the kick shape is matched by the marks tuple
+    — the OLD marks (without 'Login out！') would let it fall through
+    to STORE_UNAVAILABLE, the very bug the fix removes. Pin that the
+    tuple carries the kick mark, so removing it fails here."""
+    assert 'Login out！' in bb._TOKEN_EXPIRED_MARKS
+    # And the old tuple really did miss it (the pre-fix behaviour):
+    old_marks = ('token 失效', 'token is invalid')
+    kicked = {'success': False, 'msg': 'Login out！'}
+    assert not any(m in kicked['msg'] for m in old_marks)
+
+
+async def test_device_kick_twist_a_store_error_is_not_logged_out():
+    """Negative control: the marks stay marks — a genuine store error
+    (success:false with another message) is NOT logged out."""
+    server = await _serve({
+        ('POST', '/browser/detail'): (
+            200,
+            {'success': False, 'msg': '内核更新失败，请重新启动客户端再打开'},
+        )
+    })
+    client = _client(server.port)
+    with pytest.raises(StoreUnavailable):
+        await client.open_store('100000000001')
