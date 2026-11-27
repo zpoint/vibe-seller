@@ -356,6 +356,35 @@ async def test_twist_unbindable_backends_get_no_ref(
         assert 'browser_ref' not in cfg
 
 
+async def test_reopens_declarant_gets_the_flag_injected(
+    fake_vendor, async_db_session
+):
+    """C4: a vendor whose stop path may close-and-reopen a hand-opened
+    kernel (reopens_hand_opened) has the flag injected into its
+    browser_config — it is how the engine's stale-stop guard learns
+    the vendor declared the exception."""
+    fake_vendor(_spec(reopens_hand_opened=True))
+    cfg: dict = {}
+    await inject_vendor_store_config(
+        cfg, _StoreRow('fakevendor', 'fv-ref'), async_db_session
+    )
+    assert cfg['reopens_hand_opened'] is True
+
+
+async def test_twist_default_vendor_gets_no_reopens_flag(
+    fake_vendor, async_db_session
+):
+    """Negative control: the spec default is ATTACH — a vendor that
+    declared nothing gets no flag, so the engine's stale-stop guard
+    holds (no close_store on a kernel this server did not open)."""
+    fake_vendor(_spec())
+    cfg: dict = {}
+    await inject_vendor_store_config(
+        cfg, _StoreRow('fakevendor', 'fv-ref'), async_db_session
+    )
+    assert 'reopens_hand_opened' not in cfg
+
+
 # ── the locator serves install descriptors from the registry ────────
 
 

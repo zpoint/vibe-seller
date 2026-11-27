@@ -105,7 +105,10 @@ async def inject_vendor_store_config(
       auto-logged-in instead of failing the task);
     - a credential-less vendor (empty ``credential_fields`` — the user
       signs in once in the client; the local API acts as that login)
-      gets only the client-path override, when the spec declares one.
+      gets only the client-path override, when the spec declares one;
+    - a vendor whose stop path may close-and-reopen a hand-opened
+      kernel (C4, ``reopens_hand_opened``) declares it, so the
+      engine's stale-stop guard lets its close through.
 
     Ziniao keeps its own branch in the manager (per-account
     credentials, custom picker); plain backends inject nothing. See
@@ -116,6 +119,8 @@ async def inject_vendor_store_config(
         return
     if store.browser_oauth and spec.lists_profiles:
         browser_config['browser_ref'] = store.browser_oauth
+    if spec.reopens_hand_opened:
+        browser_config['reopens_hand_opened'] = True
     if spec.credential_fields:
         await vendor_creds.inject_vendor_config(browser_config, db, spec)
     elif spec.client_path_setting:
