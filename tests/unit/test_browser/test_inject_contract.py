@@ -256,6 +256,69 @@ async def test_after_open_failure_closes_the_env(
     _mocked_proxy.return_value.start.assert_not_called()
 
 
+class _HangingAfterOpenClient(_RecordingClient):
+    """A vendor entry step that never finishes on its own (slow page)."""
+
+    def __init__(self, cdp_port: int):
+        super().__init__(cdp_port=cdp_port)
+        self.entered = asyncio.Event()
+
+    async def after_open(self, opened: OpenedStore) -> None:
+        self.events.append('after_open')
+        self.entered.set()
+        await asyncio.Event().wait()  # never completes
+
+
+async def test_a_cancelled_start_still_closes_the_env(
+    cdp_version_port, tmp_path, _mocked_proxy
+):
+    """Cancellation is a post-open failure like any other (review R1-1):
+    a task stop or a server shutdown lands mid-entry-step — the env the
+    open created is closed, and the CancelledError still propagates.
+    The cleanup stays best-effort: a second cancel during it would
+    simply end it."""
+    client = _HangingAfterOpenClient(cdp_version_port)
+    backend = _backend(client)
+    cdp_probe = mock.AsyncMock(return_value={'Browser': 'Chrome/135.0.0.0'})
+    with (
+        mock.patch.object(InjectCdpBackend, '_cdp_version', new=cdp_probe),
+        mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
+    ):
+        task = asyncio.create_task(backend.start(_cfg()))
+        await client.entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert client.events == [
+        'ensure_running',
+        'open',
+        'after_open',
+        'close',
+    ]
+    _mocked_proxy.return_value.start.assert_not_called()
+
+
+async def test_proxy_start_failure_stops_the_half_started_proxy(
+    cdp_version_port, tmp_path, _mocked_proxy
+):
+    """The proxy arm of the funnel (review R1-2): a proxy that fails to
+    start (its port taken) is stopped, the env is closed, and the
+    ORIGINAL error propagates."""
+    client = _RecordingClient(cdp_port=cdp_version_port)
+    _mocked_proxy.return_value.start = mock.AsyncMock(
+        side_effect=OSError('proxy port taken')
+    )
+    cdp_probe = mock.AsyncMock(return_value={'Browser': 'Chrome/135.0.0.0'})
+    with (
+        pytest.raises(OSError, match='proxy port taken'),
+        mock.patch.object(InjectCdpBackend, '_cdp_version', new=cdp_probe),
+        mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
+    ):
+        await _backend(client).start(_cfg())
+    _mocked_proxy.return_value.stop.assert_awaited_once()
+    assert client.events == ['ensure_running', 'open', 'after_open', 'close']
+
+
 async def test_after_open_default_is_a_no_op(
     cdp_version_port, tmp_path, _mocked_proxy
 ):

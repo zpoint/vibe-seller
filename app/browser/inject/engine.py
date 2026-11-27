@@ -124,10 +124,14 @@ class InjectCdpBackend(BrowserBackend):
                 keep_last_page=True,
             )
             await self._proxy.start()
-        except Exception:
+        except BaseException:
             # Best-effort, never masking: the ORIGINAL error (the
             # CdpUnreachable / UnsupportedKernel / vendor failure that
             # tripped the funnel) is re-raised after the cleanup.
+            # BaseException, not Exception: a CANCELLED start (a task
+            # stop or a server shutdown mid-start) leaks the env just
+            # the same, so it funnels too — and a second cancel during
+            # the cleanup simply ends it.
             await self._abandon_open_env()
             raise
 
@@ -172,7 +176,9 @@ class InjectCdpBackend(BrowserBackend):
         Every post-open failure on the start path funnels here: the env
         the open created (windows, processes) must not outlive the error
         (seen live: a Firefox/BiDi env survived ``CdpUnreachable`` with
-        11 processes). ``Browser.close`` runs FIRST so the kernel exits
+        11 processes). A CANCELLED start reaches here too — the funnel
+        catches BaseException. ``Browser.close`` runs FIRST so the
+        kernel exits
         cleanly and the vendor's ``close_store`` reopens a fresh env on
         the next task; a half-started proxy is stopped too. Each step is
         guarded and logged — cleanup must never mask the original error
