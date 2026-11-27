@@ -64,7 +64,10 @@ from app.browser.local_api_client import (
     PaginationOverflow,
     opened_from_ws,
 )
-from tests.unit.test_browser.local_api_fixture import ContractFixture
+from tests.unit.test_browser.local_api_fixture import (
+    NO_PAID_GATE,
+    ContractFixture,
+)
 import tests.unit.test_browser.local_api_vendors as vendors_pkg
 
 pytestmark = pytest.mark.unit
@@ -626,7 +629,16 @@ async def test_contract_auth_material_rides_the_call(fx):
 
 
 def _with(variant: str) -> list:
-    return [fx for fx in VENDOR_FIXTURES if getattr(fx, variant)]
+    paid = variant == 'paid_gate_routes'
+    out = []
+    for fx in VENDOR_FIXTURES:
+        value = getattr(fx, variant)
+        # A NoPaidGate sentinel is a declaration, not routes to serve.
+        if paid and not isinstance(value, dict):
+            continue
+        if value:
+            out.append(fx)
+    return out
 
 
 @pytest.mark.parametrize(
@@ -1316,13 +1328,44 @@ def _fixture_coverage_problems(discovered: list, registered: list) -> list:
                 'client_cls=<the real class>, ...)'
             )
     for fx in registered:
+        name = f'{fx.client_cls.__module__}.{fx.client_cls.__name__}'
         if fx.client_cls not in discovered:
             problems.append(
-                f'{fx.client_cls.__module__}.'
-                f'{fx.client_cls.__name__}: a fixture file whose '
+                f'{name}: a fixture file whose '
                 'client_cls is not a discovered LocalApiClient vendor '
                 'under app/browser/adapters (stale fixture, or it never '
                 'pointed at a real adapter)'
+            )
+            continue
+        # A REGISTERED (real) vendor may not skip the safety shapes by
+        # omission: logged-out and unknown-ref are the point of this
+        # suite, and the paid gate needs routes or the explicit
+        # NO_PAID_GATE sentinel. (In-suite doc fixtures are
+        # illustrations and stay partial — they never reach here, not
+        # being discovered adapter vendors.)
+        if fx.logged_out_routes is None:
+            problems.append(
+                f'{name}: the contract fixture omits logged_out_routes '
+                '— the "logged-out is never an empty list" guarantee '
+                "may not be skipped; document the vendor's logged-out "
+                f'shape in local_api_vendors/'
+                f'{fx.client_cls.vendor_key}.py'
+            )
+        if fx.unknown_ref_routes is None:
+            problems.append(
+                f'{name}: the contract fixture omits unknown_ref_routes '
+                '— the "unknown ref maps to StoreNotFound" guarantee may '
+                "not be skipped; document the vendor's unknown-ref shape "
+                f'in local_api_vendors/'
+                f'{fx.client_cls.vendor_key}.py'
+            )
+        if fx.paid_gate_routes is None:
+            problems.append(
+                f'{name}: the contract fixture omits paid_gate_routes — '
+                "either document the vendor's paid-gate shape, or "
+                'declare paid_gate_routes=NO_PAID_GATE (with a reason) '
+                f'in local_api_vendors/'
+                f'{fx.client_cls.vendor_key}.py'
             )
     return problems
 
@@ -1371,6 +1414,69 @@ def test_the_convention_check_catches_an_orphan_fixture():
     assert 'not a discovered' in problems[0]
 
 
+def test_refused_a_real_vendor_omitting_logged_out_routes():
+    """Negative control: a registered vendor's fixture without
+    logged_out_routes is refused, naming the field and the file."""
+
+    class RealVendor(LocalApiClient):
+        __module__ = 'app.browser.adapters.real_no_logged_out'
+
+    fixture = ContractFixture(
+        client_cls=RealVendor,
+        routes={},
+        expected_refs=[],
+        expected_cdp_port=1,
+        unknown_ref_routes={('GET', '/open'): (404, 'gone')},
+        paid_gate_routes=NO_PAID_GATE,
+    )
+    problems = _fixture_coverage_problems([RealVendor], [fixture])
+    assert len(problems) == 1
+    assert 'logged_out_routes' in problems[0]
+    assert 'real_no_logged_out' in problems[0]
+
+
+def test_refused_a_real_vendor_omitting_unknown_ref_routes():
+    """Negative control: a registered vendor's fixture without
+    unknown_ref_routes is refused, naming the field and the file."""
+
+    class RealVendor(LocalApiClient):
+        __module__ = 'app.browser.adapters.real_no_unknown_ref'
+
+    fixture = ContractFixture(
+        client_cls=RealVendor,
+        routes={},
+        expected_refs=[],
+        expected_cdp_port=1,
+        logged_out_routes={('GET', '/list'): (401, 'out')},
+        paid_gate_routes=NO_PAID_GATE,
+    )
+    problems = _fixture_coverage_problems([RealVendor], [fixture])
+    assert len(problems) == 1
+    assert 'unknown_ref_routes' in problems[0]
+
+
+def test_refused_a_real_vendor_omitting_the_paid_gate():
+    """Negative control: a registered vendor's fixture with neither
+    paid-gate routes nor the NO_PAID_GATE sentinel is refused, naming
+    the field, the sentinel and the file."""
+
+    class RealVendor(LocalApiClient):
+        __module__ = 'app.browser.adapters.real_no_paid_gate'
+
+    fixture = ContractFixture(
+        client_cls=RealVendor,
+        routes={},
+        expected_refs=[],
+        expected_cdp_port=1,
+        logged_out_routes={('GET', '/list'): (401, 'out')},
+        unknown_ref_routes={('GET', '/open'): (404, 'gone')},
+    )
+    problems = _fixture_coverage_problems([RealVendor], [fixture])
+    assert len(problems) == 1
+    assert 'paid_gate_routes' in problems[0]
+    assert 'NO_PAID_GATE' in problems[0]
+
+
 def test_the_convention_check_passes_a_matched_pair():
     """Twist: a discovered vendor WITH its matching fixture reports
     nothing."""
@@ -1383,6 +1489,9 @@ def test_the_convention_check_passes_a_matched_pair():
         routes={},
         expected_refs=[],
         expected_cdp_port=1,
+        logged_out_routes={('GET', '/list'): (401, 'out')},
+        unknown_ref_routes={('GET', '/open'): (404, 'gone')},
+        paid_gate_routes=NO_PAID_GATE,
     )
     assert _fixture_coverage_problems([MatchedVendor], [matched]) == []
 
