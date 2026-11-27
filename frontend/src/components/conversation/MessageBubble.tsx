@@ -7,7 +7,7 @@ import type { Components } from 'react-markdown'
 import { parseUserContent } from '../../lib/userContent'
 import { AttachmentThumbs } from './AttachmentThumbs'
 import type { SettingsTab } from '../../views/SettingsView'
-import { settingsTarget } from '../../lib/settingsLinks'
+import { MarkdownLink } from './MarkdownLink'
 
 // Primary agent voice: 16px prose with relaxed leading — the focal
 // point of the stream. Secondary chrome (tools/thinking) stays small
@@ -60,22 +60,7 @@ function MessageBubbleView({ role, content, onOpenSettings }: MessageBubbleProps
   const isStreaming = role === '_streaming'
 
   const components: Components = {
-    a({ href, children, ...props }) {
-      const target = settingsTarget(href)
-      if (target && onOpenSettings) {
-        return (
-          <button
-            type="button"
-            onClick={() => onOpenSettings(target.tab, target.anchor)}
-            className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-[14px] font-medium text-indigo-700 hover:bg-indigo-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
-          >
-            {children}
-            <span aria-hidden="true">→</span>
-          </button>
-        )
-      }
-      return <a href={href} {...props}>{children}</a>
-    },
+    a: (props) => <MarkdownLink {...props} onOpenSettings={onOpenSettings} />,
   }
 
   return (
