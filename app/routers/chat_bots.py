@@ -60,7 +60,8 @@ UNSUPPORTED_URL_DETAIL = (
 # A file sent through a bot must live under one of these roots. The
 # agent supplies the path, so we expand ~, resolve symlinks, and confirm
 # the real location is inside a known-safe tree — task captures land in
-# /tmp and browser downloads under ~/.vibe-seller/downloads. We allow
+# /tmp and browser downloads under this server's DOWNLOADS_DIR (spelled
+# to the agent as $VIBE_STORE_DOWNLOADS). We allow
 # ONLY those, NOT the whole ~/.vibe-seller runtime dir (which holds the
 # DB, jwt_secret, store notes) — that would let the agent exfiltrate
 # secrets through a bot. This also blocks reads like ~/.ssh.
@@ -74,7 +75,7 @@ _ALLOWED_FILE_ROOTS = (
 def _resolve_safe_file(raw_path: str) -> Path:
     """Resolve a caller-supplied path, rejecting anything outside the
     allowed roots. Expands ``~`` and requires an absolute path so the
-    documented ``~/.vibe-seller/downloads/...`` usage works. Raises
+    documented ``$VIBE_STORE_DOWNLOADS/...`` usage works. Raises
     HTTPException(400) on traversal."""
     expanded = os.path.expanduser(raw_path)
     if not os.path.isabs(expanded):

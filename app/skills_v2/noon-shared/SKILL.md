@@ -419,7 +419,7 @@ PY
   fails schema validation; always give at least a confirm and a
   "didn't work" option.
 - **Captures → your task directory (CWD).** Per-run live data stays in the task
-  directory, never under `~/.vibe-seller/knowledge/`.
+  directory, never under `knowledge/`.
 
 ## See also
 

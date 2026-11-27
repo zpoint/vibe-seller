@@ -7,7 +7,7 @@ it and waits for the report to land in the store downloads dir. Run
 through the STORE WRAPPER:
 
   SC_HOST=sellercentral.amazon.ae BATCH_ID=100000000001 \
-  DOWNLOADS_DIR=~/.vibe-seller/downloads/<slug> \
+  DOWNLOADS_DIR=$VIBE_STORE_DOWNLOADS \
   browser-use < .claude/skills/amazon-listing/scripts/bh_fetch_report.py
 
 Prints exactly one ``RESULT {json}`` line:

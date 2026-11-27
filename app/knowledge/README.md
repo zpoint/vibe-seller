@@ -5,7 +5,8 @@
 ## L1: Builtin Knowledge (this directory)
 
 Shipped with the `app` package and synced to every workspace
-(`~/.vibe-seller/knowledge/project/`).
+(the workspace's `knowledge/project/` tree — reach it through the
+`knowledge/` symlink in your CWD).
 
 ```
 knowledge/project/
@@ -24,7 +25,7 @@ knowledge/project/
 
 ## L2: Cross-Store Relationships (local workspace)
 
-`~/.vibe-seller/knowledge/notes.md` — minimal, user/AI-editable.
+`knowledge/notes.md` (workspace-relative) — minimal, user/AI-editable.
 
 Contains ONLY cross-store relationships:
 - "Store B is 跟卖 of Store A on Amazon <country>"
@@ -36,7 +37,7 @@ Users can create additional files (e.g., `brand-x-stores.md`).
 
 ## L3: Per-Store Knowledge (local workspace)
 
-`~/.vibe-seller/stores/<slug>/<platform>/<COUNTRY>/*.md`
+`stores/<slug>/<platform>/<COUNTRY>/*.md` (workspace-relative)
 
 ALL store-specific knowledge goes here:
 - Platform/country selectors and page layouts for THIS store
@@ -51,7 +52,9 @@ NOT shared between stores. Each store has its own isolated knowledge tree.
 1. `knowledge_sync.fetch()` copies L1 from package to workspace on startup
 2. Remote sync checks GitHub for commit changes (>24h cooldown)
 3. Manual sync via `POST /api/workspace/knowledge/sync`
-4. Agent workspace symlinks: `knowledge/` → `~/.vibe-seller/knowledge/`
+4. Agent workspace symlinks: `knowledge/` → the workspace root's
+   `knowledge/` tree (always go through the symlink; never guess a
+   hardcoded home path — the workspace root belongs to this server)
 
 ## Catalogs
 

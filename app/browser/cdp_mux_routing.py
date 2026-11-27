@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import ntpath
+import os
+import re
 import time
 from typing import Any
 import uuid
@@ -20,6 +23,52 @@ from app.browser.cdp_mux_types import (
 from app.env_options import Options
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_dl_path(path: str) -> str:
+    """Canonical form for comparing a downloadPath with the pin.
+
+    ``expanduser`` + ``normpath`` cover the spellings an agent
+    plausibly types (``~/...``, trailing slash). Never ``resolve()``:
+    the winchrome pin is the Windows-side path while the agent sees
+    the WSL symlink, and resolving either side would make
+    equal-in-effect paths compare unequal.
+    """
+    return os.path.normpath(os.path.expanduser(path))
+
+
+_WIN_PATH_RE = re.compile(r'^[A-Za-z]:[\\/]')
+
+
+def _dl_path_inside(requested: str, pinned: str) -> bool:
+    """True when *requested* is the pin or lives under it.
+
+    This is the single-install no-regression rule: a flow that points
+    downloads at a SUBDIRECTORY of the pin and waits for the file
+    exactly there must keep working — only a path outside the pin is
+    rewritten.
+
+    The pin's SHAPE picks the comparison semantics, whatever the
+    server OS is: a Windows-shaped pin (a drive letter or a
+    backslash — winchrome's ``dl_win`` and native-Windows Ziniao both
+    pass one) is compared with ``ntpath`` semantics: case-insensitive,
+    ``/`` and ``\\`` equivalent, drive letter included. A POSIX pin
+    uses the local ``os.path`` (``normcase`` is the identity there, so
+    a case-mismatched POSIX spelling reads as outside — same as main).
+    """
+    mod = ntpath if _is_windows_shaped(pinned) else os.path
+
+    def norm(path: str) -> str:
+        return mod.normcase(mod.normpath(mod.expanduser(path)))
+
+    req = norm(requested)
+    pin = norm(pinned)
+    return req == pin or req.startswith(pin + mod.sep)
+
+
+def _is_windows_shaped(path: str) -> bool:
+    """A drive-letter prefix or a backslash marks a Windows path."""
+    return bool(_WIN_PATH_RE.match(path) or '\\' in path)
 
 
 class _RoutingMixin:
@@ -226,14 +275,47 @@ class _RoutingMixin:
             await self._handle_browser_close(client_id, msg)
             return
 
-        # --- Rewrite Browser.setDownloadBehavior downloadPath ---
-        # browser-use creates a fresh random /tmp dir per CLI
-        # invocation.  Override with a stable per-store directory
-        # so agents can find downloaded files.
-        if method == 'Browser.setDownloadBehavior' and self.download_dir:
+        # --- Enforce the pinned download dir ---
+        # browser-use creates a fresh random /tmp dir per CLI invocation,
+        # and a task agent may try to point downloads somewhere it read
+        # from a stale doc (the default-home path on a multi-home
+        # machine — observed live writing into another server's home).
+        # Both spellings exist in CDP: `Browser.setDownloadBehavior`
+        # (browser-wide, used by the harness watchdog) and
+        # `Page.setDownloadBehavior` (per-page, which an agent used to
+        # override the pin).
+        #
+        # INSIDE the pin is LEFT AS-IS: a legitimate flow may point
+        # downloads at the pin itself or at a SUBDIRECTORY of it
+        # (a per-run subfolder) and then wait for the file exactly
+        # there — rewriting that would move the file away from where
+        # the flow's "file landed" check looks (the single-install
+        # no-regression rule). Only a path OUTSIDE the pin is rewritten,
+        # and rewritten to the pin — not refused: a refused CDP error
+        # fails the agent mid-flow, and a failed agent improvises (the
+        # incident's whole failure class); the rewrite keeps the
+        # download where the agent's system prompt says it lands, while
+        # the log line below records the attempt.
+        if (
+            method
+            in ('Browser.setDownloadBehavior', 'Page.setDownloadBehavior')
+            and self.download_dir
+        ):
             params = msg.get('params', {})
-            if 'downloadPath' in params:
-                params['downloadPath'] = self.download_dir
+            requested = params.get('downloadPath')
+            if requested is not None and not _dl_path_inside(
+                requested, str(self.download_dir)
+            ):
+                pinned = str(self.download_dir)
+                logger.info(
+                    'CDPMuxProxy: client %s %s downloadPath %s is '
+                    'outside the pinned dir %s — rewritten',
+                    short_cid(client_id),
+                    method,
+                    requested,
+                    pinned,
+                )
+                params['downloadPath'] = pinned
 
         # --- Block cross-client Target.closeTarget ---
         if method == 'Target.closeTarget':

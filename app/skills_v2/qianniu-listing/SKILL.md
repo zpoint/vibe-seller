@@ -30,7 +30,7 @@ read them from each export rather than hardcoding them. Run the loop a
 human runs:
 
 1. **Export a fresh workbook** (`excel商品批量导出`) for the target 商品. It
-   lands in `~/.vibe-seller/downloads/<slug>/`.
+   lands in `$VIBE_STORE_DOWNLOADS/`.
 2. **`inspect` it** — `listing_bulk.py inspect WORKBOOK.xlsx` dumps the header
    row + the columns actually present (商品ID, 商品标题, 价格, 库存, the SKU
    sub-table, etc.). The header names are the ground truth, not this doc.
@@ -39,7 +39,7 @@ human runs:
    columns you mean to change; leave the rest as exported.
 4. **Import** the edited workbook (`批量导入`) — a write to the live store,
    so only after the user has reviewed the diff. Upload it from
-   `~/.vibe-seller/downloads/<slug>/` (the browser can't read `/tmp`; see
+   `$VIBE_STORE_DOWNLOADS/` (the browser can't read `/tmp`; see
    `browser-harness` § Uploading). Then read the import result.
 5. **Verify on the source of truth, not the submit toast:** re-open 商品管理
    (or the 商品 detail) and confirm the change landed. Import results also
@@ -57,7 +57,7 @@ openpyxl):
 
 ```bash
 S=.claude/skills/qianniu-listing/scripts
-python3 $S/listing_bulk.py inspect "$HOME/.vibe-seller/downloads/<slug>/<export>.xlsx"
+python3 $S/listing_bulk.py inspect "$VIBE_STORE_DOWNLOADS/<export>.xlsx"
 ```
 
 - **`listing_bulk.py`** — header-keyed Excel round-trip helper (locale-robust:

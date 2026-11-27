@@ -5,6 +5,7 @@ expected substrings are present/absent in the assembled prompt.
 """
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-testing-only')
@@ -439,6 +440,77 @@ class TestAutoStoreTask:
         )
         assert '<slug>' not in bundle.system_extra
         assert 'test-store-alpha' in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_store_context_spells_resolved_paths(
+        self, _patch_async_session, task, store, monkeypatch
+    ):
+        """Wrapper + download dirs reach the agent RESOLVED for this
+        server's home, never as a hardcoded default-home path.
+
+        A live agent followed the old `~/.vibe-seller/...` spelling
+        into ANOTHER server's home on a multi-home machine (mkdir +
+        Page.setDownloadBehavior override). The store context is the
+        one place the resolved path is spelled; skills refer to
+        $VIBE_STORE_DOWNLOADS instead.
+        """
+        monkeypatch.setattr(
+            'app.browser.downloads.DOWNLOADS_DIR',
+            Path('/srv/custom-home/downloads'),
+        )
+        monkeypatch.setattr(
+            'app.task_runner_context.BROWSER_USE_BIN_DIR',
+            Path('/srv/custom-home/bin'),
+        )
+        bundle = await build_system_extra(
+            task,
+            store,
+            header=TaskHeader.AUTO,
+            store_emails=TEST_EMAILS,
+        )
+        assert '/srv/custom-home/downloads/test-store-alpha/' in (
+            bundle.system_extra
+        )
+        assert '/srv/custom-home/bin/test-store-alpha/browser-use' in (
+            bundle.system_extra
+        )
+        assert '$VIBE_STORE_DOWNLOADS' in bundle.system_extra
+        assert '~/.vibe-seller' not in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_antidetect_store_context_spells_resolved_paths(
+        self, _patch_async_session, task, monkeypatch
+    ):
+        """Same contract for the antidetect (Ziniao-style) variant of
+        the store context — both branches spell the resolved paths."""
+        task.store_id = 'store-z'
+        monkeypatch.setattr(
+            'app.browser.downloads.DOWNLOADS_DIR',
+            Path('/srv/custom-home/downloads'),
+        )
+        monkeypatch.setattr(
+            'app.task_runner_context.BROWSER_USE_BIN_DIR',
+            Path('/srv/custom-home/bin'),
+        )
+        ziniao_store = Store(
+            id='store-z',
+            name='Ziniao Store',
+            slug='ziniao-store',
+            browser_backend='ziniao',
+            browser_config='{"headless": true}',
+            platforms='["amazon"]',
+            countries='["US"]',
+        )
+        bundle = await build_system_extra(
+            task,
+            ziniao_store,
+            header=TaskHeader.AUTO,
+            store_emails=TEST_EMAILS,
+        )
+        assert '/srv/custom-home/downloads/ziniao-store/' in (
+            bundle.system_extra
+        )
+        assert '~/.vibe-seller' not in bundle.system_extra
 
     @pytest.mark.asyncio
     async def test_mode_is_auto(self, _patch_async_session, task, store):

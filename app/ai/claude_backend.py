@@ -63,6 +63,7 @@ from app.ai.profiles import (
 )
 from app.ai.usage_meter import UsageMeter
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
+from app.browser.downloads import store_downloads_dir
 from app.browser.process_utils import kill_with_escalation, taskkill_tree
 from app.custom_mcp import load_launch_servers
 from app.database import async_session
@@ -397,6 +398,17 @@ class AgentSession(
         )
         # Pass task ID for multi-client CDP proxy isolation
         env['VIBE_TASK_ID'] = self.task_id
+
+        # The store's download dir, RESOLVED for this server's VIBE_HOME.
+        # The one path an agent must never guess from a doc: hardcoded
+        # default-home spellings sent a test task's agent into another
+        # server's home on a multi-home machine (it mkdir'd the dir and
+        # repointed Page.setDownloadBehavior there). The CDP mux now
+        # rewrites any outside pin, but the agent should also KNOW the
+        # right dir: skills and scripts reference this variable, and the
+        # store context in the system prompt spells the same path.
+        if self.store_slug:
+            env['VIBE_STORE_DOWNLOADS'] = store_downloads_dir(self.store_slug)
 
         # Pin Claude Code's TaskList directory to a per-task path
         # (default is session UUID, which is regenerated per spawn

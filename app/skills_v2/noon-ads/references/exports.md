@@ -17,7 +17,7 @@
 | No file yet | keep polling (below) | wait ~60 s, then check you clicked `Export` on that tab | give up after ~10 s and read the DOM |
 
 The Customer Queries export is the drill source (`../SKILL.md` § 6).
-Every file lands in `~/.vibe-seller/downloads/<slug>/`; list the folder
+Every file lands in `$VIBE_STORE_DOWNLOADS/`; list the folder
 before clicking so you can diff.
 
 ## Export campaigns (list level)

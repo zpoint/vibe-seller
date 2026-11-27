@@ -19,7 +19,7 @@ Use the store's browser wrapper (an `-aux` session is fine — this is a
 public third-party page, not seller-central):
 
 ```bash
-~/.vibe-seller/bin/<slug>/browser-use --session <slug>-aux <<'PY'
+browser-use --session <slug>-aux <<'PY'
 new_tab("https://detail.1688.com/offer/<OFFER_ID>.html?offerId=<OFFER_ID>&forcePC=1")
 wait_for_load()
 PY
@@ -29,7 +29,7 @@ The core product data lives in the page's `window.context` JSON and the
 DOM — **no login needed** for it:
 
 ```bash
-~/.vibe-seller/bin/<slug>/browser-use --session <slug>-aux <<'PY'
+browser-use --session <slug>-aux <<'PY'
 # title, price, sku props (colour/size), weight, category, detail-image url
 print(js("return JSON.stringify(window.context && window.context.result ? window.context.result : {}).slice(0,4000)"))
 # gallery + detail image srcs
