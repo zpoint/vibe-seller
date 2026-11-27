@@ -18,12 +18,28 @@ from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.cdp_mux_proxy import CDPMuxProxy
 from app.browser.downloads import prepare_download_dir
 from app.browser.inject.client import InjectClient, OpenedStore
-from app.browser.inject.errors import CdpUnreachable, LoginRequired
+from app.browser.inject.errors import (
+    CdpUnreachable,
+    LoginRequired,
+    UnsupportedKernel,
+)
 from app.config import LOCALHOST
 
 logger = logging.getLogger(__name__)
 
 ClientFactory = Callable[[dict], InjectClient]
+
+# The Browser families the engine can drive: Chromium's CDP. Firefox
+# kernels can also expose a PARTIAL CDP (the old Remote Agent — seen
+# live: a Firefox/100 kernel answered /json/version with a
+# webSocketDebuggerUrl), which the mux proxy would happily front while
+# every real command fails. Keep in ONE place.
+CHROMIUM_BROWSER_PREFIXES = (
+    'Chrome/',
+    'HeadlessChrome/',
+    'Chromium/',
+    'Edg/',
+)
 
 
 class InjectCdpBackend(BrowserBackend):
@@ -61,10 +77,40 @@ class InjectCdpBackend(BrowserBackend):
         self._store_ref = store_ref
         self._opened = opened
 
-        if not await self._cdp_reachable(opened.cdp_host, opened.cdp_port):
+        version = await self._cdp_version(opened.cdp_host, opened.cdp_port)
+        if version is None:
             raise CdpUnreachable(
                 f'opened {store_ref} but CDP {opened.cdp_host}:'
                 f'{opened.cdp_port} never answered'
+            )
+        browser = str(version.get('Browser') or '')
+        if not browser.startswith(CHROMIUM_BROWSER_PREFIXES):
+            # A non-Chromium kernel CAN expose a partial CDP (Firefox's
+            # old Remote Agent) — reachable is not drivable. Close the
+            # env so nothing half-open lingers, and refuse before
+            # after_open or the proxy ever front it.
+            logger.warning(
+                'store %s: CDP endpoint reports Browser %r (not '
+                'Chromium-family); closing the env and refusing',
+                store_ref,
+                browser,
+            )
+            await self._close_browser(opened.cdp_host, opened.cdp_port)
+            self._opened = None
+            try:
+                await client.close_store(store_ref)
+            except Exception as e:  # never mask the kernel refusal
+                logger.warning(
+                    'inject backend close_store after kernel refusal '
+                    'failed: %s',
+                    e,
+                )
+            finally:
+                self._store_ref = None
+            raise UnsupportedKernel(
+                f"this store's browser kernel reports {browser!r} via "
+                'CDP; only Chromium-family kernels are supported '
+                f'(expected one of {CHROMIUM_BROWSER_PREFIXES})'
             )
 
         # A client-specific entry step (an intermediate store-info
@@ -139,8 +185,13 @@ class InjectCdpBackend(BrowserBackend):
         except Exception as e:
             logger.debug('Browser.close on %s:%s failed: %s', host, port, e)
 
-    async def _cdp_reachable(self, host: str, port: int) -> bool:
-        """True once Chrome's CDP endpoint answers on ``host:port``."""
+    async def _cdp_version(self, host: str, port: int) -> dict | None:
+        """``/json/version`` once it answers, else None.
+
+        The dict carries the ``Browser`` family — the caller refuses a
+        non-Chromium kernel (a partial CDP is reachable but not
+        drivable). Retries like the old reachability probe.
+        """
         url = f'http://{host}:{port}/json/version'
         for i in range(self._CDP_ATTEMPTS):
             try:
@@ -150,9 +201,13 @@ class InjectCdpBackend(BrowserBackend):
                     ) as resp:
                         data = await resp.json()
                         if data.get('webSocketDebuggerUrl'):
-                            return True
+                            return data
             except Exception:
                 pass
             if i < self._CDP_ATTEMPTS - 1:
                 await asyncio.sleep(self._CDP_DELAY)
-        return False
+        return None
+
+    async def _cdp_reachable(self, host: str, port: int) -> bool:
+        """Back-compat bool view of :meth:`_cdp_version` (tests)."""
+        return await self._cdp_version(host, port) is not None

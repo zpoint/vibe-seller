@@ -8,8 +8,13 @@ error class carries its taxonomy code and a vendor-neutral hint.
 """
 
 import asyncio
+from http.server import (
+    BaseHTTPRequestHandler,
+    ThreadingHTTPServer,
+)
 import json as _json
 from pathlib import Path
+import threading
 import types
 from unittest import mock
 
@@ -110,9 +115,9 @@ async def test_after_open_runs_once_after_cdp_and_before_proxy(
     """Happy path ordering: open → CDP verified → after_open → proxy."""
     client = _RecordingClient(cdp_port=cdp_version_port)
     backend = _backend(client)
-    cdp_probe = mock.AsyncMock(return_value=True)
+    cdp_probe = mock.AsyncMock(return_value={'Browser': 'Chrome/135.0.0.0'})
     with (
-        mock.patch.object(InjectCdpBackend, '_cdp_reachable', new=cdp_probe),
+        mock.patch.object(InjectCdpBackend, '_cdp_version', new=cdp_probe),
         mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
     ):
         await backend.start(_cfg())
@@ -153,8 +158,8 @@ async def test_after_open_not_called_when_cdp_never_answers(
         pytest.raises(errors_mod.CdpUnreachable),
         mock.patch.object(
             InjectCdpBackend,
-            '_cdp_reachable',
-            new=mock.AsyncMock(return_value=False),
+            '_cdp_version',
+            new=mock.AsyncMock(return_value=None),
         ),
         mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
     ):
@@ -352,6 +357,27 @@ def _not_busy_then_serving(url='ws://127.0.0.1:9229/devtools/browser/x'):
         return url
 
     return fake_discover
+
+
+async def _no_connect(self, ws_url, expr, await_promise, timeout):
+    """Stand-in for _evaluate_once: fail INSTANTLY. The real one, on a
+    dead endpoint, can take its full bound in seconds (an unbound
+    loopback port hangs instead of refusing on some hosts), which no
+    unit test should pay for."""
+    raise win_inspector_mod.InspectorError('test: no real connect')
+
+
+def _fast_busy(monkeypatch, tmp_path):
+    """Machine lock in tmp + zero busy backoff + instant-eval: the
+    busy-retry tests run in milliseconds and count attempts, never
+    wall-clock seconds."""
+    _fake_lock(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, 'BUSY_BACKOFF_S', 0.0
+    )
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession, '_evaluate_once', _no_connect
+    )
 
 
 def _fake_lock(monkeypatch, tmp_path):
@@ -596,10 +622,10 @@ async def test_open_refuses_a_foreign_serving_port(monkeypatch, tmp_path):
     """9229 already serves a DIFFERENT process → refuse: never trigger,
     never close, typed InspectorBusy. (Two vendor clients / an outside
     probe share the one fixed port.)"""
-    _fake_lock(monkeypatch, tmp_path)
+    _fast_busy(monkeypatch, tmp_path)
     triggers = []
 
-    async def spy_trigger(pid):
+    async def spy_trigger(self, pid):
         triggers.append(pid)
 
     async def foreign_pid(self, ws_url=None):
@@ -636,10 +662,10 @@ async def test_open_reuses_a_leftover_inspector_on_the_target_pid(
     forever (that killed auto-login until a client restart): a
     leftover on the VERY pid we were asked to debug is probed, adopted
     and reused — no second trigger."""
-    _fake_lock(monkeypatch, tmp_path)
+    _fast_busy(monkeypatch, tmp_path)
     triggers = []
 
-    async def spy_trigger(pid):
+    async def spy_trigger(self, pid):
         triggers.append(pid)
 
     async def leftover_pid(self, ws_url=None):
@@ -670,7 +696,7 @@ async def test_open_reuses_a_leftover_inspector_on_the_target_pid(
 async def test_open_refuses_an_unreadable_serving_port(monkeypatch, tmp_path):
     """A serving port whose pid cannot be read is NOT adopted (treat as
     unidentified, never as a match) — the conservative refusal."""
-    _fake_lock(monkeypatch, tmp_path)
+    _fast_busy(monkeypatch, tmp_path)
     monkeypatch.setattr(
         win_inspector_mod.InspectorSession,
         '_probe_pid',
@@ -737,7 +763,7 @@ async def test_open_pid_mismatch_never_closes_the_foreign_session(
 async def test_open_pid_match_proceeds(monkeypatch, tmp_path):
     """Negative control: the SAME pid → the session opens and stays
     attached (the checks guard, they do not block the happy path)."""
-    _fake_lock(monkeypatch, tmp_path)
+    _fast_busy(monkeypatch, tmp_path)
 
     async def same_pid(self, ws_url=None):
         return 4242
@@ -766,7 +792,7 @@ async def test_open_serialises_two_sessions_machine_wide(monkeypatch, tmp_path):
     take the machine-wide lock in turn: one trigger fully finishes
     before the other starts — proved with the REAL lock on the REAL
     filesystem. Without the lock the two 0.1 s triggers interleave."""
-    _fake_lock(monkeypatch, tmp_path)
+    _fast_busy(monkeypatch, tmp_path)
     events = []
 
     async def slow_trigger(self, pid):
@@ -825,9 +851,11 @@ async def test_open_serialises_two_sessions_machine_wide(monkeypatch, tmp_path):
 
 
 async def test_open_busy_retries_are_bounded(monkeypatch, tmp_path):
-    """Negative control: a persistently-busy port fails after the
-    bounded retries, not an endless loop."""
-    _fake_lock(monkeypatch, tmp_path)
+    """A persistently-busy port fails after the BOUNDED retries, proved
+    by counting attempts — never by measuring wall-clock seconds (the
+    seconds-based version took 60 s and failed under full-suite load;
+    the unit tier is under 10 s)."""
+    _fast_busy(monkeypatch, tmp_path)
     attempts = {'n': 0}
 
     async def always_busy(self):
@@ -837,12 +865,103 @@ async def test_open_busy_retries_are_bounded(monkeypatch, tmp_path):
     monkeypatch.setattr(
         win_inspector_mod.InspectorSession, '_discover_ws', always_busy
     )
-
-    async def fast_sleep(_s):
-        return None
-
-    monkeypatch.setattr(win_inspector_mod.asyncio, 'sleep', fast_sleep)
+    monkeypatch.setattr(
+        win_inspector_mod.InspectorSession,
+        '_probe_pid',
+        mock.AsyncMock(return_value=None),  # unreadable → busy
+    )
     insp = WinInspectorSession(lambda: "$exe='x';")
     with pytest.raises(win_inspector_mod.InspectorBusy):
         await insp.open(1)
-    assert attempts['n'] == win_inspector_mod.InspectorSession.BUSY_RETRIES + 1
+    assert attempts['n'] == (
+        win_inspector_mod.InspectorSession.BUSY_RETRIES + 1
+    )
+
+
+# ── P9: the engine refuses a non-Chromium CDP endpoint ──────────────
+
+
+class _VersionServer:
+    """A local /json/version answering a CONFIGURABLE Browser family —
+    including Firefox's partial CDP (Remote Agent), which also serves a
+    webSocketDebuggerUrl."""
+
+    def __init__(self, browser: str):
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802 — http.server's name
+                if self.path != '/json/version':
+                    self.send_error(404)
+                    return
+                port = self.server.server_address[1]
+                body = _json.dumps({
+                    'Browser': outer.browser,
+                    'webSocketDebuggerUrl': (
+                        f'ws://127.0.0.1:{port}/devtools/browser/x'
+                    ),
+                }).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        outer.browser = browser
+        outer.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=outer.server.serve_forever, daemon=True).start()
+        outer.port = outer.server.server_address[1]
+
+    def stop(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class _P9Client(_RecordingClient):
+    """Records close_store so the refusal path can be asserted."""
+
+    def __init__(self, cdp_port):
+        super().__init__(cdp_port=cdp_port)
+        self.closed_refs: list[str] = []
+        self.after_opens: list[int] = []
+
+    async def close_store(self, ref: str) -> None:
+        self.closed_refs.append(ref)
+
+
+async def test_firefox_cdp_endpoint_is_refused_and_closed(_mocked_proxy):
+    """A Firefox kernel CAN expose a partial CDP (Remote Agent — seen
+    live): reachable is not drivable. The engine must refuse with
+    UnsupportedKernel, close the store, and never run after_open or
+    start the proxy."""
+    ff = _VersionServer('Firefox/100.0.2')
+    try:
+        client = _P9Client(ff.port)
+        with pytest.raises(UnsupportedKernel) as ei:
+            await _backend(client).start(_cfg())
+        assert 'Firefox/100.0.2' in str(ei.value)
+        assert client.closed_refs == ['store-a']  # the env was closed
+        assert client.after_opens == []  # the entry step never ran
+        _mocked_proxy.return_value.start.assert_not_called()
+    finally:
+        ff.stop()
+
+
+async def test_chromium_family_browsers_proceed(_mocked_proxy, tmp_path):
+    """Chrome and Edg kernels front the proxy as before (the family
+    check gates, it does not block the happy path)."""
+    for browser in ('Chrome/135.0.0.0', 'Edg/131.0.0.0'):
+        srv = _VersionServer(browser)
+        try:
+            client = _P9Client(srv.port)
+            with mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path):
+                info = await _backend(client).start(_cfg())
+            assert info.cdp_port == srv.port
+            assert client.closed_refs == []
+            _mocked_proxy.return_value.start.assert_awaited()
+            _mocked_proxy.return_value.start.reset_mock()
+        finally:
+            srv.stop()
