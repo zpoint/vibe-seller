@@ -1,6 +1,6 @@
 """Open and drive a Windows Electron app's main-process Node inspector.
 
-Shared by the inject-driven adapters (yuehulian, wenmai): the client's
+Shared by the inject-driven adapters: a vendor client's
 Electron fuses leave ``RunAsNode`` and ``EnableNodeCliInspectArguments``
 on, so launching the installed exe with ``ELECTRON_RUN_AS_NODE=1 -e
 "process._debugProcess(<main pid>)"`` opens the main-process inspector
@@ -13,8 +13,8 @@ installed exe to ``$exe`` (an :class:`InspectorSession` needs no
 client-specific knowledge beyond that). The inspector is opened per
 operation and closed right after, so no code-exec surface lingers.
 
-Validated live for both clients (yuehulian 2026-11-18, wenmai
-2026-11-27): use a CURRENT main pid — a stale pid fails with an error.
+Validated live on real clients (2026-11): use a CURRENT main pid — a
+stale pid fails with an error.
 """
 
 import asyncio
@@ -105,7 +105,7 @@ class InspectorSession:
         target. A window reload (e.g. a login that re-inits the app)
         makes the inspector hand out a NEW target id, so the remembered
         URL starts answering the handshake with 400 and live sockets
-        close mid-call (both seen live driving the 稳卖 login). On
+        close mid-call (both seen live driving a vendor login). On
         either, re-discover the target once and retry the call.
         """
         if not self._ws_url:

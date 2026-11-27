@@ -225,8 +225,9 @@ export function taskErrorHelp(category: string | null | undefined, error: string
   const topic = category ? TASK_ERROR_HELP[category] : undefined
   if (topic) return topic
   if (error.includes('/api/ziniao/launcher')) return 'ziniaoWslLauncher'
-  // A store on a Firefox / other non-Chrome kernel (UNSUPPORTED_KERNEL):
-  // the error text names the Chrome kernel in either language.
-  if (/chrome\s*kernel|chrome\s*内核/i.test(error)) return 'browserKernel'
+  // A store on a Firefox / other non-Chrome kernel: keyed on the
+  // STABLE taxonomy code the error surfaces (UnsupportedKernel prefixes
+  // it to its text), never on translatable prose.
+  if (error.includes('UNSUPPORTED_KERNEL')) return 'browserKernel'
   return null
 }

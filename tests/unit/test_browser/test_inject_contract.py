@@ -200,7 +200,6 @@ def test_store_ref_explicit_ref_and_unavailable():
         (ApiNotEnabled, 'API_NOT_ENABLED'),
         (PlanRequired, 'PLAN_REQUIRED'),
         (StoreUnavailable, 'STORE_UNAVAILABLE'),
-        (UnsupportedKernel, 'UNSUPPORTED_KERNEL'),
     ],
 )
 def test_new_errors_carry_their_code_and_hint(cls, code):
@@ -208,6 +207,39 @@ def test_new_errors_carry_their_code_and_hint(cls, code):
     assert e.code == code
     assert e.hint  # never an empty hint: it is the default message
     assert str(e) == e.hint  # no message → the hint IS the message
+
+
+def test_unsupported_kernel_default_text_is_code_plus_hint():
+    # UnsupportedKernel is the one error whose text carries its code
+    # token (the UI keys the docs link on it) — pinned separately.
+    e = UnsupportedKernel()
+    assert str(e) == '[' + e.code + '] ' + e.hint
+
+
+def test_unsupported_kernel_text_carries_the_stable_code():
+    """The task-error text (what the UI links docs by) carries the
+    taxonomy code WHATEVER message a vendor passes — prose is
+    translated and vendor-specific, the token is neither."""
+    assert 'UNSUPPORTED_KERNEL' in str(UnsupportedKernel())
+    assert 'UNSUPPORTED_KERNEL' in str(
+        UnsupportedKernel('vendor said: firefox kernel, no debug port')
+    )
+    # And the token is prefix-bracketed so a match cannot hit prose.
+    assert str(UnsupportedKernel()).startswith('[UNSUPPORTED_KERNEL] ')
+
+
+def test_other_errors_do_not_gain_the_code_token():
+    """Negative control (R5): only UnsupportedKernel carries the token;
+    the pre-existing errors read exactly as before."""
+    for err in (
+        errors_mod.ClientNotRunning(),
+        errors_mod.LoginRequired(),
+        errors_mod.StoreNotFound(),
+        errors_mod.CdpUnreachable(),
+    ):
+        text = str(err)
+        assert not text.startswith('[')
+        assert err.code not in text
 
 
 def test_store_unavailable_carries_the_vendor_message():

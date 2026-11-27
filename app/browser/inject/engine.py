@@ -4,8 +4,8 @@ A concrete backend supplies an :class:`InjectClient` factory; this engine
 turns it into a :class:`BrowserBackend`: ensure the client is up and
 logged in, open the target store with a debug port injected, verify the
 CDP endpoint, then front it with a ``CDPMuxProxy`` so multiple
-browser-use CLIs share one logged-in env — identical to the ziniao /
-chrome path from the CDP endpoint onward.
+browser-use CLIs share one logged-in env — identical to the
+HTTP-driven / chrome path from the CDP endpoint onward.
 """
 
 import asyncio
@@ -67,7 +67,8 @@ class InjectCdpBackend(BrowserBackend):
                 f'{opened.cdp_port} never answered'
             )
 
-        # Client-specific entry step (e.g. wenmai's middle page) must run
+        # A client-specific entry step (an intermediate store-info
+        # page) must run
         # BEFORE the proxy: the proxy's startup cleanup closes orphan web
         # tabs, so the store page this produces has to exist first (the
         # engine's keep_last_page keeps it).

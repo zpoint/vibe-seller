@@ -96,7 +96,9 @@ class UnsupportedKernel(InjectError):
     """The env runs a non-Chromium kernel the backend cannot drive.
 
     Firefox-kernel envs expose no CDP endpoint, so they cannot be
-    driven by the inject engine.
+    driven by the inject engine. The surfaced text carries this
+    class's stable ``code`` (see ``__str__``) so the UI can link the
+    docs section for it by token, not by translatable prose.
     """
 
     code = 'UNSUPPORTED_KERNEL'
@@ -104,6 +106,13 @@ class UnsupportedKernel(InjectError):
         'This store does not use a Chrome (Chromium) kernel; switch '
         'its kernel to Chrome in the client. See the browsers guide.'
     )
+
+    def __str__(self) -> str:
+        # The task-error text is what the UI matches docs links
+        # against; prose is vendor-supplied and translated, so the
+        # stable taxonomy CODE rides along instead. Only this class
+        # carries the token — existing errors read exactly as before.
+        return f'[{self.code}] {super().__str__()}'
 
 
 class CdpUnreachable(InjectError):

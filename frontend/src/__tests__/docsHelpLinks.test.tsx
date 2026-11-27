@@ -122,6 +122,10 @@ describe('failed task', () => {
     ['rate_limit', '429', 'aiBalanceOrQuota'],
     ['invalid_request', 'model not found', 'aiFaq'],
     [null, 'Ziniao is not running. Download /api/ziniao/launcher and run it.', 'ziniaoWslLauncher'],
+    // UNSUPPORTED_KERNEL keys on the stable taxonomy code the error
+    // surfaces (UnsupportedKernel prefixes it), not on prose.
+    [null, '[UNSUPPORTED_KERNEL] Failed to start browser: 这个店铺用的不是 Chrome 内核', 'browserKernel'],
+    [null, 'Failed to start browser: [UNSUPPORTED_KERNEL] vendor message here', 'browserKernel'],
   ])('links the docs for %s', (category, error, topic) => {
     renderNote(error, category)
     expect(helpLink().dataset.topic).toBe(topic)
@@ -132,6 +136,13 @@ describe('failed task', () => {
     expect(screen.getByText(enTranslation.tasks.error_agent_loop)).toBeTruthy()
     expect(screen.queryByTestId('docs-help-link')).toBeNull()
     expect(taskErrorHelp(null, 'something else')).toBeNull()
+  })
+
+  it('does not link the kernel topic for kernel-ish prose without the token', () => {
+    // Negative control: prose alone (no UNSUPPORTED_KERNEL token) must
+    // NOT link — the mapping is keyed on the stable code, not on words
+    // like "Chrome kernel" that translations vary.
+    expect(taskErrorHelp(null, 'Failed to start browser: uses a Chrome kernel, still no link')).toBeNull()
   })
 })
 
