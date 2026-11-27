@@ -160,10 +160,10 @@ async def store_auth_url(
     except ads_client.AdsServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Any anti-detect backend (ziniao / yuehulian) must open the auth URL
+    # Any anti-detect backend must open the auth URL
     # in the store's own browser for the right IP + seller login. The
     # 'ziniao' value selects that instruction; its text already reads
-    # "...or the browser this store uses", so it covers yuehulian too.
+    # "...or the browser this store uses", so it covers every vendor.
     needs_antidetect = is_antidetect(store.browser_backend)
     body['open_in'] = 'ziniao' if needs_antidetect else 'browser'
     body['instruction_key'] = (

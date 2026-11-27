@@ -276,6 +276,12 @@ missing from those maps has no docs section yet and shows no link.
   with both URLs written out in full, map the error to it, and render
   `DocsHelpLink` next to the error text (beside, not inside, an element
   whose exact text a test pins).
+- **Browser-vendor links come from the spec, not `DOCS_HELP`:** each
+  vendor's docs links (its `errors` / `one_account` topics) are declared
+  in its `BrowserVendorSpec` and served by `/api/browser-vendors`; the
+  generic vendor section renders them with `DocsHelpLink`'s `urls` mode
+  (the `data-topic` label travels with the URLs). Adding a vendor means
+  adding its links with the vendor, never a `docsHelp.ts` edit.
 - **Linking an FAQ entry:** an entry inside `<details markdown="1">` has
   no heading anchor, so give the tag an `id` (the same in the zh and en
   page) and link `#that-id`; the docs site opens the entry when the

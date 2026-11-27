@@ -46,6 +46,38 @@ class BrowserBackend(ABC):
     async def stop(self, info: BrowserSessionInfo) -> None
 ```
 
+`is_antidetect()` / `antidetect_display_name()` also live here — they read
+the vendor registry (`vendors.py`), so a newly registered vendor is
+covered without editing this file.
+
+### `vendors.py` — the vendor registry (spec + registration)
+
+One `BrowserVendorSpec` per browser vendor, declared in the vendor's own
+module and registered through the plugin context
+(`ctx.register_browser_backend(name, cls, spec=...)` — core vendors from
+`builtin_plugin.py`, private vendors from plugin wheels). Everything
+shared reads the spec, which is what keeps "a new vendor = one vendor
+module (+ translations + one docs page), zero shared-code edits" true:
+
+- identity: key, zh/en display names, kind (`antidetect` / `plain`),
+  platforms, `selectable` (offered in the store form);
+- accounts: `account_cardinality` (`none` / `single` — one machine login,
+  the generic credential routes — / `multi` — an account list, ziniao's
+  shape), `credential_fields` (form + storage schema, secrets encrypted),
+  `profiles_scope`;
+- picker: `picker_kind` (`generic` — the shared `VendorSection` — vs
+  `custom` — the vendor keeps its own UI, ziniao until migrated);
+- wiring: `client_factory` (the `InjectClient` the engine runs),
+  `win_app` (the install descriptor the locator serves), an optional
+  `client_path_setting`;
+- text: `i18n_prefix` (the generic UI derives `<prefix><Suffix>` string
+  keys) and `docs` (per-topic help links; `test_docs_links.py` checks
+  the URLs).
+
+`tests/unit/test_no_vendor_literals.py` enforces the invariant: no
+anti-detect vendor key literal in shared code (ziniao grandfathered until
+its migration; the yuehulian compat aliases exempted while they exist).
+
 ### `manager.py` — Browser Manager
 
 Singleton that orchestrates browser sessions across all stores:
@@ -399,10 +431,27 @@ valid across 0.13.3–0.13.14 — it syncs to clients on any of them, so
 version-specific helpers there carry an explicit minimum-version note.
 Full diff record: [browser-use-0.13-migration.md](browser-use-0.13-migration.md).
 
-## Adding a New Backend
+## Adding a New Backend / Vendor
 
-1. Create `app/browser/mybackend.py` implementing `BrowserBackend` from `base.py`
-2. Register in `BrowserManager._get_backend()` in `manager.py`
+An anti-detect browser vendor is one vendor module plus translations and
+one docs page — no shared-code edits (`test_no_vendor_literals.py` fails
+the PR otherwise):
+
+1. Create the vendor module (`app/browser/adapters/myvendor.py`):
+   the `InjectClient` implementation, the `BrowserBackend` subclass, and
+   the `BrowserVendorSpec` (display names, credential fields, docs
+   links, `client_factory`; see `vendors.py` above).
+2. Register it in `builtin_plugin.py` (or a private plugin's
+   `install()`): `ctx.register_browser_backend('myvendor', MyBackend,
+   MYVENDOR_SPEC)`.
+3. Add the i18n strings under the spec's `i18n_prefix` and the docs page
+   `docs/myvendor.md` (+ `.en.md`).
+
+The generic routes (`routers/browser_vendors.py`), the generic picker
+(`components/VendorSection.tsx`), the manager's credential injection and
+the install locator all pick the vendor up from the registry. A plain
+(non-vendor) engine backend is still `BrowserBackend` from `base.py`,
+registered the same way with `spec=None`.
 
 ## Planned Backends
 
