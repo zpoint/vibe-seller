@@ -73,23 +73,27 @@ function Start-Server {
   $script:ServerPid = $proc.Id
   for ($i = 0; $i -lt 120; $i++) {
     Start-Sleep -Seconds 1
+    $ok = $false
     try {
       $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/health" -UseBasicParsing -TimeoutSec 3
-      if ($r.StatusCode -eq 200) {
-        $took = ((Get-Date) - $t0).TotalSeconds
-        # PORT-HIJACK GUARD: a foreign server on this port answers
-        # instantly while ours is still importing; and ours owns the
-        # port only if OUR pid listens on it.
-        $owner = (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
-          Select-Object -First 1).OwningProcess
-        if ($owner -ne $script:ServerPid) {
-          throw "port $Port is owned by pid $owner, not our server (pid $($script:ServerPid))"
-        }
-        Write-Output ("server up on $Port after {0:N0}s (pid {1})" -f $took, $script:ServerPid)
-        return
+      $ok = ($r.StatusCode -eq 200)
+    } catch {
+      # health not answering yet (connection refused / timeout) — keep
+      # waiting; a real failure is the exit check below
+    }
+    if ($ok) {
+      $took = ((Get-Date) - $t0).TotalSeconds
+      # PORT-HIJACK GUARD: a foreign server on this port answers
+      # instantly while ours is still importing; and ours owns the
+      # port only if OUR pid listens on it.
+      $owner = (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
+        Select-Object -First 1).OwningProcess
+      if ("$owner" -ne "$script:ServerPid") {
+        throw "port $Port is owned by pid $owner, not our server (pid $($script:ServerPid))"
       }
-    } catch [Microsoft.PowerShell.Commands.HttpResponseException] { }
-    catch [System.Net.WebException] { }
+      Write-Output ("server up on $Port after {0:N0}s (pid {1})" -f $took, $script:ServerPid)
+      return
+    }
     if ($proc.HasExited) {
       throw "server process exited early (code $($proc.ExitCode))"
     }
