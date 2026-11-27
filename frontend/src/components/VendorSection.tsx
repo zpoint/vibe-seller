@@ -25,7 +25,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
-import { vendorStoreOptionLabel } from '../lib/vendorStoreLabel'
+import { vendorStoreOptionLabel, vendorStoreOptionLabelParts } from '../lib/vendorStoreLabel'
 import { DocsHelpLink } from './ui/DocsHelpLink'
 import type { BrowserVendor, Store, VendorStoreRef } from '../types'
 import { camelCase, vendorText } from '../lib/vendorText'
@@ -237,26 +237,75 @@ export function VendorSection(props: {
           <p className="text-sm font-medium text-indigo-700">{vt('Loading')}</p>
         </div>
       ) : p.stores.length > 0 ? (
+        <>
         <select
           value={p.selectedRef}
           onChange={e => p.setSelectedRef(e.target.value)}
           className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs bg-white"
         >
           <option value="">{vt('SelectStore')}</option>
-          {p.stores.map(s => (
-            <option
-              key={bindValue(s)}
-              value={bindValue(s)}
-              disabled={s.available === false}
-              title={s.available === false ? s.unavailable_detail || undefined : undefined}
-            >
-              {vendorStoreOptionLabel(
-                s,
-                s.available === false ? unavailableLabel(s) : '',
-              )}
-            </option>
-          ))}
+          {p.stores.map(s => {
+            // The full label rides every option's tooltip, so a row
+            // the closed select truncates can still be read.
+            const full = vendorStoreOptionLabel(
+              s,
+              s.available === false ? unavailableLabel(s) : '',
+            )
+            return (
+              <option
+                key={bindValue(s)}
+                value={bindValue(s)}
+                disabled={s.available === false}
+                title={full}
+              >
+                {full}
+              </option>
+            )
+          })}
         </select>
+        {(() => {
+          // The chosen row, named by its FULL label (the same builder
+          // as the options — one source, no second rule): the closed
+          // select truncates, this line tells same-named rows apart.
+          // Hidden while nothing is selected.
+          const sel = p.stores.find(s => bindValue(s) === p.selectedRef)
+          if (!sel) return null
+          const { parts, reason } = vendorStoreOptionLabelParts(
+            sel,
+            sel.available === false ? unavailableLabel(sel) : '',
+          )
+          return (
+            <p className="text-[11px] text-gray-500 leading-relaxed mt-0.5" data-testid="vendor-selected-line">
+              <span className="mr-1">{vt('Selected')}</span>
+              {/* Each label part is its own inline-block: the line
+                  wraps at the ' · ' separators, never mid-word — a
+                  part moves whole to the next line. A single part
+                  longer than the column may still wrap inside itself
+                  (overflow-wrap anywhere on that span only). */}
+              {parts.map((part, i) => (
+                <span key={i}>
+                  {i > 0 && <span className="mr-0.5">·</span>}
+                  <span
+                    data-testid="vendor-selected-part"
+                    className="inline-block max-w-full"
+                    style={{ overflowWrap: 'anywhere' }}
+                  >{part}</span>
+                </span>
+              ))}
+              {reason && (
+                <span>
+                  <span className="mx-0.5">—</span>
+                  <span
+                    data-testid="vendor-selected-part"
+                    className="inline-block max-w-full"
+                    style={{ overflowWrap: 'anywhere' }}
+                  >{reason}</span>
+                </span>
+              )}
+            </p>
+          )
+        })()}
+        </>
       ) : null}
     </div>
   )
