@@ -24,15 +24,15 @@ canaries leak) is run per CLAUDE.md and recorded in the PR.
 
 import http.server
 import json
-import socket
-import time
 import logging
 import os
 from pathlib import Path
 import re
+import socket
 import sqlite3
 import subprocess
 import threading
+import time
 
 import httpx
 import pytest
@@ -171,8 +171,9 @@ def test_runaway_replay_through_the_real_hook_path(
         api,
         'guard replay',
         store_id=store['id'],
-        description=('Replay the observed runaway commands. '
-                     '[[MOCK_GUARD_REPLAY]]'),
+        description=(
+            'Replay the observed runaway commands. [[MOCK_GUARD_REPLAY]]'
+        ),
     )
     final = poll_task_status(
         api,

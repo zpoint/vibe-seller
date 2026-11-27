@@ -164,7 +164,7 @@ class TestRunawayShapes:
             'netsh interface portproxy add v4tov4 17797 127.0.0.1 7777',
             'powershell.exe -Command "New-NetFirewallRule -DisplayName'
             ' x -LocalPort 17797"',
-            "python3 -c \"import socket; s=socket.socket();"
+            'python3 -c "import socket; s=socket.socket();'
             " s.bind(('127.0.0.1', 17797));"
             " s.connect(('127.0.0.1', 7777))\"",
             # the vibe-seller home beyond the workspace

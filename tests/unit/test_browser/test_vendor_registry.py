@@ -400,20 +400,18 @@ class TestPrivateDataDeclaration:
         import logging
 
         with caplog.at_level(logging.WARNING):
-            fake_vendor(
-                _spec(key='declared', private_paths=('SomeData',))
-            )
+            fake_vendor(_spec(key='declared', private_paths=('SomeData',)))
         assert 'declares no private_paths' not in caplog.text
 
     def test_plain_browser_is_exempt(self, caplog):
         import logging
 
-        from app.browser.vendors import BrowserVendorSpec
         from app.browser.vendor_rules import (
             CARDINALITY_NONE,
             KIND_PLAIN,
             validate_spec,
         )
+        from app.browser.vendors import BrowserVendorSpec
 
         with caplog.at_level(logging.WARNING):
             validate_spec(
