@@ -24,7 +24,7 @@ vendor's own site:
 | Chrome | The system's own Chrome / Chromium (launched by Playwright) | Running a single store yourself; public-web work | macOS / Linux / WSLg | Built in, no install | — | [Stores & Browsers → Creating a store](stores.en.md#creating-a-store) |
 | Ziniao | Third-party anti-detect browser (developer / WebDriver mode, driven over CDP) | One team managing many accounts; strict risk control | Windows / macOS / Linux, plus WSL | [ziniao.com](https://www.ziniao.com) · [download](https://www.ziniao.com/download) | Register an enterprise account → BOSS enables developer mode on the [Open Platform](https://open.ziniao.com/docSupport?docId=99) and ticks WebDriver login for the sub-account | [Ziniao setup](ziniao.en.md) |
 | Yuehulian | Chinese anti-detect e-commerce browser | One team managing many accounts | Windows / macOS / WSL | [kj.chinafic.com](https://kj.chinafic.com/) · client download on the site | Register an enterprise account → create sub-accounts and grant store permissions in the console (team login = team name + sub-account + password) | [Yuehulian setup](yuehulian.en.md) |
-| Wenmai (稳卖) | Anti-detect e-commerce browser with a built-in local API | One team managing many accounts | Windows / WSL (macOS in verification) | [wenmai-ai.com](https://www.wenmai-ai.com) | Create an enterprise sub-account in the client and authorise stores (enterprise login = company + username + password); each store needs a device bound | [Wenmai setup](wenmai.en.md) |
+| Wenmai (稳卖) | Anti-detect e-commerce browser with a built-in local API | One team managing many accounts | Windows / macOS, plus WSL | [wenmai-ai.com](https://www.wenmai-ai.com) | Create an enterprise sub-account in the client and authorise stores (enterprise login = company + username + password); each store needs a device bound | [Wenmai setup](wenmai.en.md) |
 
 > WSL deployments also have a fourth backend, `winchrome` (set at deployment, not a
 > choice in the store form) — see the end of "Which browser backend?".
@@ -57,7 +57,7 @@ signs in to its client itself, on **Windows and macOS, plus WSL**; a machine kee
 auto-signs-in when the session expires. Download, team-account creation,
 binding and errors: [Yuehulian: Setup Guide](yuehulian.en.md).
 
-Wenmai is an anti-detect browser whose client ships a local API; Vibe Seller opens stores through it, and the store-entry page before the real backend is clicked away automatically. It is **Windows-only**, also one account per machine with auto-login, and every store needs a device bound in Wenmai. Download, enterprise-account creation, binding and errors: [Wenmai: Setup Guide](wenmai.en.md).
+Wenmai is an anti-detect browser whose client ships a local API; Vibe Seller opens stores through it, and the store-entry page before the real backend is clicked away automatically. It runs on **Windows and macOS** (plus WSL), also one account per machine with auto-login, and every store needs a device bound in Wenmai. Download, enterprise-account creation, binding and errors: [Wenmai: Setup Guide](wenmai.en.md).
 
 The Chrome backend has Playwright bring up a profile dedicated to the
 store — no extra software, and no handing the system an anti-detect

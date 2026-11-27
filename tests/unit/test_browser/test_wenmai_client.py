@@ -432,6 +432,9 @@ class _FakeProc:
 
 async def test_ensure_running_launches_when_the_api_is_dead(monkeypatch):
     proc = _FakeProc()
+    # The Windows pick: the fake proc below IS the Windows layer
+    # (a mac host must not swap in the real Mac layer).
+    monkeypatch.setattr(mod, 'get_platform', lambda: 'windows')
     monkeypatch.setattr(mod, 'WenmaiProcessLayer', lambda _p=None: proc)
     api = FakeWenmaiApi()
     await api.start()
@@ -460,6 +463,9 @@ async def test_ensure_running_raises_when_launch_fails(monkeypatch):
     proc = _FakeProc()
     proc.launch = lambda: False
     proc.locate_error = 'not found anywhere'
+    # The Windows pick (see the launch test above): the refusal must
+    # come from THIS fake proc's locate_error, not a real Mac locate.
+    monkeypatch.setattr(mod, 'get_platform', lambda: 'windows')
     monkeypatch.setattr(mod, 'WenmaiProcessLayer', lambda _p=None: proc)
     # A port nothing listens on: the connect timeout bounds the hang
     # (an unbound loopback port on WSL hangs instead of refusing).
@@ -616,6 +622,11 @@ class _FakeInspector:
 
 
 def _patch_login(monkeypatch, insp):
+    # Pin the WINDOWS branch: these tests fake the Windows process
+    # layer and inspector, so they must run on the Windows pick
+    # whatever host executes the suite (on a mac host the Mac pick
+    # would bypass both fakes — the #335 pattern).
+    monkeypatch.setattr(mod, 'get_platform', lambda: 'windows')
     monkeypatch.setattr(mod, 'WenmaiProcessLayer', lambda _p=None: _FakeProc())
     monkeypatch.setattr(mod, 'InspectorSession', lambda _s: insp)
 

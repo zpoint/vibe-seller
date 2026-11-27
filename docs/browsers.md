@@ -15,7 +15,7 @@ Vibe Seller 通过 CDP（Chrome 底层远程控制协议）驱动**真实浏览�
 | Chrome | 系统自带 Chrome / Chromium（Playwright 拉起） | 单店自用、公开网页任务 | macOS / Linux / WSLg | 系统自带，无需安装 | — | [店铺与浏览器 → 新建店铺](stores.md#新建店铺) |
 | 紫鸟 Ziniao | 第三方防关联浏览器（开发者模式 / WebDriver，CDP 驱动） | 一个团队管多账号、平台风控严格 | Windows / macOS / Linux，也支持 WSL | [ziniao.com](https://www.ziniao.com) · [下载](https://www.ziniao.com/download) | 官网注册企业账号 → 主账号在[开放平台](https://open.ziniao.com/docSupport?docId=99)开通开发者模式、给子账号勾选 WebDriver 登录 | [紫鸟配置指南](ziniao.md) |
 | 悦互联 YueHuLian | 国产电商防关联浏览器 | 一个团队管多账号 | Windows / macOS / WSL | [kj.chinafic.com](https://kj.chinafic.com/) · 官网「客户端下载」 | 官网注册企业账号 → 控制台开子账号、分配店铺权限（团队登录 = 团队名称 + 子账号 + 密码） | [悦互联配置指南](yuehulian.md) |
-| 稳卖 WenMai | 电商防关联浏览器（自带本地 API） | 一个团队管多账号 | Windows / WSL（macOS 验证中） | [wenmai-ai.com](https://www.wenmai-ai.com) | 客户端里开企业子账号、授权店铺（企业登录 = 企业名称 + 用户名 + 密码），店铺要绑定设备 | [稳卖配置指南](wenmai.md) |
+| 稳卖 WenMai | 电商防关联浏览器（自带本地 API） | 一个团队管多账号 | Windows / macOS，也支持 WSL | [wenmai-ai.com](https://www.wenmai-ai.com) | 客户端里开企业子账号、授权店铺（企业登录 = 企业名称 + 用户名 + 密码），店铺要绑定设备 | [稳卖配置指南](wenmai.md) |
 
 > WSL 部署还有第四种后端 `winchrome`（部署时设置，不在店铺表单里选），见下文「选哪个浏览器后端」末段。
 
@@ -41,7 +41,7 @@ Vibe Seller 通过 CDP（Chrome 底层远程控制协议）驱动**真实浏览�
 
 悦互联和紫鸟一样是防关联浏览器，Vibe Seller 会自动打开并登录它的客户端，**支持 Windows、macOS，也支持 WSL**；一台机器只保留一个悦互联账号，登录过期会自动登回。下载、创建团队账号、绑定、报错见 [悦互联：配置指南](yuehulian.md)。
 
-稳卖也是防关联浏览器，客户端自带本地 API，Vibe Seller 通过它打开店铺；打开店铺前那个「店铺信息」中间页会自动点掉。**只支持 Windows**；同样一台机器一个账号、自动登录，每个店铺还要在稳卖里绑定设备。下载、创建企业账号、绑定、报错见 [稳卖：配置指南](wenmai.md)。
+稳卖也是防关联浏览器，客户端自带本地 API，Vibe Seller 通过它打开店铺；打开店铺前那个「店铺信息」中间页会自动点掉。**支持 Windows 和 macOS**（也支持 WSL）；同样一台机器一个账号、自动登录，每个店铺还要在稳卖里绑定设备。下载、创建企业账号、绑定、报错见 [稳卖：配置指南](wenmai.md)。
 
 Chrome 后端由 Playwright 为这个店铺拉起一个独立档案，不需要额外软件，也不需要把防关联浏览器的密码交给系统；Linux 无图形界面时需要 Xvfb 之类的虚拟显示。
 

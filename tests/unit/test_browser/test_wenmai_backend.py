@@ -203,12 +203,15 @@ async def test_cannot_start_is_client_not_running(_mocked_proxy):
     _mocked_proxy.return_value.start.assert_not_called()
 
 
-async def test_platform_gating_blocks_mac(_mocked_proxy):
+async def test_platform_gating_blocks_linux(_mocked_proxy):
+    """Linux has no 稳卖 client build — the gate refuses it. (macOS
+    gained its own client build and is allowed since its live run
+    passed; Windows and WSL stay allowed.)"""
     fake = FakeWenmaiClient(cdp_port=1)
     with (
         mock.patch(
             'app.browser.adapters.wenmai.get_platform',
-            return_value='mac',
+            return_value='linux',
         ),
         pytest.raises(UnsupportedPlatform),
     ):
@@ -222,6 +225,19 @@ async def test_platform_gating_twist_wsl_allowed(
     fake = FakeWenmaiClient(cdp_port=cdp_version_port)
     with mock.patch(
         'app.browser.adapters.wenmai.get_platform', return_value='wsl'
+    ):
+        info = await _backend(fake).start(_cfg())
+    assert info.cdp_port == cdp_version_port
+
+
+async def test_platform_gating_twist_mac_allowed(
+    cdp_version_port, _mocked_proxy
+):
+    """The macOS client build is supported (validated live on the Mac):
+    the gate lets a mac server through, exactly like WSL."""
+    fake = FakeWenmaiClient(cdp_port=cdp_version_port)
+    with mock.patch(
+        'app.browser.adapters.wenmai.get_platform', return_value='mac'
     ):
         info = await _backend(fake).start(_cfg())
     assert info.cdp_port == cdp_version_port
