@@ -61,6 +61,7 @@ from app.ai.agent_lateral_guard import (
     PROC_DENY,
     SSH_DENY,
     SSH_DIR_DENY,
+    WRAPPER_READ_DENY,
     home_deny_re,
     os_settings_hit,
     port_forwarder_hit,
@@ -68,6 +69,7 @@ from app.ai.agent_lateral_guard import (
     ssh_dir_hit,
     ssh_verb_hit,
     under_closed_home,
+    wrapper_read_hit,
 )
 from app.browser.vendors import registered_vendor_specs
 
@@ -581,6 +583,15 @@ def _deny_bash(
     ).search(cmd)
     if m:
         return deny('home', HOME_DENY.format(path=m.group(0)), m.group(0))
+    # incident 3: reading a store wrapper (it embeds the task JWT).
+    # Position-aware — executing the wrapper is the product path.
+    what = wrapper_read_hit(cmd)
+    if what:
+        return deny(
+            'wrapper-read',
+            WRAPPER_READ_DENY.format(path=what),
+            what,
+        )
     m = ssh_dir_hit(cmd)
     if m:
         return deny('ssh-dir', SSH_DIR_DENY.format(path=m), m)
@@ -636,6 +647,27 @@ def _deny_file_tool(
         if what:
             return deny('os-settings', OS_SETTINGS_DENY, what)
         if content:
+            # A script being written is scanned like a command: the
+            # home rules and the wrapper rule apply to its TEXT (the
+            # incident-3 agent could otherwise lift the wrapper's JWT
+            # or the server DB path into a file and run it). The
+            # task's own mailbox paths are masked first — a script
+            # that queries them is the legitimate email flow.
+            body = _mask(content, tuple(str(p) for p in readable if p))
+            m = HOME_BARE_RE.search(body) or home_deny_re(
+                task_prefix, owned_session_names
+            ).search(body)
+            if m:
+                return deny(
+                    'home', HOME_DENY.format(path=m.group(0)), m.group(0)
+                )
+            what = wrapper_read_hit(body)
+            if what:
+                return deny(
+                    'wrapper-read',
+                    WRAPPER_READ_DENY.format(path=what),
+                    what,
+                )
             what = port_forwarder_hit(content)
             if what:
                 return deny('forwarder', FORWARDER_DENY, what)

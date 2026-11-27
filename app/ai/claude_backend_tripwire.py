@@ -37,6 +37,13 @@ class _TripwireMixin:
                 or block.get('type') != 'tool_result'
             ):
                 continue
+            # A result the GUARD itself refused: the deny reason names
+            # a path (never file contents) and must not trip the wire
+            # — the deny having worked is not a leak.
+            if block.get('tool_use_id') in getattr(
+                self, '_guard_denied_tool_use_ids', ()
+            ):
+                continue
             raw = block.get('content')
             if isinstance(raw, list):
                 text = ' '.join(

@@ -175,6 +175,24 @@ class TestRunawayShapes:
             f'cd {VH} && sqlite3 data/vibe_seller.db .tables',
             f'cat {VH}/profiles.json',
             f'ls {VH}/r/',
+            # incident 3 (task 601a2d79): the vendor login state, the
+            # server DB through python, and the wrapper's JWT
+            f'cat {VH}/vendors/ziniao/login-state.json',
+            f'python3 -c "import json;'
+            f" json.load(open('{VH}/vendors/bitbrowser/login-state.json'))\"",
+            f'python3 -c "import sqlite3;'
+            f" sqlite3.connect('{VH}/data/vibe_seller.db')"
+            ' .execute("select * from app_settings")"',
+            f'sqlite3 {VH}/data/vibe_seller.db .tables',
+            f'cat {VH}/bin/store-a/browser-use',
+            f'grep -o "Bearer [A-Za-z0-9._-]*" {VH}/bin/store-a/browser-use',
+            f'type {VH}\\bin\\store-a\\browser-use',
+            f'Get-Content {VH}\\bin\\store-a\\browser-use',
+            f'cp {VH}/bin/store-a/browser-use /tmp/wrapper-copy',
+            f'Copy-Item {VH}\\bin\\store-a\\browser-use $env:TEMP\\w',
+            # curl to a CDP port that is not the task's own (incident
+            # 3 step 4)
+            'curl -s http://127.0.0.1:9225/json/version',
         ],
     )
     def test_denied(self, fake_vendor, cmd):
@@ -194,6 +212,84 @@ class TestRunawayShapes:
             )
             is not None
         )
+
+    def test_write_content_wrapper_call_is_allowed(self, fake_vendor):
+        # A script that RUNS the wrapper is the product path; one that
+        # READS it (or names the server DB) is denied.
+        assert (
+            vendor_guard_deny(
+                'Write',
+                {
+                    'file_path': '/tmp/drive.sh',
+                    'content': (
+                        'set -e\n'
+                        f'{VH}/bin/store-a/browser-use --worker 1\n'
+                        'echo done\n'
+                    ),
+                },
+                task_id=TASK,
+            )
+            is None
+        )
+        assert (
+            vendor_guard_deny(
+                'Write',
+                {
+                    'file_path': '/tmp/steal.sh',
+                    'content': (
+                        f'#!/bin/bash\ncat {VH}/bin/store-a/browser-use\n'
+                    ),
+                },
+                task_id=TASK,
+            )
+            is not None
+        )
+        assert (
+            vendor_guard_deny(
+                'Write',
+                {
+                    'file_path': '/tmp/q.py',
+                    'content': (
+                        'import sqlite3\n'
+                        f"c = sqlite3.connect('{VH}/data/vibe_seller.db')\n"
+                    ),
+                },
+                task_id=TASK,
+            )
+            is not None
+        )
+
+    def test_write_content_own_mailbox_script_allowed(self, fake_vendor):
+        # The email flow: a script that queries the task's OWN mailbox
+        # db_path (the readable set) reads normally.
+        mailbox = f'{VH}/data/email_dbs/abc.db'
+        assert (
+            vendor_guard_deny(
+                'Write',
+                {
+                    'file_path': '/tmp/mail.py',
+                    'content': f'import sqlite3\nc = sqlite3.connect({mailbox!r})\n',
+                },
+                task_id=TASK,
+                readable=(mailbox,),
+            )
+            is None
+        )
+
+    def test_read_tool_on_wrapper_denied(self, fake_vendor):
+        # Incident 3 step 3: the Read tool lifting the wrapper's JWT.
+        assert read_denied(f'{VH}/bin/store-a/browser-use')
+        assert read_denied(f'{VH}/bin/_web/browser-use')
+        assert read_denied(f'{VH}/bin')
+
+    def test_incident3_runtime_vendor_ports(self):
+        # BitBrowser's 54345/54346 (once its spec declares them) and
+        # any runtime-configured vendor port are denied.
+        for port in (54345, 54346):
+            assert denied(
+                f'curl -s http://127.0.0.1:{port}/status',
+                extra_vendor_ports=frozenset({port}),
+            )
 
 
 # ── the corpus: ordinary task commands, allowed ────────────────────
@@ -226,6 +322,19 @@ class TestCorpus:
             # the renamed-copy evasion is a stated residual: the copy
             # itself is denied at the SOURCE, so there is no copy
             'sqlite3 /tmp/h.db "select * from urls"',
+            # incident 3's ALLOWED counterparts: EXECUTING the store
+            # wrapper is the product path — in command position, after
+            # a separator, behind an env prefix, inside a quoted
+            # command an introducer owns, and under nohup/timeout
+            f'{VH}/bin/store-a/browser-use --worker 1',
+            f'cd stores/1 && {VH}/bin/store-a/browser-use --worker 2',
+            f'BU_NAME=store-a {VH}/bin/store-a/browser-use -i',
+            f'bash -c "{VH}/bin/store-a/browser-use --doctor"',
+            f'nohup {VH}/bin/store-a/browser-use --worker 3 &',
+            f'timeout 30 {VH}/bin/store-a/browser-use --doctor',
+            f'{VH}/bin/_web/browser-use navigate http://example.com',
+            # cd-ing INTO the wrapper dir names no wrapper file
+            f'cd {VH}/bin/store-a && ./browser-use --doctor',
         ],
     )
     def test_allowed(self, fake_vendor, cmd):
@@ -329,6 +438,10 @@ class TestTripwire:
             f'copied {VH}/../.GuardTestData/log',
             'read /mnt/c/Users/u/AppData/Roaming/GuardTest Global/config',
             'copied to /tmp/p13/Login Data (44 bytes)',
+            # incident 3: server-state paths in output
+            f'read {VH}/vendors/ziniao/login-state.json',
+            f'connect({VH}/data/vibe_seller.db) ok',
+            f'the key lives in {VH}/profiles.json',
         ],
     )
     def test_paths_trip(self, fake_vendor, text):
@@ -397,6 +510,11 @@ class TestTripwireFalsePositiveCorpus:
         'sha256: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2'
         'c3d4e5f6a1b2',
         'commit abc1234567890abc1234567890abc1234567890 merged',
+        # the task's own mailbox db_path is normal output, never a
+        # leak (the incident-3 exemption; email_info hands it over)
+        f'querying {VH}/data/email_dbs/a.db for new mail',
+        # wrapper paths appear in ordinary browser tooling output
+        f'doctor: wrapper {VH}/bin/store-a/browser-use ok',
     ]
 
     @pytest.mark.parametrize('index', range(len(CORPUS)))

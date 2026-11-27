@@ -201,9 +201,18 @@ def test_runaway_replay_through_the_real_hook_path(
         'proc-env-read',
         'forwarder-socat',
         'forwarder-python',
+        # incident 3 (task 601a2d79)
+        'vendors-login-state',
+        'python-sqlite-server-db',
+        'wrapper-read',
+        'cdp-port-curl',
     ):
         assert f'{label}: DENIED' in text, label
     assert 'allowed-control: ALLOWED' in text
+    # the incident-3 ALLOWED counterparts: executing the wrapper is
+    # the product path, and listing ~/codes is a stated residual
+    assert 'wrapper-execute-control: ALLOWED' in text
+    assert 'home-codes-listing-control: ALLOWED' in text
 
     # ── the detached forwarder died with the task (reaping) ───────
     m = re.search(r'reaper-proof-listener-port: (\d+)', text)

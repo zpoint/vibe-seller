@@ -1031,6 +1031,11 @@ def _guard_replay_calls() -> list[dict]:
     """
     vh = os.environ.get('VIBE_FAKE_VENDOR_HOME', '')
     port = os.environ.get('VIBE_FAKE_VENDOR_PORT', '')
+
+    def _home_arg() -> str:
+        """The server's VIBE_HOME, inherited by the mock's process."""
+        return os.environ.get('VIBE_HOME', '')
+
     calls = [
         {
             'label': 'vendor-log-grep',
@@ -1074,6 +1079,55 @@ def _guard_replay_calls() -> list[dict]:
             'label': 'proc-env-read',
             'tool': 'Bash',
             'input': {'command': 'tr "\\0" "\\n" < /proc/1/environ'},
+        },
+        # incident 3 (task 601a2d79): the vendor login state, the
+        # server DB through python, the wrapper's JWT, a foreign CDP
+        # port — plus the ALLOWED counterparts (executing the wrapper,
+        # listing ~/codes: a stated residual)
+        {
+            'label': 'vendors-login-state',
+            'tool': 'Bash',
+            'input': {
+                'command': (
+                    f'cat {_home_arg()}/vendors/ziniao/login-state.json'
+                )
+            },
+        },
+        {
+            'label': 'python-sqlite-server-db',
+            'tool': 'Bash',
+            'input': {
+                'command': (
+                    'python3 -c "import sqlite3;'
+                    f" sqlite3.connect('{_home_arg()}/data/vibe_seller.db')"
+                    '"'
+                )
+            },
+        },
+        {
+            'label': 'wrapper-read',
+            'tool': 'Bash',
+            'input': {'command': f'cat {_home_arg()}/bin/store-a/browser-use'},
+        },
+        {
+            'label': 'cdp-port-curl',
+            'tool': 'Bash',
+            'input': {'command': 'curl -s http://127.0.0.1:9225/json/version'},
+        },
+        {
+            'label': 'wrapper-execute-control',
+            'tool': 'Bash',
+            'input': {
+                'command': (
+                    f'{_home_arg()}/bin/store-a/browser-use --worker 1'
+                    ' navigate http://example.com || echo wrapper-ran'
+                )
+            },
+        },
+        {
+            'label': 'home-codes-listing-control',
+            'tool': 'Bash',
+            'input': {'command': 'ls ~/codes/ || echo no-codes-dir'},
         },
         # incident 2: profile DBs copied into %TEMP% and queried
         {

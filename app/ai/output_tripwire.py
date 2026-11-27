@@ -22,6 +22,13 @@ Per D-C3-1, profile-database names match only as path segments — a
 cookie banner, an Amazon page dump saying "cookies" and a
 ``cookies-report.csv`` deliverable must not trip.
 
+Incident 3 added the vibe-seller SERVER-STATE paths (the vendors tree,
+``profiles.json``, the data dir minus the task's own ``email_dbs``):
+a result printing one means the agent walked where the pre-tool guard
+refuses, and the output is the detection. The guard's own DENY
+messages never trip it — the backend skips results whose tool call it
+refused (a reason names a path; it never carries file contents).
+
 Limits, same as the guard: the agent runs as the same OS user, so a
 determined agent can encode a leak past any string matcher. The
 tripwire makes the OBSERVED leaks loud, not every conceivable one.
@@ -29,6 +36,9 @@ tripwire makes the OBSERVED leaks loud, not every conceivable one.
 
 from __future__ import annotations
 
+import re
+
+from app.ai.agent_lateral_guard import _HOME_SPELLINGS
 from app.ai.vendor_guard import (
     _PROFILE_DB_SEGMENT_RE,
     dir_name_hits,
@@ -39,6 +49,19 @@ TRIP_REASON = (
     'A tool result contained {kind}: {detail}. This task is stopped — '
     'browser-client private data is never part of a task. If you '
     'believe this is a mistake, report it to the user.'
+)
+
+# Incident 3's backstop: a result that PRINTS a vibe-seller server-state
+# path (the vendors tree, profiles.json, the data dir) means the agent
+# walked somewhere the pre-tool guard refuses — the output is the
+# detection. The task's own mailbox databases under ``data/email_dbs``
+# are exempt: ``vibe_seller_email_info`` hands exactly those paths to
+# the agent, so they are normal output, never a leak. ``bin`` is not
+# matched: wrapper paths appear in ordinary browser tooling output.
+_HOME_LEAK_RE = re.compile(
+    '(?:'
+    + '|'.join(re.escape(s) for s in _HOME_SPELLINGS)
+    + r')/(?:vendors|profiles\.json|data(?!/email_dbs))(?=$|[/\s\'";|&)])'
 )
 
 
@@ -55,6 +78,9 @@ def _scan_paths(text: str) -> str | None:
     m = _PROFILE_DB_SEGMENT_RE.search(text)
     if m:
         return f'{m.group(0)!r} (browser profile database)'
+    m = _HOME_LEAK_RE.search(text)
+    if m:
+        return f'{m.group(0)!r} (vibe-seller server state)'
     return None
 
 

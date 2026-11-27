@@ -81,6 +81,11 @@ HOME_DENY = (
     "`vibe_seller_email_info` gives; other tasks and the server's "
     'own state are not yours to read.'
 )
+WRAPPER_READ_DENY = (
+    'Blocked: `{path}` is a vibe-seller browser wrapper, and it embeds '
+    'a task-scoped token. RUN it (it is how you drive the store '
+    'browser); never read, grep or copy it.'
+)
 
 # ── remote access ───────────────────────────────────────────────────
 
@@ -313,11 +318,22 @@ _HOME_OPEN_CHILDREN = (
     'knowledge',
     'tools',
     'downloads',
-    'bin',
     '.claude',
     'store-data',
 )
-_HOME_CLOSED_CHILDREN = ('data', 'profiles.json', 'r', 'bh-tmp')
+# ``vendors`` joined the closed set with incident 3 (an agent read a
+# vendor's login-state.json — server-kept credentials). ``bin`` is
+# closed for PATH checks (Read/Grep/Glob — the wrappers embed a
+# task-scoped JWT) but NOT for Bash text, where EXECUTING a wrapper is
+# the product path: :func:`wrapper_read_hit` is position-aware there.
+_HOME_CLOSED_CHILDREN = (
+    'data',
+    'profiles.json',
+    'r',
+    'bh-tmp',
+    'vendors',
+    'bin',
+)
 
 
 def _home_spellings() -> tuple[str, ...]:
@@ -346,7 +362,7 @@ HOME_BARE_RE = re.compile(
 _HOME_CLOSED_RE_TEMPLATE = (
     '(?:'
     + '|'.join(re.escape(s) for s in _HOME_SPELLINGS)
-    + r')/(?:data|profiles\.json|r)(?=$|[/\s\'";|&)])'
+    + r')/(?:data|profiles\.json|r|vendors)(?=$|[/\s\'";|&)])'
 )
 # bh-tmp is closed ONLY for other sessions: browser-use writes this
 # task's screenshots to ``<home>/bh-tmp/<session>/``. The session kinds
@@ -411,6 +427,102 @@ def under_closed_home(
             or session in owned_session_names
         )
     return first in _HOME_CLOSED_CHILDREN
+
+
+# ── the store wrappers: readable never, executable always ───────────
+# Incident 3 (task 601a2d79): the agent READ its store's browser-use
+# wrapper — ``<home>/bin/<slug>/browser-use`` — to lift the task-scoped
+# JWT embedded in it. Executing that same wrapper is the product path,
+# so the Bash-text rule is POSITION-aware: an occurrence in command
+# position (the first token, after a separator, after an env-var
+# prefix, or inside a quoted command an introducer like ``bash -c``
+# owns) is allowed; anywhere else — an argument to cat, grep, a copy —
+# is denied. Path checks (Read/Grep/Glob tools) go through
+# :func:`under_closed_home`, where ``bin`` is simply closed: no agent
+# tool ever needs to read a wrapper.
+_WRAPPER_FILE_RE = re.compile(
+    '(?:'
+    + '|'.join(re.escape(s) for s in _HOME_SPELLINGS)
+    + r')/bin/[^\s\'";|&)]*?/(?:browser-use|_guard)'
+)
+# Tokens that hand the command position to what follows them. A
+# wrapper after one of these (possibly behind flags, numbers or env
+# assignments) is being RUN.
+_COMMAND_INTRODUCERS = frozenset({
+    'bash',
+    'sh',
+    'dash',
+    'zsh',
+    'env',
+    'exec',
+    'command',
+    'sudo',
+    'nohup',
+    'setsid',
+    'timeout',
+    'nice',
+    'stdbuf',
+    'xargs',
+    'start',
+    'start-process',
+})
+_ENV_ASSIGN_RE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*=\S*')
+_SEPARATOR_CHARS = ';|&\n(`\r$'
+
+
+def _command_position_before(text: str, start: int) -> bool:
+    """Whether *start* in *text* is a command position.
+
+    Walks back over whitespace and quotes; a separator (or the start
+    of the text) means command position. Otherwise the tokens before
+    it decide: env assignments, flags and numbers pass through to the
+    command word, which must be an introducer (``bash -c "…"``,
+    ``nohup …``, ``timeout 30 …``) for this to stay a command position.
+    """
+    i = start - 1
+    while i >= 0 and text[i] in ' \t\'"':
+        i -= 1
+    if i < 0 or text[i] in _SEPARATOR_CHARS:
+        return True
+    # gather up to three tokens before the path
+    tokens = []
+    for _ in range(3):
+        j = i
+        while j >= 0 and text[j] not in ' \t\n;|&(`\r$':
+            j -= 1
+        tokens.append(text[j + 1 : i + 1])
+        i = j - 1
+        while i >= 0 and text[i] in ' \t\'"':
+            i -= 1
+        if i < 0 or text[i] in _SEPARATOR_CHARS:
+            break
+    for token in tokens:
+        if not token:
+            continue
+        if _ENV_ASSIGN_RE.fullmatch(token):
+            continue  # VAR=x — still waiting for the command word
+        if token.startswith('-') or token.isdigit():
+            continue  # a flag or a count — same
+        return token.lower() in _COMMAND_INTRODUCERS
+    # Only assignments, flags and quotes before the path (or the text
+    # start): the path itself is the command — an env-prefix line.
+    return True
+
+
+def wrapper_read_hit(text: str) -> str | None:
+    """A wrapper path used anywhere but command position (incident 3).
+
+    Returns the matched path when the occurrence reads or copies the
+    wrapper; ``None`` when every occurrence is an execution of it.
+    """
+    if '/bin/' not in text and '\\bin\\' not in text:
+        return None
+    flat = text.replace('\\', '/')
+    for m in _WRAPPER_FILE_RE.finditer(flat):
+        if _command_position_before(flat, m.start()):
+            continue
+        return m.group(0)
+    return None
 
 
 # ── agent-built port forwarders ─────────────────────────────────────

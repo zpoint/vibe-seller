@@ -180,7 +180,7 @@ def tool_call_deny(
     """
     tool_name = hook_input.get('tool_name', '')
     tool_input = hook_input.get('tool_input', {})
-    return (
+    reason = (
         subagent_finish_deny(session, tool_name, hook_input.get('tool_use_id'))
         or missing_args_deny(tool_name, tool_input)
         or source_access_deny(tool_name, tool_input, mailbox_files)
@@ -198,6 +198,20 @@ def tool_call_deny(
             tool_use_id=str(hook_input.get('tool_use_id') or ''),
         )
     )
+    if reason:
+        # The output tripwire skips THIS call's result: the deny reason
+        # names a path (never file contents), and the CLI feeds it back
+        # as the tool result — a trip there would kill the task for the
+        # deny having WORKED.
+        tid = str(hook_input.get('tool_use_id') or '')
+        if tid:
+            denied = getattr(session, '_guard_denied_tool_use_ids', None)
+            if denied is None:
+                denied = set()
+                session._guard_denied_tool_use_ids = denied
+            if len(denied) < 2000:
+                denied.add(tid)
+    return reason
 
 
 async def _guard_context(
