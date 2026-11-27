@@ -1113,6 +1113,7 @@
     "openInZiniao": "Copy this link and open it in Ziniao or the browser this store uses.",
     "openHere": "Open this link and sign in as this store’s seller.",
     "linkExpires": "The link expires in about {{minutes}} minutes.",
+    "ziniaoBlocked": "Ziniao won’t show the page and asks for it to be allowlisted?",
     "recheck": "Done authorizing",
     "copy": "Copy",
     "copied": "Copied",
@@ -1548,6 +1549,12 @@
         "live": "Saving skill: {{target}}",
         "liveBare": "Checking skills"
       }
+    }
+  },
+  "vendors": {
+    "adspower": {
+      "apiKey": "API Key",
+      "LoginRequired": "AdsPower has no API key yet: generate it under API & MCP in AdsPower, paste it into Vibe Seller, then refresh."
     }
   }
 }

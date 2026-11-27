@@ -1115,6 +1115,7 @@
     "openInZiniao": "复制这个链接，在紫鸟或对应的浏览器里打开。",
     "openHere": "打开这个链接，用该店铺的卖家账号登录并同意。",
     "linkExpires": "链接约 {{minutes}} 分钟后过期。",
+    "ziniaoBlocked": "紫鸟提示网页不符合法律法规、需要加白？",
     "recheck": "授权完成",
     "copy": "复制",
     "copied": "已复制",
@@ -1550,6 +1551,12 @@
         "live": "正在保存技能：{{target}}",
         "liveBare": "正在查看技能"
       }
+    }
+  },
+  "vendors": {
+    "adspower": {
+      "apiKey": "API Key",
+      "LoginRequired": "AdsPower 还没有配置 API Key：在 AdsPower 左侧「API & MCP」点生成 Key，复制填到 Vibe Seller，然后点刷新。"
     }
   }
 }
