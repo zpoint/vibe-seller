@@ -392,7 +392,7 @@ async def test_auth_headers_sent_only_when_enable_auth(tmp_path, monkeypatch):
             'authToken': 'tok-placeholder-123',
         }),
         encoding='utf-8',
-    ),
+    )
     client = BitBrowserClient({})
     assert await client.auth_headers() == {'x-api-key': 'tok-placeholder-123'}
     # A reset token (enableAuth off) sends nothing — on a FRESH client

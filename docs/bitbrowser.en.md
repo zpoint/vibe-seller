@@ -66,6 +66,8 @@ Firefox-kernel profiles are greyed out with the reason in the store picker, and 
 | Message | Meaning / what to do |
 |---|---|
 | Not logged in — sign in to the BitBrowser client, then Refresh | The session expired and no account + password are saved (or the auto-login did not take). Check the saved credentials in Settings, or sign in by hand once. |
+| 比特浏览器未登录且没有保存的账号密码。请在设置里填写…… ("BitBrowser is not signed in and no account + password are saved; fill them in in Settings…") | The session expired with no saved credentials to auto-login with. Save the BitBrowser account and password (see "The account and auto-login"), or sign in by hand once. |
+| 自动登录没有成功，请手动打开比特浏览器登录一次，然后重试任务（……） ("The auto-login did not succeed; open BitBrowser and sign in by hand once, then retry the task (…)") | The auto-login ran but did not take — the login form's inputs were not found, the inspection timed out, etc. (the code in parentheses says which). Sign in by hand once, then retry the task. |
 | 这个比特浏览器账号在另一台电脑登录了，本机已退出…… ("This BitBrowser account was signed in on another computer; this one is signed out") | A device kick: the same account signed in elsewhere. Vibe Seller will not auto-login (the two computers would kick each other). Sign in again in BitBrowser, or use the account on only one computer. |
 | 比特浏览器账号或密码不对，请在设置里重新填写 ("The BitBrowser account or password is wrong; re-enter it in Settings") | The saved credentials were rejected. Check and re-enter them in Settings. |
 | 需要在比特浏览器里完成登录验证（短信/邮箱/二次验证），完成后重试 ("Complete the login verification in BitBrowser — SMS/email/2FA — then retry") | The account needs a new-device verification. Finish it in BitBrowser by hand, then retry the task. |

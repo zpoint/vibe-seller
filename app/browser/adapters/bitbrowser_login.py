@@ -31,15 +31,25 @@ The design (addendum 23, option B — the user's binding decision):
   native value setters, click the 登录/Login button, release the
   inspector, then decide SUCCESS by the LOCAL API (poll
   ``/browser/list`` until ``success:true``), never by the DOM.
-- Failures are classified from the DOM AFTER the API poll fails
-  (wrong-credentials error text, a verification step — SMS / email
-  code / 2FA — or selectors missing entirely) and surface as
-  LOGIN_REQUIRED with a plain-language hint; the inspector lock is
-  always released.
+- Failures are classified from the DOM AFTER the API poll fails —
+  through a properly OPENED inspector session (the same
+  open → eval → close shape as the fill run; an unopened session
+  cannot eval, so a classify that skipped the open would always read
+  UNKNOWN) — as wrong-credentials error text, a verification step
+  (SMS / email code / 2FA), or selectors missing entirely, and
+  surface as LOGIN_REQUIRED with a plain-language hint. Every
+  inspector error (busy, fuses, a stale target, a timeout) from any
+  eval maps to the sign-in-by-hand hint instead of escaping raw;
+  the inspector lock is always released.
 
 Credentials never appear in logs or exceptions: the password rides
 one ``eval_in_renderer`` call and nowhere else (the sentinel test
-pins this).
+pins this). The credentials are embedded into the fill JS with
+``json.dumps`` (a strict JS string encoder — a ``repr`` would mangle
+non-BMP characters into literal ``U…`` text), and an inspector error
+from the FILL eval is never logged with its text: the exception
+carries CDP ``exceptionDetails`` whose echo can include the script's
+source line, and so the password.
 """
 
 from __future__ import annotations
@@ -47,8 +57,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 import subprocess
+import sys
 import time
 
 from app.browser.adapters import bitbrowser_launch as launch
@@ -100,24 +112,48 @@ class LoginState:
     def _read(self) -> dict:
         try:
             data = json.loads(self._path.read_text(encoding='utf-8'))
-            return data if isinstance(data, dict) else {}
-        except (OSError, ValueError):
+        except FileNotFoundError:
             return {}
+        except (OSError, ValueError) as e:
+            logger.warning(
+                'bitbrowser login state %s unreadable, starting empty: %s',
+                self._path,
+                e,
+            )
+            return {}
+        if isinstance(data, dict):
+            return data
+        logger.warning(
+            'bitbrowser login state %s is not an object, starting empty',
+            self._path,
+        )
+        return {}
 
     def _write(self) -> None:
+        """Atomic (temp file + ``os.replace``): a crash mid-write must
+        never truncate the live file — a lost kick record is a lost
+        refusal (the file is small and single-writer per machine)."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(self._data), encoding='utf-8')
+        tmp = self._path.with_name(self._path.name + '.tmp')
+        tmp.write_text(json.dumps(self._data), encoding='utf-8')
+        os.replace(tmp, self._path)
 
     # ── the policy questions ────────────────────────────────────────
 
     def refuse_auto_login(self, logged_out_msg: str) -> str | None:
         """Why auto-login must NOT run now (a hint), or None if it may.
 
-        Two refusals, both returning the kick hint:
-        - the logged-out message IS the kick shape;
+        Three refusals, the first two returning the kick hint:
+        - a kick was RECORDED — whatever the current message says.
+          A client restart brings the plain-expiry shape back while
+          the kick still stands; only a sign-in we did not do
+          (``record_signed_in``) lifts it;
+        - the logged-out message IS the kick shape (a fresh kick);
         - our last auto-login was < 15 min ago (a re-logout that soon
           means another device is using the account — never loop).
         """
+        if self._data.get('kicked_at') is not None:
+            return 'kick'
         if _is_kick_message(logged_out_msg):
             return 'kick'
         last = self._data.get('last_auto_login')
@@ -182,7 +218,9 @@ _PROBE_JS = """(() => {
 
 # Fill + submit. Generic selectors; native value setters so the
 # framework's bindings see the change. The credentials ride THIS ONE
-# eval (as literals inside the JS) and nowhere else.
+# eval (as literals inside the JS) and nowhere else — encoded with
+# json.dumps, a strict JS string encoder (repr would turn a non-BMP
+# character into literal `U…` text: a silently wrong password).
 _FILL_JS_TEMPLATE = """(() => {{
   const setVal = (el, v) => {{
     const proto = el instanceof HTMLTextAreaElement ?
@@ -196,8 +234,8 @@ _FILL_JS_TEMPLATE = """(() => {{
     i.type === 'email' || i.type === 'tel');
   const pass = inputs.find(i => i.type === 'password');
   if (!user || !pass) return 'NOFIELDS';
-  setVal(user, {username!r});
-  setVal(pass, {password!r});
+  setVal(user, {username});
+  setVal(pass, {password});
   const buttons = Array.from(document.querySelectorAll('button'));
   const submit = buttons.find(b => {{
     const t = (b.innerText || '').trim();
@@ -210,17 +248,31 @@ _FILL_JS_TEMPLATE = """(() => {{
 
 
 def _fill_js(username: str, password: str) -> str:
-    return _FILL_JS_TEMPLATE.format(username=username, password=password)
+    return _FILL_JS_TEMPLATE.format(
+        username=json.dumps(username), password=json.dumps(password)
+    )
+
+
+def _exc_kind() -> str:
+    """The class name of the exception currently being handled — never
+    its text (the fill-eval error can echo the script's source line,
+    and so the password)."""
+    e = sys.exc_info()[1]
+    return type(e).__name__ if e is not None else 'error'
 
 
 # ── the failure classification (DOM AFTER the API poll failed) ──────
+#
+# Matches the vendor's own wording only — never a bare English
+# "not found" against the whole page text (any unrelated copy on the
+# page would classify as wrong credentials).
 
 _CLASSIFY_JS = """(() => {
   const t = document.body.innerText;
   const codeInput = Array.from(document.querySelectorAll('input'))
     .find(i => (i.placeholder || '').match(/验证码|代码|code/i));
   if (codeInput) return 'VERIFY';
-  if (/密码错误|账号或密码|incorrect|invalid.*(password|account)|not found/i
+  if (/密码错误|账号或密码|incorrect|invalid.*(password|account)/i
       .test(t)) return 'WRONGCREDS';
   return 'UNKNOWN';
 })()"""
@@ -254,7 +306,9 @@ class LoginDriver:
 
     async def run(self) -> str:
         """One attempt → 'OK' | 'WRONGCREDS' | 'VERIFY' | a failure
-        code naming the step (never a credential)."""
+        code naming the step (never a credential). Every inspector
+        error — busy, fuses, a stale target, a timeout — maps to a
+        failure code here; none escapes raw to the caller."""
         try:
             await self._session.open(self._pid)
         except (InspectorBusy, InspectorError) as e:
@@ -263,16 +317,32 @@ class LoginDriver:
             )
             return 'INSPECTOR'
         try:
-            probe = await self._probe()
+            try:
+                probe = await self._probe()
+            except (InspectorBusy, InspectorError, TimeoutError) as e:
+                logger.warning(
+                    'bitbrowser auto-login: probe eval failed: %s', e
+                )
+                return 'INSPECTOR'
             if probe is None:
                 return 'NOLOGINPAGE'
             if probe.get('hasCodeField'):
                 return 'VERIFY'
-            result = str(
-                await self._session.eval_in_renderer(
-                    _fill_js(self._username, self._password)
+            try:
+                result = str(
+                    await self._session.eval_in_renderer(
+                        _fill_js(self._username, self._password)
+                    )
                 )
-            )
+            except (InspectorBusy, InspectorError, TimeoutError):
+                # NEVER log the exception text here: it carries CDP
+                # exceptionDetails whose echo can include the fill
+                # script's source line — and so the password.
+                logger.warning(
+                    'bitbrowser auto-login: fill eval failed (%s)',
+                    _exc_kind(),
+                )
+                return 'INSPECTOR'
             if result != 'OK':
                 logger.warning(
                     'bitbrowser auto-login: form step failed: %s', result
@@ -293,13 +363,30 @@ class LoginDriver:
             return None
         return probe
 
-    async def classify_failure(self) -> str:
-        """Read the DOM for WHY a submitted login did not take."""
+    async def classify(self) -> str:
+        """Read the DOM for WHY a submitted login did not take — inside
+        a properly OPENED, locked session (the same open → eval →
+        close shape as :meth:`run`; an unopened session cannot eval,
+        so a classify that skipped the open would always read
+        UNKNOWN). Inspector errors and timeouts → 'UNKNOWN' (the
+        sign-in-by-hand hint); the lock is always released."""
+        try:
+            await self._session.open(self._pid)
+        except (InspectorBusy, InspectorError) as e:
+            logger.warning(
+                'bitbrowser auto-login classify: inspector unavailable: %s',
+                e,
+            )
+            return 'UNKNOWN'
         try:
             return str(await self._session.eval_in_renderer(_CLASSIFY_JS))
-        except Exception as e:  # the renderer may have navigated away
-            logger.warning('bitbrowser auto-login classify: %s', e)
+        except (InspectorBusy, InspectorError, TimeoutError) as e:
+            # The classify JS carries no credentials, so the text is
+            # safe to log (it is an inspector error, not a page echo).
+            logger.warning('bitbrowser auto-login classify: eval failed: %s', e)
             return 'UNKNOWN'
+        finally:
+            await self._session.close()
 
 
 def windows_session() -> InspectorSession:

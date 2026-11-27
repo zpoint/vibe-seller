@@ -105,7 +105,7 @@ logger = logging.getLogger(__name__)
 _LAUNCH_POLL_ATTEMPTS = 15
 _LAUNCH_POLL_DELAY_S = 2.0
 
-_SUPPORTED_PLATFORMS = frozenset({"windows", "wsl", "mac"})
+_SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl', 'mac'})
 
 # The logged-out bodies. TWO shapes, both HTTP 200 + success:false:
 # 1. {"success":false,"msg":"token 失效，请检查登录状态"} — the session
@@ -242,10 +242,13 @@ class BitBrowserClient(LocalApiClient):
         result = await self._drive_login_form()
         if result != 'SUBMITTED':
             raise LoginRequired(_form_failure_hint(result))
-        self._login_state.record_auto_login()
         if not await login.poll_until_signed_in(self.api_call):
             classification = await self._classify_login_failure()
             raise LoginRequired(_form_failure_hint(classification))
+        # Only a login that SIGNED IN arms the ping-pong guard: a
+        # wrong password must not — the next task within 15 min would
+        # read the kick hint (「另一台电脑」) for what is a bad password.
+        self._login_state.record_auto_login()
         self._login_state.record_signed_in()
 
     async def _logged_out_reason(self) -> str:
@@ -289,6 +292,9 @@ class BitBrowserClient(LocalApiClient):
         return await login.main_pid_for_platform(self._port or self.api_port)
 
     async def _classify_login_failure(self) -> str:
+        """Why the submitted login did not take, read from the DOM —
+        through a properly OPENED inspector session (the driver's
+        classify takes the lock; an unopened session cannot eval)."""
         session = login.make_session()
         pid = await self._client_main_pid()
         if not pid:
@@ -296,7 +302,7 @@ class BitBrowserClient(LocalApiClient):
         driver = login.LoginDriver(
             self._login_username, self._login_password, pid, session
         )
-        return await driver.classify_failure()
+        return await driver.classify()
 
     def list_request(self, page: int) -> tuple[str, dict | None]:
         return self.list_path, {'page': page, 'pageSize': self.page_size}

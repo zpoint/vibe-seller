@@ -1,8 +1,10 @@
 """BitBrowser auto-login tests (option B) — fake inspector + fake DOM.
 
 Every behaviour pairs with a negative control. The credentials ride
-only the one eval (a sentinel pins it); the policy (kick /
-ping-pong) is tested against a real temp login-state.json.
+only the one eval (a sentinel pins it — including through an
+exceptionDetails echo of the fill script); the policy (kick /
+ping-pong) is tested against a real temp login-state.json, across
+client restarts (a fresh client reading the same persisted state).
 """
 
 import json
@@ -14,7 +16,7 @@ import pytest
 import app.browser.adapters.bitbrowser as bb
 import app.browser.adapters.bitbrowser_login as bl
 from app.browser.inject.errors import LoginRequired
-from app.browser.win_inspector import InspectorBusy
+from app.browser.win_inspector import InspectorBusy, InspectorError
 from tests.unit.test_browser.bitbrowser_test_support import (
     _serve,
     cleanup,
@@ -24,41 +26,70 @@ pytestmark = pytest.mark.unit
 
 
 class FakeLoginSession:
-    """A fake InspectorSession: serves scripted probe/fill/classify
-    results and records that close() always ran."""
+    """A fake InspectorSession with the REAL session's contract: an
+    eval on an unopened session raises (so a code path that skipped
+    the open cannot silently read a scripted answer), close() always
+    runs, and a scripted eval can raise an inspector error — 'echo'
+    simulating the CDP exceptionDetails echo that embeds the script's
+    own source line (the leak channel the sentinel tests pin)."""
 
     def __init__(
-        self, probe=None, fill='OK', classify='UNKNOWN', open_error=None
+        self,
+        probe=None,
+        fill='OK',
+        classify='UNKNOWN',
+        open_error=None,
+        eval_error=None,
     ):
         self.probe_result = probe
         self.fill_result = fill
         self.classify_result = classify
         self.open_error = open_error
-        self.opened = False
+        # ('probe'|'fill'|'classify', an Exception instance or 'echo')
+        self.eval_error = eval_error
+        self._is_open = False
+        self.open_count = 0
         self.closed = False
         self.evaluated: list[str] = []
 
     async def open(self, main_pid: int) -> None:
         if self.open_error:
             raise self.open_error
-        self.opened = True
+        self._is_open = True
+        self.open_count += 1
 
     async def close(self) -> None:
+        self._is_open = False
         self.closed = True
 
     async def eval_in_renderer(self, js: str, *, timeout: float = 25.0):
+        if not self._is_open:
+            raise InspectorError('inspector not open')
         self.evaluated.append(js)
-        if (
-            '_PROBE_JS' in js
-            or js.startswith('(async ()') is False
-            and 'location.href' in js
-        ):
+        kind = self._kind(js)
+        error = self.eval_error
+        if error is not None and error[0] == kind:
+            if error[1] == 'echo':
+                # What the real session does on a JS exception: the
+                # error text carries exceptionDetails, whose echo can
+                # embed the script's source line.
+                raise InspectorError(
+                    json.dumps({'exceptionDetails': {'sourceLine': js}})[:400]
+                )
+            raise error[1]
+        if kind == 'probe':
             return self.probe_result or '{}'
-        if 'setVal' in js:
+        if kind == 'fill':
             return self.fill_result
-        if 'VERIFY' in js or 'WRONGCREDS' in js:
-            return self.classify_result
-        return self.probe_result or '{}'
+        return self.classify_result
+
+    @staticmethod
+    def _kind(js: str) -> str:
+        if 'setVal' in js:
+            return 'fill'
+        if 'hasCodeField' in js:
+            return 'probe'
+        return 'classify'
 
 
 LOGIN_PAGE_PROBE = json.dumps({
@@ -77,43 +108,21 @@ async def _teardown():
     await cleanup()
 
 
-def _make_client(
-    tmp_path,
-    *,
-    logged_out_msg='token 失效，请检查登录状态',
-    logged_in=False,
-    session=None,
-    poll_success=True,
-):
-    """A client wired for login tests: a fake API answering the
-    logged-out (or signed-in) list shape, a temp policy file, a fake
-    inspector session, and a poll stub."""
-    server_routes = {}
-    if logged_in:
-        server_routes[('POST', '/browser/list')] = (
-            200,
-            {'success': True, 'data': {'list': [], 'totalNum': 0}},
-        )
-    else:
-        server_routes[('POST', '/browser/list')] = (
-            200,
-            {'success': False, 'msg': logged_out_msg},
-        )
-    return server_routes, session
-
-
 async def _login_client(
     tmp_path,
     monkeypatch,
     *,
     credentials=True,
+    password='sentinel-secret-pass',
     session=None,
     poll=None,
     logged_out_msg='token 失效，请检查登录状态',
     poll_success=True,
 ):
     """Build a BitBrowserClient against a logged-out fake API with the
-    login seams stubbed (inspector session, main pid, poll)."""
+    login seams stubbed (inspector session, main pid, poll). Clients
+    built with the same ``tmp_path`` share the persisted login-state
+    file — the client-restart seam."""
     server = await _serve({
         ('POST', '/browser/list'): (
             200,
@@ -123,7 +132,7 @@ async def _login_client(
     cfg = {'api_port': server.port}
     if credentials:
         cfg['bitbrowser_username'] = 'demo-user'
-        cfg['bitbrowser_password'] = 'sentinel-secret-pass'
+        cfg['bitbrowser_password'] = password
     client = bb.BitBrowserClient(cfg)
     client._login_state = bl.LoginState(tmp_path / 'login-state.json')
     if session is not None:
@@ -157,12 +166,35 @@ def _async_return_int(value):
     return _inner
 
 
+async def _signed_in_client(tmp_path):
+    """A client whose API answers signed-in (the user signed in by
+    hand in the client)."""
+    server = await _serve({
+        ('POST', '/browser/list'): (
+            200,
+            {'success': True, 'data': {'list': [], 'totalNum': 0}},
+        ),
+    })
+    client = bb.BitBrowserClient({'api_port': server.port})
+    client._login_state = bl.LoginState(tmp_path / 'login-state.json')
+    return client
+
+
 # ── the policy (LoginState) ─────────────────────────────────────────
 
 
 def test_kick_message_refuses(tmp_path):
     state = bl.LoginState(tmp_path / 's.json')
     assert state.refuse_auto_login('Login out！') == 'kick'
+
+
+def test_recorded_kick_refuses_whatever_the_message(tmp_path):
+    """A RECORDED kick refuses even when the current message is the
+    plain-expiry shape (what a client restart shows) — only an
+    observed sign-in lifts it (the persisted refusal, S2)."""
+    state = bl.LoginState(tmp_path / 's.json')
+    state.record_kick()
+    assert state.refuse_auto_login('token 失效') == 'kick'
 
 
 def test_expiry_allows(tmp_path):
@@ -193,6 +225,37 @@ def test_manual_signin_resets_kick(tmp_path):
     assert state.refuse_auto_login('token 失效') is None
 
 
+# ── the policy file (S4) ────────────────────────────────────────────
+
+
+def test_corrupt_state_file_tolerated_with_warning(tmp_path, caplog):
+    """A truncated / partial file reads as empty state — never a
+    crash, and never a silent pass either: it warns."""
+    p = tmp_path / 's.json'
+    p.write_text('{"kicked_at": 12', encoding='utf-8')  # torn write
+    with caplog.at_level(logging.WARNING, logger=bl.__name__):
+        state = bl.LoginState(p)
+    assert state.refuse_auto_login('token 失效') is None
+    assert 'unreadable' in caplog.text
+    # A non-object file is the same: empty state + a warning.
+    p.write_text('[1, 2]', encoding='utf-8')
+    with caplog.at_level(logging.WARNING, logger=bl.__name__):
+        state = bl.LoginState(p)
+    assert state.refuse_auto_login('token 失效') is None
+    assert 'not an object' in caplog.text
+
+
+def test_write_is_atomic_and_roundtrips(tmp_path):
+    """The write lands whole (temp file + replace — no .tmp residue)
+    and a fresh reader enforces what it recorded."""
+    p = tmp_path / 's.json'
+    state = bl.LoginState(p)
+    state.record_kick()
+    assert json.loads(p.read_text(encoding='utf-8'))['kicked_at']
+    assert not (tmp_path / 's.json.tmp').exists()
+    assert bl.LoginState(p).refuse_auto_login('token 失效') == 'kick'
+
+
 # ── ensure_logged_in end to end (seams stubbed) ─────────────────────
 
 
@@ -201,7 +264,7 @@ async def test_expiry_auto_logins_and_succeeds(tmp_path, monkeypatch):
     session = FakeLoginSession(probe=LOGIN_PAGE_PROBE, fill='OK')
     client = await _login_client(tmp_path, monkeypatch, session=session)
     await client.ensure_logged_in()
-    assert session.opened and session.closed
+    assert session.open_count == 1 and session.closed
     assert any('setVal' in js for js in session.evaluated)
     assert client._login_state._data.get('last_auto_login')
 
@@ -209,16 +272,9 @@ async def test_expiry_auto_logins_and_succeeds(tmp_path, monkeypatch):
 async def test_signed_in_short_circuits(tmp_path, monkeypatch):
     """Already signed in → no inspector, no form fill."""
     session = FakeLoginSession(probe=LOGIN_PAGE_PROBE)
-    server = await _serve({
-        ('POST', '/browser/list'): (
-            200,
-            {'success': True, 'data': {'list': [], 'totalNum': 0}},
-        ),
-    })
-    client = bb.BitBrowserClient({'api_port': server.port})
-    client._login_state = bl.LoginState(tmp_path / 's.json')
+    client = await _signed_in_client(tmp_path)
     await client.ensure_logged_in()
-    assert not session.opened
+    assert session.open_count == 0
 
 
 async def test_kick_refuses_without_driving(tmp_path, monkeypatch):
@@ -231,17 +287,67 @@ async def test_kick_refuses_without_driving(tmp_path, monkeypatch):
     with pytest.raises(LoginRequired) as exc:
         await client.ensure_logged_in()
     assert '另一台电脑' in str(exc.value)
-    assert not session.opened
+    assert session.open_count == 0
     assert client._login_state._data.get('kicked_at')
 
 
-async def test_kick_twist_expiry_still_auto_logs_in(tmp_path, monkeypatch):
-    """Negative control: the refusal is the kick MESSAGE (and the
-    ping-pong window), not any logged-out state."""
-    session = FakeLoginSession(probe=LOGIN_PAGE_PROBE, fill='OK')
-    client = await _login_client(tmp_path, monkeypatch, session=session)
-    await client.ensure_logged_in()
-    assert session.opened
+async def test_kick_twist_expiry_after_kick_still_refuses(
+    tmp_path, monkeypatch
+):
+    """After a recorded kick, the plain-expiry shape still does NOT
+    auto-login — a client restart brings the expiry message back
+    while the kick stands; auto-login would ping-pong the two
+    machines. (Inverted from the old twist that pinned the
+    message-only refusal.)"""
+    session = FakeLoginSession(probe=LOGIN_PAGE_PROBE)
+    client = await _login_client(
+        tmp_path, monkeypatch, session=session, logged_out_msg='Login out！'
+    )
+    with pytest.raises(LoginRequired):
+        await client.ensure_logged_in()
+
+    # A client restart: a FRESH client reading the same persisted
+    # state, seeing the expiry shape.
+    session2 = FakeLoginSession(probe=LOGIN_PAGE_PROBE, fill='OK')
+    client2 = await _login_client(tmp_path, monkeypatch, session=session2)
+    with pytest.raises(LoginRequired) as exc:
+        await client2.ensure_logged_in()
+    assert '另一台电脑' in str(exc.value)
+    assert session2.open_count == 0
+
+
+async def test_kick_restart_expiry_manual_signin_then_expiry(
+    tmp_path, monkeypatch
+):
+    """The addendum §3 sequence, end to end across client restarts:
+    kick → restart shows expiry → STILL no auto-login → the user
+    signs in by hand → the NEXT expiry auto-logs-in again."""
+    # 1. The kick (the other machine signed in).
+    session = FakeLoginSession(probe=LOGIN_PAGE_PROBE)
+    client = await _login_client(
+        tmp_path, monkeypatch, session=session, logged_out_msg='Login out！'
+    )
+    with pytest.raises(LoginRequired):
+        await client.ensure_logged_in()
+
+    # 2. Restart: fresh client, same persisted state, expiry shape.
+    session2 = FakeLoginSession(probe=LOGIN_PAGE_PROBE, fill='OK')
+    client2 = await _login_client(tmp_path, monkeypatch, session=session2)
+    with pytest.raises(LoginRequired) as exc:
+        await client2.ensure_logged_in()
+    assert '另一台电脑' in str(exc.value)
+    assert session2.open_count == 0
+
+    # 3. The user signs in by hand in the client (the API answers
+    # signed-in) — the observed sign-in lifts the refusal.
+    client3 = await _signed_in_client(tmp_path)
+    await client3.ensure_logged_in()
+
+    # 4. The next expiry auto-logs-in again.
+    session4 = FakeLoginSession(probe=LOGIN_PAGE_PROBE, fill='OK')
+    client4 = await _login_client(tmp_path, monkeypatch, session=session4)
+    await client4.ensure_logged_in()
+    assert session4.open_count == 1
 
 
 async def test_ping_pong_second_logout_refuses(tmp_path, monkeypatch):
@@ -254,7 +360,7 @@ async def test_ping_pong_second_logout_refuses(tmp_path, monkeypatch):
     with pytest.raises(LoginRequired) as exc:
         await client.ensure_logged_in()
     assert '另一台电脑' in str(exc.value)
-    assert not session.opened
+    assert session.open_count == 0
 
 
 async def test_no_credentials_clear_hint(tmp_path, monkeypatch):
@@ -268,27 +374,31 @@ async def test_no_credentials_clear_hint(tmp_path, monkeypatch):
     with pytest.raises(LoginRequired) as exc:
         await client.ensure_logged_in()
     assert '账号密码' in str(exc.value)
-    assert not session.opened
+    assert session.open_count == 0
 
 
 async def test_wrong_password_hint(tmp_path, monkeypatch):
     """The form submits but the API poll fails and the DOM shows the
-    wrong-credentials error → the re-fill hint."""
+    wrong-credentials error → the re-fill hint. The classification
+    runs through the REAL path: a session that only answers when
+    OPENED (the fill run opened once; the classify re-opened — the
+    pre-fix code never opened for classify and always read UNKNOWN).
+    A failed login also never arms the ping-pong guard (N5)."""
     session = FakeLoginSession(
         probe=LOGIN_PAGE_PROBE, fill='OK', classify='WRONGCREDS'
     )
-
-    async def _classify():
-        return 'WRONGCREDS'
-
     client = await _login_client(
         tmp_path, monkeypatch, session=session, poll_success=False
     )
-    monkeypatch.setattr(client, '_classify_login_failure', _classify)
 
     with pytest.raises(LoginRequired) as exc:
         await client.ensure_logged_in()
     assert '密码不对' in str(exc.value)
+    assert session.open_count == 2  # fill run + classify re-open
+    assert session.closed
+    # N5: a wrong password must not start the 15-min ping-pong window
+    # (the next task would read the kick hint for a bad password).
+    assert not client._login_state._data.get('last_auto_login')
 
 
 async def test_verification_step_hint(tmp_path, monkeypatch):
@@ -308,7 +418,7 @@ async def test_verification_step_hint(tmp_path, monkeypatch):
     with pytest.raises(LoginRequired) as exc:
         await client.ensure_logged_in()
     assert '登录验证' in str(exc.value)
-    assert session.opened and session.closed  # lock released
+    assert session.open_count == 1 and session.closed  # lock released
     assert not any('setVal' in js for js in session.evaluated)
 
 
@@ -321,6 +431,43 @@ async def test_inspector_unavailable_hint(tmp_path, monkeypatch):
     with pytest.raises(LoginRequired) as exc:
         await client.ensure_logged_in()
     assert '手动' in str(exc.value)
+
+
+async def test_probe_eval_error_maps_to_byhand_hint(tmp_path, monkeypatch):
+    """A raw inspector error from the PROBE eval (stale target,
+    timeout) maps to the sign-in-by-hand hint — it must not escape
+    ensure_logged_in untranslated (S3). The lock is released."""
+    session = FakeLoginSession(
+        probe=LOGIN_PAGE_PROBE,
+        eval_error=('probe', InspectorError('target went away')),
+    )
+    client = await _login_client(tmp_path, monkeypatch, session=session)
+
+    with pytest.raises(LoginRequired) as exc:
+        await client.ensure_logged_in()
+    assert '手动' in str(exc.value)
+    assert 'InspectorError' not in str(exc.value)
+    assert session.closed
+
+
+async def test_fill_eval_error_maps_to_byhand_hint(
+    tmp_path, monkeypatch, caplog
+):
+    """A raw inspector error from the FILL eval maps to the
+    sign-in-by-hand hint too, with the lock released — and the error
+    text (which echoes the fill script) reaches NO log line (S3+N2)."""
+    session = FakeLoginSession(
+        probe=LOGIN_PAGE_PROBE, eval_error=('fill', 'echo')
+    )
+    client = await _login_client(tmp_path, monkeypatch, session=session)
+
+    with caplog.at_level(logging.DEBUG, logger='app.browser'):
+        with pytest.raises(LoginRequired) as exc:
+            await client.ensure_logged_in()
+    assert '手动' in str(exc.value)
+    assert session.closed
+    assert 'sentinel-secret-pass' not in caplog.text
+    assert json.dumps('sentinel-secret-pass') not in caplog.text
 
 
 async def test_missing_selectors_hint(tmp_path, monkeypatch):
@@ -355,6 +502,18 @@ async def test_not_on_login_page(tmp_path, monkeypatch):
     assert session.closed
 
 
+# ── the classify regex (N4) ─────────────────────────────────────────
+
+
+def test_classify_regex_has_no_bare_not_found():
+    """A bare English 'not found' anywhere in the page text must not
+    classify as wrong credentials (page copy, a 404 banner) — only
+    the vendor's own wording matches."""
+    assert 'not found' not in bl._CLASSIFY_JS
+    for mark in ('密码错误', '账号或密码', 'incorrect'):
+        assert mark in bl._CLASSIFY_JS
+
+
 # ── credentials never leak ───────────────────────────────────────────
 
 
@@ -370,12 +529,43 @@ async def test_credentials_never_in_logs_or_exceptions(
         with pytest.raises(LoginRequired):
             await client.ensure_logged_in()
     assert 'sentinel-secret-pass' not in caplog.text
-    # the exception itself carries only the failure code
-    # (the raise happened inside the pytest.raises above; re-raise to
-    # inspect — simpler: assert on the driver's contract)
     fill_evals = [js for js in session.evaluated if 'setVal' in js]
     assert fill_evals, 'the form fill never ran'
     assert fill_evals[0].count('sentinel-secret-pass') == 1
+
+
+async def test_hostile_password_encoded_and_never_leaks(
+    tmp_path, monkeypatch, caplog
+):
+    """A hostile password (quotes, a backslash, </script>, a non-BMP
+    emoji) is embedded with json.dumps (repr would mangle the emoji
+    into literal U… text — a silently wrong password), and when the
+    fill eval fails with an exceptionDetails ECHO of the script, the
+    password appears in no raised message and no log line (N2)."""
+    hostile = 'p\'a"s\\s</script>\U0001f631'
+    session = FakeLoginSession(
+        probe=LOGIN_PAGE_PROBE, eval_error=('fill', 'echo')
+    )
+    client = await _login_client(
+        tmp_path, monkeypatch, session=session, password=hostile
+    )
+
+    with caplog.at_level(logging.DEBUG, logger='app.browser'):
+        with pytest.raises(LoginRequired) as exc:
+            await client.ensure_logged_in()
+
+    # The fill JS carries the password exactly once, JSON-encoded.
+    fill_evals = [js for js in session.evaluated if 'setVal' in js]
+    assert fill_evals, 'the form fill never ran'
+    assert json.dumps(hostile) in fill_evals[0]
+    assert fill_evals[0].count(json.dumps(hostile)) == 1
+    # Neither the raw nor the JSON-encoded form reaches the raised
+    # message or any log line — even though the eval error's text
+    # embedded the whole fill script.
+    assert hostile not in str(exc.value)
+    assert json.dumps(hostile) not in str(exc.value)
+    assert hostile not in caplog.text
+    assert json.dumps(hostile) not in caplog.text
 
 
 async def test_credentials_twist_planted_leak_is_caught(caplog):
