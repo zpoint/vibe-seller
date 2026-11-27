@@ -284,7 +284,9 @@ class FakeCDP:
 
 
 def _page(url: str, tid: str) -> dict:
-    return {'type': 'page', 'url': url, 'targetId': tid}
+    # The REAL /json/list shape: the target id is named `id` (no
+    # `targetId` key) — the shape that hid the close-target bug.
+    return {'type': 'page', 'url': url, 'id': tid}
 
 
 async def _run_after_open(pages: list[dict]):

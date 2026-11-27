@@ -104,13 +104,24 @@ async def page_targets(opened: OpenedStore) -> list[dict] | None:
     return [t for t in targets if t.get('type') == 'page']
 
 
+def _target_id(target: dict) -> str:
+    """A target's id for Target.* commands.
+
+    The HTTP ``/json/list`` endpoint names it ``id`` (the CDP
+    Target.getTargets response calls the same value ``targetId``) —
+    take either. Found live: closing with the wrong key fails
+    silently and the workbench tab survives after_open.
+    """
+    return target.get('targetId') or target.get('id') or ''
+
+
 async def close_target(opened: OpenedStore, target: dict) -> None:
     await browser_ws_call(
-        opened, 'Target.closeTarget', {'targetId': target.get('targetId')}
+        opened, 'Target.closeTarget', {'targetId': _target_id(target)}
     )
 
 
 async def activate_target(opened: OpenedStore, target: dict) -> None:
     await browser_ws_call(
-        opened, 'Target.activateTarget', {'targetId': target.get('targetId')}
+        opened, 'Target.activateTarget', {'targetId': _target_id(target)}
     )
