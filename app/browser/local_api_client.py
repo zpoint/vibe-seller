@@ -84,6 +84,15 @@ call :meth:`api_call` — the same shared response path the built-ins
 use, with the rate limit, auth headers, logged-out check and
 no-payload-logging rules applied.
 
+The parametrized contract suite
+(`tests/unit/test_browser/local_api_contract.py`) runs every subclass
+against a fake local API serving its documented responses. A real
+vendor adds its adapter plus ONE fixture file
+`tests/unit/test_browser/local_api_vendors/<vendor_key>.py` exporting
+``CONTRACT = ContractFixture(...)`` (see that package's docstring) —
+it then gets every contract test for free and never edits the suite; a
+convention check fails the build until the fixture exists.
+
 Optional hooks: ``ensure_running`` (default: discover the port and
 probe; override to launch the client), ``after_open``,
 ``ensure_logged_in`` (default: raise LoginRequired when logged out — a
