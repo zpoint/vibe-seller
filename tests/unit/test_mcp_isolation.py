@@ -19,6 +19,7 @@ import pytest
 
 import app.ai.claude_backend as cb_mod
 from app.ai.claude_backend import AgentSession
+import app.ai.claude_backend_mcp as mcp_mod
 from app.config import AI_BOT_USER_ID, JWT_SECRET
 
 pytestmark = pytest.mark.unit
@@ -87,17 +88,17 @@ def _apply_common_mocks(monkeypatch, tmp_path, load_global_mcp=False):
     )
     # Let _register_vibe_seller_mcp run with mocked internals
     monkeypatch.setattr(
-        cb_mod,
+        mcp_mod,
         'read_mcp_config',
         lambda: {'mcpServers': {}},
     )
     monkeypatch.setattr(cb_mod, 'async_session', _make_fake_db_session())
     monkeypatch.setattr(
-        cb_mod,
+        mcp_mod,
         'atomic_write_json',
         lambda path, data: path.write_text(json.dumps(data)),
     )
-    monkeypatch.setattr(cb_mod, 'create_token', lambda *a: 'fake-token')
+    monkeypatch.setattr(mcp_mod, 'create_token', lambda *a: 'fake-token')
 
     return captured_cmd
 
@@ -152,7 +153,7 @@ class TestMcpCommandIsolation:
         captured_cmd = _apply_common_mocks(monkeypatch, tmp_path)
         # Make the registration itself fail
         monkeypatch.setattr(
-            cb_mod,
+            mcp_mod,
             'read_mcp_config',
             MagicMock(side_effect=RuntimeError('config unreadable')),
         )
@@ -182,9 +183,9 @@ class TestMcpToken:
 
     @pytest.mark.asyncio
     async def test_mcp_json_token_is_ai_bot(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(cb_mod, 'read_mcp_config', lambda: {})
+        monkeypatch.setattr(mcp_mod, 'read_mcp_config', lambda: {})
         monkeypatch.setattr(
-            cb_mod,
+            mcp_mod,
             'atomic_write_json',
             lambda path, data: path.write_text(json.dumps(data)),
         )

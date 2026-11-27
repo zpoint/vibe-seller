@@ -33,6 +33,7 @@ from app.ai.agent_proxy import (
     launch_settings,
 )
 from app.ai.claude_backend_hooks import _HookMixin
+from app.ai.claude_backend_mcp import _McpSdkMixin
 from app.ai.claude_backend_persist import _PersistMixin
 from app.ai.claude_backend_stream import _StreamMixin
 from app.ai.claude_backend_subagents import _SubagentMixin
@@ -45,7 +46,6 @@ from app.ai.claude_backend_utils import (
     apply_agent_venv_path as apply_agent_venv_path,  # re-export
     permission_mode_for_agent,
     resolve_claude_binary,
-    sdk_initialize_request,
     task_mcp_flags,
 )
 from app.ai.claude_isolation import (
@@ -62,14 +62,8 @@ from app.ai.profiles import (
     preset_id_for_env,
 )
 from app.ai.usage_meter import UsageMeter
-from app.auth import create_token
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
-from app.browser.manager import (
-    atomic_write_json,
-    read_mcp_config,
-)
 from app.browser.process_utils import kill_with_escalation, taskkill_tree
-from app.config import AI_BOT_USER_ID, BACKEND_PORT, BASE_DIR
 from app.custom_mcp import load_launch_servers
 from app.database import async_session
 from app.env_options import Options
@@ -85,7 +79,12 @@ logger = logging.getLogger(__name__)
 
 
 class AgentSession(
-    _HookMixin, _StreamMixin, _PersistMixin, _SubagentMixin, _TurnLifecycleMixin
+    _HookMixin,
+    _StreamMixin,
+    _PersistMixin,
+    _SubagentMixin,
+    _TurnLifecycleMixin,
+    _McpSdkMixin,
 ):
     """Manages a single claude -p subprocess for a task."""
 
@@ -481,56 +480,6 @@ class AgentSession(
             'type': 'user',
             'message': {'role': 'user', 'content': prompt},
         })
-
-    async def _send_sdk_initialize(self):
-        """Send SDK control request to configure hooks."""
-        await self._send_stdin(sdk_initialize_request('plan_then_execute'))
-
-    async def _send_sdk_initialize_auto(self):
-        """Send SDK hooks for auto mode (see sdk_initialize_request)."""
-        await self._send_stdin(sdk_initialize_request('auto'))
-
-    async def _register_vibe_seller_mcp(self, ws_dir):
-        """Register the vibe-seller MCP server in .mcp.json."""
-        try:
-            # Always the AI-bot identity (seeded by init_db), never an
-            # admin-role fallback: this token is handed to an agent
-            # process, and app/interactive_only.py keys on its role.
-            token = create_token(AI_BOT_USER_ID, 'ai_bot')
-
-            mcp_config = read_mcp_config()
-            servers = mcp_config.get('mcpServers', {})
-            active = {
-                name: cfg
-                for name, cfg in servers.items()
-                if name != 'vibe-seller'  # re-added below
-            }
-            active['vibe-seller'] = {
-                'command': sys.executable,
-                'args': [
-                    '-m',
-                    'app.mcp_server',
-                    '--token',
-                    token,
-                    '--port',
-                    str(BACKEND_PORT),
-                    '--task-id',
-                    self.task_id,
-                ],
-                'cwd': str(BASE_DIR),
-            }
-            mcp_config['mcpServers'] = active
-            atomic_write_json(ws_dir / '.mcp.json', mcp_config)
-        except Exception:
-            logger.exception('Failed to register vibe-seller MCP')
-            # Fallback: write empty config so --strict-mcp-config
-            # still blocks global servers.
-            try:
-                fallback = ws_dir / '.mcp.json'
-                if not fallback.exists():
-                    atomic_write_json(fallback, {'mcpServers': {}})
-            except Exception:
-                logger.exception('Fallback .mcp.json write also failed')
 
     async def _send_stdin(self, msg: dict, *, label: str = 'stdin') -> bool:
         """Write a JSON message to stdin; True = reached a live pipe
