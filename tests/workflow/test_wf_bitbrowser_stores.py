@@ -43,9 +43,9 @@ def _restore_client_methods():
 async def test_bitbrowser_lists_stores_without_any_credentials(
     admin_client,
 ):
-    """The sign-in-once shape: nothing to configure, no stored
-    credentials — the picker lists profiles straight from the
-    (signed-in) client."""
+    """The sign-in-once shape (a `single` vendor with no credential
+    fields): nothing to configure, no stored credentials — the picker
+    lists profiles straight from the (signed-in) client."""
     _fake_client_behavior(
         stores=[
             StoreRef(
@@ -68,12 +68,10 @@ async def test_bitbrowser_lists_stores_without_any_credentials(
     assert [s['ref'] for s in body] == ['100000000001', '100000000002']
     assert body[0]['name'] == '#1 demo-store-one'
     assert body[1]['available'] is False  # greyed in the picker
-    # 'single' with no fields: the credentials route answers (the
-    # spec split), but there is nothing to configure — configured
-    # stays True with zero fields and no secret is ever returned.
+    # 'single' with no fields (the sign-in-once shape): the generic
+    # credential routes refuse a vendor with nothing to configure.
     r = await admin_client.get('/api/browser-vendors/bitbrowser/credentials')
-    assert r.status_code == 200
-    assert r.json() == {'configured': True}
+    assert r.status_code == 400
 
 
 async def test_bitbrowser_store_binds_by_profile_ref(admin_client):

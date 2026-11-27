@@ -23,8 +23,6 @@ from app.browser.launch_guards import (
     start_backend_bounded,
 )
 from app.browser.vendors import (
-    CARDINALITY_NONE,
-    CARDINALITY_SINGLE,
     PICKER_GENERIC,
     vendor_spec,
 )
@@ -189,14 +187,12 @@ async def inject_vendor_store_config(
     ``browser_oauth`` column into ``browser_ref``, the value
     ``open_store`` receives. On top of that:
 
-    - a ``CARDINALITY_SINGLE`` vendor has one machine login shared by
-      all of its stores — its stored credentials (encrypted) are
-      injected so a logged-out client can be auto-logged-in instead of
-      failing the task;
-    - a ``CARDINALITY_NONE`` vendor stores no credentials (the user
-      signs in once in the client; the local API acts as that login),
-      so only the client-path override (when the spec declares one) is
-      injected.
+    - a vendor that DECLARES ``credential_fields`` gets its stored
+      machine login injected (encrypted; so a logged-out client can be
+      auto-logged-in instead of failing the task);
+    - a credential-less vendor (empty ``credential_fields`` — the user
+      signs in once in the client; the local API acts as that login)
+      gets only the client-path override, when the spec declares one.
 
     Ziniao keeps its own branch in the manager (per-account
     credentials, custom picker); plain backends inject nothing. See
@@ -207,8 +203,10 @@ async def inject_vendor_store_config(
         return
     if store.browser_oauth and spec.lists_profiles:
         browser_config['browser_ref'] = store.browser_oauth
-    if spec.account_cardinality in (CARDINALITY_SINGLE, CARDINALITY_NONE):
+    if spec.credential_fields:
         await vendor_creds.inject_vendor_config(browser_config, db, spec)
+    elif spec.client_path_setting:
+        await vendor_creds.inject_client_path(browser_config, db, spec)
 
 
 class BrowserManager:

@@ -1,6 +1,18 @@
 import { api } from '../api'
 import { LONG_TIMEOUT_MS } from '../lib/requestDeadline'
 import { fileKind, isRawKind } from '../lib/fileKind'
+import { sendEvent } from '../lib/telemetry'
+import { FrontendEvent } from '../lib/telemetryEvents'
+
+export type WsSaveVia = 'button' | 'shortcut'
+
+export function wsFileArea(path: string): string {
+  const top = path.split('/')[0]
+  if (top === 'knowledge') return 'knowledge'
+  if (top === 'stores') return 'store'
+  if (top === '.claude') return 'skill'
+  return 'other'
+}
 
 interface WsFileDeps {
   t: (key: string, opts?: Record<string, unknown>) => string
@@ -44,13 +56,13 @@ export function useWsFiles(d: WsFileDeps) {
   // Click handlers below catch and SAY what failed: an uncaught rejection
   // is silent to the user and goes to exception telemetry instead.
   const failed = (key: string, err: unknown) => alert(d.t(key, { error: err instanceof Error ? err.message : String(err) }))
-  const saveWsFile = async () => { if (!d.wsSelectedFile || d.wsSaving) return; d.setWsSaving(true); try { await api.put(`/api/workspace/file?path=${encodeURIComponent(d.wsSelectedFile)}`, { content: d.wsEditorContent }); d.setWsFileContent(d.wsEditorContent); d.setWsEditorDirty(false); await d.loadWsStructured() } catch (err) { failed('workspace.saveFailed', err) } finally { d.setWsSaving(false) } }
+  const saveWsFile = async (via: WsSaveVia = 'button') => { if (!d.wsSelectedFile || d.wsSaving) return; d.setWsSaving(true); try { await api.put(`/api/workspace/file?path=${encodeURIComponent(d.wsSelectedFile)}`, { content: d.wsEditorContent }); sendEvent(FrontendEvent.KNOWLEDGE_FILE_SAVED, { via, area: wsFileArea(d.wsSelectedFile) }); d.setWsFileContent(d.wsEditorContent); d.setWsEditorDirty(false); await d.loadWsStructured() } catch (err) { failed('workspace.saveFailed', err) } finally { d.setWsSaving(false) } }
   const syncProjectKnowledge = async () => { d.setWsSyncing(true); try { await api.post('/api/sync/knowledge/run', undefined, { timeoutMs: LONG_TIMEOUT_MS }); await d.loadWsStructured(); try { const s = await api.get('/api/sync/status') as { jobs?: Array<Record<string, unknown>> }; d.setWsSyncMeta(s.jobs?.find(j => j.name === 'knowledge') ?? null) } catch { /* ignore */ } } catch { /* ignore */ }; d.setWsSyncing(false) }
   const syncBuiltinSkills = async () => { d.setWsSkillsSyncing(true); try { await api.post('/api/sync/skills/run', undefined, { timeoutMs: LONG_TIMEOUT_MS }); await d.loadWsStructured() } catch { /* ignore */ }; d.setWsSkillsSyncing(false) }
   const loadFileHistory = async (path: string) => { try { const data = await api.get(`/api/workspace/file/history?path=${encodeURIComponent(path)}`) as { commits: Array<{sha: string, message: string, date: string, author: string}> }; d.setWsFileHistory(data.commits || []) } catch { d.setWsFileHistory([]) } }
   const previewVersion = async (path: string, sha: string) => { try { const data = await api.get(`/api/workspace/file/version?path=${encodeURIComponent(path)}&commit=${encodeURIComponent(sha)}`) as { content: string }; d.setWsPreviewCommit(sha); d.setWsPreviewContent(data.content) } catch { /* ignore */ } }
   const resetFileToVersion = async (path: string, sha: string) => { if (!confirm(d.t('workspace.resetConfirm', { sha }))) return; try { await api.post('/api/workspace/file/reset', { path, commit: sha }); d.setWsPreviewCommit(null); d.setWsPreviewContent(''); await openWsFile(path); await loadFileHistory(path) } catch { /* ignore */ } }
-  const createWsFile = async (section: string, fileName: string) => { if (!fileName.trim()) return; const name = fileName.trim().endsWith('.md') ? fileName.trim() : fileName.trim() + '.md'; const path = section === 'knowledge' ? `knowledge/${name}` : `${section}/${name}`; try { await api.put(`/api/workspace/file?path=${encodeURIComponent(path)}`, { content: `# ${name.replace('.md', '')}\n\n` }); await d.loadWsStructured() } catch (err) { failed('workspace.createFailed', err); return } await openWsFile(path); d.setWsNewFileName(''); d.setWsNewFileSection(null) }
+  const createWsFile = async (section: string, fileName: string) => { if (!fileName.trim()) return; const name = fileName.trim().endsWith('.md') ? fileName.trim() : fileName.trim() + '.md'; const path = section === 'knowledge' ? `knowledge/${name}` : `${section}/${name}`; try { await api.put(`/api/workspace/file?path=${encodeURIComponent(path)}`, { content: `# ${name.replace('.md', '')}\n\n` }); sendEvent(FrontendEvent.KNOWLEDGE_FILE_CREATED, { area: wsFileArea(path) }); await d.loadWsStructured() } catch (err) { failed('workspace.createFailed', err); return } await openWsFile(path); d.setWsNewFileName(''); d.setWsNewFileSection(null) }
   const deleteWsFile = async (path: string) => { try { await api.del(`/api/workspace/file?path=${encodeURIComponent(path)}`); if (d.wsSelectedFile === path) { d.setWsSelectedFile(null); d.setWsFileContent(''); d.setWsEditorContent(''); d.setWsEditorDirty(false) }; await d.loadWsStructured() } catch (err) { failed('workspace.deleteFailed', err) } }
 
   return { openWsFile, saveWsFile, syncProjectKnowledge, syncBuiltinSkills, loadFileHistory, previewVersion, resetFileToVersion, createWsFile, deleteWsFile }

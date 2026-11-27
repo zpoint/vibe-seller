@@ -64,6 +64,20 @@ async def credentials_status(db: AsyncSession, spec: BrowserVendorSpec) -> dict:
     return out
 
 
+async def inject_client_path(
+    cfg: dict, db: AsyncSession, spec: BrowserVendorSpec
+) -> None:
+    """The spec's optional install-path override (``client_path``).
+
+    Split out for credential-less vendors (R8): they store nothing, but
+    a spec that declares a path override still gets it injected.
+    """
+    if spec.client_path_setting:
+        path = await _get(db, spec.client_path_setting)
+        if path:
+            cfg['client_path'] = path
+
+
 async def inject_vendor_config(
     cfg: dict, db: AsyncSession, spec: BrowserVendorSpec
 ) -> None:
@@ -74,10 +88,7 @@ async def inject_vendor_config(
     Each field lands under ``<vendor>_<field>``; the optional install-path
     override (``client_path_setting``) lands under ``client_path``.
     """
-    if spec.client_path_setting:
-        path = await _get(db, spec.client_path_setting)
-        if path:
-            cfg['client_path'] = path
+    await inject_client_path(cfg, db, spec)
     for f in spec.credential_fields:
         value = await _get(db, _setting_key(spec, f))
         if not value:

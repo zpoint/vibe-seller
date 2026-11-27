@@ -1,11 +1,11 @@
 ---
-description: AI automation framework for cross-border sellers — locally deployed agents drive Ziniao or Chrome via CDP for ad tuning, listing launches, report exports and inventory checks, with any LLM provider.
+description: AI automation framework for cross-border sellers — locally deployed agents drive anti-detect browsers such as Ziniao, Yuehulian, BitBrowser, AdsPower and Wenmai, or Chrome, via CDP for ad tuning, listing launches, report exports and inventory checks, with any LLM provider.
 ---
 
 <h1 align="center">Vibe Seller</h1>
 
 <p align="center">
-  <b>AI automation framework for cross-border sellers (supports Amazon, Noon, Mercado Libre, Qianniu and more; Ziniao, Yuehulian, Chrome and other browsers). Freely connect any LLM.</b><br/>
+  <b>AI automation framework for cross-border sellers (supports Amazon, Noon, Mercado Libre, Qianniu and more; Ziniao, Yuehulian, BitBrowser, AdsPower, Wenmai, Chrome and other browsers). Freely connect any LLM.</b><br/>
   Runs on macOS, Linux, or Windows (native installer). Local-first — code on your machine, data on your disk. Works with Claude, DeepSeek, GLM, Qwen, Kimi, MiniMax — any Anthropic-compatible provider.
 </p>
 
@@ -39,7 +39,7 @@ description: AI automation framework for cross-border sellers — locally deploy
 ## What is Vibe Seller?
 
 A local-first **browser-automation framework**. AI agents drive your
-real browser — Ziniao for fingerprint isolation, or plain Chrome —
+store's real browser
 through CDP (Chrome's low-level remote-control protocol), the same
 way you'd click through pages yourself. Ad tuning, listing launches, inventory checks, invoicing,
 returns, warehouse setup, logistics lookup — whatever you can do in
@@ -47,7 +47,7 @@ a browser, the agent can do too.
 
 Each store gets its own agent — **think of it as hiring a different
 ops person for each store**. The Store A agent only sees Store A's
-profile, has its own memory and workspace, can't touch the other
+browser profile, has its own memory and workspace, can't touch the other
 stores' agents.
 
 ```mermaid
@@ -76,7 +76,7 @@ You and your team open the web UI from any device on the same LAN.
 ## Why Vibe Seller?
 
 Compared to existing automation tools, Vibe Seller is built around
-what cross-border sellers actually need and what today's AI models
+what sellers actually need and what today's AI models
 can actually do well: AI-driven by design, with built-in Skills,
 per-store isolation, and fully local deployment. Browser control
 runs on [browser-use](https://github.com/browser-use/browser-use)
@@ -87,17 +87,19 @@ scratch.
 - **Batteries-included, no hand-holding.** Amazon (every marketplace),
   Noon, and more ship with built-in Skills for the jobs sellers
   actually do — report / statement export, listing creation & updates,
-  ad tuning. Create a task and the system opens the browser (Ziniao or
-  Chrome) and the agent operates it directly — usually right on the
+  ad tuning. Create a task and the system opens that store's browser
+  and the agent operates it directly — usually right on the
   first try, no step-by-step guidance needed.
-- **Native Ziniao control.** CDP, not Playwright on vanilla Chrome,
-  not UI-coordinate clicks. Lower risk-control risk, more stable.
-- **Multi-browser by design.** Ziniao, Yuehulian and plain Chrome are
-  all first-class backends — pick per store. Downloads, setup and how to
-  choose: [Browsers](browsers.en.md).
+- **Any browser, controlled natively.** Anti-detect browsers such as
+  **Ziniao, Yuehulian, BitBrowser, AdsPower and Wenmai**, and **plain Chrome**,
+  are all first-class backends — pick per store. The agent drives the
+  logged-in store profile over CDP — not Playwright on vanilla Chrome,
+  not UI-coordinate clicks — so risk-control risk stays low and runs
+  stay stable. Downloads, setup and how to choose:
+  [Browsers](browsers.en.md).
 - **Multi-LLM by design.** Built on top of the Claude Code CLI, so
-  any Anthropic-compatible provider works — Claude, DeepSeek, Kimi,
-  MiniMax, GLM, Qwen. Switch in Settings, no code changes. Your key,
+  any Anthropic-compatible provider works — **Claude, DeepSeek, Kimi,
+  MiniMax, GLM, Qwen**. Switch in Settings, no code changes. Your key,
   your bill.
 - **No SaaS lock-in.** Code on your machine, data on your disk, no
   account required.
@@ -107,6 +109,12 @@ scratch.
   data, SOPs, accumulated knowledge. Store A on Amazon US with its
   own listing strategy, Store B on Noon EG with totally different
   SOPs, Store C on Shopify DTC — they coexist without cross-talk.
+- **Every store remembers.** A built-in memory system gives each store
+  its own memory and knowledge: paths that worked, store rules, the way
+  you taught it. The next run follows them, so it gets smoother over
+  time; rules shared across stores live in common knowledge. It is all
+  plain markdown on your machine that you can read and edit — see
+  [Knowledge & Skills](knowledge.en.md).
 
 ## Install
 
@@ -135,8 +143,8 @@ illustrated walkthrough is the [Quickstart](quickstart.en.md):
    provider, paste its API key and click **Create**. No key yet? DeepSeek
    is the easiest first choice; how to get one from each provider:
    [Configure AI Models](llm-keys.en.md);
-2. **Add a store**: click **+ New Store**. If your store uses Ziniao or
-   Yuehulian, pick that browser; otherwise pick Chrome. Using Ziniao? Its
+2. **Add a store**: click **+ New Store**. If your store uses Ziniao,
+   Yuehulian, BitBrowser, AdsPower or Wenmai, pick that browser; otherwise pick Chrome. Using Ziniao? Its
    main account has to grant access first; see
    [Ziniao: Prerequisites](ziniao.en.md#prerequisites-developer-mode-and-webdriver-login);
 3. **Create a task**: select the store, click **+ New Task**, say what you
@@ -151,7 +159,7 @@ email, send group chat messages (WeCom / DingTalk / Feishu / Slack), write to Ti
 Google Docs. Anything that fits *observe → decide → act* — whether
 a browser is involved or not.
 
-A few cross-border scenarios it's commonly used for:
+A few things sellers commonly use it for:
 
 | Task | What happens | Example |
 |---|---|---|
@@ -213,7 +221,7 @@ review next week" todo into TickTick. Start at the
 
 Any marketplace you can work in a browser — Amazon, Noon, Mercado Libre, Qianniu (Taobao /
 Tmall), AliExpress, Shopee, TikTok Shop… **If it runs in a browser, Vibe Seller can work it.**
-At its core it is **an AI agent + the Ziniao browser (or plain Chrome) + built-in tools**: the
+At its core it is **an AI agent + the store's browser (an anti-detect browser such as Ziniao, Yuehulian, BitBrowser, AdsPower or Wenmai, or plain Chrome) + built-in tools**: the
 agent opens the store's back office and storefront the way you would — clicking, reading,
 filling in forms, downloading.
 
@@ -226,7 +234,7 @@ Amazon and Noon get the most built-in tools:
 - **Qianniu**: built-in Skills for ads and listings.
 
 Other platforms have no dedicated Skill, and the agent still does back-office and storefront
-work through Ziniao or a plain browser. The first runs may take a few extra tries; the paths
+work through the store's browser. The first runs may take a few extra tries; the paths
 that work go into that store's knowledge, so the next run follows them and it settles down
 after a few rounds. You can also write your own steps as a Skill and import it (see
 [Import an existing Skill](knowledge.en.md#import-an-existing-skill)), or polish it and

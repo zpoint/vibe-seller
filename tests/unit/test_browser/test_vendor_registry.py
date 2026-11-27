@@ -125,6 +125,59 @@ def test_plain_kind_is_not_antidetect(fake_vendor):
 # ── spec registration through the plugin context ────────────────────
 
 
+def test_r8_registration_validates_the_account_rule():
+    """R8: an anti-detect spec cannot be 'none'; 'multi' needs an
+    allowlist entry; a plain spec must be 'none' — refused at
+    registration, not misbehaved at runtime."""
+    ctx = ExtensionContext()
+    with pytest.raises(ValueError, match='cannot be'):
+        ctx.register_browser_backend(
+            'badnone', _FakeBackend, _spec(key='badnone', cardinality='none')
+        )
+    with pytest.raises(ValueError, match='MULTI_ACCOUNT_VENDORS'):
+        ctx.register_browser_backend(
+            'badmulti', _FakeBackend, _spec(key='badmulti', cardinality='multi')
+        )
+    with pytest.raises(ValueError, match='plain browser'):
+        ctx.register_browser_backend(
+            'badplain',
+            _FakeBackend,
+            BrowserVendorSpec(
+                key='badplain',
+                display_name_en='Bad',
+                display_name_zh='坏',
+                kind='plain',
+            ),
+        )
+
+
+def test_r8_registration_accepts_the_legal_shapes():
+    """Twist: the R8-legal shapes register — 'single' with or without
+    credential fields, plain 'none', and ziniao's allowlisted
+    'multi'."""
+    ctx = ExtensionContext()
+    ctx.register_browser_backend('ok1', _FakeBackend, _spec(key='ok1'))
+    ctx.register_browser_backend(
+        'ok2',
+        _FakeBackend,
+        _spec(key='ok2', cardinality='single', fields=()),
+    )
+    ctx.register_browser_backend(
+        'ok3',
+        _FakeBackend,
+        BrowserVendorSpec(
+            key='ok3',
+            display_name_en='Plain',
+            display_name_zh='普通',
+            kind='plain',
+            account_cardinality='none',
+        ),
+    )
+    assert 'ok1' in ctx.vendor_specs
+    assert 'ok2' in ctx.vendor_specs
+    assert 'ok3' in ctx.vendor_specs
+
+
 def test_spec_key_must_match_the_registration_name():
     """A5: a spec registered under a different name would mean two keys
     for one vendor (routes key on one, the manager on the other) —
@@ -263,13 +316,13 @@ async def test_store_bound_by_ref_reaches_browser_ref(
     assert cfg['browser_ref'] == 'fv-ref-9'
 
 
-async def test_none_cardinality_vendor_gets_the_ref_but_no_creds(
+async def test_credential_less_vendor_gets_the_ref_but_no_creds(
     fake_vendor, async_db_session
 ):
-    """Addendum 2 item 1: a 'none' vendor (no stored credentials; the
-    local API acts as the login) still binds its profile ref — and
-    injects nothing else (the credential loop is empty for it)."""
-    fake_vendor(_spec(cardinality='none'))
+    """R8 / addendum 2 item 1: a credential-less vendor ('single' with
+    empty credential_fields; the local API acts as the login) still
+    binds its profile ref — and injects nothing else."""
+    fake_vendor(_spec(cardinality='single', fields=()))
     cfg: dict = {}
     await inject_vendor_store_config(
         cfg, _StoreRow('fakevendor', 'fv-ref-4'), async_db_session

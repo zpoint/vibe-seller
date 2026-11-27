@@ -95,11 +95,15 @@ export function VendorSection(props: {
     return t('browserVendor.unavailable.other', { defaultValue: '' })
   }
 
-  // A 'single' vendor has a machine login to configure (the account row
-  // + form); a 'none' vendor has none — the user signs in once in the
-  // client and the local API acts as that login — so its stores load
-  // straight away.
-  const needsAccount = v.account_cardinality === 'single'
+  // Two separate concepts (R8): whether the vendor STORES credentials
+  // (the machine login to configure — the account row + form), and the
+  // account rule. A credential-less vendor (empty credential_fields —
+  // the user signs in once in the client, the local API acts as that
+  // login) has no account row and loads its stores straight away; it
+  // is still 'single' (one account per machine) — that just has
+  // nothing to refuse, since nothing is stored.
+  const hasCredentialFields = v.credential_fields.length > 0
+  const needsAccount = v.account_cardinality === 'single' && hasCredentialFields
 
   const refresh = async (thenFetch = false) => {
     try {
@@ -110,12 +114,12 @@ export function VendorSection(props: {
       if (thenFetch && s.configured) p.fetchStores()
     } catch { /* unsupported / not configured — leave null */ }
   }
-  // Auto-load stores when an account is configured — like ziniao fetching
-  // profiles on account-select; no separate "Load" button. A vendor
-  // without an account row fetches on mount directly.
+  // Auto-load stores when a stored login is configured — like ziniao
+  // fetching profiles on account-select; no separate "Load" button. A
+  // vendor that stores nothing fetches on mount directly.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (needsAccount) void refresh(true)
+    if (hasCredentialFields) void refresh(true)
     else void p.fetchStores()
   }, [v.key])
 
@@ -225,7 +229,7 @@ export function VendorSection(props: {
           <button type="button" onClick={p.fetchStores} disabled={p.fetching} className="shrink-0 text-[11px] text-indigo-600 hover:underline disabled:opacity-50">{t('common.refresh')}</button>
           {v.docs.errors && <DocsHelpLink urls={v.docs.errors} />}
         </div>
-      ) : (v.account_cardinality === 'none' || status?.configured) && p.fetching ? (
+      ) : (!hasCredentialFields || status?.configured) && p.fetching ? (
         <div className="flex flex-col items-center justify-center py-6 px-4 bg-indigo-50 rounded-lg border border-indigo-200">
           <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
           <p className="text-sm font-medium text-indigo-700">{vt('Loading')}</p>

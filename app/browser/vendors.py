@@ -20,18 +20,23 @@ Identity / UI:
     ``platforms`` (``get_platform()`` values), ``selectable`` (offered in
     the create-store form; ``winchrome`` is deployment-set, not selected).
 
-Accounts / credentials (machine scope):
-    ``account_cardinality`` — ``'none'`` (no login to configure, chrome),
-    ``'single'`` (one machine login shared by all of the vendor's stores)
-    or ``'multi'`` (an account list with add/edit/delete,
-    ziniao's shape — supported by the field so a later ziniao migration
-    needs no spec redesign). ``'single'`` vendors get the generic
-    credential routes and the machine-scope storage
-    (:mod:`app.browser.vendor_creds`); ``'multi'`` means per-account rows,
-    a sibling route family that does not exist yet.
-    ``credential_fields`` — the form + storage schema. ``profiles_scope``
-    — profiles list per login (``'login'``) or per selected account
-    (``'account'``).
+Accounts / credentials (machine scope) — two SEPARATE concepts (R8):
+    ``account_cardinality`` is the ACCOUNT RULE — ``'single'`` (one
+    account per machine; the default and the only shape for anti-detect
+    vendors whose API cannot serve several accounts at once) or
+    ``'multi'`` (the API takes the account on every call — an account
+    list with add/edit/delete, ziniao's shape, allowed only with a
+    ``MULTI_ACCOUNT_VENDORS`` entry citing the vendor's API docs).
+    ``'none'`` is for PLAIN browsers only (chrome / winchrome: no
+    account concept at all). Validated at registration
+    (:func:`app.browser.vendor_rules.validate_spec`).
+    ``credential_fields`` is whether anything is STORED — the form +
+    storage schema (:mod:`app.browser.vendor_creds`). An empty tuple
+    means nothing is stored: the user signs in in the client and the
+    local API acts as that login (a credential-less vendor is
+    ``'single'`` + empty fields — it gets the account-less picker, not
+    the credentials routes). ``profiles_scope`` — profiles list per
+    login (``'login'``) or per selected account (``'account'``).
 
 Picker / wiring:
     ``lists_profiles`` (the store picker lists profiles), ``picker_kind``
@@ -60,21 +65,22 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+# Re-exported for the vendor modules and tests that import the values
+# from here (`... as ...` marks a deliberate re-export).
+from app.browser.vendor_rules import (
+    CARDINALITY_MULTI as CARDINALITY_MULTI,
+    CARDINALITY_NONE as CARDINALITY_NONE,
+    CARDINALITY_SINGLE as CARDINALITY_SINGLE,
+    KIND_ANTIDETECT as KIND_ANTIDETECT,
+    KIND_PLAIN as KIND_PLAIN,
+    MULTI_ACCOUNT_VENDORS as MULTI_ACCOUNT_VENDORS,
+    validate_spec as validate_spec,
+)
 from app.plugins import get_extension_context
 
 if TYPE_CHECKING:
     from app.browser.inject.client import InjectClient
     from app.browser.win_app_locator import WinAppSpec
-
-# ── field values ─────────────────────────────────────────────────────
-
-KIND_ANTIDETECT = 'antidetect'
-KIND_PLAIN = 'plain'
-
-CARDINALITY_NONE = 'none'  # no stored credentials: the local API
-# acts as the login (the user signs in once in the client)
-CARDINALITY_SINGLE = 'single'  # one machine login
-CARDINALITY_MULTI = 'multi'  # account list, add/edit/delete (ziniao)
 
 PROFILES_LOGIN = 'login'  # profiles visible to the machine login
 PROFILES_ACCOUNT = 'account'  # profiles of the selected account
@@ -134,7 +140,9 @@ class BrowserVendorSpec:
     kind: str = KIND_ANTIDETECT
     platforms: frozenset[str] = ALL_PLATFORMS
     selectable: bool = True
-    account_cardinality: str = CARDINALITY_NONE
+    # The account rule. Anti-detect vendors default to SINGLE (R8);
+    # plain browsers set NONE explicitly (validated at registration).
+    account_cardinality: str = CARDINALITY_SINGLE
     credential_fields: tuple[VendorCredentialField, ...] = ()
     lists_profiles: bool = False
     profiles_scope: str = PROFILES_LOGIN

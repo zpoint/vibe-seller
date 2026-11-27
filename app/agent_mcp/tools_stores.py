@@ -12,9 +12,8 @@ Payload parity with the web UI (read from
 
 * create sends ``name``, ``browser_backend``, and — only when
   relevant — ``browser_config`` (chrome proxy), ``ziniao_account_id``
-  and ``browser_oauth`` (ziniao). Platforms/countries default
-  server-side (``['amazon']`` / ``['US']``), exactly as they do for
-  the UI, which does not send them either;
+  and ``browser_oauth`` (ziniao). Platforms/countries are empty
+  unless given, as for the UI, which does not send them;
 * update sends only the fields the ``StoreUpdate`` schema honours
   (the UI also posts ``browser_backend``, which the route ignores —
   the tool does not offer it, so no argument is silently dropped);
@@ -91,13 +90,15 @@ _ACTIONS = ('list', 'get', 'create', 'update', 'delete', 'bookmarks')
                 'type': ['array', 'null'],
                 'items': {'type': 'string'},
                 'description': (
-                    "Marketplaces (create/update). Default ['amazon']."
+                    'Marketplaces (create/update). Empty if not given.'
                 ),
             },
             'countries': {
                 'type': ['array', 'null'],
                 'items': {'type': 'string'},
-                'description': "Countries (create/update). Default ['US'].",
+                'description': (
+                    'Countries (create/update). Empty if not given.'
+                ),
             },
             'platform_countries': {
                 'type': ['object', 'null'],
@@ -147,8 +148,8 @@ async def manage_store(ctx: McpContext, args: dict) -> dict:
             browser_config=args.get('browser_config') or {},
             ziniao_account_id=opt_str(args, 'ziniao_account_id'),
             browser_oauth=opt_str(args, 'browser_oauth'),
-            platforms=args.get('platforms') or ['amazon'],
-            countries=args.get('countries') or ['US'],
+            platforms=args.get('platforms') or [],
+            countries=args.get('countries') or [],
             platform_countries=args.get('platform_countries') or {},
         )
         store = await call_route(
