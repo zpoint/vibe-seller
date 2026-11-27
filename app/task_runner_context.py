@@ -113,10 +113,18 @@ def _get_platform_sites() -> dict[str, dict[str, str]]:
         for path in knowledge_dir.glob('*-sites.md'):
             platform = path.stem.rsplit('-sites', 1)[0]
             sites: dict[str, str] = {}
+            # The knowledge files are UTF-8 (site names carry
+            # Chinese text). ``read_text()`` without an encoding
+            # decodes with the process LOCALE codec, which on
+            # native Windows (zh-CN) is GBK — every store task
+            # then died at prompt assembly with
+            # ``UnicodeDecodeError: 'gbk' codec``. The CLI's
+            # daemon env sets PYTHONUTF8=1, but the read must not
+            # depend on the launcher: name the encoding.
             for m in re.finditer(
                 r'\|\s*[^|]+\|\s*(\w+)\s*\|\s*`([^`]+)`'
                 r'\s*\|',
-                path.read_text(),
+                path.read_text(encoding='utf-8'),
             ):
                 sites[m.group(1)] = m.group(2)
             if sites:
