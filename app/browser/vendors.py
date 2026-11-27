@@ -159,9 +159,9 @@ class BrowserVendorSpec:
     # vendor's close_store(ref) when the kernel it opened is gone —
     # that call closes whatever kernel the profile has NOW, including
     # one the user opened by hand. Only a vendor with this flag may
-    # the stale path close (e.g. yuehulian: its client keeps listing
-    # a closed-crashed env as Opened, and only its own close clears
-    # that state — see its spec for the reason).
+    # the stale path close (the declaring vendor's own module carries
+    # the reason: its client keeps listing a closed-crashed env as
+    # Opened, and only its own close clears that state).
     reopens_hand_opened: bool = False
 
     def credential_field(self, key: str) -> VendorCredentialField | None:
