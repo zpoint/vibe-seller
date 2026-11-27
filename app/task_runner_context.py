@@ -12,7 +12,8 @@ from app import ads_routing
 from app.ai.unseen_images import agent_note, profile_model, unseen_images
 from app.browser.base import antidetect_display_name, is_antidetect
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
-from app.config import BROWSER_USE_BIN_DIR, DOWNLOADS_DIR
+from app.browser.downloads import store_downloads_dir
+from app.config import BROWSER_USE_BIN_DIR
 from app.database import async_session
 from app.email.access import (
     MailboxAccess,
@@ -152,7 +153,7 @@ def build_store_context(
             f'Your store slug is `{slug}` — this exact string, '
             f'NOT the display name. The wrapper is '
             f'`{BROWSER_USE_BIN_DIR / slug / "browser-use"}` and browser '
-            f'downloads land in `{DOWNLOADS_DIR / slug}/` — also '
+            f'downloads land in `{store_downloads_dir(slug)}/` — also '
             f'`$VIBE_STORE_DOWNLOADS` in your shell (`ls -lt` it after '
             f'triggering a download). These are the RESOLVED paths for '
             f'this server — use them or `$VIBE_STORE_DOWNLOADS`, never a '

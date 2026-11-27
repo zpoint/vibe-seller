@@ -26,16 +26,28 @@ logger = logging.getLogger(__name__)
 def _normalize_dl_path(path: str) -> str:
     """Canonical form for comparing a downloadPath with the pin.
 
-    Only used to decide whether to LOG a rewrite: any mismatch is
-    rewritten to the pinned dir regardless, so this never needs to be
-    exact about symlinks (never ``resolve()`` — the winchrome pin is
-    the Windows-side path while the agent sees the WSL symlink, and
-    resolving either side would make equal-in-effect paths compare
-    unequal, which only costs a redundant log line). ``expanduser`` +
-    ``normpath`` cover the spellings an agent plausibly types
-    (``~/...``, trailing slash).
+    ``expanduser`` + ``normpath`` cover the spellings an agent
+    plausibly types (``~/...``, trailing slash). Never ``resolve()``:
+    the winchrome pin is the Windows-side path while the agent sees
+    the WSL symlink, and resolving either side would make
+    equal-in-effect paths compare unequal.
     """
     return os.path.normpath(os.path.expanduser(path))
+
+
+def _dl_path_inside(requested: str, pinned: str) -> bool:
+    """True when *requested* is the pin or lives under it.
+
+    This is the single-install no-regression rule: a flow that points
+    downloads at a SUBDIRECTORY of the pin and waits for the file
+    exactly there must keep working — only a path outside the pin is
+    rewritten. Comparison is on normalized forms (see
+    ``_normalize_dl_path``), with ``normcase`` so a Windows client's
+    case/backslash spelling of the same dir counts as inside.
+    """
+    req = os.path.normcase(_normalize_dl_path(requested))
+    pin = os.path.normcase(_normalize_dl_path(pinned))
+    return req == pin or req.startswith(pin + os.sep)
 
 
 class _RoutingMixin:
@@ -250,9 +262,16 @@ class _RoutingMixin:
         # Both spellings exist in CDP: `Browser.setDownloadBehavior`
         # (browser-wide, used by the harness watchdog) and
         # `Page.setDownloadBehavior` (per-page, which an agent used to
-        # override the pin). Any downloadPath outside the pinned dir is
-        # REWRITTEN to the pin, not refused: a refused CDP error fails
-        # the agent mid-flow, and a failed agent improvises (the
+        # override the pin).
+        #
+        # INSIDE the pin is LEFT AS-IS: a legitimate flow may point
+        # downloads at the pin itself or at a SUBDIRECTORY of it
+        # (a per-run subfolder) and then wait for the file exactly
+        # there — rewriting that would move the file away from where
+        # the flow's "file landed" check looks (the single-install
+        # no-regression rule). Only a path OUTSIDE the pin is rewritten,
+        # and rewritten to the pin — not refused: a refused CDP error
+        # fails the agent mid-flow, and a failed agent improvises (the
         # incident's whole failure class); the rewrite keeps the
         # download where the agent's system prompt says it lands, while
         # the log line below records the attempt.
@@ -263,18 +282,19 @@ class _RoutingMixin:
         ):
             params = msg.get('params', {})
             requested = params.get('downloadPath')
-            if requested is not None:
+            if requested is not None and not _dl_path_inside(
+                requested, str(self.download_dir)
+            ):
                 pinned = str(self.download_dir)
-                if _normalize_dl_path(requested) != _normalize_dl_path(pinned):
-                    logger.info(
-                        'CDPMuxProxy: client %s %s downloadPath %s is '
-                        'outside the pinned dir %s — rewritten',
-                        short_cid(client_id),
-                        method,
-                        requested,
-                        pinned,
-                    )
-                    params['downloadPath'] = pinned
+                logger.info(
+                    'CDPMuxProxy: client %s %s downloadPath %s is '
+                    'outside the pinned dir %s — rewritten',
+                    short_cid(client_id),
+                    method,
+                    requested,
+                    pinned,
+                )
+                params['downloadPath'] = pinned
 
         # --- Block cross-client Target.closeTarget ---
         if method == 'Target.closeTarget':

@@ -8,6 +8,7 @@ removed or broken in the production code path.
 
 import json
 import logging
+import os
 
 import pytest
 
@@ -213,6 +214,85 @@ class TestPageDownloadBehaviorRewrite:
         await proxy._route_client_message('client-a', json.dumps(msg))
 
         assert proxy._forwarded[0]['params']['downloadPath'] == original
+
+    async def test_page_subdir_of_pin_untouched(self, caplog):
+        """A flow that points downloads at a SUBDIRECTORY of the pin
+        and waits for the file exactly there keeps working — the
+        rewrite must never move a file away from where a legitimate
+        flow waits for it (single-install no-regression rule)."""
+        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
+        sub = '/srv-home/downloads/acme/run-2026-11'
+        msg = {
+            'id': 7,
+            'method': 'Page.setDownloadBehavior',
+            'params': {'behavior': 'allow', 'downloadPath': sub},
+        }
+        with caplog.at_level(logging.INFO, logger='app.browser'):
+            await proxy._route_client_message('client-a', json.dumps(msg))
+
+        forwarded = proxy._forwarded[0]
+        assert forwarded['params']['downloadPath'] == sub
+        assert 'outside the pinned dir' not in caplog.text
+
+    async def test_browser_subdir_of_pin_untouched(self, caplog):
+        """Same shape through Browser.setDownloadBehavior (a
+        browser-wide flow may equally target a subfolder)."""
+        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
+        sub = '/srv-home/downloads/acme/exports'
+        msg = {
+            'id': 7,
+            'method': 'Browser.setDownloadBehavior',
+            'params': {'behavior': 'allow', 'downloadPath': sub},
+        }
+        with caplog.at_level(logging.INFO, logger='app.browser'):
+            await proxy._route_client_message('client-a', json.dumps(msg))
+
+        forwarded = proxy._forwarded[0]
+        assert forwarded['params']['downloadPath'] == sub
+        assert 'outside the pinned dir' not in caplog.text
+
+    async def test_tilde_spelled_pin_untouched(self, caplog, tmp_path):
+        """The pin spelled with ``~`` (what a default-home agent types)
+        resolves inside and is left alone."""
+        home = tmp_path
+        pin = home / '.vibe-seller' / 'downloads' / 'acme'
+        proxy = self._make_proxy(download_dir=str(pin))
+        requested = '~/.vibe-seller/downloads/acme'
+        msg = {
+            'id': 7,
+            'method': 'Page.setDownloadBehavior',
+            'params': {'behavior': 'allow', 'downloadPath': requested},
+        }
+        old_home = os.environ.get('HOME')
+        os.environ['HOME'] = str(home)
+        try:
+            with caplog.at_level(logging.INFO, logger='app.browser'):
+                await proxy._route_client_message('client-a', json.dumps(msg))
+        finally:
+            if old_home is None:
+                os.environ.pop('HOME', None)
+            else:
+                os.environ['HOME'] = old_home
+
+        forwarded = proxy._forwarded[0]
+        assert forwarded['params']['downloadPath'] == requested
+        assert 'outside the pinned dir' not in caplog.text
+
+    async def test_prefix_lookalike_outside_is_rewritten(self):
+        """A path that shares the pin's prefix but is NOT under it
+        (a sibling dir) is outside — the inside-check must not be a
+        bare ``startswith``."""
+        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
+        sibling = '/srv-home/downloads/acme-other'
+        msg = {
+            'id': 7,
+            'method': 'Page.setDownloadBehavior',
+            'params': {'behavior': 'allow', 'downloadPath': sibling},
+        }
+        await proxy._route_client_message('client-a', json.dumps(msg))
+
+        forwarded = proxy._forwarded[0]
+        assert forwarded['params']['downloadPath'] == '/srv-home/downloads/acme'
 
     async def test_browser_rewrite_also_logged(self, caplog):
         """The pre-existing Browser.* rewrite now logs too (the

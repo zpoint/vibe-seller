@@ -16,6 +16,15 @@ deliberately not scanned; ``.py`` files are not scanned either, because
 skill scripts may legitimately re-derive the default home in code
 (the same ``VIBE_HOME``-or-``~/.vibe-seller`` fallback ``app.config``
 performs) — only prose aimed at the agent is the hazard.
+
+RULE for future skills_v2 files: a file that is NEW since the oldest
+supported release (i.e. one remote skill sync can deliver to clients
+whose runtime predates it) must phrase the downloads folder
+VERSION-TOLERANTLY — reference ``$VIBE_STORE_DOWNLOADS`` but say what
+to do when the variable is empty (see custom-analytics.md for the
+shape). The knowledge tree has a stricter rule: it is synced to every
+client and stays version-neutral, so it must never mention the
+variable at all (pinned by the K1 test below).
 """
 
 from pathlib import Path
@@ -69,3 +78,69 @@ def test_no_hardcoded_default_home_path(md_path: Path):
             'store context, or a workspace-relative path), never a '
             'default-home path that is wrong on multi-home machines'
         )
+
+
+# ── K1: the version-neutral trees never mention the env var ─────────
+#
+# app/knowledge is synced to EVERY client (including old releases that
+# never export VIBE_STORE_DOWNLOADS), and app/skills is the frozen
+# legacy tree — a mention of the variable there would be a dangling
+# reference for exactly the clients that read those trees.
+
+
+def _md_files_mentioning(root: Path, needle: str) -> list[Path]:
+    """Every file under *root* whose text contains *needle*.
+
+    Scans ALL files, not just markdown: the K1 rule is "no file under
+    the version-neutral trees mentions the variable". ``errors=ignore``
+    keeps a stray binary from failing the scan itself.
+    """
+    if not root.is_dir():
+        return []
+    return [
+        f
+        for f in sorted(root.rglob('*'))
+        if f.is_file()
+        and needle in f.read_text(encoding='utf-8', errors='ignore')
+    ]
+
+
+@pytest.mark.unit
+def test_knowledge_tree_never_mentions_the_env_var():
+    """app/knowledge must stay version-neutral (K1)."""
+    offenders = _md_files_mentioning(
+        BASE_DIR / 'app' / 'knowledge', 'VIBE_STORE_DOWNLOADS'
+    )
+    assert not offenders, (
+        'app/knowledge is synced to every client, including releases '
+        'that never export VIBE_STORE_DOWNLOADS; these files mention '
+        f'the variable: {[str(o) for o in offenders]}'
+    )
+
+
+@pytest.mark.unit
+def test_frozen_legacy_skills_never_mention_the_env_var():
+    """app/skills is frozen for pre-0.13 clients (K1)."""
+    offenders = _md_files_mentioning(
+        BASE_DIR / 'app' / 'skills', 'VIBE_STORE_DOWNLOADS'
+    )
+    assert not offenders, (
+        'app/skills is the frozen legacy tree; these files mention '
+        'VIBE_STORE_DOWNLOADS, which those clients never export: '
+        f'{[str(o) for o in offenders]}'
+    )
+
+
+@pytest.mark.unit
+def test_k1_negative_control_planted_token_is_caught(tmp_path):
+    """The K1 scan actually catches a mention: plant the token in a
+    temp tree and the same helper flags it (proves the tests above
+    fail, not silently pass, if the token lands in a scanned tree)."""
+    planted = tmp_path / 'common' / 'planted.md'
+    planted.parent.mkdir(parents=True)
+    planted.write_text(
+        'use $VIBE_STORE_DOWNLOADS for downloads' + '\n',
+        encoding='utf-8',
+    )
+    offenders = _md_files_mentioning(tmp_path, 'VIBE_STORE_DOWNLOADS')
+    assert offenders == [planted]

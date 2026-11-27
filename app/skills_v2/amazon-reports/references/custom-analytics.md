@@ -92,6 +92,9 @@ SC_HOST=sellercentral.amazon.<tld> CA_TILE=0 \
   browser-use < .claude/skills/amazon-reports/scripts/bh_ca_export.py
 ```
 
+If `$VIBE_STORE_DOWNLOADS` is empty (an older Vibe Seller), use the
+store's downloads folder your store context names.
+
 `CA_DASHBOARD` defaults to `detail-page-sales-traffic-template`; omit
 `CA_START`/`CA_END` to keep the tile's default (YTD); `CA_EXPORT=0` only
 reads the tile. It prints one `RESULT {json}` line: `ok`, `marketplace`

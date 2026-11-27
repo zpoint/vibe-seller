@@ -64,12 +64,13 @@ from app.ai.profiles import (
 from app.ai.usage_meter import UsageMeter
 from app.auth import create_token
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
+from app.browser.downloads import store_downloads_dir
 from app.browser.manager import (
     atomic_write_json,
     read_mcp_config,
 )
 from app.browser.process_utils import kill_with_escalation, taskkill_tree
-from app.config import AI_BOT_USER_ID, BACKEND_PORT, BASE_DIR, DOWNLOADS_DIR
+from app.config import AI_BOT_USER_ID, BACKEND_PORT, BASE_DIR
 from app.custom_mcp import load_launch_servers
 from app.database import async_session
 from app.env_options import Options
@@ -407,7 +408,7 @@ class AgentSession(
         # right dir: skills and scripts reference this variable, and the
         # store context in the system prompt spells the same path.
         if self.store_slug:
-            env['VIBE_STORE_DOWNLOADS'] = str(DOWNLOADS_DIR / self.store_slug)
+            env['VIBE_STORE_DOWNLOADS'] = store_downloads_dir(self.store_slug)
 
         # Pin Claude Code's TaskList directory to a per-task path
         # (default is session UUID, which is regenerated per spawn

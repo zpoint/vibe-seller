@@ -29,6 +29,7 @@ import unicodedata
 
 from app.browser.base import is_antidetect
 from app.browser.bu_binary import resolve_browser_use
+from app.browser.downloads import store_downloads_dir
 from app.browser.worker_slots import (
     indent_block,
     max_worker_slots,
@@ -462,7 +463,7 @@ def write_browser_use_wrapper(
         # spelling a default-home path (wrong on any machine running
         # more than one vibe-seller home). Overwrites any inherited
         # value: this wrapper, like the pin itself, is authoritative.
-        export VIBE_STORE_DOWNLOADS="{DOWNLOADS_DIR / slug}"
+        export VIBE_STORE_DOWNLOADS="{store_downloads_dir(slug)}"
 
         # Per-task session: each task gets its own daemon to avoid
         # "Session already running with different config".

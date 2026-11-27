@@ -60,6 +60,19 @@ def prepare_download_dir(slug: str) -> Path:
     return archive_previous(DOWNLOADS_DIR / slug)
 
 
+def store_downloads_dir(slug: str) -> str:
+    """The store's download dir as a string, RESOLVED for this server.
+
+    The ONE expression every surface that names the dir to an agent
+    must use — the agent's launch env (``VIBE_STORE_DOWNLOADS``), the
+    store wrapper's export and the store context's spelled path — so
+    the three cannot drift apart. Byte-equal to what a default-home
+    install always used (``~/.vibe-seller/downloads/<slug>`` expanded);
+    pinned by ``tests/unit/test_default_home_equality.py``.
+    """
+    return str(DOWNLOADS_DIR / slug)
+
+
 def archive_previous(dl_dir: Path) -> Path:
     """Empty *dl_dir* into ``_prev/<timestamp>/`` and return it.
 

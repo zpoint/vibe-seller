@@ -455,7 +455,7 @@ class TestAutoStoreTask:
         $VIBE_STORE_DOWNLOADS instead.
         """
         monkeypatch.setattr(
-            'app.task_runner_context.DOWNLOADS_DIR',
+            'app.browser.downloads.DOWNLOADS_DIR',
             Path('/srv/custom-home/downloads'),
         )
         monkeypatch.setattr(
@@ -485,7 +485,7 @@ class TestAutoStoreTask:
         the store context — both branches spell the resolved paths."""
         task.store_id = 'store-z'
         monkeypatch.setattr(
-            'app.task_runner_context.DOWNLOADS_DIR',
+            'app.browser.downloads.DOWNLOADS_DIR',
             Path('/srv/custom-home/downloads'),
         )
         monkeypatch.setattr(
