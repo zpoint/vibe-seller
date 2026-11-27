@@ -246,16 +246,21 @@ class InjectCdpBackend(BrowserBackend):
         """Whether the kernel this backend opened is still the one on
         the recorded endpoint.
 
-        Probes the recorded endpoint's ``/json/version``: dead → not
-        ours (gone); alive with the same browser GUID we recorded at
-        open → ours; alive with a DIFFERENT GUID → the port was reused
-        by another kernel — not ours. Without a recorded GUID (older
-        sessions, or a client that reports none) a live endpoint counts
-        as ours — the pre-C4 behaviour for the healthy path.
+        Probes the recorded endpoint's ``/json/version`` ONCE — no
+        retries: ``stop()`` runs under the manager's GLOBAL lock, so
+        it must never pay the start path's retry budget on a dead
+        endpoint (up to 20 s of timeouts on a host where an unbound
+        loopback connect hangs). One attempt is decisive for the
+        ownership question: dead → not ours (gone); alive with the
+        same browser GUID we recorded at open → ours; alive with a
+        DIFFERENT GUID → the port was reused by another kernel — not
+        ours. Without a recorded GUID (older sessions, or a client
+        that reports none) a live endpoint counts as ours — the
+        pre-C4 behaviour for the healthy path.
         """
         if self._opened is None:
             return False
-        version = await self._cdp_version(
+        version = await self._probe_version(
             self._opened.cdp_host, self._opened.cdp_port
         )
         if version is None:
@@ -274,6 +279,29 @@ class InjectCdpBackend(BrowserBackend):
             )
             return False
         return True
+
+    @staticmethod
+    async def _probe_version(host: str, port: int) -> dict | None:
+        """One ``/json/version`` GET, no retries — the stop path's
+        identity probe (:meth:`_kernel_is_ours`).
+
+        Deliberately NOT the retrying :meth:`_cdp_version`: stop runs
+        under the manager's global lock, and a dead endpoint must
+        cost one bounded request, not the start path's reachability
+        budget. Any error (refused, hung, non-200) is simply "no
+        answer" — the caller treats that as "not ours".
+        """
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f'http://{host}:{port}/json/version',
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     async def _close_browser(host: str, port: int) -> None:
