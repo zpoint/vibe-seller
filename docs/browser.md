@@ -90,6 +90,22 @@ reaches the UI as itself, never a 500.
 anti-detect vendor key literal in shared code (ziniao grandfathered until
 its migration; the yuehulian compat aliases exempted while they exist).
 
+### `local_api_client.py` — the local-API client family
+
+The ~25 anti-detect vendors whose desktop client exposes a local HTTP
+API (list / start(id) → CDP / stop on 127.0.0.1) implement
+:class:`LocalApiClient` instead of writing a client: the uniform parts
+are class attributes (port + discovery, auth mode + field, list/open/
+close paths, rate-limit interval, timeouts), the vendor parts are small
+overridables (`parse_stores`, `parse_opened` — `opened_from_ws` parses a
+ws URL, a port-only answer passes through because the engine verifies
+the endpoint — `is_logged_out`, `map_error`). The paid gate most vendors
+share maps to `ApiNotEnabled`. The parametrized contract suite
+(`tests/unit/test_browser/local_api_contract.py`) runs every subclass —
+fixtures from the vendors' published docs today, real vendor modules
+under `app/browser/adapters` auto-discovered — against a fake local API
+serving their documented responses.
+
 ### `manager.py` — Browser Manager
 
 Singleton that orchestrates browser sessions across all stores:
