@@ -88,10 +88,16 @@ async def _make_running_task(client, install_fake_agent, store_id: str):
 
 
 async def test_wenmai_login_required_reaches_the_typed_contract(
-    admin_client, install_fake_agent, real_wenmai_start
+    admin_client, install_fake_agent, real_wenmai_start, monkeypatch
 ):
     """The real adapter's LOGIN_REQUIRED → C2's typed body + the task
     fails with its error_category and the agent stops."""
+    # The backend's platform gate runs FIRST and plain Linux (CI) is
+    # not a supported wenmai platform — pin it, so the CLIENT flow
+    # (the thing under test) runs everywhere (the e246fbc7 pattern).
+    monkeypatch.setattr(
+        'app.browser.adapters.wenmai.get_platform', lambda: 'windows'
+    )
     store_id = await _make_wenmai_store(admin_client, real_wenmai_start)
     task_id, gate = await _make_running_task(
         admin_client, install_fake_agent, store_id
