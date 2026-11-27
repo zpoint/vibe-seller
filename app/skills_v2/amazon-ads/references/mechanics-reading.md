@@ -184,13 +184,13 @@ PY
 # net::ERR_ABORTED — the file still lands.
 ```
 
-The file lands in `~/.vibe-seller/downloads/<slug>/` (the CDP proxy pins
+The file lands in `$VIBE_STORE_DOWNLOADS/` (the CDP proxy pins
 Chrome's download path there on every platform), under Amazon's own name
 `bulk-<entity>-<YYYYMMDD>-<YYYYMMDD>-<epochms>.xlsx`. Take the newest
 xlsx once any `*.crdownload` is gone:
 
 ```bash
-ls -t ~/.vibe-seller/downloads/<slug>/*.xlsx 2>/dev/null | head -1
+ls -t $VIBE_STORE_DOWNLOADS/*.xlsx 2>/dev/null | head -1
 ```
 
 The workbook has 9 sheets. For SP the useful ones are
@@ -483,7 +483,7 @@ and SBV campaigns have one.
 20 rows in the DOM) and in-table scrolling does not always materialize
 the rest. The **Export** button top-right of the targets table writes
 `Sponsored_Products_Target_<date>.csv` to
-`~/.vibe-seller/downloads/<store>/`, with `State`, `Keyword`,
+`$VIBE_STORE_DOWNLOADS/`, with `State`, `Keyword`,
 `Target match type`, `Status`,
 `Suggested bid (low|median|high)(<currency>)`, `Bid (<currency>)` and
 the metrics. Read the currency from the header rather than assuming one. It
@@ -654,7 +654,7 @@ preference:
    Filter by `Campaign ID`.
 2. Per campaign: set the date range first, to exactly the Targeting
    tab's window, then click **Export** (top-right of the table); the CSV
-   lands as `~/.vibe-seller/downloads/<store>/Sponsored_Products_SearchTerm_*.csv`.
+   lands as `$VIBE_STORE_DOWNLOADS/Sponsored_Products_SearchTerm_*.csv`.
    It has no match-type column; join its `Keywords` column to the
    targeting table to attribute source keyword and match type.
 
@@ -829,7 +829,7 @@ left nav "Top Search Terms" / "搜索词排名" → toggle Category ↔ ASIN.
 2. Open the ASIN report, filter by the listing's ASIN (from the
    campaign's Ads tab or the bulk export's Product Ad rows) and the
    last 30 days, and run it.
-3. Export (CSV/TSV); it lands in `~/.vibe-seller/downloads/<slug>/`.
+3. Export (CSV/TSV); it lands in `$VIBE_STORE_DOWNLOADS/`.
 4. Keep a copy at
    `store-data/<slug>/ads/brand-analytics/<ASIN>_<YYYY-MM-DD>.tsv`
    (a run-data capture, not one of the audit files in

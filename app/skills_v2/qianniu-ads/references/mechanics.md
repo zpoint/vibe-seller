@@ -38,7 +38,7 @@ the 报表 export as truth for performance and the plan list as *live state*
 1. Open 报表 from the 万相台 nav; pick the report (e.g. 计划报表 / 商品报表) and
    the date window.
 2. Trigger the export/download (a read). It lands in
-   `~/.vibe-seller/downloads/<slug>/` — CSV is **GB18030** (`qianniu-shared § 5`),
+   `$VIBE_STORE_DOWNLOADS/` — CSV is **GB18030** (`qianniu-shared § 5`),
    `.xlsx` is fine.
 3. Parse with `scripts/ads_report.py FILE` → normalised TSV (计划/宝贝 ×
    花费/成交金额/ROI/点击/展现…), keyed by the export's own headers.
@@ -50,7 +50,7 @@ the header; the **next** table is the body. Data rows contain `计划ID`; total
 is `共 N 项数据` (page size 40 — paginate for N > 40). Run via `js(...)`:
 
 ```bash
-~/.vibe-seller/bin/<slug>/browser-use <<'PY'
+browser-use <<'PY'
 print(js(r"""
 var tables=[...document.querySelectorAll('table')];
 var hi=tables.findIndex(function(t){return (t.innerText||'').indexOf('宝贝信息')>=0});

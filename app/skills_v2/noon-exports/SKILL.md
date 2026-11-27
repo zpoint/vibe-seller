@@ -21,7 +21,7 @@ Transaction View `Contract` column covers only one country, is a gap.
 
 ## Where files go
 
-Downloads land in `~/.vibe-seller/downloads/<slug>/` (managed by the CDP
+Downloads land in `$VIBE_STORE_DOWNLOADS/` (managed by the CDP
 proxy, not `~/Downloads`). Move each file into the task workspace as soon
 as it arrives, under a name that says what it is — repeat downloads only
 get ` (1)` suffixes. Declare a run with `vibe_seller_declare_report_run`

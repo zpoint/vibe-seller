@@ -367,7 +367,7 @@ Campaign Builder dropdown) rather than assuming the view is scoped.
 Per-run live data — campaign captures, search-term exports, screenshots,
 spend snapshots — goes to your task directory (CWD) (or the run-data paths an
 operation skill names). Files you upload come from the store's downloads
-folder. Keep private business data out of `~/.vibe-seller/knowledge/`:
+folder. Keep private business data out of `knowledge/`:
 that tree holds reusable platform facts and is synced into other agents'
 context.
 

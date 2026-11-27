@@ -1,6 +1,6 @@
 # Skill Environment Setup
 
-Skills that need Python packages use the **shared workspace venv** at `~/.vibe-seller/.venv/`. Dependencies are auto-installed during skill sync — you do NOT need to create per-skill virtual environments.
+Skills that need Python packages use the **shared workspace venv** — your `PATH` and `VIRTUAL_ENV` already point at it. Dependencies are auto-installed during skill sync — you do NOT need to create per-skill virtual environments.
 
 ## How It Works
 
@@ -22,5 +22,5 @@ uv pip install reportlab
 ## Notes
 
 - Do NOT create per-skill `.venv/` directories — they are unnecessary and waste disk
-- The shared venv is at `~/.vibe-seller/.venv/` and is managed by the workspace
+- The shared venv is managed by the workspace (see `$VIRTUAL_ENV`)
 - If `uv` is not available, fall back to `pip install`

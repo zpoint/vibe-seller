@@ -356,7 +356,7 @@ spend; the Export matched it exactly.
 2. List the downloads folder, then click the button whose text is exactly
    `Export`.
 3. Wait for `campaigns-export-<ts>-<id>.xlsx` to appear in
-   `~/.vibe-seller/downloads/<slug>/`; diff the listing rather than
+   `$VIBE_STORE_DOWNLOADS/`; diff the listing rather than
    guessing. Give it ~60 s before concluding anything.
 4. Rename it per campaign right away — the list-level export shares the
    filename pattern, and the next export overwrites it.
@@ -434,7 +434,7 @@ switcher, not the URL — read the flag first (`noon-shared` § 2).
 - **Each country is its own baseline.** Buyers differ between
   countries; one country's figures are not a baseline for another's.
 - **Per-run captures go to a subfolder of the task dir (your CWD)**,
-  not under `~/.vibe-seller/knowledge/`, which later tasks read as
+  not under `knowledge/`, which later tasks read as
   standing knowledge. The per-campaign TSVs go where the data contract
   says.
 

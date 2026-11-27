@@ -6,7 +6,7 @@ write the information to the correct file in the workspace.
 
 ## Workspace Directory Structure
 
-The workspace root is ~/.vibe-seller/. All paths below are relative to it.
+The workspace root is `{workspace_root}`. All paths below are relative to it.
 
 ### stores/{slug}/ — Per-store knowledge
 Each store has its own directory. Common files:
