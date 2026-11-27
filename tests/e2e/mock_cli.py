@@ -662,13 +662,14 @@ def run_download_proof():
     time.sleep(DELAY)
     browser_use = _resolve_browser_use()
     heredoc = (
+        'import json as _json\n'
         'new_tab("http://127.0.0.1:18770/")\n'
         'import time\n'
         'time.sleep(1)\n'
-        'box = js(\'var e=document.querySelector("#download"); '
+        'box = _json.loads(js(\'var e=document.querySelector("#download"); '
         'var r=e.getBoundingClientRect(); '
         'return JSON.stringify({x:Math.round(r.x+r.width/2),'
-        "y:Math.round(r.y+r.height/2)})')\n"
+        "y:Math.round(r.y+r.height/2)})'))\n"
         'click_at_xy(box["x"], box["y"])\n'
         'time.sleep(4)\n'
     )
