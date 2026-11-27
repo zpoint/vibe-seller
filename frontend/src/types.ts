@@ -273,6 +273,13 @@ export interface BrowserVendor {
   kind: 'antidetect' | 'plain';
   platforms: string[];
   selectable: boolean;
+  /**
+   * The account rule (R8): 'single' = one account per machine (every
+   * anti-detect vendor whose API cannot serve several at once),
+   * 'multi' = the API takes the account on every call; 'none' is for
+   * plain browsers only. Separate from whether credential_fields are
+   * stored (empty = the user signs in in the client).
+   */
   account_cardinality: 'none' | 'single' | 'multi';
   credential_fields: VendorCredentialField[];
   lists_profiles: boolean;

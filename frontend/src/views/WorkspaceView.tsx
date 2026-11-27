@@ -5,6 +5,7 @@ import {
   PdfViewer, SpreadsheetViewer,
 } from '../components/FileViewers'
 import { fileKind, isRawKind, rawUrl } from '../lib/fileKind'
+import type { WsSaveVia } from '../hooks/useWsFiles'
 import type { WsStructured } from '../types'
 
 interface WorkspaceViewProps {
@@ -26,7 +27,7 @@ interface WorkspaceViewProps {
   previewVersion: (path: string, sha: string) => void
   resetFileToVersion: (path: string, sha: string) => void
   deleteWsFile: (path: string) => void
-  saveWsFile: () => void
+  saveWsFile: (via?: WsSaveVia) => void
 }
 
 export function WorkspaceView({
@@ -114,7 +115,7 @@ export function WorkspaceView({
                 {t('common.delete')}
               </button>
               <button
-                onClick={saveWsFile}
+                onClick={() => saveWsFile('button')}
                 disabled={!wsEditorDirty || wsSaving}
                 className="px-4 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
               >
@@ -234,7 +235,7 @@ function TextFileBody({ kind, isReadOnly, wsEditorContent, wsFileContent, setWsE
   wsFileContent: string
   setWsEditorContent: (v: string) => void
   setWsEditorDirty: (v: boolean) => void
-  saveWsFile: () => void
+  saveWsFile: (via?: WsSaveVia) => void
 }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
@@ -264,7 +265,7 @@ function TextFileBody({ kind, isReadOnly, wsEditorContent, wsFileContent, setWsE
       <textarea
         value={wsEditorContent}
         onChange={e => { if (isReadOnly) return; setWsEditorContent(e.target.value); setWsEditorDirty(e.target.value !== wsFileContent) }}
-        onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (!isReadOnly) saveWsFile() } }}
+        onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (!isReadOnly) saveWsFile('shortcut') } }}
         className={`flex-1 p-4 font-mono text-sm border-0 resize-none focus:outline-none leading-relaxed ${isReadOnly ? 'bg-gray-50 text-gray-600 cursor-default' : 'bg-white'}`}
         spellCheck={false}
         readOnly={isReadOnly}

@@ -171,12 +171,12 @@ describe('the generic vendor section', () => {
     expect(link.dataset.topic).toBe('fakeOneAccount')
   })
 
-  it('a none-cardinality vendor has no account row and fetches on mount', async () => {
+  it('a credential-less single vendor has no account row and fetches on mount', async () => {
     const fetchStores = vi.fn()
     render(
       <I18nextProvider i18n={i18nFor('en')}>
         <VendorSection
-          vendor={{ ...fakeVendor, account_cardinality: 'none' }}
+          vendor={{ ...fakeVendor, account_cardinality: 'single', credential_fields: [] }}
           selectedRef="" setSelectedRef={vi.fn()}
           stores={[]} error=""
           fetching={false} fetchStores={fetchStores}
@@ -191,9 +191,9 @@ describe('the generic vendor section', () => {
     expect(fetchStores).toHaveBeenCalled()
   })
 
-  it('a none-cardinality vendor shows the status hint like any other', () => {
+  it('a credential-less vendor shows the status hint like any other', () => {
     renderSection({
-      vendor: { account_cardinality: 'none', i18n_prefix: 'vendors.nosuchkeys' },
+      vendor: { account_cardinality: 'single', credential_fields: [], i18n_prefix: 'vendors.nosuchkeys' },
       error: 'fakevendor:client_not_running',
     })
     expect(screen.getByText(
@@ -201,7 +201,7 @@ describe('the generic vendor section', () => {
     )).toBeTruthy()
   })
 
-  it('twist: a single-cardinality vendor keeps the account row and waits for the login', async () => {
+  it('twist: a vendor WITH credential fields keeps the account row and waits for the login', async () => {
     const fetchStores = vi.fn()
     render(
       <I18nextProvider i18n={i18nFor('en')}>

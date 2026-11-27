@@ -28,6 +28,7 @@ from app.models.schedule_constants import (
 from app.models.user import User
 from app.password import hash_password
 from app.schedule_review_migration import migrate_forced_plan_schedules
+from app.store_platforms import migrate_defaulted_platforms
 from app.store_slugs import SlugAssignment, migrate_store_slugs
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,7 @@ def _ensure_added_columns(conn) -> None:
             )
     _backfill_finalize_enabled_at(conn)
     backfill_schedule_day(conn)
+    migrate_defaulted_platforms(conn)
 
 
 def backfill_schedule_day(conn) -> None:

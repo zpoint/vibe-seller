@@ -15,7 +15,10 @@ class _VersionHandler(BaseHTTPRequestHandler):
             return
         port = self.server.server_address[1]
         body = json.dumps({
-            'Browser': 'FakeChrome/1.0',
+            # A real Chromium family string: the engine refuses a
+            # non-Chromium kernel by this field (Firefox's partial CDP
+            # also answers /json/version).
+            'Browser': 'Chrome/135.0.0.0',
             'webSocketDebuggerUrl': f'ws://127.0.0.1:{port}/devtools/browser/x',
         }).encode()
         self.send_response(200)

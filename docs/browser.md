@@ -61,10 +61,16 @@ module (+ translations + one docs page), zero shared-code edits" true:
 
 - identity: key, zh/en display names, kind (`antidetect` / `plain`),
   platforms, `selectable` (offered in the store form);
-- accounts: `account_cardinality` (`none` / `single` — one machine login,
-  the generic credential routes — / `multi` — an account list, ziniao's
-  shape), `credential_fields` (form + storage schema, secrets encrypted),
-  `profiles_scope`;
+- accounts — two SEPARATE concepts (R8: one account per machine unless
+  the vendor's official API serves several at once): the account rule
+  `account_cardinality` (`single` — the anti-detect default; `multi` —
+  the API takes the account on every call, allowed only with a
+  `MULTI_ACCOUNT_VENDORS` entry citing the vendor's API docs, today
+  only ziniao; `none` — plain browsers only) and whether anything is
+  stored, `credential_fields` (form + storage schema, secrets
+  encrypted; empty = the user signs in in the client and the local API
+  acts as that login). Validated at registration
+  (`app/browser/vendor_rules.py`). Also `profiles_scope`;
 - picker: `picker_kind` (`generic` — the shared `VendorSection` — vs
   `custom` — the vendor keeps its own UI, ziniao until migrated);
 - wiring: `client_factory` (the `InjectClient` the engine runs),
@@ -281,6 +287,15 @@ WSL cannot launch Ziniao automatically because Electron's Node.js V8 rejects unk
 2. If it is not answering and Windows shows **no listener** on the port (normal mode, or leftovers), the server stops every Ziniao process through Windows interop, then raises the error guiding the user to run `ziniao_webdriver.bat` (which stops every Ziniao process too, then launches in WebDriver mode and waits up to 120 s)
 3. If Windows **does** show a listener WSL cannot reach, nothing is killed — that is a networking problem (`ziniao_wsl_unreachable`), and killing would lose a healthy client only the `.bat` can bring back. A timeout alone never kills on WSL
 4. The launcher script is served at `GET /api/ziniao/launcher` — **generated at download time** by `ziniao_launcher.py` (below), with the located exe path baked in, so a double-click finds a custom install dir exactly like a default one
+
+### `win_app_registry.py` — the Windows-registry lookup (App Paths / Uninstall)
+
+The registry half of the install discovery, split out of the locator:
+App Paths and the Uninstall table, through native `winreg` where
+available and a UTF-8-pinned PowerShell fallback under WSL (which must
+query the Uninstall CHILD keys — a container key queried without the
+child wildcard returns its own empty values). Everything importers need
+is re-exported from `win_app_locator`.
 
 ### `win_app_locator.py` — Windows install discovery (Ziniao & 悦互联)
 
