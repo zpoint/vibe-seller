@@ -161,7 +161,12 @@ _UDD_TAIL_RE = r'--user-data-dir=+"?[^"]*\\{env_id}("|\s|$)'
 
 
 def is_wenmai_kernel(
-    cmdline: str, exe_path: str, port: int, env_id: str
+    cmdline: str,
+    exe_path: str,
+    port: int,
+    env_id: str,
+    *,
+    kernel_path_re: str = _KERNEL_PATH_RE,
 ) -> bool:
     """Whether a process is THIS store's stuck 稳卖 kernel.
 
@@ -172,9 +177,18 @@ def is_wenmai_kernel(
     Chrome), and a plausible cause of OUR kernel's bind failing is
     that one of them already holds the port — matching on the port
     alone would kill a production store browser of another app.
+
+    ``kernel_path_re`` carries the PLATFORM's kernel exe shape: the
+    Windows default (``<userData>\\WenMaiAIBrowser\\…\\Browser\\…
+    \\WenMaiAIBrowser.exe``) and the macOS twin
+    (:data:`app.browser.adapters.wenmai_mac.MAC_KERNEL_PATH_RE` —
+    ``…/WenMaiAIBrowser/Browser/<chrome-ver>/WenMaiAIBrowser.app/…``,
+    no intermediate segment). The port flag and the env-id tail are
+    platform-invariant; only the path shape differs, so the identity
+    stays decided in this ONE function.
     """
     lowered = (exe_path or '').replace('/', '\\').lower()
-    if not re.search(_KERNEL_PATH_RE, lowered):
+    if not re.search(kernel_path_re, lowered):
         return False
     if not re.search(f'--remote-debugging-port={port}(\\D|$)', cmdline or ''):
         return False

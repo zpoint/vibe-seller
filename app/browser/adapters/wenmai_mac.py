@@ -19,12 +19,14 @@ the ``Browser`` tree, ``wenmaiaibrowserdatas`` and
 ``wenmaiaibrowser-conf`` siblings); the Electron fuses leave the
 default Node behaviour where ``SIGUSR1`` opens the inspector on 9229.
 
-The kernel-kill identity reuses :func:`wenmai_win.is_wenmai_kernel`
-unchanged: a Mac kernel's command line is normalised to Windows
-separators first, so the same three checks (the debug-port flag, the
-稳卖 kernel exe path, the env id at the tail of ``--user-data-dir``)
-run on both platforms and stay unit-tested in one place. All functions
-are blocking; call via ``asyncio.to_thread``.
+The kernel-kill identity reuses :func:`wenmai_win.is_wenmai_kernel`:
+a Mac kernel's command line is normalised to Windows separators first
+and the matcher is fed the MAC kernel-path shape
+(:data:`MAC_KERNEL_PATH_RE` — the Windows tree has an intermediate
+``instances\\…`` segment the Mac tree lacks), so the same three checks
+(the debug-port flag, the 稳卖 kernel exe path, the env id at the tail
+of ``--user-data-dir``) run on both platforms and stay unit-tested in
+one place. All functions are blocking; call via ``asyncio.to_thread``.
 """
 
 import logging
@@ -42,6 +44,7 @@ from app.browser.mac_app_locator import (
 )
 
 __all__ = [
+    'MAC_KERNEL_PATH_RE',
     'WENMAI_MAC_APP',
     'WenmaiMacProcessLayer',
 ]
@@ -56,6 +59,19 @@ WENMAI_MAC_APP = MacAppSpec(
     bundle_ids=('com.wenmai.aibrowser',),
     app_names=('WenMaiAIBrowser.app',),
 )
+
+# The MAC kernel exe shape (verified live, client v5.1.0615): the
+# kernel is its own .app bundle under the userData tree,
+# ``<userData>/WenMaiAIBrowser/Browser/<chrome-ver>/WenMaiAIBrowser.app/
+# Contents/MacOS/WenMaiAIBrowser`` — unlike Windows there is NO
+# intermediate ``instances\…`` segment, so the Windows
+# ``wenmaiaibrowser\…\browser\`` regex does NOT match it (found live:
+# the real Mac kernel path failed the Windows shape). The client's own
+# main exe (``…/WenMaiAIBrowser.app/Contents/MacOS/…`` directly under
+# /Applications) and the sibling data dirs (``wenmaiaibrowserdatas``,
+# ``wenmaiaibrowser-conf``) all lack the ``wenmaiaibrowser\browser\``
+# segment, so none of them can match.
+MAC_KERNEL_PATH_RE = r'wenmaiaibrowser\\browser\\[^\\]+\\wenmaiaibrowser\.app\\'
 
 
 def _no_type_flag(args: tuple[str, ...]) -> bool:
@@ -147,11 +163,12 @@ class WenmaiMacProcessLayer:
         (:func:`wenmai_win.is_wenmai_kernel`, pure and unit-tested
         there): the debug-port flag, the 稳卖 kernel exe path and this
         store's env id at the tail of ``--user-data-dir`` — with the
-        Mac command line's ``/`` separators normalised to ``\\`` so the
-        one matcher serves both platforms. Returns True when the
-        kernel was identified (the kill itself is best-effort, like
-        every kill); False means nothing matched — the caller must NOT
-        keep guessing.
+        Mac command line's ``/`` separators normalised to ``\\`` and
+        the MAC kernel-path shape
+        (:data:`MAC_KERNEL_PATH_RE`) fed to the one matcher. Returns
+        True when the kernel was identified (the kill itself is
+        best-effort, like every kill); False means nothing matched —
+        the caller must NOT keep guessing.
         """
         victims = []
         for p in psutil.process_iter(['pid', 'exe', 'cmdline']):
@@ -161,7 +178,11 @@ class WenmaiMacProcessLayer:
                     continue
                 normalized = cmdline.replace('/', '\\')
                 if is_wenmai_kernel(
-                    normalized, str(p.info['exe'] or ''), port, env_id
+                    normalized,
+                    str(p.info['exe'] or ''),
+                    port,
+                    env_id,
+                    kernel_path_re=MAC_KERNEL_PATH_RE,
                 ):
                     victims.append(p.info['pid'])
             except (psutil.Error, OSError):

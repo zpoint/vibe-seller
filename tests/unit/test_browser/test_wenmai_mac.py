@@ -26,9 +26,13 @@ EXE = f'{APP}/Contents/MacOS/WenMaiAIBrowser'
 BUNDLE_ID = 'com.wenmai.aibrowser'
 # The kernel runs from the client's userData tree (verified live),
 # OUTSIDE the .app bundle — so it never matches the app's own exe.
+# The REAL live shape (verified on the Mac, client v5.1.0615): the
+# kernel runs from the client's userData tree as
+# …/WenMaiAIBrowser/Browser/<chrome-ver>/WenMaiAIBrowser.app/…, with
+# the store's profile at …/WenMaiAIBrowser/storeCache/<env id>.
 KERNEL = (
     '/Users/u/Library/Application Support/WenMaiAIBrowser'
-    '/instances/inst-1/Browser/120.0.6099.109/WenMaiAIBrowser'
+    '/Browser/146/WenMaiAIBrowser.app/Contents/MacOS/WenMaiAIBrowser'
 )
 ENV_ID = '100000001'
 UDD = (
@@ -215,19 +219,86 @@ class TestKillKernelByDebugPort:
 
 
 class TestKernelMatcherTakesMacPaths:
-    """The Windows matcher, fed the Mac command line normalised to
-    backslash separators, accepts a real Mac kernel shape — the one
-    place both platforms' identity is pinned together."""
+    """The shared matcher, fed the Mac command line normalised to
+    backslash separators and the MAC kernel-path shape, accepts a real
+    Mac kernel — the one place both platforms' identity is pinned
+    together."""
 
     def test_mac_cmdline_matches_after_normalisation(self):
         cmdline = (
             f'{KERNEL} --user-data-dir={UDD} --remote-debugging-port=50555'
         ).replace('/', '\\')
-        assert is_wenmai_kernel(cmdline, KERNEL, 50555, ENV_ID)
+        assert is_wenmai_kernel(
+            cmdline,
+            KERNEL,
+            50555,
+            ENV_ID,
+            kernel_path_re=wm.MAC_KERNEL_PATH_RE,
+        )
 
     def test_raw_mac_cmdline_is_not_accidentally_matched(self):
         """The normalisation is the layer's job: the RAW Mac command
         line (forward slashes) must NOT match the Windows-shaped
         tail — pinning why ``kill_kernel_by_debug_port`` normalises."""
         raw = f'{KERNEL} --user-data-dir={UDD} --remote-debugging-port=50555'
-        assert not is_wenmai_kernel(raw, KERNEL, 50555, ENV_ID)
+        assert not is_wenmai_kernel(
+            raw,
+            KERNEL,
+            50555,
+            ENV_ID,
+            kernel_path_re=wm.MAC_KERNEL_PATH_RE,
+        )
+
+    def test_windows_shape_does_not_match_the_mac_regex(self):
+        """The live-found bug, pinned: the REAL Mac kernel tree
+        (``…\\WenMaiAIBrowser\\Browser\\146\\WenMaiAIBrowser.app\\…``,
+        no intermediate segment) does NOT match the Windows
+        ``wenmaiaibrowser\\…\\browser\\`` shape — without the Mac regex
+        the stale-kernel kill would silently never fire on macOS."""
+        cmdline = (
+            f'{KERNEL} --user-data-dir={UDD} --remote-debugging-port=50555'
+        ).replace('/', '\\')
+        # the Windows default rejects the real Mac path …
+        assert not is_wenmai_kernel(cmdline, KERNEL, 50555, ENV_ID)
+        # … and the Mac regex rejects the Windows-style tree (an
+        # intermediate segment where the Mac tree has none).
+        win_tree = (
+            r'C:\Users\u\AppData\Roaming\WenMaiAIBrowser\instances\i1'
+            r'\Browser\120.0\WenMaiAIBrowser.exe'
+        )
+        win_cmdline = (
+            f'{win_tree} --user-data-dir=C:\\Users\\u\\AppData\\Roaming'
+            f'\\WenMaiAIBrowser\\storeCache\\{ENV_ID}'
+            ' --remote-debugging-port=50555'
+        )
+        assert not is_wenmai_kernel(
+            win_cmdline,
+            win_tree,
+            50555,
+            ENV_ID,
+            kernel_path_re=wm.MAC_KERNEL_PATH_RE,
+        )
+
+    def test_client_main_exe_never_matches_the_mac_regex(self):
+        """The client's OWN main exe and the sibling data dirs cannot
+        satisfy the Mac kernel shape — only a kernel under
+        ``…\\WenMaiAIBrowser\\Browser\\<ver>\\WenMaiAIBrowser.app\\``
+        can (the kill must never target the client itself)."""
+        for exe in (
+            EXE,  # the .app bundle main exe in /Applications
+            '/Applications/WenMaiAIBrowser.app/Contents/MacOS/OtherHelper',
+            # the userData root and the sibling data dirs
+            '/Users/u/Library/Application Support/WenMaiAIBrowser/x',
+            '/Users/u/Library/Application Support/wenmaiaibrowserdatas/x',
+            '/Users/u/Library/Application Support/wenmaiaibrowser-conf/x',
+        ):
+            cmdline = (
+                f'{exe} --user-data-dir={UDD} --remote-debugging-port=50555'
+            )
+            assert not is_wenmai_kernel(
+                cmdline.replace('/', '\\'),
+                exe,
+                50555,
+                ENV_ID,
+                kernel_path_re=wm.MAC_KERNEL_PATH_RE,
+            ), exe
