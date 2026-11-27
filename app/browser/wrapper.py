@@ -121,7 +121,27 @@ def atomic_write_script(path: Path, script: str) -> None:
     reads) while the wrapper's port refresh — which re-reads the PATH —
     sees the new content. mkstemp's 0600 keeps the bearer token
     owner-only through the swap.
+
+    Windows cannot rename over a script that is EXECUTING (bash holds
+    it; ``os.replace`` raises ``PermissionError`` [WinError 5]) — and
+    the wrapper's own auto-start path is exactly that caller: a cold
+    store's first ``browser-use`` call asks the server to start the
+    browser, the server regenerates this wrapper (usually
+    byte-identical), and the rename fails because the caller IS the
+    running wrapper. Found live by a real task on native Windows. So:
+
+    - identical content → no write at all (the common path; nothing
+      to swap, nothing to lock);
+    - a locked target → keep the OLD file and warn: the running
+      invocation already follows the typed ``proxy_port`` from the
+      start API at runtime, and the next quiet write lands the new
+      content.
     """
+    try:
+        if path.is_file() and path.read_text(encoding='utf-8') == script:
+            return
+    except OSError:
+        pass  # unreadable/missing — fall through and (re)write it
     fd, tmp = tempfile.mkstemp(
         dir=str(path.parent), prefix=f'.{path.name}.', suffix='.tmp'
     )
@@ -129,6 +149,19 @@ def atomic_write_script(path: Path, script: str) -> None:
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             f.write(script)
         os.replace(tmp, str(path))
+    except PermissionError:
+        # Windows: the target is executing (see above). The running
+        # wrapper self-heals via the start API's typed port; leave the
+        # old file in place rather than failing the browser start.
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        logger.warning(
+            'Wrapper %s is executing (Windows lock) — kept the previous '
+            'copy; the running call follows the start API port anyway',
+            path,
+        )
     except Exception:
         try:
             os.unlink(tmp)
