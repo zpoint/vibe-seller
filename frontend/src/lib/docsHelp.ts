@@ -100,6 +100,11 @@ export const DOCS_HELP = {
     zh: 'https://docs.vibe-sellers.com/ads-api/#not-yet-authorized',
     en: 'https://docs.vibe-sellers.com/en/ads-api/#not-yet-authorized',
   },
+  /** Ziniao refuses to show the consent page until its domain is allowlisted. */
+  adsZiniaoBlocked: {
+    zh: 'https://docs.vibe-sellers.com/ads-api/#ziniao-blocked',
+    en: 'https://docs.vibe-sellers.com/en/ads-api/#ziniao-blocked',
+  },
 
   // ── WeCom / Feishu / DingTalk / Google Workspace ──
   cliDownloadFailed: {

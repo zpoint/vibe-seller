@@ -85,6 +85,8 @@ description: 把亚马逊广告操作从「浏览器点卖家后台」切换为�
 
 用店铺的卖家账号登录、点击同意，看到授权成功页即可。授权页面在 listwizard.cloud 上——这是 Vibe Seller 在亚马逊官方注册备案的服务商域名。
 
+如果紫鸟提示网页「可能涉及不符合相关法律法规和政策的内容」、不予显示，见[紫鸟拦截授权页面](#ziniao-blocked)。
+
 ### 4. 回到页面点「授权完成」
 
 ![授权完成](images/ads_done_zh.png)
@@ -105,6 +107,38 @@ description: 把亚马逊广告操作从「浏览器点卖家后台」切换为�
 
 ## 常见问题
 
+<details markdown="1" id="ziniao-blocked"><summary><b>紫鸟提示「您所访问的网页可能涉及不符合相关法律法规和政策的内容，未予显示」</b></summary>
+
+![紫鸟拦截授权页面](images/ads_ziniao_blocked.png)
+
+授权页面的域名 listwizard.cloud 还在办理 ICP 备案，备案完成之前会被紫鸟拦截。请联系紫鸟人工客服为这个域名加白：
+
+1. 在紫鸟客户端左下角点「客服」，进入客服中心后点「在线咨询」（客服在线时间 9:00–22:00）。
+
+    ![紫鸟客服中心：左下角「客服」→「在线咨询」](images/ziniao_support.png){ width="640" }
+
+2. 咨询类型选「紫鸟购买/使用教程」。
+
+    ![咨询类型选「紫鸟购买/使用教程」](images/ziniao_support_type.png){ width="420" }
+
+3. 在对话框里发「人工」，再点「联系人工客服」。
+
+    ![发「人工」，点「联系人工客服」](images/ziniao_support_human.png){ width="640" }
+
+4. 把下面这句话发给人工客服：
+
+    ```text
+    https://listwizard.cloud/ 是我们使用的ERP服务，但是无法访问，帮我们加白
+    ```
+
+    ![发给人工客服的内容（示意）](images/ziniao_support_message.png){ width="640" }
+
+5. 加白通过后，回到 Vibe Seller 重新点「授权」，在紫鸟里打开新链接完成授权。
+
+页面上自带的「申请人工加白」可能审核不通过，直接找紫鸟人工客服即可。
+
+</details>
+
 <details markdown="1"><summary><b>怎么指定哪个店铺用 Ads API？</b></summary>
 
 不用指定，它是自动的：任务走哪条路径看**店铺的绑定状态**——绑定了 Ads API 的店铺，广告任务自动通过 API 获取数据；未绑定的店铺仍然走浏览器。照常创建任务即可。
@@ -120,6 +154,8 @@ description: 把亚马逊广告操作从「浏览器点卖家后台」切换为�
 <details markdown="1" id="not-yet-authorized"><summary><b>点完「授权完成」提示「还没有看到这个店铺的授权」</b></summary>
 
 亚马逊那边的同意还没完成，或者没等到授权成功页。回店铺浏览器把授权走完，看到成功页后再点一次。
+
+如果紫鸟没有显示授权成功页，而是提示网页不符合相关法律法规，见[紫鸟拦截授权页面](#ziniao-blocked)。
 
 </details>
 
