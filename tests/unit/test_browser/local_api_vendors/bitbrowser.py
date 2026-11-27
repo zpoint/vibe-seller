@@ -7,14 +7,18 @@ logged-out shapes are BOTH bodies seen live — the session-expired
 account is signed in on one computer at a time). BitBrowser has NO
 paid gate — the free plan includes the local API (the vendor's own
 docs + the live probe: the sub-account's free 10-profile plan ran
-every API call) — declared with the NO_PAID_GATE sentinel once B10
-lands (see the TODO below). BitBrowser-only behaviour (the kernel
+every API call) — declared with the NO_PAID_GATE sentinel
+(B10's handling skips it in the paid-gate parametrization).
+BitBrowser-only behaviour (the kernel
 detail check, the workbench tab, config discovery, the locator)
 stays in ``test_bitbrowser.py`` / ``test_bitbrowser_contract.py``.
 """
 
 from app.browser.adapters.bitbrowser import BitBrowserClient
-from tests.unit.test_browser.local_api_fixture import ContractFixture
+from tests.unit.test_browser.local_api_fixture import (
+    NO_PAID_GATE,
+    ContractFixture,
+)
 
 _ROWS = [
     {
@@ -104,11 +108,7 @@ CONTRACT = ContractFixture(
             {'success': False, 'msg': 'Login out！'},
         ),
     },
-    # TODO(B10): BitBrowser has NO paid gate (the free plan includes
-    # the local API) — declare it with the NO_PAID_GATE sentinel once
-    # B10 lands (the addendum's follow-up); until then the field stays
-    # unset so the suite's paid-gate parametrization does not try to
-    # serve the sentinel as routes.
+    paid_gate_routes=NO_PAID_GATE,
     unknown_ref_routes={
         # The real client answers the not-found message on BOTH the
         # detail pre-check and the open call for an unknown id.
