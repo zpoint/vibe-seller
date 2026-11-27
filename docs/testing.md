@@ -146,6 +146,25 @@ What an owned server deliberately takes from the shared install, and why:
   the CLI exists only in the shared home, so without this no agent on an
   owned server can start.
 
+## Parallel test servers: separate CDP port ranges
+
+Two test servers on one machine are safe on any ports (every proxy
+port is bind-before-use with an ownership handshake — see
+docs/browser.md § `manager.py`), but they still walk the same
+preferred range, so a store opened on one can bump the other off its
+preferred port. Give each its own range instead of queueing:
+
+```bash
+VIBE_CDP_PROXY_BASE=9500 ./start.sh 7851   # stores start at 9500
+```
+
+`VIBE_CDP_PROXY_BASE` (1024–65000) applies to store, web and aux proxy
+ports alike; a server never hands out a port below its base. Garbage or
+out-of-range values warn and fall back to the default; unset behaves
+exactly as before. Dev-machine lane conventions: bitbrowser 9400–9419,
+wenmai 9420–9439, yhl 9440–9459, adspower 9460–9479, c2 9480–9499,
+c1 9500+.
+
 ## Stopping a test server
 
 Stop a test/demo/e2e server on a side port with

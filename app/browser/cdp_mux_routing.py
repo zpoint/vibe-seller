@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import ntpath
 import os
+import re
 import time
 from typing import Any
 import uuid
@@ -35,19 +37,38 @@ def _normalize_dl_path(path: str) -> str:
     return os.path.normpath(os.path.expanduser(path))
 
 
+_WIN_PATH_RE = re.compile(r'^[A-Za-z]:[\\/]')
+
+
 def _dl_path_inside(requested: str, pinned: str) -> bool:
     """True when *requested* is the pin or lives under it.
 
     This is the single-install no-regression rule: a flow that points
     downloads at a SUBDIRECTORY of the pin and waits for the file
     exactly there must keep working — only a path outside the pin is
-    rewritten. Comparison is on normalized forms (see
-    ``_normalize_dl_path``), with ``normcase`` so a Windows client's
-    case/backslash spelling of the same dir counts as inside.
+    rewritten.
+
+    The pin's SHAPE picks the comparison semantics, whatever the
+    server OS is: a Windows-shaped pin (a drive letter or a
+    backslash — winchrome's ``dl_win`` and native-Windows Ziniao both
+    pass one) is compared with ``ntpath`` semantics: case-insensitive,
+    ``/`` and ``\\`` equivalent, drive letter included. A POSIX pin
+    uses the local ``os.path`` (``normcase`` is the identity there, so
+    a case-mismatched POSIX spelling reads as outside — same as main).
     """
-    req = os.path.normcase(_normalize_dl_path(requested))
-    pin = os.path.normcase(_normalize_dl_path(pinned))
-    return req == pin or req.startswith(pin + os.sep)
+    mod = ntpath if _is_windows_shaped(pinned) else os.path
+
+    def norm(path: str) -> str:
+        return mod.normcase(mod.normpath(mod.expanduser(path)))
+
+    req = norm(requested)
+    pin = norm(pinned)
+    return req == pin or req.startswith(pin + mod.sep)
+
+
+def _is_windows_shaped(path: str) -> bool:
+    """A drive-letter prefix or a backslash marks a Windows path."""
+    return bool(_WIN_PATH_RE.match(path) or '\\' in path)
 
 
 class _RoutingMixin:

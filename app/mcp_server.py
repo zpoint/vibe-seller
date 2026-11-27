@@ -535,6 +535,18 @@ def main():
     """Run MCP server using stdio transport."""
     _configure(sys.argv[1:])
 
+    # The MCP wire format is UTF-8 JSON, but Python's text stdin
+    # decodes with the LOCALE codec — on a zh Windows box that is GBK,
+    # and every non-ASCII tool argument (a store note, a knowledge
+    # file) is silently mojibake'd BEFORE the request reaches the
+    # server; the server then faithfully writes the corrupted text as
+    # UTF-8 and answers ok (found live by the C1 integration smoke on
+    # native Windows: writing 设置 through
+    # vibe_seller_write_workspace_file landed as mojibake). Rebind
+    # both stdio streams to UTF-8 — the protocol's only encoding.
+    sys.stdin.reconfigure(encoding='utf-8', errors='replace')
+    sys.stdout.reconfigure(encoding='utf-8')
+
     async def run():
         while True:
             line = sys.stdin.readline()

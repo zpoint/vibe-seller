@@ -9,9 +9,11 @@ removed or broken in the production code path.
 import json
 import logging
 import os
+from unittest import mock
 
 import pytest
 
+from app.browser import cdp_mux_upstream as cdp_mux_upstream_module
 from app.browser.cdp_mux_proxy import CDPMuxProxy
 
 
@@ -379,3 +381,179 @@ class TestProactiveDownloadBehavior:
         # Should complete without touching recv
         await proxy._startup_download_behavior()
         assert len(proxy._forwarded) == 1
+
+
+@pytest.mark.unit
+class TestPinOnEveryUpstreamConnect:
+    """Z1: the download pin rides EVERY upstream connection.
+
+    Ziniao's kernel defaults downloads to its own data dir; the pin on
+    first connect AND on every reconnect is what keeps files landing in
+    the store folder. #350 does not touch this code — these tests pin
+    it so the routing change can never silently drop the upstream-side
+    pin.
+    """
+
+    def _make_proxy(self, download_dir):
+        proxy = CDPMuxProxy(
+            listen_port=0,
+            target_port=0,
+            download_dir=download_dir,
+        )
+        proxy._forwarded = []
+
+        async def _capture(msg):
+            proxy._forwarded.append(msg)
+
+        proxy._send_upstream = _capture
+        proxy._upstream = None
+        return proxy
+
+    async def test_first_connect_pins(self):
+        proxy = self._make_proxy(download_dir='/pin/acme')
+        await proxy._startup_download_behavior()
+        assert len(proxy._forwarded) == 1
+        m = proxy._forwarded[0]
+        assert m['method'] == 'Browser.setDownloadBehavior'
+        assert m['params']['downloadPath'] == '/pin/acme'
+
+    async def test_reconnect_pins_again(self):
+        """The reconnect path (_connect_upstream) re-sends the pin —
+        a browser the proxy re-attached to never keeps a stale
+        download dir. Stub the socket + discovery, run the REAL
+        reconnect method, and capture what it sends."""
+        proxy = self._make_proxy(download_dir='/pin/acme')
+        calls = []
+
+        class _FakeWs:
+            async def send(self, msg):
+                calls.append(json.loads(msg))
+
+        class _FakeConnect:
+            def __await__(self):
+                async def _coro():
+                    return _FakeWs()
+
+                return _coro().__await__()
+
+        # The pin rides _send_upstream (stubbed below to _forwarded);
+        # calls captures anything the raw socket would have seen.
+
+        async def _fake_discover():
+            return 'ws://ignored'
+
+        async def _fake_read_upstream():
+            return None
+
+        with (
+            mock.patch.object(cdp_mux_upstream_module, 'websockets') as fake_ws,
+            mock.patch.object(proxy, '_discover_ws_url', _fake_discover),
+            mock.patch.object(proxy, '_read_upstream', _fake_read_upstream),
+        ):
+            fake_ws.connect = lambda *a, **kw: _FakeConnect()
+            await proxy._connect_upstream()
+
+        pins = [
+            c
+            for c in proxy._forwarded
+            if c.get('method') == 'Browser.setDownloadBehavior'
+        ]
+        assert len(pins) == 1
+        assert pins[0]['params']['downloadPath'] == '/pin/acme'
+
+    async def test_watchdog_tmp_dir_still_rewritten(self):
+        """browser-use's DownloadsWatchdog sets a random /tmp dir per
+        daemon start — main rewrote it to the pin and so must this
+        branch (the deterministic-downloads fix)."""
+        proxy = self._make_proxy(download_dir='/pin/acme')
+        msg = {
+            'id': 1,
+            'method': 'Browser.setDownloadBehavior',
+            'params': {
+                'behavior': 'allow',
+                'downloadPath': '/tmp/browser-use-downloads-abc123/',
+                'eventsEnabled': True,
+            },
+        }
+        await proxy._route_client_message('client-a', json.dumps(msg))
+        assert proxy._forwarded[0]['params']['downloadPath'] == '/pin/acme'
+
+
+@pytest.mark.unit
+class TestWindowsShapedPins:
+    """Z2: a Windows-shaped pin compares with ntpath semantics on ANY
+    server OS.
+
+    winchrome passes the WINDOWS-side dir as the pin while the server
+    runs on POSIX; native-Windows Ziniao passes one on Windows. In both
+    cases a client's ``c:/``-spelled or lowercased subdir of the pin is
+    INSIDE and must be left alone; a sibling or another drive is
+    outside.
+    """
+
+    PIN = 'C:\\Users\\straw\\downloads\\acme'
+
+    def _make_proxy(self):
+        proxy = CDPMuxProxy(
+            listen_port=0,
+            target_port=0,
+            download_dir=self.PIN,
+        )
+        proxy._forwarded = []
+
+        async def _capture(msg):
+            proxy._forwarded.append(msg)
+
+        proxy._send_upstream = _capture
+        return proxy
+
+    async def _send(self, proxy, download_path):
+        msg = {
+            'id': 1,
+            'method': 'Page.setDownloadBehavior',
+            'params': {'behavior': 'allow', 'downloadPath': download_path},
+        }
+        await proxy._route_client_message('client-a', json.dumps(msg))
+        return proxy._forwarded[0]['params']['downloadPath']
+
+    async def test_windows_subdir_backslash_inside(self):
+        proxy = self._make_proxy()
+        sub = 'C:\\Users\\straw\\downloads\\acme\\run-1'
+        assert await self._send(proxy, sub) == sub
+
+    async def test_windows_subdir_forward_slash_lowercase_inside(self):
+        proxy = self._make_proxy()
+        sub = 'c:/users/straw/downloads/acme/run-1'
+        assert await self._send(proxy, sub) == sub
+
+    async def test_pin_itself_forward_slash_lowercase_inside(self):
+        proxy = self._make_proxy()
+        same = 'c:/users/straw/downloads/acme/'
+        assert await self._send(proxy, same) == same
+
+    async def test_sibling_dir_outside_rewritten(self):
+        proxy = self._make_proxy()
+        got = await self._send(proxy, 'C:\\Users\\straw\\downloads\\acme-other')
+        assert got == self.PIN
+
+    async def test_different_drive_outside_rewritten(self):
+        proxy = self._make_proxy()
+        got = await self._send(proxy, 'D:\\Users\\straw\\downloads\\acme')
+        assert got == self.PIN
+
+    async def test_negative_control_posix_compare_reads_subdir_outside(
+        self,
+    ):
+        """Without the ntpath branch (the pre-fix state on a POSIX
+        server), a Windows-spelled subdir reads as OUTSIDE and would be
+        rewritten to the pin root — this demonstrates the detector
+        catches exactly that regression."""
+        proxy = self._make_proxy()
+        with mock.patch(
+            'app.browser.cdp_mux_routing._is_windows_shaped',
+            lambda _p: False,
+        ):
+            got = await self._send(
+                proxy, 'C:\\Users\\straw\\downloads\\acme\\run-1'
+            )
+        assert got == self.PIN

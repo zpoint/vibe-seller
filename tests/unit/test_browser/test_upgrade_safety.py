@@ -50,7 +50,7 @@ class TestWipeStaleWrappers:
         user_wrapper = user_dir / 'browser-use'
         user_wrapper.write_text('#!/usr/bin/env bash\necho custom\n')
 
-        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper_files._BIN_DIR', bin_dir):
             removed = _wipe_generated_wrappers()
 
         assert removed == 1
@@ -64,7 +64,7 @@ class TestWipeStaleWrappers:
         legacy = _write_legacy_wrapper(bin_dir, 'acme-store')
         assert '--cdp-url "$WS"' in legacy.read_text()  # old shape
 
-        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper_files._BIN_DIR', bin_dir):
             _wipe_generated_wrappers()
 
         # Regenerate via the real generator (write_task_browser_config's
@@ -80,7 +80,9 @@ class TestWipeStaleWrappers:
         assert '--cdp-url "$WS"' not in content  # old injection gone
 
     def test_no_bin_dir_is_noop(self, tmp_path: Path):
-        with mock.patch('app.browser.wrapper._BIN_DIR', tmp_path / 'missing'):
+        with mock.patch(
+            'app.browser.wrapper_files._BIN_DIR', tmp_path / 'missing'
+        ):
             assert _wipe_generated_wrappers() == 0
 
 
@@ -112,7 +114,7 @@ class TestWipeOrphanedWrappers:
             orphan.read_text()
         )  # current format — version alone would never reap it
 
-        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper_files._BIN_DIR', bin_dir):
             removed = _wipe_generated_wrappers({'store-live'})
 
         assert removed == 1
@@ -125,7 +127,7 @@ class TestWipeOrphanedWrappers:
         DB must never trigger a mass orphan-reap."""
         bin_dir = tmp_path / 'bin'
         w = self._write_current(bin_dir, 'some-store', 'store-x')
-        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper_files._BIN_DIR', bin_dir):
             assert _wipe_generated_wrappers() == 0
         assert w.exists()
 
@@ -135,7 +137,7 @@ class TestWipeOrphanedWrappers:
         while a real task is using those wrappers."""
         bin_dir = tmp_path / 'bin'
         w = self._write_current(bin_dir, 'live-store', 'store-live')
-        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper_files._BIN_DIR', bin_dir):
             assert _wipe_generated_wrappers(set()) == 0
         assert w.exists()
 
@@ -152,21 +154,21 @@ class TestWipeOrphanedWrappers:
             f'# {WRAPPER_FORMAT_MARKER} {WRAPPER_FORMAT_VERSION}\n'
             'curl http://127.0.0.1:7777/api/browser/web/start\n'
         )
-        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper_files._BIN_DIR', bin_dir):
             assert _wipe_generated_wrappers(set()) == 0
         assert w.exists()
 
 
 class TestVersionAssertion:
     def test_warns_on_old_version(self, caplog):
-        with mock.patch('app.browser.manager.version', return_value='0.12.6'):
+        with mock.patch('app.browser.bu_binary.version', return_value='0.12.6'):
             with caplog.at_level(logging.ERROR):
                 ver = warn_on_browser_use_version_mismatch()
         assert ver == '0.12.6'
         assert any('too old' in r.message for r in caplog.records)
 
     def test_ok_on_new_version(self, caplog):
-        with mock.patch('app.browser.manager.version', return_value='0.13.3'):
+        with mock.patch('app.browser.bu_binary.version', return_value='0.13.3'):
             with caplog.at_level(logging.ERROR):
                 ver = warn_on_browser_use_version_mismatch()
         assert ver == '0.13.3'
@@ -174,7 +176,7 @@ class TestVersionAssertion:
 
     def test_missing_package_is_handled(self, caplog):
         with mock.patch(
-            'app.browser.manager.version',
+            'app.browser.bu_binary.version',
             side_effect=PackageNotFoundError('browser-use'),
         ):
             with caplog.at_level(logging.ERROR):
@@ -220,7 +222,7 @@ class TestVersionAwareWipe:
         user = ud / 'browser-use'
         user.write_text('#!/usr/bin/env bash\necho hi\n')
 
-        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper_files._BIN_DIR', bin_dir):
             removed = _wipe_generated_wrappers()
 
         assert not older.exists(), 'older-version wrapper must be wiped'
@@ -242,7 +244,65 @@ class TestVersionAwareWipe:
         assert (
             f'{WRAPPER_FORMAT_MARKER} {WRAPPER_FORMAT_VERSION}' in w.read_text()
         )
-        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper_files._BIN_DIR', bin_dir):
             removed = _wipe_generated_wrappers()
         assert removed == 0
         assert w.exists(), 'current generated wrapper must survive boot'
+
+
+class TestV10DownloadsExportReap:
+    """The v10 bump exists so C1's v9 wrappers (no VIBE_STORE_DOWNLOADS
+    export) are reaped on boot and regenerated with it — a nightly that
+    shipped C1's v9 must not keep its wrappers without the export
+    forever."""
+
+    def _write_c1_v9_wrapper(self, bin_dir: Path, slug: str) -> Path:
+        """A wrapper in C1's v9 shape: auto-generated header, format
+        marker 9, ownership-checked liveness — but NO
+        VIBE_STORE_DOWNLOADS export (this PR's addition)."""
+        d = bin_dir / slug
+        d.mkdir(parents=True)
+        w = d / 'browser-use'
+        w.write_text(
+            '#!/usr/bin/env bash\n'
+            f'# Auto-generated browser-use wrapper for store: {slug}\n'
+            f'# {WRAPPER_FORMAT_MARKER} 9\n'
+            '# Do not edit — regenerated on session start.\n'
+            '# (C1 v9 shape: ownership-checked liveness, no downloads env)\n'
+            'exec "$REAL_BU" "$@"\n'
+        )
+        return w
+
+    def test_c1_v9_wrapper_is_wiped(self, tmp_path: Path):
+        bin_dir = tmp_path / 'bin'
+        w = self._write_c1_v9_wrapper(bin_dir, 'store-a')
+        with mock.patch('app.browser.wrapper_files._BIN_DIR', bin_dir):
+            removed = _wipe_generated_wrappers()
+        assert removed == 1
+        assert not w.exists()
+
+    def test_generated_wrapper_is_v10_with_export(self, tmp_path: Path):
+        bin_dir = tmp_path / 'bin'
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+            write_browser_use_wrapper(
+                'store-a', 'chrome', 9222, store_id='s1', slug='store-a'
+            )
+        content = (bin_dir / 'store-a' / 'browser-use').read_text()
+        assert f'{WRAPPER_FORMAT_MARKER} 10' in content
+        assert 'export VIBE_STORE_DOWNLOADS=' in content
+
+    def test_negative_control_version_9_keeps_the_stale_wrapper(
+        self, tmp_path: Path
+    ):
+        """If the version were left at 9, the stale C1 wrapper would
+        SURVIVE the boot wipe — the exact collision the coordinator
+        flagged."""
+        bin_dir = tmp_path / 'bin'
+        w = self._write_c1_v9_wrapper(bin_dir, 'store-a')
+        with (
+            mock.patch('app.browser.wrapper_files._BIN_DIR', bin_dir),
+            mock.patch('app.browser.wrapper_files.WRAPPER_FORMAT_VERSION', 9),
+        ):
+            removed = _wipe_generated_wrappers()
+        assert removed == 0
+        assert w.exists()

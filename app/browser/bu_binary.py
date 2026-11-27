@@ -21,6 +21,7 @@ below the wrapper dir and fails loudly instead of letting bare
 own Chrome). See docs/browser.md § Wrapper safety.
 """
 
+from importlib.metadata import PackageNotFoundError, version
 import logging
 from pathlib import Path
 import shutil
@@ -116,3 +117,37 @@ def _is_within(path: Path, parent: Path) -> bool:
     except (ValueError, OSError):
         return False
     return True
+
+
+def warn_on_browser_use_version_mismatch() -> str | None:
+    """Warn loudly if the installed browser-use can't drive our wrappers.
+
+    In-place-upgrade safety (§8.4c): this code emits the 0.13
+    (heredoc/env-var) wrapper shape. If a skewed upgrade left an older
+    browser-use installed (user-pinned, offline), the wrappers would
+    fail silently. We surface it at boot rather than at first task.
+    Returns the detected version string (or None if undetectable). Never
+    raises — a version probe must not keep the server from starting.
+    """
+    try:
+        try:
+            ver = version('browser-use')
+        except PackageNotFoundError:
+            logger.error(
+                'browser-use is not installed — browser tasks will fail. '
+                'Install browser-use>=0.13.'
+            )
+            return None
+        parts = ver.split('.')
+        major, minor = int(parts[0]), int(parts[1])
+        if (major, minor) < (0, 13):
+            logger.error(
+                'browser-use %s is too old for this build (needs >=0.13, '
+                'the heredoc/env-var CLI). Browser wrappers will fail — '
+                'upgrade browser-use. See '
+                'docs/browser-use-0.13-migration.md.',
+                ver,
+            )
+        return ver
+    except Exception:
+        return None
