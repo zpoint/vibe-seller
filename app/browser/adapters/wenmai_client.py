@@ -52,6 +52,7 @@ import weakref
 
 import aiohttp
 
+from app.browser.adapters import wenmai_mac
 from app.browser.adapters.wenmai_dom import (
     CLICK_OPEN_STORE_JS,
     MIDDLE_READY_JS,
@@ -74,10 +75,12 @@ from app.browser.inject.errors import (
     UnsupportedKernel,
 )
 from app.browser.local_api_client import LocalApiClient
+from app.browser.mac_inspector import MacInspectorSession
 from app.browser.win_inspector import (
     InspectorError,
     InspectorSession,
 )
+from app.browser.ziniao_utils import get_platform
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +100,31 @@ def _gui_lock() -> asyncio.Lock:
     return lock
 
 
+def process_layer(config: dict):
+    """The platform's process layer (macOS twin, else Windows).
+
+    One seam for tests of either platform (the established pattern).
+    """
+    if get_platform() == 'mac':
+        return wenmai_mac.WenmaiMacProcessLayer(
+            config.get('client_path') or None
+        )
+    return WenmaiProcessLayer(config.get('client_path') or None)
+
+
+def inspector_session(proc) -> InspectorSession:
+    """The platform's inspector session over that process layer.
+
+    macOS opens the inspector with SIGUSR1 (no PowerShell preamble);
+    Windows launches the exe under ``ELECTRON_RUN_AS_NODE``.
+    """
+    if get_platform() == 'mac':
+        return MacInspectorSession()
+    return InspectorSession(proc.exe_path_script)
+
+
 class RealWenmaiClient(LocalApiClient):
-    """Drives the real 稳卖 Electron client on Windows via its API."""
+    """Drives the real 稳卖 Electron client (Windows, macOS) via its API."""
 
     # ── the LocalApiClient uniform parts ─────────────────────────────
     vendor_key = 'wenmai'
@@ -125,7 +151,7 @@ class RealWenmaiClient(LocalApiClient):
     def __init__(self, browser_config: dict | None = None):
         super().__init__(browser_config)
         cfg = self._cfg
-        self._proc = WenmaiProcessLayer(cfg.get('client_path') or None)
+        self._proc = process_layer(cfg)
         # Enterprise-login credentials for auto-login (injected by the
         # manager / enumerate router from the machine credential
         # storage as wenmai_<field>). Empty → no auto-login.
@@ -477,7 +503,7 @@ class RealWenmaiClient(LocalApiClient):
                 raise ClientNotRunning(
                     'no 稳卖 main process found (API port has no listener)'
                 )
-            insp = InspectorSession(self._proc.exe_path_script)
+            insp = inspector_session(self._proc)
             await insp.open(pid)
             try:
                 yield insp

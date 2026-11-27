@@ -38,12 +38,11 @@ from app.browser.ziniao_utils import get_platform
 
 logger = logging.getLogger(__name__)
 
-# Needs the Windows 稳卖 client, ON Windows (native Windows is the
-# platform; a WSL server on the same machine reaches the client's
-# local API on 127.0.0.1 through mirrored networking). Pure Linux
-# cannot; macOS is a separate client build (in verification — added
-# only after its live run passes).
-_SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl'})
+# Needs the 稳卖 client: native Windows (a WSL server on the same
+# machine reaches the client's local API on 127.0.0.1 through mirrored
+# networking — pure Linux cannot), and the separate macOS client build
+# (driven natively; added after its live run passed).
+_SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl', 'mac'})
 
 
 def make_client(browser_config: dict) -> InjectClient:
@@ -98,7 +97,7 @@ WENMAI_VENDOR = BrowserVendorSpec(
 
 
 class WenmaiBackend(InjectCdpBackend):
-    """Route-B backend for the 稳卖 e-commerce browser (Windows)."""
+    """Route-B backend for the 稳卖 e-commerce browser (Win/macOS)."""
 
     def __init__(self, client_factory: ClientFactory | None = None):
         # BrowserManager constructs backends with no args (the real
@@ -109,7 +108,8 @@ class WenmaiBackend(InjectCdpBackend):
         platform = get_platform()
         if platform not in _SUPPORTED_PLATFORMS:
             raise UnsupportedPlatform(
-                f'wenmai is Windows-only; platform is {platform}'
+                f'wenmai needs the Windows or macOS client; '
+                f'platform is {platform}'
             )
         try:
             return await super().start(browser_config)

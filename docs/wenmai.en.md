@@ -1,18 +1,18 @@
 ---
-description: One page for connecting Wenmai (稳卖) to Vibe Seller — download, create an enterprise sub-account with store permissions, bind a device to each store, what to fill in, one account per machine, auto-login, Windows only, and what happens mid-task.
+description: One page for connecting Wenmai (稳卖) to Vibe Seller — download, create an enterprise sub-account with store permissions, bind a device to each store, what to fill in, one account per machine, auto-login, Windows / macOS / WSL support, and what happens mid-task.
 ---
 
 # Wenmai (稳卖): Setup Guide
 
 Wenmai (稳卖) is an e-commerce anti-detect browser ([official site](https://www.wenmai-ai.com)). Once bound, Vibe Seller opens and logs into the Wenmai client for you, then opens your store through it to run tasks — you never touch the client by hand.
 
-**The Wenmai backend runs in two modes**: Windows (recommended — the server and the browser both run on Windows directly) and WSL (for users running WSL on Windows; the Wenmai client stays on the Windows side). macOS support is being verified; plain Linux is not supported — the Wenmai client itself ships for Windows and Mac only.
+**The Wenmai backend runs in three modes**: Windows (recommended — the server and the browser both run on Windows directly), macOS (the server and the browser both run on the Mac; the client is Wenmai's Mac build) and WSL (for users running WSL on Windows; the Wenmai client stays on the Windows side). Plain Linux is not supported — the Wenmai client itself ships for Windows and Mac only.
 
 Not using Wenmai? Skip this page; Vibe Seller supports other browsers too — see [Browsers](browsers.en.md).
 
 ## Download and install
 
-1. Open the official site <https://www.wenmai-ai.com>, download the Windows client and install it. Any install folder works — Vibe Seller finds it on its own (it checks the registry, Start-Menu shortcuts and the usual install locations).
+1. Open the official site <https://www.wenmai-ai.com>, download the client for your system (Windows / Mac) and install it. Any install folder works — Vibe Seller finds it on its own (Windows: the registry, Start-Menu shortcuts and the usual install locations; macOS: the Applications folders, Spotlight, and a running client).
 2. After installing, start and log into the Wenmai client once by hand to confirm the account works and you can see your store list. After that Vibe Seller launches and logs in for you (see [Auto-login](#auto-login)).
 
 ## Create an enterprise account (and authorise stores)
@@ -84,7 +84,7 @@ A store browser you closed by hand reopens the same way. When a task ends, Vibe 
 | 当前店铺未绑定可用设备，无法启动 — 在稳卖客户端给这个店铺绑定设备 | The store has no device bound in Wenmai. Bind one in the Wenmai client, then retry. |
 | …Firefox kernel… only Chromium-kernel stores are supported | The store runs a Firefox kernel in Wenmai, which exposes no debug port. Switch it to a Chromium kernel in the Wenmai client. |
 | 稳卖一台机器只支持一个账号… | See [One account per machine](#one-account-per-machine). |
-| Unsupported platform | The Wenmai backend currently runs in two modes: Windows (native) and WSL; macOS is being verified, plain Linux is not supported. |
+| Unsupported platform | The Wenmai backend currently runs in three modes: Windows, macOS (native) and WSL; plain Linux is not supported. |
 
 ## Where the credentials are stored
 
