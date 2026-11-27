@@ -467,7 +467,10 @@ async def get_store_bookmarks(
 @router.post('/{store_id}/browser/start')
 async def start_browser(
     store_id: str,
-    request: Request,
+    # Optional so the in-task MCP ``browser`` tool can call this route
+    # directly (``call_route`` supplies no Request); over HTTP FastAPI
+    # always injects the real one.
+    request: Request = None,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):

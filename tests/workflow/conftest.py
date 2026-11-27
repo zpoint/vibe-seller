@@ -315,6 +315,9 @@ def install_fake_agent(fake_agent, monkeypatch):
         'app.routers.tasks_conversation.agent_manager', fake_agent
     )
     monkeypatch.setattr('app.task_finalize.agent_manager', fake_agent)
+    # The terminal browser-start failure path stops the agent
+    # (tests/workflow/test_wf_browser_start_failure.py).
+    monkeypatch.setattr('app.browser.start_failure.agent_manager', fake_agent)
     monkeypatch.setattr('app.question_park.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_auto.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_followup.agent_manager', fake_agent)

@@ -16,10 +16,12 @@ line the agent reads is generated in :mod:`app.browser.wrapper`.
 from datetime import UTC, datetime
 import logging
 
+from app.ai.claude_backend_manager import agent_manager
 from app.browser.inject.errors import InjectError
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.task import Task
+from app.task_runner import check_parent_completion
 from app.task_states import TaskStatus, can_transition
 
 logger = logging.getLogger(__name__)
@@ -77,14 +79,6 @@ async def fail_task_for_start_error(
     (anything else cannot transition to FAILED), and belong to THIS
     store. Anything else is ignored — the typed error still answers.
     """
-    # agent_manager is imported lazily: importing it at module load
-    # would drag the whole AI backend stack into every importer of
-    # this module (the browser router), for one call site.
-    from app.ai.claude_backend_manager import agent_manager  # noqa: PLC0415
-    from app.task_runner import (  # noqa: PLC0415
-        check_parent_completion,
-    )
-
     error = typed_error_text(exc)
     async with async_session() as db:
         task = await db.get(Task, task_id)

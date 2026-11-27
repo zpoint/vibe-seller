@@ -303,6 +303,9 @@ jobs:
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
           MOCK_CLI: tests/e2e/mock_cli.py
+          # So the browser-start-failure e2e can assert the
+          # terminal-stop line in the server's own log.
+          MOCK_SERVER_LOG: logs/mock_server_stdout.log
         run: >
           uv run pytest tests/e2e/test_conversation_ui.py
           tests/e2e/test_task_usage_ui.py
