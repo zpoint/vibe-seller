@@ -18,6 +18,7 @@ silent double-bind needs SO_REUSEADDR on BOTH sockets). The mux calls
 import asyncio
 import errno
 import socket
+import sys
 import time
 
 import pytest
@@ -45,16 +46,24 @@ class TestReservationWindow:
         sock = ProxyPortAllocator._reserve_socket(port)
         assert sock is not None
         try:
-            # No settimeout: a refused connect fails immediately on
-            # every platform (a timeout would put the socket in
+            # No settimeout: a timeout would put the socket in
             # non-blocking mode on Windows, where connect_ex then
-            # reports WSAEWOULDBLOCK instead of the refusal).
+            # reports WSAEWOULDBLOCK instead of the refusal.
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as c:
                 t0 = time.monotonic()
                 rc = c.connect_ex(('127.0.0.1', port))
                 elapsed = time.monotonic() - t0
             assert rc == errno.ECONNREFUSED
-            assert elapsed < 0.5
+            # POSIX refuses immediately; Windows retransmits the SYN
+            # for ~2 s before the RST (measured: 3 trials, 2.03-2.06 s
+            # — a stack behavior, not something the socket owner can
+            # change). Either way NO connection is established, which
+            # is what kills the dead-connection error; on main the
+            # connect SUCCEEDED into the backlog.
+            if sys.platform == 'win32':
+                assert elapsed < 2.5
+            else:
+                assert elapsed < 0.5
         finally:
             sock.close()
 
