@@ -1,4 +1,4 @@
-"""Locate an installed Windows app's main exe (Ziniao, 悦互联).
+"""Locate an installed Windows app's main exe (an anti-detect client).
 
 One reusable, bounded discovery replacing per-app lookups that missed
 real installs (a custom dir like ``D:\\紫鸟\\ziniao``, another drive).
@@ -47,6 +47,7 @@ import subprocess
 import threading
 
 from app.browser import lnk_file
+from app.browser.vendors import vendor_spec
 
 try:  # Native Windows only; WSL/macOS/Linux have no winreg.
     import winreg  # noqa: PLC0415
@@ -54,6 +55,24 @@ except ImportError:
     winreg = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+
+
+def __getattr__(name: str):
+    """Serve a vendor's install descriptor from the vendor registry.
+
+    Vendor descriptors are declared in the vendor's own module and
+    carried on its :class:`~app.browser.vendors.BrowserVendorSpec`
+    (``win_app``); this module only runs the discovery. The attributes
+    stay for call sites that predate the registry (and tests):
+    ``<KEY>_SPEC`` resolves to ``vendor_spec(<key>).win_app``. An
+    attribute hook — resolving the registry can load plugins.
+    """
+    if name.endswith('_SPEC') and name.isupper():
+        spec = vendor_spec(name[: -len('_SPEC')].lower())
+        if spec is not None and spec.win_app is not None:
+            return spec.win_app
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+
 
 _PS = ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command']
 _UTF8 = '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;'
@@ -131,7 +150,7 @@ class WinAppSpec:
     """Everything the locator needs to know about one Windows app.
 
     Attributes:
-        key: Cache/remember-store key ('ziniao', 'yuehulian').
+        key: Cache/remember-store key (the vendor key, e.g. 'ziniao').
         display_name: Human name for messages ('Ziniao', '悦互联').
         exe_names: Exact main-exe basenames, matched case-insensitively.
             Empty when the exe name is a locale string that changes
@@ -151,23 +170,6 @@ class WinAppSpec:
     exe_names: tuple[str, ...] = ()
     match_tokens: tuple[str, ...] = ()
     dir_names: tuple[str, ...] = ()
-
-
-ZINIAO_SPEC = WinAppSpec(
-    key='ziniao',
-    display_name='Ziniao',
-    exe_names=('ziniao.exe',),
-    match_tokens=('ziniao', '紫鸟'),
-    dir_names=('ziniao', '紫鸟', '紫鸟浏览器'),
-)
-
-YUEHULIAN_SPEC = WinAppSpec(
-    key='yuehulian',
-    display_name='悦互联 (YueHuLian)',
-    exe_names=(),  # main exe has a Chinese name (e.g. 用户端.exe)
-    match_tokens=('yuehulian', '悦互联'),
-    dir_names=('YueHuLian', '悦互联'),
-)
 
 
 @dataclass(frozen=True)

@@ -63,10 +63,19 @@ class RealYuehulianClient(InjectClient):
     def __init__(self, browser_config: dict | None = None):
         cfg = browser_config or {}
         self._proc = ProcessLayer(cfg.get('client_path') or None)
-        # Team-login credentials for auto-login (injected by the manager /
-        # the enumerate router from app settings). Empty → no auto-login.
-        self._team = cfg.get('yuehulian_team') or ''
-        self._account = cfg.get('yuehulian_account') or ''
+        # Team-login credentials for auto-login, injected by the manager /
+        # the enumerate router from app settings. Empty → no auto-login.
+        # The generic injection writes ``<vendor>_<field>`` keys; the
+        # legacy short spellings are kept as a fallback for the compat
+        # alias route (tests pin them).
+        self._team = (
+            cfg.get('yuehulian_team_name') or cfg.get('yuehulian_team') or ''
+        )
+        self._account = (
+            cfg.get('yuehulian_subaccount')
+            or cfg.get('yuehulian_account')
+            or ''
+        )
         self._password = cfg.get('yuehulian_password') or ''
 
     async def ensure_running(self) -> None:
