@@ -40,6 +40,7 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
 from app.plugins import get_extension_context
+from app.port_check import PortCheckMiddleware
 from app.release_channel import channel_of
 from app.rest_secret_guard import SecretGuardMiddleware
 from app.routers.ads import router as ads_router
@@ -407,6 +408,9 @@ app.add_middleware(
     allow_methods=['*'],
     allow_headers=['*'],
 )
+# Outermost: logs one ERROR if this server is not on the port it hands
+# its agents (app/port_check.py). Never blocks a request.
+app.add_middleware(PortCheckMiddleware, configured_port=BACKEND_PORT)
 
 
 # Routers

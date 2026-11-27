@@ -134,3 +134,71 @@ def test_cli_started_server_gives_its_agents_its_own_port(cli_server):
     text = reply['result']['content'][0]['text']
     assert 'All connection attempts failed' not in text
     assert isinstance(json.loads(text), list), text
+
+
+def test_a_bare_uvicorn_start_logs_the_port_mismatch(tmp_path):
+    """A launch that skips the CLI says why tools will fail, on request one.
+
+    `python -m uvicorn … --port N` without BACKEND_PORT (the shape of the
+    documented systemd unit, and of most native test servers) keeps the
+    7777 default. The server must log the mismatch and the fix the first
+    time it is called, instead of leaving only "All connection attempts
+    failed" in each task.
+    """
+    port = _free_port()
+    logs = tmp_path / 'logs'
+    env = {k: v for k, v in os.environ.items() if k != 'BACKEND_PORT'}
+    env.update(
+        VIBE_HOME=str(tmp_path / 'home'),
+        LOG_DIR=str(logs),
+        VIBE_SELLER_TELEMETRY='0',
+        VIBE_EXTERNAL_SYNC='off',
+        VIBE_GITHUB_MAIN_SYNC='off',
+        VIBE_ADS_SERVICE_URL='http://127.0.0.1:7791',
+        VIBE_SKIP_FRONTEND_BUILD='1',
+        PYTHONPATH=str(REPO),
+    )
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            '-m',
+            'uvicorn',
+            'app.main:app',
+            '--host',
+            '127.0.0.1',
+            '--port',
+            str(port),
+        ],
+        env=env,
+        cwd=str(REPO),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        base = f'http://127.0.0.1:{port}'
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            try:
+                if httpx.get(f'{base}/api/version', timeout=2).is_success:
+                    break
+            except httpx.HTTPError:
+                pass
+            time.sleep(1)
+        else:
+            pytest.fail(f'bare uvicorn on {port} never answered')
+        expected = f'BACKEND_PORT=7777 but this server listens on {port}'
+        deadline = time.monotonic() + 10
+        found = False
+        while time.monotonic() < deadline and not found:
+            found = any(
+                expected in f.read_text(errors='replace')
+                for f in logs.glob('*.log')
+            )
+            time.sleep(0.5)
+        assert found, f'no port-mismatch error in {sorted(logs.glob("*"))}'
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            proc.kill()
