@@ -43,9 +43,29 @@ import aiohttp
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.cdp_mux_proxy import CDPMuxProxy
 from app.browser.downloads import archive_previous
+from app.browser.vendors import (
+    CARDINALITY_NONE,
+    KIND_PLAIN,
+    PICKER_NONE,
+    BrowserVendorSpec,
+)
 from app.config import DOWNLOADS_DIR, LOCALHOST
 
 logger = logging.getLogger(__name__)
+
+# Metadata for the generic vendor surface. NOT selectable: winchrome is
+# a deployment-time setting (docs/browsers.md), never picked in the
+# store form — the spec exists so the edit form can name the backend
+# and so nothing else needs to know about it.
+WINCHROME_VENDOR = BrowserVendorSpec(
+    key='winchrome',
+    display_name_en='Chrome',
+    display_name_zh='Chrome',
+    kind=KIND_PLAIN,
+    account_cardinality=CARDINALITY_NONE,
+    picker_kind=PICKER_NONE,
+    selectable=False,
+)
 
 # Chrome executable paths to probe on Windows (via /mnt/c in WSL).
 _CHROME_CANDIDATES = [

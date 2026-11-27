@@ -1,22 +1,33 @@
 import { useTranslation } from 'react-i18next'
 import { docsHelpUrl, type DocsHelpTopic } from '../../lib/docsHelp'
+import type { VendorDocsLink } from '../../types'
 
 /**
  * "How to fix this ↗": opens the docs section for a failure the page is
  * showing, in the UI's language. Every in-app error that the docs
- * explain carries one, next to the error text (lib/docsHelp.ts lists
- * them). It inherits nothing from the error's colour, so it reads as a
- * link on a red, amber or white background alike.
+ * explain carries one, next to the error text. Links come either from
+ * the shared topic table (lib/docsHelp.ts) or — for browser vendors —
+ * from the vendor's spec (``urls``), so a vendor's docs links are
+ * declared with the vendor, not in a shared map.
  */
-export function DocsHelpLink({ topic, className = '' }: { topic: DocsHelpTopic; className?: string }) {
+export function DocsHelpLink({ topic, urls, className = '' }: {
+  topic?: DocsHelpTopic
+  urls?: VendorDocsLink
+  className?: string
+}) {
   const { t, i18n } = useTranslation()
+  const zh = (i18n.language || 'en').startsWith('zh')
+  const href = urls ? (zh ? urls.zh : urls.en)
+    : topic ? docsHelpUrl(topic, i18n.language)
+    : ''
+  if (!href) return null
   return (
     <a
-      href={docsHelpUrl(topic, i18n.language)}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
       data-testid="docs-help-link"
-      data-topic={topic}
+      data-topic={urls ? urls.topic : topic}
       className={`inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap text-xs font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-800 ${className}`}
     >
       {t('common.docsHelp')}

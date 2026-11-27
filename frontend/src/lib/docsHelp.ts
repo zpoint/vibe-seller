@@ -46,15 +46,11 @@ export const DOCS_HELP = {
     en: 'https://docs.vibe-sellers.com/en/ziniao/',
   },
 
-  // ── Yuehulian (store setup) ──
-  yuehulianErrors: {
-    zh: 'https://docs.vibe-sellers.com/yuehulian/#常见提示--报错',
-    en: 'https://docs.vibe-sellers.com/en/yuehulian/#common-statuses--errors',
-  },
-  yuehulianOneAccount: {
-    zh: 'https://docs.vibe-sellers.com/yuehulian/#一台机器只支持一个账号',
-    en: 'https://docs.vibe-sellers.com/en/yuehulian/#one-account-per-machine',
-  },
+  // Browser-vendor links (store setup) do NOT live here: each vendor's
+  // spec carries its own docs links (served by /api/browser-vendors and
+  // rendered with DocsHelpLink's `urls` mode), so a vendor's docs are
+  // declared with the vendor. Ziniao's entries above are grandfathered
+  // until its migration.
 
   // ── Browser kernels (task errors) ──
   /** A store on a Firefox / non-Chrome kernel: UNSUPPORTED_KERNEL. */
@@ -128,6 +124,11 @@ export const DOCS_HELP = {
   adsNotYetAuthorized: {
     zh: 'https://docs.vibe-sellers.com/ads-api/#not-yet-authorized',
     en: 'https://docs.vibe-sellers.com/en/ads-api/#not-yet-authorized',
+  },
+  /** Ziniao refuses to show the consent page until its domain is allowlisted. */
+  adsZiniaoBlocked: {
+    zh: 'https://docs.vibe-sellers.com/ads-api/#ziniao-blocked',
+    en: 'https://docs.vibe-sellers.com/en/ads-api/#ziniao-blocked',
   },
 
   // ── WeCom / Feishu / DingTalk / Google Workspace ──

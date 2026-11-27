@@ -7,9 +7,11 @@ import { LanguageSwitcher, WsFileItem } from './ui'
 import { SkillItem } from './SkillItem'
 import { StoreFilesSection } from './WorkspaceStoreSections'
 import { api } from '../api'
-import type { Store, AuthUser, AppView, ServerPlatform, UpdateStatus, WsStructured, YuehulianStore, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
+import { vendorBackendOptions } from '../lib/vendorOptions'
+import type { Store, AuthUser, AppView, ServerPlatform, UpdateStatus, WsStructured, BrowserVendor, VendorStoreRef, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 import { InstallIdBadge } from './InstallIdBadge'
-import { YuehulianSection, ZiniaoSection } from './StorePickers'
+import { VendorSection } from './VendorSection'
+import { ZiniaoSection } from './StorePickers'
 import { UpdateChip } from './UpdateChip'
 
 interface SidebarProps {
@@ -54,11 +56,14 @@ interface SidebarProps {
   setBrowserFetchError: (v: string) => void
   fetchBrowserProfiles: (accountId: string) => void
   ziniaoStartingSecs: number
-  // Yuehulian (Windows only): stores from /api/yuehulian/stores
-  yuehulianStores: YuehulianStore[]
-  yuehulianError: string
-  fetchingYuehulian: boolean
-  fetchYuehulianStores: () => void
+  // Browser vendors (generic picker state, from useBrowserVendor): the
+  // registry metadata plus the active vendor's store list.
+  vendors: BrowserVendor[] | null
+  vendorStores: VendorStoreRef[]
+  vendorError: string
+  vendorErrorMessage?: string
+  fetchingVendorStores: boolean
+  fetchVendorStores: () => void
   serverPlatform: ServerPlatform | null; serverVersion: string; installId: string
   // In-app update (footer chip; clicking opens the update modal)
   updateStatus: UpdateStatus | null
@@ -110,7 +115,8 @@ export function Sidebar(props: SidebarProps) {
     ziniaoBrowsers, selectedBrowserOauth, setSelectedBrowserOauth,
     fetchingBrowsers, browserFetchError, setBrowserFetchError,
     fetchBrowserProfiles, ziniaoStartingSecs,
-    yuehulianStores, yuehulianError, fetchingYuehulian, fetchYuehulianStores,
+    vendors, vendorStores, vendorError, vendorErrorMessage,
+    fetchingVendorStores, fetchVendorStores,
     serverPlatform, serverVersion, installId,
     updateStatus, onOpenUpdate,
     showAddAccount, setShowAddAccount, showAccountPassword, setShowAccountPassword,
@@ -245,8 +251,10 @@ export function Sidebar(props: SidebarProps) {
               fetchingBrowsers={fetchingBrowsers} browserFetchError={browserFetchError}
               setBrowserFetchError={setBrowserFetchError}
               fetchBrowserProfiles={fetchBrowserProfiles} ziniaoStartingSecs={ziniaoStartingSecs}
-              yuehulianStores={yuehulianStores} yuehulianError={yuehulianError}
-              fetchingYuehulian={fetchingYuehulian} fetchYuehulianStores={fetchYuehulianStores}
+              vendors={vendors}
+              vendorStores={vendorStores} vendorError={vendorError}
+              vendorErrorMessage={vendorErrorMessage}
+              fetchingVendorStores={fetchingVendorStores} fetchVendorStores={fetchVendorStores}
               serverPlatform={serverPlatform}
               showAddAccount={showAddAccount} setShowAddAccount={setShowAddAccount}
               showAccountPassword={showAccountPassword} setShowAccountPassword={setShowAccountPassword}
@@ -325,6 +333,9 @@ function StoreCreationForm(props: {
   setBrowserFetchError: (v: string) => void
   fetchBrowserProfiles: (accountId: string) => void
   ziniaoStartingSecs: number; serverPlatform: ServerPlatform | null
+  vendors: BrowserVendor[] | null
+  vendorStores: VendorStoreRef[]; vendorError: string; vendorErrorMessage?: string
+  fetchingVendorStores: boolean; fetchVendorStores: () => void
   showAddAccount: boolean; setShowAddAccount: (v: boolean) => void
   showAccountPassword: boolean; setShowAccountPassword: React.Dispatch<React.SetStateAction<boolean>>
   editingAccountId: string; setEditingAccountId: (v: string) => void
@@ -332,14 +343,26 @@ function StoreCreationForm(props: {
   setNewAccount: React.Dispatch<React.SetStateAction<{ name: string; company: string; username: string; password: string }>>
   createZiniaoAccount: () => void; updateZiniaoAccount: () => void
   deleteZiniaoAccount: (id: string) => void
-  yuehulianStores: YuehulianStore[]; yuehulianError: string
-  fetchingYuehulian: boolean; fetchYuehulianStores: () => void
   createStore: () => void; setShowCreateStore: (v: boolean) => void
   isAdmin: boolean
   stores: Store[]
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const p = props
+  // Backend options come from the vendor registry (lib/vendorOptions):
+  // selectable vendors for this server's platform, in registration
+  // order. The label of an anti-detect vendor carries the "(browser)"
+  // suffix like before.
+  const displayName = (v: BrowserVendor) =>
+    (i18n.language || 'en').startsWith('zh') ? v.display_name_zh : v.display_name_en
+  const options = vendorBackendOptions(p.vendors, p.serverPlatform)
+  // The active vendor's section: ziniao keeps its own picker (registry
+  // metadata only until its migration); every other profile-listing
+  // vendor renders the generic section.
+  const activeVendor = (p.vendors || []).find(v => v.key === p.newStoreBackend) || null
+  const genericVendor = activeVendor && activeVendor.picker_kind === 'generic' && activeVendor.lists_profiles
+    ? activeVendor
+    : null
   return (
     <div className="px-3 pb-3">
       <input
@@ -359,11 +382,11 @@ function StoreCreationForm(props: {
         disabled={!p.newStoreName.trim()}
         className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 bg-white ${!p.newStoreName.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
-        <option value="chrome">Chrome</option>
-        <option value="ziniao">{t('tasks.ziniao')} ({t('tasks.browserBackend')})</option>
-        {(p.serverPlatform === 'windows' || p.serverPlatform === 'wsl') && (
-          <option value="yuehulian">{t('tasks.yuehulian')} ({t('tasks.browserBackend')})</option>
-        )}
+        {options.map(v => (
+          <option key={v.key} value={v.key}>
+            {v.kind === 'plain' ? displayName(v) : `${displayName(v)} (${t('tasks.browserBackend')})`}
+          </option>
+        ))}
       </select>
       {p.newStoreBackend === 'chrome' && (
         <div className="mb-2">
@@ -396,15 +419,29 @@ function StoreCreationForm(props: {
         </div>
       )}
       {p.newStoreBackend === 'ziniao' && (
+        // Ziniao keeps its own picker (R6: registry metadata only until
+        // its migration) — the one deliberate per-vendor branch.
         <ZiniaoSection {...p} isAdmin={p.isAdmin} />
       )}
-      {p.newStoreBackend === 'yuehulian' && <YuehulianSection {...p} />}
+      {genericVendor && (
+        <VendorSection
+          vendor={genericVendor}
+          selectedRef={p.selectedBrowserOauth}
+          setSelectedRef={p.setSelectedBrowserOauth}
+          stores={p.vendorStores}
+          error={p.vendorError}
+          errorMessage={p.vendorErrorMessage}
+          fetching={p.fetchingVendorStores}
+          fetchStores={p.fetchVendorStores}
+          allStores={p.stores}
+        />
+      )}
       <div className="flex gap-2">
         {(() => {
           const nameEmpty = !p.newStoreName.trim()
           const ziniaoIncomplete = p.newStoreBackend === 'ziniao' && (!p.selectedZiniaoAccountId || !p.selectedBrowserOauth || p.fetchingBrowsers || !!p.browserFetchError)
-          const yuehulianIncomplete = p.newStoreBackend === 'yuehulian' && (!p.selectedBrowserOauth || p.fetchingYuehulian || !!p.yuehulianError)
-          const disabled = nameEmpty || ziniaoIncomplete || yuehulianIncomplete
+          const vendorIncomplete = !!genericVendor && (!p.selectedBrowserOauth || p.fetchingVendorStores || !!p.vendorError)
+          const disabled = nameEmpty || ziniaoIncomplete || vendorIncomplete
           return <button
             onClick={p.createStore}
             disabled={disabled}

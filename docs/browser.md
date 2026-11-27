@@ -46,6 +46,56 @@ class BrowserBackend(ABC):
     async def stop(self, info: BrowserSessionInfo) -> None
 ```
 
+`is_antidetect()` / `antidetect_display_name()` also live here — they read
+the vendor registry (`vendors.py`), so a newly registered vendor is
+covered without editing this file.
+
+### `vendors.py` — the vendor registry (spec + registration)
+
+One `BrowserVendorSpec` per browser vendor, declared in the vendor's own
+module and registered through the plugin context
+(`ctx.register_browser_backend(name, cls, spec=...)` — core vendors from
+`builtin_plugin.py`, private vendors from plugin wheels). Everything
+shared reads the spec, which is what keeps "a new vendor = one vendor
+module (+ translations + one docs page), zero shared-code edits" true:
+
+- identity: key, zh/en display names, kind (`antidetect` / `plain`),
+  platforms, `selectable` (offered in the store form);
+- accounts — two SEPARATE concepts (R8: one account per machine unless
+  the vendor's official API serves several at once): the account rule
+  `account_cardinality` (`single` — the anti-detect default; `multi` —
+  the API takes the account on every call, allowed only with a
+  `MULTI_ACCOUNT_VENDORS` entry citing the vendor's API docs, today
+  only ziniao; `none` — plain browsers only) and whether anything is
+  stored, `credential_fields` (form + storage schema, secrets
+  encrypted; empty = the user signs in in the client and the local API
+  acts as that login). Validated at registration
+  (`app/browser/vendor_rules.py`). Also `profiles_scope`;
+- picker: `picker_kind` (`generic` — the shared `VendorSection` — vs
+  `custom` — the vendor keeps its own UI, ziniao until migrated);
+- wiring: `client_factory` (the `InjectClient` the engine runs),
+  `win_app` (the install descriptor the locator serves), an optional
+  `client_path_setting`;
+- text: `i18n_prefix` (the vendor's string OVERRIDES — the generic UI
+  resolves `<prefix><Suffix>` first, else the shared `browserVendor.<Suffix>`
+  key interpolating `{{vendor}}`, so a new vendor ships only its
+  credential field labels plus the overrides it wants;
+  `test_vendor_ui_strings.py` pins that every key resolves) and `docs`
+  (per-topic help links; `test_docs_links.py` checks the URLs).
+
+The store picker binds a profile by `ref || name` (the stable id the
+vendor's `StoreRef.ref` reports; vendors without one use the name) and
+greys out an env that exists but cannot be opened
+(`StoreRef.available === false`, its `unavailable_reason` shown). The
+generic stores route surfaces every `InjectError` the client raises as
+a structured `{status: <code.lower()>, message}` — the shared taxonomy
+is the whole status space, so a paid gate or an account mismatch
+reaches the UI as itself, never a 500.
+
+`tests/unit/test_no_vendor_literals.py` enforces the invariant: no
+anti-detect vendor key literal in shared code (ziniao grandfathered until
+its migration; the yuehulian compat aliases exempted while they exist).
+
 ### `manager.py` — Browser Manager
 
 Singleton that orchestrates browser sessions across all stores:
@@ -215,6 +265,15 @@ WSL cannot launch Ziniao automatically because Electron's Node.js V8 rejects unk
 2. If it is not answering and Windows shows **no listener** on the port (normal mode, or leftovers), the server stops every Ziniao process through Windows interop, then raises the error guiding the user to run `ziniao_webdriver.bat` (which stops every Ziniao process too, then launches in WebDriver mode and waits up to 120 s)
 3. If Windows **does** show a listener WSL cannot reach, nothing is killed — that is a networking problem (`ziniao_wsl_unreachable`), and killing would lose a healthy client only the `.bat` can bring back. A timeout alone never kills on WSL
 4. The launcher script is served at `GET /api/ziniao/launcher` — **generated at download time** by `ziniao_launcher.py` (below), with the located exe path baked in, so a double-click finds a custom install dir exactly like a default one
+
+### `win_app_registry.py` — the Windows-registry lookup (App Paths / Uninstall)
+
+The registry half of the install discovery, split out of the locator:
+App Paths and the Uninstall table, through native `winreg` where
+available and a UTF-8-pinned PowerShell fallback under WSL (which must
+query the Uninstall CHILD keys — a container key queried without the
+child wildcard returns its own empty values). Everything importers need
+is re-exported from `win_app_locator`.
 
 ### `win_app_locator.py` — Windows install discovery (Ziniao & 悦互联)
 
@@ -416,10 +475,27 @@ valid across 0.13.3–0.13.14 — it syncs to clients on any of them, so
 version-specific helpers there carry an explicit minimum-version note.
 Full diff record: [browser-use-0.13-migration.md](browser-use-0.13-migration.md).
 
-## Adding a New Backend
+## Adding a New Backend / Vendor
 
-1. Create `app/browser/mybackend.py` implementing `BrowserBackend` from `base.py`
-2. Register in `BrowserManager._get_backend()` in `manager.py`
+An anti-detect browser vendor is one vendor module plus translations and
+one docs page — no shared-code edits (`test_no_vendor_literals.py` fails
+the PR otherwise):
+
+1. Create the vendor module (`app/browser/adapters/myvendor.py`):
+   the `InjectClient` implementation, the `BrowserBackend` subclass, and
+   the `BrowserVendorSpec` (display names, credential fields, docs
+   links, `client_factory`; see `vendors.py` above).
+2. Register it in `builtin_plugin.py` (or a private plugin's
+   `install()`): `ctx.register_browser_backend('myvendor', MyBackend,
+   MYVENDOR_SPEC)`.
+3. Add the i18n strings under the spec's `i18n_prefix` and the docs page
+   `docs/myvendor.md` (+ `.en.md`).
+
+The generic routes (`routers/browser_vendors.py`), the generic picker
+(`components/VendorSection.tsx`), the manager's credential injection and
+the install locator all pick the vendor up from the registry. A plain
+(non-vendor) engine backend is still `BrowserBackend` from `base.py`,
+registered the same way with `spec=None`.
 
 ## Planned Backends
 

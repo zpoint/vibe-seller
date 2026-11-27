@@ -4,8 +4,14 @@ Yuehulian is a single GUI login shared by all of this machine's yuehulian
 stores, so its team credentials live in ``app_settings`` (not per store).
 The password is stored encrypted; the decrypted value is only ever placed
 into the in-memory browser config for the login eval, never returned by the
-API or logged. Both the browser manager and the enumerate router use
-:func:`inject_yuehulian_config` so the keys + crypto live in one place.
+API or logged.
+
+COMPAT: the generic machine-scope storage
+(:mod:`app.browser.vendor_creds`) reads and writes the exact same
+``app_settings`` keys and is what the browser manager injects from. This
+module remains only for the ``/api/yuehulian`` compat alias route
+(:mod:`app.routers.yuehulian`), which builds the browser config with the
+legacy key spellings the workflow tests pin; it goes away with that route.
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession

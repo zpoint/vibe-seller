@@ -2,6 +2,7 @@
 
 Each adapter is a thin :class:`InjectCdpBackend` subclass plus a client
 descriptor (install location, process names, DOM selectors, login
-signal). ``yuehulian`` is the first; more anti-detect clients can be
-added here without touching the shared engine.
+signal). Each one is declared in its own module with a vendor spec
+(see app/browser/vendors.py) — adding a client never touches the shared
+engine.
 """

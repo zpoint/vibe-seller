@@ -63,10 +63,19 @@ class RealYuehulianClient(InjectClient):
     def __init__(self, browser_config: dict | None = None):
         cfg = browser_config or {}
         self._proc = ProcessLayer(cfg.get('client_path') or None)
-        # Team-login credentials for auto-login (injected by the manager /
-        # the enumerate router from app settings). Empty → no auto-login.
-        self._team = cfg.get('yuehulian_team') or ''
-        self._account = cfg.get('yuehulian_account') or ''
+        # Team-login credentials for auto-login, injected by the manager /
+        # the enumerate router from app settings. Empty → no auto-login.
+        # The generic injection writes ``<vendor>_<field>`` keys; the
+        # legacy short spellings are kept as a fallback for the compat
+        # alias route (tests pin them).
+        self._team = (
+            cfg.get('yuehulian_team_name') or cfg.get('yuehulian_team') or ''
+        )
+        self._account = (
+            cfg.get('yuehulian_subaccount')
+            or cfg.get('yuehulian_account')
+            or ''
+        )
         self._password = cfg.get('yuehulian_password') or ''
 
     async def ensure_running(self) -> None:
@@ -245,6 +254,12 @@ class RealYuehulianClient(InjectClient):
             await asyncio.sleep(1.5)  # let the next page re-render
 
     async def open_store(self, ref: str) -> OpenedStore:
+        # KNOWN ISSUE (R8 case C, user decision 2026-11-27): the store is
+        # matched by NAME in whatever team the client currently shows.
+        # The user configures this client's login themselves, so if they
+        # hand-sign it into another team, a same-named store there opens
+        # just as well — the user knows this risk. May be fixed later
+        # (match by a team-scoped identity instead of the name).
         async with self._inspector() as insp:
             await self._ensure_store_list(insp)
             # Page through until the store's row is on the current page (it

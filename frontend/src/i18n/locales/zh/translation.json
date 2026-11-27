@@ -581,6 +581,33 @@
     "ziniaoStartFailed": "紫鸟没能打开。",
     "ziniaoAccountConflict": "这台电脑上正在使用另一个紫鸟账号。"
   },
+  "browserVendor": {
+    "NoAccount": "还未配置账号",
+    "OneAccount": "这个浏览器一台机器只能保存一个账号。要先删除用它创建的所有店铺，才能更换账号。",
+    "LoginAllRequired": "请把每一项都填好再保存。",
+    "LoginSaving": "保存中...",
+    "SelectStore": "选择店铺...",
+    "Loading": "加载中...",
+    "LoginRequired": "请先在{{vendor}}客户端里登录，再点「刷新」。",
+    "ClientNotRunning": "没能自动打开{{vendor}}客户端——请先手动打开（或确认已安装），再点「刷新」。",
+    "NoStores": "当前登录的账号下没有可见的店铺。",
+    "unavailable": {
+      "no_device": "未绑定设备",
+      "unsupported_kernel": "不是 Chrome 内核",
+      "expired": "已过期",
+      "disabled": "已被停用",
+      "other": "暂时无法打开"
+    },
+    "LoadFailed": "加载店铺失败——请检查客户端后重试。",
+    "AccountMismatch": "客户端现在登录的账号和这里保存的不一致。请先在客户端里退出登录，或重新保存一致的账号。",
+    "ApiNotEnabled": "客户端的本地 API 没有开启。请在{{vendor}}的设置里打开（找「API / 自动化 / 本地 API」），然后点「刷新」。",
+    "PlanRequired": "{{vendor}}的本地 API 需要付费套餐。请升级账号（或选择包含 API 权限的套餐）后重试。",
+    "StoreUnavailable": "店铺存在，但暂时打不开——具体原因见提示。",
+    "UnsupportedKernel": "这个店铺用的不是 Chrome 内核，没法自动化。请在客户端里把它的内核换成 Chrome。",
+    "StoreNotFound": "找不到这个店铺——请确认店铺名称，或它对当前账号可见。",
+    "CdpUnreachable": "店铺已打开但连接不上——请重试；一直失败的话可能是客户端版本不兼容。",
+    "UnsupportedPlatform": "这个浏览器不支持当前系统。"
+  },
   "integrations": {
     "gws": {
       "title": "Google Workspace",
@@ -1094,6 +1121,7 @@
     "openInZiniao": "复制这个链接，在紫鸟或对应的浏览器里打开。",
     "openHere": "打开这个链接，用该店铺的卖家账号登录并同意。",
     "linkExpires": "链接约 {{minutes}} 分钟后过期。",
+    "ziniaoBlocked": "紫鸟提示网页不符合法律法规、需要加白？",
     "recheck": "授权完成",
     "copy": "复制",
     "copied": "已复制",
