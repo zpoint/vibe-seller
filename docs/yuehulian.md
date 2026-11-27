@@ -17,6 +17,12 @@ description: 悦互联接入 Vibe Seller 的一页说明：下载安装（Window
    - **macOS**：下载 Mac 客户端，把「悦互联.app」拖进「应用程序」（Applications）文件夹，或放到任意位置都可以——Vibe Seller 会自动找到它。如果 macOS 第一次打开时提示「来自互联网下载」，点「打开」即可（只提示一次）。
 2. 安装后至少手动启动并登录一次悦互联客户端，确认账号正常、能看到你的店铺列表。之后 Vibe Seller 会自动拉起并自动登录这个客户端（见下面「自动登录」）。
 
+在 Mac 上新建店铺和运行任务的界面（和 Windows 完全一致）：
+
+![在 Mac 上新建店铺：选悦互联、选团队账号、从列表里挑店铺](images/yuehulian_mac_store_form.png)
+
+![任务在悦互联店铺浏览器里运行](images/yuehulian_mac_task.png)
+
 ## 创建团队账号
 
 悦互联用「团队登录」：团队名称 + 子账号 + 密码。

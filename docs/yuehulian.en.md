@@ -31,6 +31,12 @@ Not using Yuehulian? Skip this page. Vibe Seller supports other browsers too; se
    Seller will then auto-launch and auto-sign-in to this client (see
    "Auto-login" below).
 
+Creating a store and running tasks on the Mac (identical to Windows):
+
+![Creating a store on the Mac: pick Yuehulian, the team account, and the store from the list](images/yuehulian_mac_store_form.png)
+
+![A task running in the Yuehulian store browser](images/yuehulian_mac_task.png)
+
 ## Create a team account
 
 Yuehulian uses a **team login**: team name + sub-account + password.
