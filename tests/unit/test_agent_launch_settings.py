@@ -22,6 +22,7 @@ import pytest
 import app.ai.agent_proxy as agent_proxy
 import app.ai.claude_backend as cb_mod
 from app.ai.claude_backend import AgentSession
+import app.ai.claude_backend_mcp as mcp_mod
 
 pytestmark = pytest.mark.unit
 
@@ -81,14 +82,14 @@ def _patch(monkeypatch, tmp_path, env: dict | None = None):
         'app.ai.profiles.ProfileManager.get_load_global_mcp',
         staticmethod(lambda pid: False),
     )
-    monkeypatch.setattr(cb_mod, 'read_mcp_config', lambda: {'mcpServers': {}})
+    monkeypatch.setattr(mcp_mod, 'read_mcp_config', lambda: {'mcpServers': {}})
     monkeypatch.setattr(cb_mod, 'async_session', _make_fake_db_session())
     monkeypatch.setattr(
-        cb_mod,
+        mcp_mod,
         'atomic_write_json',
         lambda path, data: path.write_text(json.dumps(data)),
     )
-    monkeypatch.setattr(cb_mod, 'create_token', lambda *a: 'fake-token')
+    monkeypatch.setattr(mcp_mod, 'create_token', lambda *a: 'fake-token')
     return captured
 
 

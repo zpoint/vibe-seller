@@ -1,12 +1,13 @@
-"""Vendor account rules (R8) — the spec-level contract, import-free.
+"""Vendor account rules (R8) — the spec-level contract.
 
 R8 (user decision, 2026-11-27): one account per machine, unless the
 vendor's OFFICIAL API natively serves several accounts at once.
-
-This module is a LEAF (no app imports) so both the plugin context
-(registration-time validation) and the vendor registry (which re-exports
-the constants) can use it without an import cycle.
+Stdlib-only (``logging``) so both the plugin context (registration-
+time validation) and the vendor registry (which re-exports the
+constants) can use it without an import cycle.
 """
+
+import logging
 
 # ── field values ─────────────────────────────────────────────────────
 
@@ -80,4 +81,20 @@ def validate_spec(spec) -> None:
         raise ValueError(
             f'{spec.key!r}: a plain browser is '
             f'account_cardinality={CARDINALITY_NONE!r}'
+        )
+    # Not an error — the vendor still registers — but an anti-detect
+    # vendor that declares neither private_paths nor local_ports gets
+    # no agent-guard protection for its on-disk data and local API
+    # (D-C3-6). Plain browsers have nothing to declare.
+    if (
+        spec.kind == KIND_ANTIDETECT
+        and not spec.private_paths
+        and not spec.local_ports
+    ):
+        logging.getLogger(__name__).warning(
+            'Vendor %r declares no private_paths/local_ports — the '
+            'task-agent guard cannot protect its on-disk data or '
+            'local API port; declare them (an explicit empty tuple '
+            'only when there is truly nothing to protect)',
+            spec.key,
         )
