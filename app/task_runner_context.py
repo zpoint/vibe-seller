@@ -116,7 +116,13 @@ def _get_platform_sites() -> dict[str, dict[str, str]]:
             for m in re.finditer(
                 r'\|\s*[^|]+\|\s*(\w+)\s*\|\s*`([^`]+)`'
                 r'\s*\|',
-                path.read_text(),
+                # encoding='utf-8': knowledge files carry non-ASCII
+                # (Chinese platform names); on Windows the default codec
+                # is the locale (GBK on a zh box) and one smart quote
+                # in a sites file crashes EVERY store task's context
+                # build (found live by the C1 integration smoke on
+                # native Windows).
+                path.read_text(encoding='utf-8', errors='replace'),
             ):
                 sites[m.group(1)] = m.group(2)
             if sites:
