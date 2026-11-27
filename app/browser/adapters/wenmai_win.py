@@ -3,8 +3,9 @@
 Install discovery is shared with Ziniao / 悦互联 in
 :mod:`app.browser.win_app_locator` (``WENMAI_SPEC``); the Node
 inspector machinery is shared in :mod:`app.browser.win_inspector`.
-Everything here only works on Windows (or WSL-on-Windows, driving the
-Windows side over 127.0.0.1).
+Everything here runs on Windows natively (a WSL server driving the
+Windows side over 127.0.0.1 also works — mirrored networking — but
+Windows is the platform; nothing below assumes WSL).
 
 Unlike 悦互联, the Wenmai client runs a local Express API on a fixed
 port (default 3980) on every normal launch — no special mode, no

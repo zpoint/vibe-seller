@@ -19,9 +19,10 @@ from app.browser.inject.engine import ClientFactory, InjectCdpBackend
 from app.browser.inject.errors import UnsupportedPlatform
 from app.browser.ziniao_utils import get_platform
 
-# Needs the Windows 稳卖 client. WSL-on-Windows is fine (the client's
-# local API answers on 127.0.0.1 through mirrored networking); pure
-# Linux / macOS cannot reach a client.
+# Needs the Windows 稳卖 client, ON Windows (native Windows is the
+# platform; a WSL server on the same machine reaches the client's
+# local API on 127.0.0.1 through mirrored networking). Pure Linux
+# cannot; macOS is a separate client build (in verification).
 _SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl'})
 
 # The facts a future BrowserVendorSpec (ARCHITECTURE.md §4) will carry,
