@@ -7,6 +7,6 @@
       "selenium": "127.0.0.1:57144"
     },
     "debug_port": "57144",
-    "webdriver": "C:\\Users\\<user>\\AppData\\Roaming\\adspower_global\\cwd_global\\webdriver_flower_159\\driver.exe"
+    "webdriver": "C:\\Users\\<user>\\AppData\\Roaming\\adspower_global\\cwd_global\\flower_159\\geckodriver.exe"
   }
 }

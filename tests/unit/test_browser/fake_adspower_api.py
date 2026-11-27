@@ -75,7 +75,8 @@ class FakeAdsPowerApi:
         #: The key the API accepts ('' = no security verification).
         self.api_key = 'test-key-123'
         #: start result overrides per user_id: 'firefox' | 'flower159'
-        #: | 'downloading' | 'not_ready' | None (normal CDP answer).
+        #: | 'flower100' | 'downloading' | 'not_ready' | None (normal
+        #: CDP answer).
         self.start_results: dict[str, str] = {}
         #: Consecutive rate-limit answers before the real one (0 = off).
         self.rate_limit_burst = 0
@@ -219,6 +220,8 @@ class FakeAdsPowerApi:
                 return web.json_response(_load('start_firefox_empty'))
             if result == 'flower159':
                 return web.json_response(_load('start_flower159'))
+            if result == 'flower100':
+                return web.json_response(_load('start_flower100'))
             body = _load('start_ok')
             body = json.loads(json.dumps(body))
             body['data']['ws'] = {
@@ -239,9 +242,15 @@ class FakeAdsPowerApi:
             user_id = request.query.get('user_id', '')
             if user_id and user_id not in {s['user_id'] for s in self.stores}:
                 return web.json_response(_load('errors')['invalid_id'])
-            # A profile the API does not track (Firefox / orphan):
-            known_firefox = self.start_results.get(user_id) == 'firefox'
-            if known_firefox:
+            # A profile the API does not track (any FlowerBrowser
+            # kernel — the window is invisible to the running list,
+            # FACTS §j):
+            untracked = self.start_results.get(user_id) in {
+                'firefox',
+                'flower159',
+                'flower100',
+            }
+            if untracked:
                 return web.json_response(_load('errors')['not_open'])
             return web.json_response(_load('errors')['status_ok'])
 

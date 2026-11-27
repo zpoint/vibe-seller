@@ -48,6 +48,8 @@ base cannot express stays here as overrides (the review's list):
 
 import asyncio
 import logging
+import ntpath
+import re
 import time
 from urllib.parse import urlsplit
 
@@ -266,18 +268,37 @@ class AdsPowerClient(LocalApiClient):
     def start_names_firefox(payload) -> bool:
         """Whether a code-0 start response names a FlowerBrowser kernel.
 
-        The webdriver path carries the kernel (verified live, FACTS
-        §j): ``…\\chrome_<N>\\chromedriver.exe`` for SunBrowser vs
-        ``…\\webdriver_flower_<N>\\driver.exe`` for FlowerBrowser.
-        On flower_159 (today's default) the start SUCCEEDS with a
+        The webdriver path carries the kernel (both shapes recorded
+        live): ``…\\chrome_<N>\\chromedriver.exe`` for SunBrowser
+        vs ``…\\webdriver_flower_<N>\\driver.exe`` (flower_100)
+        and ``…\\flower_<N>\\geckodriver.exe`` (flower_159,
+        today's default). On flower_159 the start SUCCEEDS with a
         WebDriver-BiDi endpoint that /json/version 404s — the engine
-        would report a generic CdpUnreachable. Deciding here, from the
-        response, refuses the profile with the typed
+        would report a generic CdpUnreachable. Deciding here, from
+        the response, refuses the profile with the typed
         UnsupportedKernel + the plain-language hint instead.
         """
         data = (payload or {}).get('data') or {}
         webdriver = str(data.get('webdriver') or '')
-        return 'webdriver_flower' in webdriver.lower()
+        if not webdriver:
+            return False
+        # Normalize to forward slashes so both \ and / paths work.
+        parts = [
+            p
+            for p in ntpath.splitdrive(webdriver)[1]
+            .replace('\\', '/')
+            .split('/')
+            if p
+        ]
+        if not parts:
+            return False
+        # A directory component naming a flower kernel (any version):
+        # flower_100, webdriver_flower_100, flower_159, …
+        for part in parts[:-1]:
+            if re.fullmatch(r'(webdriver_)?flower_\d+', part, re.IGNORECASE):
+                return True
+        # Or the driver file itself is a geckodriver.
+        return parts[-1].lower().startswith('geckodriver')
 
     def is_logged_out(self, status: int, payload) -> bool:
         """True for the no-credential shape — AdsPower's "not

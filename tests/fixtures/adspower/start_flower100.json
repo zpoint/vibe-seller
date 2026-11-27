@@ -1,0 +1,12 @@
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "ws": {
+      "puppeteer": "ws://localhost:57938/devtools/browser/ffffffff-1111-2222-3333-444444444444",
+      "selenium": "localhost:57938"
+    },
+    "debug_port": "57938",
+    "webdriver": "C:\\Users\\<user>\\AppData\\Roaming\\adspower_global\\cwd_global\\webdriver_flower_100\\driver.exe"
+  }
+}

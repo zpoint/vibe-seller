@@ -755,15 +755,18 @@ async def test_kernel_updating_then_not_ready_keeps_downloading_hint(api):
     assert '后台不会自动下载' not in str(ei.value)
 
 
-# ── R14: the start response itself names the kernel (flower_159) ──
+# ── R14/R14b: the start response itself names the kernel ────────────
 
 
 async def test_flower159_start_refused_from_the_webdriver_path(api):
-    # R14: on flower_159 (today's default FlowerBrowser kernel) the
+    # R14b: on flower_159 (today's default FlowerBrowser kernel) the
     # start SUCCEEDS and returns a WebDriver-BiDi endpoint whose
     # /json/version 404s — the engine would report a generic
-    # CdpUnreachable. The webdriver path (webdriver_flower_159) names
-    # the kernel, so the adapter refuses BEFORE the engine fronts it.
+    # CdpUnreachable. The REAL recorded response (native re-run
+    # 2026-11-27) names the kernel in the webdriver path as
+    # …\flower_159\geckodriver.exe, so the adapter refuses BEFORE the
+    # engine fronts it. R14 missed this shape (it assumed
+    # webdriver_flower_159\driver.exe).
     api.start_results['kaaaaaa2'] = 'flower159'
     c = _client(api)
     stopped: list[str] = []
@@ -775,6 +778,40 @@ async def test_flower159_start_refused_from_the_webdriver_path(api):
     assert stopped == ['kaaaaaa2']  # the profile was stopped
 
 
+async def test_flower159_refusal_leaves_no_window(api):
+    # R14b: the native re-run found a flower window LEFT BEHIND (11
+    # processes) because the refusal never fired. With the real shape
+    # matched, the refusal must also CLEAN UP: the local API cannot
+    # stop a FlowerBrowser (stop answers "User_id is not open", FACTS
+    # §j), so close_store kills exactly THIS profile's kernel tree.
+    # Full path — close_store is NOT mocked.
+    api.start_results['kaaaaaa2'] = 'flower159'
+    c = _client(api)
+    killed: list[int] = []
+    c._list_kernels = lambda: [
+        _kernel(801, 'flowerbrowser.exe', 'kaaaaaa2'),
+        _kernel(802, 'sunbrowser.exe', 'kother999'),
+    ]
+    with mock.patch.object(c, '_kill_tree', side_effect=killed.append):
+        with pytest.raises(UnsupportedKernel):
+            await c.open_store('kaaaaaa2')
+    assert killed == [801]  # only our window's tree
+
+
+async def test_flower100_start_refused_from_the_webdriver_path(api):
+    # The second recorded shape (FACTS §j, flower_100):
+    # …\webdriver_flower_100\driver.exe. Same refusal, same cleanup.
+    api.start_results['kaaaaaa2'] = 'flower100'
+    c = _client(api)
+    killed: list[int] = []
+    c._list_kernels = lambda: [_kernel(811, 'flowerbrowser.exe', 'kaaaaaa2')]
+    with mock.patch.object(c, '_kill_tree', side_effect=killed.append):
+        with pytest.raises(UnsupportedKernel) as ei:
+            await c.open_store('kaaaaaa2')
+    assert 'SunBrowser' in str(ei.value)
+    assert killed == [811]
+
+
 async def test_flower159_twist_the_sunbrowser_shape_passes(api):
     # The SunBrowser start response (chromedriver path) is unaffected.
     c = _client(api)
@@ -783,16 +820,59 @@ async def test_flower159_twist_the_sunbrowser_shape_passes(api):
 
 
 async def test_start_names_firefox_shape():
+    # Both shapes recorded live, plus the negatives (SunBrowser, a
+    # bare geckodriver, macOS forward slashes).
     c = AdsPowerClient({})
+    # flower_159 (today's default) — the REAL recorded path
+    # (native re-run 2026-11-27):
     assert (
         c.start_names_firefox({
-            'data': {'webdriver': 'x\\\\webdriver_flower_100\\\\driver.exe'}
+            'data': {
+                'webdriver': (
+                    'C:\\Users\\<user>\\AppData\\Roaming'
+                    '\\adspower_global\\cwd_global\\flower_159'
+                    '\\geckodriver.exe'
+                )
+            }
         })
         is True
     )
+    # flower_100 — the FACTS §j recorded path:
     assert (
         c.start_names_firefox({
-            'data': {'webdriver': 'x\\\\chrome_156\\\\chromedriver.exe'}
+            'data': {
+                'webdriver': (
+                    'C:\\Users\\<user>\\AppData\\Roaming'
+                    '\\adspower_global\\cwd_global'
+                    '\\webdriver_flower_100\\driver.exe'
+                )
+            }
+        })
+        is True
+    )
+    # A geckodriver file alone (no flower directory) is Firefox too:
+    assert (
+        c.start_names_firefox({
+            'data': {'webdriver': 'C:\\kernels\\geckodriver.exe'}
+        })
+        is True
+    )
+    # macOS-style forward slashes:
+    assert (
+        c.start_names_firefox({
+            'data': {
+                'webdriver': (
+                    '/Users/<user>/Library/Application Support/'
+                    'adspower_global/cwd_global/flower_159/geckodriver'
+                )
+            }
+        })
+        is True
+    )
+    # SunBrowser (chromedriver) is NOT Firefox:
+    assert (
+        c.start_names_firefox({
+            'data': {'webdriver': 'x\\chrome_156\\chromedriver.exe'}
         })
         is False
     )
