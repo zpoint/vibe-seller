@@ -140,10 +140,10 @@ def locate_exe_script(install_dir: str | None = None) -> str:
     """A PowerShell preamble resolving the installed exe to ``$exe``.
 
     The inspector's Windows trigger launches the exe under
-    ``ELECTRON_RUN_AS_NODE``; this mirrors the yuehulian launcher's
-    preamble (the locator's dir, the largest non-uninstaller .exe
-    directly in it). ASCII-only except the install dir, which the
-    locator itself resolves."""
+    ``ELECTRON_RUN_AS_NODE``; this mirrors the inject family's
+    launcher preamble (the locator's dir, the largest
+    non-uninstaller .exe directly in it). ASCII-only except the
+    install dir, which the locator itself resolves."""
     d = install_dir
     if not d:
         located = locate_win_app(BITBROWSER_WIN_APP)

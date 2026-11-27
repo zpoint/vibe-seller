@@ -329,7 +329,7 @@ async def main_pid_for_platform(api_port: int) -> int | None:
     (no ``--type=`` arg), via the shared Mac locator's process list.
     """
     if get_platform() == 'mac':
-        return _mac_main_pid()
+        return await asyncio.to_thread(_mac_main_pid)
     return await asyncio.to_thread(_windows_port_owner, api_port)
 
 
