@@ -241,8 +241,8 @@ async def test_cdp_unreachable_engine_probe_when_port_dead(
         _mocked_proxy(tmp_path) as proxy,
         mock.patch.object(
             YuehulianBackend,
-            '_cdp_reachable',
-            new=mock.AsyncMock(return_value=False),
+            '_cdp_version',
+            new=mock.AsyncMock(return_value=None),
         ),
     ):
         with pytest.raises(CdpUnreachable):

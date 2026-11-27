@@ -7,8 +7,8 @@ class StoreCreate(BaseModel):
     browser_config: dict = {}
     ziniao_account_id: str | None = None
     browser_oauth: str | None = None
-    platforms: list[str] = ['amazon']
-    countries: list[str] = ['US']
+    platforms: list[str] = []
+    countries: list[str] = []
     platform_countries: dict[str, list[str]] = {}
 
 

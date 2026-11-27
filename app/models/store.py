@@ -33,12 +33,8 @@ class Store(Base):
     )
     ziniao_account_id: Mapped[str | None] = mapped_column(String, nullable=True)
     browser_oauth: Mapped[str | None] = mapped_column(String, nullable=True)
-    platforms: Mapped[str] = mapped_column(
-        Text, nullable=False, default='["amazon"]'
-    )
-    countries: Mapped[str] = mapped_column(
-        Text, nullable=False, default='["US"]'
-    )
+    platforms: Mapped[str] = mapped_column(Text, nullable=False, default='[]')
+    countries: Mapped[str] = mapped_column(Text, nullable=False, default='[]')
     platform_countries: Mapped[str] = mapped_column(
         Text, nullable=False, default='{}'
     )

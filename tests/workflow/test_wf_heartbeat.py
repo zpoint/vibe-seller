@@ -132,7 +132,7 @@ class TestHeartbeatShape:
         # Real seeded state is visible as counts/enums only.
         assert props['store_count'] == 1
         assert props['store_backend_counts'] == {'chrome': 1}
-        assert props['store_platform_counts'] == {'amazon': 1}
+        assert props['store_platform_counts'] == {}
         # The built-in 'default' profile plus the one just created.
         assert props['ai_profile_count'] == 2
         assert props['ai_provider_kinds'] == ['custom', 'default']
