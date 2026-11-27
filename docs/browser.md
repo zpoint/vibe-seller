@@ -12,7 +12,8 @@ BrowserBackend (abstract)         BrowserManager (singleton)
     ├── WinChromeBackend              native Windows Chrome (WSL2-on-Windows)
     ├── ZiniaoBackend                 anti-detect, HTTP API → CDP proxy
     └── InjectCdpBackend              anti-detect, no API → inject CDP port
-          └── YuehulianBackend        悦互联 (Windows/WSL-on-Windows only)
+          ├── YuehulianBackend        悦互联 (Windows/WSL-on-Windows only)
+          └── BitBrowserBackend       比特浏览器 (Windows/WSL-on-Windows only)
 
 All backends front their browser with CDPMuxProxy for shared access and
 cookie persistence; BrowserManager generates a per-store browser-use
@@ -90,6 +91,12 @@ reaches the UI as itself, never a 500.
 anti-detect vendor key literal in shared code (ziniao grandfathered until
 its migration; the yuehulian compat aliases exempted while they exist).
 
+`bitbrowser` (比特浏览器) is the first spec-only local-API vendor: `single`
+with no `credential_fields` (the user signs in inside the client; nothing
+is stored), `lists_profiles` straight from the client's local API, the
+Windows install descriptor plus an optional saved client path, and the
+docs links for the picker's error hints.
+
 ### `local_api_client.py` — the local-API client family
 
 The ~25 anti-detect vendors whose desktop client exposes a local HTTP
@@ -111,6 +118,15 @@ no-payload-logging rule. The parametrized contract suite
 fixtures from the vendors' published docs today, real vendor modules
 under `app/browser/adapters` auto-discovered — against a fake local API
 serving their documented responses.
+
+`bitbrowser.py` (split into `bitbrowser_cdp.py` / `bitbrowser_launch.py`)
+is the first real subclass: the port and the optional `x-api-key` token
+are read from the client's own `config.json` (cached per instance, one
+re-read after a 403), the 工作台 workbench tab is closed over CDP in
+`after_open` (keyed on the profile's `workbench` setting so a late
+appearance is still caught), non-Chromium kernels are greyed out in the
+picker and refused at open via a `/browser/detail` pre-check, and the
+client is located and launched when it is not running.
 
 ### `manager.py` — Browser Manager
 
