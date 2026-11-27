@@ -11,7 +11,7 @@
 #
 # Usage (from WSL, as a persistent background task):
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass \
-#     -File C:\Users\Administrator\codes\<clone>\tests\e2e\smoke\run_smoke.ps1 \
+#     -File C:\Users\<user>\codes\<clone>\tests\e2e\smoke\run_smoke.ps1 \
 #     -Port 7864 [-WithBrowser]
 #
 # The MiniMax secrets arrive via the environment (never files).

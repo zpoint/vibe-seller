@@ -313,8 +313,8 @@ class TestWindowsShapedPaths:
     and the ~ / $HOME / %USERPROFILE% prefixes.
     """
 
-    USER_HOME = 'C:/Users/Administrator'
-    WIN_HOME = 'c:/users/administrator/smoke-home'
+    USER_HOME = 'C:/Users/example'
+    WIN_HOME = 'c:/users/example/smoke-home'
 
     @pytest.fixture(autouse=True)
     def _win_home(self, fake_vendor, monkeypatch):
@@ -409,7 +409,7 @@ class TestWindowsShapedPaths:
                 'Bash',
                 {
                     'command': (
-                        'sqlite3 C:/Users/Administrator/smoke-home/data/'
+                        'sqlite3 C:/Users/example/smoke-home/data/'
                         'email_dbs/a.db "select 1"'
                     )
                 },
