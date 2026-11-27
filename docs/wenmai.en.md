@@ -6,7 +6,7 @@ description: One page for connecting Wenmai (稳卖) to Vibe Seller — download
 
 Wenmai (稳卖) is an e-commerce anti-detect browser ([official site](https://www.wenmai-ai.com)). Once bound, Vibe Seller opens and logs into the Wenmai client for you, then opens your store through it to run tasks — you never touch the client by hand.
 
-**The Wenmai backend is Windows-only** (including WSL running on Windows). On mac / plain Linux the option does not appear in the browser-backend dropdown — the Wenmai client itself is Windows-only.
+**The Wenmai backend runs in two modes**: Windows (recommended — the server and the browser both run on Windows directly) and WSL (for users running WSL on Windows; the Wenmai client stays on the Windows side). macOS support is being verified; plain Linux is not supported — the Wenmai client itself ships for Windows and Mac only.
 
 Not using Wenmai? Skip this page; Vibe Seller supports other browsers too — see [Browsers](browsers.en.md).
 
@@ -83,7 +83,7 @@ A store browser you closed by hand reopens the same way. When a task ends, Vibe 
 | 当前店铺未绑定可用设备，无法启动 — 在稳卖客户端给这个店铺绑定设备 | The store has no device bound in Wenmai. Bind one in the Wenmai client, then retry. |
 | …Firefox kernel… only Chromium-kernel stores are supported | The store runs a Firefox kernel in Wenmai, which exposes no debug port. Switch it to a Chromium kernel in the Wenmai client. |
 | 稳卖一台机器只支持一个账号… | See [One account per machine](#one-account-per-machine). |
-| Unsupported platform | The Wenmai backend is Windows-only (incl. WSL-on-Windows). |
+| Unsupported platform | The Wenmai backend currently runs in two modes: Windows (native) and WSL; macOS is being verified, plain Linux is not supported. |
 
 ## Where the credentials are stored
 

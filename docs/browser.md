@@ -13,7 +13,7 @@ BrowserBackend (abstract)         BrowserManager (singleton)
     ├── ZiniaoBackend                 anti-detect, HTTP API → CDP proxy
     └── InjectCdpBackend              anti-detect, no API → inject CDP port
           ├── YuehulianBackend        悦互联 (Windows/WSL-on-Windows only)
-          └── WenmaiBackend           稳卖 (Windows/WSL-on-Windows for now)
+          └── WenmaiBackend           稳卖 (Windows native + WSL; macOS in verification)
 
 All backends front their browser with CDPMuxProxy for shared access and
 cookie persistence; BrowserManager generates a per-store browser-use
@@ -296,7 +296,7 @@ Key behaviors:
 
 From the CDP endpoint on it reuses `CDPMuxProxy` exactly like the other backends, and it is routed through the anti-detect prompt path (`is_antidetect`) like ziniao — minus ziniao's credential auto-fill (yuehulian envs are session-persisted). **One login per machine, auto-signed-in**: the team-login credential is configured in the create-store form (the 悦互联团队登录 section, like ziniao's add-account) and `InjectCdpBackend.start()` / the enumerate endpoint call `ensure_logged_in()` so a logged-out client is signed in automatically (`InjectClient`'s default is a no-op, so ziniao is unaffected). Store selection comes from `GET /api/yuehulian/stores`; the **aux** browser is a login-less Chromium like ziniao's; agent prompts name the actual product (悦互联), never "Ziniao". **Windows-only** (incl. WSL-on-Windows); refused elsewhere at runtime and hidden in the UI off-Windows. A live smoke (`tests/e2e/yuehulian_live_smoke.py`, not in CI) drives the real client through every state.
 
-### `adapters/wenmai*.py` — Wenmai Backend (Route B hybrid, Windows/WSL-on-Windows for now)
+### `adapters/wenmai*.py` — Wenmai Backend (Route B hybrid; Windows native + WSL, macOS in verification)
 
 **稳卖 (Wenmai)** is the inject family's hybrid: its client ships a **local HTTP API** (Express, **port 3980**, running on every launch), so list / open / close go over HTTP like ziniao's — no GUI scraping, no port injection — with the vendor's documented **0.5 s rate limit** honoured by a per-loop serialised gate. The kernel's OWN debug endpoint comes back from `openEnv` (`selenium`): even a store a person opened by hand has one, and opening an already-open store returns the SAME pid and port, so nothing is ever closed and reopened. The **Node inspector** (the shared `app/browser/win_inspector.py`) is used only for what the API cannot do: the **enterprise login form** (the official API has no password login — the cloud login response is encrypted; the phone tab has an image captcha) and the store-entry middle page's 打开店铺 click (over CDP, after open).
 
@@ -304,7 +304,7 @@ From the CDP endpoint on it reuses `CDPMuxProxy` exactly like the other backends
 - **`adapters/wenmai_dom.py`** — pure JS: the enterprise login fill (placeholder-matched, native-setter + input events), the middle-page click + readiness probe (matched by the middlePage PATH, never a hardcoded extension id).
 - **`adapters/wenmai_win.py`** — the process layer; the WENMAI locator spec lives HERE (vendor knowledge stays in the vendor module), main pid = the 3980 listener owner.
 - **Credentials**: `company` / `username` / `password` (enterprise login), injected into the browser config as **`wenmai_<field>`** by the machine-credential storage — the spec's field keys stay neutral. **One account per machine.**
-- **Windows/WSL-on-Windows for now** (a macOS path is being verified). A live smoke (`tests/e2e/wenmai_live_smoke.py`, not in CI) drives the real client through every state; see [docs/wenmai.md](wenmai.md) for the user-facing guide.
+- **Platforms**: Windows (native — server, agent, wrapper and browser all on Windows) and WSL (a WSL server driving the Windows client) are supported; a macOS path is in verification. A live smoke (`tests/e2e/wenmai_live_smoke.py`, not in CI) drives the real client through every state; see [docs/wenmai.md](wenmai.md) for the user-facing guide.
 
 ## Browser Lifecycle — idle termination + tab cap
 

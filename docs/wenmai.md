@@ -6,7 +6,7 @@ description: 稳卖接入 Vibe Seller 的一页说明：下载安装、创建企
 
 稳卖（WenMai）是一款电商防关联浏览器（[官网](https://www.wenmai-ai.com)）。绑定后，Vibe Seller 会自动打开并登录稳卖客户端，再用它打开你的店铺执行任务，不需要你手动操作客户端。
 
-**稳卖后端只支持 Windows**（含在 Windows 上运行的 WSL）。mac / 纯 Linux 上这个选项不会出现在「浏览器后端」下拉里——稳卖客户端本身只有 Windows 版。
+**稳卖后端支持两种运行方式**：Windows（推荐，服务器和浏览器都直接跑在 Windows 上）和 WSL（在 Windows 里跑 WSL 的用户也可用，稳卖客户端仍在 Windows 侧）。macOS 支持正在验证中；纯 Linux 上不可用——稳卖客户端本身只有 Windows 和 Mac 版。
 
 不用稳卖的话，这一页可以跳过。Vibe Seller 还支持其他浏览器，见 [浏览器](browsers.md)。
 
@@ -82,7 +82,7 @@ description: 稳卖接入 Vibe Seller 的一页说明：下载安装、创建企
 | 当前店铺未绑定可用设备，无法启动 — 在稳卖客户端给这个店铺绑定设备 | 这个店铺在稳卖里没绑定设备。去稳卖客户端给它绑定设备后重试。 |
 | 该店铺使用 Firefox 内核 … only Chromium-kernel stores are supported | 这个店铺在稳卖里用的是 Firefox 内核，没有调试端口，机器没法操作。在稳卖客户端把它切换为 Chromium 内核。 |
 | 稳卖一台机器只支持一个账号… | 见上面「一台机器只支持一个账号」。 |
-| 不支持的平台 | 稳卖后端只在 Windows（含 WSL-on-Windows）可用。 |
+| 不支持的平台 | 稳卖后端目前支持 Windows（原生）和 WSL 两种模式；macOS 验证中，纯 Linux 不可用。 |
 
 ## 凭据存在哪里
 
