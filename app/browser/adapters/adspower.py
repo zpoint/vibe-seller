@@ -34,7 +34,6 @@ Three AdsPower facts shape this module (all verified live, FACTS.md in
 
 What the shared :class:`~app.browser.local_api_client.LocalApiClient`
 base cannot express stays here as overrides (the review's list):
-
 - **D4 ``ensure_running``**: probe → launch the GUI (remember-me) →
   a 30 s grace → headless with the API key.
 - **D7 failed-start decision**: an empty endpoint is ambiguous
@@ -203,8 +202,8 @@ class AdsPowerClient(LocalApiClient):
         """The port from the client's ``local_api`` file (a full URL).
 
         The file can be STALE (a killed client leaves it behind), so
-        callers decide liveness by probing, never by this file alone.
-        Falls back to the documented default when nothing is readable.
+        callers decide liveness by probing, never the file alone;
+        the documented default when nothing is readable.
         """
         port = await asyncio.to_thread(self._read_port)
         return port if port else self.api_port
@@ -212,19 +211,22 @@ class AdsPowerClient(LocalApiClient):
     def parse_stores(self, payload) -> list[StoreRef]:
         """user/list's ``data`` → StoreRefs.
 
-        ``name`` is the ``user_id`` (the stable open handle — the
-        contract suite and the picker's bind value open by it) with the
-        human display (``#<serial> <name> (<group>)``) in
-        ``remote_env`` and the platform URL in ``platform``. Every
-        profile is ``available=True``: the list carries NO kernel field
-        (verified live), so a Firefox-kernel profile cannot be greyed
-        out here — it is refused at open with ``UnsupportedKernel``.
+        ``ref`` is the ``user_id`` — the stable id a store binds and
+        reopens by (the picker's bind value / the engine's
+        ``browser_ref``; never changes). ``name`` is the profile's
+        own name, ``remote_env`` the display (``#<serial> <name>
+        (<group>)``), so the picker's opaque-ref label shows the
+        display first, the id last (#346 / R18). Every profile is
+        ``available=True``: the list carries NO kernel field (verified
+        live), so a Firefox profile cannot be greyed out here — it is
+        refused at open with ``UnsupportedKernel``.
         """
         rows = ((payload or {}).get('data') or {}).get('list') or []
         out: list[StoreRef] = []
         for e in rows:
             user_id = str(e.get('user_id') or '')
-            display = str(e.get('name') or user_id)
+            name = str(e.get('name') or user_id)
+            display = name
             serial = str(e.get('serial_number') or '')
             if serial:
                 display = f'#{serial} {display}'
@@ -233,9 +235,10 @@ class AdsPowerClient(LocalApiClient):
                 display = f'{display} ({group})'
             out.append(
                 StoreRef(
-                    name=user_id,
+                    name=name,
                     platform=str(e.get('domain_name') or ''),
                     remote_env=display,
+                    ref=user_id,
                     available=True,
                 )
             )
@@ -312,8 +315,9 @@ class AdsPowerClient(LocalApiClient):
         a login material the user has not provided, which is exactly
         the shared contract's LOGIN_REQUIRED (the base's own default
         treats "the API needs a login the user hasn't supplied" the
-        same way). The generate-a-key advice lives in the
-        ``vendors.adspower.LoginRequired`` i18n override.
+        same way). The generate-key advice lives in the keyless
+        exception message and the ``vendors.adspower.NoAccount``
+        override (R16a).
 
         "The client is signed out entirely" (the API answers nothing)
         is still decided at the PROCESS level, in
@@ -349,9 +353,9 @@ class AdsPowerClient(LocalApiClient):
             # A key IS stored and was sent (the keyless shape is
             # intercepted as logged-out before map_error): the API
             # does not recognize the session — sign-in needed (R16b).
-            # 'Require api-key' is documented as the no-key-in-request
+            # 'Require api-key' is the documented no-key-in-request
             # shape (FACTS §b); the PERMISSION refusal is unverified
-            # live and stays unmapped rather than guessed.
+            # and stays unmapped rather than guessed.
             return LoginRequired(f'{SIGN_IN_NEEDED_ZH} / {SIGN_IN_NEEDED_EN}')
         if msg.startswith('API Key mismatch'):
             # R8 case C (known issue, not live-tested — no second
@@ -394,10 +398,9 @@ class AdsPowerClient(LocalApiClient):
     ) -> tuple[int, object]:
         """The base's path with the keyless advice attached (R16a).
 
-        The base raises a BARE LoginRequired on the keyless
-        not-authenticated shape (before map_error); the generate-key
-        advice rides the message. A keyed LoginRequired (map_error's
-        sign-in branch) never passes through here.
+        The base raises a BARE LoginRequired on the keyless shape
+        (before map_error); the generate-key advice rides the message.
+        A keyed LoginRequired never passes through here.
         """
         try:
             return await super().api_call(method, path, json_body)
@@ -407,14 +410,14 @@ class AdsPowerClient(LocalApiClient):
     async def api_call(
         self, method: str, path: str, json_body: dict | None = None
     ) -> tuple[int, object]:
-        """The base's shared path plus the bounded resend + re-discovery.
+        """The base's path plus the bounded resend + re-discovery.
 
         - a rate-limited answer is RE-SENT up to RATE_LIMIT_RETRIES
-          rounds (the base retries once per round; the vendor's burst
-          window outlives a single retry when another consumer calls);
-        - a transport failure re-reads the ``local_api`` file ONCE and
-          retries: the port changes on every client launch, so a dead
-          port may just be a stale file.
+          rounds (the burst window outlives a single retry when
+          another consumer calls);
+        - a transport failure re-reads the ``local_api`` file ONCE
+          (the port changes on every client launch, so a dead port
+          may just be a stale file).
         """
         if self._port is None:
             self._port = await self.discover_port()
@@ -448,15 +451,13 @@ class AdsPowerClient(LocalApiClient):
     async def ensure_running(self) -> None:
         """D4: probe → launch the GUI → grace → headless-with-key.
 
-        (1) the API answers /status → done. (2) the GUI shell is not
-        running → launch it (remember-me signs the account in) and wait
-        for the API. (3) the shell runs but the API never came up —
-        the m1 evidence of a signed-out GUI (the Local API only starts
-        at login) — with a 30 s grace for a shell someone else just
-        started, then a headless instance that logs in with the API key
-        (the vendor's documented flags); the GUI is NOT killed (they
-        coexist). (4) still nothing → LoginRequired when the shell is
-        up, ClientNotRunning when it never started.
+        (1) /status answers → done. (2) no GUI shell → launch it
+        (remember-me signs in) and wait. (3) the shell runs but the
+        API never came up (m1: a signed-out GUI — the Local API only
+        starts at login): a 30 s grace for a shell someone else just
+        started, then a headless instance with the API key (the GUI
+        is NOT killed; they coexist). (4) still nothing →
+        LoginRequired when the shell is up, else ClientNotRunning.
         """
         if await self._api_up():
             return
@@ -759,7 +760,7 @@ class AdsPowerClient(LocalApiClient):
         return out
 
     def _kill_kernel(self, proc: KernelProcess) -> None:
-        """Kill one profile's kernel tree (best effort, logged)."""
+        """Kill one profile's kernel tree (best effort)."""
         if not self._kill_tree(proc.pid):
             logger.warning(
                 'could not kill kernel pid %s for profile cleanup',

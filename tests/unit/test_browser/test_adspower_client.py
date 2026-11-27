@@ -150,8 +150,10 @@ async def test_wrong_key_error_text_hides_the_key(api, caplog):
 async def test_list_pages_until_short_page(api):
     c = _client(api)
     stores = await c.list_stores()
-    assert [s.name for s in stores] == ['kaaaaaa1', 'kaaaaaa2']
-    assert stores[0].name == 'kaaaaaa1'
+    # R18: name is the profile's own name, ref the stable open id —
+    # the picker's opaque-ref label shows the display first, id last.
+    assert [s.name for s in stores] == ['demo-store', 'demo-firefox']
+    assert [s.open_ref for s in stores] == ['kaaaaaa1', 'kaaaaaa2']
     assert stores[0].remote_env == '#1 demo-store (acme)'
     assert stores[0].platform == 'https://www.amazon.com'
     assert stores[0].available is True
@@ -623,11 +625,29 @@ def test_parse_stores_shapes():
     resp = {'data': {'list': [_store('kaaaaaa1', 'demo-store', serial='7')]}}
     (store,) = c.parse_stores(resp)
     assert store == StoreRef(
-        name='kaaaaaa1',
+        name='demo-store',
         platform='https://www.amazon.com',
         remote_env='#7 demo-store (acme)',
+        ref='kaaaaaa1',
         available=True,
     )
+
+
+def test_picker_row_binds_by_the_profile_id():
+    # R18: the row the picker renders and the value a store binds by.
+    # The label (vendorStoreOptionLabel, the opaque-ref shape) reads
+    # display · platform · ref — pinned end-to-end by the vitest
+    # (adspowerPickerLabel.test.ts) on this same recorded row.
+    c = AdsPowerClient({})
+    resp = {'data': {'list': [_store('kaaaaaa1', '示例甲1店', serial='1')]}}
+    (store,) = c.parse_stores(resp)
+    assert store.name == '示例甲1店'
+    assert store.remote_env == '#1 示例甲1店 (acme)'
+    assert store.platform == 'https://www.amazon.com'
+    assert store.ref == 'kaaaaaa1'
+    # the BIND value — what the picker binds and the engine reopens
+    # by — is the profile id, unchanged.
+    assert store.open_ref == 'kaaaaaa1'
 
 
 def test_parse_opened_from_debug_port_only():

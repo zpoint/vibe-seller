@@ -66,6 +66,13 @@ _OPEN_OK = {
     },
 }
 
+# The suite's open test opens the row's NAME (its convention from
+# before any vendor shipped an opaque ref). AdsPower's name is the
+# profile's DISPLAY name — the REAL API opens by user_id (the ref,
+# which the picker binds by and the engine reopens by; pinned in
+# test_adspower_client). This route exists only so the suite's
+# open-by-name round-trip answers; it asserts nothing about the real
+# API accepting a display name.
 CONTRACT = ContractFixture(
     client_cls=AdsPowerClient,
     routes={
@@ -74,13 +81,21 @@ CONTRACT = ContractFixture(
             'GET',
             '/api/v1/browser/start?user_id=kaaaaaa1&ip_tab=0&open_tabs=0',
         ): (200, _OPEN_OK),
+        (
+            'GET',
+            '/api/v1/browser/start?user_id=demo-store&ip_tab=0&open_tabs=0',
+        ): (200, _OPEN_OK),
         ('GET', '/api/v1/browser/stop?user_id=kaaaaaa1'): (
+            200,
+            {'code': 0, 'msg': 'success'},
+        ),
+        ('GET', '/api/v1/browser/stop?user_id=demo-store'): (
             200,
             {'code': 0, 'msg': 'success'},
         ),
         ('GET', '/status'): (200, {'code': 0, 'msg': 'success'}),
     },
-    expected_refs=['kaaaaaa1', 'kaaaaaa2'],
+    expected_refs=['demo-store', 'demo-firefox'],
     expected_cdp_port=57094,
     auth_env={'adspower_api_key': 'test-key-123'},
     logged_out_routes={
