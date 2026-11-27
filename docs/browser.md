@@ -266,6 +266,15 @@ WSL cannot launch Ziniao automatically because Electron's Node.js V8 rejects unk
 3. If Windows **does** show a listener WSL cannot reach, nothing is killed — that is a networking problem (`ziniao_wsl_unreachable`), and killing would lose a healthy client only the `.bat` can bring back. A timeout alone never kills on WSL
 4. The launcher script is served at `GET /api/ziniao/launcher` — **generated at download time** by `ziniao_launcher.py` (below), with the located exe path baked in, so a double-click finds a custom install dir exactly like a default one
 
+### `win_app_registry.py` — the Windows-registry lookup (App Paths / Uninstall)
+
+The registry half of the install discovery, split out of the locator:
+App Paths and the Uninstall table, through native `winreg` where
+available and a UTF-8-pinned PowerShell fallback under WSL (which must
+query the Uninstall CHILD keys — a container key queried without the
+child wildcard returns its own empty values). Everything importers need
+is re-exported from `win_app_locator`.
+
 ### `win_app_locator.py` — Windows install discovery (Ziniao & 悦互联)
 
 One bounded locator for where a Windows client's main exe lives, shared by Ziniao and 悦互联 — a custom install dir (another drive, a Chinese-named folder) is found like the default one. Ordered hints; the first hit that **validates** wins:
