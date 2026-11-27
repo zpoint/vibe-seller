@@ -1,7 +1,7 @@
 """Windows I/O for the Wenmai (稳卖) client (process location + launch).
 
 Install discovery is shared with Ziniao / 悦互联 in
-:mod:`app.browser.win_app_locator` (``WENMAI_SPEC``); the Node
+:mod:`app.browser.win_app_locator` (``WENMAI_WIN_APP``); the Node
 inspector machinery is shared in :mod:`app.browser.win_inspector`.
 Everything here runs on Windows natively (a WSL server driving the
 Windows side over 127.0.0.1 also works — mirrored networking — but
@@ -35,7 +35,7 @@ DEFAULT_API_PORT = 3980
 # Install discovery for THIS vendor, declared here (not in the shared
 # locator) per R1 — vendor knowledge lives in the vendor module. The
 # locator itself is generic: it takes any spec.
-WENMAI_SPEC = WinAppSpec(
+WENMAI_WIN_APP = WinAppSpec(
     key='wenmai',
     display_name='稳卖 (WenMai)',
     exe_names=('wenmaiaibrowser.exe',),
@@ -59,13 +59,13 @@ class WenmaiProcessLayer:
         trusted as-is, a dir resolves to the main exe inside it), then
         the shared locator's hints (registry, shortcuts, conventional
         dirs) — so any install location works, exactly like 悦互联.
-        The spec is THIS module's WENMAI_SPEC (vendor knowledge stays
+        The spec is THIS module's WENMAI_WIN_APP (vendor knowledge stays
         in the vendor module; the locator itself is generic).
         """
-        located = win_locator.locate(WENMAI_SPEC, configured_path=self._dir)
+        located = win_locator.locate(WENMAI_WIN_APP, configured_path=self._dir)
         if located:
             return located.exe_path
-        self.locate_error = win_locator.not_found_message(WENMAI_SPEC)
+        self.locate_error = win_locator.not_found_message(WENMAI_WIN_APP)
         return None
 
     def exe_path_script(self) -> str:

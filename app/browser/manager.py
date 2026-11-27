@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import create_token
-from app.browser.adapters.yuehulian_creds import inject_yuehulian_config
+from app.browser import vendor_creds
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
 from app.browser.cdp_probe import cdp_proxy_alive
@@ -21,6 +21,10 @@ from app.browser.launch_guards import (
     GlobalLaunchLock,
     RelaunchBudget,
     start_backend_bounded,
+)
+from app.browser.vendors import (
+    PICKER_GENERIC,
+    vendor_spec,
 )
 from app.browser.web_wrapper import write_web_browser_use_wrapper
 from app.browser.wrapper import (
@@ -170,6 +174,39 @@ def read_mcp_config():
     if mcp_path.exists():
         return json.loads(mcp_path.read_text())
     return {'mcpServers': {}}
+
+
+async def inject_vendor_store_config(
+    browser_config: dict, store, db: AsyncSession
+) -> None:
+    """Spec-driven vendors (registry): the bound profile ref + machine
+    credentials for a store's vendor.
+
+    Every vendor the GENERIC picker binds gets its chosen profile ref
+    (whatever the picker bound, an env id or a name) injected from the
+    ``browser_oauth`` column into ``browser_ref``, the value
+    ``open_store`` receives. On top of that:
+
+    - a vendor that DECLARES ``credential_fields`` gets its stored
+      machine login injected (encrypted; so a logged-out client can be
+      auto-logged-in instead of failing the task);
+    - a credential-less vendor (empty ``credential_fields`` — the user
+      signs in once in the client; the local API acts as that login)
+      gets only the client-path override, when the spec declares one.
+
+    Ziniao keeps its own branch in the manager (per-account
+    credentials, custom picker); plain backends inject nothing. See
+    app/browser/vendors.py.
+    """
+    spec = vendor_spec(store.browser_backend)
+    if spec is None or spec.picker_kind != PICKER_GENERIC:
+        return
+    if store.browser_oauth and spec.lists_profiles:
+        browser_config['browser_ref'] = store.browser_oauth
+    if spec.credential_fields:
+        await vendor_creds.inject_vendor_config(browser_config, db, spec)
+    elif spec.client_path_setting:
+        await vendor_creds.inject_client_path(browser_config, db, spec)
 
 
 class BrowserManager:
@@ -436,18 +473,7 @@ class BrowserManager:
             if store.browser_oauth:
                 browser_config['browser_oauth'] = store.browser_oauth
 
-        # Yuehulian: no credentials (the user logs into the GUI client
-        # manually; it keeps a token). We only need which store env to
-        # open — reuse the browser_oauth column to hold its env name. The
-        # install path is auto-detected, with an optional AppSettings
-        # override.
-        if store.browser_backend == 'yuehulian':
-            if store.browser_oauth:
-                browser_config['browser_ref'] = store.browser_oauth
-            # Client path + the one machine login's team creds (shared by
-            # all yuehulian stores) so a logged-out client can be auto-logged
-            # in instead of failing the task. See yuehulian_creds.
-            await inject_yuehulian_config(browser_config, db)
+        await inject_vendor_store_config(browser_config, store, db)
 
         # Allocate unique proxy port — both backends use CDPMuxProxy.
         # Reuse the DB-persisted port if available.

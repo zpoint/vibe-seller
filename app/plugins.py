@@ -41,7 +41,10 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app.browser.vendor_rules import validate_spec
+
 if TYPE_CHECKING:
+    from app.browser.vendors import BrowserVendorSpec
     from app.sync.scheduler import SyncJob
 
 logger = logging.getLogger(__name__)
@@ -103,6 +106,7 @@ class ExtensionContext:
         self._gates: dict[str, object] = {}
         self._pretool_gates: list[tuple[str, PretoolGate]] = []
         self._browser_backends: dict[str, type] = {}
+        self._vendor_specs: dict[str, BrowserVendorSpec] = {}
         self._skill_sources: list[Path] = []
         self._prompt_fragments: dict[str, list[str]] = {}
         self._services: list[tuple[str, ServiceFactory]] = []
@@ -130,9 +134,33 @@ class ExtensionContext:
         """
         self._pretool_gates.append((name, check))
 
-    def register_browser_backend(self, name: str, cls: type) -> None:
-        """Register a ``BrowserBackend`` subclass under ``name``."""
+    def register_browser_backend(
+        self,
+        name: str,
+        cls: type,
+        spec: BrowserVendorSpec | None = None,
+    ) -> None:
+        """Register a ``BrowserBackend`` subclass under ``name``.
+
+        ``spec`` (optional, for browser *vendors*) is the
+        :class:`~app.browser.vendors.BrowserVendorSpec` the generic
+        routes / UI / manager read, so a plugin-added vendor needs zero
+        shared-code edits. Backends without a spec (plain engines) stay
+        registerable exactly as before. The spec's ``key`` must equal
+        the registration name — a mismatch would mean two keys for one
+        vendor (the routes key on one, the manager on the other), so it
+        is refused here rather than misbehaving at runtime.
+        """
+        if spec is not None:
+            if spec.key != name:
+                raise ValueError(
+                    f'spec key {spec.key!r} does not match the '
+                    f'registration name {name!r}'
+                )
+            validate_spec(spec)
         self._browser_backends[name] = cls
+        if spec is not None:
+            self._vendor_specs[name] = spec
 
     def register_skill_source(self, path) -> None:
         """Register a directory whose subdirs are skills to sync."""
@@ -207,6 +235,10 @@ class ExtensionContext:
     @property
     def browser_backends(self) -> dict[str, type]:
         return dict(self._browser_backends)
+
+    @property
+    def vendor_specs(self) -> dict[str, BrowserVendorSpec]:
+        return dict(self._vendor_specs)
 
     @property
     def skill_sources(self) -> list[Path]:

@@ -21,12 +21,19 @@ from app.ai.stop_gates import (
     ad_coverage,
     listing_upload_gate as upload_verdict,
 )
-from app.browser.adapters.wenmai import WenmaiBackend
-from app.browser.adapters.yuehulian import YuehulianBackend
-from app.browser.chrome import ChromeBackend
-from app.browser.winchrome import WinChromeBackend
-from app.browser.ziniao import ZiniaoBackend
+from app.browser.adapters.wenmai import (
+    WENMAI_VENDOR,
+    WenmaiBackend,
+)
+from app.browser.adapters.yuehulian import (
+    YUEHULIAN_VENDOR,
+    YuehulianBackend,
+)
+from app.browser.chrome import CHROME_VENDOR, ChromeBackend
+from app.browser.winchrome import WINCHROME_VENDOR, WinChromeBackend
+from app.browser.ziniao import ZINIAO_VENDOR, ZiniaoBackend
 from app.plugins import ExtensionContext, Plugin
+from app.routers.yuehulian import router as yuehulian_compat_router
 
 
 class BuiltinPlugin(Plugin):
@@ -80,8 +87,19 @@ class BuiltinPlugin(Plugin):
 
     @staticmethod
     def _install_browser_backends(ctx: ExtensionContext) -> None:
-        ctx.register_browser_backend('chrome', ChromeBackend)
-        ctx.register_browser_backend('winchrome', WinChromeBackend)
-        ctx.register_browser_backend('ziniao', ZiniaoBackend)
-        ctx.register_browser_backend('yuehulian', YuehulianBackend)
-        ctx.register_browser_backend('wenmai', WenmaiBackend)
+        # Every backend registers with its vendor spec where it has one:
+        # the spec is what the generic routes / UI / manager read, so this
+        # list is the single place core's vendors are declared.
+        ctx.register_browser_backend('chrome', ChromeBackend, CHROME_VENDOR)
+        ctx.register_browser_backend(
+            'winchrome', WinChromeBackend, WINCHROME_VENDOR
+        )
+        ctx.register_browser_backend('ziniao', ZiniaoBackend, ZINIAO_VENDOR)
+        ctx.register_browser_backend(
+            'yuehulian', YuehulianBackend, YUEHULIAN_VENDOR
+        )
+        ctx.register_browser_backend('wenmai', WenmaiBackend, WENMAI_VENDOR)
+        # The /api/yuehulian compat aliases (see app/routers/yuehulian.py)
+        # are a vendor contribution: mounting them here keeps main.py
+        # vendor-neutral. They go away with that compat route.
+        ctx.register_router(yuehulian_compat_router)

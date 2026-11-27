@@ -1,15 +1,15 @@
-"""Real Wenmai (稳卖) client: local HTTP API + inspector login + CDP.
+"""Real Wenmai (稳卖) client: a textbook :class:`LocalApiClient`.
 
-LocalApiClient-shaped (ARCHITECTURE.md §3): list / open / close talk to
-the client's own local HTTP API (Express, port 3980) with the vendor's
-rate limit, and the response handling lives in small overridable
-methods (``parse_stores`` / ``parse_opened`` / ``is_logged_out`` /
-``map_error``). The class stays local to this adapter until the
-refactor's shared ``LocalApiClient`` base lands; moving it up is a
-mechanical follow-up.
+List / open / close talk to the client's own local HTTP API (Express,
+port 3980, always running on a normal launch) with the vendor's
+documented 0.5 s rate limit — the base class owns the request path,
+the rate limiter, the pagination loop and the logged-out check; this
+subclass is only the shapes (``list_request`` / ``open_request`` /
+``close_request`` / ``next_page`` / ``parse_stores`` / ``parse_opened``
+/ ``is_logged_out`` / ``map_error``).
 
 Two things still need more than plain HTTP (R2 — the API cannot do
-them):
+them), so two InjectClient hooks are overridden:
 
 - ``ensure_logged_in``: the official API has no password login (the
   cloud login response is encrypted, and ``uploadToken`` needs a token
@@ -23,30 +23,31 @@ them):
 field): every Chromium kernel launches with ``--remote-debugging-port``,
 including stores a person opened by hand, and opening an already-open
 store returns the SAME pid and port — so no port injection and no
-close/reopen are ever needed (unlike 悦互联 / Ziniao).
+close/reopen are ever needed (unlike 悦互联 / Ziniao). A kernel whose
+debug-port bind silently failed (the client can pick a port in a
+Windows reserved range; closeEnv does not clear it) is recovered by
+``open_store``: close, re-open, then kill exactly the kernel matching
+all three of the port flag, the 稳卖 kernel exe path and this store's
+env id — nothing else on the machine is ever touched.
 
 API shapes verified live 2026-11-27 (client v5.1.0715). The official
 docs are unreliable (they say 401 for logged-out; the real shapes are
-in :meth:`is_logged_out`) and rate-limit to one request per 0.5 s, so
-every call is serialised through one per-loop gate.
+in :meth:`is_logged_out`).
 
 Credential schema: ``company`` (企业名称), ``username`` (企业用户名),
 ``password`` (企业密码) — enterprise login only; the phone tab has an
 image captcha. One account per machine. The keys arrive in
 ``browser_config`` as the registry injects machine credentials,
-``wenmai_<field>`` (``wenmai_company`` / ``wenmai_username`` /
-``wenmai_password`` — see vendor_creds.inject_vendor_config); the
-spec's field keys stay ``company`` / ``username`` / ``password``
-(declared in wenmai.py). Until the registry lands, a caller (the live
-smoke / a test server's store config) passes the injected names
-straight into the config.
+``wenmai_<field>`` (see vendor_creds.inject_vendor_config); the spec's
+field keys stay ``company`` / ``username`` / ``password`` (declared in
+wenmai.py).
 """
 
 import asyncio
 from contextlib import asynccontextmanager
 import logging
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlsplit
 import weakref
 
 import aiohttp
@@ -56,13 +57,9 @@ from app.browser.adapters.wenmai_dom import (
     MIDDLE_READY_JS,
     fill_enterprise_login_js,
 )
-from app.browser.adapters.wenmai_win import (
-    DEFAULT_API_PORT,
-    WenmaiProcessLayer,
-)
+from app.browser.adapters.wenmai_win import WenmaiProcessLayer
 from app.browser.inject.client import (
     UNAVAILABLE_NO_DEVICE,
-    InjectClient,
     OpenedStore,
     StoreRef,
 )
@@ -76,6 +73,7 @@ from app.browser.inject.errors import (
     StoreUnavailable,
     UnsupportedKernel,
 )
+from app.browser.local_api_client import LocalApiClient
 from app.browser.win_inspector import (
     InspectorError,
     InspectorSession,
@@ -85,22 +83,9 @@ logger = logging.getLogger(__name__)
 
 _LOCALHOST = '127.0.0.1'
 
-# One request at a time, >= 0.5 s apart (the documented rate limit),
-# shared by every client instance on the loop — store setup's list and
-# a task's open talk to the same client.
-_API_GATES: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 # A separate gate for driving the client's GUI (the inspector): a login
 # polls for up to 30 s and must not hold the API gate hostage.
 _GUI_LOCKS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
-
-
-def _api_gate() -> list:
-    """The per-loop [lock, last-call ts] serialising client API calls."""
-    loop = asyncio.get_running_loop()
-    gate = _API_GATES.get(loop)
-    if gate is None:
-        gate = _API_GATES[loop] = [asyncio.Lock(), 0.0]
-    return gate
 
 
 def _gui_lock() -> asyncio.Lock:
@@ -112,91 +97,123 @@ def _gui_lock() -> asyncio.Lock:
     return lock
 
 
-class RealWenmaiClient(InjectClient):
+class RealWenmaiClient(LocalApiClient):
     """Drives the real 稳卖 Electron client on Windows via its API."""
 
-    # ── vendor constants (class attributes; the LocalApiClient shape) ──
-    #: The client's local API port (fixed; verified live).
-    API_PORT = DEFAULT_API_PORT
-    #: Documented rate limit: one request per 0.5 s.
-    MIN_CALL_GAP_S = 0.55
+    # ── the LocalApiClient uniform parts ─────────────────────────────
+    vendor_key = 'wenmai'
+    api_port = 3980
+    # Every call is POST JSON with a `method` field (verified live).
+    list_method = 'POST'
+    list_path = '/queryEnvV2'
+    open_method = 'POST'
+    open_path = '/openEnv'
+    close_method = 'POST'
+    close_path = '/closeEnv'
+    # The documented rate limit: one request per 0.5 s.
+    min_interval_s = 0.55
+    connect_timeout_s = 5.0
+    request_timeout_s = 20.0
+    #: queryEnvV2's documented maximum page size.
+    page_size = 100
     #: Relay readiness budget: the store methods are relayed by the
     #: shell to the main window's web page, so a freshly launched
     #: client answers nothing until that page has loaded.
-    RELAY_TIMEOUT_S = 120.0
-    RELAY_POLL_S = 2.0
-    #: One relayed call may hang while the window is still loading.
-    CALL_TIMEOUT_S = 20.0
-    #: queryEnvV2's documented maximum page size.
-    LIST_PAGE_SIZE = 100
-
-    # API method names (POST JSON with a ``method`` field).
-    M_LIST = 'queryEnvV2'
-    M_OPEN = 'openEnv'
-    M_CLOSE = 'closeEnv'
-    M_USER_INFO = 'getUserInfo'
-    #: Shell-answered GET (readiness probe that needs no relay).
-    M_SHELL_PING = 'getAllInfo'
+    relay_timeout_s = 120.0
+    relay_poll_s = 2.0
 
     def __init__(self, browser_config: dict | None = None):
-        cfg = browser_config or {}
+        super().__init__(browser_config)
+        cfg = self._cfg
         self._proc = WenmaiProcessLayer(cfg.get('client_path') or None)
-        # Enterprise-login credentials (neutral schema — module
-        # docstring). Empty → no auto-login.
+        # Enterprise-login credentials for auto-login (injected by the
+        # manager / enumerate router from the machine credential
+        # storage as wenmai_<field>). Empty → no auto-login.
         self._company = cfg.get('wenmai_company') or ''
         self._username = cfg.get('wenmai_username') or ''
         self._password = cfg.get('wenmai_password') or ''
-        self._base = f'http://{_LOCALHOST}:{self.API_PORT}'
 
-    # ── HTTP layer ──────────────────────────────────────────────────
+    # ── vendor parts (the shapes) ────────────────────────────────────
 
-    async def _request(
-        self, method: str, payload: dict | None = None
-    ) -> dict | None:
-        """One serialised, rate-limited API call; None when unreachable.
+    def list_request(self, page: int) -> tuple[str, dict | None]:
+        """The list call; the vendor's pageNum is 1-based (a string)."""
+        return self.list_path, {
+            'method': 'queryEnvV2',
+            'pageNum': str(page + 1),
+            'pageSize': str(self.page_size),
+        }
 
-        GET for the shell-answered methods, POST JSON with a ``method``
-        field for the relayed ones (the shapes verified live).
+    def open_request(self, ref: str) -> tuple[str, dict | None]:
+        return self.open_path, {
+            'method': 'openEnv',
+            'id': str(ref),
+            'option': 'default',
+        }
+
+    def close_request(self, ref: str) -> tuple[str, dict | None]:
+        return self.close_path, {'method': 'closeEnv', 'id': str(ref)}
+
+    def next_page(self, payload, page: int) -> int | None:
+        """More pages while fewer than ``total`` envs have been read."""
+        resp = (payload or {}).get('response') or {}
+        try:
+            total = int(resp.get('total'))
+        except (TypeError, ValueError):
+            return None
+        if (page + 1) * self.page_size < total:
+            return page + 1
+        return None
+
+    def parse_stores(self, payload) -> list[StoreRef]:
+        """queryEnvV2's ``response`` → StoreRefs.
+
+        Carries the device-bound state: an env with no device bound
+        (``ipId`` null) cannot be opened, so it is returned with
+        ``available=False`` and the ``no_device`` token (the frontend
+        translates it; the vendor's own wording rides in the detail)
+        for the UI to grey it out with an explanation.
         """
-        gate = _api_gate()
-        async with gate[0]:
-            gap = self.MIN_CALL_GAP_S - (time.monotonic() - gate[1])
-            if gap > 0:
-                await asyncio.sleep(gap)
-            try:
-                async with aiohttp.ClientSession() as s:
-                    if payload is None:
-                        async with s.get(
-                            f'{self._base}/{method}',
-                            timeout=aiohttp.ClientTimeout(
-                                total=self.CALL_TIMEOUT_S
-                            ),
-                        ) as r:
-                            body = await r.json(content_type=None)
-                    else:
-                        async with s.post(
-                            f'{self._base}/{method}',
-                            json=payload,
-                            timeout=aiohttp.ClientTimeout(
-                                total=self.CALL_TIMEOUT_S
-                            ),
-                        ) as r:
-                            body = await r.json(content_type=None)
-                gate[1] = time.monotonic()
-                return body if isinstance(body, dict) else None
-            except (TimeoutError, aiohttp.ClientError, ValueError):
-                gate[1] = time.monotonic()
-                return None
+        resp = (payload or {}).get('response') or {}
+        out = []
+        for e in resp.get('envs') or []:
+            bound = e.get('ipId') is not None
+            out.append(
+                StoreRef(
+                    name=str(e.get('storeName') or e.get('name') or e['id']),
+                    platform=str(
+                        e.get('platform') or e.get('actualPlatform') or ''
+                    ),
+                    ref=str(e['id']),
+                    available=bound,
+                    unavailable_reason=('' if bound else UNAVAILABLE_NO_DEVICE),
+                    unavailable_detail='' if bound else '未绑定设备',
+                )
+            )
+        return out
 
-    async def _call(self, method: str, payload: dict | None = None):
-        """A relayed POST (``method`` in the body)."""
-        body = dict(payload or {})
-        body['method'] = method
-        return await self._request(method, body)
+    def parse_opened(self, payload) -> OpenedStore:
+        """openEnv's ``response`` → the kernel's own CDP endpoint.
 
-    # ── response parsing (small overridable methods) ────────────────
+        A Firefox-kernel env gets ``webdriverPath: null`` and no debug
+        port → UnsupportedKernel.
+        """
+        resp = (payload or {}).get('response') or {}
+        if not resp.get('webdriverPath'):
+            # Wording matches docs/browsers.md § 店铺要用 Chrome 内核
+            # (the docsHelp link the task error shows).
+            raise UnsupportedKernel(
+                '这个店铺用的不是 Chrome（Chromium）内核，任务无法打开它；'
+                '在稳卖客户端把这个店铺的浏览器内核切换为 Chrome 后重试'
+            )
+        selenium = str(resp.get('selenium') or '')
+        if not selenium.startswith(('http://', 'ws://')):
+            raise CdpUnreachable(f'openEnv returned no CDP endpoint: {resp}')
+        # The selenium field is an http URL; the ws endpoint it serves
+        # is what CDP speaks — host+port are all the engine needs.
+        parsed = urlsplit(selenium)
+        return OpenedStore(parsed.hostname or _LOCALHOST, parsed.port or 0)
 
-    def is_logged_out(self, payload: dict | None) -> bool:
+    def is_logged_out(self, status: int, payload) -> bool:
         """True when an API payload says 'not logged in' (either shape).
 
         The ONE place logged-out is decided (R3). The docs claim 401;
@@ -217,68 +234,26 @@ class RealWenmaiClient(InjectClient):
         msg = str(payload.get('msg') or '')
         return payload.get('status') == 'error' and '认证失败' in msg
 
-    def parse_stores(self, resp: dict) -> list[StoreRef]:
-        """queryEnvV2's ``response`` → StoreRefs.
-
-        Carries the device-bound state: an env with no device bound
-        (``ipId`` null) cannot be opened, so it is returned with
-        ``available=False`` and the ``no_device`` token (the frontend
-        translates it; the vendor's own wording rides in the detail)
-        for the UI to grey it out with an explanation.
-        """
-        envs = resp.get('envs') or []
-        out = []
-        for e in envs:
-            bound = e.get('ipId') is not None
-            out.append(
-                StoreRef(
-                    name=str(e.get('storeName') or e.get('name') or e['id']),
-                    platform=str(
-                        e.get('platform') or e.get('actualPlatform') or ''
-                    ),
-                    ref=str(e['id']),
-                    available=bound,
-                    unavailable_reason='' if bound else UNAVAILABLE_NO_DEVICE,
-                    unavailable_detail='' if bound else '未绑定设备',
-                )
-            )
-        return out
-
-    def parse_opened(self, resp: dict) -> OpenedStore:
-        """openEnv's ``response`` → the kernel's own CDP endpoint.
-
-        A Firefox-kernel env gets ``webdriverPath: null`` and no debug
-        port → UnsupportedKernel. The ``selenium`` field IS the CDP
-        endpoint (its /json/version serves webSocketDebuggerUrl).
-        """
-        if not resp.get('webdriverPath'):
-            # Wording matches docs/browsers.md § 店铺要用 Chrome 内核
-            # (the docsHelp link the task error shows).
-            raise UnsupportedKernel(
-                '这个店铺用的不是 Chrome（Chromium）内核，任务无法打开它；'
-                '在稳卖客户端把这个店铺的浏览器内核切换为 Chrome 后重试'
-            )
-        parsed = urlparse(str(resp.get('selenium') or ''))
-        if not parsed.port:
-            raise CdpUnreachable(f'openEnv returned no CDP endpoint: {resp}')
-        return OpenedStore(parsed.hostname or _LOCALHOST, parsed.port)
-
-    def map_error(self, payload: dict) -> InjectError | None:
+    def map_error(self, status: int, payload) -> InjectError | None:
         """A non-success vendor payload → the shared taxonomy, or None.
 
         The ONE place vendor responses map to taxonomy errors (R3).
         Product-specific fix hints live HERE (the vendor module), never
         in the shared taxonomy.
         """
-        if self.is_logged_out(payload):
-            return LoginRequired()
+        if not isinstance(payload, dict):
+            return None
         resp = payload.get('response')
         msg = str((resp or {}).get('msg') or payload.get('msg') or 'unknown')
         if '未绑定' in msg and '设备' in msg:
             return StoreUnavailable(f'{msg} — 在稳卖客户端给这个店铺绑定设备')
-        return CdpUnreachable(f'the 稳卖 client refused the call: {msg}')
+        if payload.get('status') == 'error' or (
+            isinstance(resp, dict) and resp.get('code') != 200
+        ):
+            return CdpUnreachable(f'the 稳卖 client refused the call: {msg}')
+        return None
 
-    # ── InjectClient ────────────────────────────────────────────────
+    # ── InjectClient hooks the base cannot supply ────────────────────
 
     async def ensure_running(self) -> None:
         """Up = the API answers AND relays to the main window.
@@ -289,23 +264,25 @@ class RealWenmaiClient(InjectClient):
         logged-out shape counts — that IS an answer), not the shell's
         own endpoints alone.
         """
+        if self._port is None:
+            self._port = await self.discover_port()
         if await self._relay_answers():
             return
         # The shell may be up but its window still loading (a normal
         # launch the API hasn't caught up with): only a dead API means
         # the client is not running and needs a launch.
-        if await self._request(self.M_SHELL_PING) is None:
+        if not await self._shell_answers():
             if not await asyncio.to_thread(self._proc.launch):
                 detail = (
                     self._proc.locate_error
                     or 'could not launch the WenMaiAIBrowser client'
                 )
                 raise ClientNotRunning(detail)
-        deadline = time.monotonic() + self.RELAY_TIMEOUT_S
+        deadline = time.monotonic() + self.relay_timeout_s
         while time.monotonic() < deadline:
             if await self._relay_answers():
                 return
-            await asyncio.sleep(self.RELAY_POLL_S)
+            await asyncio.sleep(self.relay_poll_s)
         raise ClientNotRunning(
             'client is running but its API never answered '
             '(the main window did not load); retry, or open the 稳卖 '
@@ -313,10 +290,31 @@ class RealWenmaiClient(InjectClient):
         )
 
     async def _relay_answers(self) -> bool:
-        data = await self._call(self.M_LIST, {'pageNum': '1', 'pageSize': '1'})
-        return data is not None
+        path, body = self.list_request(0)
+        try:
+            await self.api_call(self.list_method, path, json_body=body)
+        except ClientNotRunning:
+            return False
+        except InjectError:
+            return True  # the API answered — it is running
+        return True
+
+    async def _shell_answers(self) -> bool:
+        """GET /getAllInfo — answered by the shell itself (no relay)."""
+        try:
+            await self.api_call('GET', '/getAllInfo')
+        except ClientNotRunning:
+            return False
+        except InjectError:
+            return True
+        return True
 
     async def is_logged_in(self) -> bool:
+        """The API token answers this — getUserInfo, not the list.
+
+        (The base's one-page list probe would also work, but the
+        account-mismatch check needs companyName anyway.)
+        """
         info = await self._user_info()
         return bool(info and info.get('token'))
 
@@ -393,12 +391,17 @@ class RealWenmaiClient(InjectClient):
 
     async def _user_info(self) -> dict | None:
         """getUserInfo's response dict (token NEVER logged)."""
-        data = await self._call(self.M_USER_INFO)
-        if data is None:
+        try:
+            _status, payload = await self.api_call(
+                'POST', '/getUserInfo', {'method': 'getUserInfo'}
+            )
+        except LoginRequired:
+            return {}  # the logged-out shape
+        except ClientNotRunning:
             return None
-        if self.is_logged_out(data):
-            return {}
-        resp = data.get('response')
+        if not isinstance(payload, dict):
+            return None
+        resp = payload.get('response')
         return resp if isinstance(resp, dict) else {}
 
     @asynccontextmanager
@@ -419,45 +422,21 @@ class RealWenmaiClient(InjectClient):
             finally:
                 await insp.close()
 
-    async def list_stores(self) -> list[StoreRef]:
-        """Page queryEnvV2 (pageSize 100) until ``total`` stores are read."""
-        envs: list[StoreRef] = []
-        total: int | None = None
-        page = 1
-        while True:
-            data = await self._call(
-                self.M_LIST,
-                {'pageNum': str(page), 'pageSize': str(self.LIST_PAGE_SIZE)},
-            )
-            if data is None:
-                raise ClientNotRunning('the 稳卖 client API is not answering')
-            if self.is_logged_out(data):
-                raise LoginRequired()
-            resp = data.get('response') or {}
-            batch = self.parse_stores(resp)
-            envs.extend(batch)
-            try:
-                total = int(resp.get('total'))
-            except (TypeError, ValueError):
-                total = None
-            if not batch or (total is not None and len(envs) >= total):
-                break
-            page += 1
-        return envs
+    # ── open_store: the base flow + the wedged-kernel recovery ──────
 
     async def open_store(self, ref: str) -> OpenedStore:
         """``openEnv`` → the kernel's own CDP endpoint.
 
-        Typed errors via :meth:`map_error`; an id no login can see is
-        StoreNotFound (checked against the list, because a wrong id and
-        a transient failure must not read alike). Opening an already-
-        open store returns the SAME pid and port, so a store a person
-        opened by hand attaches without reopening — but a kernel the
-        client still lists as open whose endpoint never answers (a
-        leftover of a crash, or a kernel that failed to bind its port)
-        is closed through the client and re-opened fresh, so a task
-        recovers by itself instead of failing on a dead port (seen
-        live: openEnv kept returning a port nothing listened on).
+        The base flow (request → map_error → parse_opened) plus two
+        wenmai realities: an id no login can see is StoreNotFound
+        (checked against the list, because a wrong id and a transient
+        failure must not read alike), and a kernel the client still
+        lists as open whose endpoint never answers (the client can pick
+        a debug port in a Windows reserved range; the bind silently
+        fails and closeEnv does not clear it) is recovered — close,
+        re-open, then kill exactly the kernel matching all three of
+        the port flag, the 稳卖 kernel exe path and this store's env id
+        — nothing else on the machine is ever touched.
         """
         opened = await self._open_env(ref)
         if await self._endpoint_answers(opened):
@@ -474,13 +453,6 @@ class RealWenmaiClient(InjectClient):
         opened = await self._open_env(ref)
         if await self._endpoint_answers(opened):
             return opened
-        # Still dead: the env is wedged — a kernel that RUNS but never
-        # bound its debug port (seen live: the client can pick a port
-        # in a Windows reserved range, the kernel's bind silently
-        # fails, and closeEnv does not clear it). Kill THAT kernel —
-        # matched on its port flag AND its 稳卖 kernel path AND this
-        # store's env id, so nothing else on the machine is ever
-        # touched — wait for the client to notice, and open fresh.
         logger.warning(
             '稳卖 store %s: endpoint %s:%s still dead after closeEnv; '
             'killing the stuck kernel that holds the port and re-opening',
@@ -515,42 +487,48 @@ class RealWenmaiClient(InjectClient):
             'even after closing and re-opening the env'
         )
 
-    async def _running_env_ids(self) -> set[str]:
-        """Open env ids per ``GET /QueueRunningStoreList``.
-
-        A bare JSON array (verified live), so it cannot go through
-        ``_request`` (which returns dict bodies only).
-        """
-        try:
-            async with aiohttp.ClientSession() as s:
-                async with s.get(
-                    f'{self._base}/QueueRunningStoreList',
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as r:
-                    raw = await r.json(content_type=None)
-        except (TimeoutError, aiohttp.ClientError, ValueError):
-            return set()
-        if not isinstance(raw, list):
-            return set()
-        return {str(x.get('id') if isinstance(x, dict) else x) for x in raw}
-
     async def _open_env(self, ref: str) -> OpenedStore:
-        """The raw openEnv call + typed error mapping."""
-        data = await self._call(
-            self.M_OPEN, {'id': str(ref), 'option': 'default'}
+        """The base open flow + the StoreNotFound disambiguation."""
+        path, body = self.open_request(ref)
+        status, payload = await self.api_call(
+            self.open_method, path, json_body=body
         )
-        if data is None:
-            raise ClientNotRunning('the 稳卖 client API is not answering')
-        resp = data.get('response')
+        resp = (
+            (payload or {}).get('response')
+            if isinstance(payload, dict)
+            else None
+        )
         if not isinstance(resp, dict) or resp.get('code') != 200:
-            err = self.map_error(data)
+            err = self.map_error(status, payload)
             if err is not None:
                 # A wrong id and a transient failure must not read
                 # alike: confirm the env exists for this login first.
                 if not await self._knows_env(ref):
                     raise StoreNotFound(ref) from err
                 raise err
-        return self.parse_opened(resp)
+        return self.parse_opened(payload)
+
+    async def _knows_env(self, ref: str) -> bool:
+        """Whether ``ref`` (env id) is visible to the current login."""
+        try:
+            return any(s.ref == str(ref) for s in await self.list_stores())
+        except Exception:  # unreadable list → don't mask the real error
+            return True
+
+    async def _running_env_ids(self) -> set[str]:
+        """Open env ids per ``GET /QueueRunningStoreList``.
+
+        A bare JSON array (verified live).
+        """
+        try:
+            _status, payload = await self.api_call(
+                'GET', '/QueueRunningStoreList'
+            )
+        except InjectError:
+            return set()
+        if not isinstance(payload, list):
+            return set()
+        return {str(x.get('id') if isinstance(x, dict) else x) for x in payload}
 
     async def _endpoint_answers(
         self, opened: OpenedStore, *, timeout: float = 8.0
@@ -569,12 +547,7 @@ class RealWenmaiClient(InjectClient):
         except (TimeoutError, aiohttp.ClientError, ValueError):
             return False
 
-    async def _knows_env(self, ref: str) -> bool:
-        """Whether ``ref`` (env id) is visible to the current login."""
-        try:
-            return any(s.ref == str(ref) for s in await self.list_stores())
-        except Exception:  # unreadable list → don't mask the real error
-            return True
+    # ── after_open: the store-entry middle page ──────────────────────
 
     async def after_open(self, opened: OpenedStore) -> None:
         """Click 打开店铺 on the store-entry middle page.
@@ -597,8 +570,8 @@ class RealWenmaiClient(InjectClient):
         # does not appear, click again — an early click is silently
         # dropped, and clicking when the store page is already open
         # never happens (we return first). A target listing that fails,
-        # or succeeds before the kernel has created its initial page,
-        # is retried — "no middle page" is only concluded after the
+        # or succeeds before the kernel created its initial page, is
+        # retried — "no middle page" is only concluded after the
         # full budget (an early empty listing skipped the click
         # entirely, seen live).
         clicks = 0
@@ -622,11 +595,10 @@ class RealWenmaiClient(InjectClient):
                     )
             await asyncio.sleep(2.0)
         if middle is None:
-            # Never saw a middle page and no store page across the
-            # whole budget (a failed or pre-page listing is retried,
-            # not concluded on): the env may open straight to the store
-            # in a future client. Loud failure is wrong here (the env
-            # IS open and CDP answers) — log and let the agent navigate.
+            # Never saw a middle page and no store page: the env may
+            # open straight to the store in a future client. Loud
+            # failure is wrong here (the env IS open and CDP answers)
+            # — log and let the agent navigate.
             logger.warning(
                 '稳卖 env on %s:%s has no middlePage and no store page; '
                 'continuing without clicking 打开店铺',
@@ -705,10 +677,3 @@ class RealWenmaiClient(InjectClient):
         except Exception as e:  # best-effort click; the wait loop decides
             logger.warning('middlePage CDP eval failed: %s', e)
             return 'EVALFAIL'
-
-    async def close_store(self, ref: str) -> None:
-        """Best-effort closeEnv (the engine already sent Browser.close)."""
-        try:
-            await self._call(self.M_CLOSE, {'id': str(ref)})
-        except Exception as e:  # never raise from cleanup
-            logger.warning('closeEnv for %r failed: %s', ref, e)

@@ -31,12 +31,30 @@ from app.browser import chromium_engine
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.cdp_mux_proxy import CDPMuxProxy
 from app.browser.downloads import prepare_download_dir
+from app.browser.vendors import (
+    CARDINALITY_NONE,
+    KIND_PLAIN,
+    PICKER_NONE,
+    BrowserVendorSpec,
+)
 from app.config import LOCALHOST
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
 
 PROFILES_DIR = VIBE_SELLER_DIR / 'browser_profiles'
+
+# Metadata for the generic vendor surface: a plain engine, no login to
+# configure, no profile picker — but listed so the create-store form's
+# backend options come from the registry.
+CHROME_VENDOR = BrowserVendorSpec(
+    key='chrome',
+    display_name_en='Chrome',
+    display_name_zh='Chrome',
+    kind=KIND_PLAIN,
+    account_cardinality=CARDINALITY_NONE,
+    picker_kind=PICKER_NONE,
+)
 
 
 def _clear_singleton_locks(user_data_dir: pathlib.Path) -> None:

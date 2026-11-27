@@ -20,14 +20,18 @@ Not using Wenmai? Skip this page; Vibe Seller supports other browsers too — se
 Wenmai logs in with the **enterprise login**: company name + company username + company password. **Phone-number login is not supported** — that tab has an image captcha a machine cannot solve.
 
 1. In the Wenmai client, as the admin, open **团队管理 → 成员** (Team management → Members) and create an enterprise sub-account.
-2. Under **店铺权限** (store permissions), tick the stores this sub-account may operate. A sub-account only sees the stores authorised to it — authorise none and it lists zero stores in Vibe Seller.
+2. Under **店铺权限** (store permissions), tick the stores this sub-account may operate. A sub-account only sees the stores authorised to it — authorise none and it lists zero stores in Vibe Seller. If devices (network environments) need their own grant, tick those here too.
 3. Write down three things: the **company name**, the **company username**, and that **user's password**. That is what you fill into Vibe Seller.
+
+<!-- SCREENSHOT: the Wenmai client's per-store bind-device entry, arrow on the device column -->
 
 ## Bind a device to each store
 
 Every store in Wenmai needs a device (network environment) bound before it can be opened. A store without one still shows in the list but reads "no device bound" and cannot be selected — bind a device to it in the Wenmai client, then refresh.
 
 Also set the store's browser kernel to **Chrome**: a store on a Firefox or other non-Chrome kernel cannot be opened by a task — see [Stores must use a Chrome kernel](browsers.en.md#stores-must-use-a-chrome-kernel).
+
+<!-- SCREENSHOT: the Vibe Seller create-store form, Wenmai backend selected, account row and the three enterprise-login fields -->
 
 ## What to fill in when binding
 

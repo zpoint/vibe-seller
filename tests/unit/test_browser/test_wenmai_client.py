@@ -38,7 +38,7 @@ pytestmark = pytest.mark.unit
 @pytest.fixture(autouse=True)
 def _no_rate_limit(monkeypatch):
     # The documented 0.5 s gap is real life, not CI.
-    monkeypatch.setattr(RealWenmaiClient, 'MIN_CALL_GAP_S', 0.0)
+    monkeypatch.setattr(RealWenmaiClient, 'min_interval_s', 0.0)
 
 
 @pytest.fixture
@@ -52,9 +52,8 @@ async def api():
 
 
 def _client(api: FakeWenmaiApi, cfg: dict | None = None) -> RealWenmaiClient:
-    c = RealWenmaiClient(cfg or {})
-    c._base = f'http://127.0.0.1:{api.port}'
-    return c
+    merged = {'api_port': api.port, **(cfg or {})}
+    return RealWenmaiClient(merged)
 
 
 # ── is_logged_out: the ONE function, both shapes ─────────────────────
@@ -62,33 +61,36 @@ def _client(api: FakeWenmaiApi, cfg: dict | None = None) -> RealWenmaiClient:
 
 def test_is_logged_out_relayed_shape():
     c = RealWenmaiClient({})
-    assert c.is_logged_out({
-        'method': 'queryEnvV2',
-        'msg': '认证失败，无法访问系统资源',
-        'status': 'error',
-        'code': '400',
-    })
+    assert c.is_logged_out(
+        200,
+        {
+            'method': 'queryEnvV2',
+            'msg': '认证失败，无法访问系统资源',
+            'status': 'error',
+            'code': '400',
+        },
+    )
 
 
 def test_is_logged_out_user_info_shape():
     # getUserInfo answers code 200 with token null when logged out —
     # code 200 still means logged out there.
     c = RealWenmaiClient({})
-    assert c.is_logged_out({
-        'response': {'code': 200, 'msg': '认证失败…', 'token': None}
-    })
+    assert c.is_logged_out(
+        200, {'response': {'code': 200, 'msg': '认证失败…', 'token': None}}
+    )
 
 
 def test_is_logged_out_negative_controls():
     c = RealWenmaiClient({})
-    assert not c.is_logged_out({
-        'response': {'code': 200, 'msg': 'success', 'token': 'tok'}
-    })
-    assert not c.is_logged_out({
-        'response': {'code': 200, 'total': 0, 'envs': []}
-    })
-    assert not c.is_logged_out(None)
-    assert not c.is_logged_out({})
+    assert not c.is_logged_out(
+        200, {'response': {'code': 200, 'msg': 'success', 'token': 'tok'}}
+    )
+    assert not c.is_logged_out(
+        200, {'response': {'code': 200, 'total': 0, 'envs': []}}
+    )
+    assert not c.is_logged_out(200, None)
+    assert not c.is_logged_out(200, {})
 
 
 # ── list_stores ──────────────────────────────────────────────────────
@@ -207,26 +209,26 @@ async def test_open_store_logged_out_is_login_required(api):
 
 
 def test_map_error_covers_the_vendor_shapes():
+    """The ONE mapping function — for the shapes the shared response
+    path does NOT already handle (logged-out is is_logged_out's job,
+    checked before map_error in api_call)."""
     c = RealWenmaiClient({})
-    assert isinstance(
-        c.map_error({
-            'msg': '认证失败，无法访问系统资源',
+    err = c.map_error(
+        200,
+        {
             'status': 'error',
             'code': '400',
-        }),
-        LoginRequired,
+            'msg': '当前店铺未绑定可用设备，无法启动',
+        },
     )
-    err = c.map_error({
-        'status': 'error',
-        'code': '400',
-        'msg': '当前店铺未绑定可用设备，无法启动',
-    })
     assert isinstance(err, StoreUnavailable)
     assert '稳卖' in str(err)  # the product fix hint lives HERE
     assert isinstance(
-        c.map_error({'status': 'error', 'code': '400', 'msg': 'boom'}),
+        c.map_error(200, {'status': 'error', 'code': '400', 'msg': 'boom'}),
         CdpUnreachable,
     )
+    assert c.map_error(200, {'response': {'code': 200}}) is None
+    assert c.map_error(200, None) is None
 
 
 # ── open_store: a dead endpoint is closed and re-opened ──────────────
@@ -424,19 +426,17 @@ async def test_ensure_running_launches_when_the_api_is_dead(monkeypatch):
     api = FakeWenmaiApi()
     await api.start()
     try:
-        # The client's base points at a DEAD port first: only after
+        # The client's port points at a DEAD port first: only after
         # launch does the fake API answer (simulating the launch).
         # NB: launch runs via asyncio.to_thread, so it must be SYNC —
         # an async fake would return an un-awaited coroutine and the
         # readiness loop would spin on the dead port for its 120 s
         # budget (this exact hang was why the suite stalled).
-        client = RealWenmaiClient({})
-        dead = f'http://127.0.0.1:{api.port + 1}'
-        client._base = dead
+        client = RealWenmaiClient({'api_port': api.port + 1})
 
         def fake_launch():
             proc.launched = True
-            client._base = f'http://127.0.0.1:{api.port}'
+            client._port = api.port
             return True
 
         proc.launch = fake_launch
@@ -451,8 +451,10 @@ async def test_ensure_running_raises_when_launch_fails(monkeypatch):
     proc.launch = lambda: False
     proc.locate_error = 'not found anywhere'
     monkeypatch.setattr(mod, 'WenmaiProcessLayer', lambda _p=None: proc)
-    client = RealWenmaiClient({})
-    client._base = 'http://127.0.0.1:1'  # nothing listens
+    # A port nothing listens on: the connect timeout bounds the hang
+    # (an unbound loopback port on WSL hangs instead of refusing).
+    monkeypatch.setattr(RealWenmaiClient, 'connect_timeout_s', 0.2)
+    client = RealWenmaiClient({'api_port': 1})  # nothing listens
     with pytest.raises(ClientNotRunning):
         await client.ensure_running()
 
@@ -464,7 +466,7 @@ async def test_ensure_running_waits_for_a_slow_relay(api, monkeypatch):
     the relay is up; ensure_running must ride through both."""
     api.slow_relay_s = 0.4  # longer than the client's call budget
     client = _client(api)
-    monkeypatch.setattr(client, 'CALL_TIMEOUT_S', 0.05)
+    monkeypatch.setattr(client, 'request_timeout_s', 0.05)
     polls = {'n': 0}
 
     async def fast_sleep(_s):
@@ -485,8 +487,8 @@ async def test_ensure_running_negative_control_dead_relay_raises(
     ClientNotRunning after the bounded budget, not an infinite wait."""
     api.slow_relay_s = 5.0
     client = _client(api)
-    monkeypatch.setattr(client, 'CALL_TIMEOUT_S', 0.05)
-    monkeypatch.setattr(client, 'RELAY_TIMEOUT_S', 0.3)
+    monkeypatch.setattr(client, 'request_timeout_s', 0.05)
+    monkeypatch.setattr(client, 'relay_timeout_s', 0.3)
     with pytest.raises(ClientNotRunning):
         await client.ensure_running()
 

@@ -11,7 +11,7 @@ import pytest
 
 import app.browser.adapters.wenmai_win as win_mod
 from app.browser.adapters.wenmai_win import (
-    WENMAI_SPEC,
+    WENMAI_WIN_APP,
     WenmaiProcessLayer,
     is_wenmai_kernel,
 )
@@ -101,18 +101,18 @@ def test_configured_path_is_honoured(monkeypatch):
     monkeypatch.setattr(win_mod.win_locator, 'locate', fake_locate)
     exe = WenmaiProcessLayer(r'D:\custom').exe_path()
     assert exe == r'D:\demo\app.exe'
-    assert calls['spec'] is WENMAI_SPEC
+    assert calls['spec'] is WENMAI_WIN_APP
     assert calls['configured'] == r'D:\custom'
 
 
 def test_wenmai_spec_is_declared_in_the_vendor_module():
     # R1: vendor knowledge lives in the vendor module, not the shared
     # locator. The spec matches the real install (exe name + tokens).
-    assert WENMAI_SPEC.key == 'wenmai'
-    assert 'wenmaiaibrowser.exe' in WENMAI_SPEC.exe_names
-    assert '稳卖' in WENMAI_SPEC.match_tokens
+    assert WENMAI_WIN_APP.key == 'wenmai'
+    assert 'wenmaiaibrowser.exe' in WENMAI_WIN_APP.exe_names
+    assert '稳卖' in WENMAI_WIN_APP.match_tokens
     # And the shared locator module no longer carries it.
-    assert not hasattr(locator, 'WENMAI_SPEC')
+    assert not hasattr(locator, 'WENMAI_WIN_APP')
 
 
 # ── W2: the stuck-kernel kill matches ONLY this store's kernel ──────
