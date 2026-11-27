@@ -692,6 +692,7 @@
       "working": "Working…",
       "downloading": "Downloading. The first connection can take a few minutes…",
       "relogin": "Sign in again",
+      "reauthorize": "Re-authorize",
       "disable": "Disable",
       "cancel": "Cancel",
       "step": "Step {{step}}/{{steps}}:",
@@ -784,7 +785,10 @@
         "meetingScreenshot": "video meeting screenshots"
       },
       "scopeWithCode": "{{feature}} ({{scope}})",
-      "listSeparator": ", "
+      "listSeparator": ", ",
+      "expired": "Authorization expired",
+      "expiryChecking": "Checking authorization…",
+      "expiredHint": "Click Re-authorize and scan with WeCom to renew."
     }
   },
   "stores": {
@@ -1331,6 +1335,11 @@
     "question_one": "The AI has a question about {{count}} scheduled task's plan",
     "question_other": "The AI has questions about {{count}} scheduled tasks' plans",
     "answer": "Answer"
+  },
+  "integrationBanner": {
+    "message": "{{name}} authorization has expired",
+    "action": "Re-authorize",
+    "taskError": "{{name}} authorization has expired"
   },
   "aiSetup": {
     "prompt": {

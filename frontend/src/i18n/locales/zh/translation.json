@@ -694,6 +694,7 @@
       "working": "处理中…",
       "downloading": "正在下载，第一次开通可能要等几分钟…",
       "relogin": "重新登录",
+      "reauthorize": "重新授权",
       "disable": "停用",
       "cancel": "取消",
       "step": "第 {{step}}/{{steps}} 步：",
@@ -786,7 +787,10 @@
         "meetingScreenshot": "视频会议截图"
       },
       "scopeWithCode": "{{feature}}（{{scope}}）",
-      "listSeparator": "、"
+      "listSeparator": "、",
+      "expired": "授权已过期",
+      "expiryChecking": "正在检查授权是否过期…",
+      "expiredHint": "点「重新授权」，用企业微信扫码续期。"
     }
   },
   "stores": {
@@ -1333,6 +1337,11 @@
     "question_one": "{{count}} 个定时任务的 AI 有问题要问你",
     "question_other": "{{count}} 个定时任务的 AI 有问题要问你",
     "answer": "去回答"
+  },
+  "integrationBanner": {
+    "message": "{{name}}授权已过期，需要重新授权",
+    "action": "去重新授权",
+    "taskError": "{{name}}授权已过期"
   },
   "aiSetup": {
     "prompt": {
