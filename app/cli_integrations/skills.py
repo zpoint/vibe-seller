@@ -139,7 +139,7 @@ def umbrella_md(
         'These rules win over anything the sub-skills below say about '
         'installing, updating or signing in.\n\n'
         f'- Never run {forbidden}. If a command fails because the sign-in '
-        'is missing or expired, or one of the permissions it grants has '
+        'is missing or expired, or its authorization has '
         f'expired{integ.expired_hint}, stop — do not try to sign in or renew it '
         'yourself, and do not pass on a link from the error — and tell '
         'the user in plain words, without command names or error codes, '

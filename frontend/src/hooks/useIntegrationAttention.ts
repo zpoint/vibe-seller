@@ -12,8 +12,6 @@ const RECHECK_MS = 10 * 60_000
 export interface IntegrationAttentionItem {
   key: string
   title: string
-  /** The capabilities that ran out; empty: the whole sign-in did. */
-  expired: string[]
 }
 
 /**

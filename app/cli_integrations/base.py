@@ -93,22 +93,6 @@ class AuthStatus:
 
 
 @dataclasses.dataclass
-class Permission:
-    """One capability a platform grants, and expires, on its own.
-
-    WeCom grants its bot each capability (docs, contacts, messages…)
-    separately, for 7 days each; a sign-in that looks fine can still
-    have most of them expired. *key* is the page's i18n key, *state*
-    is ``ok`` | ``expired`` | ``unknown`` (the check itself failed), and
-    *renew_url* is where the bot's creator renews an expired one.
-    """
-
-    key: str
-    state: str
-    renew_url: str | None = None
-
-
-@dataclasses.dataclass
 class Notice:
     """Something the person must know about how a sign-in ended.
 
@@ -275,17 +259,18 @@ class CliIntegration(ABC):
     async def auth_status(self, run: Runner) -> AuthStatus:
         """Whether the installed CLI can act (offline where possible)."""
 
-    #: The platform grants (and expires) capabilities one by one, so the
-    #: page asks ``permissions`` for each one's state.
-    per_permission = False
-    #: How the CLI says a permission expired, for the agent's rules
+    #: The sign-in can expire while the CLI still reports it signed in
+    #: (WeCom: its grant lasts 7 days, ``auth show`` keeps saying
+    #: "authorized"), so the page and the bar ask ``check_expired``.
+    checks_expiry = False
+    #: How the CLI says the grant expired, for the agent's rules
     #: (``skills.umbrella_md``) — e.g. `` (…: "authorization expired")``.
     expired_hint = ''
 
-    async def permissions(self, run: Runner) -> list[Permission]:
-        """Each capability's grant, checked online with one read-only
-        call apiece. Only for ``per_permission`` platforms."""
-        return []
+    async def check_expired(self, run: Runner) -> bool | None:
+        """Whether the sign-in expired, checked online with read-only
+        calls (None: could not tell). Only for ``checks_expiry``."""
+        return None
 
     @abstractmethod
     def login_steps(self, status: AuthStatus) -> list[LoginStep]:

@@ -49,6 +49,6 @@ export interface CliCard {
   needs_setup?: boolean
   /** Said on the row until the platform is enabled (i18n key). */
   notice?: string | null
-  /** Grants capabilities one by one (WeCom): the row lists each one's state. */
-  per_permission?: boolean
+  /** Its authorization can expire while the CLI still says signed in. */
+  checks_expiry?: boolean
 }

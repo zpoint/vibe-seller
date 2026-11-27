@@ -5,9 +5,8 @@ import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 import { CLI_ERROR_HELP, CLI_NOTICE_HELP, DOCS_HELP } from '../../lib/docsHelp'
 import { DocsHelpLink } from '../ui/DocsHelpLink'
-import { CliPermissions } from './CliPermissions'
 import type { CliCard, LoginView, Notice } from './cliTypes'
-import { useCliPermissions } from '../../hooks/useCliPermissions'
+import { useCliExpiry } from '../../hooks/useCliExpiry'
 import { useScrollIntoViewOnHash } from '../../hooks/useScrollIntoViewOnHash'
 import { INTEGRATION_ATTENTION_EVENT } from '../../hooks/useIntegrationAttention'
 
@@ -299,10 +298,10 @@ function CliRow({
 
   const loginActive = login && inProgress(login)
   const signedIn = !!card.auth?.usable
-  const perms = useCliPermissions(card.key, !!card.per_permission && card.enabled && signedIn, card)
+  const expiry = useCliExpiry(card.key, !!card.checks_expiry && card.enabled && signedIn, card)
   useScrollIntoViewOnHash(`cli-${card.key}`)
   // Signed in before (enabled), now the sign-in or a capability expired.
-  const reauth = card.enabled && !!card.auth && (!signedIn || perms.anyExpired)
+  const reauth = card.enabled && !!card.auth && (!signedIn || expiry.expired === true)
   const name = t(`integrations.cli.platform.${card.key}`, { defaultValue: card.title })
   // The button on screen once a sign-in ended: "Sign in again" on an
   // enabled platform, otherwise "Connect" (the only one a stopped or
@@ -336,9 +335,9 @@ function CliRow({
                 {t('integrations.cli.enabledNeedsSignIn')}
                 {card.key === 'gws' && <> <DocsHelpLink topic="googleSignInExpired" /></>}
               </span>
-            ) : perms.anyExpired ? (
-              <span className="text-amber-700" data-testid={`cli-permissions-expired-${card.key}`}>
-                {t('integrations.cli.permissions.someExpired')}
+            ) : expiry.expired === true ? (
+              <span className="text-amber-700" data-testid={`cli-expired-${card.key}`}>
+                {t('integrations.cli.expired')}
               </span>
             ) : (
               <span className={card.enabled ? 'text-green-700' : ''}>
@@ -393,7 +392,17 @@ function CliRow({
         )}
       </div>
 
-      <CliPermissions cardKey={card.key} items={perms.items} loading={perms.loading} />
+      {expiry.expired === true && (
+        <p className="flex flex-wrap items-center gap-x-1 text-xs text-amber-800" data-testid={`cli-expiry-hint-${card.key}`}>
+          {t('integrations.cli.expiredHint')}
+          <DocsHelpLink topic="wecomPermissionExpired" />
+        </p>
+      )}
+      {expiry.loading && (
+        <p className="text-xs text-gray-500" data-testid={`cli-expiry-checking-${card.key}`}>
+          {t('integrations.cli.expiryChecking')}
+        </p>
+      )}
 
       {card.notice && !card.enabled && (
         <p className="text-sm text-amber-700" data-testid={`cli-row-notice-${card.key}`}>

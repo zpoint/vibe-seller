@@ -1,4 +1,4 @@
-"""E2E (real model): an agent that hits an expired WeCom permission sends
+"""E2E (real model): an agent that hits an expired WeCom authorization sends
 the user to re-authorize — and only then.
 
 WeCom is the stand-in ``wecom-cli`` (``tests/e2e/fake_wecom_cli.py``),
@@ -55,7 +55,7 @@ def server(tmp_path_factory):
         integ = INTEGRATIONS['wecom']
         subs = manager._fetch_skills_blocking(integ, standin.VERSION)
         standin.install(own.home, subs=subs)
-        standin.set_expired(own.home, ['mail'])
+        standin.set_expired(own.home, True)
         yield own
 
 
@@ -134,7 +134,7 @@ def test_an_expired_permission_sends_the_user_to_re_authorize(
     expect(page.get_by_test_id('cli-row-wecom')).to_be_in_viewport(
         timeout=20000
     )
-    expect(page.get_by_test_id('cli-permission-wecom-mail')).to_have_attribute(
+    expect(page.get_by_test_id('cli-expired-wecom')).to_have_attribute(
         'data-state', 'expired', timeout=30000
     )
     ev.shot(page, '02-landed-on-wecom-row')

@@ -28,7 +28,6 @@ from app.cli_integrations.base import (
     CliIntegration,
     LoginStep,
     LoginView,
-    Permission,
     SkillLayout,
 )
 
@@ -45,25 +44,23 @@ SKILLS_MAIN = (
 )
 
 
-#: One READ-ONLY call per capability WeCom grants the bot on its own.
-#: WeCom grants each for 7 days (developer.work.weixin.qq.com/document/
-#: path/101468), and ``auth show`` keeps saying "authorized" after they
-#: expire — only a real call tells. Never a call that writes or sends.
-PERMISSION_PROBES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ('doc', ('doc', 'search', '--keywords', 'vibe', '--limit', '1')),
-    ('contact', ('contact', 'users', 'search', '--keywords', 'vibe')),
-    ('message', ('message', 'aibot', 'sessions', 'list')),
-    ('mail', ('mail', 'search', '--limit', '1')),
-    ('disk', ('disk', 'files', 'list', '--limit', '1')),
-    ('calendar', ('calendar', 'schedules', 'list')),
-    ('meeting', ('meeting', 'list', '--limit', '1')),
-    ('todo', ('todo', 'list', '--limit', '1')),
+#: Read-only calls, one per area WeCom authorizes its bot for (docs,
+#: contacts, messages, mail, drive, calendar, meetings, to-dos). The
+#: grant lasts 7 days (developer.work.weixin.qq.com/document/path/101468)
+#: and ``auth show`` keeps saying "authorized" after it expires — only a
+#: real call tells. Never a call that writes or sends.
+EXPIRY_PROBES: tuple[tuple[str, ...], ...] = (
+    ('doc', 'search', '--keywords', 'vibe', '--limit', '1'),
+    ('contact', 'users', 'search', '--keywords', 'vibe'),
+    ('message', 'aibot', 'sessions', 'list'),
+    ('mail', 'search', '--limit', '1'),
+    ('disk', 'files', 'list', '--limit', '1'),
+    ('calendar', 'schedules', 'list'),
+    ('meeting', 'list', '--limit', '1'),
+    ('todo', 'list', '--limit', '1'),
 )
-#: "authorization expired": the capability's grant ran out.
+#: "authorization expired".
 EXPIRED_ERRCODE = 850003
-_RENEW_URL = re.compile(
-    r'https://work\.weixin\.qq\.com/ai/aiHelper/authorizationList\?[^\s)"\\]+'
-)
 
 
 def _first_json(text: str) -> dict | None:
@@ -78,18 +75,17 @@ def _first_json(text: str) -> dict | None:
     return obj if isinstance(obj, dict) else None
 
 
-def parse_permission(key: str, rc: int, out: str, err: str) -> Permission:
-    """One probe's answer. The reply's data is never kept — only
-    whether the call was allowed."""
+def answered_expired(rc: int, out: str, err: str) -> bool | None:
+    """One probe's answer: expired (True), allowed (False), or nothing
+    to go on (None). The reply's data is never kept."""
     body = _first_json(out) or _first_json(err)
     code = body.get('errcode') if body else None
     if code == EXPIRED_ERRCODE:
-        m = _RENEW_URL.search(str(body.get('help_message') or ''))
-        return Permission(key, 'expired', m.group(0) if m else None)
+        return True
     # Allowed: an answer with no error. Unreadable output says nothing.
     if rc == 0 and body is not None and code in (None, 0):
-        return Permission(key, 'ok')
-    return Permission(key, 'unknown')
+        return False
+    return None
 
 
 def _parse_login(line: str, view: LoginView) -> None:
@@ -174,21 +170,19 @@ class WeCom(CliIntegration):
             return AuthStatus(False, 'not_logged_in')
         return AuthStatus(False, 'error', detail={'error': out[-300:]})
 
-    per_permission = True
+    checks_expiry = True
     expired_hint = (
-        ' (WeCom grants each permission for 7 days; an expired one '
-        'answers 「…」使用权限已过期 / "authorization expired", errcode '
+        " (WeCom's grant lasts 7 days; once it expired, a command answers "
+        '「…」使用权限已过期 / "authorization expired", errcode '
         f'{EXPIRED_ERRCODE})'
     )
 
-    async def permissions(self, run) -> list[Permission]:
-        async def probe(key: str, args: tuple[str, ...]) -> Permission:
-            rc, out, err = await run(list(args))
-            return parse_permission(key, rc, out, err)
-
-        return list(
-            await asyncio.gather(*(probe(k, a) for k, a in PERMISSION_PROBES))
-        )
+    async def check_expired(self, run) -> bool | None:
+        answers = await asyncio.gather(*(run(list(a)) for a in EXPIRY_PROBES))
+        found = [answered_expired(*a) for a in answers]
+        if True in found:
+            return True
+        return False if False in found else None
 
     def login_steps(self, status: AuthStatus) -> list[LoginStep]:
         # The QR path must sit under the working dir (the CLI sandboxes

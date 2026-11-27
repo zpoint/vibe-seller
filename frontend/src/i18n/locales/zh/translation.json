@@ -692,27 +692,6 @@
       "downloading": "正在下载，第一次开通可能要等几分钟…",
       "relogin": "重新登录",
       "reauthorize": "重新授权",
-      "permissions": {
-        "checking": "正在检查各项权限…",
-        "someExpired": "部分权限已过期",
-        "expiredHint": "过期的权限 AI 用不了，点「重新授权」用企业微信扫码续期。",
-        "renewOne": "单独续期",
-        "name": {
-          "doc": "文档",
-          "contact": "通讯录",
-          "message": "消息",
-          "mail": "邮件",
-          "disk": "微盘",
-          "calendar": "日程",
-          "meeting": "会议",
-          "todo": "待办"
-        },
-        "state": {
-          "ok": "可用",
-          "expired": "已过期",
-          "unknown": "检查失败"
-        }
-      },
       "disable": "停用",
       "cancel": "取消",
       "step": "第 {{step}}/{{steps}} 步：",
@@ -805,7 +784,10 @@
         "meetingScreenshot": "视频会议截图"
       },
       "scopeWithCode": "{{feature}}（{{scope}}）",
-      "listSeparator": "、"
+      "listSeparator": "、",
+      "expired": "授权已过期",
+      "expiryChecking": "正在检查授权是否过期…",
+      "expiredHint": "点「重新授权」，用企业微信扫码续期。"
     }
   },
   "stores": {

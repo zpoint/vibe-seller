@@ -1,6 +1,6 @@
 /**
  * The top bar's last kind: a workplace platform that was signed in and
- * whose sign-in, or one of whose permissions, expired
+ * whose authorization expired
  * (GET /api/integrations/cli/attention — the server lists only enabled
  * platforms, for admins only). It names the platform and opens
  * Settings → Integrations; anything that waits on a reply comes first.
@@ -44,7 +44,7 @@ describe('expired workplace platform in the top bar', () => {
   it('names the platform and opens Settings → Integrations', async () => {
     window.history.pushState({}, '', '/tasks')
     const { router } = await bootApp({
-      route: routeWith({ tasks: [], expired: [{ key: 'wecom', title: 'WeCom (企业微信)', expired: ['mail'] }] }),
+      route: routeWith({ tasks: [], expired: [{ key: 'wecom', title: 'WeCom (企业微信)' }] }),
     })
     const bar = await screen.findByTestId('integration-expired-banner')
     const name = en.integrations.cli.platform.wecom
@@ -58,7 +58,7 @@ describe('expired workplace platform in the top bar', () => {
   it('a task waiting for a reply comes first', async () => {
     window.history.pushState({}, '', '/tasks')
     await bootApp({
-      route: routeWith({ tasks: [WAITING], expired: [{ key: 'feishu', title: 'Feishu', expired: [] }] }),
+      route: routeWith({ tasks: [WAITING], expired: [{ key: 'feishu', title: 'Feishu' }] }),
     })
     await screen.findByTestId('waiting-task-banner')
     await settle()

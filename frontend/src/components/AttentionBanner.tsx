@@ -32,8 +32,8 @@ const BAR =
  *   2. review schedules whose planner asked a question;
  *   3. plan-mode tasks whose plan waits for review (same endpoint);
  *   4. schedule plans waiting for approval;
- *   5. a signed-in workplace platform (WeCom, Feishu…) whose sign-in or
- *      one of whose permissions expired — admins only; a platform
+ *   5. a signed-in workplace platform (WeCom, Feishu…) whose
+ *      authorization expired — admins only; a platform
  *      never signed in is not here (GET /api/integrations/cli/attention).
  *
  * It opens the oldest item of its kind; once the last one is handled,

@@ -69,20 +69,18 @@ async def list_integrations(_user: User = Depends(get_current_user)):
 
 @router.get('/attention')
 async def needs_signing_in_again(user: User = Depends(get_current_user)):
-    """Enabled platforms whose sign-in, or one of whose capabilities,
-    expired — for the bar at the top of the app. Admins only: nobody
+    """Enabled platforms whose authorization expired — for the bar at the top of the app. Admins only: nobody
     else can sign a platform in again."""
     if user.role != 'admin':
         return {'items': []}
     return {'items': await attention.attention()}
 
 
-@router.get('/{key}/permissions')
-async def permissions(key: str, _user: User = Depends(get_current_user)):
-    """Each capability's state, checked now with one read-only call
-    apiece (``permissions: null``: the platform has none to check, or is
-    not signed in)."""
-    return {'permissions': await attention.permissions(_integ(key))}
+@router.get('/{key}/expiry')
+async def expiry(key: str, _user: User = Depends(get_current_user)):
+    """Whether the sign-in expired, checked now with read-only calls
+    (``expired: null``: nothing to check, or no answer told)."""
+    return {'expired': await attention.expired(_integ(key))}
 
 
 @router.post('/{key}/install')
