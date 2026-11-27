@@ -248,6 +248,7 @@ async def test_only_store_ref_fields_cross_the_api(admin_client, fake_vendor):
             'ref',
             'available',
             'unavailable_reason',
+            'unavailable_detail',
         }
 
 

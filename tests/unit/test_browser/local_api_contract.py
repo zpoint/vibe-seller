@@ -30,10 +30,12 @@ failure, unknown ref ≠ raw 404).
 
 import asyncio
 from dataclasses import asdict
+import gc
 import importlib
 import json
 import logging
 import pkgutil
+import socket
 import time
 
 from aiohttp import web
@@ -42,13 +44,13 @@ import pytest
 import app.browser.adapters as adapters_pkg
 from app.browser.inject.client import OpenedStore, StoreRef
 from app.browser.inject.errors import (
+    ApiNotEnabled,
     ClientNotRunning,
     InjectError,
     LoginRequired,
     StoreNotFound,
 )
 from app.browser.local_api_client import (
-    ApiNotEnabled,
     LocalApiClient,
     PaginationOverflow,
     opened_from_ws,
@@ -775,6 +777,7 @@ async def test_bit_store_refs_carry_only_store_ref_fields():
             'ref',
             'available',
             'unavailable_reason',
+            'unavailable_detail',
         }
     for sentinel in BIT_SENTINELS:
         assert sentinel not in str(rows)
@@ -1029,6 +1032,173 @@ async def test_auth_headers_override_reads_a_token_file(tmp_path, caplog):
     ]
     assert headers.get('x-api-key') == 'sentinel-secret-token'
     assert 'sentinel-secret-token' not in caplog.text
+
+
+# ── review fixes: ref de-dup, single-probe login, shared limiter,
+# hung-port scan, closed sessions (#332 B1–B6) ────────────────────────
+
+
+async def test_same_name_different_refs_are_both_listed():
+    """B1: two profiles may share a display name — they are distinct
+    refs and both must be listed. (On the pre-fix code the second was
+    silently dropped.)"""
+    rows = [
+        {'id': 'r1', 'name': 'US'},
+        {'id': 'r2', 'name': 'US'},
+        {'id': 'r2', 'name': 'US'},  # repeated across pages
+    ]
+
+    async def list_route(request):
+        return 200, {'data': {'list': rows, 'totalNum': len(rows)}}
+
+    server = await _serve({('POST', '/browser/list'): list_route})
+    client = _client(BitBrowserFixture, server.port)
+    refs = await client.list_stores()
+    assert [r.name for r in refs] == ['r1', 'r2']  # both ids, repeat once
+
+
+async def test_twist_a_genuinely_repeated_ref_lists_once():
+    """Negative control for B1: the same open ref repeated across pages
+    (the de-duplication the addendum asked for) still yields once —
+    including the name-is-ref vendors with no id."""
+    rows_page1 = [{'id': 'only', 'name': 'US'}]
+    rows_page2 = [{'id': 'only', 'name': 'US'}]
+    calls = {'n': 0}
+
+    async def list_route(request):
+        calls['n'] += 1
+        rows = rows_page1 if calls['n'] == 1 else rows_page2
+        return 200, {'data': {'list': rows, 'totalNum': 2}}
+
+    server = await _serve({('POST', '/browser/list'): list_route})
+    client = _client(BitBrowserFixture, server.port)
+    refs = await client.list_stores()
+    assert [r.name for r in refs] == ['only']
+
+
+async def test_is_logged_in_is_a_single_call():
+    """B3: answering 'logged in?' costs ONE list request, never the
+    full pagination (a 1,000-profile account paid every page twice per
+    task start before)."""
+    calls = {'n': 0}
+
+    async def list_route(request):
+        calls['n'] += 1
+        body = await request.json()
+        page = int(body['page'])
+        # Claim many more pages, so a paginating probe would show it.
+        return 200, {
+            'data': {
+                'list': [{'id': f'r{page}'}, {'id': f'r{page}b'}],
+                'totalNum': 1000,
+            }
+        }
+
+    server = await _serve({('POST', '/browser/list'): list_route})
+    client = _client(BitBrowserFixture, server.port)
+    assert await client.is_logged_in() is True
+    assert calls['n'] == 1
+
+
+async def test_twist_logged_out_probe_is_still_one_call():
+    calls = {'n': 0}
+
+    async def list_route(request):
+        calls['n'] += 1
+        return 200, {'notLoggedIn': True}
+
+    server = await _serve({('POST', '/browser/list'): list_route})
+    client = _client(BitBrowserFixture, server.port)
+    assert await client.is_logged_in() is False
+    assert calls['n'] == 1
+
+
+async def test_the_rate_limit_is_shared_per_vendor_class():
+    """B4: two instances of ONE vendor (concurrent tasks on different
+    stores) are spaced by min_interval_s against each other."""
+    interval = 0.15
+
+    class SharedFixture(_RateLimitFixture):
+        vendor_key = 'sharedlimit'
+        min_interval_s = interval
+
+    server = await _serve({
+        ('GET', '/list'): (200, {'list': ['s1']}),
+    })
+    a = _client(SharedFixture, server.port)
+    b = _client(SharedFixture, server.port)
+    start = time.monotonic()
+    await asyncio.gather(a.list_stores(), b.list_stores())
+    # Two calls through one shared limiter: at least one interval apart.
+    assert time.monotonic() - start >= interval
+
+
+async def test_twist_different_vendors_do_not_throttle_each_other():
+    """Negative control for B4: two DIFFERENT vendors each make one
+    call; neither waits on the other's limiter (both complete inside a
+    fraction of the interval)."""
+    interval = 1.0
+
+    class SlowA(_RateLimitFixture):
+        vendor_key = 'slowa'
+        min_interval_s = interval
+
+    class SlowB(_RateLimitFixture):
+        vendor_key = 'slowb'
+        min_interval_s = interval
+
+    server = await _serve({('GET', '/list'): (200, {'list': ['s1']})})
+    a = _client(SlowA, server.port)
+    b = _client(SlowB, server.port)
+    start = time.monotonic()
+    await asyncio.gather(a.list_stores(), b.list_stores())
+    assert time.monotonic() - start < interval
+
+
+async def test_a_hung_candidate_port_does_not_kill_the_scan():
+    """B5: a candidate port that accepts but never answers (the WSL
+    unbound-loopback hang) is skipped, and the scan finds the next
+    port. On the pre-fix code the timeout raised out of the scan."""
+
+    hung = socket.socket()
+    hung.bind(('127.0.0.1', 0))
+    hung.listen(1)  # accepts connections, never responds
+    try:
+        hung_port = hung.getsockname()[1]
+
+        class ScanningFixture(_RateLimitFixture):
+            vendor_key = 'scanning'
+            discovery = 'scan'
+            api_port = hung_port  # probed first: hangs
+            scan_ports = ()  # filled below
+
+        server = await _serve({('GET', '/list'): (200, {'list': ['s1']})})
+        ScanningFixture.scan_ports = (server.port,)
+        client = _client(ScanningFixture, hung_port)
+        client._port = None
+        await client.ensure_running()
+        refs = await client.list_stores()
+        assert [r.name for r in refs] == ['s1']
+    finally:
+        hung.close()
+
+
+async def test_no_session_leaks_around_the_calls(recwarn):
+    """B6: sessions are per call and always closed — no ResourceWarning
+    ('Unclosed client session') after a full list/open/close cycle."""
+    server = await _serve(BIT_ROUTES)
+    client = _client(BitBrowserFixture, server.port)
+    refs = await client.list_stores()
+    await client.open_store(refs[0].name)
+    await client.close_store(refs[0].name)
+
+    gc.collect()
+    leaked = [
+        w
+        for w in recwarn.list
+        if 'Unclosed' in str(w.message) or 'session' in str(w.message).lower()
+    ]
+    assert not leaked, [str(w.message) for w in leaked]
 
 
 # ── discovery: real vendor modules join the suite automatically ─────

@@ -70,8 +70,8 @@ Responses:
 ``map_error(status, payload) -> InjectError | None`` — ONE function per
   vendor, mapping raw responses onto the shared taxonomy. The paid-gate
   codes most vendors share (API not enabled / plan required — the #1
-  support case) map to :class:`ApiNotEnabled`, defined here until the
-  shared error table (``inject/errors.py``) grows them.
+  support case) map to :class:`~app.browser.inject.errors.ApiNotEnabled`
+  from the shared error table.
 
 Secrets: list rows routinely carry each profile's site password,
 cookies and proxy credentials. The base NEVER logs a raw payload or
@@ -96,6 +96,7 @@ import asyncio
 import logging
 import time
 from urllib.parse import urlsplit
+import weakref
 
 import aiohttp
 
@@ -109,21 +110,6 @@ from app.browser.inject.errors import (
 logger = logging.getLogger(__name__)
 
 _LOCALHOST = '127.0.0.1'
-
-
-class ApiNotEnabled(InjectError):
-    """The vendor gates its local API behind a paid plan / a switch.
-
-    The most common support case for local-API vendors. Lives here (not
-    in ``inject/errors.py``) only while that shared table is owned by a
-    different in-flight PR; the code is stable either way.
-    """
-
-    code = 'API_NOT_ENABLED'
-    hint = (
-        'Enable the local API in the client (some vendors need a paid '
-        'plan), then retry.'
-    )
 
 
 class PaginationOverflow(InjectError):
@@ -186,9 +172,9 @@ class LocalApiClient(InjectClient):
             if self.auth_field
             else ''
         )
-        self._session: aiohttp.ClientSession | None = None
-        self._last_call = 0.0
-        self._call_lock = asyncio.Lock()
+        # Sessions are per call (closed in finally — a leaked loopback
+        # session leaks a connector); the rate limiter is shared per
+        # vendor CLASS per event loop (see _limiter_for).
 
     # ── the InjectClient contract ───────────────────────────────────
 
@@ -216,11 +202,22 @@ class LocalApiClient(InjectClient):
             return  # the API answered — it is running
 
     async def is_logged_in(self) -> bool:
+        """ONE list request answers the question — never a full
+        pagination (a 1,000-profile account would pay every page twice
+        per task start). The shared response path raises LoginRequired
+        on the logged-out shape; a mapped error (a paid gate) fails the
+        probe with the real reason instead of a bare False."""
+        path, body = self.list_request(0)
         try:
-            await self.list_stores()
-            return True
+            status, payload = await self.api_call(
+                self.list_method, path, json_body=body
+            )
         except LoginRequired:
             return False
+        err = self.map_error(status, payload)
+        if err is not None:
+            raise err
+        return True
 
     async def ensure_logged_in(self) -> None:
         # A local-API client cannot drive the vendor's login form; the
@@ -232,7 +229,8 @@ class LocalApiClient(InjectClient):
         """Every store, following the vendor's pagination to the end.
 
         Pages are spaced by the rate limit; rows are de-duplicated by
-        ref (a vendor that repeats a row across pages yields it once).
+        their open ref (``ref or name`` — two profiles may share a
+        display name, and a row repeated across pages yields once).
         A pagination that never terminates fails with
         :class:`PaginationOverflow` instead of looping or truncating.
         """
@@ -253,8 +251,8 @@ class LocalApiClient(InjectClient):
             if err is not None:
                 raise err
             for ref in self.parse_stores(payload):
-                if ref.name not in seen:
-                    seen.add(ref.name)
+                if ref.open_ref not in seen:
+                    seen.add(ref.open_ref)
                     out.append(ref)
             nxt = self.next_page(payload, page)
             if nxt is None:
@@ -280,10 +278,9 @@ class LocalApiClient(InjectClient):
             logger.info('close_store(%s) failed (ignored): %s', ref, e)
 
     async def aclose(self) -> None:
-        """Release the HTTP session (tests; long-lived callers)."""
-        if self._session is not None:
-            await self._session.close()
-            self._session = None
+        """No-op: sessions are per call and always closed. Kept for
+        callers that pair construction with cleanup."""
+        return None
 
     # ── vendor parts (a vendor overrides these) ─────────────────────
 
@@ -368,11 +365,6 @@ class LocalApiClient(InjectClient):
             return None
         return self.api_port or None
 
-    async def _ensure_session(self) -> aiohttp.ClientSession:
-        if self._session is None:
-            self._session = aiohttp.ClientSession()
-        return self._session
-
     async def auth_headers(self) -> dict[str, str]:
         """The auth headers for one request.
 
@@ -397,8 +389,9 @@ class LocalApiClient(InjectClient):
         vendor's own extra endpoints, e.g. a kernel check or a health
         probe) goes through it, so all of them get the same rules:
 
-        - rate-limited (``min_interval_s``), with the auth headers
-          (:meth:`auth_headers`) attached;
+        - rate-limited (``min_interval_s``, shared per vendor class per
+          event loop), with the auth headers (:meth:`auth_headers`)
+          attached;
         - a logged-out response raises :class:`LoginRequired` — checked
           BEFORE the rate-limit retry decision and before the caller's
           ``map_error``, so a vendor that answers a logged-out open
@@ -408,17 +401,32 @@ class LocalApiClient(InjectClient):
           ONCE after ``max(1.0, min_interval_s)``; the retried response
           goes to the caller's ``map_error`` as-is;
         - transport failures raise :class:`ClientNotRunning`;
+        - the HTTP session is per call and always closed (a leaked
+          loopback session leaks a connector);
         - payloads and bodies are never logged — list rows carry site
           passwords and cookies.
         """
         if self._port is None:
             raise ClientNotRunning('no API port resolved')
         url = f'{self._base}:{self._port}{path}'
-        session = await self._ensure_session()
-        for attempt in (0, 1):
-            await self._rate_limit()
-            headers = await self.auth_headers()
-            try:
+        status, payload = await self._one_request(method, url, json_body)
+        if self.is_logged_out(status, payload):
+            raise LoginRequired()
+        if self.is_rate_limited(status, payload):
+            await asyncio.sleep(max(1.0, self.min_interval_s))
+            status, payload = await self._one_request(method, url, json_body)
+        return status, payload
+
+    async def _one_request(
+        self, method: str, url: str, json_body: dict | None
+    ) -> tuple[int, object]:
+        """One rate-limited HTTP attempt with its own short-lived
+        session (loopback cost is negligible; a session per call cannot
+        leak)."""
+        await _limiter_for(type(self)).wait(self.min_interval_s)
+        headers = await self.auth_headers()
+        try:
+            async with aiohttp.ClientSession() as session:
                 async with session.request(
                     method,
                     url,
@@ -429,27 +437,48 @@ class LocalApiClient(InjectClient):
                         connect=self.connect_timeout_s,
                     ),
                 ) as resp:
-                    status = resp.status
-                    payload = await _json_or_text(resp)
-            except (aiohttp.ClientError, TimeoutError) as e:
-                raise ClientNotRunning(f'{method} {url}: {e}') from e
-            if self.is_logged_out(status, payload):
-                raise LoginRequired()
-            if attempt == 0 and self.is_rate_limited(status, payload):
-                await asyncio.sleep(max(1.0, self.min_interval_s))
-                continue
-            return status, payload
-        raise AssertionError('unreachable')  # pragma: no cover
+                    return resp.status, await _json_or_text(resp)
+        except (aiohttp.ClientError, TimeoutError) as e:
+            raise ClientNotRunning(f'{method} {url}: {e}') from e
 
-    async def _rate_limit(self) -> None:
-        """Space calls at least ``min_interval_s`` apart (vendor limits)."""
-        if self.min_interval_s <= 0:
+
+class _RateLimiter:
+    """Spaces calls at least ``interval`` seconds apart.
+
+    One per vendor class per event loop (concurrent tasks on the same
+    vendor's stores share the vendor's rate limit — a per-instance
+    limiter would let them exceed it together).
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._last_call = 0.0
+
+    async def wait(self, interval: float) -> None:
+        if interval <= 0:
             return
-        async with self._call_lock:
-            wait = self._last_call + self.min_interval_s - time.monotonic()
-            if wait > 0:
-                await asyncio.sleep(wait)
+        async with self._lock:
+            delay = self._last_call + interval - time.monotonic()
+            if delay > 0:
+                await asyncio.sleep(delay)
             self._last_call = time.monotonic()
+
+
+_RATE_LIMITERS: weakref.WeakKeyDictionary[object, dict] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _limiter_for(cls: type) -> _RateLimiter:
+    """The shared rate limiter for ``cls`` on the running event loop."""
+    loop = asyncio.get_running_loop()
+    by_class = _RATE_LIMITERS.get(loop)
+    if by_class is None:
+        by_class = _RATE_LIMITERS[loop] = {}
+    limiter = by_class.get(cls)
+    if limiter is None:
+        limiter = by_class[cls] = _RateLimiter()
+    return limiter
 
 
 def _read_text_best_effort(path: str) -> str:
@@ -465,13 +494,14 @@ async def _json_or_text(resp) -> object:
 
 
 async def _port_answers(base: str, port: int) -> bool:
-    session = aiohttp.ClientSession()
+    # A hung candidate (an unbound loopback port on WSL hangs rather
+    # than refusing) must not raise out of the scan — timeouts and OS
+    # errors count as "not answering", and the scan moves on.
     try:
-        async with session.get(
-            f'{base}:{port}/', timeout=aiohttp.ClientTimeout(total=1.0)
-        ):
-            return True
-    except aiohttp.ClientError:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f'{base}:{port}/', timeout=aiohttp.ClientTimeout(total=1.0)
+            ):
+                return True
+    except (aiohttp.ClientError, TimeoutError, OSError):
         return False
-    finally:
-        await session.close()
