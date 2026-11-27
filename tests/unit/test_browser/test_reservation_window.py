@@ -107,6 +107,9 @@ class TestReservationWindow:
                 reuse.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 # The Linux double-bind needs SO_REUSEADDR on BOTH
                 # sockets; ours does not set it, so this must fail.
+                # On Windows the reservation holds SO_EXCLUSIVEADDRUSE
+                # instead, which no SO_REUSEADDR bind can take a port
+                # from — the same refusal, by construction.
                 with pytest.raises(OSError):
                     reuse.bind(('127.0.0.1', port))
             finally:
