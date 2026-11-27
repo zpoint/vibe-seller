@@ -1,11 +1,9 @@
 import asyncio
 from datetime import UTC, datetime
-from importlib.metadata import PackageNotFoundError, version
 import json
 import logging
 import os
-import re
-import tempfile
+import secrets
 import time
 
 from sqlalchemy import select
@@ -14,13 +12,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import create_token
 from app.browser import vendor_creds
 from app.browser.base import BrowserBackend, BrowserSessionInfo
-from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
-from app.browser.cdp_probe import cdp_proxy_alive
+
+# Re-exported for their existing importers (routers, ai, tests):
+from app.browser.bh_daemons import (  # noqa: F401 — re-export
+    LEGACY_DAEMON_PATTERN,
+    kill_aux_daemons,
+    kill_bh_daemons,
+)
+from app.browser.bu_binary import (  # noqa: F401 — re-export
+    warn_on_browser_use_version_mismatch,
+)
+from app.browser.cdp_probe import OURS, cdp_proxy_alive, proxy_ownership
 from app.browser.daemon_reaper import reap_orphaned_daemons
 from app.browser.launch_guards import (
     GlobalLaunchLock,
     RelaunchBudget,
     start_backend_bounded,
+)
+from app.browser.proxy_ports import (
+    ProxyPortAllocator,
+    default_proxy_base,
+    resolve_proxy_base,
 )
 from app.browser.vendors import (
     PICKER_GENERIC,
@@ -38,7 +50,6 @@ from app.browser.ziniao_startup import (
 )
 from app.config import (
     AI_BOT_USER_ID,
-    DEMO_MODE,
     WEB_BROWSER_SLUG,
 )
 from app.database import async_session
@@ -47,133 +58,35 @@ from app.models.app_settings import AppSettings
 from app.models.browser_session import BrowserSession
 from app.models.store import Store
 from app.models.ziniao_account import ZiniaoAccount
-from app.platform import find_processes_by_pattern, kill_process
 from app.plugins import registered_browser_backends
 from app.utils.crypto import decrypt_password
-from app.workspace.manager import VIBE_SELLER_DIR
+
+# Re-exported for their existing importers (routers, ai):
+from app.utils.json_file import (  # noqa: F401 — re-export
+    atomic_write_json,
+    read_mcp_config,
+)
 
 logger = logging.getLogger(__name__)
 
-# Base proxy port; each store gets a unique offset.
-# Demo mode shifts to 9322 so a parallel demo runtime doesn't collide
-# with the production server's CDP proxy at 9222 — both backends would
-# otherwise try to bind the same port, and worse, the wrapper's
-# "is the proxy alive?" probe would silently glue the demo agent into
-# whichever backend won the bind.
-_BASE_PROXY_PORT = 9322 if DEMO_MODE else 9222
+# Base proxy port; each store gets a unique offset from it. This is a
+# PREFERRED starting point only: every candidate port is ownership-
+# checked and BOUND (see ProxyPortAllocator.allocate) before it is
+# handed out, so a port held by another server instance, an agent-
+# spawned CDP bridge or any other listener is skipped, whatever range
+# it sits in. Demo mode still prefers 9322 (see
+# proxy_ports.default_proxy_base) so a parallel demo runtime walks
+# past the production server's 9222 — cosmetic now, not the safety
+# property. ``VIBE_CDP_PROXY_BASE`` moves the whole per-instance range
+# (proxy_ports.resolve_proxy_base): parallel test servers each get
+# their own range instead of queueing for one 9222 holder.
+_BASE_PROXY_PORT = default_proxy_base()
 
 # app_settings key holding the orchestrator web browser's proxy port,
 # so it survives server restarts (the store equivalent lives on
 # BrowserSession.proxy_port; the store-less web browser has no such row
 # and uses this kv entry instead).
 _WEB_PROXY_PORT_KEY = 'web_browser_proxy_port'
-
-
-async def kill_aux_daemons() -> int:
-    """Terminate every browser-use daemon whose session ends in
-    ``-aux``. Returns the count killed.
-
-    0.13 daemons are found by their pid file (``BU_NAME`` ends in
-    ``-aux``); legacy 0.12 daemons by ``--session …-aux`` in argv (kept
-    for one upgrade cycle). Both paths are psutil-based, cross-platform.
-    """
-    killed = await kill_bh_daemons(lambda name: name.endswith('-aux'))
-    # Legacy 0.12: --session ...-aux in argv.
-    legacy: list[int] = []
-    procs = await find_processes_by_pattern(LEGACY_DAEMON_PATTERN)
-    for pid, cmdline in procs.items():
-        if re.search(r'--session[= ][^ ]*-aux\b', cmdline):
-            legacy.append(pid)
-    for pid in legacy:
-        await kill_process(pid)
-    total = killed + len(legacy)
-    if total:
-        logger.info(
-            'Killed %d aux browser-use daemon(s) on settings change',
-            total,
-        )
-    return total
-
-
-async def _kill_all_browser_daemons() -> int:
-    """Kill all browser-use daemon processes (startup only).
-
-    Intended for server startup when no tasks are running yet. Kills
-    every 0.13 (pid-file) and legacy 0.12 daemon found. Returns the
-    number of processes killed.
-    """
-    try:
-        killed = await kill_bh_daemons(lambda _name: True)
-        legacy = await find_processes_by_pattern(LEGACY_DAEMON_PATTERN)
-        for pid in legacy:
-            await kill_process(pid)
-        total = killed + len(legacy)
-        if total:
-            logger.info(
-                'Startup: killed %d browser-use daemon(s) from previous run',
-                total,
-            )
-        return total
-    except Exception:
-        return 0
-
-
-def warn_on_browser_use_version_mismatch() -> str | None:
-    """Warn loudly if the installed browser-use can't drive our wrappers.
-
-    In-place-upgrade safety (§8.4c): this code emits the 0.13
-    (heredoc/env-var) wrapper shape. If a skewed upgrade left an older
-    browser-use installed (user-pinned, offline), the wrappers would
-    fail silently. We surface it at boot rather than at first task.
-    Returns the detected version string (or None if undetectable). Never
-    raises — a version probe must not keep the server from starting.
-    """
-    try:
-        try:
-            ver = version('browser-use')
-        except PackageNotFoundError:
-            logger.error(
-                'browser-use is not installed — browser tasks will fail. '
-                'Install browser-use>=0.13.'
-            )
-            return None
-        parts = ver.split('.')
-        major, minor = int(parts[0]), int(parts[1])
-        if (major, minor) < (0, 13):
-            logger.error(
-                'browser-use %s is too old for this build (needs >=0.13, '
-                'the heredoc/env-var CLI). Browser wrappers will fail — '
-                'upgrade browser-use. See '
-                'docs/browser-use-0.13-migration.md.',
-                ver,
-            )
-        return ver
-    except Exception:
-        return None
-
-
-def atomic_write_json(path, data):
-    """Write JSON atomically via tempfile + rename."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix='.tmp')
-    try:
-        with os.fdopen(fd, 'w') as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp, str(path))
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-
-
-def read_mcp_config():
-    """Read .mcp.json, returning empty config if missing."""
-    mcp_path = VIBE_SELLER_DIR / '.mcp.json'
-    if mcp_path.exists():
-        return json.loads(mcp_path.read_text())
-    return {'mcpServers': {}}
 
 
 async def inject_vendor_store_config(
@@ -221,9 +134,31 @@ class BrowserManager:
         # Per-store backend instances (keyed by store_id)
         self._backends: dict[str, BrowserBackend] = {}
         self._active_sessions: dict[str, BrowserSessionInfo] = {}
-        # Track proxy port allocations: store_id -> proxy_port
-        self._proxy_ports: dict[str, int] = {}
-        self._next_proxy_port = _BASE_PROXY_PORT
+        # Identity of THIS server instance, for CDP-proxy ownership
+        # (PR C1). Every CDPMuxProxy this manager starts serves the id
+        # on ``GET /vibe/instance``; the allocator and the wrappers
+        # refuse to reuse or attach to a listener that does not answer
+        # with it. That is what makes two vibe-seller servers on one
+        # machine unable to hand out — or glue an agent onto — the same
+        # proxy port. Single-instance machines (every real user today)
+        # keep the exact same ports: the first free port from the base
+        # is still 9222/9322.
+        #
+        # Known limitation, deliberately not "fixed" here: two servers
+        # CAN both drive the single GUI client of an inject-driven
+        # vendor (悦互联, 稳卖's login form). The #326 machine-wide
+        # inspector lock serialises inspector sessions, but not whole
+        # GUI flows across servers (one server's store-form listing
+        # while another runs a task). Production runs one server per
+        # machine, so this is a test-environment hazard — see
+        # docs/browser.md § Multiple server instances.
+        self._instance_id = secrets.token_hex(8)
+        # Proxy-port allocation, keyed by store (PR C1): bind-before-
+        # use reservations owned by THIS instance id. See
+        # app.browser.proxy_ports — kept in its own module because the
+        # reservation lifecycle (allocate / handoff to the mux /
+        # release on teardown) is a unit of its own.
+        self.ports = ProxyPortAllocator(resolve_proxy_base(), self._instance_id)
         # Serialize start/stop to avoid races
         # Bounded on purpose — a wedged holder must not turn every
         # later caller into a request that never answers.
@@ -239,29 +174,54 @@ class BrowserManager:
         # deepens the wedge and wipes agent tabs mid-task.
         self._relaunches = RelaunchBudget()
 
-    @staticmethod
-    async def _cdp_alive(port: int, timeout: float = 2.0) -> bool:
-        """Is the store's CDP proxy answering? See app.browser.cdp_probe."""
+    @property
+    def instance_id(self) -> str:
+        """This server instance's CDP-proxy ownership id."""
+        return self._instance_id
+
+    async def _cdp_alive(self, port: int, timeout: float = 2.0) -> bool:
+        """Is the CDP proxy on *port* OURS, with a LIVE browser behind it?
+
+        Two dimensions, both load-bearing (found live by a real task
+        after a browser crash):
+
+        - **Ownership**: liveness alone was the cross-server bug — two
+          servers allocate from the same base port, and a probe that
+          accepted any 200-answer reused a foreign proxy, driving
+          ANOTHER server's store browser. A listener that does not
+          answer ``/vibe/instance`` with OUR instance id is foreign
+          (see app.browser.cdp_probe.proxy_ownership).
+        - **Upstream liveness**: the mux serves the ownership handshake
+          ITSELF, so a 200 there says nothing about the browser behind
+          it. When the browser dies but the mux survives, the mux
+          answers ``/json/version`` with 502 — without this dimension
+          ``browser/start`` early-returns "alive" without relaunching,
+          and every agent call in the window dies with "WebSocket
+          connection closed" until the mux's own ~3-minute backoff
+          tears it down.
+        """
+        if await proxy_ownership(port, self._instance_id, timeout) != OURS:
+            return False
         return await cdp_proxy_alive(port, timeout)
 
-    @classmethod
     async def _cdp_alive_with_retry(
-        cls,
+        self,
         port: int,
         attempts: int = 3,
         gap: float = 1.0,
     ) -> bool:
-        """Multi-attempt liveness probe.
+        """Multi-attempt liveness-and-ownership probe.
 
-        A single 2 s timeout on `/json/version` is too tight a gate to
-        trigger a full Ziniao+proxy restart — the proxy may be momentarily
-        slow under CDP load while still healthy. Retry a few times with
-        a short gap; only when every attempt fails do we conclude the
-        upstream is genuinely dead (the failure mode PR #68 was added
-        to recover from). Returns True on the first success.
+        A single 2 s timeout on the ownership endpoint is too tight a
+        gate to trigger a full Ziniao+proxy restart — the proxy may be
+        momentarily slow under CDP load while still healthy. Retry a
+        few times with a short gap; only when every attempt fails do we
+        conclude the upstream is genuinely dead (or the port foreign —
+        same recovery: teardown and reallocate). Returns True on the
+        first success.
         """
         for i in range(attempts):
-            if await cls._cdp_alive(port):
+            if await self._cdp_alive(port):
                 return True
             if i < attempts - 1:
                 await asyncio.sleep(gap)
@@ -328,27 +288,6 @@ class BrowserManager:
             self._backends[store_id] = cls()
         return self._backends[store_id]
 
-    def _allocate_proxy_port(
-        self, store_id: str, existing_port: int | None = None
-    ) -> int:
-        """Get a unique proxy port for a store.
-
-        If the store already has a persisted proxy_port in the DB,
-        reuse it to survive server restarts.
-        """
-        if store_id in self._proxy_ports:
-            return self._proxy_ports[store_id]
-        if existing_port is not None:
-            self._proxy_ports[store_id] = existing_port
-            # Keep _next_proxy_port above any restored port
-            if existing_port >= self._next_proxy_port:
-                self._next_proxy_port = existing_port + 1
-            return existing_port
-        port = self._next_proxy_port
-        self._next_proxy_port += 1
-        self._proxy_ports[store_id] = port
-        return port
-
     async def start_session(
         self, store: Store, db: AsyncSession
     ) -> BrowserSession:
@@ -398,7 +337,7 @@ class BrowserManager:
         ):
             # Verify CDP proxy is actually alive before
             # returning early — Ziniao may have crashed.
-            proxy_port = self._proxy_ports.get(store.id)
+            proxy_port = self.ports.get(store.id)
             # Chrome stores pre-CDPMuxProxy may lack a proxy port.
             # Allocate one and force a full restart.
             if not proxy_port:
@@ -424,6 +363,10 @@ class BrowserManager:
                 # does a full restart.
                 self._active_sessions.pop(store.id, None)
                 self._ziniao_stores.pop(store.id, None)
+                # Drop the port reservation too: "not alive" now also
+                # means "held by someone else", and re-allocating from
+                # the DB-saved port is what moves us off it.
+                self.ports.pop(store.id)
                 if store.id in self._backends:
                     try:
                         await self._backends[store.id].stop(
@@ -449,6 +392,7 @@ class BrowserManager:
                     store_id=store.id,
                     headless=headless,
                     slug=store.slug,
+                    instance_id=self._instance_id,
                 )
                 return session
 
@@ -476,10 +420,17 @@ class BrowserManager:
         await inject_vendor_store_config(browser_config, store, db)
 
         # Allocate unique proxy port — both backends use CDPMuxProxy.
-        # Reuse the DB-persisted port if available.
+        # Reuse the DB-persisted port only when it is still FREE on
+        # this machine; a foreign holder is skipped (see
+        # ProxyPortAllocator.allocate).
         existing_port = session.proxy_port if session else None
-        proxy_port = self._allocate_proxy_port(store.id, existing_port)
+        proxy_port = await self.ports.allocate(store.id, existing_port)
         browser_config['proxy_port'] = proxy_port
+        browser_config['vibe_instance_id'] = self._instance_id
+        # Hand the allocator's bound socket to the mux (bind-before-use:
+        # the port was reserved at allocation; the mux serves on THIS
+        # socket, so the allocation and the listener cannot diverge).
+        browser_config['proxy_socket'] = self.ports.sockets.get(proxy_port)
         browser_config['store_slug'] = store.slug
 
         # System-wide headless preference from app_settings. The Chrome
@@ -510,6 +461,7 @@ class BrowserManager:
             store_id=store.id,
             headless=bool(browser_config.get('headless', False)),
             slug=store.slug,
+            instance_id=self._instance_id,
         )
 
         logger.info(
@@ -526,7 +478,15 @@ class BrowserManager:
             )
         except RuntimeError:
             self._backends.pop(store.id, None)
+            # A start that never served must not keep the port reserved
+            # either — release it so the next attempt re-allocates from
+            # a clean slate.
+            self.ports.pop(store.id)
             raise
+        # The mux now owns the reservation socket (it served on it);
+        # drop our reference without closing — the socket belongs to
+        # the mux's server and is closed by its stop().
+        self.ports.handoff(proxy_port)
         self._active_sessions[store.id] = info
         # A healthy launch clears the relaunch budget — the breaker
         # should only trip on a *run* of failures, not on occasional
@@ -569,15 +529,31 @@ class BrowserManager:
     async def _stop_session_locked(
         self, store: Store, db: AsyncSession
     ) -> None:
+        # Teardown is TOTAL, not conditional on the active-session
+        # record. The old `if info:` guard skipped backend.stop() when
+        # the in-memory session was already gone (a failed earlier
+        # stop, a mid-flight restart) while `_backends` still held the
+        # backend — its CDPMuxProxy kept LISTENING on the proxy port
+        # long after the browser was gone (observed live: a swept store
+        # left the mux holding its port until the next server boot).
+        # A leaked listener is also the direct fuel for cross-server
+        # port confusion, so stop whatever backend exists, guard each
+        # phase, and always clear the bookkeeping.
         info = self._active_sessions.pop(store.id, None)
-        if info:
-            backend = self._backends.get(store.id)
-            if backend:
-                await backend.stop(info)
+        backend = self._backends.get(store.id)
+        if backend is not None:
+            try:
+                await backend.stop(info or BrowserSessionInfo())
+            except Exception as e:
+                logger.warning(
+                    'Error stopping browser backend for store %s: %s',
+                    store.name,
+                    e,
+                )
 
         # Clean up backend instance
         self._backends.pop(store.id, None)
-        self._proxy_ports.pop(store.id, None)
+        self.ports.pop(store.id)
 
         # Clear Ziniao account tracking if last store stopped
         self._ziniao_stores.pop(store.id, None)
@@ -619,7 +595,7 @@ class BrowserManager:
             )
             session = result.scalar_one_or_none()
             existing_port = session.proxy_port if session else None
-            proxy_port = self._allocate_proxy_port(store.id, existing_port)
+            proxy_port = await self.ports.allocate(store.id, existing_port)
 
             # Generate a short-lived token so the wrapper's
             # auto-start curl can authenticate against the API.
@@ -635,17 +611,20 @@ class BrowserManager:
                 store_id=store.id,
                 headless=headless,
                 slug=store.slug,
+                instance_id=self._instance_id,
             )
 
     async def _web_proxy_port(self, db: AsyncSession) -> int:
         """Allocate (and persist) the web browser's proxy port.
 
         Reuses the kv-persisted port across restarts, mirroring how
-        stores reuse ``BrowserSession.proxy_port``.
+        stores reuse ``BrowserSession.proxy_port`` — but only when the
+        saved port is still free; a port now held by another server
+        instance is reallocated (and the new value persisted).
         """
         row = await db.get(AppSettings, _WEB_PROXY_PORT_KEY)
         existing = int(row.value) if row and row.value.isdigit() else None
-        proxy_port = self._allocate_proxy_port(WEB_BROWSER_SLUG, existing)
+        proxy_port = await self.ports.allocate(WEB_BROWSER_SLUG, existing)
         if existing != proxy_port:
             if row:
                 row.value = str(proxy_port)
@@ -673,6 +652,7 @@ class BrowserManager:
                 proxy_port,
                 api_token=token,
                 headless=headless,
+                instance_id=self._instance_id,
             )
 
     async def write_task_browser_config(
@@ -690,14 +670,15 @@ class BrowserManager:
         else:
             await self.write_web_browser_config(db)
 
-    async def start_web_session(self, db: AsyncSession) -> None:
+    async def start_web_session(self, db: AsyncSession) -> int:
         """Start (or reuse) the store-less orchestrator ``web`` browser.
 
         A single generic Chrome instance shared by all no-store tasks;
         per-task tab isolation is provided by CDPMuxProxy keyed on
         ``VIBE_TASK_ID`` (same as stores). Serialized via the lock so
         concurrent orchestrator tasks racing the lazy auto-start can't
-        launch two Chromes.
+        launch two Chromes. Returns the proxy port (the web wrapper's
+        start API hands it back so a reallocated port is followed).
         """
         async with self._lock.hold('start_web_session'):
             proxy_port = await self._web_proxy_port(db)
@@ -705,7 +686,7 @@ class BrowserManager:
                 WEB_BROWSER_SLUG in self._active_sessions
                 and await self._cdp_alive_with_retry(proxy_port)
             ):
-                return  # already up
+                return proxy_port  # already up
             # Tear down any stale backend before a fresh launch.
             if WEB_BROWSER_SLUG in self._backends:
                 try:
@@ -720,6 +701,8 @@ class BrowserManager:
             headless = await self._read_headless_setting(db)
             browser_config = {
                 'proxy_port': proxy_port,
+                'vibe_instance_id': self._instance_id,
+                'proxy_socket': self.ports.sockets.get(proxy_port),
                 'store_slug': WEB_BROWSER_SLUG,
                 'headless': headless,
             }
@@ -727,6 +710,10 @@ class BrowserManager:
             logger.info('Starting orchestrator web browser (chrome)')
             info = await backend.start(browser_config)
             self._active_sessions[WEB_BROWSER_SLUG] = info
+            # The mux owns the reservation socket now (see
+            # _start_session_locked for the hand-off contract).
+            self.ports.handoff(proxy_port)
+            return proxy_port
 
     def refuse_other_ziniao_account(self, account_id: str, who: str) -> None:
         """Only one Ziniao account can run per machine. Different profiles

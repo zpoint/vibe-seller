@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 
 from app.browser.cdp_probe import cdp_proxy_alive
 from app.browser.chrome import ChromeBackend, _free_port
+from app.browser.proxy_ports import resolve_proxy_base
 from app.config import LOCALHOST
 from app.models.store import Store
 
@@ -47,6 +49,30 @@ _STOP_TIMEOUT = 10.0
 
 def _ws(port: int) -> str:
     return f'ws://{LOCALHOST}:{port}/client-aux'
+
+
+def _aux_port() -> int:
+    """A free port for an aux mux — never below this server's base.
+
+    The kernel's ephemeral ports (32768+) sit above every sane base, so
+    this is normally a plain ``_free_port()``; the floor only matters
+    for a ``VIBE_CDP_PROXY_BASE`` configured inside/above the ephemeral
+    range (see proxy_ports.resolve_proxy_base — the per-instance range
+    rule covers store, web and aux alike).
+    """
+    port = _free_port()
+    base = resolve_proxy_base()
+    if port >= base:
+        return port
+    port = base
+    while port < 65536:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind((LOCALHOST, port))
+                return port
+            except OSError:
+                port += 1
+    raise RuntimeError('no free aux port above the proxy base')
 
 
 async def _alive(port: int) -> bool:
@@ -78,7 +104,7 @@ async def start_aux(store: Store, headless: bool) -> dict:
                 )
 
         slug = store.slug
-        port = _free_port()
+        port = _aux_port()
         backend = ChromeBackend()
         try:
             await asyncio.wait_for(

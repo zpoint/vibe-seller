@@ -17,8 +17,11 @@ So this drives the genuine artefact end to end:
     write_browser_use_wrapper()  ->  bash wrapper  ->  browser-use
       ->  browser_harness daemon  ->  CDPMuxProxy  ->  real Chromium
 
-No vibe-seller server is needed: the wrapper's auto-start block only
-has to find the proxy already listening, so ``curl`` is stubbed true.
+No vibe-seller server is needed: the wrapper's auto-start probe really
+runs (REAL curl against the harness's own mux, which serves the shared
+instance id), and because it answers as ours the start API is never
+called. A mux serving a DIFFERENT id is refused — pinned by
+``test_a_foreign_proxy_is_refused_by_the_wrapper`` below.
 
 Ownership is asserted against the live proxy OBJECT (``_clients``,
 ``_target_to_client``, ``_session_to_client``) rather than parsed out of
@@ -45,6 +48,13 @@ from app.browser.wrapper import write_browser_use_wrapper
 from tests.integration.conftest import cleanup_browser_tabs
 
 SLUG = 'wslot'
+# The server-instance id shared by the harness's proxy and the wrapper
+# it bakes: since wrapper v9 the liveness probe is an OWNERSHIP probe
+# (the mux must answer /vibe/instance with the baked id), so a harness
+# proxy without the id reads as foreign and the wrapper refuses it.
+# Same id on both sides = "this server's own proxy", which is what the
+# slot-isolation contract is about.
+INSTANCE_ID = 'wslot-test-instance'
 # One page per concurrent driver. Distinct tokens are what turn a
 # silent cross-read into a hard assertion failure.
 PAGES = {
@@ -91,24 +101,30 @@ def site():
 async def slot_env(_browser, tmp_path):
     """Proxy on the shared Chromium + a real wrapper pointed at it."""
     pp = _free_port()
-    proxy = CDPMuxProxy(listen_port=pp, target_port=_browser, cleanup_grace=0)
+    proxy = CDPMuxProxy(
+        listen_port=pp,
+        target_port=_browser,
+        cleanup_grace=0,
+        instance_id=INSTANCE_ID,
+    )
     await proxy.start()
 
     bin_dir = tmp_path / 'bin'
     real_bin, wrapper_mod._BIN_DIR = wrapper_mod._BIN_DIR, bin_dir
     try:
         write_browser_use_wrapper(
-            SLUG, 'chrome', pp, store_id='wslot-store', slug=SLUG
+            SLUG,
+            'chrome',
+            pp,
+            api_port=_free_port(),
+            store_id='wslot-store',
+            slug=SLUG,
+            instance_id=INSTANCE_ID,
         )
     finally:
         wrapper_mod._BIN_DIR = real_bin
 
     path = bin_dir / SLUG / 'browser-use'
-    text = path.read_text()
-    # The proxy is already up, so the auto-start block only needs its
-    # health probe to succeed; there is no server to call.
-    text = text.replace('curl ', '/usr/bin/true ')
-    path.write_text(text)
 
     yield {'proxy': proxy, 'wrapper': path, 'port': pp}
 
@@ -195,6 +211,20 @@ def _run_wrapper_probe(
         capture_output=True,
         text=True,
         timeout=60,
+        env={**os.environ, 'VIBE_TASK_ID': task_id},
+    )
+
+
+def _run_wrapper_once(
+    wrapper: Path, task_id: str
+) -> subprocess.CompletedProcess:
+    """One plain wrapper call (runs the auto-start ownership probe)."""
+    return subprocess.run(
+        [str(wrapper)],
+        input='print("nope")\n',
+        capture_output=True,
+        text=True,
+        timeout=120,
         env={**os.environ, 'VIBE_TASK_ID': task_id},
     )
 
@@ -292,3 +322,59 @@ class TestWorkerSlotIsolationRealBrowser:
             for c in set(proxy._clients) | set(proxy._deferred_cleanups)
             if c.startswith(task_id)
         ]
+
+    async def test_a_foreign_proxy_is_refused_by_the_wrapper(
+        self, _browser, tmp_path, site
+    ):
+        """The ownership half of the v9 probe, against a REAL mux.
+
+        A mux serving ANOTHER server instance's id (here: a different
+        constant) on the wrapper's baked port must read as "down": the
+        wrapper errors out instead of attaching, and the foreign proxy
+        never gains a client. Before PR C1 the liveness probe accepted
+        any 200-answer and the daemon attached straight to it.
+        """
+        pp = _free_port()
+        proxy = CDPMuxProxy(
+            listen_port=pp,
+            target_port=_browser,
+            cleanup_grace=0,
+            instance_id='some-other-server',
+        )
+        await proxy.start()
+        try:
+            bin_dir = tmp_path / 'bin'
+            real_bin, wrapper_mod._BIN_DIR = wrapper_mod._BIN_DIR, bin_dir
+            try:
+                write_browser_use_wrapper(
+                    SLUG,
+                    'chrome',
+                    pp,
+                    api_port=_free_port(),
+                    store_id='wslot-store',
+                    slug=SLUG,
+                    instance_id=INSTANCE_ID,
+                )
+            finally:
+                wrapper_mod._BIN_DIR = real_bin
+            wrapper = bin_dir / SLUG / 'browser-use'
+
+            task_id = str(uuid.uuid4())
+            proc = await asyncio.get_running_loop().run_in_executor(
+                None,
+                _run_wrapper_once,
+                wrapper,
+                task_id,
+            )
+            # Refused loudly, never attached: no daemon handshake, no
+            # client on the foreign proxy.
+            assert proc.returncode == 1
+            assert 'ERROR' in proc.stderr
+            assert not [
+                c
+                for c in set(proxy._clients) | set(proxy._deferred_cleanups)
+                if c.startswith(task_id)
+            ]
+        finally:
+            await proxy.stop()
+            await cleanup_browser_tabs(_browser)

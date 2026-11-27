@@ -52,6 +52,27 @@ def _stub_bu(tmp_path: Path) -> Path:
     return stub
 
 
+def _stub_curl(tmp_path: Path) -> Path:
+    """Offline curl stand-in answering the wrapper's OWNERSHIP probe
+    (/vibe/instance with the baked test-instance id) — a plain
+    ``/usr/bin/true`` stub reads as "proxy down" since wrapper v9
+    (the probe requires the instance id, not just a 200)."""
+    stub = tmp_path / 'curl-stub'
+    if not stub.exists():
+        stub.write_text(
+            '#!/usr/bin/env bash\n'
+            'for a in "$@"; do\n'
+            '  case "$a" in\n'
+            '    *vibe/instance*)\n'
+            '    echo \'{"instance": "test-instance"}\'; exit 0;;\n'
+            '  esac\n'
+            'done\n'
+            'exit 0\n'
+        )
+        stub.chmod(0o755)
+    return stub
+
+
 def _wrapper(tmp_path: Path, slots: int | None = None) -> Path:
     """Generate a per-store wrapper wired to offline stubs.
 
@@ -66,12 +87,17 @@ def _wrapper(tmp_path: Path, slots: int | None = None) -> Path:
         mock.patch.dict(os.environ, env),
     ):
         write_browser_use_wrapper(
-            'test-store', 'chrome', 9222, store_id='store-1', slug='test-store'
+            'test-store',
+            'chrome',
+            9222,
+            store_id='store-1',
+            slug='test-store',
+            instance_id='test-instance',
         )
     path = bin_dir / 'test-store' / 'browser-use'
     text = path.read_text()
     text = re.sub(r'REAL_BU="[^"]*"', f'REAL_BU="{_stub_bu(tmp_path)}"', text)
-    text = text.replace('curl ', '/usr/bin/true ')
+    text = text.replace('curl ', f'"{_stub_curl(tmp_path)}" ')
     path.write_text(text)
     return path
 
