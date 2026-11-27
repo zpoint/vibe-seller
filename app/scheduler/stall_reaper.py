@@ -70,6 +70,7 @@ wait is bounded by ``VIBE_QUESTION_ANSWER_TIMEOUT_S`` instead.
 See issue #141 for the full discovery context.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 import logging
 
@@ -86,6 +87,7 @@ from app.database import async_session
 from app.events.bus import event_bus
 from app.models.task import Task
 from app.models.task_message import TaskMessage
+from app.task_reaper import reap_task_processes
 from app.task_states import TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -392,3 +394,7 @@ async def reap_stalled_running_tasks() -> None:
                     'error_category': 'agent_stream_stalled',
                 },
             )
+            # A stalled agent was killpg'd, but its DETACHED children
+            # (nohup / ssh -f) survive that — reap them here, the one
+            # place a scheduler-failed task reaches a terminal state.
+            asyncio.create_task(reap_task_processes(task_id))

@@ -27,6 +27,7 @@ has been waiting:
   otherwise ``failed`` with the reason.
 """
 
+import asyncio
 from datetime import UTC, datetime
 import logging
 
@@ -44,6 +45,7 @@ from app.schedule_plan_review import (
     end_planner_with_proposal,
 )
 from app.scheduler.stall_reaper import agent_cannot_progress
+from app.task_reaper import reap_task_processes
 from app.task_states import TaskStatus, can_transition
 
 logger = logging.getLogger(__name__)
@@ -190,3 +192,6 @@ async def reap_stuck_planning_tasks() -> None:
             'schedule_plan_failed',
             {'schedule_id': schedule_id, 'task_id': task_id},
         )
+        # The planner's agent is gone, but its detached children may
+        # not be — reap them (nohup / ssh -f escape the process group).
+        asyncio.create_task(reap_task_processes(task_id))

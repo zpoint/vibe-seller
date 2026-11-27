@@ -225,6 +225,14 @@ class CDPMuxProxy(_UpstreamMixin, _RoutingMixin):
         # TCP-level RST/FIN still detects a genuinely dead daemon
         # (websockets raises ConnectionClosed when the next write/read
         # hits a closed socket).
+        # A pre-bound socket from the allocator arrives NOT listening
+        # (the reservation window must refuse probes with ECONNREFUSED
+        # instead of accepting them into a backlog — see
+        # proxy_ports._reserve_socket). Start listening only now, a
+        # moment before websockets takes the socket over; the window
+        # between listen and serve is microseconds in this process.
+        if self._listen_sock is not None:
+            self._listen_sock.listen(16)
         self._server = await websockets.serve(
             self._handle_client_ws,
             LOCALHOST if self._listen_sock is None else None,

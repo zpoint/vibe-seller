@@ -81,12 +81,19 @@ stop_scoped() {
     . "$SCRIPT_DIR/scripts/stop_lib.sh"
     local pid found=0
     local snap
-    snap="$(mktemp)"
     for pid in $(scoped_server_pids_for_port "$1"); do
         found=1
+        snap="$(mktemp)"
         snapshot_process_tree "$pid" "$snap"
+        # The home is read BEFORE the server dies (its environment
+        # dies with it): every process still carrying this home —
+        # agents, nohup/ssh -f children, browser-use daemons — is a
+        # leftover of THIS instance and only this instance.
+        local home
+        home="$(server_vibe_home "$pid")"
         stop_pid_graceful "$pid"
         reap_tree_snapshot "$snap"
+        reap_home_leftovers "$home" "$pid"
     done
     rm -f "$snap"
     if [ "$found" = 0 ]; then

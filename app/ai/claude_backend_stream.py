@@ -11,6 +11,7 @@ import json
 import logging
 import time
 
+from app.ai.claude_backend_tripwire import _TripwireMixin
 from app.ai.claude_backend_turn_hold import (
     REDRIVE_INSTRUCTION,
     open_work_banner,
@@ -54,7 +55,7 @@ EMPTY_TURN_CONTINUE = (
 )
 
 
-class _StreamMixin:
+class _StreamMixin(_TripwireMixin):
     """Stdout/stderr readers and stream-json event handlers."""
 
     # Why the run was ended by the backend rather than by the agent —
@@ -310,6 +311,9 @@ class _StreamMixin:
             # Feed the loop breaker: a repeat call is only a loop if
             # its answer repeats too (claude_backend_utils.check_tool_loop).
             self._note_tool_results(event)
+            # The output tripwire (app/ai/output_tripwire): a tool
+            # result carrying a vendor's private data stops the task.
+            await self._scan_tool_results_tripwire(event)
 
         if etype == 'assistant':
             # Capture error category from assistant error events

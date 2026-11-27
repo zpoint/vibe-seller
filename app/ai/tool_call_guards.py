@@ -9,16 +9,24 @@ around its tool.
 """
 
 import asyncio
+import logging
 import re
 from urllib.parse import urlsplit
+
+from sqlalchemy import select
 
 from app.ads_client import SERVICE_URL
 from app.ai.mcp_args_guard import missing_args_deny
 from app.ai.shell_patterns import COMMAND_PREFIX
 from app.ai.source_guard import is_data_deny, source_access_deny
+from app.ai.vendor_guard import vendor_guard_deny
 from app.database import async_session
 from app.email.access import readable_mailbox_files
+from app.models.app_settings import AppSettings
+from app.models.browser_session import BrowserSession
+from app.models.store import Store
 from app.models.task import Task
+from app.models.ziniao_account import ZiniaoAccount
 
 # Tools that DO the task. While planning, the agent decides what to do;
 # these run when the plan executes. Observed in CI: a fanout planner
@@ -64,6 +72,8 @@ def _service_hosts() -> tuple[str, ...]:
 
 
 _SERVICE_HOSTS = _service_hosts()
+
+logger = logging.getLogger(__name__)
 
 # The only Bash shapes that REACH the service over the network: a
 # network client in command position (its arguments carry the URL/host),
@@ -150,23 +160,104 @@ def subagent_finish_deny(session, tool_name: str, tool_use_id) -> str | None:
 
 
 def tool_call_deny(
-    session, hook_input: dict, mailbox_files: tuple[str, ...] = ()
+    session,
+    hook_input: dict,
+    mailbox_files: tuple[str, ...] = (),
+    own_ports: frozenset[int] = frozenset(),
+    vendor_ports: frozenset[int] = frozenset(),
+    owned_sessions: frozenset[str] = frozenset(),
 ) -> str | None:
     """First refusal for this PreToolUse call, else ``None``.
 
     ``hook_input`` is the hook callback's input: ``tool_name``,
     ``tool_input`` and the CLI's ``tool_use_id``. ``mailbox_files``: the
     task's own mailbox files, the one part of the data dir it may read.
+    ``own_ports`` / ``vendor_ports``: the port context the vendor guard
+    needs (the task's own CDP proxy; vendor ports known only at
+    runtime, e.g. a configured ziniao account's socket_port).
+    ``owned_sessions``: the task's bh-tmp session names that carry no
+    id prefix (its store's ``{slug}-aux`` — D-C3-9).
     """
     tool_name = hook_input.get('tool_name', '')
     tool_input = hook_input.get('tool_input', {})
-    return (
+    reason = (
         subagent_finish_deny(session, tool_name, hook_input.get('tool_use_id'))
         or missing_args_deny(tool_name, tool_input)
         or source_access_deny(tool_name, tool_input, mailbox_files)
         or planning_deny(session, tool_name)
         or ads_service_deny(tool_name, tool_input)
+        or vendor_guard_deny(
+            tool_name,
+            tool_input,
+            task_dir=getattr(session, 'task_dir', None),
+            own_ports=own_ports,
+            extra_vendor_ports=vendor_ports,
+            readable=tuple(mailbox_files),
+            owned_session_names=owned_sessions,
+            task_id=getattr(session, 'task_id', '') or '',
+            tool_use_id=str(hook_input.get('tool_use_id') or ''),
+        )
     )
+    if reason:
+        # The output tripwire skips THIS call's result: the deny reason
+        # names a path (never file contents), and the CLI feeds it back
+        # as the tool result — a trip there would kill the task for the
+        # deny having WORKED.
+        tid = str(hook_input.get('tool_use_id') or '')
+        if tid:
+            denied = getattr(session, '_guard_denied_tool_use_ids', None)
+            if denied is None:
+                denied = set()
+                session._guard_denied_tool_use_ids = denied
+            if len(denied) < 2000:
+                denied.add(tid)
+    return reason
+
+
+async def _guard_context(
+    session,
+) -> tuple[frozenset[int], frozenset[int], frozenset[str]]:
+    """(own ports, runtime vendor ports, owned sessions) for this
+    task's guard calls.
+
+    Own: this task's store's CDP proxy port, or the store-less web
+    browser's. Vendor: every configured ziniao account's socket_port —
+    a customised port is as much the vendor's local API as the 16851
+    default the spec declares (D-C3-5). Owned sessions: the store's
+    ``{slug}-aux`` bh-tmp dir, the one session kind whose name carries
+    no task id prefix (D-C3-9). Resolved per call: a lazy browser
+    start assigns the proxy port mid-task.
+    """
+    own: set[int] = set()
+    vendor: set[int] = set()
+    owned: set[str] = set()
+    try:
+        async with async_session() as db:
+            task = await db.get(Task, session.task_id)
+            if task is not None and task.store_id:
+                row = await db.get(BrowserSession, task.store_id)
+                if row is not None and row.proxy_port:
+                    own.add(int(row.proxy_port))
+                store = await db.get(Store, task.store_id)
+                if store is not None and store.slug:
+                    owned.add(f'{store.slug}-aux')
+            else:
+                row = await db.get(AppSettings, 'web_browser_proxy_port')
+                if row is not None:
+                    try:
+                        own.add(int(row.value))
+                    except ValueError:
+                        pass
+            result = await db.execute(
+                select(ZiniaoAccount.socket_port).distinct()
+            )
+            vendor.update(int(r[0]) for r in result.all() if r[0])
+    except Exception:
+        # Fail SAFE, not open: with no port context the guard denies
+        # every CDP-range and vendor port (nothing is "this task's").
+        # A DB-less unit call lands here by design.
+        logger.debug('Guard context unavailable', exc_info=True)
+    return frozenset(own), frozenset(vendor), frozenset(owned)
 
 
 async def tool_call_refusal(session, hook_input: dict) -> str | None:
@@ -183,7 +274,16 @@ async def tool_call_refusal(session, hook_input: dict) -> str | None:
     so a mailbox linked mid-task reads at once, the same answer
     ``email_info`` gives.
     """
-    deny = await asyncio.to_thread(tool_call_deny, session, hook_input)
+    own_ports, vendor_ports, owned_sessions = await _guard_context(session)
+    deny = await asyncio.to_thread(
+        tool_call_deny,
+        session,
+        hook_input,
+        (),
+        own_ports,
+        vendor_ports,
+        owned_sessions,
+    )
     if deny is None or not is_data_deny(deny):
         return deny
     async with async_session() as db:
@@ -191,4 +291,12 @@ async def tool_call_refusal(session, hook_input: dict) -> str | None:
         if task is None:
             return deny
         files = await readable_mailbox_files(db, task.store_id)
-    return await asyncio.to_thread(tool_call_deny, session, hook_input, files)
+    return await asyncio.to_thread(
+        tool_call_deny,
+        session,
+        hook_input,
+        files,
+        own_ports,
+        vendor_ports,
+        owned_sessions,
+    )
