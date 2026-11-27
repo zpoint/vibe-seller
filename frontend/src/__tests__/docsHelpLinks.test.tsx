@@ -150,6 +150,19 @@ describe('failed task', () => {
     expect(helpLink().dataset.topic).toBe('browserKernel')
   })
 
+  it('shows the plain-language sentence for client_not_running too', () => {
+    // Transient, so it rarely ends a task — but the docs link exists,
+    // so the banner owes it the same plain-language sentence.
+    renderNote(
+      '[CLIENT_NOT_RUNNING] Start the browser client, or check its install path.',
+      'client_not_running',
+    )
+    expect(
+      screen.getByText(enTranslation.tasks.error_client_not_running),
+    ).toBeTruthy()
+    expect(helpLink().dataset.topic).toBe('browserClientNotRunning')
+  })
+
   it('links nothing for a failure the docs do not cover', () => {
     renderNote('the agent looped', 'agent_loop')
     expect(screen.getByText(enTranslation.tasks.error_agent_loop)).toBeTruthy()

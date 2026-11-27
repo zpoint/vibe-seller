@@ -204,6 +204,7 @@
     "error_api_not_enabled": "The browser client's local API is switched off. Turn it on in the client's settings (look for API / 自动化 / local API), then retry.",
     "error_account_mismatch": "The browser client is signed into a different account than the saved one. Sign out in the client, or re-save the matching account, then retry.",
     "error_login_required": "The browser client is signed out and no saved login exists. Sign into the client on this machine, then retry.",
+    "error_client_not_running": "The browser client is not running. Open the client on this machine, then retry.",
     "modeAuto": "Auto",
     "modePlan": "Review",
     "modeAutoDesc": "Skip review, run immediately",

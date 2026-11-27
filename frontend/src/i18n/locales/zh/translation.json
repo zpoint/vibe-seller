@@ -204,6 +204,7 @@
     "error_api_not_enabled": "浏览器客户端的本地接口没有开启。请在客户端设置里打开（找 API / 自动化 / local API 相关开关），再重试。",
     "error_account_mismatch": "浏览器客户端登录的账号和保存的不一致。请在客户端里退出登录，或重新保存对应的账号，再重试。",
     "error_login_required": "浏览器客户端处于未登录状态，也没有保存的登录信息。请在本机登录客户端后重试。",
+    "error_client_not_running": "浏览器客户端没有在运行。请先在本机打开客户端，再重试。",
     "modeAuto": "自动",
     "modePlan": "先审核",
     "modeAutoDesc": "跳过审核，立即执行",
