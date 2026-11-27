@@ -13,7 +13,7 @@ BrowserBackend (abstract)         BrowserManager (singleton)
     ├── ZiniaoBackend                 anti-detect, HTTP API → CDP proxy
     └── InjectCdpBackend              anti-detect, no API → inject CDP port
           ├── YuehulianBackend        悦互联 (Windows/WSL + macOS)
-          └── BitBrowserBackend       比特浏览器 (Windows/WSL-on-Windows only)
+          └── BitBrowserBackend       比特浏览器 (Windows/macOS, WSL-on-Windows)
 
 All backends front their browser with CDPMuxProxy for shared access and
 cookie persistence; BrowserManager generates a per-store browser-use
@@ -100,8 +100,9 @@ anti-detect vendor key literal in shared code (ziniao grandfathered until
 its migration; the yuehulian compat aliases exempted while they exist).
 
 `bitbrowser` (比特浏览器) is the first spec-only local-API vendor: `single`
-with no `credential_fields` (the user signs in inside the client; nothing
-is stored), `lists_profiles` straight from the client's local API, the
+with a stored account + password (encrypted through the generic
+credentials route) and GUI auto-login through the client's own login
+page, `lists_profiles` straight from the client's local API, the
 Windows install descriptor plus an optional saved client path, and the
 docs links for the picker's error hints.
 
@@ -130,14 +131,21 @@ vendor adds its adapter plus ONE fixture file
 free — never an edit to the suite (a convention check fails the build
 until the fixture exists).
 
-`bitbrowser.py` (split into `bitbrowser_cdp.py` / `bitbrowser_launch.py`)
-is the first real subclass: the port and the optional `x-api-key` token
+`bitbrowser.py` (split into `bitbrowser_cdp.py` / `bitbrowser_launch.py`
+/ `bitbrowser_login.py`) is the first real subclass: the port and the
+optional `x-api-key` token
 are read from the client's own `config.json` (cached per client
 instance), the 工作台 workbench tab is closed over CDP in `after_open`
 (keyed on the profile's `workbench` setting so a late appearance is
 still caught), non-Chromium kernels are greyed out in the picker and
 refused at open via a `/browser/detail` pre-check, and the client is
-located and launched when it is not running.
+located and launched when it is not running. The login module is the
+auto-login policy + driver: the two logged-out shapes are classified
+(a device kick refuses — one account, one computer — and a
+recent-auto-login logout trips the ping-pong guard, both persisted per
+machine), plain expiry drives the login form through the shared
+inspector, and success is decided by polling the local API, never the
+DOM.
 
 ### `manager.py` — Browser Manager
 
