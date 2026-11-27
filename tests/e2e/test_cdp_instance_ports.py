@@ -71,8 +71,16 @@ def _start_store_browser(base_url: str, name: str) -> dict:
 class TestTwoServersOwnProxyPorts:
     def test_server_2_binds_its_own_port_and_wrapper_follows(self, tmp_path):
         # Two OWNED servers: dedicated ports, dedicated homes, headless
-        # browsers (CI=true forces it), no outside calls.
-        env = {**AGENT_SERVER_ENV, 'CI': 'true'}
+        # browsers (CI=true forces it), no outside calls. The shared
+        # per-instance base keeps the run deterministic (nothing else
+        # uses 95xx in CI) and lock-free on a dev machine — server 2
+        # walks past server 1's bind, which is exactly the behaviour
+        # under test.
+        env = {
+            **AGENT_SERVER_ENV,
+            'CI': 'true',
+            'VIBE_CDP_PROXY_BASE': '9500',
+        }
         server1 = OwnServer(
             port=pick_free_port(), home=tmp_path / 'home1', env=env
         )
