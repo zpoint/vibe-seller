@@ -61,6 +61,19 @@ It is valid for 5 minutes. Click **Connect** on the WeCom row again, or
 **Sign in again** on a platform that is already enabled.
 </details>
 
+<details markdown="1" id="permission-expired"><summary><b>The WeCom row says "Authorization expired"?</b></summary>
+
+WeCom's authorization lasts 7 days. Once it expires, the AI can no longer
+use it; WeCom does not renew it automatically.
+
+Click **Re-authorize** and scan with WeCom to renew. Only the person who
+scanned to connect WeCom can do this. The row refreshes when you return to
+the Settings page.
+
+A bar at the top of the app also tells admins when an enabled platform's
+authorization expires. A platform that was never connected never alerts.
+</details>
+
 <details markdown="1"><summary><b>The AI can't message a colleague directly?</b></summary>
 
 The bot can message only the person who scanned, and people who talked

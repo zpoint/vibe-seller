@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import secrets
-import tempfile
 import time
 
 from sqlalchemy import select
@@ -23,7 +22,7 @@ from app.browser.bh_daemons import (  # noqa: F401 — re-export
 from app.browser.bu_binary import (  # noqa: F401 — re-export
     warn_on_browser_use_version_mismatch,
 )
-from app.browser.cdp_probe import OURS, proxy_ownership
+from app.browser.cdp_probe import OURS, cdp_proxy_alive, proxy_ownership
 from app.browser.daemon_reaper import reap_orphaned_daemons
 from app.browser.launch_guards import (
     GlobalLaunchLock,
@@ -61,7 +60,12 @@ from app.models.store import Store
 from app.models.ziniao_account import ZiniaoAccount
 from app.plugins import registered_browser_backends
 from app.utils.crypto import decrypt_password
-from app.workspace.manager import VIBE_SELLER_DIR
+
+# Re-exported for their existing importers (routers, ai):
+from app.utils.json_file import (  # noqa: F401 — re-export
+    atomic_write_json,
+    read_mcp_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,30 +87,6 @@ _BASE_PROXY_PORT = default_proxy_base()
 # BrowserSession.proxy_port; the store-less web browser has no such row
 # and uses this kv entry instead).
 _WEB_PROXY_PORT_KEY = 'web_browser_proxy_port'
-
-
-def atomic_write_json(path, data):
-    """Write JSON atomically via tempfile + rename."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix='.tmp')
-    try:
-        with os.fdopen(fd, 'w') as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp, str(path))
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-
-
-def read_mcp_config():
-    """Read .mcp.json, returning empty config if missing."""
-    mcp_path = VIBE_SELLER_DIR / '.mcp.json'
-    if mcp_path.exists():
-        return json.loads(mcp_path.read_text())
-    return {'mcpServers': {}}
 
 
 async def inject_vendor_store_config(
@@ -205,17 +185,29 @@ class BrowserManager:
         return self._instance_id
 
     async def _cdp_alive(self, port: int, timeout: float = 2.0) -> bool:
-        """Is the CDP proxy on *port* alive AND owned by this server?
+        """Is the CDP proxy on *port* OURS, with a LIVE browser behind it?
 
-        Liveness alone was the cross-server bug: two servers allocate
-        from the same base port, and a probe that accepted any
-        200-answer reused a foreign proxy — driving ANOTHER server's
-        store browser. A listener that does not answer
-        ``/vibe/instance`` with OUR instance id is treated as dead, so
-        the reuse path falls into the restart flow, which reallocates
-        the port. See app.browser.cdp_probe.proxy_ownership.
+        Two dimensions, both load-bearing (found live by a real task
+        after a browser crash):
+
+        - **Ownership**: liveness alone was the cross-server bug — two
+          servers allocate from the same base port, and a probe that
+          accepted any 200-answer reused a foreign proxy, driving
+          ANOTHER server's store browser. A listener that does not
+          answer ``/vibe/instance`` with OUR instance id is foreign
+          (see app.browser.cdp_probe.proxy_ownership).
+        - **Upstream liveness**: the mux serves the ownership handshake
+          ITSELF, so a 200 there says nothing about the browser behind
+          it. When the browser dies but the mux survives, the mux
+          answers ``/json/version`` with 502 — without this dimension
+          ``browser/start`` early-returns "alive" without relaunching,
+          and every agent call in the window dies with "WebSocket
+          connection closed" until the mux's own ~3-minute backoff
+          tears it down.
         """
-        return await proxy_ownership(port, self._instance_id, timeout) == OURS
+        if await proxy_ownership(port, self._instance_id, timeout) != OURS:
+            return False
+        return await cdp_proxy_alive(port, timeout)
 
     async def _cdp_alive_with_retry(
         self,

@@ -101,3 +101,31 @@ class TestAuxProbeLiveness:
 
     async def test_a_closed_port_reads_as_dead(self):
         assert await aux_browser._alive(1) is False
+
+
+class TestUpstreamLivenessDimension:
+    """The mux serves the ownership handshake itself — a 200 there says
+    nothing about the BROWSER behind it. When the browser dies but the
+    mux survives, /json/version answers 502 and the manager must read
+    the session as dead so browser/start relaunches (found live: a
+    ~3-minute blind window where every agent call failed hard)."""
+
+    async def test_a_dead_browser_behind_our_mux_reads_as_dead(self):
+        mgr = BrowserManager()
+
+        async def _answer(connection, request):
+            path = request.path.split('?', 1)[0]
+            if path == '/vibe/instance':
+                return connection.respond(
+                    200, json.dumps({'instance': mgr.instance_id})
+                )
+            if path.startswith('/json'):
+                # The mux's answer when its upstream is gone.
+                return connection.respond(502, 'Bad Gateway')
+            return None
+
+        async with websockets.serve(
+            lambda ws: None, '127.0.0.1', 0, process_request=_answer
+        ) as server:
+            port = server.sockets[0].getsockname()[1]
+            assert await mgr._cdp_alive(port) is False

@@ -273,7 +273,14 @@ def write_browser_use_wrapper(
         # server to start the browser (it reallocates the port when the
         # baked one is foreign) and follow the port it hands back.
         _vs_proxy_ours() {{
-          curl -s --max-time 2 "$CDP_HTTP/vibe/instance" 2>/dev/null | grep -qF "\\"$VIBE_PROXY_ID\\""
+          curl -s --max-time 2 "$CDP_HTTP/vibe/instance" 2>/dev/null | grep -qF "\\"$VIBE_PROXY_ID\\"" || return 1
+          # Upstream liveness: the mux serves the ownership
+          # handshake itself, so a 200 there says nothing about
+          # the browser behind it — the mux answers
+          # /json/version 502 while its browser is dead, and
+          # the start call must still fire (found live: dead
+          # browser + live mux = hard failures).
+          curl -sf -o /dev/null --max-time 2 "$CDP_HTTP/json/version" 2>/dev/null
         }}
         case "$SESSION" in
           {aux_autostart_arm}{slug}|{slug}-*)

@@ -212,7 +212,14 @@ def write_web_browser_use_wrapper(
         # this server's baked instance id, so another server's proxy
         # (or an agent-spawned CDP bridge) never reads as alive.
         _vs_proxy_ours() {{
-          curl -s --max-time 2 "$CDP_HTTP/vibe/instance" 2>/dev/null | grep -qF "\\"$VIBE_PROXY_ID\\""
+          curl -s --max-time 2 "$CDP_HTTP/vibe/instance" 2>/dev/null | grep -qF "\\"$VIBE_PROXY_ID\\"" || return 1
+          # Upstream liveness: the mux serves the ownership
+          # handshake itself, so a 200 there says nothing about
+          # the browser behind it — the mux answers
+          # /json/version 502 while its browser is dead, and
+          # the start call must still fire (found live: dead
+          # browser + live mux = hard failures).
+          curl -sf -o /dev/null --max-time 2 "$CDP_HTTP/json/version" 2>/dev/null
         }}
         if ! _vs_proxy_ours; then
           _start_resp=$(curl -s -w '\\n%{{http_code}}' \\

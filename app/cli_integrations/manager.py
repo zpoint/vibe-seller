@@ -180,6 +180,28 @@ async def auth_status(
         return AuthStatus(False, 'error', detail={'error': str(e)})
 
 
+async def check_expired(
+    integ: CliIntegration, home: Path | None = None
+) -> bool | None:
+    """Whether the sign-in expired, checked online now — None when there
+    is nothing to check (not a ``checks_expiry`` platform, not installed,
+    or not signed in at all) or no answer told."""
+    if not integ.checks_expiry:
+        return None
+    h = _home(home)
+    if not await asyncio.to_thread(
+        paths.is_installed, integ.key, integ.binary, h
+    ):
+        return None
+    if not (await auth_status(integ, h)).usable:
+        return None
+    try:
+        return await integ.check_expired(await _runner(integ, h))
+    except Exception:  # a parser surprise must not 500 the page
+        logger.exception('%s expiry check failed', integ.key)
+        return None
+
+
 async def status(integ: CliIntegration, home: Path | None = None) -> dict:
     """One card of the Settings page."""
     h = _home(home)
@@ -215,6 +237,9 @@ async def status(integ: CliIntegration, home: Path | None = None) -> dict:
         # The page's form for the one-time setup, and whether the
         # sign-in waits on it now.
         'setup': integ.setup,
+        # Can expire while the CLI still says signed in: the card asks
+        # ``GET /{key}/expiry``.
+        'checks_expiry': integ.checks_expiry,
         'needs_setup': bool(auth is not None and integ.needs_setup(auth)),
         # Something the page says about this platform until it is
         # enabled (``paths.write_notice``).
@@ -432,6 +457,28 @@ async def _install_skills(
         return await asyncio.to_thread(
             skills.install, integ, version, subs, home
         )
+
+
+async def refresh_umbrellas(home: Path | None = None) -> list[str]:
+    """At boot: bring every enabled platform's umbrella rules to this
+    release (``skills.refresh_umbrella``; local, no network). Returns
+    the platforms whose rules changed."""
+    h = _home(home)
+    changed = []
+    for integ in INTEGRATIONS.values():
+        try:
+            if not await asyncio.to_thread(
+                paths.is_enabled, integ.key, integ.binary, h
+            ):
+                continue
+            async with skills_tree.hold():
+                if await asyncio.to_thread(skills.refresh_umbrella, integ, h):
+                    changed.append(integ.key)
+        except Exception:  # one platform's files never block the boot
+            logger.exception('%s umbrella refresh failed', integ.key)
+    if changed:
+        logger.info('umbrella rules refreshed: %s', ', '.join(changed))
+    return changed
 
 
 async def enable(integ: CliIntegration, home: Path | None = None) -> dict:
