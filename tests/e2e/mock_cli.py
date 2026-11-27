@@ -935,7 +935,7 @@ def _stdin_queue() -> '_queue.Queue[str | None]':
     """
     global _STDIN_QUEUE
     if _STDIN_QUEUE is None:
-        q: '_queue.Queue[str | None]' = _queue.Queue()
+        q: _queue.Queue[str | None] = _queue.Queue()
 
         def _feed() -> None:
             try:
@@ -1063,15 +1063,10 @@ def _guard_replay_calls() -> list[dict]:
             'input': {'command': f'curl -s http://127.0.0.1:{port}/status'},
         },
         {
-            'label': 'ssh-lateral',
-            'tool': 'Bash',
-            'input': {'command': 'ssh mac ls'},
-        },
-        {
             'label': 'os-settings-reg',
             'tool': 'Bash',
             'input': {
-                'command': 'reg add "HKCU:\\Software\\VibeSellerGuardTest\\'
+                'command': 'reg add "HKCU\\Software\\VibeSellerGuardTest\\'
                 'Internet Settings" /v ProxyServer /d 192.0.2.10:7890'
             },
         },
@@ -1113,6 +1108,11 @@ def _guard_replay_calls() -> list[dict]:
                 " s.bind(('127.0.0.1', 17797));"
                 " s.connect(('127.0.0.1', 17777))\""
             },
+        },
+        {
+            'label': 'ssh-lateral',
+            'tool': 'Bash',
+            'input': {'command': 'ssh mac ls'},
         },
         {
             'label': 'allowed-control',
@@ -1163,10 +1163,19 @@ def _spawn_forwarder_leftover() -> int | None:
             # process group like setsid does — exactly what the
             # Windows job object (not the group) must still catch.
             subprocess.Popen(
-                [sys.executable, '-c', code],
+                [
+                    sys.executable,
+                    '-c',
+                    'import subprocess, sys\n'
+                    'subprocess.Popen([sys.executable, "-c", '
+                    'sys.argv[1]],'
+                    ' stdout=subprocess.DEVNULL,'
+                    ' stderr=subprocess.DEVNULL,'
+                    ' creationflags=0x8 | 0x200)\n',
+                    code,
+                ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                creationflags=0x00000008 | 0x00000200,
                 env=env,
             )
         else:

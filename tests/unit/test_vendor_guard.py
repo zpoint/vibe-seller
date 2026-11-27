@@ -133,6 +133,10 @@ class TestRunawayShapes:
             # OS-settings mutation (incident ccef25ee, dummy target)
             'reg add "HKCU:\\Software\\VibeSellerGuardTest\\Internet'
             ' Settings" /v ProxyServer /d 192.0.2.10:7890',
+            # the reg.exe-valid spelling (no drive colon) — the same
+            # rule must catch both forms
+            'reg add "HKCU\\Software\\VibeSellerGuardTest\\Internet'
+            ' Settings" /v ProxyServer /d 192.0.2.10:7890',
             'powershell.exe -Command "Set-ItemProperty -Path'
             ' HKCU:\\Software\\VibeSellerGuardTest\\Internet Settings'
             ' -Name ProxyServer -Value 192.0.2.10:7890"',
