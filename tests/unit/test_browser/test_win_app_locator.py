@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.browser import win_app_locator as wal
+from app.browser import win_app_locator as wal, win_app_registry as war
 from tests.unit.test_browser import lnk_fixtures as fx
 
 # The per-user Programs candidates are built from LOCALAPPDATA. Every
@@ -530,8 +530,10 @@ class TestPsUninstallWildcard:
                 return self.ROW
             return ''
 
-        monkeypatch.setattr(wal, 'run_powershell', powershell)
-        entries = wal._ps_uninstall_entries()
+        # The registry probes moved to win_app_registry (the registry
+        # split); run_powershell resolves THERE now.
+        monkeypatch.setattr(war, 'run_powershell', powershell)
+        entries = war._ps_uninstall_entries()
         assert len(entries) == 1
         assert entries[0].display_name == '示例浏览器 1.0'
         assert entries[0].install_location == 'C:\\Apps\\demo'
