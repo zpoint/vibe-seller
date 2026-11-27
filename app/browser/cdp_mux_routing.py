@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import Any
 import uuid
@@ -20,6 +21,21 @@ from app.browser.cdp_mux_types import (
 from app.env_options import Options
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_dl_path(path: str) -> str:
+    """Canonical form for comparing a downloadPath with the pin.
+
+    Only used to decide whether to LOG a rewrite: any mismatch is
+    rewritten to the pinned dir regardless, so this never needs to be
+    exact about symlinks (never ``resolve()`` — the winchrome pin is
+    the Windows-side path while the agent sees the WSL symlink, and
+    resolving either side would make equal-in-effect paths compare
+    unequal, which only costs a redundant log line). ``expanduser`` +
+    ``normpath`` cover the spellings an agent plausibly types
+    (``~/...``, trailing slash).
+    """
+    return os.path.normpath(os.path.expanduser(path))
 
 
 class _RoutingMixin:
@@ -226,14 +242,39 @@ class _RoutingMixin:
             await self._handle_browser_close(client_id, msg)
             return
 
-        # --- Rewrite Browser.setDownloadBehavior downloadPath ---
-        # browser-use creates a fresh random /tmp dir per CLI
-        # invocation.  Override with a stable per-store directory
-        # so agents can find downloaded files.
-        if method == 'Browser.setDownloadBehavior' and self.download_dir:
+        # --- Enforce the pinned download dir ---
+        # browser-use creates a fresh random /tmp dir per CLI invocation,
+        # and a task agent may try to point downloads somewhere it read
+        # from a stale doc (the default-home path on a multi-home
+        # machine — observed live writing into another server's home).
+        # Both spellings exist in CDP: `Browser.setDownloadBehavior`
+        # (browser-wide, used by the harness watchdog) and
+        # `Page.setDownloadBehavior` (per-page, which an agent used to
+        # override the pin). Any downloadPath outside the pinned dir is
+        # REWRITTEN to the pin, not refused: a refused CDP error fails
+        # the agent mid-flow, and a failed agent improvises (the
+        # incident's whole failure class); the rewrite keeps the
+        # download where the agent's system prompt says it lands, while
+        # the log line below records the attempt.
+        if (
+            method
+            in ('Browser.setDownloadBehavior', 'Page.setDownloadBehavior')
+            and self.download_dir
+        ):
             params = msg.get('params', {})
-            if 'downloadPath' in params:
-                params['downloadPath'] = self.download_dir
+            requested = params.get('downloadPath')
+            if requested is not None:
+                pinned = str(self.download_dir)
+                if _normalize_dl_path(requested) != _normalize_dl_path(pinned):
+                    logger.info(
+                        'CDPMuxProxy: client %s %s downloadPath %s is '
+                        'outside the pinned dir %s — rewritten',
+                        short_cid(client_id),
+                        method,
+                        requested,
+                        pinned,
+                    )
+                    params['downloadPath'] = pinned
 
         # --- Block cross-client Target.closeTarget ---
         if method == 'Target.closeTarget':

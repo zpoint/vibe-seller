@@ -33,6 +33,11 @@ The wrapper takes the heredoc form only, so every statement goes inside it.
   and never set `BU_NAME`, `BU_CDP_URL`, `BU_CDP_WS`, `VIBE_TASK_ID` or
   `--mcp` yourself; the wrapper rejects them, as it rejects local-profile
   and cloud-daemon helpers (`start_remote_daemon`, profile sync).
+- **Downloads land in `$VIBE_STORE_DOWNLOADS`** — your store's download
+  dir, resolved for this server (your system prompt spells the absolute
+  path). Never `mkdir` or point `setDownloadBehavior` at a path from a
+  doc or another machine: the CDP proxy pins downloads to this dir and
+  rewrites anything else.
 - **Seller-center work runs in the default session only.** For
   non-seller-center sites on the same store (tracking pages, supplier
   sites) use `--session <slug>-aux`; no other `--session` value is
@@ -84,8 +89,8 @@ next call instead of assuming where you left off.
 
 ## Screenshots: DOM for data, pictures for confirmation
 
-`capture_screenshot()` saves a PNG (default
-`~/.vibe-seller/bh-tmp/<session>/shot.png`, overwritten each call) and
+`capture_screenshot()` saves a PNG (into this server's browser-harness
+tmp dir, overwritten each call) and
 returns its path; call it **inside** the heredoc, print the path, then Read
 the PNG. A screenshot is good for confirming what the page looks like —
 that a dialog opened, a file was staged, a layout is what you expect — and
@@ -249,7 +254,7 @@ PY
 ## Uploading a file to `<input type=file>`
 
 **Stage the file in the store's downloads dir,
-`~/.vibe-seller/downloads/<slug>/`, and pass its absolute path.** The
+`$VIBE_STORE_DOWNLOADS/`, and pass its absolute path.** The
 browser process reads the file, not you: macOS Ziniao's Chrome is sandboxed
 and can't read `/tmp`, and on the winchrome backend (WSL
 agent → native Windows Chrome) pass the Windows form of the path
@@ -348,7 +353,7 @@ cookies, same downloads dir, no second login.
 - `--worker` and `--session` are mutually exclusive; slots live on the main
   store browser, not on `-aux`. Out-of-range or non-numeric slots are
   rejected.
-- Downloads are shared across slots (`~/.vibe-seller/downloads/<slug>/`),
+- Downloads are shared across slots (`$VIBE_STORE_DOWNLOADS/`),
   so have workers report the filenames they downloaded rather than assume
   the newest file is theirs.
 

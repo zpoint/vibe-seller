@@ -11,6 +11,9 @@ identity moved from flags to env vars:
 
   * ``BU_NAME``   — the session/daemon name (was ``--session``)
   * ``BU_CDP_WS`` — the CDP websocket to attach to (was ``--cdp-url``)
+  * ``VIBE_STORE_DOWNLOADS`` — the store's download dir, resolved for
+    this server's ``VIBE_HOME`` (skills reference it instead of a
+    hardcoded default-home path)
 
 The daemon (``browser_harness``) records itself as
 ``bu-<BU_NAME>.pid``/``.sock`` under ``BH_RUNTIME_DIR``; the reaper keys
@@ -80,7 +83,13 @@ _BIN_DIR = BROWSER_USE_BIN_DIR
 # so the caller saw an unbounded run of identical transient-looking
 # errors and kept paying for them. v6 escalates to a forced browser
 # recycle and then reports the browser as unrecoverable.
-WRAPPER_FORMAT_VERSION = 8
+# v9: exports VIBE_STORE_DOWNLOADS — the store's download dir resolved
+# for THIS server's VIBE_HOME. Skills reference it instead of spelling a
+# default-home path (which a multi-home machine made wrong: an agent
+# following the old doc wrote into another server's home). Additive, but
+# bumped so every wrapper regains the export at the next boot instead of
+# only when its store next starts a session.
+WRAPPER_FORMAT_VERSION = 9
 WRAPPER_FORMAT_MARKER = 'vibe-seller-wrapper-format:'
 
 #: Exit code for "this browser cannot be revived from here" — distinct
@@ -486,6 +495,12 @@ def write_browser_use_wrapper(
         # a horse emoji — a change the page itself can observe, and no
         # person's browser does that. Keep store pages untouched.
         export BH_TAB_MARKER=0
+        # The store's download dir, resolved for THIS server's home.
+        # Skills and scripts reference $VIBE_STORE_DOWNLOADS instead of
+        # spelling a default-home path (wrong on any machine running
+        # more than one vibe-seller home). Overwrites any inherited
+        # value: this wrapper, like the pin itself, is authoritative.
+        export VIBE_STORE_DOWNLOADS="{DOWNLOADS_DIR / slug}"
 
         # Per-task session: each task gets its own daemon to avoid
         # "Session already running with different config".

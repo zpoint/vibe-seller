@@ -7,6 +7,7 @@ removed or broken in the production code path.
 """
 
 import json
+import logging
 
 import pytest
 
@@ -97,6 +98,140 @@ class TestDownloadPathRewrite:
         # Missing downloadPath key should NOT be added
         assert 'downloadPath' not in forwarded['params']
         assert forwarded['params']['behavior'] == 'deny'
+
+
+@pytest.mark.unit
+class TestPageDownloadBehaviorRewrite:
+    """``Page.setDownloadBehavior`` must be pinned like ``Browser.*``.
+
+    A live task agent followed a doc's hardcoded default-home path on a
+    multi-home machine: it mkdir'd the dir in ANOTHER server's home and
+    overrode the mux pin with ``Page.setDownloadBehavior`` — the one
+    spelling the old rewrite did not cover. Downloads then landed
+    outside this server's tree entirely.
+    """
+
+    def _make_proxy(self, download_dir=None):
+        proxy = CDPMuxProxy(
+            listen_port=0,
+            target_port=0,
+            download_dir=download_dir,
+        )
+        proxy._forwarded = []
+
+        async def _capture(msg):
+            proxy._forwarded.append(msg)
+
+        proxy._send_upstream = _capture
+        return proxy
+
+    async def test_page_override_rewritten_to_pin(self):
+        """The incident, verbatim: an outside downloadPath (here the
+        default-home spelling of another server's tree) must end up in
+        the pinned dir."""
+        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
+        msg = {
+            'id': 7,
+            'method': 'Page.setDownloadBehavior',
+            'params': {
+                'behavior': 'allow',
+                'downloadPath': '/home/other/.vibe-seller/downloads/acme',
+            },
+        }
+        await proxy._route_client_message('client-a', json.dumps(msg))
+
+        forwarded = proxy._forwarded[0]
+        assert forwarded['method'] == 'Page.setDownloadBehavior'
+        assert forwarded['params']['downloadPath'] == '/srv-home/downloads/acme'
+        assert forwarded['params']['behavior'] == 'allow'
+
+    async def test_page_override_logged(self, caplog):
+        """The rewrite is visible in the server log — the audit trail
+        for 'an agent tried to redirect downloads'."""
+        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
+        msg = {
+            'id': 7,
+            'method': 'Page.setDownloadBehavior',
+            'params': {
+                'behavior': 'allow',
+                'downloadPath': '/tmp/elsewhere',
+            },
+        }
+        with caplog.at_level(logging.INFO, logger='app.browser'):
+            await proxy._route_client_message('client-a', json.dumps(msg))
+
+        assert 'outside the pinned dir' in caplog.text
+        assert '/tmp/elsewhere' in caplog.text
+
+    async def test_page_matching_path_passthrough_silent(self, caplog):
+        """A downloadPath already equal to the pin (any ~ / trailing
+        slash spelling) passes through untouched and unlogged."""
+        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
+        msg = {
+            'id': 7,
+            'method': 'Page.setDownloadBehavior',
+            'params': {
+                'behavior': 'allow',
+                'downloadPath': '/srv-home/downloads/acme/',
+            },
+        }
+        with caplog.at_level(logging.INFO, logger='app.browser'):
+            await proxy._route_client_message('client-a', json.dumps(msg))
+
+        forwarded = proxy._forwarded[0]
+        # Unchanged — the matching spelling is passed through verbatim
+        # (trailing slash and all); only a mismatch is rewritten.
+        assert (
+            forwarded['params']['downloadPath'] == '/srv-home/downloads/acme/'
+        )
+        assert 'outside the pinned dir' not in caplog.text
+
+    async def test_page_deny_without_path_untouched(self):
+        """``behavior: deny`` with no downloadPath is a 'do not
+        download' choice, not a redirect — never rewritten."""
+        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
+        msg = {
+            'id': 7,
+            'method': 'Page.setDownloadBehavior',
+            'params': {'behavior': 'deny'},
+        }
+        await proxy._route_client_message('client-a', json.dumps(msg))
+
+        forwarded = proxy._forwarded[0]
+        assert 'downloadPath' not in forwarded['params']
+        assert forwarded['params']['behavior'] == 'deny'
+
+    async def test_page_no_pin_passthrough(self):
+        """No pinned dir (``download_dir=None``) → nothing enforced."""
+        proxy = self._make_proxy(download_dir=None)
+        original = '/home/other/.vibe-seller/downloads/acme'
+        msg = {
+            'id': 7,
+            'method': 'Page.setDownloadBehavior',
+            'params': {'behavior': 'allow', 'downloadPath': original},
+        }
+        await proxy._route_client_message('client-a', json.dumps(msg))
+
+        assert proxy._forwarded[0]['params']['downloadPath'] == original
+
+    async def test_browser_rewrite_also_logged(self, caplog):
+        """The pre-existing Browser.* rewrite now logs too (the
+        watchdog's /tmp dir shows up here — once per daemon start)."""
+        proxy = self._make_proxy(download_dir='/stable/path')
+        msg = {
+            'id': 1,
+            'method': 'Browser.setDownloadBehavior',
+            'params': {
+                'behavior': 'allow',
+                'downloadPath': '/tmp/browser-use-downloads-abc123/',
+                'eventsEnabled': True,
+            },
+        }
+        with caplog.at_level(logging.INFO, logger='app.browser'):
+            await proxy._route_client_message('client-a', json.dumps(msg))
+
+        assert proxy._forwarded[0]['params']['downloadPath'] == '/stable/path'
+        assert 'outside the pinned dir' in caplog.text
 
 
 @pytest.mark.unit

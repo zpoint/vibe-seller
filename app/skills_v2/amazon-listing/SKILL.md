@@ -30,7 +30,7 @@ anything touching more than one variant.
 
 **Where files go.** Work from the task workspace root (your CWD): the
 upload markers, batch verdicts and anything you deliver live there.
-Templates and the filled `.txt` go in `~/.vibe-seller/downloads/<slug>/`,
+Templates and the filled `.txt` go in `$VIBE_STORE_DOWNLOADS/`,
 because the browser must read them to upload and cannot read `/tmp`.
 Durable data reused by later runs goes under `store-data/<slug>/`
 (`listing-specs/`, `listing-copy/`, and dated captures under
@@ -188,7 +188,7 @@ hand-clicking.
 
 ```bash
 S=.claude/skills/amazon-listing/scripts
-DL=~/.vibe-seller/downloads/<slug>
+DL=$VIBE_STORE_DOWNLOADS
 
 # 1. Generate + download ONE marketplace's template. Ticks the target
 #    store and reads the tick back (kat-checkbox ignores JS clicks);
@@ -393,7 +393,7 @@ Make the match **proactively** rather than waiting for an `8560`:
    marketplace language, plus the proposed parent-child structure, and
    ask with `AskUserQuestion`. Upload nothing until the answer comes back;
    this is the one interactive step.
-4. **Download** the template into `~/.vibe-seller/downloads/<slug>/` and
+4. **Download** the template into `$VIBE_STORE_DOWNLOADS/` and
    `inspect` it.
 5. **Fill** a spec (parent + children), starting from the accepted spec if
    one exists.
