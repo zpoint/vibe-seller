@@ -238,6 +238,12 @@ jobs:
           git config --local user.email "ci@vibe-seller.test"
           git config --local user.name "CI Bot"
 
+      # The guard-replay e2e's fake browser vendor: a test-only
+      # plugin package, inert unless VIBE_FAKE_VENDOR_HOME is set
+      # (see tests/e2e/fixtures/fake-vendor/).
+      - name: Install fake vendor fixture package
+        run: uv pip install -e tests/e2e/fixtures/fake-vendor
+
       - name: Kill leftover server
         run: lsof -ti:7777 | xargs kill -9 2>/dev/null || true
 
@@ -312,7 +318,8 @@ jobs:
           tests/e2e/test_question_decline_mock.py
           tests/e2e/test_no_store_auto_mock.py
           tests/e2e/test_custom_mcp_ui.py
-          tests/e2e/test_update_failure_ui.py --e2e -v
+          tests/e2e/test_update_failure_ui.py
+          tests/e2e/test_guard_replay.py --e2e -v
           --log-cli-level=INFO
 
       - name: Stop mock CLI server
