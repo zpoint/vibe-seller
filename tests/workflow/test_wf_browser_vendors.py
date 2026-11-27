@@ -240,6 +240,25 @@ async def test_twist_a_non_taxonomy_error_is_not_laundered(
         await admin_client.get('/api/browser-vendors/fakevendor/stores')
 
 
+async def test_only_store_ref_fields_cross_the_api(admin_client, fake_vendor):
+    """A vendor whose list rows carry site credentials can never leak
+    them through this route: only StoreRef fields cross — including the
+    contract PR's ref/available/unavailable_reason."""
+    _client_behavior(stores=[StoreRef('fv-a')])
+    r = await admin_client.get('/api/browser-vendors/fakevendor/stores')
+    assert r.status_code == 200
+    for row in r.json():
+        assert set(row) <= {
+            'name',
+            'platform',
+            'remote_env',
+            'ref',
+            'available',
+            'unavailable_reason',
+            'unavailable_detail',
+        }
+
+
 async def test_fake_vendor_structured_statuses(admin_client, fake_vendor):
     _client_behavior(logged_in=False)
     r = await admin_client.get('/api/browser-vendors/fakevendor/stores')

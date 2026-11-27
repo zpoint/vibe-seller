@@ -1,7 +1,8 @@
 """Live smoke test for the 悦互联 (yuehulian) bind / start / read flow.
 
 Runs against the REAL yuehulian client on Windows (or WSL driving the
-Windows side over 127.0.0.1). It is NOT a CI test — screen-scraping an
+Windows side over 127.0.0.1) and on macOS (natively). It is NOT a CI
+test — screen-scraping an
 Electron GUI is inherently coupled to that GUI, so this script is the
 regression guard for THAT coupling: if yuehulian upgrades its UI (el-table
 classes, the store-list menu, the tags-view shell, pagination) or its
@@ -31,15 +32,20 @@ or a real bug).
 import argparse
 import asyncio
 from contextlib import suppress
+import os
 import re
+import signal
 import subprocess
 import sys
 import time
 
 import aiohttp
 
-from app.browser.adapters.yuehulian_client import RealYuehulianClient
-from app.browser.adapters.yuehulian_win import InspectorSession, ProcessLayer
+from app.browser.adapters.yuehulian_client import (
+    RealYuehulianClient,
+    inspector_session,
+    process_layer,
+)
 from app.browser.inject.errors import (
     CdpUnreachable,
     LoginRequired,
@@ -98,8 +104,8 @@ async def _close_and_settle(host: str, port: int) -> None:
 
 async def _goto_personal_center() -> None:
     """Drive the client OFF the store list (the '切换/进了关' state)."""
-    proc = ProcessLayer()
-    insp = InspectorSession(proc)
+    proc = process_layer({})
+    insp = inspector_session(proc)
     await insp.open(proc.main_pid())
     try:
         await insp.eval_in_renderer(
@@ -112,8 +118,8 @@ async def _goto_personal_center() -> None:
 
 async def _client_total() -> int | None:
     """Read the store list's 'Total N' from the pagination (−1 if absent)."""
-    proc = ProcessLayer()
-    insp = InspectorSession(proc)
+    proc = process_layer({})
+    insp = inspector_session(proc)
     await insp.open(proc.main_pid())
     try:
         txt = await insp.eval_in_renderer(
@@ -127,17 +133,25 @@ async def _client_total() -> int | None:
 
 
 async def _kill_client() -> None:
-    ps = (
-        'Get-CimInstance Win32_Process | Where-Object '
-        "{ $_.ExecutablePath -match 'YueHuLian' } | "
-        'ForEach-Object { Stop-Process -Id $_.ProcessId -Force '
-        '-ErrorAction SilentlyContinue }'
-    )
-    await asyncio.to_thread(
-        subprocess.run,
-        ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', ps],
-        capture_output=True,
-    )
+    if get_platform() == 'mac':
+        # The Mac client ignores TERM/AppleScript quit; SIGKILL the MAIN
+        # pid only (its kernels are left as they are — that is the
+        # recovery scenario under test).
+        pid = process_layer({}).main_pid()
+        if pid:
+            await asyncio.to_thread(os.kill, pid, signal.SIGKILL)
+    else:
+        ps = (
+            'Get-CimInstance Win32_Process | Where-Object '
+            "{ $_.ExecutablePath -match 'YueHuLian' } | "
+            'ForEach-Object { Stop-Process -Id $_.ProcessId -Force '
+            '-ErrorAction SilentlyContinue }'
+        )
+        await asyncio.to_thread(
+            subprocess.run,
+            ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', ps],
+            capture_output=True,
+        )
     await asyncio.sleep(3)
 
 
@@ -305,9 +319,9 @@ async def main() -> int:
     print('悦互联 (yuehulian) live bind/start/read smoke test')
     print('=' * 62)
     plat = get_platform()
-    _record(f'platform supported ({plat})', plat in ('windows', 'wsl'))
-    if plat not in ('windows', 'wsl'):
-        print('This backend is Windows-only; aborting.')
+    _record(f'platform supported ({plat})', plat in ('windows', 'wsl', 'mac'))
+    if plat not in ('windows', 'wsl', 'mac'):
+        print('This backend needs the Windows or macOS client; aborting.')
         return 1
 
     client = RealYuehulianClient({})
