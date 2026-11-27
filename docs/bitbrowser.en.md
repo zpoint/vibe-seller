@@ -6,7 +6,7 @@ description: "One page on connecting BitBrowser to Vibe Seller: download, sign i
 
 BitBrowser (比特浏览器) is a Chinese anti-detect browser ([site](https://www.bitbrowser.net/), [API docs](https://doc.bitbrowser.net/)). Once bound, Vibe Seller opens your stores through its local API and launches the client automatically when it is not running.
 
-**The BitBrowser backend runs on Windows and WSL.** A macOS client exists, but Vibe Seller does not drive it yet.
+**The BitBrowser backend runs on Windows, and also WSL.** A macOS client exists, but Vibe Seller does not drive it yet.
 
 Not using BitBrowser? Skip this page — Vibe Seller supports other browsers, see [Browsers](browsers.en.md).
 
@@ -67,7 +67,7 @@ Firefox-kernel profiles are greyed out with the reason in the store picker, and 
 | Open failed: kernel update failed, please restart the client | BitBrowser failed to download a kernel (typically the Firefox one). Restart BitBrowser so it retries, then run the task. |
 | Open failed: the service was called successfully but no matching data was found | The profile was deleted in BitBrowser, or the signed-in account cannot see it. Check the profile still exists and is visible. |
 | No visible stores for this login | The signed-in (sub-)account has no profiles or none authorized to it. See the sub-account note above. |
-| Unsupported platform | The BitBrowser backend runs only on Windows and WSL. |
+| Unsupported platform | The BitBrowser backend runs only on Windows, and also WSL. |
 
 ## Where credentials are stored
 

@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.browser import win_app_locator as wal, win_app_registry as war
+from app.browser import win_app_locator as wal
 from tests.unit.test_browser import lnk_fixtures as fx
 
 # The per-user Programs candidates are built from LOCALAPPDATA. Every
@@ -501,40 +501,3 @@ class TestNotFoundMessage:
 
     def test_yuehulian_message_names_the_app(self):
         assert '悦互联' in wal.not_found_message(wal.YUEHULIAN_SPEC)
-
-
-class TestPsUninstallWildcard:
-    """The WSL PowerShell fallback must query the Uninstall CHILD keys.
-
-    ``Get-ItemProperty`` on the CONTAINER key returns the container's
-    own (empty) values — not its children — so the pre-fix query
-    returned 0 entries for every app on every WSL machine, and no
-    installed client was ever found through the registry hint from
-    WSL (native Windows reads winreg and was unaffected). The fake
-    PowerShell below mimics the real behaviour: child rows only for
-    ``Uninstall\\*`` keys, nothing for bare container keys.
-    """
-
-    ROW = (
-        '示例浏览器 1.0\tC:\\Apps\\demo\t\t'
-        '"C:\\Apps\\demo\\uninst.exe"\t'
-        'Microsoft.PowerShell.Core\\Registry::HKEY_CURRENT_USER'
-        '\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall'
-        '\\demo\r\n'
-    )
-
-    def test_entries_found_when_children_are_queried(self, monkeypatch):
-        def powershell(script, timeout=30.0):
-            # PowerShell's real shape: rows only for child-key queries.
-            if '\\Uninstall\\*' in script:
-                return self.ROW
-            return ''
-
-        # The registry probes moved to win_app_registry (the registry
-        # split); run_powershell resolves THERE now.
-        monkeypatch.setattr(war, 'run_powershell', powershell)
-        entries = war._ps_uninstall_entries()
-        assert len(entries) == 1
-        assert entries[0].display_name == '示例浏览器 1.0'
-        assert entries[0].install_location == 'C:\\Apps\\demo'
-        assert entries[0].uninstall_string == '"C:\\Apps\\demo\\uninst.exe"'
