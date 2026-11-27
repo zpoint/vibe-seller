@@ -1114,6 +1114,30 @@ def _guard_replay_calls() -> list[dict]:
             'tool': 'Bash',
             'input': {'command': 'curl -s http://127.0.0.1:9225/json/version'},
         },
+        # incident 4 (task 4301ebdb): production's ~/.vibe-seller read
+        # from a test task — any OTHER vibe-seller home is denied
+        {
+            'label': 'foreign-home-profiles',
+            'tool': 'Bash',
+            'input': {'command': 'cat ~/.vibe-seller/profiles.json'},
+        },
+        {
+            'label': 'foreign-home-db-python',
+            'tool': 'Bash',
+            'input': {
+                'command': (
+                    'python3 -c "import json; '
+                    "json.load(open('$HOME/.vibe-seller/"
+                    "data/vibe_seller.db'"
+                    '))"'
+                )
+            },
+        },
+        {
+            'label': 'relative-profiles-control',
+            'tool': 'Bash',
+            'input': {'command': 'cat profiles.json || echo none'},
+        },
         {
             'label': 'wrapper-execute-control',
             'tool': 'Bash',

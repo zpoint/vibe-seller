@@ -194,6 +194,15 @@ class TestRunawayShapes:
             # curl to a CDP port that is not the task's own (incident
             # 3 step 4)
             'curl -s http://127.0.0.1:9225/json/version',
+            # incident 4 (task 4301ebdb): OTHER vibe-seller homes —
+            # production's profiles.json read from a test task
+            'cat ~/.vibe-seller/profiles.json',
+            'ls ~/.vibe-seller/',
+            'python3 -c "import json;'
+            " json.load(open('$HOME/.vibe-seller/data/vibe_seller.db'))\"",
+            'sqlite3 /opt/other-install/vibe_seller.db .tables',
+            # a foreign home's OPEN children are not the task's either
+            'cat ~/.vibe-seller-c2-e2e/stores/x/STORE.md',
         ],
     )
     def test_denied(self, fake_vendor, cmd):
@@ -355,6 +364,11 @@ class TestWindowsShapedPaths:
         'wrapper-read': ('/bin/s/browser-use', 'cat {p}'),
         'bare-home': ('', 'ls {p}'),
         'ssh-config': ('/../../../.ssh/config', 'cat {p}'),
+        # incident 4: the PRODUCTION default home, Windows-shaped
+        'foreign-default-home': (
+            '/../../.vibe-seller/profiles.json',
+            'cat {p}',
+        ),
     }
 
     @pytest.mark.parametrize('style', STYLES)
@@ -446,6 +460,10 @@ class TestCorpus:
             f'{VH}/bin/_web/browser-use navigate http://example.com',
             # cd-ing INTO the wrapper dir names no wrapper file
             f'cd {VH}/bin/store-a && ./browser-use --doctor',
+            # incident 4's ALLOWED counterparts: a RELATIVE
+            # profiles.json is the task's own workspace file
+            'cat profiles.json',
+            'sqlite3 stores/1/profiles.json .tables',
         ],
     )
     def test_allowed(self, fake_vendor, cmd):

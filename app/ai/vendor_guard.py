@@ -54,6 +54,7 @@ from pathlib import Path
 import re
 
 from app.ai.agent_lateral_guard import (
+    FOREIGN_HOME_DENY,
     FORWARDER_DENY,
     HOME_DENY,
     OS_SETTINGS_DENY,
@@ -61,6 +62,7 @@ from app.ai.agent_lateral_guard import (
     SSH_DENY,
     SSH_DIR_DENY,
     WRAPPER_READ_DENY,
+    foreign_home_hit,
     home_bare_re,
     home_deny_re,
     normalize_path_text,
@@ -587,6 +589,11 @@ def _deny_bash(
     ).search(norm)
     if m:
         return deny('home', HOME_DENY.format(path=m.group(0)), m.group(0))
+    # incident 4: another vibe-seller install's home (production's
+    # profiles.json read from a test task)
+    hit = foreign_home_hit(norm)
+    if hit:
+        return deny('foreign-home', FOREIGN_HOME_DENY.format(path=hit), hit)
     # incident 3: reading a store wrapper (it embeds the task JWT).
     # Position-aware — executing the wrapper is the product path.
     what = wrapper_read_hit(cmd)
@@ -650,6 +657,9 @@ def _deny_file_tool(
         or under_closed_home(path, task_prefix, owned_session_names)
     ):
         return deny('home', HOME_DENY.format(path=path), path)
+    hit = foreign_home_hit(norm)
+    if hit:
+        return deny('foreign-home', FOREIGN_HOME_DENY.format(path=hit), hit)
     if tool_name in ('Edit', 'Write', 'MultiEdit', 'NotebookEdit'):
         what = os_settings_hit(path)
         if what:
@@ -669,6 +679,11 @@ def _deny_file_tool(
             if m:
                 return deny(
                     'home', HOME_DENY.format(path=m.group(0)), m.group(0)
+                )
+            hit = foreign_home_hit(norm_body)
+            if hit:
+                return deny(
+                    'foreign-home', FOREIGN_HOME_DENY.format(path=hit), hit
                 )
             what = wrapper_read_hit(body)
             if what:

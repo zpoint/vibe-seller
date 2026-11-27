@@ -85,6 +85,12 @@ WRAPPER_READ_DENY = (
     'a task-scoped token. RUN it (it is how you drive the store '
     'browser); never read, grep or copy it.'
 )
+FOREIGN_HOME_DENY = (
+    'Blocked: `{path}` belongs to ANOTHER vibe-seller install — its '
+    'profiles.json holds provider credentials, its database the '
+    "server's own state. Only THIS task's server home is yours, and "
+    'only its workspace part.'
+)
 
 # ── remote access ───────────────────────────────────────────────────
 
@@ -579,6 +585,50 @@ def wrapper_read_hit(text: str) -> str | None:
         if _command_position_before(norm, m.start()):
             continue
         return m.group(0)
+    return None
+
+
+# ── other vibe-seller homes (incident 4) ────────────────────────────
+# A test agent read PRODUCTION's ~/.vibe-seller/profiles.json on the
+# shared Mac — a different VIBE_HOME than its task's server. Any
+# vibe-seller home that is not the task's own is off-limits in full:
+# the default-named family (~/.vibe-seller and its -<suffix>
+# siblings), and the two files that make a directory LOOK like a vibe
+# seller home (data/vibe_seller.db, profiles.json) when they sit in an
+# absolute path outside the task's own home. A RELATIVE profiles.json
+# (a file in the task's own workspace) stays allowed.
+_VIBE_HOME_FILE_RE = re.compile(
+    r'(?<![\w.-])(profiles\.json|vibe_seller\.db)(?![\w.-])'
+)
+_PATH_CHARS = re.compile(r'[a-z0-9_\-./$%~]')
+
+
+def foreign_home_hit(norm_text: str) -> str | None:
+    """A foreign vibe-seller home in ALREADY-NORMALISED *norm_text*.
+
+    Returns the matched text, or ``None``. The task's own home is
+    exempt — its finer-grained rules (closed children, wrappers)
+    decide.
+    """
+    home = norm_home_now()
+    # the default-named family under the user's home
+    family = re.compile(
+        re.escape(_HOME_NORM) + r'/\.vibe-seller[\w.-]*(?=$|[/\s\'";|&)])'
+    )
+    for m in family.finditer(norm_text):
+        token = m.group(0)
+        if token != home and not token.startswith(home + '/'):
+            return token
+    # the look-like-a-home files, in absolute paths only
+    for m in _VIBE_HOME_FILE_RE.finditer(norm_text):
+        i = m.start()
+        while i > 0 and _PATH_CHARS.match(norm_text[i - 1]):
+            i -= 1
+        path = norm_text[i : m.end()]
+        if re.match(r'(?:/|[a-z]:/)', path) and not (
+            path == home or path.startswith(home + '/')
+        ):
+            return m.group(0)
     return None
 
 

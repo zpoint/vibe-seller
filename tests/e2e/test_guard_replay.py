@@ -206,6 +206,9 @@ def test_runaway_replay_through_the_real_hook_path(
         'python-sqlite-server-db',
         'wrapper-read',
         'cdp-port-curl',
+        # incident 4 (task 4301ebdb): other vibe-seller homes
+        'foreign-home-profiles',
+        'foreign-home-db-python',
     ):
         assert f'{label}: DENIED' in text, label
     assert 'allowed-control: ALLOWED' in text
@@ -213,6 +216,9 @@ def test_runaway_replay_through_the_real_hook_path(
     # the product path, and listing ~/codes is a stated residual
     assert 'wrapper-execute-control: ALLOWED' in text
     assert 'home-codes-listing-control: ALLOWED' in text
+    # incident 4's allowed counterpart: a RELATIVE profiles.json is
+    # the task's own workspace file
+    assert 'relative-profiles-control: ALLOWED' in text
 
     # ── the detached forwarder died with the task (reaping) ───────
     m = re.search(r'reaper-proof-listener-port: (\d+)', text)
