@@ -347,6 +347,9 @@ def mock_browser_wf(monkeypatch):
     class _Mock:
         def __init__(self):
             self.config_calls = []
+            # The typed start-route fields (PR C1) read this; a fake
+            # without it makes every browser start an AttributeError.
+            self.instance_id = 'wf-test-instance'
 
         async def ensure_session(self, store, db):
             pass

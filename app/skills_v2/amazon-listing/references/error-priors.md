@@ -16,7 +16,7 @@ Contents:
 - **Upload the tab-delimited `.txt`, not the `.xlsm`.** `fill` writes the
   `.txt` next to the `.xlsm`. An openpyxl-saved `.xlsm` triggers **90502
   FATAL** ("worksheet template type not supported for Excel upload").
-- **`fill --out` into `~/.vibe-seller/downloads/<slug>/`.** The browser
+- **`fill --out` into `$VIBE_STORE_DOWNLOADS/`.** The browser
   must read the file to attach it and cannot read `/tmp` (see the
   browser-harness skill, "Uploading a file").
 - **Submit is two clicks.** On the unified upload page the first

@@ -141,6 +141,19 @@ class TestSweepGuards:
         assert await sweep_idle_browsers() == 1
         assert stopped['web'] == 1
 
+    async def test_a_backend_without_a_session_record_is_still_swept(self, env):
+        """The idle-sweep mux leak (observed live on the Mac): a store
+        whose active-session record was lost still has a backend — its
+        CDPMuxProxy keeps LISTENING on the proxy port long after the
+        browser is gone, holding the port against every other server.
+        The sweep iterates backends too, so the leak is reaped."""
+        _state, stopped = env
+        # Backend registered, active-session record GONE.
+        browser_manager._backends['leaky'] = _FakeBackend(_FakeProxy())
+        assert 'leaky' not in browser_manager._active_sessions
+        assert await sweep_idle_browsers() == 1
+        assert stopped['stores'] == ['leaky']
+
     async def test_disabled_at_zero(self, env, monkeypatch):
         _state, stopped = env
         monkeypatch.setenv(Options.BROWSER_IDLE_S.env_var, '0')

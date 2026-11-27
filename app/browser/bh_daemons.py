@@ -19,10 +19,11 @@ from collections.abc import Callable, Iterator
 import json
 import logging
 from pathlib import Path
+import re
 
 from app.browser.process_utils import kill_with_escalation
 from app.config import BH_RUNTIME_DIR
-from app.platform import find_processes_by_pattern
+from app.platform import find_processes_by_pattern, kill_process
 
 logger = logging.getLogger(__name__)
 
@@ -104,3 +105,52 @@ async def kill_bh_daemons(name_matches: Callable[[str], bool]) -> int:
             # Stale file (daemon gone / PID reused) — just clean up.
             unlink_quiet(pf, sock)
     return killed
+
+
+async def kill_aux_daemons() -> int:
+    """Terminate every browser-use daemon whose session ends in
+    ``-aux``. Returns the count killed.
+
+    0.13 daemons are found by their pid file (``BU_NAME`` ends in
+    ``-aux``); legacy 0.12 daemons by ``--session …-aux`` in argv (kept
+    for one upgrade cycle). Both paths are psutil-based, cross-platform.
+    """
+    killed = await kill_bh_daemons(lambda name: name.endswith('-aux'))
+    # Legacy 0.12: --session ...-aux in argv.
+    legacy: list[int] = []
+    procs = await find_processes_by_pattern(LEGACY_DAEMON_PATTERN)
+    for pid, cmdline in procs.items():
+        if re.search(r'--session[= ][^ ]*-aux\b', cmdline):
+            legacy.append(pid)
+    for pid in legacy:
+        await kill_process(pid)
+    total = killed + len(legacy)
+    if total:
+        logger.info(
+            'Killed %d aux browser-use daemon(s) on settings change',
+            total,
+        )
+    return total
+
+
+async def _kill_all_browser_daemons() -> int:
+    """Kill all browser-use daemon processes (startup only).
+
+    Intended for server startup when no tasks are running yet. Kills
+    every 0.13 (pid-file) and legacy 0.12 daemon found. Returns the
+    number of processes killed.
+    """
+    try:
+        killed = await kill_bh_daemons(lambda _name: True)
+        legacy = await find_processes_by_pattern(LEGACY_DAEMON_PATTERN)
+        for pid in legacy:
+            await kill_process(pid)
+        total = killed + len(legacy)
+        if total:
+            logger.info(
+                'Startup: killed %d browser-use daemon(s) from previous run',
+                total,
+            )
+        return total
+    except Exception:
+        return 0

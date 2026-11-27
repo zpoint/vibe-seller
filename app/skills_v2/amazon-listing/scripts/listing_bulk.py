@@ -498,7 +498,7 @@ def cmd_fill(args):
         print(
             f'warning: {txt_path} is under /tmp -- the browser cannot read '
             'it and the upload will silently fail. Write --out under '
-            '~/.vibe-seller/downloads/<slug>/ instead.',
+            '$VIBE_STORE_DOWNLOADS/ instead.',
             file=sys.stderr,
         )
     print(f'wrote {len(rows)} data row(s) -> {args.out}')

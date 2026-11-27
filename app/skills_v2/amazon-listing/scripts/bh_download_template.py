@@ -7,7 +7,7 @@ generator flow with the TARGET store ticked (other ticked stores are
 left alone). Run through the STORE WRAPPER:
 
   SC_HOST=sellercentral.amazon.ae PRODUCT_TYPE=kettle \
-  STORE_LABEL=Amazon.ae DOWNLOADS_DIR=~/.vibe-seller/downloads/<slug> \
+  STORE_LABEL=Amazon.ae DOWNLOADS_DIR=$VIBE_STORE_DOWNLOADS \
   browser-use < .claude/skills/amazon-listing/scripts/bh_download_template.py
 
 Prints exactly one ``RESULT {json}`` line: ok / template / picked / stores

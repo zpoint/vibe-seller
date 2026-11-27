@@ -14,6 +14,7 @@ from app.models.user import User
 from app.prompts import WORKSPACE_ASSISTANT_PROMPT
 from app.telemetry_events import TelemetryEvent
 from app.text_utils import SafeStr
+from app.workspace.manager import VIBE_SELLER_DIR
 
 router = APIRouter(
     prefix='/api/workspace/assistant', tags=['workspace-assistant']
@@ -45,7 +46,9 @@ async def _build_system_prompt() -> str:
     except Exception:
         stores_list = '_Unable to load stores._'
 
-    return WORKSPACE_ASSISTANT_PROMPT.replace('{stores_list}', stores_list)
+    return WORKSPACE_ASSISTANT_PROMPT.replace(
+        '{stores_list}', stores_list
+    ).replace('{workspace_root}', str(VIBE_SELLER_DIR))
 
 
 @router.post('/message')

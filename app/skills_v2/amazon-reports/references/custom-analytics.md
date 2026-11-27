@@ -88,9 +88,12 @@ range, clicks Export and confirms the file landed:
 ```bash
 SC_HOST=sellercentral.amazon.<tld> CA_TILE=0 \
   CA_START=2026/10/01 CA_END=2026/10/31 \
-  CA_DOWNLOAD_DIR=~/.vibe-seller/downloads/<slug> \
+  CA_DOWNLOAD_DIR=$VIBE_STORE_DOWNLOADS \
   browser-use < .claude/skills/amazon-reports/scripts/bh_ca_export.py
 ```
+
+If `$VIBE_STORE_DOWNLOADS` is empty (an older Vibe Seller), use the
+store's downloads folder your store context names.
 
 `CA_DASHBOARD` defaults to `detail-page-sales-traffic-template`; omit
 `CA_START`/`CA_END` to keep the tile's default (YTD); `CA_EXPORT=0` only

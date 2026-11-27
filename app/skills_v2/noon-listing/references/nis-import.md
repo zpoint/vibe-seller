@@ -126,7 +126,7 @@ suspiciously short.
 **Upload:** Imports → Add Import → Type = Content, Subtype = NIS
 Create/Update → **Next** → attach the `.xlsx` (the hidden
 `input[type=file]` accepts `.csv,.xlsx`; stage the file in
-`~/.vibe-seller/downloads/<slug>/` so the browser can read it — see the
+`$VIBE_STORE_DOWNLOADS/` so the browser can read it — see the
 `browser-harness` skill's upload section) → **Submit**. The import runs
 asynchronously under an `IMP…` code.
 

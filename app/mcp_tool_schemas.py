@@ -381,7 +381,7 @@ TOOLS = [
             'bots support files; the other platforms have no file '
             'endpoint. Pass the bot_id and an absolute path on this '
             'host (task captures under /tmp, browser downloads under '
-            '~/.vibe-seller/downloads). Limit: 20 MB. The webhook '
+            '$VIBE_STORE_DOWNLOADS). Limit: 20 MB. The webhook '
             'secret stays on the server. Formerly '
             'vibe_seller_send_wecom_file.'
         ),
