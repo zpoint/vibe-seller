@@ -2,13 +2,13 @@
 
 The ~25 anti-detect vendors whose desktop client exposes a local HTTP
 API (list / start(id) → CDP / stop on 127.0.0.1) differ only in shapes:
-which port, how to authenticate, the paths, how to parse the store list
-and the opened endpoint, how to tell "logged out" and "API not enabled"
-apart, and how fast calls may come. :class:`LocalApiClient` keeps
-everything uniform as CLASS ATTRIBUTES and exposes the differences as
-small overridable methods, so a vendor module is a short subclass of
-this class plus a :class:`~app.browser.vendors.BrowserVendorSpec` —
-never a new client.
+which port, how to authenticate, the requests, how to parse the store
+list and the opened endpoint, how to tell "logged out" and "API not
+enabled" apart, and how fast calls may come. :class:`LocalApiClient`
+keeps everything uniform as CLASS ATTRIBUTES and exposes the
+differences as small overridable methods, so a vendor module is a short
+subclass of this class plus a
+:class:`~app.browser.vendors.BrowserVendorSpec` — never a new client.
 
 Uniform parts (class attributes)
 --------------------------------
@@ -23,14 +23,35 @@ Uniform parts (class attributes)
                    API authenticates, using the value of the credential
                    field named by ``auth_field``.
 ``auth_header``    header name for ``'header'`` auth.
-``list/open/close_method`` + ``_path`` — the calls. Paths are str.format
-                   templates; ``{ref}`` substitutes the store ref.
+``list/open/close_method`` — the HTTP verbs.
 ``min_interval_s`` minimum seconds between API calls — the vendors'
                    rate limits range from half a second to several
-                   calls per second (see the research catalogue).
+                   calls per second (see the research catalogue); the
+                   limit also spaces the pages of a paginated list.
+``max_list_pages`` the pagination guard (below).
+``connect/request_timeout_s`` — a hung connect (an unbound loopback
+                   port on WSL does NOT refuse, it hangs) must fail
+                   bounded.
 
 Vendor parts (overridable methods)
 ----------------------------------
+Requests — each returns ``(path, json_body | None)``:
+``list_request(page)``   the list call for a 0-based page counter (a
+   1-based vendor translates inside the hook); a JSON body is sent as
+   the request body. Query parameters stay in the PATH string — a path
+   is the full request target, so ``'…?user_id={ref}''`` is fine.
+``open_request(ref)`` / ``close_request(ref)`` — same shape.
+   The defaults reproduce path-only requests (``{ref}`` substituted),
+   which is what path/query-string vendors use.
+
+Pagination — ``next_page(payload, page) -> int | None``: return the
+next 0-based page counter while more pages exist, None to stop. The
+default is a single page (None always). ``list_stores`` loops the hook,
+honouring the rate limit between pages and de-duplicating rows by ref;
+a vendor whose hook never says stop is cut off at ``max_list_pages``
+with an error naming the limit — never a silent truncation.
+
+Responses:
 ``parse_stores(payload) -> list[StoreRef]``
 ``parse_opened(payload) -> OpenedStore`` — fill ``cdp_host``/``cdp_port``
   (the engine verifies the endpoint itself); :func:`opened_from_ws`
@@ -42,6 +63,12 @@ Vendor parts (overridable methods)
   codes most vendors share (API not enabled / plan required — the #1
   support case) map to :class:`ApiNotEnabled`, defined here until the
   shared error table (``inject/errors.py``) grows them.
+
+Secrets: list rows routinely carry each profile's site password,
+cookies and proxy credentials. The base NEVER logs a raw payload or
+request body — log lines carry the method, URL and error text only —
+and ``parse_stores`` must return bare :class:`StoreRef` rows so nothing
+secret can flow into a response (pinned by the contract suite).
 
 Optional hooks: ``ensure_running`` (default: discover the port and
 probe; override to launch the client), ``after_open``,
@@ -85,6 +112,18 @@ class ApiNotEnabled(InjectError):
     )
 
 
+class PaginationOverflow(InjectError):
+    """A vendor's pagination never said stop.
+
+    Raised (never silently truncated) once ``max_list_pages`` pages have
+    been collected, so a mis-parsed ``next_page`` cannot loop forever or
+    quietly return a partial list.
+    """
+
+    code = 'PAGINATION_OVERFLOW'
+    hint = 'The store list pagination did not terminate; report this.'
+
+
 def opened_from_ws(ws_url: str, user_data_dir: str = '') -> OpenedStore:
     """An OpenedStore parsed from a ``ws://host:port/...`` URL."""
     parts = urlsplit(ws_url)
@@ -118,6 +157,9 @@ class LocalApiClient(InjectClient):
     # it hangs until the OS gives up) must fail bounded, in seconds.
     connect_timeout_s: float = 5.0
     request_timeout_s: float = 30.0
+    # The pagination guard: a list that claims more pages than this is
+    # cut off with PaginationOverflow, never a silent truncation.
+    max_list_pages: int = 200
 
     def __init__(self, browser_config: dict | None = None):
         cfg = browser_config or {}
@@ -151,8 +193,9 @@ class LocalApiClient(InjectClient):
             raise ClientNotRunning(
                 f'no local API port found for {type(self).__name__}'
             )
+        path, body = self.list_request(0)
         try:
-            await self._api_call(self.list_method, self.list_path)
+            await self._api_call(self.list_method, path, json_body=body)
         except ClientNotRunning:
             raise
         except InjectError:
@@ -172,17 +215,44 @@ class LocalApiClient(InjectClient):
             raise LoginRequired()
 
     async def list_stores(self) -> list[StoreRef]:
-        status, payload = await self._api_call(self.list_method, self.list_path)
-        if self.is_logged_out(status, payload):
-            raise LoginRequired()
-        err = self.map_error(status, payload)
-        if err is not None:
-            raise err
-        return self.parse_stores(payload)
+        """Every store, following the vendor's pagination to the end.
+
+        Pages are spaced by the rate limit; rows are de-duplicated by
+        ref (a vendor that repeats a row across pages yields it once).
+        A pagination that never terminates fails with
+        :class:`PaginationOverflow` instead of looping or truncating.
+        """
+        page = 0
+        out: list[StoreRef] = []
+        seen: set[str] = set()
+        while True:
+            if page >= self.max_list_pages:
+                raise PaginationOverflow(
+                    f'{type(self).__name__}: the store list still claimed '
+                    f'a next page after {self.max_list_pages} pages'
+                )
+            path, body = self.list_request(page)
+            status, payload = await self._api_call(
+                self.list_method, path, json_body=body
+            )
+            if self.is_logged_out(status, payload):
+                raise LoginRequired()
+            err = self.map_error(status, payload)
+            if err is not None:
+                raise err
+            for ref in self.parse_stores(payload):
+                if ref.name not in seen:
+                    seen.add(ref.name)
+                    out.append(ref)
+            nxt = self.next_page(payload, page)
+            if nxt is None:
+                return out
+            page = nxt
 
     async def open_store(self, ref: str) -> OpenedStore:
+        path, body = self.open_request(ref)
         status, payload = await self._api_call(
-            self.open_method, self.open_path.format(ref=ref)
+            self.open_method, path, json_body=body
         )
         err = self.map_error(status, payload)
         if err is not None:
@@ -192,9 +262,8 @@ class LocalApiClient(InjectClient):
     async def close_store(self, ref: str) -> None:
         """Best-effort; never raises for cleanup."""
         try:
-            await self._api_call(
-                self.close_method, self.close_path.format(ref=ref)
-            )
+            path, body = self.close_request(ref)
+            await self._api_call(self.close_method, path, json_body=body)
         except Exception as e:  # cleanup must never raise
             logger.info('close_store(%s) failed (ignored): %s', ref, e)
 
@@ -205,6 +274,31 @@ class LocalApiClient(InjectClient):
             self._session = None
 
     # ── vendor parts (a vendor overrides these) ─────────────────────
+
+    def list_request(self, page: int) -> tuple[str, dict | None]:
+        """The list call for a 0-based page counter.
+
+        The default is a path-only request (single page unless
+        :meth:`next_page` says otherwise); a POST-JSON vendor returns
+        its body, a 1-based vendor translates the counter here.
+        """
+        return self.list_path, None
+
+    def open_request(self, ref: str) -> tuple[str, dict | None]:
+        """The open call; default is the path with ``{ref}`` substituted.
+
+        Query parameters stay in the path string — a path is the full
+        request target (``'…?user_id={ref}'``).
+        """
+        return self.open_path.format(ref=ref), None
+
+    def close_request(self, ref: str) -> tuple[str, dict | None]:
+        """The close call; default is the path with ``{ref}``."""
+        return self.close_path.format(ref=ref), None
+
+    def next_page(self, payload, page: int) -> int | None:
+        """The next 0-based page counter, or None when the list ended."""
+        return None
 
     def parse_stores(self, payload) -> list[StoreRef]:
         raise NotImplementedError
@@ -254,11 +348,16 @@ class LocalApiClient(InjectClient):
             return {'Authorization': f'Bearer {self._auth_value}'}
         return {self.auth_header: self._auth_value}
 
-    async def _api_call(self, method: str, path: str) -> tuple[int, object]:
+    async def _api_call(
+        self, method: str, path: str, json_body: dict | None = None
+    ) -> tuple[int, object]:
         """One rate-limited API call → (HTTP status, parsed payload).
 
-        Transport failures raise ClientNotRunning; an API that answers
-        with an error payload returns it for the vendor's map_error.
+        ``json_body`` (when a request hook returns one) is sent as the
+        JSON request body. Transport failures raise ClientNotRunning;
+        an API that answers with an error payload returns it for the
+        vendor's map_error. Payloads and bodies are never logged — list
+        rows carry site passwords and cookies.
         """
         if self._port is None:
             raise ClientNotRunning('no API port resolved')
@@ -270,6 +369,7 @@ class LocalApiClient(InjectClient):
                 method,
                 url,
                 headers=self._auth_headers(),
+                json=json_body,
                 timeout=aiohttp.ClientTimeout(
                     total=self.request_timeout_s,
                     connect=self.connect_timeout_s,
