@@ -62,8 +62,8 @@ Firefox-kernel profiles are greyed out with the reason in the store picker, and 
 |---|---|
 | Not logged in — sign in to the BitBrowser client, then Refresh | The client's session expired, or the same account was signed in on another computer (one account, one computer at a time), which signed this one out. Open BitBrowser and sign in once; it stays signed in. |
 | Could not start the BitBrowser client — open it by hand (or check the install), then Refresh | Vibe Seller could not find or launch the client. Open BitBrowser by hand; if it is installed somewhere unusual, save the client path in Settings. |
-| BitBrowser Local API auth failed … toggle 鉴权控制 off and on | The client's Local API Token was reset and the config has not caught up. In BitBrowser → Settings → Local API, toggle 鉴权控制 off and on (or restart BitBrowser), then retry. |
-| This store does not use a Chrome kernel | The profile runs a Firefox or other non-Chrome kernel. Switch it to Chrome in BitBrowser (see the section above). |
+| 请在比特浏览器 → 设置 → Local API 里检查「鉴权控制」，再重试任务。 ("Check 鉴权控制 in BitBrowser → Settings → Local API, then retry the task") | The local API's auth toggle or token is off. Check the 鉴权控制 toggle in BitBrowser → Settings → Local API, then retry the task. |
+| 这个窗口用的不是 Chrome（Chromium）内核…… ("This profile does not use a Chrome (Chromium) kernel") | The profile runs a Firefox or other non-Chromium kernel. Switch it to Chrome in BitBrowser (see the section above). |
 | Open failed: kernel update failed, please restart the client | BitBrowser failed to download a kernel (typically the Firefox one). Restart BitBrowser so it retries, then run the task. |
 | Open failed: the service was called successfully but no matching data was found | The profile was deleted in BitBrowser, or the signed-in account cannot see it. Check the profile still exists and is visible. |
 | No visible stores for this login | The signed-in (sub-)account has no profiles or none authorized to it. See the sub-account note above. |

@@ -155,11 +155,9 @@ class BitBrowserClient(LocalApiClient):
     # workbench can appear a listing or two after the platform tab).
     after_open_deadline_s = 10.0
     after_open_delay_s = 1.0
-    # Per-instance config cache + the one-shot 403 re-read flag (set by
-    # map_error, consumed by auth_headers). Class-level defaults; the
-    # first write creates the instance attribute.
+    # Per-instance config cache. Class-level default; the first read
+    # creates the instance attribute.
     _config_cache: dict | None = None
-    _auth_stale: bool = False
     # The platform host of the profile the current open_store flow is
     # driving (from /browser/detail), so after_open can prefer the
     # store's own tab over any other http(s) page; and whether the
@@ -174,7 +172,8 @@ class BitBrowserClient(LocalApiClient):
         return self.list_path, {'page': page, 'pageSize': self.page_size}
 
     def next_page(self, payload, page: int) -> int | None:
-        data = payload.get('data') or {}
+        data = payload.get('data') if isinstance(payload, dict) else None
+        data = data or {}
         try:
             total = int(data.get('totalNum') or 0)
         except (TypeError, ValueError):
@@ -208,32 +207,21 @@ class BitBrowserClient(LocalApiClient):
         """``x-api-key`` from the client's own config — only when the
         user turned 鉴权控制 on.
 
-        The token is BitBrowser's, read from its settings file (a reset
-        invalidates the old one immediately); it is never logged,
-        stored or returned by us. The config is cached per instance;
-        after a 403 (stale token — map_error flags it) it is re-read
-        ONCE here, never in a loop.
+        The token is BitBrowser's, read from its settings file; it is
+        never logged, stored or returned by us. The config is cached
+        per client instance (each engine start builds a fresh client,
+        so a reset token is picked up by the next task naturally).
         """
-        cfg = await self._client_config(
-            refresh=self._auth_stale, clear_stale=True
-        )
+        cfg = await self._client_config()
         if cfg.get('enableAuth') and cfg.get('authToken'):
             return {'x-api-key': str(cfg['authToken'])}
         return {}
 
-    async def _client_config(
-        self, refresh: bool = False, clear_stale: bool = False
-    ) -> dict:
-        """The cached config.json ({} when unavailable).
-
-        First use (or ``refresh``) reads the file; afterwards the cache
-        serves every call. ``clear_stale`` consumes a 403 flag so the
-        re-read happens exactly once per auth failure.
-        """
-        if refresh or self._config_cache is None:
+    async def _client_config(self) -> dict:
+        """The cached config.json ({} when unavailable): first use
+        reads the file, afterwards the cache serves every call."""
+        if self._config_cache is None:
             self._config_cache = await read_client_config()
-        if clear_stale:
-            self._auth_stale = False
         return self._config_cache
 
     # ── responses ───────────────────────────────────────────────────
@@ -243,6 +231,13 @@ class BitBrowserClient(LocalApiClient):
         profiles' site credentials — userName/password/cookie/proxy
         passwords — none of which may cross this method).
         """
+        if not isinstance(payload, dict):
+            # A text/HTML body (a proxy in front of the port, a broken
+            # client) must not read as "no stores" — the picker would
+            # show an empty list for a broken client.
+            raise StoreUnavailable(
+                f'/browser/list answered a non-JSON body ({payload!r:.60})'
+            )
         rows = (payload.get('data') or {}).get('list') or []
         out: list[StoreRef] = []
         for r in rows:
@@ -290,16 +285,12 @@ class BitBrowserClient(LocalApiClient):
     def map_error(self, status: int, payload) -> InjectError | None:
         if not isinstance(payload, dict):
             return None
-        if status == 403:
-            # The token in the client's config is stale (reset) or was
-            # never written; the vendor's own recovery is to re-toggle.
-            # Flag the cache so the NEXT auth_headers re-reads the
-            # config once (the reset token may already be in the file).
-            self._auth_stale = True
+        if status == 403 and 'x-api-key' in str(payload.get('msg')):
+            # The recorded 鉴权控制 body. The vendor's own recovery:
+            # check the toggle in the client's settings, then retry.
             return ApiNotEnabled(
-                'BitBrowser Local API 鉴权失败：请在比特浏览器 → 设置 → '
-                'Local API 里重新开关一次「鉴权控制」（或重启比特浏览器），'
-                '再重试。'
+                '请在比特浏览器 → 设置 → Local API 里检查「鉴权控制」，'
+                '再重试任务。'
             )
         msg = str(payload.get('msg') or '')
         if _NOT_FOUND_MARK in msg:
@@ -345,7 +336,9 @@ class BitBrowserClient(LocalApiClient):
         self._platform_host = platform_hostname(data.get('platform'))
         self._expects_workbench = str(data.get('workbench') or '') != 'disable'
         if core != 'chrome':
-            # Wording matches docs/bitbrowser.md § 常见提示 / 报错.
+            # The message's prefix is quoted verbatim in the docs error
+            # tables (docs/bitbrowser.md / .en.md § 常见提示 / 报错 /
+            # Common statuses / errors), which gloss it in English.
             raise UnsupportedKernel(
                 '这个窗口用的不是 Chrome（Chromium）内核，任务无法打开'
                 '它；在比特浏览器里把这个窗口的内核切换为 Chrome'

@@ -294,5 +294,6 @@ async def _run_after_open(pages: list[dict]):
 
     client = _client(1)
     client.after_open_delay_s = 0.05
+    client.after_open_deadline_s = 0.2
     await client.after_open(OpenedStore('127.0.0.1', cdp.port))
     return cdp

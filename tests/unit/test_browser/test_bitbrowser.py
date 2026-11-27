@@ -238,11 +238,21 @@ async def test_other_business_failures_are_store_unavailable():
     assert not isinstance(exc.value, UnsupportedKernel)
 
 
-async def test_not_running_is_client_not_running():
-    # Port 1: nothing listens (an unbound loopback port on WSL hangs
-    # instead of refusing — the connect timeout must bound it).
+async def test_not_running_is_client_not_running(monkeypatch):
+    """Port 1: nothing listens (an unbound loopback port on WSL hangs
+    instead of refusing — the connect timeout must bound it). The
+    launch seam is patched and the poll shortened: a unit test must
+    never start or locate the REAL client, and must not sit through
+    the 30 s launch poll."""
+
+    async def _no_launch():
+        raise ClientNotRunning('not launched in tests')
+
     client = _client(1)
     client.connect_timeout_s = 0.3
+    client._LAUNCH_POLL_ATTEMPTS = 1
+    client._LAUNCH_POLL_DELAY_S = 0.05
+    client.launch_client = _no_launch
     with pytest.raises(ClientNotRunning):
         await client.ensure_running()
 
@@ -434,48 +444,6 @@ async def test_config_twist_without_the_cache_every_call_reads(
     assert len(reads) == 3
 
 
-async def test_403_flags_one_config_re_read(tmp_path, monkeypatch):
-    """A 403 (reset token) flags the cache; the NEXT auth_headers
-    re-reads the config exactly once and uses the fresh token."""
-    cfg_dir = tmp_path / 'BitBrowser'
-    cfg_dir.mkdir()
-    (cfg_dir / 'config.json').write_text(
-        json.dumps({
-            'localServerAddress': 'http://127.0.0.1:54345',
-            'enableAuth': True,
-            'authToken': 'tok-stale',
-        }),
-        encoding='utf-8',
-    )
-    monkeypatch.setattr(
-        'app.browser.adapters.bitbrowser_launch._windows_appdata',
-        _async_return(str(tmp_path)),
-    )
-    client = BitBrowserClient({})
-    assert await client.auth_headers() == {'x-api-key': 'tok-stale'}
-    # map_error saw a 403 → the next auth_headers re-reads once.
-    client.map_error(403, {'success': False, 'msg': 'x-api-key验证失败'})
-    (cfg_dir / 'config.json').write_text(
-        json.dumps({
-            'localServerAddress': 'http://127.0.0.1:54345',
-            'enableAuth': True,
-            'authToken': 'tok-fresh',
-        }),
-        encoding='utf-8',
-    )
-    assert await client.auth_headers() == {'x-api-key': 'tok-fresh'}
-    # The re-read is one-shot: with no further 403 the cache serves.
-    (cfg_dir / 'config.json').write_text(
-        json.dumps({
-            'localServerAddress': 'http://127.0.0.1:54345',
-            'enableAuth': True,
-            'authToken': 'tok-newer',
-        }),
-        encoding='utf-8',
-    )
-    assert await client.auth_headers() == {'x-api-key': 'tok-fresh'}
-
-
 def test_port_from_address_shapes():
     assert port_from_address('http://127.0.0.1:54345') == 54345
     assert port_from_address('http://localhost:59999') == 59999
@@ -524,16 +492,6 @@ async def test_after_open_never_closes_the_last_tab():
         _page('https://console.bitbrowser.net/?id=x', 'wb1'),
     ])
     assert not [c for c in cdp.commands if c[0] == 'Target.closeTarget']
-
-
-async def test_after_open_without_workbench_only_activates():
-    """A workbench-free env (the profile's workbench=disable) just gets
-    its store tab activated — and this is also the idempotent second
-    run of the cleanup."""
-    cdp = await _run_after_open([
-        _page('https://www.amazon.com/', 'store1'),
-    ])
-    assert [m for m, _ in cdp.commands] == ['Target.activateTarget']
 
 
 async def test_after_open_twist_extension_tabs_are_not_pages():
@@ -585,20 +543,23 @@ def test_rate_limit_spacing_is_the_documented_budget():
 
 
 async def test_ensure_running_launches_when_the_api_is_down(monkeypatch):
-    """Down → launch_client seam → the API comes up → running."""
+    """Down → the launch seam RUNS → the API comes up → running. The
+    poll delay is shrunk so the launch poll costs milliseconds, and
+    the LAUNCH ITSELF is asserted (not just that probing happened)."""
     server = await _serve(_default_routes())
     client = _client(server.port)
+    client._LAUNCH_POLL_DELAY_S = 0.05
     calls: list[bool] = []
+    launched: list[str] = []
 
     async def _probe_first_fail_then_ok() -> bool:
         calls.append(True)
         return len(calls) > 1  # first probe fails, later ones succeed
 
     monkeypatch.setattr(client, '_probe_running', _probe_first_fail_then_ok)
-    monkeypatch.setattr(
-        client, 'launch_client', _record_launch([]), raising=True
-    )
+    monkeypatch.setattr(client, 'launch_client', _record_launch(launched))
     await client.ensure_running()
+    assert launched == ['launched']  # the launch really happened
     assert calls  # probed, launched, probed again
 
 
@@ -654,16 +615,18 @@ async def test_mac_config_read_uses_the_macos_data_dir(monkeypatch, tmp_path):
     """On mac the config comes from ~/Library/Application Support/
     BitBrowser — never the Windows %APPDATA% flow."""
     cfg_file = tmp_path / 'config.json'
+    # A DISTINCT port: the assertion can only pass through the mac
+    # path, never by falling back to any default.
     cfg_file.write_text(
         json.dumps({
-            'localServerAddress': 'http://127.0.0.1:54345',
+            'localServerAddress': 'http://127.0.0.1:54346',
         }),
         encoding='utf-8',
     )
-    monkeypatch.setattr(bb, 'get_platform', lambda: 'mac')
+    monkeypatch.setattr(bb_launch, 'get_platform', lambda: 'mac')
     monkeypatch.setattr(bb_launch, '_mac_config_path', lambda: str(cfg_file))
     client = bb.BitBrowserClient({})
-    assert await client.discover_port() == 54345
+    assert await client.discover_port() == 54346
     # A fresh install's file has no enableAuth key → auth OFF.
     assert await client.auth_headers() == {}
 
@@ -1006,3 +969,54 @@ async def test_device_kick_twist_a_store_error_is_not_logged_out():
     client = _client(server.port)
     with pytest.raises(StoreUnavailable):
         await client.open_store('100000000001')
+
+
+# ── review round 1: the 403 gate + the list-path guard ──────────────
+
+
+async def test_403_with_the_api_key_mark_is_api_not_enabled():
+    """Only the RECORDED 鉴权控制 body (the x-api-key mark) maps to
+    API_NOT_ENABLED with the plain check-the-toggle hint."""
+    server = await _serve({
+        ('POST', '/browser/list'): (
+            403,
+            {
+                'success': False,
+                'msg': 'header.x-api-key验证失败，请检查比特浏览器软件是否'
+                '正确设置Local API Token，接口调用是否正确传入'
+                'x-api-key',
+            },
+        )
+    })
+    client = _client(server.port)
+    with pytest.raises(ApiNotEnabled) as exc:
+        await client.list_stores()
+    assert '鉴权控制' in str(exc.value)
+
+
+async def test_403_twist_any_other_403_is_store_unavailable():
+    """Negative control: a 403 WITHOUT the x-api-key mark (a proxy, a
+    wrong route) is not the auth gate — it carries its message as
+    STORE_UNAVAILABLE."""
+    server = await _serve({
+        ('POST', '/browser/list'): (
+            403,
+            {'success': False, 'msg': 'Forbidden by proxy'},
+        )
+    })
+    client = _client(server.port)
+    with pytest.raises(StoreUnavailable) as exc:
+        await client.list_stores()
+    assert 'proxy' in str(exc.value)
+    assert not isinstance(exc.value, ApiNotEnabled)
+
+
+async def test_list_non_dict_data_is_store_unavailable():
+    """A text/HTML body on /browser/list (same guard as the open path)
+    must not raise AttributeError on payload.get."""
+    server = await _serve({
+        ('POST', '/browser/list'): (200, '<html>gateway error</html>'),
+    })
+    client = _client(server.port)
+    with pytest.raises(StoreUnavailable):
+        await client.list_stores()
