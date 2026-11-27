@@ -71,7 +71,7 @@ ADSPOWER_VENDOR = BrowserVendorSpec(
     lists_profiles=True,
     profiles_scope=PROFILES_LOGIN,
     client_kind=CLIENT_LOCAL_API,
-    i18n_prefix='vendors.adspower',
+    i18n_prefix='vendors.adspower.',
     docs={
         'errors': VendorDocsLink(
             topic='adspowerErrors',

@@ -1568,7 +1568,18 @@
       "ApiNotEnabled": "AdsPower's API is unavailable: team members need their admin to grant API access in the team settings. Check that, then refresh.",
       "StoreNotFound": "AdsPower can't find this profile: it may have been deleted, or isn't authorised for the signed-in account. Check that, then retry.",
       "UnsupportedKernel": "This profile uses the FlowerBrowser (Firefox) kernel; Vibe Seller can only drive SunBrowser (Chrome kernel) profiles. Create a new profile with 浏览器 set to SunBrowser in AdsPower, then re-bind this store to it.",
-      "StoreUnavailable": "This profile can't be opened right now. If it says the browser kernel is missing, open the AdsPower app and download that kernel in its settings, then retry."
+      "StoreUnavailable": "This profile can't be opened right now. If it says the browser kernel is missing, open the AdsPower app and download that kernel in its settings, then retry.",
+      "SelectStore": "Select a profile...",
+      "Loading": "Loading…",
+      "LoadFailed": "Could not load the profile list; refresh to retry.",
+      "NoAccount": "No API key configured yet.",
+      "OneAccount": "One AdsPower login per machine (the key must match it). To switch accounts, delete every AdsPower store first.",
+      "LoginAllRequired": "Please fill in the API key.",
+      "LoginSaving": "Saving…",
+      "unavailable": {
+        "unsupported_kernel": "FlowerBrowser (Firefox) kernel, cannot be driven"
+      },
+      "ClientNotRunning": "Could not find AdsPower: install and open it first; if it is installed elsewhere, pick its install location in Settings, then refresh."
     }
   }
 }
