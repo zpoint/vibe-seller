@@ -56,6 +56,8 @@ DERIVED_SUFFIXES = (
     'UnsupportedKernel',
     'CdpUnreachable',
     'UnsupportedPlatform',
+    # codes this stack itself can produce
+    'PaginationOverflow',
 )
 
 
