@@ -65,7 +65,7 @@ _BIN_DIR = BROWSER_USE_BIN_DIR
 # instead of spelling a default-home path (which a multi-home machine
 # made wrong: an agent following the old doc wrote into another
 # server's home). Additive, but bumped ABOVE v9 so a wrapper written by
-# C1's v9 (no export) is reaped and regenerated instead of surviving
+# v9 (no export) is reaped and regenerated instead of surviving
 # without the export forever.
 WRAPPER_FORMAT_VERSION = 10
 WRAPPER_FORMAT_MARKER = 'vibe-seller-wrapper-format:'
