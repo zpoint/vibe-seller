@@ -62,6 +62,10 @@ class InjectCdpBackend(BrowserBackend):
     # Overridable so tests can make the reachability probe cheap.
     _CDP_ATTEMPTS = 4
     _CDP_DELAY = 1.5
+    # The bound on one vendor ``env_was_open`` call (R2-2: a status
+    # API that hangs must not hang the start; the engine treats a
+    # timeout as NOT-ours — never risk a hand-opened window).
+    _ENV_STATE_TIMEOUT_S = 10.0
 
     def __init__(self, client_factory: ClientFactory):
         self._client_factory = client_factory
@@ -107,11 +111,52 @@ class InjectCdpBackend(BrowserBackend):
 
         # The attach snapshot MUST precede the open: after it, the
         # env is running either way (C4 — see _kernel_is_ours).
-        try:
-            already_open = await client.env_was_open(store_ref)
-        except Exception:
-            already_open = None
-        self._opened_by_us = already_open is not True
+        # R2-2: a hook that RAISES or times out (the vendor's status
+        # API cannot answer) counts as NOT ours — losing a
+        # hand-opened window is worse than leaving an env open. The
+        # base default (a client that does not implement the hook)
+        # keeps the pre-C4 unknown-ours teardown; only a
+        # NON-attaching vendor may rely on that (the registry
+        # contract test requires every attaching vendor to implement
+        # the hook).
+        hook_overridden = (
+            type(client).env_was_open is not InjectClient.env_was_open
+        )
+        already_open: bool | None = None
+        if hook_overridden:
+            try:
+                already_open = await asyncio.wait_for(
+                    client.env_was_open(store_ref),
+                    timeout=self._ENV_STATE_TIMEOUT_S,
+                )
+            except TimeoutError:
+                logger.warning(
+                    'env %s: %s.env_was_open timed out after %.0fs — '
+                    'treating the env as NOT ours to close (never risk '
+                    'a hand-opened window)',
+                    store_ref,
+                    type(client).__name__,
+                    self._ENV_STATE_TIMEOUT_S,
+                )
+            except Exception as e:
+                logger.warning(
+                    'env %s: %s.env_was_open failed (%s) — treating '
+                    'the env as NOT ours to close (never risk a '
+                    'hand-opened window)',
+                    store_ref,
+                    type(client).__name__,
+                    e,
+                )
+            # An implemented hook: False => ours; True (attached)
+            # or an error/timeout (already_open stays None) => NOT
+            # ours.
+            self._opened_by_us = already_open is False
+        else:
+            # The base default (not implemented): unknown => ours,
+            # the pre-C4 teardown. Only a NON-attaching vendor may
+            # rely on this (the registry contract test enforces
+            # the rest).
+            self._opened_by_us = True
 
         opened = await client.open_store(store_ref)
         self._store_ref = store_ref

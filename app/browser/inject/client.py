@@ -130,9 +130,25 @@ class InjectClient(ABC):
         that was already open when ``open_store`` ran (a profile the
         user opened by hand, or another server's) is one the engine
         ATTACHED to — neither ``stop()`` nor the start-failure funnel
-        may close it. ``None`` (the default — a client without a
-        running-list) means UNKNOWN, and the engine treats an unknown
-        env as one it opened itself, preserving the pre-C4 teardown.
+        may close it.
+
+        FINAL contract for an implementation (the vendor lanes wire
+        this in; the registry contract test requires it of every
+        vendor whose open ATTACHES):
+
+        - return ``True`` — the env was already open (the engine
+          attached; it is never ours to close);
+        - return ``False`` — the env was not running (our open
+          spawns it; it is ours);
+        - RAISE — or hang; the engine bounds the call — when the
+          vendor's status API cannot answer. The engine then treats
+          the env as NOT ours (losing a hand-opened window is worse
+          than leaving an env open) and logs one WARNING.
+
+        The base default here returns ``None`` = NOT IMPLEMENTED:
+        the engine treats such an env as ours (the pre-C4 teardown),
+        which only a vendor declared NON-attaching
+        (``reopens_hand_opened`` on its spec) may rely on.
         """
         return None
 

@@ -29,6 +29,7 @@ import asyncio
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import logging
 import threading
 from unittest import mock
 
@@ -101,11 +102,7 @@ class _StaleClient(InjectClient):
         self.open_port = 0
         self.opens: list[str] = []
         self.closed: list[str] = []
-        self.was_open: bool | None = None
         self.fail_after_open: Exception | None = None
-
-    async def env_was_open(self, ref: str) -> bool | None:
-        return self.was_open
 
     async def ensure_running(self) -> None:
         return None
@@ -126,6 +123,27 @@ class _StaleClient(InjectClient):
 
     async def close_store(self, ref: str) -> None:
         self.closed.append(ref)
+
+
+class _HookedClient(_StaleClient):
+    """A client that IMPLEMENTS env_was_open (the R2-1 contract):
+
+    ``was_open`` True/False is the answer, ``hook_error`` raises (the
+    vendor's status API cannot answer), ``hook_hangs`` stalls past the
+    engine's bound."""
+
+    def __init__(self):
+        super().__init__()
+        self.was_open = False
+        self.hook_error: Exception | None = None
+        self.hook_hangs = False
+
+    async def env_was_open(self, ref: str) -> bool | None:
+        if self.hook_hangs:
+            await asyncio.sleep(30)
+        if self.hook_error is not None:
+            raise self.hook_error
+        return self.was_open
 
 
 def _cfg(**extra) -> dict:
@@ -428,7 +446,7 @@ async def test_failed_start_after_our_open_closes_env(tmp_path):
     our half-started proxy, and the ORIGINAL error propagates. This
     is #349's contract, kept by the ownership routing."""
     ours = _Kernel('spawned-by-open')
-    client = _StaleClient()
+    client = _HookedClient()
     client.open_port = ours.port
     client.was_open = False  # the vendor spawned it for our open
     backend = _backend(client)
@@ -459,7 +477,7 @@ async def test_failed_start_after_attach_closes_nothing_of_the_users(
     half-started proxy is stopped, and the original error
     propagates."""
     hand = _Kernel('opened-by-hand')
-    client = _StaleClient()
+    client = _HookedClient()
     client.open_port = hand.port
     client.was_open = True  # the vendor attached
     backend = _backend(client)
@@ -487,7 +505,7 @@ async def test_cancelled_start_after_attach_closes_nothing_of_the_users(
     the cancellation propagates."""
 
     hand = _Kernel('opened-by-hand')
-    client = _StaleClient()
+    client = _HookedClient()
     client.open_port = hand.port
     client.was_open = True
     backend = _backend(client)
@@ -509,6 +527,88 @@ async def test_cancelled_start_after_attach_closes_nothing_of_the_users(
         assert proxy.return_value.stop.await_count == 1
     finally:
         hand.stop()
+
+
+# ── R2-2: when the vendor's status API cannot answer, NOT ours ─────
+#
+# Losing a user's hand-opened window is worse than leaving an env
+# open: an env_was_open that raises (or hangs past the engine's
+# bound) counts as NOT ours — the funnel stops only our proxy, sends
+# no Browser.close and no close_store, and logs ONE WARNING naming
+# the vendor + profile ref.
+
+
+async def test_env_state_error_means_not_ours(tmp_path, caplog):
+    """The status call RAISES: not ours — no Browser.close, no
+    close_store, our proxy stopped, ONE warning naming the client and
+    the ref, and the original start error propagates."""
+    ours = _Kernel('vendor-kernel')
+    client = _HookedClient()
+    client.open_port = ours.port
+    client.hook_error = RuntimeError('status API down')
+    backend = _backend(client)
+    closer = _recording_close(backend)
+    try:
+        with (
+            _mocked_proxy(tmp_path) as proxy,
+            caplog.at_level(
+                logging.WARNING, logger='app.browser.inject.engine'
+            ),
+        ):
+            proxy.return_value.start = mock.AsyncMock(
+                side_effect=RuntimeError('proxy bind failed')
+            )
+            with pytest.raises(RuntimeError, match='proxy bind'):
+                await backend.start(_cfg())
+        assert closer.await_count == 0
+        assert client.closed == []
+        assert proxy.return_value.stop.await_count == 1
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == 'WARNING' and 'env_was_open failed' in r.message
+        ]
+        assert len(warnings) == 1
+        assert '_HookedClient' in warnings[0].message
+        assert 'store-a' in warnings[0].message
+    finally:
+        ours.stop()
+
+
+async def test_env_state_timeout_means_not_ours(tmp_path, caplog):
+    """The status call HANGS past the engine's bound (shrunk here):
+    the same — not ours, nothing vendor-side closed, one warning."""
+    ours = _Kernel('vendor-kernel')
+    client = _HookedClient()
+    client.open_port = ours.port
+    client.hook_hangs = True
+    backend = _backend(client)
+    backend._ENV_STATE_TIMEOUT_S = 0.2
+    closer = _recording_close(backend)
+    try:
+        with (
+            _mocked_proxy(tmp_path) as proxy,
+            caplog.at_level(
+                logging.WARNING, logger='app.browser.inject.engine'
+            ),
+        ):
+            proxy.return_value.start = mock.AsyncMock(
+                side_effect=RuntimeError('proxy bind failed')
+            )
+            with pytest.raises(RuntimeError, match='proxy bind'):
+                await backend.start(_cfg())
+        assert closer.await_count == 0
+        assert client.closed == []
+        assert proxy.return_value.stop.await_count == 1
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == 'WARNING'
+            and 'env_was_open timed out' in r.message
+        ]
+        assert len(warnings) == 1
+    finally:
+        ours.stop()
 
 
 def test_yuehulian_is_the_reopens_declarer():

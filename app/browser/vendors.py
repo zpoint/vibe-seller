@@ -162,6 +162,15 @@ class BrowserVendorSpec:
     # the stale path close (the declaring vendor's own module carries
     # the reason: its client keeps listing a closed-crashed env as
     # Opened, and only its own close clears that state).
+    #
+    # The flag ALSO states how the vendor's open treats an env that
+    # is already running (R2-1): NOT declared (the default) means the
+    # open ATTACHES to it — and such a vendor MUST implement
+    # InjectClient.env_was_open (the registry contract test
+    # tests/unit/test_browser/test_env_was_open_contract.py enforces
+    # it): without the attach signal, C4's teardown cannot tell a
+    # hand-opened env from a server-spawned one. Declared means the
+    # open closes-and-reopens instead of attaching — exempt.
     reopens_hand_opened: bool = False
 
     def credential_field(self, key: str) -> VendorCredentialField | None:
