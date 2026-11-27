@@ -74,6 +74,9 @@ class FakeAdsPowerApi:
         )
         #: The key the API accepts ('' = no security verification).
         self.api_key = 'test-key-123'
+        #: /browser/active answers per user_id: 'Active' | 'Inactive'
+        #: | 'error' (a code -1 body). Missing → 'Inactive' (closed).
+        self.active_answers: dict[str, str] = {}
         #: Answer 'Require api-key' even to a correctly-keyed request
         #: (a client that does not recognize the session — the signed-
         #: out stand-in for the R16 keyed shape).
@@ -265,27 +268,13 @@ class FakeAdsPowerApi:
             if self._auth_error:
                 return self._denied()
             user_id = request.query.get('user_id', '')
-            result = self.start_results.get(user_id)
-            if result == 'firefox' or result is None:
-                return web.json_response({
-                    'code': 0,
-                    'msg': 'success',
-                    'data': {'status': 'Inactive'},
-                })
+            answer = self.active_answers.get(user_id, 'Inactive')
+            if answer == 'error':
+                return web.json_response({'code': -1, 'msg': 'Internal error'})
             return web.json_response({
                 'code': 0,
                 'msg': 'success',
-                'data': {
-                    'status': 'Active',
-                    'ws': {
-                        'puppeteer': (
-                            f'ws://127.0.0.1:{self.cdp_port}'
-                            '/devtools/browser/aaaaaaaa-bbbb-cccc-dddd'
-                            '-eeeeeeeeeeee'
-                        ),
-                        'selenium': f'127.0.0.1:{self.cdp_port}',
-                    },
-                },
+                'data': {'status': answer},
             })
 
     async def _local_active(self, request: web.Request) -> web.Response:

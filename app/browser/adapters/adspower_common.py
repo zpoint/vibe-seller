@@ -8,6 +8,7 @@ kernel-process record, the user-data-dir attribution regex and the
 
 from __future__ import annotations
 
+import ntpath
 import re
 
 #: The Local API's default port (docs). Only used when free — the real
@@ -101,3 +102,46 @@ UNSUPPORTED_KERNEL_TEXT = (
     'set to SunBrowser in AdsPower, then re-bind this store to the new '
     'profile.'
 )
+
+
+def start_names_firefox(payload) -> bool:
+    """Whether a code-0 start response names a FlowerBrowser kernel.
+
+    The webdriver path carries the kernel (both shapes recorded
+    live): ``…\\chrome_<N>\\chromedriver.exe`` is SunBrowser;
+    ``…\\webdriver_flower_<N>\\driver.exe`` (flower_100) and
+    ``…\\flower_<N>\\geckodriver.exe`` (flower_159, today's
+    default) are FlowerBrowser — whose BiDi endpoint /json/version
+    404s (a generic CdpUnreachable). Decided here so the refusal
+    is typed, before the engine fronts the endpoint.
+    """
+    data = (payload or {}).get('data') or {}
+    webdriver = str(data.get('webdriver') or '')
+    if not webdriver:
+        return False
+    # Normalize to forward slashes so both \ and / paths work.
+    parts = [
+        p
+        for p in ntpath.splitdrive(webdriver)[1].replace('\\', '/').split('/')
+        if p
+    ]
+    if not parts:
+        return False
+    # A directory component naming a flower kernel (any version):
+    # flower_100, webdriver_flower_100, flower_159, …
+    for part in parts[:-1]:
+        if re.fullmatch(r'(webdriver_)?flower_\d+', part, re.IGNORECASE):
+            return True
+    # Or the driver file itself is a geckodriver.
+    return parts[-1].lower().startswith('geckodriver')
+
+
+def kernels_for(kernels: list[KernelProcess], ref: str) -> list[KernelProcess]:
+    """The kernel processes whose user-data-dir names ``ref``."""
+    prefix = f'{ref}_'
+    out = []
+    for k in kernels:
+        segment = k.user_data_dir.replace('/', '\\').rstrip('\\')
+        if segment.rsplit('\\', 1)[-1].startswith(prefix):
+            out.append(k)
+    return out

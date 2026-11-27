@@ -25,6 +25,7 @@ from app.browser.inject.errors import (
     ApiNotEnabled,
     CdpUnreachable,
     ClientNotRunning,
+    InjectError,
     LoginRequired,
     StoreNotFound,
     StoreUnavailable,
@@ -856,6 +857,48 @@ async def test_kernel_updating_then_not_ready_keeps_downloading_hint(api):
             await c.open_store('kaaaaaa1')
     assert '正在下载浏览器内核' in str(ei.value)
     assert '后台不会自动下载' not in str(ei.value)
+
+
+# ── R19 (revised): env_was_open — errors RAISE, never None ──────────
+
+
+async def test_env_was_open_active_inactive(api):
+    # The documented status endpoint (FACTS §g): Active → True
+    # (already open — never closed by us), Inactive → False (not
+    # running → ours). A profile with no recorded answer → the closed
+    # default.
+    c = _client(api)
+    api.active_answers['kaaaaaa1'] = 'Active'
+    api.active_answers['kaaaaaa2'] = 'Inactive'
+    assert await c.env_was_open('kaaaaaa1') is True
+    assert await c.env_was_open('kaaaaaa2') is False
+    assert await c.env_was_open('zzzz9999') is False
+
+
+async def test_env_was_open_error_shapes_raise(api):
+    # R19 REVISED: an error body (code -1) and a transport failure
+    # RAISE the typed error — never None ("unknown ⇒ ours" is
+    # reserved for reopens_hand_opened vendors, which AdsPower is
+    # not: a None would let C4 close the user's window).
+    c = _client(api)
+    api.active_answers['kaaaaaa1'] = 'error'
+    with pytest.raises(InjectError):
+        await c.env_was_open('kaaaaaa1')
+    c2 = _client(api)
+    c2._read_port = lambda: 59999
+    c2._port = 59999
+    with pytest.raises(ClientNotRunning):
+        await c2.env_was_open('kaaaaaa1')
+
+
+async def test_env_was_open_unrecognized_status_raises(api):
+    # A status word we do not know (a future vendor shape) RAISES
+    # CdpUnreachable naming it — never a guess.
+    c = _client(api)
+    api.active_answers['kaaaaaa1'] = 'Starting'
+    with pytest.raises(CdpUnreachable) as ei:
+        await c.env_was_open('kaaaaaa1')
+    assert 'Starting' in str(ei.value)
 
 
 # ── R14/R14b: the start response itself names the kernel ────────────

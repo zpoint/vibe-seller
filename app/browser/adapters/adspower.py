@@ -45,8 +45,6 @@ base cannot express stays here as overrides (the review's list):
 
 import asyncio
 import logging
-import ntpath
-import re
 import time
 from urllib.parse import urlsplit
 
@@ -59,6 +57,8 @@ from app.browser.adapters.adspower_common import (
     SIGN_IN_NEEDED_ZH,
     UNSUPPORTED_KERNEL_TEXT,
     KernelProcess,
+    kernels_for as common_kernels_for,
+    start_names_firefox as common_start_names_firefox,
 )
 from app.browser.inject.client import OpenedStore, StoreRef
 from app.browser.inject.errors import (
@@ -176,6 +176,11 @@ class AdsPowerClient(LocalApiClient):
 
     # ── the LocalApiClient vendor parts ─────────────────────────────
 
+    # Pure helpers live in adspower_common (the 800-line cap); the
+    # class attributes keep every call site and test unchanged.
+    start_names_firefox = staticmethod(common_start_names_firefox)
+    _kernels_for = staticmethod(common_kernels_for)
+
     def list_request(self, page: int) -> tuple[str, dict | None]:
         """user/list, 1-based page of LIST_PAGE_SIZE rows."""
         return (
@@ -269,40 +274,6 @@ class AdsPowerClient(LocalApiClient):
         if not port:
             return None
         return OpenedStore(host, port)
-
-    @staticmethod
-    def start_names_firefox(payload) -> bool:
-        """Whether a code-0 start response names a FlowerBrowser kernel.
-
-        The webdriver path carries the kernel (both shapes recorded
-        live): ``…\\chrome_<N>\\chromedriver.exe`` is SunBrowser;
-        ``…\\webdriver_flower_<N>\\driver.exe`` (flower_100) and
-        ``…\\flower_<N>\\geckodriver.exe`` (flower_159, today's
-        default) are FlowerBrowser — whose BiDi endpoint /json/version
-        404s (a generic CdpUnreachable). Decided here so the refusal
-        is typed, before the engine fronts the endpoint.
-        """
-        data = (payload or {}).get('data') or {}
-        webdriver = str(data.get('webdriver') or '')
-        if not webdriver:
-            return False
-        # Normalize to forward slashes so both \ and / paths work.
-        parts = [
-            p
-            for p in ntpath.splitdrive(webdriver)[1]
-            .replace('\\', '/')
-            .split('/')
-            if p
-        ]
-        if not parts:
-            return False
-        # A directory component naming a flower kernel (any version):
-        # flower_100, webdriver_flower_100, flower_159, …
-        for part in parts[:-1]:
-            if re.fullmatch(r'(webdriver_)?flower_\d+', part, re.IGNORECASE):
-                return True
-        # Or the driver file itself is a geckodriver.
-        return parts[-1].lower().startswith('geckodriver')
 
     def is_logged_out(self, status: int, payload) -> bool:
         """True for the no-credential shape — AdsPower's "not
@@ -736,6 +707,44 @@ class AdsPowerClient(LocalApiClient):
             f'{(payload or {}).get("msg") if isinstance(payload, dict) else "empty ws"})'
         )
 
+    async def env_was_open(self, ref: str) -> bool | None:
+        """Whether the env was open BEFORE our start (C4, #345).
+
+        The documented status endpoint (FACTS §g):
+        ``GET /api/v1/browser/active?user_id=<id>`` → ``data.status``
+        "Active" → True (already open: never closed by us, only our
+        proxy stops); "Inactive" → False (not running → ours). ANY
+        error RAISES — a transport failure (ClientNotRunning from the
+        shared path), a mapped code -1 (rate-limit exhaustion →
+        StoreUnavailable, vendor errors via map_error), or a
+        missing/unrecognized status (CdpUnreachable naming it): the
+        engine bounds the call at 10 s and treats a raise as NOT ours
+        (no close, one WARNING). NEVER returns None — "unknown ⇒ ours"
+        is reserved for vendors declaring reopens_hand_opened, which
+        AdsPower is not (a close would kill the user's window).
+        Limits (FACTS): a FlowerBrowser window reads "Inactive"
+        (refused at open anyway) and an orphaned kernel of a killed
+        client is invisible to the new service — both answer False,
+        "not ours". No vendor-storage reads.
+        """
+        status_code, payload = await self.api_call(
+            'GET', f'/api/v1/browser/active?user_id={ref}'
+        )
+        err = self.map_error(status_code, payload)
+        if err is not None:
+            raise err
+        word = ''
+        if isinstance(payload, dict) and payload.get('code') == 0:
+            word = str((payload.get('data') or {}).get('status') or '')
+        if word == 'Active':
+            return True
+        if word == 'Inactive':
+            return False
+        raise CdpUnreachable(
+            f'AdsPower answered an unknown active status for {ref!r}: '
+            f'{word or (payload if not isinstance(payload, dict) else payload)}'
+        )
+
     async def _refuse_firefox(self, ref: str) -> None:
         """Refuse the profile; :meth:`close_store` cleans the window.
 
@@ -745,19 +754,6 @@ class AdsPowerClient(LocalApiClient):
         """
         await self.close_store(ref)
         raise UnsupportedKernel(UNSUPPORTED_KERNEL_TEXT)
-
-    @staticmethod
-    def _kernels_for(
-        kernels: list[KernelProcess], ref: str
-    ) -> list[KernelProcess]:
-        """The kernel processes whose user-data-dir names ``ref``."""
-        prefix = f'{ref}_'
-        out = []
-        for k in kernels:
-            segment = k.user_data_dir.replace('/', '\\').rstrip('\\')
-            if segment.rsplit('\\', 1)[-1].startswith(prefix):
-                out.append(k)
-        return out
 
     def _kill_kernel(self, proc: KernelProcess) -> None:
         """Kill one profile's kernel tree (best effort)."""
