@@ -920,21 +920,62 @@ def run_workspace(first_prompt: str):
         message = nxt[1]
 
 
+import queue as _queue
+import threading as _threading
+
+_STDIN_QUEUE: '_queue.Queue[str | None] | None' = None
+
+
+def _stdin_queue() -> '_queue.Queue[str | None]':
+    """One daemon thread feeding stdin into a queue, started once.
+
+    Windows pipes cannot go through ``select`` (WinError 10038), and a
+    per-call reader would race its predecessor for the stream; the
+    singleton owns stdin from the first control read onward.
+    """
+    global _STDIN_QUEUE
+    if _STDIN_QUEUE is None:
+        q: '_queue.Queue[str | None]' = _queue.Queue()
+
+        def _feed() -> None:
+            try:
+                for line in sys.stdin:
+                    q.put(line)
+            except Exception:
+                pass
+            finally:
+                q.put(None)
+
+        _threading.Thread(target=_feed, daemon=True).start()
+        _STDIN_QUEUE = q
+    return _STDIN_QUEUE
+
+
 def read_control_response(timeout: float = 30.0) -> dict | None:
     """Read the next control_response from stdin (the backend's answer
-    to a hook_callback / control_request we sent)."""
+    to a hook_callback / control_request we sent).
+
+    Windows pipes cannot go through ``select`` (WinError 10038), so a
+    daemon thread feeds a queue and this waits on the queue instead.
+    """
+    q = _stdin_queue()
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if select.select([sys.stdin], [], [], 0.1)[0]:
-            line = sys.stdin.readline().strip()
-            if not line:
-                return None
-            try:
-                msg = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if msg.get('type') == 'control_response':
-                return msg
+        try:
+            line = q.get(timeout=0.1)
+        except _queue.Empty:
+            continue
+        if line is None:
+            return None
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if msg.get('type') == 'control_response':
+            return msg
     return None
 
 
