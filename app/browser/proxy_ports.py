@@ -31,7 +31,7 @@ import os
 import socket
 
 from app.browser.cdp_probe import FOREIGN, proxy_ownership
-from app.config import LOCALHOST
+from app.config import DEMO_MODE, LOCALHOST
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,51 @@ logger = logging.getLogger(__name__)
 # free port before giving up (a listener squatting on every candidate
 # is a machine problem to surface, not to loop over forever).
 MAX_PORT_WALK = 64
+
+#: Per-instance CDP proxy port BASE (user decision 2026-11-27): lets
+#: parallel test servers on one machine run in SEPARATE port ranges
+#: instead of queueing for one 9222 holder. Unset = the historical
+#: default (invisible to users); set = this server's ports start there.
+BASE_ENV = 'VIBE_CDP_PROXY_BASE'
+
+
+def default_proxy_base() -> int:
+    """The historical default base: 9322 in demo mode, else 9222."""
+    return 9322 if DEMO_MODE else 9222
+
+
+def resolve_proxy_base() -> int:
+    """This server's CDP proxy port base.
+
+    ``VIBE_CDP_PROXY_BASE`` (1024–65000) wins when set and valid; a
+    garbage or out-of-range value logs a warning and falls back to the
+    default (:func:`default_proxy_base`) — a typo must never take a
+    server down. The allocator walks UP from the result, so a server
+    never hands out a port below its base.
+    """
+    default = default_proxy_base()
+    raw = os.environ.get(BASE_ENV, '').strip()
+    if not raw:
+        return default
+    try:
+        base = int(raw)
+    except ValueError:
+        logger.warning(
+            '%s=%r is not an integer — using the default proxy base %d',
+            BASE_ENV,
+            raw,
+            default,
+        )
+        return default
+    if not 1024 <= base <= 65000:
+        logger.warning(
+            '%s=%d is outside 1024–65000 — using the default proxy base %d',
+            BASE_ENV,
+            base,
+            default,
+        )
+        return default
+    return base
 
 
 class ProxyPortAllocator:

@@ -18,8 +18,12 @@ from unittest import mock
 import pytest
 import websockets
 
-from app.browser import manager as manager_mod
+from app.browser import aux_browser as aux_browser_mod, manager as manager_mod
 from app.browser.manager import BrowserManager
+from app.browser.proxy_ports import (
+    default_proxy_base,
+    resolve_proxy_base,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -169,7 +173,7 @@ class TestSingleInstanceNoChange:
     async def test_the_base_is_9222_outside_demo_mode(self):
         """Non-demo machines keep 9222 as the preferred start — the
         constant itself, so a change to the base is a conscious one."""
-        if manager_mod.DEMO_MODE:
+        if manager_mod._BASE_PROXY_PORT != 9222:
             pytest.skip('demo-mode machines start at 9322')
         assert manager_mod._BASE_PROXY_PORT == 9222
 
@@ -271,3 +275,58 @@ class TestReservationTeardown:
         assert 'store-a' not in mgr.ports.ports
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             assert s.connect_ex(('127.0.0.1', port)) != 0
+
+
+class TestPerInstanceBase:
+    """``VIBE_CDP_PROXY_BASE`` (user decision 2026-11-27): parallel test
+    servers each get their own port RANGE instead of queueing for one
+    9222 holder. Unset = today's default exactly."""
+
+    async def test_the_env_base_is_honoured(self, monkeypatch):
+        # A runtime-free port as the base: the first allocation IS the
+        # base (a hard-coded 95xx would collide with C1's own live
+        # proof servers on this machine).
+        base = _free_port()
+        monkeypatch.setenv('VIBE_CDP_PROXY_BASE', str(base))
+        mgr = BrowserManager()
+        first = await mgr.ports.allocate('store-a')
+        second = await mgr.ports.allocate('store-b')
+        assert first == base
+        assert second != first and second >= base
+
+    async def test_garbage_falls_back_to_the_default(self, monkeypatch):
+        for garbage in ('banana', '', '  ', '9,500'):
+            monkeypatch.setenv('VIBE_CDP_PROXY_BASE', garbage)
+            assert resolve_proxy_base() == default_proxy_base(), garbage
+
+    async def test_out_of_range_falls_back(self, monkeypatch):
+        for bad in ('1023', '65001', '-1', '999999'):
+            monkeypatch.setenv('VIBE_CDP_PROXY_BASE', bad)
+            assert resolve_proxy_base() == default_proxy_base(), bad
+
+    async def test_unset_is_the_default_exactly(self, monkeypatch):
+        monkeypatch.delenv('VIBE_CDP_PROXY_BASE', raising=False)
+        assert resolve_proxy_base() == default_proxy_base()
+
+    async def test_two_managers_with_different_bases_never_collide(
+        self, monkeypatch
+    ):
+        base_a, base_b = _free_port(), _free_port()
+        monkeypatch.setenv('VIBE_CDP_PROXY_BASE', str(base_a))
+        mgr_a = BrowserManager()
+        monkeypatch.setenv('VIBE_CDP_PROXY_BASE', str(base_b))
+        mgr_b = BrowserManager()
+        pa = await mgr_a.ports.allocate('store-a')
+        pb = await mgr_b.ports.allocate('store-b')
+        assert (pa, pb) == (base_a, base_b)
+        # Neither manager ever hands out a port below its base.
+        assert pa >= base_a
+        assert pb >= base_b
+
+    async def test_aux_ports_respect_the_base(self, monkeypatch):
+        base = _free_port()
+        monkeypatch.setenv('VIBE_CDP_PROXY_BASE', str(base))
+        assert aux_browser_mod._aux_port() >= base
+        # A base inside the ephemeral range exercises the floor walk.
+        monkeypatch.setenv('VIBE_CDP_PROXY_BASE', '64000')
+        assert aux_browser_mod._aux_port() >= 64000

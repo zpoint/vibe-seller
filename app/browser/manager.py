@@ -30,7 +30,11 @@ from app.browser.launch_guards import (
     RelaunchBudget,
     start_backend_bounded,
 )
-from app.browser.proxy_ports import ProxyPortAllocator
+from app.browser.proxy_ports import (
+    ProxyPortAllocator,
+    default_proxy_base,
+    resolve_proxy_base,
+)
 from app.browser.vendors import (
     PICKER_GENERIC,
     vendor_spec,
@@ -47,7 +51,6 @@ from app.browser.ziniao_startup import (
 )
 from app.config import (
     AI_BOT_USER_ID,
-    DEMO_MODE,
     WEB_BROWSER_SLUG,
 )
 from app.database import async_session
@@ -64,13 +67,16 @@ logger = logging.getLogger(__name__)
 
 # Base proxy port; each store gets a unique offset from it. This is a
 # PREFERRED starting point only: every candidate port is ownership-
-# checked (see ProxyPortAllocator.allocate) before it is handed
-# out, so a port held by another server instance, an agent-spawned CDP
-# bridge or any other listener is skipped, whatever range it sits in.
-# Demo mode still prefers to start at 9322 so a parallel demo runtime
-# walks past the production server's CDP proxy at 9222 instead of
-# probing through it — cosmetic now, not the safety property.
-_BASE_PROXY_PORT = 9322 if DEMO_MODE else 9222
+# checked and BOUND (see ProxyPortAllocator.allocate) before it is
+# handed out, so a port held by another server instance, an agent-
+# spawned CDP bridge or any other listener is skipped, whatever range
+# it sits in. Demo mode still prefers 9322 (see
+# proxy_ports.default_proxy_base) so a parallel demo runtime walks
+# past the production server's 9222 — cosmetic now, not the safety
+# property. ``VIBE_CDP_PROXY_BASE`` moves the whole per-instance range
+# (proxy_ports.resolve_proxy_base): parallel test servers each get
+# their own range instead of queueing for one 9222 holder.
+_BASE_PROXY_PORT = default_proxy_base()
 
 # app_settings key holding the orchestrator web browser's proxy port,
 # so it survives server restarts (the store equivalent lives on
@@ -172,7 +178,7 @@ class BrowserManager:
         # app.browser.proxy_ports — kept in its own module because the
         # reservation lifecycle (allocate / handoff to the mux /
         # release on teardown) is a unit of its own.
-        self.ports = ProxyPortAllocator(_BASE_PROXY_PORT, self._instance_id)
+        self.ports = ProxyPortAllocator(resolve_proxy_base(), self._instance_id)
         # Serialize start/stop to avoid races
         # Bounded on purpose — a wedged holder must not turn every
         # later caller into a request that never answers.
