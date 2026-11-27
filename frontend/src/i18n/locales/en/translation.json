@@ -586,6 +586,7 @@
   },
   "browserVendor": {
     "NoAccount": "No account configured",
+    "Configured": "Configured",
     "OneAccount": "This browser allows one account per machine. Delete every store created with it before changing the account.",
     "LoginAllRequired": "Please fill in every field before saving.",
     "LoginSaving": "Saving...",
