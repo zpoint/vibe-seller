@@ -103,7 +103,7 @@ def _gui_lock() -> asyncio.Lock:
 def process_layer(config: dict):
     """The platform's process layer (macOS twin, else Windows).
 
-    One seam for tests of either platform, like yuehulian's.
+    One seam for tests of either platform (the established pattern).
     """
     if get_platform() == 'mac':
         return wenmai_mac.WenmaiMacProcessLayer(
