@@ -54,6 +54,7 @@ from pathlib import Path
 import re
 
 from app.ai.agent_lateral_guard import (
+    FORWARDER_DENY,
     HOME_BARE_RE,
     HOME_DENY,
     OS_SETTINGS_DENY,
@@ -62,6 +63,7 @@ from app.ai.agent_lateral_guard import (
     SSH_DIR_DENY,
     home_deny_re,
     os_settings_hit,
+    port_forwarder_hit,
     process_inspection_hit,
     ssh_dir_hit,
     ssh_verb_hit,
@@ -534,6 +536,9 @@ def _deny_bash(
 ) -> str | None:
     if ssh_verb_hit(cmd):
         return deny('remote-access', SSH_DENY, 'ssh-family verb')
+    what = port_forwarder_hit(cmd)
+    if what:
+        return deny('forwarder', FORWARDER_DENY, what)
     hit = _vendor_dir_hit(cmd)
     if hit:
         return deny(
@@ -617,6 +622,9 @@ def _deny_file_tool(
         if what:
             return deny('os-settings', OS_SETTINGS_DENY, what)
         if content:
+            what = port_forwarder_hit(content)
+            if what:
+                return deny('forwarder', FORWARDER_DENY, what)
             hit = _vendor_port_hit(content, frozenset())
             if hit:
                 return deny(

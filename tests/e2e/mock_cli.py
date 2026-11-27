@@ -1009,6 +1009,15 @@ def _guard_replay_calls() -> list[dict]:
                    'Internet Settings" /v ProxyServer /d 192.0.2.10:7890'}},
         {'label': 'proc-env-read', 'tool': 'Bash',
          'input': {'command': 'tr "\\0" "\\n" < /proc/1/environ'}},
+        # agent-built port forwarders (the 7777->7797 incident)
+        {'label': 'forwarder-socat', 'tool': 'Bash',
+         'input': {'command':
+                   'socat tcp-listen:17797,fork tcp:127.0.0.1:7777'}},
+        {'label': 'forwarder-python', 'tool': 'Bash',
+         'input': {'command':
+                   "python3 -c \"import socket; s=socket.socket();"
+                   " s.bind(('127.0.0.1', 17797));"
+                   " s.connect(('127.0.0.1', 7777))\""}},
         {'label': 'allowed-control', 'tool': 'Bash',
          'input': {'command': 'echo control-ok'}},
         # Last: a call whose (synthetic) result carries the vendor's
@@ -1023,10 +1032,47 @@ def _guard_replay_calls() -> list[dict]:
     return calls
 
 
+def _spawn_forwarder_leftover() -> int | None:
+    """A real detached listener carrying this process's environment
+    (VIBE_TASK_ID included) — the reaping proof: it must be gone when
+    the task ends, however it was started."""
+    import socket as _socket
+
+    probe = _socket.socket()
+    probe.bind(('127.0.0.1', 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    try:
+        subprocess.Popen(
+            [
+                'setsid',
+                sys.executable,
+                '-c',
+                'import socket, time\n'
+                's = socket.socket()\n'
+                's.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n'
+                f's.bind((\'127.0.0.1\', {port}))\n'
+                's.listen(4)\n'
+                'time.sleep(600)\n',
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return port
+    except OSError:
+        return None
+
+
 def run_guard_replay():
     """One scripted run through the REAL PreToolUse hook path."""
     emit_system()
     time.sleep(DELAY)
+    # The reaping proof: a detached listener this "agent" started,
+    # announced up front (the tripwire stops the run before the final
+    # result, so the port cannot ride in it).
+    forwarder_port = _spawn_forwarder_leftover()
+    if forwarder_port:
+        emit_text(f'reaper-proof-listener-port: {forwarder_port}')
     lines = []
     for i, call in enumerate(_guard_replay_calls()):
         tool_use_id = f'replay_{i}_{call["label"]}'

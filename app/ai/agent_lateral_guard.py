@@ -411,3 +411,58 @@ def under_closed_home(
             or session in owned_session_names
         )
     return first in _HOME_CLOSED_CHILDREN
+
+
+# ── agent-built port forwarders ─────────────────────────────────────
+# A native-Windows task agent built its OWN 7777→7797 TCP forwarder to
+# get around the MCP port bug — the same class as the 9222 CDP bridge
+# and the ssh tunnels. A relay around ANY port walks around the
+# architecture, so the listen shapes are denied regardless of port (the
+# port-specific rules live in vendor_guard). Residual, stated in the
+# PR: a hand-written forwarder in a file the agent wrote is caught by
+# task-end REAPING, not necessarily by this deny.
+
+_SOCAT_LISTEN_RE = re.compile(
+    COMMAND_PREFIX + r'socat\b[^;&|\n]*[a-z-]*listen[^\n]*'
+    r'|socat\b[^;&|\n]*\s-l\b',
+    re.IGNORECASE,
+)
+_NC_LISTEN_RE = re.compile(
+    r'\b(?:nc|ncat|netcat)\b[^;&|\n]*\s(?:-l\w*|--listen)\b',
+    re.IGNORECASE,
+)
+_NETSH_PORTPROXY_RE = re.compile(
+    r'\bnetsh(?:\.exe)?\s+interface\s+portproxy\b', re.IGNORECASE
+)
+_FW_RULE_RE = re.compile(r'\bNew-NetFirewallRule\b', re.IGNORECASE)
+_PY_BIND_RE = re.compile(
+    r'(?:\.bind\s*\(|start_server|create_server|\.listen\s*\()', re.IGNORECASE
+)
+_PY_CONNECT_RE = re.compile(
+    r'(?:\.connect\s*\(|\.connect_ex\s*\(|create_connection)',
+    re.IGNORECASE,
+)
+
+FORWARDER_DENY = (
+    'Blocked: building a network relay or port forwarder (a listener '
+    'plus a connection) is not part of any task — it walks around how '
+    'the server and the task browser are reached. Use the tools and '
+    'endpoints the task already has.'
+)
+
+
+def port_forwarder_hit(cmd: str) -> str | None:
+    """An agent-built relay in *cmd* (Bash text or written content):
+    socat/nc listen modes, ``netsh interface portproxy``, a firewall
+    rule, or a Python snippet that both BINDS and CONNECTS."""
+    if _SOCAT_LISTEN_RE.search(cmd):
+        return 'socat listen'
+    if _NC_LISTEN_RE.search(cmd):
+        return 'nc listen'
+    if _NETSH_PORTPROXY_RE.search(cmd):
+        return 'netsh portproxy'
+    if _FW_RULE_RE.search(cmd):
+        return 'New-NetFirewallRule'
+    if _PY_BIND_RE.search(cmd) and _PY_CONNECT_RE.search(cmd):
+        return 'python bind+connect'
+    return None

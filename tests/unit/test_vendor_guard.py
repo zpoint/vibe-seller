@@ -147,6 +147,15 @@ class TestRunawayShapes:
             'systemctl --user enable myunit',
             'echo "export HTTP_PROXY=1" >> ~/.bashrc',
             'sed -i s/a/b/ ~/.profile',
+            # agent-built port forwarders (the 7777->7797 incident)
+            'socat tcp-listen:17797,fork tcp:127.0.0.1:7777',
+            'nc -l 17797',
+            'netsh interface portproxy add v4tov4 17797 127.0.0.1 7777',
+            'powershell.exe -Command "New-NetFirewallRule -DisplayName'
+            ' x -LocalPort 17797"',
+            "python3 -c \"import socket; s=socket.socket();"
+            " s.bind(('127.0.0.1', 17797));"
+            " s.connect(('127.0.0.1', 7777))\"",
             # the vibe-seller home beyond the workspace
             f'cd {VH} && sqlite3 data/vibe_seller.db .tables',
             f'cat {VH}/profiles.json',
@@ -197,6 +206,8 @@ class TestCorpus:
             'cat /etc/hostname',
             'defaults read com.apple.finder',
             'python3 -c "print(sum(range(9222)))"',
+            'socat -u file:a file:b',
+            'nc -z 127.0.0.1 7777',
         ],
     )
     def test_allowed(self, fake_vendor, cmd):

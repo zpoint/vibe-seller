@@ -24,6 +24,8 @@ canaries leak) is run per CLAUDE.md and recorded in the PR.
 
 import http.server
 import json
+import socket
+import time
 import logging
 import os
 from pathlib import Path
@@ -194,9 +196,28 @@ def test_runaway_replay_through_the_real_hook_path(
         'ssh-lateral',
         'os-settings-reg',
         'proc-env-read',
+        'forwarder-socat',
+        'forwarder-python',
     ):
         assert f'{label}: DENIED' in text, label
     assert 'allowed-control: ALLOWED' in text
+
+    # ── the detached forwarder died with the task (reaping) ───────
+    m = re.search(r'reaper-proof-listener-port: (\d+)', text)
+    assert m, 'the mock did not announce its forwarder port'
+    forwarder_port = int(m.group(1))
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        with socket.socket() as probe:
+            probe.settimeout(0.5)
+            if probe.connect_ex(('127.0.0.1', forwarder_port)) != 0:
+                break
+        time.sleep(0.2)
+    else:
+        pytest.fail(
+            f'the detached forwarder on {forwarder_port} survived the '
+            'task end — reaping missed it'
+        )
 
     # ── and the server log, with the tool_use ids ────────────────
     log = guard_server.log.read_text(encoding='utf-8', errors='replace')
