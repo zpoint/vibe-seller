@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { Store, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
+import { useBrowserVendors } from '../hooks/useBrowserVendors'
+import type { BrowserVendor, Store, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 
 interface StoreFormProps {
   mode: 'create' | 'edit'
@@ -41,7 +42,7 @@ interface StoreFormProps {
 }
 
 export function StoreForm({ mode, initialValues, onSubmit, onCancel, ...ziniaoProps }: StoreFormProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [name, setName] = useState(initialValues?.name || '')
   const [backend] = useState(initialValues?.browser_backend || 'chrome')
   const [showProxy, setShowProxy] = useState(
@@ -75,13 +76,19 @@ export function StoreForm({ mode, initialValues, onSubmit, onCancel, ...ziniaoPr
 
   const nameEmpty = !name.trim()
 
-  // Per-backend label — don't show every anti-detect backend as "Ziniao".
-  const backendLabel =
-    backend === 'chrome'
-      ? 'Chrome'
-      : backend === 'yuehulian'
-      ? `${t('tasks.yuehulian')} (${t('tasks.browserBackend')})`
-      : `${t('tasks.ziniao')} (${t('tasks.browserBackend')})`
+  // Per-backend label from the vendor registry (display name, plus the
+  // "(browser)" suffix for anti-detect vendors). A backend with no spec
+  // (only possible when the metadata fetch failed) shows its raw key.
+  const vendors = useBrowserVendors()
+  const vendor: BrowserVendor | undefined =
+    vendors?.find(v => v.key === backend)
+  const zh = (i18n.language || 'en').startsWith('zh')
+  const displayName = vendor
+    ? (zh ? vendor.display_name_zh : vendor.display_name_en)
+    : backend
+  const backendLabel = vendor && vendor.kind === 'plain'
+    ? displayName
+    : `${displayName} (${t('tasks.browserBackend')})`
 
   return (
     <div className="space-y-3">
@@ -157,9 +164,9 @@ export function StoreForm({ mode, initialValues, onSubmit, onCancel, ...ziniaoPr
         </div>
       )}
 
-      {mode === 'edit' && backend === 'yuehulian' && initialValues?.browser_oauth && (
+      {mode === 'edit' && vendor && vendor.picker_kind === 'generic' && vendor.lists_profiles && initialValues?.browser_oauth && (
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">{t('settings.yuehulianSelectStore')}</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t(`${vendor.i18n_prefix}SelectStore`)}</label>
           <div className="px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-600">
             {initialValues.browser_oauth}
             <span className="text-xs text-gray-400 ml-2">({t('stores.immutable')})</span>

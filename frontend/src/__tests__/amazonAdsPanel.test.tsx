@@ -167,13 +167,16 @@ describe('AmazonAdsPanel recheck', () => {
 
   /** Mint a consent link for a store and leave the panel waiting on the
    *  recheck click. */
-  async function openAuthLink(storeId: string) {
+  async function openAuthLink(
+    storeId: string,
+    openIn: 'browser' | 'ziniao' = 'browser',
+  ) {
     mockApi.get.mockImplementation((url: string) => {
       if (url === `/api/ads/stores/${storeId}/auth-url`)
         return Promise.resolve({
           url: 'https://amazon.example/ap/oa?consent=1',
           expires_in: 1800,
-          open_in: 'browser' as const,
+          open_in: openIn,
         })
       return Promise.resolve({})
     })
@@ -254,6 +257,23 @@ describe('AmazonAdsPanel recheck', () => {
     fireEvent.click(screen.getByTestId('ads-recheck'))
     const note = await screen.findByTestId('ads-check-note')
     expect(note.textContent).toBe(enTranslation.ads.notYetAuthorized)
+  })
+
+  it('links the docs on Ziniao blocking the consent page for a Ziniao store', async () => {
+    renderPanel()
+    await openAuthLink('s2', 'ziniao')
+    // Ziniao refuses the consent page's domain until it is allowlisted;
+    // the link section says so up front, before any recheck fails.
+    const hint = screen.getByTestId('ads-ziniao-blocked')
+    expect(hint.textContent).toContain(enTranslation.ads.ziniaoBlocked)
+    const link = hint.querySelector('[data-testid="docs-help-link"]') as HTMLAnchorElement
+    expect(link.href).toBe('https://docs.vibe-sellers.com/en/ads-api/#ziniao-blocked')
+  })
+
+  it('does not mention Ziniao for a store opened in a normal browser', async () => {
+    renderPanel()
+    await openAuthLink('s2', 'browser')
+    expect(screen.queryByTestId('ads-ziniao-blocked')).toBeNull()
   })
 
   it('reports the bound marketplaces when the store is authorized', async () => {

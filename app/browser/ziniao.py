@@ -18,6 +18,15 @@ import aiohttp
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.cdp_mux_proxy import CDPMuxProxy
 from app.browser.downloads import prepare_download_dir
+from app.browser.vendors import (
+    CARDINALITY_MULTI,
+    CLIENT_LAUNCH_MODE,
+    KIND_ANTIDETECT,
+    PICKER_CUSTOM,
+    PROFILES_ACCOUNT,
+    BrowserVendorSpec,
+)
+from app.browser.win_app_locator import WinAppSpec
 from app.browser.ziniao_processes import clear_singleton_locks
 from app.browser.ziniao_utils import (
     is_wsl,
@@ -27,6 +36,36 @@ from app.browser.ziniao_utils import (
 from app.config import LOCALHOST
 
 logger = logging.getLogger(__name__)
+
+# Ziniao's install descriptor, carried on the spec so the locator serves
+# it from the registry (win_app_locator's ZINIAO_SPEC attribute resolves
+# here).
+ZINIAO_WIN_APP = WinAppSpec(
+    key='ziniao',
+    display_name='Ziniao',
+    exe_names=('ziniao.exe',),
+    match_tokens=('ziniao', '紫鸟'),
+    dir_names=('ziniao', '紫鸟', '紫鸟浏览器'),
+)
+
+# Metadata ONLY (the refactor's R6): ziniao's flows, credential storage
+# and picker UI stay on their own paths. The spec records the SHAPE so
+# the later migration needs no redesign: an account list (multi) with
+# per-account credentials, profiles listed per selected account, and a
+# launch-mode client. See ~/vendor-refactor-glm/REPORT.md § "How ziniao
+# would map onto the spec".
+ZINIAO_VENDOR = BrowserVendorSpec(
+    key='ziniao',
+    display_name_en='Ziniao',
+    display_name_zh='紫鸟',
+    kind=KIND_ANTIDETECT,
+    account_cardinality=CARDINALITY_MULTI,
+    lists_profiles=True,
+    profiles_scope=PROFILES_ACCOUNT,
+    picker_kind=PICKER_CUSTOM,
+    client_kind=CLIENT_LAUNCH_MODE,
+    win_app=ZINIAO_WIN_APP,
+)
 
 # updateCore downloads all browser kernels. Run it once per process,
 # serialized so concurrent fan-out starts don't each loop the API, and
