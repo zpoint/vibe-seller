@@ -1,5 +1,5 @@
 ---
-description: AI automation framework for cross-border sellers — locally deployed agents drive Ziniao or Chrome via CDP for ad tuning, listing launches, report exports and inventory checks, with any LLM provider.
+description: AI automation framework for cross-border sellers — locally deployed agents drive anti-detect browsers such as Ziniao and Yuehulian, or Chrome, via CDP for ad tuning, listing launches, report exports and inventory checks, with any LLM provider.
 ---
 
 <h1 align="center">Vibe Seller</h1>
@@ -39,7 +39,8 @@ description: AI automation framework for cross-border sellers — locally deploy
 ## What is Vibe Seller?
 
 A local-first **browser-automation framework**. AI agents drive your
-real browser — Ziniao for fingerprint isolation, or plain Chrome —
+store's real browser — an anti-detect browser such as Ziniao or
+Yuehulian, or plain Chrome —
 through CDP (Chrome's low-level remote-control protocol), the same
 way you'd click through pages yourself. Ad tuning, listing launches, inventory checks, invoicing,
 returns, warehouse setup, logistics lookup — whatever you can do in
@@ -47,7 +48,7 @@ a browser, the agent can do too.
 
 Each store gets its own agent — **think of it as hiring a different
 ops person for each store**. The Store A agent only sees Store A's
-profile, has its own memory and workspace, can't touch the other
+browser profile, has its own memory and workspace, can't touch the other
 stores' agents.
 
 ```mermaid
@@ -59,8 +60,8 @@ flowchart LR
         S --> A1[Agent for Store A]
         S --> A2[Agent for Store B]
         S --> A3[Agent for Store C]
-        A1 -->|CDP| Z1[Ziniao profile A]
-        A2 -->|CDP| Z2[Ziniao profile B]
+        A1 -->|CDP| Z1[BitBrowser store A]
+        A2 -->|CDP| Z2[Yuehulian store B]
         A3 -->|CDP| Z3[plain Chrome]
     end
 ```
@@ -76,7 +77,7 @@ You and your team open the web UI from any device on the same LAN.
 ## Why Vibe Seller?
 
 Compared to existing automation tools, Vibe Seller is built around
-what cross-border sellers actually need and what today's AI models
+what sellers actually need and what today's AI models
 can actually do well: AI-driven by design, with built-in Skills,
 per-store isolation, and fully local deployment. Browser control
 runs on [browser-use](https://github.com/browser-use/browser-use)
@@ -87,11 +88,12 @@ scratch.
 - **Batteries-included, no hand-holding.** Amazon (every marketplace),
   Noon, and more ship with built-in Skills for the jobs sellers
   actually do — report / statement export, listing creation & updates,
-  ad tuning. Create a task and the system opens the browser (Ziniao or
-  Chrome) and the agent operates it directly — usually right on the
+  ad tuning. Create a task and the system opens that store's browser
+  and the agent operates it directly — usually right on the
   first try, no step-by-step guidance needed.
-- **Native Ziniao control.** CDP, not Playwright on vanilla Chrome,
-  not UI-coordinate clicks. Lower risk-control risk, more stable.
+- **Native anti-detect browser control.** CDP straight into the
+  logged-in store profile in Ziniao, Yuehulian and the like — not
+  Playwright on vanilla Chrome, not UI-coordinate clicks. Lower risk-control risk, more stable.
 - **Multi-browser by design.** Ziniao, Yuehulian and plain Chrome are
   all first-class backends — pick per store. Downloads, setup and how to
   choose: [Browsers](browsers.en.md).
@@ -151,7 +153,7 @@ email, send group chat messages (WeCom / DingTalk / Feishu / Slack), write to Ti
 Google Docs. Anything that fits *observe → decide → act* — whether
 a browser is involved or not.
 
-A few cross-border scenarios it's commonly used for:
+A few things sellers commonly use it for:
 
 | Task | What happens | Example |
 |---|---|---|
@@ -213,7 +215,7 @@ review next week" todo into TickTick. Start at the
 
 Any marketplace you can work in a browser — Amazon, Noon, Mercado Libre, Qianniu (Taobao /
 Tmall), AliExpress, Shopee, TikTok Shop… **If it runs in a browser, Vibe Seller can work it.**
-At its core it is **an AI agent + the Ziniao browser (or plain Chrome) + built-in tools**: the
+At its core it is **an AI agent + the store's browser (an anti-detect browser such as Ziniao or Yuehulian, or plain Chrome) + built-in tools**: the
 agent opens the store's back office and storefront the way you would — clicking, reading,
 filling in forms, downloading.
 
@@ -226,7 +228,7 @@ Amazon and Noon get the most built-in tools:
 - **Qianniu**: built-in Skills for ads and listings.
 
 Other platforms have no dedicated Skill, and the agent still does back-office and storefront
-work through Ziniao or a plain browser. The first runs may take a few extra tries; the paths
+work through the store's browser. The first runs may take a few extra tries; the paths
 that work go into that store's knowledge, so the next run follows them and it settles down
 after a few rounds. You can also write your own steps as a Skill and import it (see
 [Import an existing Skill](knowledge.en.md#import-an-existing-skill)), or polish it and
