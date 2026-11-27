@@ -562,6 +562,10 @@ async def test_ensure_running_requires_stability_after_a_launch(monkeypatch):
     the gate), then went stable. One answer races the gap, so a cold
     client is ready only after TWO consecutive definitive polls."""
     proc = _FakeProc()
+    # The Windows pick (see the launch test above): the fake proc IS
+    # the Windows layer — a mac host must not swap in the real Mac
+    # layer and drive the live client.
+    monkeypatch.setattr(mod, 'get_platform', lambda: 'windows')
     monkeypatch.setattr(mod, 'WenmaiProcessLayer', lambda _p=None: proc)
     api = FakeWenmaiApi()
     # getUserInfo per call: definitive (bind #1) → gap → stable.
