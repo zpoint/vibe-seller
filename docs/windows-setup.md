@@ -350,6 +350,9 @@ the real process:
 ```bash
 #!/bin/bash
 export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# The port agents call back on; keep it equal to --port below, or
+# every in-task tool fails ("All connection attempts failed").
+export BACKEND_PORT=7777
 cd /home/<user>/codes/vibe-seller
 mkdir -p logs
 exec .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 7777 >> logs/backend_stdout_7777.log 2>&1

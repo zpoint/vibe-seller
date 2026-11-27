@@ -5,7 +5,11 @@ e2e run (validated 2026-11-18); here we pin the pure path conversion and
 the spawn-hook's safety invariant (save-and-restore, never ``delete``).
 """
 
+import json
 import ntpath
+import os
+import shutil
+import subprocess
 
 import pytest
 
@@ -64,6 +68,19 @@ def test_win_path_to_local_twist_wsl_uses_mnt(monkeypatch):
 def test_spawn_hook_injects_debug_port():
     assert '--remote-debugging-port=0' in SPAWN_HOOK_JS
     assert '--user-data-dir' in SPAWN_HOOK_JS
+
+
+def test_spawn_hook_injects_occlusion_flag_once():
+    # The hook must carry the occlusion flag exactly once (an
+    # accidentally doubled literal would mean the guard is missing) and
+    # must guard it so a vendor arg already carrying it is not
+    # duplicated.
+    assert (
+        SPAWN_HOOK_JS.count('--disable-backgrounding-occluded-windows') == 2
+    )  # once in the guard, once in the push
+    assert (
+        SPAWN_UNHOOK_JS.count('--disable-backgrounding-occluded-windows') == 0
+    )
 
 
 def test_spawn_hook_saves_original_and_never_deletes():
@@ -193,3 +210,120 @@ class TestProcessMatchUsesLocatedDir:
         assert _captured(
             monkeypatch, 'is_running', install_dir='D:\\自定义目录'
         ) == _is_running_script(_both_arms("'D:\\自定义目录\\'"))
+
+
+# --- Behavioural check of SPAWN_HOOK_JS under a real JS engine ---------
+# The text tests above pin that the flag is present; these run the hook
+# itself in node against a stubbed child_process, so the "exactly once,
+# guarded, and only for kernels" behaviour is proven, not assumed.
+# Skipped where node is absent (CI's unit job may not install it); the
+# text tests above still pin the invariant there.
+
+_NODE_RUNNER = """
+const cpPath = require.resolve('child_process');
+const captured = [];
+const fakeCp = {ChildProcess: {prototype: {spawn: function(options){
+  captured.push({file: options && options.file,
+                 args: (options && options.args) || []});
+}}}};
+require.cache[cpPath] = {id: cpPath, filename: cpPath, loaded: true,
+                         exports: fakeCp};
+const hookResult = eval(process.env.VS_HOOK_JS);
+const cp = require('child_process');
+cp.ChildProcess.prototype.spawn(JSON.parse(process.env.VS_OPTIONS));
+console.log(JSON.stringify({hookResult: hookResult, captured: captured,
+                            spawns: global.__vsSpawns}));
+"""
+
+
+def _run_spawn_hook(options):
+    """Run SPAWN_HOOK_JS in node with child_process stubbed; spawn
+    ``options`` through the hooked prototype; return the parsed result."""
+    env = dict(
+        os.environ,
+        VS_HOOK_JS=SPAWN_HOOK_JS,
+        VS_OPTIONS=json.dumps(options),
+    )
+    proc = subprocess.run(
+        ['node', '-e', _NODE_RUNNER],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+        timeout=30,
+    )
+    return json.loads(proc.stdout.strip().splitlines()[-1])
+
+
+@pytest.mark.skipif(not shutil.which('node'), reason='needs node')
+def test_spawn_hook_node_adds_debug_port_and_occlusion_flag_once():
+    out = _run_spawn_hook({
+        'file': r'C:\YueHuLian\chrome.exe',
+        'args': [r'chrome.exe', r'--user-data-dir=C:\udd1'],
+    })
+    assert out['hookResult'] == 'hooked'
+    assert len(out['captured']) == 1
+    args = out['captured'][0]['args']
+    assert args.count('--remote-debugging-port=0') == 1
+    assert args.count('--disable-backgrounding-occluded-windows') == 1
+    # the recorded spawn points at the kernel's user-data-dir
+    assert out['spawns'] == [{'udd': r'C:\udd1', 'ts': out['spawns'][0]['ts']}]
+
+
+@pytest.mark.skipif(not shutil.which('node'), reason='needs node')
+def test_spawn_hook_node_never_duplicates_vendor_occlusion_flag():
+    out = _run_spawn_hook({
+        'file': 'chrome.exe',
+        'args': [
+            'chrome.exe',
+            '--disable-backgrounding-occluded-windows',
+            r'--user-data-dir=C:\udd2',
+        ],
+    })
+    args = out['captured'][0]['args']
+    assert args.count('--disable-backgrounding-occluded-windows') == 1
+    assert args.count('--remote-debugging-port=0') == 1
+
+
+@pytest.mark.skipif(not shutil.which('node'), reason='needs node')
+def test_spawn_hook_node_vendor_debug_port_still_gets_occlusion_flag():
+    # A kernel the vendor already launches with its own debug port gets
+    # no port injected and no spawn recorded (the vendor's port makes
+    # the recording meaningless) — but it STILL gets the occlusion flag
+    # exactly once: a minimized kernel hangs the same way regardless of
+    # who opened the debug port.
+    out = _run_spawn_hook({
+        'file': 'chrome.exe',
+        'args': ['chrome.exe', '--remote-debugging-port=1234'],
+    })
+    args = out['captured'][0]['args']
+    assert '--remote-debugging-port=0' not in args
+    assert args.count('--disable-backgrounding-occluded-windows') == 1
+    assert out['spawns'] == []
+
+
+@pytest.mark.skipif(not shutil.which('node'), reason='needs node')
+def test_spawn_hook_node_vendor_port_and_flag_not_duplicated():
+    # Vendor port + vendor flag: nothing of ours is added at all.
+    out = _run_spawn_hook({
+        'file': 'chrome.exe',
+        'args': [
+            'chrome.exe',
+            '--remote-debugging-port=1234',
+            '--disable-backgrounding-occluded-windows',
+        ],
+    })
+    args = out['captured'][0]['args']
+    assert args.count('--disable-backgrounding-occluded-windows') == 1
+    assert '--remote-debugging-port=0' not in args
+    assert out['spawns'] == []
+
+
+@pytest.mark.skipif(not shutil.which('node'), reason='needs node')
+def test_spawn_hook_node_ignores_non_kernel_spawns():
+    out = _run_spawn_hook({
+        'file': r'C:\Windows\notepad.exe',
+        'args': ['notepad.exe'],
+    })
+    assert out['captured'][0]['args'] == ['notepad.exe']
+    assert out['spawns'] == []
