@@ -84,6 +84,8 @@ Open the copied link **in Ziniao (or the browser this store uses)**, sign in as 
 
 Sign in as the store's seller, approve, and wait for the success page. The consent page is on listwizard.cloud — the service-provider domain Vibe Seller registered with Amazon.
 
+If Ziniao refuses to show the page, saying it "may contain content that does not comply with laws, regulations and policies", see [Ziniao blocks the consent page](#ziniao-blocked).
+
 ### 4. Come back and click Done authorizing
 
 ![Done authorizing](images/ads_done_en.png)
@@ -104,6 +106,38 @@ Once bound, **just create ad tasks on that store as usual** — e.g. “Take a l
 
 ## Troubleshooting
 
+<details markdown="1" id="ziniao-blocked"><summary><b>Ziniao says the page "may contain content that does not comply with laws, regulations and policies" (您所访问的网页可能涉及不符合相关法律法规和政策的内容)</b></summary>
+
+![Ziniao blocking the consent page](images/ads_ziniao_blocked.png)
+
+The consent page's domain, listwizard.cloud, is still going through its ICP filing, and Ziniao blocks it until the filing is done. Ask Ziniao's human support to allowlist the domain:
+
+1. In the Ziniao client, click **客服** (Support) at the bottom left, then **在线咨询** (online chat; staffed 9:00–22:00 China time).
+
+    ![Ziniao's support center: 客服 at the bottom left, then 在线咨询](images/ziniao_support.png){ width="640" }
+
+2. For the topic, pick **紫鸟购买/使用教程** (buying / using Ziniao).
+
+    ![Pick the 紫鸟购买/使用教程 topic](images/ziniao_support_type.png){ width="420" }
+
+3. In the chat, send **人工** (human agent), then click **联系人工客服** (contact a human agent).
+
+    ![Send 人工, then click 联系人工客服](images/ziniao_support_human.png){ width="640" }
+
+4. Send the agent this line, as is ("https://listwizard.cloud/ is the ERP service we use, but it can't be reached — please allowlist it"):
+
+    ```text
+    https://listwizard.cloud/ 是我们使用的ERP服务，但是无法访问，帮我们加白
+    ```
+
+    ![What to send the agent (illustration)](images/ziniao_support_message.png){ width="640" }
+
+5. Once it is allowlisted, go back to Vibe Seller, click **Authorize** again and open the new link in Ziniao. The link is short-lived: if it has timed out, click **Authorize** once more to generate a new one.
+
+The page's own 申请人工加白 (request a manual allowlist) button may come back rejected — go to Ziniao's human support instead.
+
+</details>
+
 <details markdown="1"><summary><b>How do I choose which store uses the Ads API?</b></summary>
 
 You don't — it's automatic. The path follows the **store's binding state**: a store bound to the Ads API gets its ad data through the API, an unbound store keeps going through the browser. Just create tasks as usual.
@@ -119,6 +153,8 @@ This machine cannot reach the ads service (firewall / proxy / the service is bri
 <details markdown="1" id="not-yet-authorized"><summary><b>"Done authorizing" says "No authorization for this store yet"</b></summary>
 
 The Amazon consent hasn't finished, or you clicked before the success page. Finish the consent in the store's browser, then click again.
+
+If Ziniao showed a "does not comply with laws, regulations and policies" page instead of the success page, see [Ziniao blocks the consent page](#ziniao-blocked).
 
 </details>
 
