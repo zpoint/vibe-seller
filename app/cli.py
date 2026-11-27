@@ -35,6 +35,7 @@ from app import (
     login_autostart,
     server_env,
     uv_tool,
+    windows_update,
 )
 from app.platform import (
     collect_agent_descendants,
@@ -239,6 +240,30 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _daemon_detach_kwargs() -> dict:
+    """How the daemon's Popen leaves the launcher's session behind.
+
+    POSIX: a new session with no controlling terminal, so closing the
+    terminal can't take it down. Windows: ``start_new_session`` is
+    POSIX-only and silently IGNORED, so the daemon used to stay on the
+    launcher's console, where a console-wide event (Ctrl+C, Ctrl+Break,
+    closing the terminal) kills every process silently — no traceback,
+    no WER entry. ``CREATE_NO_WINDOW`` gives it a hidden console of its
+    own (not DETACHED_PROCESS: the daemon's console-app children —
+    agents, browser-use daemons, PowerShell helpers — inherit that
+    console instead of each popping a visible window), and
+    ``CREATE_NEW_PROCESS_GROUP`` makes it a group root no event aimed
+    at the launcher's console or group can reach.
+    """
+    if sys.platform == 'win32':
+        flags = (
+            windows_update.CREATE_NEW_PROCESS_GROUP
+            | windows_update.CREATE_NO_WINDOW
+        )
+        return {'creationflags': flags}
+    return {'start_new_session': True}
+
+
 def _cmd_start(args: argparse.Namespace) -> int:
     host: str = args.host
     port: int = args.port
@@ -301,7 +326,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             env=env,
-            start_new_session=True,
+            **_daemon_detach_kwargs(),
         )
 
     # Give uvicorn ~2s to boot or fail fast so we can report
