@@ -279,6 +279,38 @@ def _forbidden_since(start: int) -> list[str]:
     ]
 
 
+def _verify_server_ownership() -> None:
+    """The server that answers --base-url must be OURS.
+
+    The invariant tested is the one that matters — the listener's
+    process env carries our VIBE_HOME — the same proof on every
+    platform (a foreign server that won a bind race answers health
+    just as well; a pid-equality check through the WSL interop
+    launcher proved unreliable on Windows). Uses the driver's own
+    process-env lens: /proc on POSIX, the PEB on Windows.
+    """
+    from urllib.parse import urlparse
+
+    port = urlparse(_ARGS.base_url).port
+    import psutil
+
+    listeners = {
+        c.pid
+        for c in psutil.net_connections(kind='tcp')
+        if c.status == psutil.CONN_LISTEN and c.laddr.port == port
+    }
+    for pid in listeners:
+        if _proc_env(pid).get('VIBE_HOME') == str(_HOME):
+            _log(f'server ownership verified: pid {pid} carries our home')
+            return
+    raise AssertionError(
+        'the server on {_ARGS.base_url} is not ours — listeners '
+        f'{listeners or "(none)"} carry no VIBE_HOME={_HOME}. A foreign '
+        "server (another session's e2e) may have won the port; aborting "
+        'before any task runs.'
+    )
+
+
 # ── task driving ───────────────────────────────────────────────────
 
 
@@ -740,6 +772,7 @@ def _setup_profile(client: httpx.Client) -> None:
 def main() -> int:
     client = httpx.Client(timeout=60)
     h.login_client(client, _ARGS.base_url)
+    _verify_server_ownership()
 
     if _ARGS.phase == 'main':
         from tests.e2e import (

@@ -70,6 +70,9 @@ $env:BACKEND_PORT = "$Port"
 $env:VIBE_HOME = $Home_
 $env:PYTHONUNBUFFERED = '1'
 
+# Ownership of the port is proven by the DRIVER (its first act: the
+# listener's env must carry our VIBE_HOME) — a pid-equality check
+# through the WSL interop launcher proved unreliable on Windows.
 $script:ServerPid = 0
 
 function Start-Server {
@@ -93,14 +96,6 @@ function Start-Server {
     }
     if ($ok) {
       $took = ((Get-Date) - $t0).TotalSeconds
-      # PORT-HIJACK GUARD: a foreign server on this port answers
-      # instantly while ours is still importing; and ours owns the
-      # port only if OUR pid listens on it.
-      $owner = (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
-        Select-Object -First 1).OwningProcess
-      if ("$owner" -ne "$script:ServerPid") {
-        throw "port $Port is owned by pid $owner, not our server (pid $($script:ServerPid))"
-      }
       Write-Output ("server up on $Port after {0:N0}s (pid {1})" -f $took, $script:ServerPid)
       return
     }
