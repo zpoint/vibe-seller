@@ -148,22 +148,22 @@ describe('the generic vendor section', () => {
     const select = screen.getByRole('combobox') as HTMLSelectElement
     expect([...select.options].map(o => o.textContent)).toEqual([
       enTranslation.settings.yuehulianSelectStore,
-      'US · MarketplaceX · fv-a',
+      'fv-a · US · MarketplaceX',
       'fv-b',
     ])
   })
 
   it('renders the picker options through the shared label builder', () => {
     // The picker's label rule lives in ONE place
-    // (lib/vendorStoreLabel): the human name first, then the platform,
-    // then the bind value (ref, else the name), empty and duplicated
-    // parts dropped.
+    // (lib/vendorStoreLabel), decided only from the row's fields:
+    // listed by name → name first; opaque ref → display · platform ·
+    // ref.
     renderSection({
       stores: [
         { name: 'hidden name', platform: 'www.amazon.com',
           remote_env: '#4 美国站 (分组)', ref: 'p0000001' },
-        // 悦互联's shape: no ref — the row binds by its NAME, which
-        // stays in the label beside the remote_env (R1).
+        // 悦互联's shape: no ref — the row lists by its NAME, which
+        // leads the label (optB).
         { name: '示例甲1店', platform: 'www.amazon.com',
           remote_env: '#4 美国站 (分组)', ref: '' },
         { name: 'fv-noref', platform: '', remote_env: '' },
@@ -173,7 +173,7 @@ describe('the generic vendor section', () => {
     expect([...select.options].map(o => o.textContent)).toEqual([
       enTranslation.settings.yuehulianSelectStore,
       '#4 美国站 (分组) · www.amazon.com · p0000001',
-      '#4 美国站 (分组) · www.amazon.com · 示例甲1店',
+      '示例甲1店 · #4 美国站 (分组) · www.amazon.com',
       'fv-noref',
     ])
   })
@@ -310,7 +310,7 @@ describe('the generic vendor section', () => {
     expect([...select.options].map(o => o.textContent)).toEqual([
       enTranslation.settings.yuehulianSelectStore,
       'test1 · amazon.com',   // no separator where the platform would be
-      'US · test2',           // remote_env heads, the name (bind) follows
+      'test2 · US',           // listed by name: the name leads, env follows
       'test3',                // both empty: the name alone
     ])
   })

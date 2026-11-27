@@ -17,9 +17,10 @@
  * Profiles bind by `ref || name` (the stable id the vendor reports;
  * vendors without one use the name), and an env that exists but cannot
  * be opened (`available === false`) is shown greyed out with its
- * reason instead of being hidden. Each option's label — the human name
- * first, then the platform, then the ref — comes from ONE pure builder,
- * `vendorStoreOptionLabel` (lib/vendorStoreLabel).
+ * reason instead of being hidden. Each option's label comes from ONE
+ * pure builder, `vendorStoreOptionLabel` (lib/vendorStoreLabel): a row
+ * listed by name shows the store name first, a row with an opaque ref
+ * shows display · platform · ref — decided only from the row's fields.
  */
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
