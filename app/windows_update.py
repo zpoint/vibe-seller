@@ -325,6 +325,7 @@ def offer_sha256(offer: dict) -> str | None:
 # importable and testable everywhere).
 DETACHED_PROCESS = 0x00000008
 CREATE_NEW_PROCESS_GROUP = 0x00000200
+CREATE_NO_WINDOW = 0x08000000
 CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
 
