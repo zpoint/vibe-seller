@@ -26,9 +26,8 @@ Grandfathered / compat exemptions (each with a reason):
   (docsHelpLinks.test.tsx) and the restore rule for the /api/yuehulian
   compat alias — both go away with that route.
 * Any vendor key in the in-flight contract PR's files
-  (``_IN_FLIGHT_CONTRACT_FILES``) — #326 still names vendors in
-  docstrings and is dropping them; its files are not this refactor's
-  to edit. Delete the set when #326's vendor-neutral update lands.
+  (``_IN_FLIGHT_CONTRACT_FILES``) — the remaining file is not this
+  refactor's to edit. Shrink the set as #326 cleans its files.
 
 A vendor registered through the plugin context is checked automatically
 (the registry is the source of truth), plus ``wenmai`` — in flight on
@@ -62,21 +61,14 @@ _COMPAT_FILES = {
     'frontend/src/components/StorePickers.tsx',
     # The restore rule for the /api/yuehulian compat alias route.
     'app/rest_secret_guard.py',
-    # Pre-registry docstring mentions in the frozen inject contract
-    # files (owned by the in-flight inject-contract PR, whose Step 0
-    # makes them vendor-neutral); this refactor must not edit them.
-    'app/browser/inject/__init__.py',
-    'app/browser/inject/client.py',
 }
 
 # Files owned by the in-flight contract PR (#326) that still name
-# vendors in docstrings/comments. That PR is dropping the names
-# (coordinator review A7); when its vendor-neutral update lands, delete
-# these entries — the test then guards those files like any other.
+# vendors in docstrings/comments. Its vendor-neutral update already
+# cleaned inject/client.py, engine.py and win_inspector.py (removed
+# from this set — the test now guards them like any other file);
+# yuehulian_win.py remains until its wenmai mentions go.
 _IN_FLIGHT_CONTRACT_FILES = {
-    'app/browser/inject/client.py',
-    'app/browser/inject/engine.py',
-    'app/browser/win_inspector.py',
     'app/browser/adapters/yuehulian_win.py',
 }
 

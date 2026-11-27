@@ -171,6 +171,55 @@ describe('the generic vendor section', () => {
     expect(link.dataset.topic).toBe('fakeOneAccount')
   })
 
+  it('a none-cardinality vendor has no account row and fetches on mount', async () => {
+    const fetchStores = vi.fn()
+    render(
+      <I18nextProvider i18n={i18nFor('en')}>
+        <VendorSection
+          vendor={{ ...fakeVendor, account_cardinality: 'none' }}
+          selectedRef="" setSelectedRef={vi.fn()}
+          stores={[]} error=""
+          fetching={false} fetchStores={fetchStores}
+          allStores={[] as unknown as Store[]}
+        />
+      </I18nextProvider>,
+    )
+    // No account row, no [+] button, no add form.
+    expect(screen.queryByText('No account configured')).toBeNull()
+    expect(screen.queryByTitle(enTranslation.settings.addAccount)).toBeNull()
+    // Stores are fetched straight away (no configured login to wait for).
+    expect(fetchStores).toHaveBeenCalled()
+  })
+
+  it('a none-cardinality vendor shows the status hint like any other', () => {
+    renderSection({
+      vendor: { account_cardinality: 'none', i18n_prefix: 'vendors.nosuchkeys' },
+      error: 'fakevendor:client_not_running',
+    })
+    expect(screen.getByText(
+      enTranslation.browserVendor.ClientNotRunning.replace('{{vendor}}', 'FakeVendor'),
+    )).toBeTruthy()
+  })
+
+  it('twist: a single-cardinality vendor keeps the account row and waits for the login', async () => {
+    const fetchStores = vi.fn()
+    render(
+      <I18nextProvider i18n={i18nFor('en')}>
+        <VendorSection
+          vendor={fakeVendor}
+          selectedRef="" setSelectedRef={vi.fn()}
+          stores={[]} error=""
+          fetching={false} fetchStores={fetchStores}
+          allStores={[] as unknown as Store[]}
+        />
+      </I18nextProvider>,
+    )
+    expect(screen.getByText('No account configured')).toBeTruthy()
+    expect(screen.getByTitle(enTranslation.settings.addAccount)).toBeTruthy()
+    // Not configured → no auto-fetch of the store list.
+    expect(fetchStores).not.toHaveBeenCalled()
+  })
+
   it('binds by ref when the vendor reports one, and by name otherwise', () => {
     renderSection({
       stores: [

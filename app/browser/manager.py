@@ -22,7 +22,12 @@ from app.browser.launch_guards import (
     RelaunchBudget,
     start_backend_bounded,
 )
-from app.browser.vendors import CARDINALITY_SINGLE, vendor_spec
+from app.browser.vendors import (
+    CARDINALITY_NONE,
+    CARDINALITY_SINGLE,
+    PICKER_GENERIC,
+    vendor_spec,
+)
 from app.browser.web_wrapper import write_web_browser_use_wrapper
 from app.browser.wrapper import (
     remove_browser_use_wrapper,
@@ -179,20 +184,30 @@ async def inject_vendor_store_config(
     """Spec-driven vendors (registry): the bound profile ref + machine
     credentials for a store's vendor.
 
-    A ``CARDINALITY_SINGLE`` vendor has one machine login shared by all
-    of its stores — its stored credentials (encrypted) are injected so
-    a logged-out client can be auto-logged-in instead of failing the
-    task — and the store's chosen profile ref (whatever the picker
-    bound, an env id or a name) rides the ``browser_oauth`` column into
-    ``browser_ref``, the value ``open_store`` receives. Ziniao keeps
-    its own branch in the manager (per-account credentials); plain
-    backends have no machine login to inject. See
+    Every vendor the GENERIC picker binds gets its chosen profile ref
+    (whatever the picker bound, an env id or a name) injected from the
+    ``browser_oauth`` column into ``browser_ref``, the value
+    ``open_store`` receives. On top of that:
+
+    - a ``CARDINALITY_SINGLE`` vendor has one machine login shared by
+      all of its stores — its stored credentials (encrypted) are
+      injected so a logged-out client can be auto-logged-in instead of
+      failing the task;
+    - a ``CARDINALITY_NONE`` vendor stores no credentials (the user
+      signs in once in the client; the local API acts as that login),
+      so only the client-path override (when the spec declares one) is
+      injected.
+
+    Ziniao keeps its own branch in the manager (per-account
+    credentials, custom picker); plain backends inject nothing. See
     app/browser/vendors.py.
     """
     spec = vendor_spec(store.browser_backend)
-    if spec is not None and spec.account_cardinality == CARDINALITY_SINGLE:
-        if store.browser_oauth and spec.lists_profiles:
-            browser_config['browser_ref'] = store.browser_oauth
+    if spec is None or spec.picker_kind != PICKER_GENERIC:
+        return
+    if store.browser_oauth and spec.lists_profiles:
+        browser_config['browser_ref'] = store.browser_oauth
+    if spec.account_cardinality in (CARDINALITY_SINGLE, CARDINALITY_NONE):
         await vendor_creds.inject_vendor_config(browser_config, db, spec)
 
 

@@ -24,6 +24,7 @@ from app.browser.inject.errors import (
     UnsupportedKernel,
 )
 from app.browser.vendors import (
+    CARDINALITY_NONE,
     CARDINALITY_SINGLE,
     BrowserVendorSpec,
     VendorCredentialField,
@@ -61,6 +62,17 @@ _SPEC = BrowserVendorSpec(
 )
 
 
+_REFLESS_SPEC = BrowserVendorSpec(
+    key='fakerefless',
+    display_name_en='ReflessVendor',
+    display_name_zh='免登录浏览器',
+    account_cardinality=CARDINALITY_NONE,
+    lists_profiles=True,
+    i18n_prefix='vendors.fakerefless',
+    client_factory=_factory,
+)
+
+
 class _Backend:
     """A no-arg-constructible stand-in for a BrowserBackend."""
 
@@ -74,6 +86,7 @@ def fake_vendor(monkeypatch):
 
         def install(self, ctx: ExtensionContext) -> None:
             ctx.register_browser_backend('fakevendor', _Backend, _SPEC)
+            ctx.register_browser_backend('fakerefless', _Backend, _REFLESS_SPEC)
 
     class _EntryPoint:
         name = 'fake:fakevendor'
@@ -230,6 +243,39 @@ async def test_fake_vendor_structured_statuses(admin_client, fake_vendor):
     r = await admin_client.get('/api/browser-vendors/fakevendor/stores')
     assert r.status_code == 502
     assert json.loads(r.json()['detail'])['status'] == ('client_not_running')
+
+
+async def test_none_cardinality_vendor_lists_without_credentials(
+    admin_client, fake_vendor
+):
+    """Addendum 2 item 1: a 'none' vendor (no stored credentials — the
+    user signs in once in the client, the local API acts as that login)
+    is served by the generic stores route, and the credential routes
+    keep refusing it."""
+    _client_behavior(stores=[StoreRef('rf-a')])
+    r = await admin_client.get('/api/browser-vendors/fakerefless/stores')
+    assert r.status_code == 200
+    assert [s['name'] for s in r.json()] == ['rf-a']
+    r = await admin_client.get('/api/browser-vendors/fakerefless/credentials')
+    assert r.status_code == 400
+    r = await admin_client.post(
+        '/api/browser-vendors/fakerefless/credentials', json={}
+    )
+    assert r.status_code == 400
+
+
+async def test_twist_single_cardinality_keeps_its_credentials(
+    admin_client, fake_vendor
+):
+    """Negative control: the 'none' refusal is cardinality-driven — the
+    single-cardinality vendor's credential routes still work."""
+    r = await admin_client.get('/api/browser-vendors/fakevendor/credentials')
+    assert r.status_code == 200
+    r = await admin_client.post(
+        '/api/browser-vendors/fakevendor/credentials',
+        json={'acct': 'a', 'password': 'p'},
+    )
+    assert r.status_code == 200
 
 
 async def test_twist_without_registration_the_vendor_is_absent(

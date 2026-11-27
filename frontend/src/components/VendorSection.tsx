@@ -76,6 +76,12 @@ export function VendorSection(props: {
     })
   }
 
+  // A 'single' vendor has a machine login to configure (the account row
+  // + form); a 'none' vendor has none — the user signs in once in the
+  // client and the local API acts as that login — so its stores load
+  // straight away.
+  const needsAccount = v.account_cardinality === 'single'
+
   const refresh = async (thenFetch = false) => {
     try {
       const s = (await api.get(
@@ -86,9 +92,13 @@ export function VendorSection(props: {
     } catch { /* unsupported / not configured — leave null */ }
   }
   // Auto-load stores when an account is configured — like ziniao fetching
-  // profiles on account-select; no separate "Load" button.
+  // profiles on account-select; no separate "Load" button. A vendor
+  // without an account row fetches on mount directly.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void refresh(true) }, [v.key])
+  useEffect(() => {
+    if (needsAccount) void refresh(true)
+    else void p.fetchStores()
+  }, [v.key])
 
   // One account per machine, like ziniao's picker but with only [+]:
   // adding OVERWRITES the single account. If any of this vendor's stores
@@ -150,15 +160,18 @@ export function VendorSection(props: {
 
   return (
     <div className="mb-2 space-y-2">
-      {/* Account row — always visible (like ziniao's account select), with
-          only [+]: it toggles the add form, which overwrites the account. */}
+      {/* Account row — only for vendors with a machine login (one per
+          machine, like ziniao's account select), with only [+]: it
+          toggles the add form, which overwrites the account. */}
+      {needsAccount && (
       <div className="flex items-center gap-1">
         <div className="min-w-0 flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs bg-gray-50 truncate">
           {accountLabel}
         </div>
         <button type="button" onClick={() => (showForm ? setShowForm(false) : openAdd())} title={t('settings.addAccount')} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm rounded border border-gray-300 text-indigo-600 hover:bg-indigo-50">+</button>
       </div>
-      {showForm && (
+      )}
+      {needsAccount && showForm && (
         <div className="space-y-1 p-2 bg-gray-50 rounded border border-gray-200">
           <p className="text-xs font-medium text-gray-600 mb-1">{t('settings.addAccount')}</p>
           {v.credential_fields.map(f => (
@@ -193,7 +206,7 @@ export function VendorSection(props: {
           <button type="button" onClick={p.fetchStores} disabled={p.fetching} className="shrink-0 text-[11px] text-indigo-600 hover:underline disabled:opacity-50">{t('common.refresh')}</button>
           {v.docs.errors && <DocsHelpLink urls={v.docs.errors} />}
         </div>
-      ) : status?.configured && p.fetching ? (
+      ) : (v.account_cardinality === 'none' || status?.configured) && p.fetching ? (
         <div className="flex flex-col items-center justify-center py-6 px-4 bg-indigo-50 rounded-lg border border-indigo-200">
           <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
           <p className="text-sm font-medium text-indigo-700">{vt('Loading')}</p>

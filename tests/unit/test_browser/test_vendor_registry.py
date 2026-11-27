@@ -263,6 +263,21 @@ async def test_store_bound_by_ref_reaches_browser_ref(
     assert cfg['browser_ref'] == 'fv-ref-9'
 
 
+async def test_none_cardinality_vendor_gets_the_ref_but_no_creds(
+    fake_vendor, async_db_session
+):
+    """Addendum 2 item 1: a 'none' vendor (no stored credentials; the
+    local API acts as the login) still binds its profile ref — and
+    injects nothing else (the credential loop is empty for it)."""
+    fake_vendor(_spec(cardinality='none'))
+    cfg: dict = {}
+    await inject_vendor_store_config(
+        cfg, _StoreRow('fakevendor', 'fv-ref-4'), async_db_session
+    )
+    assert cfg['browser_ref'] == 'fv-ref-4'
+    assert not [k for k in cfg if k.startswith('fakevendor_')]
+
+
 async def test_twist_unbindable_backends_get_no_ref(
     fake_vendor, async_db_session
 ):

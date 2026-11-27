@@ -71,7 +71,8 @@ if TYPE_CHECKING:
 KIND_ANTIDETECT = 'antidetect'
 KIND_PLAIN = 'plain'
 
-CARDINALITY_NONE = 'none'
+CARDINALITY_NONE = 'none'  # no stored credentials: the local API
+# acts as the login (the user signs in once in the client)
 CARDINALITY_SINGLE = 'single'  # one machine login
 CARDINALITY_MULTI = 'multi'  # account list, add/edit/delete (ziniao)
 
