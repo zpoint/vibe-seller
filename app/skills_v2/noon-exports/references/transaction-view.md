@@ -52,7 +52,7 @@ print(js("var p=document.querySelector('[class*=ExportBox_content]'); if(!p) ret
 PY
 ```
 
-The file lands in `~/.vibe-seller/downloads/<slug>/` with a name starting
+The file lands in `$VIBE_STORE_DOWNLOADS/` with a name starting
 `noon_financeweb_transactionviewreportonitemlevelwithcontractselection`.
 Repeat downloads get ` (1)`, ` (2)` suffixes; take the newest by mtime
 and move it into the task workspace under the name the task needs

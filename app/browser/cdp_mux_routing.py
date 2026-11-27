@@ -226,14 +226,48 @@ class _RoutingMixin:
             await self._handle_browser_close(client_id, msg)
             return
 
-        # --- Rewrite Browser.setDownloadBehavior downloadPath ---
-        # browser-use creates a fresh random /tmp dir per CLI
-        # invocation.  Override with a stable per-store directory
-        # so agents can find downloaded files.
-        if method == 'Browser.setDownloadBehavior' and self.download_dir:
-            params = msg.get('params', {})
-            if 'downloadPath' in params:
-                params['downloadPath'] = self.download_dir
+        # --- The download pin is IMMORTAL: answer locally, never forward ---
+        # Chrome ties the browser-wide download behaviour to the DevTools
+        # SESSION that last set it — the message's sessionId field, not
+        # the connection. The mux's startup pin (sessionless, browser
+        # endpoint) is owned by the mux's persistent root session and
+        # lives as long as the mux. But the browser_harness daemon relay
+        # attaches its page session to every non-Target call, so an
+        # agent's `cdp('Browser.setDownloadBehavior', ...)` — even with
+        # its path rewritten to the pin — TRANSFERS ownership of the pin
+        # to a mortal page session. When that tab or session ends
+        # (grace cleanup, task end), Chrome resets to the profile
+        # default and every LATER download leaves the store dir
+        # (harness lane F2, proven live).
+        #
+        # So when a pin exists, a client's set*DownloadBehavior is
+        # answered LOCALLY with a success response and NEVER forwarded:
+        # the client sees its call succeed, and the browser-wide setting
+        # stays owned by the root session. No pin (aux-style proxies):
+        # forward as today — nothing to protect.
+        if (
+            method
+            in ('Browser.setDownloadBehavior', 'Page.setDownloadBehavior')
+            and self.download_dir
+        ):
+            logger.info(
+                'CDPMuxProxy: client %s %s (downloadPath %s) answered '
+                'locally; the pin owns downloads',
+                short_cid(client_id),
+                method,
+                msg.get('params', {}).get('downloadPath', '<none>'),
+            )
+            if original_id is not None:
+                # Chrome's own result shape for this call: an empty
+                # result object, with the sessionId echoed for a
+                # session-scoped call.
+                answer = {'id': original_id, 'result': {}}
+                if msg.get('sessionId'):
+                    answer['sessionId'] = msg['sessionId']
+                client = self._clients.get(client_id)
+                if client:
+                    await self._send_client(client, answer)
+            return
 
         # --- Block cross-client Target.closeTarget ---
         if method == 'Target.closeTarget':

@@ -12,6 +12,8 @@ from app import ads_routing
 from app.ai.unseen_images import agent_note, profile_model, unseen_images
 from app.browser.base import antidetect_display_name, is_antidetect
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
+from app.browser.downloads import store_downloads_dir
+from app.config import BROWSER_USE_BIN_DIR
 from app.database import async_session
 from app.email.access import (
     MailboxAccess,
@@ -141,6 +143,34 @@ def build_store_context(
     slug = store.slug
     backend = store.browser_backend
     browser_name = antidetect_display_name(backend)
+    # The wrapper + download paths, RESOLVED for this server's
+    # VIBE_HOME — never a hardcoded default-home spelling. A doc that
+    # spelled `~/.vibe-seller/...` sent a live agent into ANOTHER
+    # server's home on a multi-home machine (mkdir + a
+    # Page.setDownloadBehavior override). ``slug`` is nullable for
+    # legacy rows (the boot migration fills it), and a slugless store
+    # has no wrapper or downloads dir to name.
+    if slug:
+        paths_note = (
+            f'Your store slug is `{slug}` — this exact string, '
+            f'NOT the display name. The wrapper is '
+            f'`{BROWSER_USE_BIN_DIR / slug / "browser-use"}` and browser '
+            f'downloads land in `{store_downloads_dir(slug)}/` — also '
+            f'`$VIBE_STORE_DOWNLOADS` in your shell (`ls -lt` it after '
+            f'triggering a download). These are the RESOLVED paths for '
+            f'this server — use them or `$VIBE_STORE_DOWNLOADS`, never a '
+            f'path remembered from a doc, a skill example or another '
+            f'machine. The platform pins this dir; nothing you do '
+            f'should change where files save. Ignore '
+            f'any other slug spelling from the task text or stale '
+            f'directories.\n'
+        )
+    else:
+        paths_note = (
+            'This store has no folder slug yet — the server assigns one '
+            'on its next start. No browser wrapper or downloads dir '
+            'exists for it until then.\n'
+        )
     if is_antidetect(backend):
         ctx = (
             f"You are working on store '{store.name}'.\n"
@@ -155,13 +185,7 @@ def build_store_context(
             f'`browser-use` CLI via a heredoc (0.13 has no '
             f'subcommands — e.g. '
             f"`browser-use <<'PY'` / `new_tab(url)` / `PY`).\n"
-            f'Your store slug is `{slug}` — this exact string, '
-            f'NOT the display name. The wrapper is '
-            f'`~/.vibe-seller/bin/{slug}/browser-use` and browser '
-            f'downloads land in `~/.vibe-seller/downloads/{slug}/` '
-            f'(`ls -lt` it after triggering a download). Ignore '
-            f'any other slug spelling from the task text or stale '
-            f'directories.\n'
+            f'{paths_note}'
             # The runtime already exports VIBE_TASK_ID and the wrapper
             # derives the browser session from it (`<slug>-<first 8
             # hex>`). An agent that regenerated it per call got a
@@ -220,13 +244,7 @@ def build_store_context(
             f'`browser-use` CLI via a heredoc (0.13 has no '
             f'subcommands — e.g. '
             f"`browser-use <<'PY'` / `new_tab(url)` / `PY`).\n"
-            f'Your store slug is `{slug}` — this exact string, '
-            f'NOT the display name. The wrapper is '
-            f'`~/.vibe-seller/bin/{slug}/browser-use` and browser '
-            f'downloads land in `~/.vibe-seller/downloads/{slug}/` '
-            f'(`ls -lt` it after triggering a download). Ignore '
-            f'any other slug spelling from the task text or stale '
-            f'directories.\n'
+            f'{paths_note}'
             # The runtime already exports VIBE_TASK_ID and the wrapper
             # derives the browser session from it (`<slug>-<first 8
             # hex>`). An agent that regenerated it per call got a

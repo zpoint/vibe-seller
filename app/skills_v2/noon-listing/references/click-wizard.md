@@ -182,7 +182,7 @@ freshly minted noon SKU.
 
 - **Image upload.** The file input is hidden; set it, fire `change`, then
   confirm the "Review Images" modal. The photo must be in
-  `~/.vibe-seller/downloads/<slug>/` so the browser can read it:
+  `$VIBE_STORE_DOWNLOADS/` so the browser can read it:
 
   ```bash
   browser-use <<'PY'

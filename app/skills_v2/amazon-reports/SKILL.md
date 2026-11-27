@@ -166,7 +166,7 @@ browser wedge.
 ## Downloads
 
 Downloads land in the store's downloads dir,
-`~/.vibe-seller/downloads/<slug>/`, which is shared by every task on the
+`$VIBE_STORE_DOWNLOADS/`, which is shared by every task on the
 store and keeps old files. Nothing reaches the task directory on its own.
 
 **Move each file out the moment it lands, under a name unique to its
@@ -179,7 +179,7 @@ still shows a file with the expected name — the wrong marketplace's.
 Moving (not copying) leaves nothing behind to be picked up by mistake.
 
 ```bash
-DL=~/.vibe-seller/downloads/<slug>
+DL=$VIBE_STORE_DOWNLOADS
 ls -lt "$DL" | head          # identify the file you just downloaded
 mkdir -p reports_07_<cc1>_<slug>
 mv "$DL/2026JulMonthlyTransaction.csv" reports_07_<cc1>_<slug>/
