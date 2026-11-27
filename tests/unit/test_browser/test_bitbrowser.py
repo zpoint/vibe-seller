@@ -1020,3 +1020,31 @@ async def test_list_non_dict_data_is_store_unavailable():
     client = _client(server.port)
     with pytest.raises(StoreUnavailable):
         await client.list_stores()
+
+
+# ── the native Windows branch (addendum 18 audit) ────────────────────
+
+
+async def test_native_windows_reads_appdata_from_the_env(monkeypatch, tmp_path):
+    """Natively, %APPDATA% is in the environment and is used DIRECTLY —
+    the PowerShell GetFolderPath fallback is WSL-only and must never
+    run when the env is present (the audit's rule: no /mnt/c, no
+    wslpath, no interop on the native path)."""
+    cfg_dir = tmp_path / 'BitBrowser'
+    cfg_dir.mkdir()
+    (cfg_dir / 'config.json').write_text(
+        json.dumps({'localServerAddress': 'http://127.0.0.1:54347'}),
+        encoding='utf-8',
+    )
+    monkeypatch.setattr(bb_launch, 'get_platform', lambda: 'windows')
+    monkeypatch.setenv('APPDATA', str(tmp_path))
+    called = []
+
+    def _no_powershell(script, timeout=30.0):
+        called.append(script)
+        raise AssertionError('PowerShell must not run on native Windows')
+
+    monkeypatch.setattr(bb_launch, 'run_powershell', _no_powershell)
+    client = bb.BitBrowserClient({})
+    assert await client.discover_port() == 54347
+    assert called == []
