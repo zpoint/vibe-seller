@@ -160,7 +160,8 @@ def build_store_context(
             f'triggering a download). These are the RESOLVED paths for '
             f'this server — use them or `$VIBE_STORE_DOWNLOADS`, never a '
             f'path remembered from a doc, a skill example or another '
-            f'machine. Ignore '
+            f'machine. The platform pins this dir; nothing you do '
+            f'should change where files save. Ignore '
             f'any other slug spelling from the task text or stale '
             f'directories.\n'
         )

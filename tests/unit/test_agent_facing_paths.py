@@ -41,10 +41,14 @@ SCANNED_DIRS = (
 )
 
 # Every spelling of "the default home's vibe-seller dir" an agent might
-# copy verbatim into a shell command.
+# copy verbatim into a shell command. Plus the CDP method that must
+# never be NAMED in agent-facing text (F3): "never call X" still
+# introduces X as the available verb — the observed trigger chain had
+# agents "helpfully" calling it after reading such a sentence.
 FORBIDDEN_LITERALS = (
     '~/.vibe-seller',
     '$HOME/.vibe-seller',
+    'setDownloadBehavior',
 )
 
 
@@ -143,4 +147,17 @@ def test_k1_negative_control_planted_token_is_caught(tmp_path):
         encoding='utf-8',
     )
     offenders = _md_files_mentioning(tmp_path, 'VIBE_STORE_DOWNLOADS')
+    assert offenders == [planted]
+
+
+@pytest.mark.unit
+def test_f3_negative_control_planted_method_name_is_caught(tmp_path):
+    """The forbidden-literal scan catches the CDP method name: plant
+    it in a temp tree and the same helper flags it (proves the guards
+    above fail, not silently pass, if the token returns)."""
+    planted = tmp_path / 'planted.md'
+    planted.write_text(
+        'never point setDownloadBehavior elsewhere', encoding='utf-8'
+    )
+    offenders = _md_files_mentioning(tmp_path, 'setDownloadBehavior')
     assert offenders == [planted]

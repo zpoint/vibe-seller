@@ -6,9 +6,8 @@ message actually forwarded upstream (captured via a stub
 removed or broken in the production code path.
 """
 
-import json
+import json as _json
 import logging
-import os
 from unittest import mock
 
 import pytest
@@ -18,100 +17,18 @@ from app.browser.cdp_mux_proxy import CDPMuxProxy
 
 
 @pytest.mark.unit
-class TestDownloadPathRewrite:
-    """Test setDownloadBehavior interception via _route_client_message."""
+class TestSetDownloadBehaviorAnsweredLocally:
+    """F2: the pin is IMMORTAL — a client's set*DownloadBehavior is
+    answered locally, never forwarded.
 
-    def _make_proxy(self, download_dir=None):
-        """Create a proxy instance (not started — no sockets).
-
-        Stubs `_send_upstream` to record what would be forwarded,
-        so we can assert on the real message that goes to the browser.
-        """
-        proxy = CDPMuxProxy(
-            listen_port=0,
-            target_port=0,
-            download_dir=download_dir,
-        )
-        proxy._forwarded = []
-
-        async def _capture(msg):
-            proxy._forwarded.append(msg)
-
-        proxy._send_upstream = _capture
-        return proxy
-
-    async def test_rewrite_when_download_dir_set(self):
-        proxy = self._make_proxy(download_dir='/stable/path')
-        msg = {
-            'id': 1,
-            'method': 'Browser.setDownloadBehavior',
-            'params': {
-                'behavior': 'allow',
-                'downloadPath': '/tmp/browser-use-downloads-abc123/',
-                'eventsEnabled': True,
-            },
-        }
-        await proxy._route_client_message('client-a', json.dumps(msg))
-
-        assert len(proxy._forwarded) == 1
-        forwarded = proxy._forwarded[0]
-        assert forwarded['method'] == 'Browser.setDownloadBehavior'
-        assert forwarded['params']['downloadPath'] == '/stable/path'
-        # Other params untouched
-        assert forwarded['params']['behavior'] == 'allow'
-        assert forwarded['params']['eventsEnabled'] is True
-
-    async def test_no_rewrite_when_download_dir_none(self):
-        proxy = self._make_proxy(download_dir=None)
-        original_path = '/tmp/browser-use-downloads-abc123/'
-        msg = {
-            'id': 1,
-            'method': 'Browser.setDownloadBehavior',
-            'params': {
-                'behavior': 'allow',
-                'downloadPath': original_path,
-                'eventsEnabled': True,
-            },
-        }
-        await proxy._route_client_message('client-a', json.dumps(msg))
-
-        assert proxy._forwarded[0]['params']['downloadPath'] == original_path
-
-    async def test_other_methods_untouched(self):
-        proxy = self._make_proxy(download_dir='/stable/path')
-        msg = {
-            'id': 1,
-            'method': 'Target.createTarget',
-            'params': {'url': 'about:blank'},
-        }
-        await proxy._route_client_message('client-a', json.dumps(msg))
-
-        assert proxy._forwarded[0]['params'] == {'url': 'about:blank'}
-
-    async def test_no_crash_when_params_missing_download_path(self):
-        proxy = self._make_proxy(download_dir='/stable/path')
-        msg = {
-            'id': 1,
-            'method': 'Browser.setDownloadBehavior',
-            'params': {'behavior': 'deny'},
-        }
-        await proxy._route_client_message('client-a', json.dumps(msg))
-
-        forwarded = proxy._forwarded[0]
-        # Missing downloadPath key should NOT be added
-        assert 'downloadPath' not in forwarded['params']
-        assert forwarded['params']['behavior'] == 'deny'
-
-
-@pytest.mark.unit
-class TestPageDownloadBehaviorRewrite:
-    """``Page.setDownloadBehavior`` must be pinned like ``Browser.*``.
-
-    A live task agent followed a doc's hardcoded default-home path on a
-    multi-home machine: it mkdir'd the dir in ANOTHER server's home and
-    overrode the mux pin with ``Page.setDownloadBehavior`` — the one
-    spelling the old rewrite did not cover. Downloads then landed
-    outside this server's tree entirely.
+    Chrome ties the browser-wide download behaviour to the DevTools
+    SESSION that last set it. The browser_harness daemon relay scopes
+    every non-Target call to its page session, so a forwarded agent
+    call — even with its path rewritten — transfers pin ownership to a
+    mortal tab; when that session ends Chrome resets to the profile
+    default and every later download leaves the store dir (harness
+    lane F2, proven live). Answering locally keeps the setting owned
+    by the mux's persistent root session (the startup pin).
     """
 
     def _make_proxy(self, download_dir=None):
@@ -121,185 +38,144 @@ class TestPageDownloadBehaviorRewrite:
             download_dir=download_dir,
         )
         proxy._forwarded = []
+        proxy._answered = []
 
-        async def _capture(msg):
+        async def _capture_upstream(msg):
             proxy._forwarded.append(msg)
 
-        proxy._send_upstream = _capture
+        async def _capture_client(text):
+            proxy._answered.append(_json.loads(text))
+
+        proxy._send_upstream = _capture_upstream
+
+        class _Ws:
+            async def send(self, text):
+                await _capture_client(text)
+
+        class _Client:
+            ws = _Ws()
+
+        proxy._clients = {'client-a': _Client()}
         return proxy
 
-    async def test_page_override_rewritten_to_pin(self):
-        """The incident, verbatim: an outside downloadPath (here the
-        default-home spelling of another server's tree) must end up in
-        the pinned dir."""
-        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
+    async def test_browser_call_answered_not_forwarded(self):
+        """(1) Browser.* from a client: Chrome's success shape comes
+        back to THAT client, and nothing goes upstream."""
+        proxy = self._make_proxy(download_dir='/pin/acme')
         msg = {
-            'id': 7,
-            'method': 'Page.setDownloadBehavior',
+            'id': 5,
+            'method': 'Browser.setDownloadBehavior',
             'params': {
                 'behavior': 'allow',
-                'downloadPath': '/home/other/.vibe-seller/downloads/acme',
+                'downloadPath': '/home/other/.vibe-seller/downloads/x',
+                'eventsEnabled': True,
             },
         }
-        await proxy._route_client_message('client-a', json.dumps(msg))
+        await proxy._route_client_message('client-a', _json.dumps(msg))
 
-        forwarded = proxy._forwarded[0]
-        assert forwarded['method'] == 'Page.setDownloadBehavior'
-        assert forwarded['params']['downloadPath'] == '/srv-home/downloads/acme'
-        assert forwarded['params']['behavior'] == 'allow'
+        assert proxy._forwarded == []
+        assert len(proxy._answered) == 1
+        assert proxy._answered[0] == {'id': 5, 'result': {}}
 
-    async def test_page_override_logged(self, caplog):
-        """The rewrite is visible in the server log — the audit trail
-        for 'an agent tried to redirect downloads'."""
-        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
+    async def test_page_call_answered_with_session_echo(self):
+        """(2) Page.* — same, and a session-scoped call gets the
+        sessionId echoed back, matching Chrome's response shape."""
+        proxy = self._make_proxy(download_dir='/pin/acme')
         msg = {
             'id': 7,
             'method': 'Page.setDownloadBehavior',
+            'sessionId': 'SES1',
             'params': {
                 'behavior': 'allow',
                 'downloadPath': '/tmp/elsewhere',
             },
         }
-        with caplog.at_level(logging.INFO, logger='app.browser'):
-            await proxy._route_client_message('client-a', json.dumps(msg))
+        await proxy._route_client_message('client-a', _json.dumps(msg))
 
-        assert 'outside the pinned dir' in caplog.text
-        assert '/tmp/elsewhere' in caplog.text
+        assert proxy._forwarded == []
+        assert proxy._answered == [{'id': 7, 'result': {}, 'sessionId': 'SES1'}]
 
-    async def test_page_matching_path_passthrough_silent(self, caplog):
-        """A downloadPath already equal to the pin (any ~ / trailing
-        slash spelling) passes through untouched and unlogged."""
-        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
+    async def test_pin_never_sent_on_a_page_session(self):
+        """(3) the swallow is total: after a client's call (and even
+        its disconnect + grace), no setDownloadBehavior of ANY kind
+        ever carries a sessionId upstream — the only upstream pin is
+        the sessionless startup one, so no mortal session can own it."""
+        proxy = self._make_proxy(download_dir='/pin/acme')
+        for method in (
+            'Browser.setDownloadBehavior',
+            'Page.setDownloadBehavior',
+        ):
+            msg = {
+                'id': 1,
+                'method': method,
+                'sessionId': 'SES-MORTAL',
+                'params': {'behavior': 'allow', 'downloadPath': '/x'},
+            }
+            await proxy._route_client_message('client-a', _json.dumps(msg))
+        # Simulate the client's session dying (grace cleanup).
+        proxy._session_to_client.pop('SES-MORTAL', None)
+        proxy._clients.pop('client-a', None)
+        # A NEW client's call is swallowed just the same.
         msg = {
-            'id': 7,
-            'method': 'Page.setDownloadBehavior',
-            'params': {
-                'behavior': 'allow',
-                'downloadPath': '/srv-home/downloads/acme/',
-            },
-        }
-        with caplog.at_level(logging.INFO, logger='app.browser'):
-            await proxy._route_client_message('client-a', json.dumps(msg))
-
-        forwarded = proxy._forwarded[0]
-        # Unchanged — the matching spelling is passed through verbatim
-        # (trailing slash and all); only a mismatch is rewritten.
-        assert (
-            forwarded['params']['downloadPath'] == '/srv-home/downloads/acme/'
-        )
-        assert 'outside the pinned dir' not in caplog.text
-
-    async def test_page_deny_without_path_untouched(self):
-        """``behavior: deny`` with no downloadPath is a 'do not
-        download' choice, not a redirect — never rewritten."""
-        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
-        msg = {
-            'id': 7,
-            'method': 'Page.setDownloadBehavior',
-            'params': {'behavior': 'deny'},
-        }
-        await proxy._route_client_message('client-a', json.dumps(msg))
-
-        forwarded = proxy._forwarded[0]
-        assert 'downloadPath' not in forwarded['params']
-        assert forwarded['params']['behavior'] == 'deny'
-
-    async def test_page_no_pin_passthrough(self):
-        """No pinned dir (``download_dir=None``) → nothing enforced."""
-        proxy = self._make_proxy(download_dir=None)
-        original = '/home/other/.vibe-seller/downloads/acme'
-        msg = {
-            'id': 7,
-            'method': 'Page.setDownloadBehavior',
-            'params': {'behavior': 'allow', 'downloadPath': original},
-        }
-        await proxy._route_client_message('client-a', json.dumps(msg))
-
-        assert proxy._forwarded[0]['params']['downloadPath'] == original
-
-    async def test_page_subdir_of_pin_untouched(self, caplog):
-        """A flow that points downloads at a SUBDIRECTORY of the pin
-        and waits for the file exactly there keeps working — the
-        rewrite must never move a file away from where a legitimate
-        flow waits for it (single-install no-regression rule)."""
-        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
-        sub = '/srv-home/downloads/acme/run-2026-11'
-        msg = {
-            'id': 7,
-            'method': 'Page.setDownloadBehavior',
-            'params': {'behavior': 'allow', 'downloadPath': sub},
-        }
-        with caplog.at_level(logging.INFO, logger='app.browser'):
-            await proxy._route_client_message('client-a', json.dumps(msg))
-
-        forwarded = proxy._forwarded[0]
-        assert forwarded['params']['downloadPath'] == sub
-        assert 'outside the pinned dir' not in caplog.text
-
-    async def test_browser_subdir_of_pin_untouched(self, caplog):
-        """Same shape through Browser.setDownloadBehavior (a
-        browser-wide flow may equally target a subfolder)."""
-        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
-        sub = '/srv-home/downloads/acme/exports'
-        msg = {
-            'id': 7,
+            'id': 2,
             'method': 'Browser.setDownloadBehavior',
-            'params': {'behavior': 'allow', 'downloadPath': sub},
+            'params': {'behavior': 'allow', 'downloadPath': '/y'},
         }
-        with caplog.at_level(logging.INFO, logger='app.browser'):
-            await proxy._route_client_message('client-a', json.dumps(msg))
+        await proxy._route_client_message('client-b', _json.dumps(msg))
 
-        forwarded = proxy._forwarded[0]
-        assert forwarded['params']['downloadPath'] == sub
-        assert 'outside the pinned dir' not in caplog.text
+        # The only upstream setDownloadBehavior ever sent is the
+        # sessionless startup pin.
+        await proxy._startup_download_behavior()
+        upstream_setdb = [
+            m
+            for m in proxy._forwarded
+            if 'setDownloadBehavior' in str(m.get('method', ''))
+        ]
+        assert len(upstream_setdb) == 1
+        assert 'sessionId' not in upstream_setdb[0]
+        assert upstream_setdb[0]['params']['downloadPath'] == '/pin/acme'
 
-    async def test_tilde_spelled_pin_untouched(self, caplog, tmp_path):
-        """The pin spelled with ``~`` (what a default-home agent types)
-        resolves inside and is left alone."""
-        home = tmp_path
-        pin = home / '.vibe-seller' / 'downloads' / 'acme'
-        proxy = self._make_proxy(download_dir=str(pin))
-        requested = '~/.vibe-seller/downloads/acme'
-        msg = {
-            'id': 7,
-            'method': 'Page.setDownloadBehavior',
-            'params': {'behavior': 'allow', 'downloadPath': requested},
-        }
-        old_home = os.environ.get('HOME')
-        os.environ['HOME'] = str(home)
-        try:
+    async def test_logged_once_per_answered_call(self, caplog):
+        """(4) one INFO line per answered call, naming the client and
+        the requested path."""
+        proxy = self._make_proxy(download_dir='/pin/acme')
+        for i, path in enumerate(('/a', '/b')):
+            msg = {
+                'id': i + 1,
+                'method': 'Browser.setDownloadBehavior',
+                'params': {'behavior': 'allow', 'downloadPath': path},
+            }
             with caplog.at_level(logging.INFO, logger='app.browser'):
-                await proxy._route_client_message('client-a', json.dumps(msg))
-        finally:
-            if old_home is None:
-                os.environ.pop('HOME', None)
-            else:
-                os.environ['HOME'] = old_home
+                await proxy._route_client_message('client-a', _json.dumps(msg))
+        assert caplog.text.count('answered locally') == 2
+        assert '/a' in caplog.text and '/b' in caplog.text
 
-        forwarded = proxy._forwarded[0]
-        assert forwarded['params']['downloadPath'] == requested
-        assert 'outside the pinned dir' not in caplog.text
-
-    async def test_prefix_lookalike_outside_is_rewritten(self):
-        """A path that shares the pin's prefix but is NOT under it
-        (a sibling dir) is outside — the inside-check must not be a
-        bare ``startswith``."""
-        proxy = self._make_proxy(download_dir='/srv-home/downloads/acme')
-        sibling = '/srv-home/downloads/acme-other'
+    async def test_no_pin_forwarded_unchanged(self):
+        """(5) no download_dir (aux-style proxies): the call is
+        forwarded exactly as the client sent it — nothing to protect."""
+        proxy = self._make_proxy(download_dir=None)
         msg = {
-            'id': 7,
-            'method': 'Page.setDownloadBehavior',
-            'params': {'behavior': 'allow', 'downloadPath': sibling},
+            'id': 9,
+            'method': 'Browser.setDownloadBehavior',
+            'params': {'behavior': 'allow', 'downloadPath': '/anywhere'},
         }
-        await proxy._route_client_message('client-a', json.dumps(msg))
+        await proxy._route_client_message('client-a', _json.dumps(msg))
 
+        assert len(proxy._forwarded) == 1
         forwarded = proxy._forwarded[0]
-        assert forwarded['params']['downloadPath'] == '/srv-home/downloads/acme'
+        assert forwarded['method'] == 'Browser.setDownloadBehavior'
+        assert forwarded['params']['downloadPath'] == '/anywhere'
+        assert forwarded['id'] != 9  # rewritten id, not the local answer
+        assert proxy._answered == []
 
-    async def test_browser_rewrite_also_logged(self, caplog):
-        """The pre-existing Browser.* rewrite now logs too (the
-        watchdog's /tmp dir shows up here — once per daemon start)."""
-        proxy = self._make_proxy(download_dir='/stable/path')
+    async def test_watchdog_tmp_dir_call_is_swallowed(self):
+        """browser-use's DownloadsWatchdog sets a random /tmp dir per
+        daemon start. Under the immortal-pin contract that call is
+        answered locally (never forwarded, never applied): the
+        deterministic-downloads behaviour now comes from the startup
+        pin ALONE, and the watchdog's success response keeps its
+        click-with-download-detection flow alive."""
+        proxy = self._make_proxy(download_dir='/pin/acme')
         msg = {
             'id': 1,
             'method': 'Browser.setDownloadBehavior',
@@ -309,11 +185,73 @@ class TestPageDownloadBehaviorRewrite:
                 'eventsEnabled': True,
             },
         }
-        with caplog.at_level(logging.INFO, logger='app.browser'):
-            await proxy._route_client_message('client-a', json.dumps(msg))
+        await proxy._route_client_message('client-a', _json.dumps(msg))
+        assert proxy._forwarded == []
+        assert proxy._answered == [{'id': 1, 'result': {}}]
 
-        assert proxy._forwarded[0]['params']['downloadPath'] == '/stable/path'
-        assert 'outside the pinned dir' in caplog.text
+    async def test_no_id_still_swallowed(self):
+        """An event-shaped call with no id: swallowed silently, still
+        nothing upstream."""
+        proxy = self._make_proxy(download_dir='/pin/acme')
+        msg = {
+            'method': 'Browser.setDownloadBehavior',
+            'params': {'behavior': 'allow', 'downloadPath': '/x'},
+        }
+        await proxy._route_client_message('client-a', _json.dumps(msg))
+        assert proxy._forwarded == []
+        assert proxy._answered == []
+
+
+@pytest.mark.unit
+class TestDownloadEventFanOutUnchanged:
+    """Q-EVENTS: root-session download events keep reaching clients.
+
+    browser-use's DownloadsWatchdog waits on
+    Browser.downloadWillBegin/downloadProgress (its
+    click-with-download-detection resolves on them), and with F2 the
+    events' enabler is always the mux's root session (the startup pin
+    sets eventsEnabled). The mux's EXISTING broadcast must keep
+    fanning those out — a client must never hang waiting for an event
+    it no longer gets.
+    """
+
+    def _make_proxy(self):
+        proxy = CDPMuxProxy(listen_port=0, target_port=0)
+        proxy._fanout = []
+        names = {}
+
+        async def _capture_client(client, msg):
+            proxy._fanout.append((names[id(client)], msg))
+
+        proxy._send_client = _capture_client
+        clients = {}
+        for cid in ('client-a', 'client-b'):
+            c = object()
+            names[id(c)] = cid
+            clients[cid] = c
+        proxy._clients = clients
+        return proxy
+
+    async def test_browser_download_events_broadcast_to_all_clients(self):
+        proxy = self._make_proxy()
+        event = {
+            'method': 'Browser.downloadWillBegin',
+            'params': {'frameId': 'F1', 'guid': 'G1'},
+        }
+        await proxy._route_upstream_message(_json.dumps(event))
+
+        recipients = sorted(cid for cid, _ in proxy._fanout)
+        assert recipients == ['client-a', 'client-b']
+        assert all(m == event for _, m in proxy._fanout)
+
+    async def test_download_progress_also_broadcast(self):
+        proxy = self._make_proxy()
+        event = {
+            'method': 'Browser.downloadProgress',
+            'params': {'guid': 'G1', 'state': 'completed'},
+        }
+        await proxy._route_upstream_message(_json.dumps(event))
+        assert len(proxy._fanout) == 2
 
 
 @pytest.mark.unit
@@ -427,7 +365,7 @@ class TestPinOnEveryUpstreamConnect:
 
         class _FakeWs:
             async def send(self, msg):
-                calls.append(json.loads(msg))
+                calls.append(_json.loads(msg))
 
         class _FakeConnect:
             def __await__(self):
@@ -460,100 +398,3 @@ class TestPinOnEveryUpstreamConnect:
         ]
         assert len(pins) == 1
         assert pins[0]['params']['downloadPath'] == '/pin/acme'
-
-    async def test_watchdog_tmp_dir_still_rewritten(self):
-        """browser-use's DownloadsWatchdog sets a random /tmp dir per
-        daemon start — main rewrote it to the pin and so must this
-        branch (the deterministic-downloads fix)."""
-        proxy = self._make_proxy(download_dir='/pin/acme')
-        msg = {
-            'id': 1,
-            'method': 'Browser.setDownloadBehavior',
-            'params': {
-                'behavior': 'allow',
-                'downloadPath': '/tmp/browser-use-downloads-abc123/',
-                'eventsEnabled': True,
-            },
-        }
-        await proxy._route_client_message('client-a', json.dumps(msg))
-        assert proxy._forwarded[0]['params']['downloadPath'] == '/pin/acme'
-
-
-@pytest.mark.unit
-class TestWindowsShapedPins:
-    """Z2: a Windows-shaped pin compares with ntpath semantics on ANY
-    server OS.
-
-    winchrome passes the WINDOWS-side dir as the pin while the server
-    runs on POSIX; native-Windows Ziniao passes one on Windows. In both
-    cases a client's ``c:/``-spelled or lowercased subdir of the pin is
-    INSIDE and must be left alone; a sibling or another drive is
-    outside.
-    """
-
-    PIN = 'C:\\Users\\straw\\downloads\\acme'
-
-    def _make_proxy(self):
-        proxy = CDPMuxProxy(
-            listen_port=0,
-            target_port=0,
-            download_dir=self.PIN,
-        )
-        proxy._forwarded = []
-
-        async def _capture(msg):
-            proxy._forwarded.append(msg)
-
-        proxy._send_upstream = _capture
-        return proxy
-
-    async def _send(self, proxy, download_path):
-        msg = {
-            'id': 1,
-            'method': 'Page.setDownloadBehavior',
-            'params': {'behavior': 'allow', 'downloadPath': download_path},
-        }
-        await proxy._route_client_message('client-a', json.dumps(msg))
-        return proxy._forwarded[0]['params']['downloadPath']
-
-    async def test_windows_subdir_backslash_inside(self):
-        proxy = self._make_proxy()
-        sub = 'C:\\Users\\straw\\downloads\\acme\\run-1'
-        assert await self._send(proxy, sub) == sub
-
-    async def test_windows_subdir_forward_slash_lowercase_inside(self):
-        proxy = self._make_proxy()
-        sub = 'c:/users/straw/downloads/acme/run-1'
-        assert await self._send(proxy, sub) == sub
-
-    async def test_pin_itself_forward_slash_lowercase_inside(self):
-        proxy = self._make_proxy()
-        same = 'c:/users/straw/downloads/acme/'
-        assert await self._send(proxy, same) == same
-
-    async def test_sibling_dir_outside_rewritten(self):
-        proxy = self._make_proxy()
-        got = await self._send(proxy, 'C:\\Users\\straw\\downloads\\acme-other')
-        assert got == self.PIN
-
-    async def test_different_drive_outside_rewritten(self):
-        proxy = self._make_proxy()
-        got = await self._send(proxy, 'D:\\Users\\straw\\downloads\\acme')
-        assert got == self.PIN
-
-    async def test_negative_control_posix_compare_reads_subdir_outside(
-        self,
-    ):
-        """Without the ntpath branch (the pre-fix state on a POSIX
-        server), a Windows-spelled subdir reads as OUTSIDE and would be
-        rewritten to the pin root — this demonstrates the detector
-        catches exactly that regression."""
-        proxy = self._make_proxy()
-        with mock.patch(
-            'app.browser.cdp_mux_routing._is_windows_shaped',
-            lambda _p: False,
-        ):
-            got = await self._send(
-                proxy, 'C:\\Users\\straw\\downloads\\acme\\run-1'
-            )
-        assert got == self.PIN

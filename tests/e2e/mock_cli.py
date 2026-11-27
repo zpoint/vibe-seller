@@ -578,6 +578,7 @@ def run_spawn_subtasks(prompt: str):
 # start call, so nothing after the pair may appear in the transcript.
 # (tests/e2e/test_browser_start_failure_mock.py)
 STORE_BROWSER_MARKER = '[[MOCK_STORE_BROWSER]]'
+DOWNLOAD_PROOF_MARKER = '[[MOCK_DOWNLOAD_PROOF]]'
 
 
 def emit_tool_result(tool_use_id: str, output: str, is_error: bool = False):
@@ -644,6 +645,73 @@ def _resolve_browser_use() -> str:
         'PATH — the store wrapper was not written before the agent '
         'started'
     )
+
+
+def run_download_proof():
+    """Deterministic download flow for the single-install re-proof.
+
+    Executes the REAL store wrapper with a heredoc that opens the
+    local fixture page, clicks its 下载报表 button, waits for the
+    file, then lists the store's download dir. No LLM anywhere — the
+    mock's script is the agent. The outer driver (or test) asserts
+    the file landed in <sandbox home>/.vibe-seller/downloads/<slug>/.
+    """
+    import subprocess
+
+    emit_system()
+    time.sleep(DELAY)
+    browser_use = _resolve_browser_use()
+    heredoc = (
+        'new_tab("http://127.0.0.1:18770/")\n'
+        'import time\n'
+        'time.sleep(1)\n'
+        'box = js(\'var e=document.querySelector("#download"); '
+        'var r=e.getBoundingClientRect(); '
+        'return JSON.stringify({x:Math.round(r.x+r.width/2),'
+        "y:Math.round(r.y+r.height/2)})')\n"
+        'click_at_xy(box["x"], box["y"])\n'
+        'time.sleep(4)\n'
+    )
+    tool_id = 'toolu_mock_download_1'
+    emit({
+        'type': 'assistant',
+        'message': {
+            'role': 'assistant',
+            'content': [
+                {
+                    'type': 'tool_use',
+                    'id': tool_id,
+                    'name': 'Bash',
+                    'input': {
+                        'command': (f"{browser_use} <<'PY'\n{heredoc}PY"),
+                    },
+                }
+            ],
+        },
+    })
+    proc = subprocess.run(
+        [browser_use],
+        input=heredoc,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    output = (proc.stdout or '') + (proc.stderr or '')
+    emit_tool_result(tool_id, output, is_error=proc.returncode != 0)
+    listing = subprocess.run(
+        [
+            'bash',
+            '-c',
+            'ls -lt "${VIBE_STORE_DOWNLOADS:-$HOME/.vibe-seller/'
+            'downloads}/${VIBE_STORE_SLUG:-c-proof-store}" 2>&1 | head -5',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    final = 'download proof done\n' + (listing.stdout or '')
+    emit_text(final)
+    emit_result(final)
 
 
 def run_store_browser_start():
@@ -1093,6 +1161,8 @@ if __name__ == '__main__':
         run_linger_wait()
     elif OUTPUT_FILES_MARKER in prompt:
         run_output_files()
+    elif DOWNLOAD_PROOF_MARKER in prompt:
+        run_download_proof()
     elif STORE_BROWSER_MARKER in prompt:
         run_store_browser_start()
     elif SPAWN_SUBTASKS_MARKER in prompt:

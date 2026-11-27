@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import ntpath
-import os
-import re
 import time
 from typing import Any
 import uuid
@@ -23,52 +20,6 @@ from app.browser.cdp_mux_types import (
 from app.env_options import Options
 
 logger = logging.getLogger(__name__)
-
-
-def _normalize_dl_path(path: str) -> str:
-    """Canonical form for comparing a downloadPath with the pin.
-
-    ``expanduser`` + ``normpath`` cover the spellings an agent
-    plausibly types (``~/...``, trailing slash). Never ``resolve()``:
-    the winchrome pin is the Windows-side path while the agent sees
-    the WSL symlink, and resolving either side would make
-    equal-in-effect paths compare unequal.
-    """
-    return os.path.normpath(os.path.expanduser(path))
-
-
-_WIN_PATH_RE = re.compile(r'^[A-Za-z]:[\\/]')
-
-
-def _dl_path_inside(requested: str, pinned: str) -> bool:
-    """True when *requested* is the pin or lives under it.
-
-    This is the single-install no-regression rule: a flow that points
-    downloads at a SUBDIRECTORY of the pin and waits for the file
-    exactly there must keep working — only a path outside the pin is
-    rewritten.
-
-    The pin's SHAPE picks the comparison semantics, whatever the
-    server OS is: a Windows-shaped pin (a drive letter or a
-    backslash — winchrome's ``dl_win`` and native-Windows Ziniao both
-    pass one) is compared with ``ntpath`` semantics: case-insensitive,
-    ``/`` and ``\\`` equivalent, drive letter included. A POSIX pin
-    uses the local ``os.path`` (``normcase`` is the identity there, so
-    a case-mismatched POSIX spelling reads as outside — same as main).
-    """
-    mod = ntpath if _is_windows_shaped(pinned) else os.path
-
-    def norm(path: str) -> str:
-        return mod.normcase(mod.normpath(mod.expanduser(path)))
-
-    req = norm(requested)
-    pin = norm(pinned)
-    return req == pin or req.startswith(pin + mod.sep)
-
-
-def _is_windows_shaped(path: str) -> bool:
-    """A drive-letter prefix or a backslash marks a Windows path."""
-    return bool(_WIN_PATH_RE.match(path) or '\\' in path)
 
 
 class _RoutingMixin:
@@ -275,47 +226,48 @@ class _RoutingMixin:
             await self._handle_browser_close(client_id, msg)
             return
 
-        # --- Enforce the pinned download dir ---
-        # browser-use creates a fresh random /tmp dir per CLI invocation,
-        # and a task agent may try to point downloads somewhere it read
-        # from a stale doc (the default-home path on a multi-home
-        # machine — observed live writing into another server's home).
-        # Both spellings exist in CDP: `Browser.setDownloadBehavior`
-        # (browser-wide, used by the harness watchdog) and
-        # `Page.setDownloadBehavior` (per-page, which an agent used to
-        # override the pin).
+        # --- The download pin is IMMORTAL: answer locally, never forward ---
+        # Chrome ties the browser-wide download behaviour to the DevTools
+        # SESSION that last set it — the message's sessionId field, not
+        # the connection. The mux's startup pin (sessionless, browser
+        # endpoint) is owned by the mux's persistent root session and
+        # lives as long as the mux. But the browser_harness daemon relay
+        # attaches its page session to every non-Target call, so an
+        # agent's `cdp('Browser.setDownloadBehavior', ...)` — even with
+        # its path rewritten to the pin — TRANSFERS ownership of the pin
+        # to a mortal page session. When that tab or session ends
+        # (grace cleanup, task end), Chrome resets to the profile
+        # default and every LATER download leaves the store dir
+        # (harness lane F2, proven live).
         #
-        # INSIDE the pin is LEFT AS-IS: a legitimate flow may point
-        # downloads at the pin itself or at a SUBDIRECTORY of it
-        # (a per-run subfolder) and then wait for the file exactly
-        # there — rewriting that would move the file away from where
-        # the flow's "file landed" check looks (the single-install
-        # no-regression rule). Only a path OUTSIDE the pin is rewritten,
-        # and rewritten to the pin — not refused: a refused CDP error
-        # fails the agent mid-flow, and a failed agent improvises (the
-        # incident's whole failure class); the rewrite keeps the
-        # download where the agent's system prompt says it lands, while
-        # the log line below records the attempt.
+        # So when a pin exists, a client's set*DownloadBehavior is
+        # answered LOCALLY with a success response and NEVER forwarded:
+        # the client sees its call succeed, and the browser-wide setting
+        # stays owned by the root session. No pin (aux-style proxies):
+        # forward as today — nothing to protect.
         if (
             method
             in ('Browser.setDownloadBehavior', 'Page.setDownloadBehavior')
             and self.download_dir
         ):
-            params = msg.get('params', {})
-            requested = params.get('downloadPath')
-            if requested is not None and not _dl_path_inside(
-                requested, str(self.download_dir)
-            ):
-                pinned = str(self.download_dir)
-                logger.info(
-                    'CDPMuxProxy: client %s %s downloadPath %s is '
-                    'outside the pinned dir %s — rewritten',
-                    short_cid(client_id),
-                    method,
-                    requested,
-                    pinned,
-                )
-                params['downloadPath'] = pinned
+            logger.info(
+                'CDPMuxProxy: client %s %s (downloadPath %s) answered '
+                'locally; the pin owns downloads',
+                short_cid(client_id),
+                method,
+                msg.get('params', {}).get('downloadPath', '<none>'),
+            )
+            if original_id is not None:
+                # Chrome's own result shape for this call: an empty
+                # result object, with the sessionId echoed for a
+                # session-scoped call.
+                answer = {'id': original_id, 'result': {}}
+                if msg.get('sessionId'):
+                    answer['sessionId'] = msg['sessionId']
+                client = self._clients.get(client_id)
+                if client:
+                    await self._send_client(client, answer)
+            return
 
         # --- Block cross-client Target.closeTarget ---
         if method == 'Target.closeTarget':

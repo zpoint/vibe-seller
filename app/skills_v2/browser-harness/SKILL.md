@@ -33,11 +33,14 @@ The wrapper takes the heredoc form only, so every statement goes inside it.
   and never set `BU_NAME`, `BU_CDP_URL`, `BU_CDP_WS`, `VIBE_TASK_ID` or
   `--mcp` yourself; the wrapper rejects them, as it rejects local-profile
   and cloud-daemon helpers (`start_remote_daemon`, profile sync).
-- **Downloads land in `$VIBE_STORE_DOWNLOADS`** — your store's download
-  dir, resolved for this server (your system prompt spells the absolute
-  path). Never `mkdir` or point `setDownloadBehavior` at a path from a
-  doc or another machine: the CDP proxy pins downloads to this dir and
-  rewrites anything else.
+- **Downloads land in `$VIBE_STORE_DOWNLOADS` automatically — you
+  never configure where the browser saves files.** If a file you
+  expect is missing: (1) confirm the click landed (re-read the page),
+  (2) wait and re-check the directory — large exports take tens of
+  seconds, (3) only then report the gap. Do not redirect where the
+  browser saves files and do not create download directories —
+  downloads are pinned by the platform, and any manual attempt breaks
+  them for every later download.
 - **Seller-center work runs in the default session only.** For
   non-seller-center sites on the same store (tracking pages, supplier
   sites) use `--session <slug>-aux`; no other `--session` value is
