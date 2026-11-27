@@ -39,8 +39,7 @@ description: AI automation framework for cross-border sellers — locally deploy
 ## What is Vibe Seller?
 
 A local-first **browser-automation framework**. AI agents drive your
-store's real browser — an anti-detect browser such as Ziniao,
-Yuehulian, BitBrowser, AdsPower or Wenmai, or plain Chrome —
+store's real browser
 through CDP (Chrome's low-level remote-control protocol), the same
 way you'd click through pages yourself. Ad tuning, listing launches, inventory checks, invoicing,
 returns, warehouse setup, logistics lookup — whatever you can do in
