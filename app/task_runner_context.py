@@ -116,7 +116,13 @@ def _get_platform_sites() -> dict[str, dict[str, str]]:
             for m in re.finditer(
                 r'\|\s*[^|]+\|\s*(\w+)\s*\|\s*`([^`]+)`'
                 r'\s*\|',
-                path.read_text(),
+                # encoding: the knowledge files are UTF-8 markdown,
+                # and Windows' default codec is the ANSI codepage
+                # (cp936 etc.) — without this, any store task whose
+                # store has platform_countries crashed the whole
+                # prompt assembly with UnicodeDecodeError (found by
+                # the Windows integration smoke: an ads-synced store).
+                path.read_text(encoding='utf-8'),
             ):
                 sites[m.group(1)] = m.group(2)
             if sites:
