@@ -11,6 +11,8 @@ import pytest
 from app import config
 from app.cli_integrations import manager, paths, skills
 from app.cli_integrations.base import CliIntegration
+from app.cli_integrations.dingtalk import DingTalk
+from app.cli_integrations.feishu import Feishu
 from app.cli_integrations.registry import INTEGRATIONS
 from app.cli_integrations.wecom import (
     EXPIRED_ERRCODE,
@@ -89,6 +91,32 @@ async def test_one_expired_answer_means_the_authorization_expired():
 def test_only_wecom_needs_the_online_expiry_check():
     assert {k for k, i in INTEGRATIONS.items() if i.checks_expiry} == {'wecom'}
     assert CliIntegration.checks_expiry is False
+
+
+async def test_feishu_and_dingtalk_cli_statuses_detect_expiry():
+    """Their stored CLI status, not a date we invent, drives re-auth."""
+
+    async def feishu_run(args):
+        assert args == ['auth', 'status']
+        return (
+            0,
+            '{"identities": {"user": {"status": "verify_failed"}, "bot": {"status": "ready"}}}',
+            '',
+        )
+
+    feishu = await Feishu().auth_status(feishu_run)
+    assert (feishu.usable, feishu.reason) == (False, 'expired')
+
+    async def dingtalk_run(args):
+        assert args == ['auth', 'status', '--format', 'json', '--readonly']
+        return (
+            0,
+            '{"authenticated": false, "reason": "token_refresh_failed"}',
+            '',
+        )
+
+    dingtalk = await DingTalk().auth_status(dingtalk_run)
+    assert (dingtalk.usable, dingtalk.reason) == (False, 'expired')
 
 
 def _umbrella(integ) -> str:

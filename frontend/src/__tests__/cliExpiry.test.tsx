@@ -79,6 +79,29 @@ describe('WeCom authorization expiry on the integrations row', () => {
     expect(mockApi.get).not.toHaveBeenCalledWith('/api/integrations/cli/wecom/expiry')
   })
 
+  for (const key of ['feishu', 'dingtalk'] as const) {
+    it(`${key}: an enabled sign-in that expired shows the same Re-authorize UI`, async () => {
+      route(null, {
+        ...WECOM, key, title: key, checks_expiry: false,
+        auth: { usable: false, reason: 'expired', identity: null },
+      })
+      renderPanel()
+      const button = await screen.findByTestId(`cli-relogin-${key}`)
+      expect(button.textContent).toBe(cli.reauthorize)
+      expect(button.className).toContain('bg-indigo-600')
+      expect(screen.getByTestId(`cli-needs-signin-${key}`)).toBeTruthy()
+      expect(mockApi.get).not.toHaveBeenCalledWith(`/api/integrations/cli/${key}/expiry`)
+    })
+
+    it(`${key}: downloaded but never connected does not offer re-authorization`, async () => {
+      route(null, { ...WECOM, key, title: key, enabled: false, auth: null, checks_expiry: false })
+      renderPanel()
+      await screen.findByTestId(`cli-connect-${key}`)
+      expect(screen.queryByTestId(`cli-relogin-${key}`)).toBeNull()
+      expect(screen.queryByTestId(`cli-needs-signin-${key}`)).toBeNull()
+    })
+  }
+
   it('a platform without the online expiry check is never queried', async () => {
     route(null, { ...WECOM, key: 'feishu', checks_expiry: false })
     renderPanel()

@@ -27,7 +27,7 @@ export function TaskErrorNote({
   // Offer it only for an enabled platform the server says is expired,
   // and only when this error names that platform and says it expired.
   const named = /expired|过期/i.test(error) ? platforms.find(item => {
-    const names = item.title.split(/[()]/).map(n => n.trim()).filter(n => n.length > 1)
+    const names = item.title.split(/[()/]/).map(n => n.trim()).filter(n => n.length > 1)
     return names.some(name => error.toLowerCase().includes(name.toLowerCase()))
   }) : undefined
   if (named && !links.some(link => link.anchor === `cli-${named.key}`)) {
