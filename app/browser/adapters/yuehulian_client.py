@@ -1,10 +1,14 @@
-"""Real Windows-driven Yuehulian client (composes the IO + DOM layers).
+"""Real client driver for Yuehulian (composes the IO + DOM layers).
 
-Implements :class:`InjectClient` on top of :mod:`yuehulian_win`
-(process + inspector) and :mod:`yuehulian_dom` (pure parsing). The read
-path (ensure_running / is_logged_in / list_stores) is validated live; the
+Implements :class:`InjectClient` on top of the platform IO layer
+(native Windows and WSL both use :mod:`yuehulian_win`; macOS uses
+:mod:`yuehulian_mac` — picked in :func:`process_layer` /
+:func:`inspector_session`) and
+:mod:`yuehulian_dom` (pure parsing, shared by both platforms: the Mac
+client is the same Vue/Element-UI app). The read path (ensure_running /
+is_logged_in / list_stores) is validated live on both platforms; the
 open_store write path (spawn-hook → click → DevToolsActivePort) is
-exercised by the Step 4 e2e. The inspector is opened per operation and
+exercised by the live smoke. The inspector is opened per operation and
 closed right after, so no code-exec surface lingers.
 """
 
@@ -15,6 +19,7 @@ import logging
 import time
 import weakref
 
+from app.browser.adapters import yuehulian_mac
 from app.browser.adapters.yuehulian_dom import (
     CLEAR_SELECTION_JS,
     CLICK_CLOSE_BROWSER_JS,
@@ -32,7 +37,10 @@ from app.browser.adapters.yuehulian_dom import (
     select_only_row_js,
     selected_only_js,
 )
-from app.browser.adapters.yuehulian_win import InspectorSession, ProcessLayer
+from app.browser.adapters.yuehulian_win import (
+    InspectorSession,
+    ProcessLayer,
+)
 from app.browser.inject.client import InjectClient, OpenedStore, StoreRef
 from app.browser.inject.errors import (
     CdpUnreachable,
@@ -40,6 +48,7 @@ from app.browser.inject.errors import (
     LoginRequired,
     StoreNotFound,
 )
+from app.browser.ziniao_utils import get_platform
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +66,31 @@ def _ui_lock() -> asyncio.Lock:
     return lock
 
 
+def process_layer(config: dict) -> ProcessLayer:
+    """The platform's process layer (macOS: the Mac twin, else Windows).
+
+    One seam for tests of either platform: the Windows branch goes
+    through the module-level ``ProcessLayer`` and the Mac branch
+    through ``yuehulian_mac.MacProcessLayer``, so each can be patched.
+    """
+    if get_platform() == 'mac':
+        return yuehulian_mac.MacProcessLayer(config.get('client_path') or None)
+    return ProcessLayer(config.get('client_path') or None)
+
+
+def inspector_session(proc) -> InspectorSession:
+    """The platform's inspector session over that process layer."""
+    if get_platform() == 'mac':
+        return yuehulian_mac.MacInspectorSession(proc)
+    return InspectorSession(proc)
+
+
 class RealYuehulianClient(InjectClient):
-    """Drives the real 悦互联 Electron client on Windows."""
+    """Drives the real 悦互联 Electron client (Windows, macOS, WSL)."""
 
     def __init__(self, browser_config: dict | None = None):
         cfg = browser_config or {}
-        self._proc = ProcessLayer(cfg.get('client_path') or None)
+        self._proc = process_layer(cfg)
         # Team-login credentials for auto-login, injected by the manager /
         # the enumerate router from app settings. Empty → no auto-login.
         # The generic injection writes ``<vendor>_<field>`` keys; the
@@ -140,7 +168,7 @@ class RealYuehulianClient(InjectClient):
             pid = await asyncio.to_thread(self._proc.main_pid)
             if not pid:
                 raise ClientNotRunning('no main process to inspect')
-            insp = InspectorSession(self._proc)
+            insp = inspector_session(self._proc)
             await insp.open(pid)
             try:
                 yield insp
@@ -169,13 +197,24 @@ class RealYuehulianClient(InjectClient):
                 return
             if not (self._team and self._account and self._password):
                 raise LoginRequired()
-            result = str(
-                await insp.eval_in_renderer(
-                    fill_team_login_js(
-                        self._team, self._account, self._password
+            # The login tab's inputs render asynchronously AFTER the tab
+            # click inside fill_team_login_js, so a first NOFIELDS can
+            # mean "form still mounting", not "UI changed" (seen live on
+            # the Mac client; a latent race on Windows too, where the
+            # team tab simply happened to be active). Poll the same JS
+            # until it stops naming missing fields, then give up.
+            result = 'NOFIELDS'
+            for _ in range(10):
+                result = str(
+                    await insp.eval_in_renderer(
+                        fill_team_login_js(
+                            self._team, self._account, self._password
+                        )
                     )
                 )
-            )
+                if result != 'NOFIELDS':
+                    break
+                await asyncio.sleep(0.5)
             if result != 'OK':
                 raise LoginRequired(
                     f'team-login form could not be driven: {result}'
@@ -269,46 +308,75 @@ class RealYuehulianClient(InjectClient):
                     break
             if not found:
                 raise StoreNotFound(ref)
+            udd, click_ts = await self._open_with_hook(insp, ref)
 
-            await insp.install_spawn_hook()
-            try:
+        try:
+            port = await self._await_devtools_port(udd, newer_than=click_ts - 5)
+        except CdpUnreachable:
+            # A kernel left over from a client that was SIGKILLed can
+            # still hold this env's profile (singleton lock): the fresh
+            # kernel spawns but never writes DevToolsActivePort. The
+            # process layer terminates leftover kernels of THIS env's
+            # dir only (a no-op returning [] on Windows, so nothing
+            # changes there); when something was actually killed, open
+            # the env once more — bounded to one retry.
+            killed = await asyncio.to_thread(self._proc.terminate_kernels, udd)
+            if not killed:
+                raise
+            logger.info(
+                '悦互联 env %r was held by leftover kernel pid(s) %s; '
+                'terminated them and reopening',
+                ref,
+                killed,
+            )
+            async with self._inspector() as insp:
+                await self._ensure_store_list(insp)
+                udd, click_ts = await self._open_with_hook(insp, ref)
+            port = await self._await_devtools_port(udd, newer_than=click_ts - 5)
+        return OpenedStore(_LOCALHOST, port, udd)
+
+    async def _open_with_hook(
+        self, insp: InspectorSession, ref: str
+    ) -> tuple[str, float]:
+        """Click Open on ``ref`` under the spawn hook; ``(udd, ts)``.
+
+        Handles the stale-Opened state first (see the ALREADYOPEN
+        branch). The hook is uninstalled again even on failure.
+        """
+        await insp.install_spawn_hook()
+        try:
+            before = len(await insp.recorded_spawns())
+            click_ts = time.time()
+            result = str(await insp.eval_in_renderer(click_open_js(ref)))
+            if result.startswith('ALREADYOPEN'):
+                # The client lists the env as open, but not one we run
+                # (ours would have answered on its CDP port and never
+                # got here): a leftover of a client that was closed or
+                # crashed with the env open — the client keeps calling
+                # it 'Opened' after a restart — or one a person opened
+                # by hand. Neither has a debug port. Close it through
+                # the client's own action and open it again, so a task
+                # recovers by itself instead of waiting for a human.
+                logger.info(
+                    '悦互联 lists store %r as already open; closing it '
+                    'in the client and reopening with a debug port',
+                    ref,
+                )
+                await self._close_env(insp, ref)
                 before = len(await insp.recorded_spawns())
                 click_ts = time.time()
                 result = str(await insp.eval_in_renderer(click_open_js(ref)))
                 if result.startswith('ALREADYOPEN'):
-                    # The client lists the env as open, but not one we run
-                    # (ours would have answered on its CDP port and never
-                    # got here): a leftover of a client that was closed or
-                    # crashed with the env open — the client keeps calling
-                    # it 'Opened' after a restart — or one a person opened
-                    # by hand. Neither has a debug port. Close it through
-                    # the client's own action and open it again, so a task
-                    # recovers by itself instead of waiting for a human.
-                    logger.info(
-                        '悦互联 lists store %r as already open; closing it '
-                        'in the client and reopening with a debug port',
-                        ref,
+                    raise CdpUnreachable(
+                        f'store {ref!r} still reads as open in the 悦互联 '
+                        'client after closing it; close it there and '
+                        'retry'
                     )
-                    await self._close_env(insp, ref)
-                    before = len(await insp.recorded_spawns())
-                    click_ts = time.time()
-                    result = str(
-                        await insp.eval_in_renderer(click_open_js(ref))
-                    )
-                    if result.startswith('ALREADYOPEN'):
-                        raise CdpUnreachable(
-                            f'store {ref!r} still reads as open in the 悦互联 '
-                            'client after closing it; close it there and '
-                            'retry'
-                        )
-                if not result.startswith('OK'):
-                    raise StoreNotFound(ref)
-                udd = await self._await_spawn_udd(insp, before)
-            finally:
-                await insp.uninstall_spawn_hook()
-
-        port = await self._await_devtools_port(udd, newer_than=click_ts - 5)
-        return OpenedStore(_LOCALHOST, port, udd)
+            if not result.startswith('OK'):
+                raise StoreNotFound(ref)
+            return await self._await_spawn_udd(insp, before), click_ts
+        finally:
+            await insp.uninstall_spawn_hook()
 
     async def _close_env(self, insp: InspectorSession, ref: str) -> None:
         """Close ``ref``'s env with the client's own "close browser" batch
