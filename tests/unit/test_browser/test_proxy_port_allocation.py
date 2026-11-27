@@ -11,6 +11,7 @@ are exactly what they were.
 """
 
 import asyncio
+import errno
 import json
 import socket
 from unittest import mock
@@ -98,11 +99,15 @@ class TestBindBeforeUse:
         base = _free_port()
         mgr = _manager_at(base)
         port = await mgr.ports.allocate('store-a')
-        # The reservation socket is listening: another process cannot
-        # bind it, and it answers no HTTP (nothing there yet).
+        # The reservation socket holds the port: another process cannot
+        # bind it, and a connect is REFUSED promptly (bound but not
+        # listening — the backlog-accept that logged one "opening
+        # handshake failed" per store start is gone; see
+        # _reserve_socket).
         assert port in mgr.ports.sockets
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            assert s.connect_ex(('127.0.0.1', port)) == 0
+            s.settimeout(0.5)
+            assert s.connect_ex(('127.0.0.1', port)) == errno.ECONNREFUSED
 
     async def test_a_foreign_server_on_the_candidate_is_skipped(self):
         """Another server's proxy on the preferred port → next port."""

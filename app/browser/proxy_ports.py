@@ -105,24 +105,35 @@ class ProxyPortAllocator:
 
     @staticmethod
     def _reserve_socket(port: int) -> socket.socket | None:
-        """Bind + listen on (LOCALHOST, port); None when it is taken.
+        """Bind (LOCALHOST, port) WITHOUT listening; None when taken.
 
         This IS the port check — probing a port free and binding it
         later is a TOCTOU race two concurrent servers would keep
         losing.
 
-        SO_REUSEADDR is set on POSIX only, matching what asyncio's
-        ``create_server`` does there, so a reservation taken over by
-        the mux and the mux's own restart behave the same. On Windows
-        SO_REUSEADDR permits DOUBLE BINDS (silent port hijack), so it
-        is never set there — EADDRINUSE stays truthful.
+        No ``listen()`` until the handoff: a listening reservation
+        accepts the wrappers' ownership probes into its backlog, where
+        they get no answer, time out and close — and the mux then
+        accepts the dead connection and logs one ``opening handshake
+        failed`` per store start (found in 84's final regression).
+        Bound-but-not-listening instead gives every probe a prompt
+        ECONNREFUSED, and the mux calls ``listen()`` itself right
+        before ``websockets.serve`` takes the socket over.
+
+        No ``SO_REUSEADDR`` either — that is what keeps the
+        allocation atomic without the listen. On Linux, two sockets
+        that BOTH set SO_REUSEADDR can bind the same port while
+        neither listens (the silent double-bind / port-hijack class);
+        with ours off, a second bind of the port fails with
+        EADDRINUSE no matter what the other socket sets — on Linux,
+        macOS and Windows alike. The cost: a port with connections in
+        TIME_WAIT (a mux that just stopped) cannot be re-reserved for
+        ~60 s, so the allocator walks to the next port — the typed
+        ``proxy_port`` follow in the wrapper already handles that.
         """
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            if os.name == 'posix':
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((LOCALHOST, port))
-            sock.listen(16)
             return sock
         except OSError:
             sock.close()
