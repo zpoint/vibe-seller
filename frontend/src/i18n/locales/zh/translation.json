@@ -576,6 +576,7 @@
   },
   "browserVendor": {
     "NoAccount": "还未配置账号",
+    "Configured": "已配置",
     "OneAccount": "这个浏览器一台机器只能保存一个账号。要先删除用它创建的所有店铺，才能更换账号。",
     "LoginAllRequired": "请把每一项都填好再保存。",
     "LoginSaving": "保存中...",

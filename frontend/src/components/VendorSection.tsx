@@ -17,11 +17,14 @@
  * Profiles bind by `ref || name` (the stable id the vendor reports;
  * vendors without one use the name), and an env that exists but cannot
  * be opened (`available === false`) is shown greyed out with its
- * reason instead of being hidden.
+ * reason instead of being hidden. Each option's label — the human name
+ * first, then the platform, then the ref — comes from ONE pure builder,
+ * `vendorStoreOptionLabel` (lib/vendorStoreLabel).
  */
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
+import { vendorStoreOptionLabel } from '../lib/vendorStoreLabel'
 import { DocsHelpLink } from './ui/DocsHelpLink'
 import type { BrowserVendor, Store, VendorStoreRef } from '../types'
 
@@ -176,12 +179,18 @@ export function VendorSection(props: {
     return vt('LoadFailed')
   })()
 
-  const accountLabel = status?.configured
-    ? v.credential_fields
-        .filter(f => !f.secret)
-        .map(f => String(status[f.key] ?? ''))
-        .join(' / ')
-    : vt('NoAccount')
+  // The account row's label. A configured login shows its non-secret
+  // field values; a vendor whose fields are ALL secret (nothing may be
+  // shown) says just 已配置/Configured instead of an empty bar — no
+  // part of the key is ever displayed.
+  const accountLabel = !status?.configured
+    ? vt('NoAccount')
+    : (() => {
+        const shown = v.credential_fields
+          .filter(f => !f.secret)
+          .map(f => String(status[f.key] ?? ''))
+        return shown.length > 0 ? shown.join(' / ') : vt('Configured')
+      })()
 
   return (
     <div className="mb-2 space-y-2">
@@ -243,25 +252,19 @@ export function VendorSection(props: {
           className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs bg-white"
         >
           <option value="">{vt('SelectStore')}</option>
-          {p.stores.map(s => {
-            // Only the non-empty parts inside the parentheses: a row
-            // with a platform but no remote_env must not render a
-            // stray space before ')'.
-            const meta = [s.platform, s.remote_env].filter(Boolean).join(' ')
-            return (
+          {p.stores.map(s => (
             <option
               key={bindValue(s)}
               value={bindValue(s)}
               disabled={s.available === false}
               title={s.available === false ? s.unavailable_detail || undefined : undefined}
             >
-              {s.name}{meta ? ` (${meta})` : ''}
-              {s.available === false && unavailableLabel(s)
-                ? ` — ${unavailableLabel(s)}`
-                : ''}
+              {vendorStoreOptionLabel(
+                s,
+                s.available === false ? unavailableLabel(s) : '',
+              )}
             </option>
-            )
-          })}
+          ))}
         </select>
       ) : null}
     </div>
