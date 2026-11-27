@@ -69,7 +69,9 @@ next call instead of assuming where you left off.
 1. **Navigate with `new_tab(url)`** — for the first page and every later
    one. There is no `page` object (`page.goto` is a `NameError`), and
    `goto_url(url)` moves whichever tab is current, which after a timeout
-   may not be the one you think.
+   may not be the one you think. **Then call `activate_tab(tid)` before
+   any click**: a background tab silently drops every `click_at_xy` —
+   the click is sent and reported as fine, but the page never sees it.
 2. **Read state from the DOM:** `page_info()` for url/title/size, `js(...)`
    for text, values and element coordinates (`getBoundingClientRect`).
 3. **Interact:** click with `click_at_xy(x, y)` at coordinates read in
@@ -145,6 +147,15 @@ http_get(url, headers=None, timeout=20.0)  # plain HTTP from the agent, no brows
 
 Notes:
 
+- **`click_at_xy` takes CSS pixels** — the same numbers
+  `getBoundingClientRect` and `page_info()` give you. A screenshot's
+  pixels are device pixels: on a Windows display at 150% scaling they
+  are 1.5x larger, so a point read off a picture misses by that much
+  (the middle of a large button may still land inside it; a corner or
+  a small control never does). Prefer reading the point from the DOM
+  (step 2's `getBoundingClientRect`); if you must click a point you
+  took from a screenshot, divide its x and y by
+  `window.devicePixelRatio` first.
 - **Inputs:** `fill_input` focuses, clears, types real keys and fires
   `input`/`change`, so framework-controlled fields (most seller centers)
   register the value and their Submit buttons enable. Assigning
