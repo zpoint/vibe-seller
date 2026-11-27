@@ -105,7 +105,7 @@ logger = logging.getLogger(__name__)
 _LAUNCH_POLL_ATTEMPTS = 15
 _LAUNCH_POLL_DELAY_S = 2.0
 
-_SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl'})
+_SUPPORTED_PLATFORMS = frozenset({"windows", "wsl", "mac"})
 
 # The logged-out bodies. TWO shapes, both HTTP 200 + success:false:
 # 1. {"success":false,"msg":"token 失效，请检查登录状态"} — the session

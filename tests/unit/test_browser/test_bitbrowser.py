@@ -316,8 +316,33 @@ async def test_secret_check_twist_the_capture_sees_a_planted_leak(caplog):
 # ── config.json discovery / auth headers ─────────────────────────────
 
 
-async def test_discover_port_reads_localserveraddress(tmp_path, monkeypatch):
+def _patch_config_seams(monkeypatch, tmp_path):
+    """Point BOTH platform config-path seams at the fixture dir.
+
+    ``read_client_config`` reads the macOS data dir when the test host
+    is a mac and ``%APPDATA%`` (env or PowerShell) otherwise. A test
+    that patches only the Windows seam therefore reads the REAL
+    ``~/Library/Application Support/BitBrowser/config.json`` when the
+    suite runs on a mac — observed live: the garbage-fixture and
+    missing-file tests failed with the machine's own port 54345, and
+    the token test saw the machine's ``enableAuth: false``. Patching
+    both seams keeps every config.json test hermetic on windows, wsl
+    AND mac.
+    """
     cfg_dir = tmp_path / 'BitBrowser'
+    monkeypatch.setattr(
+        'app.browser.adapters.bitbrowser_launch._windows_appdata',
+        _async_return(str(tmp_path)),
+    )
+    monkeypatch.setattr(
+        'app.browser.adapters.bitbrowser_launch._mac_config_path',
+        lambda: str(cfg_dir / 'config.json'),
+    )
+    return cfg_dir
+
+
+async def test_discover_port_reads_localserveraddress(tmp_path, monkeypatch):
+    cfg_dir = _patch_config_seams(monkeypatch, tmp_path)
     cfg_dir.mkdir()
     (cfg_dir / 'config.json').write_text(
         json.dumps({
@@ -325,10 +350,6 @@ async def test_discover_port_reads_localserveraddress(tmp_path, monkeypatch):
             'enableAuth': False,
         }),
         encoding='utf-8',
-    )
-    monkeypatch.setattr(
-        'app.browser.adapters.bitbrowser_launch._windows_appdata',
-        _async_return(str(tmp_path)),
     )
     client = BitBrowserClient({})
     assert await client.discover_port() == 54345
@@ -338,11 +359,7 @@ async def test_discover_port_reads_localserveraddress(tmp_path, monkeypatch):
 async def test_discover_port_ignores_non_loopback_and_garbage(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(
-        'app.browser.adapters.bitbrowser_launch._windows_appdata',
-        _async_return(str(tmp_path)),
-    )
-    cfg_dir = tmp_path / 'BitBrowser'
+    cfg_dir = _patch_config_seams(monkeypatch, tmp_path)
     cfg_dir.mkdir()
     (cfg_dir / 'config.json').write_text('not json at all{', encoding='utf-8')
     client = BitBrowserClient({})
@@ -359,17 +376,14 @@ async def test_discover_port_ignores_non_loopback_and_garbage(
 
 
 async def test_discover_port_missing_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        'app.browser.adapters.bitbrowser_launch._windows_appdata',
-        _async_return(str(tmp_path)),
-    )
+    _patch_config_seams(monkeypatch, tmp_path)
     client = BitBrowserClient({})
     assert await client.discover_port() is None
     assert await read_client_config() == {}
 
 
 async def test_auth_headers_sent_only_when_enable_auth(tmp_path, monkeypatch):
-    cfg_dir = tmp_path / 'BitBrowser'
+    cfg_dir = _patch_config_seams(monkeypatch, tmp_path)
     cfg_dir.mkdir()
     (cfg_dir / 'config.json').write_text(
         json.dumps({
@@ -378,11 +392,7 @@ async def test_auth_headers_sent_only_when_enable_auth(tmp_path, monkeypatch):
             'authToken': 'tok-placeholder-123',
         }),
         encoding='utf-8',
-    )
-    monkeypatch.setattr(
-        'app.browser.adapters.bitbrowser_launch._windows_appdata',
-        _async_return(str(tmp_path)),
-    )
+    ),
     client = BitBrowserClient({})
     assert await client.auth_headers() == {'x-api-key': 'tok-placeholder-123'}
     # A reset token (enableAuth off) sends nothing — on a FRESH client
@@ -400,17 +410,13 @@ async def test_auth_headers_sent_only_when_enable_auth(tmp_path, monkeypatch):
 
 
 async def test_config_read_once_then_cached(tmp_path, monkeypatch):
-    """One file read serves every call (a /mnt read per request on WSL
+    """One file read serves every call (a /mnt read on WSL on a mac
     is not free): N calls, exactly 1 read."""
-    cfg_dir = tmp_path / 'BitBrowser'
+    cfg_dir = _patch_config_seams(monkeypatch, tmp_path)
     cfg_dir.mkdir()
     (cfg_dir / 'config.json').write_text(
         json.dumps({'localServerAddress': 'http://127.0.0.1:54345'}),
         encoding='utf-8',
-    )
-    monkeypatch.setattr(
-        'app.browser.adapters.bitbrowser_launch._windows_appdata',
-        _async_return(str(tmp_path)),
     )
     reads = []
     orig_read = bb.read_client_config
@@ -528,7 +534,7 @@ def test_spec_declares_the_sign_in_once_local_api_shape():
     assert BITBROWSER_VENDOR.lists_profiles is True
     assert BITBROWSER_VENDOR.picker_kind == 'generic'
     assert BITBROWSER_VENDOR.client_kind == 'local_api'
-    assert sorted(BITBROWSER_VENDOR.platforms) == ['windows', 'wsl']
+    assert sorted(BITBROWSER_VENDOR.platforms) == ['mac', 'windows', 'wsl']
     assert BITBROWSER_VENDOR.win_app is not None
     assert BITBROWSER_VENDOR.client_path_setting == ('bitbrowser_client_path')
     meta = BITBROWSER_VENDOR.public_metadata()
@@ -705,11 +711,13 @@ async def test_mac_launch_refuses_a_kernel_bundle_path(monkeypatch):
     assert 'kernel bundle' in str(exc.value)
 
 
-def test_spec_platforms_exclude_mac_until_the_live_run():
-    """'mac' joins spec.platforms only after the live Mac run passes
-    (addendum 3 #6) — the mac code paths exist but are not offered."""
-    assert 'mac' not in BITBROWSER_VENDOR.platforms
-    assert sorted(BITBROWSER_VENDOR.platforms) == ['windows', 'wsl']
+def test_spec_platforms_include_mac_after_the_live_run():
+    """'mac' joined spec.platforms after the native-macOS live run
+    passed (the overnight matrix: auto-launch via the shared locator,
+    open/close, kill recovery, the MiniMax acceptance task). Removing
+    it must fail here — the platform is offered, not just tolerated."""
+    assert 'mac' in BITBROWSER_VENDOR.platforms
+    assert sorted(BITBROWSER_VENDOR.platforms) == ['mac', 'windows', 'wsl']
 
 
 # ── addendum-4 review fixes ──────────────────────────────────────────
@@ -776,19 +784,21 @@ async def test_open_detail_non_dict_twist_a_dict_error_still_maps():
 
 
 async def test_platform_gate_derives_from_the_spec(monkeypatch):
-    """The backend's platform gate reads the spec (one edit there
-    enables mac later) and names every supported platform — no second
-    platform list in the module."""
+    """The backend's platform gate reads the spec (adding a platform
+    there is the ONLY edit) and names every supported platform — no
+    second platform list in the module. 'linux' is the unsupported
+    stand-in (mac IS supported since the live run)."""
 
     async def _fail(cfg):
         raise AssertionError('start must not run on an unsupported platform')
 
-    monkeypatch.setattr(bb, 'get_platform', lambda: 'mac')
+    monkeypatch.setattr(bb, 'get_platform', lambda: 'linux')
     backend = BitBrowserBackend(lambda cfg: None)
     with pytest.raises(UnsupportedPlatform) as exc:
         await backend.start({'browser_ref': 'x'})
     # The message names the spec's platforms generically.
     assert 'windows' in str(exc.value) and 'wsl' in str(exc.value)
+    assert 'mac' in str(exc.value)
     # Structural: the gate carries no platform list of its own.
     src = inspect.getsource(BitBrowserBackend.start)
     assert '_SUPPORTED_PLATFORMS' not in src

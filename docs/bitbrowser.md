@@ -6,14 +6,16 @@ description: 比特浏览器接入 Vibe Seller 的一页说明：下载安装、
 
 比特浏览器（BitBrowser）是一款国产防关联浏览器（[官网](https://www.bitbrowser.net/)，[API 文档](https://doc.bitbrowser.net/)）。绑定后，Vibe Seller 会通过它的本地接口打开你的店铺执行任务；客户端没开时会自动拉起。
 
-**比特浏览器后端支持 Windows，也支持 WSL**。macOS 版客户端存在，但 Vibe Seller 暂未对接。
+**比特浏览器后端支持 Windows、macOS，也支持 WSL**。
 
 不用比特浏览器的话，这一页可以跳过。Vibe Seller 还支持其他浏览器，见 [浏览器](browsers.md)。
 
 ## 下载与安装
 
-1. 打开官网 [下载页](https://www.bitbrowser.net/download/)，下载 Windows（64 位）客户端并安装。默认装在 `C:\Users\<用户名>\AppData\Local\Programs\bitbrowser`；装在其他位置也能被找到。
-2. 安装后**手动启动并登录一次**比特浏览器，确认账号正常、能看到你的店铺（浏览器窗口）列表。
+- **Windows**：打开官网 [下载页](https://www.bitbrowser.net/download/)，下载 Windows（64 位）客户端并安装。默认装在 `C:\Users\<用户名>\AppData\Local\Programs\bitbrowser`；装在其他位置也能被找到。
+- **macOS**：同一下载页下载 macOS（Apple Silicon 或 Intel）客户端，拖进「应用程序」即可（`/Applications/比特浏览器.app`）。Vibe Seller 按应用标识自动找到它，装在其他位置时同样可以在设置里保存客户端路径。
+
+装好后**手动启动并登录一次**比特浏览器，确认账号正常、能看到你的店铺（浏览器窗口）列表。
 
 ## 账号与自动登录
 
@@ -73,8 +75,8 @@ Firefox 内核的窗口在店铺列表里会**置灰并标注原因**，选中�
 | 打开失败：内核更新失败，请重新启动客户端再打开 | 比特浏览器下载内核失败（多见于 Firefox 内核）。重启比特浏览器让它重新下载，再运行任务。 |
 | 打开失败：服务调用成功，但没有找到相应数据 | 窗口在比特浏览器里被删除了，或当前登录的账号看不到它。确认窗口还在、且对当前账号可见。 |
 | 该登录身份下没有可见店铺 | 当前登录的账号（或子账号）名下没有窗口，或没有被授权。见上面「登录一次就够了」里的子账号说明。 |
-| 不支持的平台 | 比特浏览器后端只在 Windows 和 WSL 上可用（Windows，也支持 WSL）。 |
+| 不支持的平台 | 比特浏览器后端只在 Windows、macOS 和 WSL 上可用。 |
 
 ## 凭据存在哪里
 
-比特浏览器的**账号和密码**保存在你本地的 `~/.vibe-seller/data/vibe_seller.db`（SQLite）。密码加密存储，密钥从本机安装派生，只在自动登录那一刻才在内存里解密；接口不会把密码返回给前端。本地接口的端口和令牌从比特浏览器自己的配置文件（`%APPDATA%\BitBrowser\config.json`）实时读取，Vibe Seller 不另外保存。
+比特浏览器的**账号和密码**保存在你本地的 `~/.vibe-seller/data/vibe_seller.db`（SQLite）。密码加密存储，密钥从本机安装派生，只在自动登录那一刻才在内存里解密；接口不会把密码返回给前端。本地接口的端口和令牌从比特浏览器自己的配置文件实时读取（Windows：`%APPDATA%\BitBrowser\config.json`；macOS：`~/Library/Application Support/BitBrowser/config.json`），Vibe Seller 不另外保存。
