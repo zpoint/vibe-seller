@@ -1,36 +1,32 @@
-"""Yuehulian store enumeration + team-login credentials.
+"""Yuehulian compat routes — thin aliases over the generic vendor surface.
 
-Yuehulian is one GUI login per machine. The user configures that login's
-team credentials once (``POST /credentials``); the backend then auto-logs
-the client in with them (``ensure_logged_in``) so an expired session never
-strands a task. ``GET /stores`` lists the stores that login can see via the
-inspector/DOM, returning the same structured status the ziniao browsers
-endpoint uses so the UI shows an actionable hint (launch client / log in /
-unsupported platform) rather than a bare empty list.
+The live routes are the registry-driven family in
+:mod:`app.routers.browser_vendors`
+(``/api/browser-vendors/yuehulian/...``); the frontend uses those. These
+``/api/yuehulian/*`` aliases exist because released things still call
+them — the workflow suite pins their contract
+(``tests/workflow/test_wf_yuehulian_stores.py``, which also patches this
+module's ``RealYuehulianClient`` / ``get_platform`` seams) and the docs
+name the paths. Remove this module when those migrate to the generic
+routes; nothing else may grow a per-vendor router.
 """
 
 import json
-import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.browser.adapters import yuehulian_creds
+from app.browser.adapters.yuehulian import YUEHULIAN_VENDOR
 from app.browser.adapters.yuehulian_client import RealYuehulianClient
-from app.browser.inject.errors import ClientNotRunning, LoginRequired
 from app.browser.ziniao_utils import get_platform
 from app.database import get_db
-from app.models.store import Store
 from app.models.user import User
-
-logger = logging.getLogger(__name__)
+from app.routers.browser_vendors import list_store_refs, vendor_store_count
 
 router = APIRouter(prefix='/api/yuehulian', tags=['yuehulian'])
-
-_SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl'})
 
 
 class YuehulianCredentials(BaseModel):
@@ -47,16 +43,6 @@ async def get_yuehulian_credentials(
     """Whether team-login is configured + the non-secret fields (never the
     password) so the Settings form can show/prefill them."""
     return await yuehulian_creds.credentials_status(db)
-
-
-async def _yuehulian_store_count(db: AsyncSession) -> int:
-    return (
-        await db.execute(
-            select(func.count(Store.id)).where(
-                Store.browser_backend == 'yuehulian'
-            )
-        )
-    ).scalar() or 0
 
 
 @router.post('/credentials')
@@ -82,7 +68,7 @@ async def save_yuehulian_credentials(
             status_code=400,
             detail='team_name, subaccount and password are all required',
         )
-    if await _yuehulian_store_count(db) > 0:
+    if await vendor_store_count(db, 'yuehulian') > 0:
         raise HTTPException(
             status_code=400,
             detail=json.dumps({'status': 'one_account'}),
@@ -104,41 +90,15 @@ async def list_yuehulian_stores(
     logged out; if there are none (or the login does not take) it reports
     ``login_required`` so the UI prompts to configure/fix credentials.
     """
-    platform = get_platform()
-    if platform not in _SUPPORTED_PLATFORMS:
-        raise HTTPException(
-            status_code=400,
-            detail=json.dumps({
-                'status': 'unsupported_platform',
-                'platform': platform,
-            }),
-        )
     cfg: dict = {}
     await yuehulian_creds.inject_yuehulian_config(cfg, db)
     client = RealYuehulianClient(cfg)
-    try:
-        await client.ensure_running()
-    except ClientNotRunning as e:
-        raise HTTPException(
-            status_code=502,
-            detail=json.dumps({
-                'status': 'client_not_running',
-                'message': str(e),
-            }),
-        ) from e
-    try:
-        await client.ensure_logged_in()
-    except LoginRequired as e:
-        raise HTTPException(
-            status_code=502,
-            detail=json.dumps({'status': 'login_required'}),
-        ) from e
-    stores = await client.list_stores()
+    refs = await list_store_refs(YUEHULIAN_VENDOR, client, get_platform())
     return [
         {
             'name': s.name,
             'platform': s.platform,
             'remote_env': s.remote_env,
         }
-        for s in stores
+        for s in refs
     ]

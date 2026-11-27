@@ -6,8 +6,10 @@ debug port into the launched kernel. From the CDP endpoint onward it is
 identical to the ziniao / chrome backends (CDPMuxProxy → browser-use).
 
 The engine (:class:`InjectCdpBackend`) holds the generic flow; this file
-is the thin adapter. The real client lives in ``yuehulian_client`` and is
-swapped for a fake in tests via the ``client_factory`` seam.
+is the thin adapter plus the vendor spec (``YUEHULIAN_VENDOR``) the
+generic routes / UI / manager read. The real client lives in
+``yuehulian_client`` and is swapped for a fake in tests via the
+``client_factory`` seam.
 """
 
 from app.browser.adapters.yuehulian_client import RealYuehulianClient
@@ -15,6 +17,14 @@ from app.browser.base import BrowserSessionInfo
 from app.browser.inject.client import InjectClient
 from app.browser.inject.engine import ClientFactory, InjectCdpBackend
 from app.browser.inject.errors import UnsupportedPlatform
+from app.browser.vendors import (
+    CARDINALITY_SINGLE,
+    KIND_ANTIDETECT,
+    BrowserVendorSpec,
+    VendorCredentialField,
+    VendorDocsLink,
+)
+from app.browser.win_app_locator import WinAppSpec
 from app.browser.ziniao_utils import get_platform
 
 # Needs the Windows 悦互联 client. WSL-on-Windows is fine (we drive the
@@ -25,6 +35,63 @@ _SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl'})
 def make_client(browser_config: dict) -> InjectClient:
     """Build the real Windows-driven client (patched to a fake in tests)."""
     return RealYuehulianClient(browser_config)
+
+
+# Install descriptor, carried on the spec so the locator serves it from
+# the registry (win_app_locator's YUEHULIAN_SPEC attribute resolves here).
+YUEHULIAN_WIN_APP = WinAppSpec(
+    key='yuehulian',
+    display_name='悦互联 (YueHuLian)',
+    exe_names=(),  # main exe has a Chinese name (e.g. 用户端.exe)
+    match_tokens=('yuehulian', '悦互联'),
+    dir_names=('YueHuLian', '悦互联'),
+)
+
+# The whole vendor declaration: one GUI login per machine (team name /
+# sub-account / password, stored encrypted by the generic machine-scope
+# credential storage), stores listed through the client's GUI, and the
+# spec-driven docs links for the UI's help links.
+YUEHULIAN_VENDOR = BrowserVendorSpec(
+    key='yuehulian',
+    display_name_en='Yuehulian',
+    display_name_zh='悦互联',
+    kind=KIND_ANTIDETECT,
+    platforms=_SUPPORTED_PLATFORMS,
+    account_cardinality=CARDINALITY_SINGLE,
+    credential_fields=(
+        VendorCredentialField('team_name', 'settings.yuehulianTeamName'),
+        VendorCredentialField('subaccount', 'settings.yuehulianSubaccount'),
+        VendorCredentialField(
+            'password', 'settings.yuehulianPassword', secret=True
+        ),
+    ),
+    lists_profiles=True,
+    i18n_prefix='settings.yuehulian',
+    docs={
+        'errors': VendorDocsLink(
+            topic='yuehulianErrors',
+            zh='https://docs.vibe-sellers.com/yuehulian/#常见提示--报错',
+            en=(
+                'https://docs.vibe-sellers.com/en/yuehulian/'
+                '#common-statuses--errors'
+            ),
+        ),
+        'one_account': VendorDocsLink(
+            topic='yuehulianOneAccount',
+            zh=(
+                'https://docs.vibe-sellers.com/yuehulian/'
+                '#一台机器只支持一个账号'
+            ),
+            en=(
+                'https://docs.vibe-sellers.com/en/yuehulian/'
+                '#one-account-per-machine'
+            ),
+        ),
+    },
+    client_factory=make_client,
+    win_app=YUEHULIAN_WIN_APP,
+    client_path_setting='yuehulian_client_path',
+)
 
 
 class YuehulianBackend(InjectCdpBackend):

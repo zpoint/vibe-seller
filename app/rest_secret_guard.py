@@ -270,10 +270,13 @@ RESTORE_RULES: tuple[RestoreRule, ...] = (
         '/api/ziniao-accounts/{account_id}',
         _stored_ziniao_password,
     ),
-    # Yuehulian team-login — the machine's one login password (upsert).
-    # GET /credentials never returns the password (masked or otherwise),
-    # so the UI can't echo it back — a saved value is always a freshly
-    # typed password, never a mask; nothing to restore.
+    # Browser vendors — the generic machine-login upsert (one rule for
+    # every vendor; the route reads the registry). Like the yuehulian
+    # compat route below, the GET never returns the secret, so a saved
+    # value is always freshly typed, never a mask; nothing to restore.
+    _rule({'POST'}, '/api/browser-vendors/{key}/credentials', _nothing),
+    # Yuehulian team-login — the /api/yuehulian compat alias (see
+    # app/routers/yuehulian.py); goes away with that route.
     _rule({'POST'}, '/api/yuehulian/credentials', _nothing),
     # User management — passwords are stored hashed only, so a mask
     # is never an echo of something we handed out; refusing it keeps

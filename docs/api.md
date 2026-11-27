@@ -738,6 +738,23 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 | GET | `/api/ziniao/launcher` | Download ziniao_webdriver.bat |
 | POST | `/api/browser/web/start` | Start (or reuse) the store-less orchestrator `web` browser. Lazy-called by the `bin/_web` wrapper on first use; parallels `POST /api/stores/{id}/browser/start`. |
 
+## `browser_vendors.py` — Browser vendors (registry-driven)
+
+One route family for every registered browser vendor (`app/browser/vendors.py`
+holds the spec; vendors are registered through the plugin context, so a
+plugin can add one with zero core edits):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/browser-vendors` | Every registered vendor's UI metadata (display names, kind, platforms, credential schema, docs links). No secrets. |
+| GET | `/api/browser-vendors/{key}/credentials` | Whether the vendor's machine login is configured + the non-secret fields (never the secret). |
+| POST | `/api/browser-vendors/{key}/credentials` | Save the machine login (secrets Fernet-encrypted). A one-account-per-machine vendor refuses with `400 {"status":"one_account"}` while any of its stores is bound. |
+| GET | `/api/browser-vendors/{key}/stores` | Profiles the vendor's logged-in client can see. Structured statuses: `400 unsupported_platform`, `502 client_not_running` / `login_required`. |
+
+The old `/api/yuehulian/*` routes remain as thin aliases over the same
+logic (tests and docs still call them); new vendors never get a
+per-vendor router.
+
 ## `system.py` — Server Runtime Metadata
 
 | Method | Path | Description |

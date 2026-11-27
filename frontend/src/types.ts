@@ -232,10 +232,61 @@ export interface ZiniaoBrowserProfile {
   browser_name: string;
   browser_oauth: string;
 }
-export interface YuehulianStore {
+/** One store/profile a browser vendor's client lists (generic StoreRef). */
+export interface VendorStoreRef {
   name: string;
   platform: string;
   remote_env: string;
+  /** The stable id to bind and reopen by ('' → the name IS the ref). */
+  ref?: string;
+  /** False when the env exists but cannot be opened (greyed out). */
+  available?: boolean;
+  /** Why an unavailable env cannot be opened — a stable token from
+   *  the contract's UNAVAILABLE_TOKENS, translated via
+   *  browserVendor.unavailable.<token>. */
+  unavailable_reason?: string;
+  /** The vendor's own words about it (tooltip / fallback text). */
+  unavailable_detail?: string;
+}
+/** One credential field of a browser vendor's machine login (spec-driven). */
+export interface VendorCredentialField {
+  key: string;
+  label_i18n: string;
+  secret: boolean;
+  required: boolean;
+}
+/** A docs help link a vendor's UI shows (zh/en URLs + the link's label). */
+export interface VendorDocsLink {
+  topic: string;
+  zh: string;
+  en: string;
+}
+/**
+ * A browser vendor's metadata, from GET /api/browser-vendors (the backend
+ * BrowserVendorSpec). The store form renders backend options, credential
+ * fields and the profile picker from this — no per-vendor branches.
+ */
+export interface BrowserVendor {
+  key: string;
+  display_name_en: string;
+  display_name_zh: string;
+  kind: 'antidetect' | 'plain';
+  platforms: string[];
+  selectable: boolean;
+  /**
+   * The account rule (R8): 'single' = one account per machine (every
+   * anti-detect vendor whose API cannot serve several at once),
+   * 'multi' = the API takes the account on every call; 'none' is for
+   * plain browsers only. Separate from whether credential_fields are
+   * stored (empty = the user signs in in the client).
+   */
+  account_cardinality: 'none' | 'single' | 'multi';
+  credential_fields: VendorCredentialField[];
+  lists_profiles: boolean;
+  profiles_scope: 'login' | 'account';
+  picker_kind: 'none' | 'generic' | 'custom';
+  i18n_prefix: string;
+  docs: Record<string, VendorDocsLink>;
 }
 export interface Profile {
   id: string
