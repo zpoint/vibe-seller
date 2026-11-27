@@ -492,9 +492,7 @@ def vendor_guard_deny(
     # own workspace, and (the mailbox retry's answer) its own mailbox
     # db files under <home>/data — the one data-dir reads that are
     # legitimate, exactly source_guard's ``readable`` contract.
-    masked = tuple(
-        str(p) for p in (task_dir, *readable) if p
-    )
+    masked = tuple(str(p) for p in (task_dir, *readable) if p)
     prefix = task_id[:8] if task_id else ''
 
     def deny(kind: str, reason: str, detail: str) -> str:
