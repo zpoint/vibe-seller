@@ -590,6 +590,7 @@
       "other": "cannot open right now"
     },
     "LoadFailed": "Couldn't load stores — check the client and try again.",
+    "PaginationOverflow": "The store list was too long to load completely — please report this.",
     "AccountMismatch": "The client is signed into a different account than the saved one. Log out in the client, or re-save the matching credentials.",
     "ApiNotEnabled": "The client's local API is switched off. Enable it in {{vendor}}'s settings (look for API / automation / local API), then click Refresh.",
     "PlanRequired": "{{vendor}}'s local API requires a paid plan. Upgrade the account (or pick a plan that includes API access), then retry.",

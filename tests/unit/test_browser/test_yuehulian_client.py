@@ -11,6 +11,7 @@ from unittest import mock
 
 import pytest
 
+from app.browser.adapters import yuehulian_mac
 import app.browser.adapters.yuehulian_client as mod
 from app.browser.adapters.yuehulian_client import RealYuehulianClient
 from app.browser.adapters.yuehulian_dom import (
@@ -59,6 +60,33 @@ class _FakeProc:
         return self._launch_ok
 
     def read_devtools_port(self, udd, newer_than=None):
+        return self._port
+
+    def terminate_kernels(self, udd):
+        return []  # the Windows no-op
+
+
+class _OrphanHoldingProc(_FakeProc):
+    """``read_devtools_port`` answers only after the leftover kernel is
+    terminated — models an orphaned kernel holding the profile's
+    singleton lock: the fresh kernel spawns (the hook records its
+    user-data-dir) but never writes DevToolsActivePort."""
+
+    def __init__(self, *, killed_pids=(999,), **kw):
+        super().__init__(**kw)
+        self._killed_pids = list(killed_pids)
+        self.terminate_calls: list[str] = []
+        self._orphan_gone = False
+
+    def terminate_kernels(self, udd):
+        self.terminate_calls.append(udd)
+        if self._killed_pids:
+            self._orphan_gone = True
+        return list(self._killed_pids)
+
+    def read_devtools_port(self, udd, newer_than=None):
+        if not self._orphan_gone:
+            return None
         return self._port
 
 
@@ -148,20 +176,40 @@ class _PaginatedInspector(_FakeInspector):
 
 class _LoginInspector(_FakeInspector):
     """Starts logged OUT; after the team-login form is submitted it reports
-    logged-in iff ``logs_in`` — models auto-login + its failure modes."""
+    logged-in iff ``logs_in`` — models auto-login + its failure modes.
 
-    def __init__(self, *, logs_in=True, form_result='OK', **kw):
+    ``form_results`` (when given) is consumed one per form attempt —
+    models a form that is not driveable YET (the tab's inputs render
+    asynchronously after the tab click, seen live on the Mac client):
+    NOFIELDS, NOFIELDS, then OK."""
+
+    def __init__(
+        self,
+        *,
+        logs_in=True,
+        form_result='OK',
+        form_results=None,
+        **kw,
+    ):
         super().__init__(logged_in=False, **kw)
         self._logs_in = logs_in
         self._form_result = form_result
+        self._form_results = list(form_results or [])
         self.submitted = False
+        self.form_attempts = 0
 
     async def eval_in_renderer(self, js, **kw):
         if js == LOGIN_HASH_JS:
             return '#/index' if (self.submitted and self._logs_in) else ''
         if '团队登录' in js:  # the fill_team_login_js payload
-            self.submitted = True
-            return self._form_result
+            self.form_attempts += 1
+            if self._form_results:
+                result = self._form_results.pop(0)
+            else:
+                result = self._form_result
+            if result == 'OK':
+                self.submitted = True
+            return result
         return await super().eval_in_renderer(js, **kw)
 
 
@@ -475,6 +523,20 @@ async def test_ensure_logged_in_form_not_driveable_raises():
     insp = _LoginInspector(form_result='NOFIELDS')
     with pytest.raises(LoginRequired):
         await _ensure_login(insp, _CREDS)
+    assert insp.form_attempts == 10  # polled before giving up
+
+
+async def test_ensure_logged_in_retries_a_form_that_mounts_late():
+    """A first NOFIELDS can mean "the login tab is still rendering", not
+    "the UI changed" (the inputs mount asynchronously after the tab
+    click — seen live on the Mac client, a latent race on Windows).
+    The client polls the same JS and logs in when it appears."""
+    insp = _LoginInspector(
+        logs_in=True, form_results=['NOFIELDS', 'NOFIELDS', 'OK']
+    )
+    await _ensure_login(insp, _CREDS)
+    assert insp.submitted
+    assert insp.form_attempts == 3
 
 
 async def test_ensure_logged_in_submitted_but_stays_logged_out_raises():
@@ -515,3 +577,83 @@ async def test_ensure_running_waits_for_renderer_ready_after_launch():
     # 3 not-ready probes + 1 that succeeds = the renderer was polled, not
     # assumed ready from main_pid alone (pre-fix: 0 renderer probes).
     assert insp.probe_calls >= 4
+
+
+# ── platform layer picking: macOS builds the Mac layers ─────────────
+
+
+async def test_on_mac_the_client_builds_the_mac_layers():
+    """``get_platform() == 'mac'`` must construct the Mac process layer
+    and inspector (the DOM logic is shared); anything else keeps the
+    Windows ones. Patches both branches' names, so a swap either way
+    fails loudly."""
+    win_proc = _FakeProc()
+    mac_proc = _FakeProc()
+    mac_insp = _FakeInspector()
+    with (
+        mock.patch.object(mod, 'get_platform', return_value='mac'),
+        mock.patch.object(
+            yuehulian_mac, 'MacProcessLayer', return_value=mac_proc
+        ),
+        mock.patch.object(
+            yuehulian_mac, 'MacInspectorSession', return_value=mac_insp
+        ),
+        mock.patch.object(mod, 'ProcessLayer', return_value=win_proc),
+        mock.patch.object(
+            mod, 'InspectorSession', return_value=_FakeInspector()
+        ),
+        mock.patch.object(mod.asyncio, 'sleep', new=mock.AsyncMock()),
+    ):
+        client = RealYuehulianClient({})
+        assert client._proc is mac_proc
+        async with client._inspector() as insp:
+            assert insp is mac_insp
+
+
+async def test_off_mac_the_client_builds_the_windows_layers():
+    win_proc = _FakeProc()
+    win_insp = _FakeInspector()
+    with (
+        mock.patch.object(mod, 'get_platform', return_value='wsl'),
+        mock.patch.object(mod, 'ProcessLayer', return_value=win_proc),
+        mock.patch.object(mod, 'InspectorSession', return_value=win_insp),
+        mock.patch.object(
+            yuehulian_mac,
+            'MacProcessLayer',
+            side_effect=AssertionError('must not build the Mac layer'),
+        ),
+    ):
+        client = RealYuehulianClient({})
+        assert client._proc is win_proc
+        async with client._inspector() as insp:
+            assert insp is win_insp
+
+
+# ── leftover kernels (a SIGKILLed client orphans them) ──────────────
+
+
+async def test_open_store_recovers_when_a_leftover_kernel_holds_the_profile():
+    """The user's requirement extended to the Mac: a client killed with
+    SIGKILL leaves its kernel behind (re-parented, still holding the
+    env's singleton lock), so the fresh spawn never writes
+    DevToolsActivePort. When the process layer terminates leftover
+    kernels for that env, open_store retries once and recovers."""
+    proc = _OrphanHoldingProc(port=9555)
+    insp = _FakeInspector(udd='C:\\udd\\x')
+    opened = await _open(proc, insp)
+    assert opened.cdp_port == 9555
+    assert opened.user_data_dir == 'C:\\udd\\x'
+    assert proc.terminate_calls == ['C:\\udd\\x']  # asked for THIS env
+    assert len(insp._spawns) == 2  # the retry clicked Open again
+    assert insp.installed and insp.uninstalled
+
+
+async def test_open_store_without_leftovers_keeps_the_cdp_error():
+    """Nothing to terminate (the Windows no-op) → the original
+    CdpUnreachable, no retry click."""
+    proc = _OrphanHoldingProc(port=9555, killed_pids=())
+    insp = _FakeInspector(udd='C:\\udd\\x')
+    with pytest.raises(CdpUnreachable):
+        await _open(proc, insp)
+    assert proc.terminate_calls == ['C:\\udd\\x']  # checked, found none
+    assert len(insp._spawns) == 1  # no second click
