@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fake-wecom-cli"
+version = "0.0.1"
+description = "Test-only wecom-cli console script (the Windows stand-in exe)"
+requires-python = ">=3.11"
+
+[project.scripts]
+wecom-cli = "fake_wecom_cli_shim:console_main"
+
+[tool.setuptools]
+packages = ["fake_wecom_cli_shim"]

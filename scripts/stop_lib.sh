@@ -100,3 +100,76 @@ reap_tree_snapshot() {
     kill -KILL $victims 2>/dev/null
     return 0
 }
+
+# The VIBE_HOME a server pid runs with (read BEFORE it is stopped —
+# the environment dies with the process). Empty when it cannot be
+# read, which disables home reaping for that pid.
+server_vibe_home() {
+    local pid="$1"
+    if [ -r "/proc/$pid/environ" ]; then
+        tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
+            | sed -n 's/^VIBE_HOME=//p' | head -1
+    else
+        # macOS: `ps eww` appends the environment to the command line.
+        ps eww -o command= -p "$pid" 2>/dev/null \
+            | tr ' ' '\n' | sed -n 's/^VIBE_HOME=//p' | head -1
+    fi
+}
+
+# Reap the leftovers of THIS home: processes whose environment both
+# carries this exact VIBE_HOME and marks them as a task agent's
+# (``VIBE_TASK_ID`` — every agent-started process inherits it, however
+# detached) or a browser-use daemon (``BH_RUNTIME_DIR`` under this
+# home). Nothing else is touched: never another instance's (each has
+# its own VIBE_HOME), never production's, and never a shell that
+# merely exported the same VIBE_HOME without a task marker. The
+# server pid itself is excluded (the caller is stopping it). Native
+# Windows servers do not run stop.sh; their task leftovers are
+# covered by the per-task job objects in app/task_reaper.py.
+reap_home_leftovers() {
+    local home="$1" self_pid="$2" pid env count=0
+    [ -n "$home" ] || return 0
+    for pid in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
+        [ "$pid" = "$self_pid" ] && continue
+        env=$(tr '\0' '\n' 2>/dev/null < "/proc/$pid/environ")
+        [ -n "$env" ] || continue
+        if printf '%s\n' "$env" | grep -qx "VIBE_HOME=$home"; then
+            if printf '%s\n' "$env" | grep -q '^VIBE_TASK_ID=' \
+                || printf '%s\n' "$env" \
+                    | grep -q "^BH_RUNTIME_DIR=$home/r"; then
+                kill -TERM "$pid" 2>/dev/null && count=$((count + 1))
+            fi
+        fi
+    done
+    # No /proc (macOS): one ps call carries every environment.
+    if [ ! -d /proc ]; then
+        for pid in $(ps eww -axo pid= 2>/dev/null); do
+            [ "$pid" = "$self_pid" ] && continue
+            if ps eww -o command= -p "$pid" 2>/dev/null | tr ' ' '\n' \
+                | grep -qx "VIBE_HOME=$home"; then
+                if ps eww -o command= -p "$pid" 2>/dev/null | tr ' ' '\n' \
+                    | grep -q '^VIBE_TASK_ID=\|^BH_RUNTIME_DIR='"$home"'/r'; then
+                    kill -TERM "$pid" 2>/dev/null && count=$((count + 1))
+                fi
+            fi
+        done
+    fi
+    # Escalate after a short grace, and drop this home's daemon pid
+    # files even if their daemons already died.
+    sleep 1
+    for pid in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
+        [ "$pid" = "$self_pid" ] && continue
+        env=$(tr '\0' '\n' 2>/dev/null < "/proc/$pid/environ")
+        [ -n "$env" ] || continue
+        if printf '%s\n' "$env" | grep -qx "VIBE_HOME=$home"; then
+            if printf '%s\n' "$env" | grep -q '^VIBE_TASK_ID=' \
+                || printf '%s\n' "$env" \
+                    | grep -q "^BH_RUNTIME_DIR=$home/r"; then
+                kill -KILL "$pid" 2>/dev/null
+            fi
+        fi
+    done
+    rm -f "$home"/r/bu-*.pid "$home"/r/bu-*.sock 2>/dev/null
+    [ "$count" -gt 0 ] && echo "  reaped $count leftover(s) of VIBE_HOME=$home"
+    return 0
+}
