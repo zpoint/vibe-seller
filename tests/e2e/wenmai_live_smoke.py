@@ -27,6 +27,7 @@ Exit code 0 ⇒ every scenario passed; 1 ⇒ at least one failed.
 import argparse
 import asyncio
 from contextlib import suppress
+import logging
 from pathlib import Path
 import subprocess
 import sys
@@ -162,17 +163,107 @@ async def _running_store_ids(client: RealWenmaiClient) -> set[str]:
 async def _logout_via_client(client: RealWenmaiClient) -> bool:
     """Log the client out through ITS OWN logout button (the app's
     handleLogout), so the auto-login scenarios start logged out.
+    Test-harness only — never product code.
+
+    handleLogout triggers a page reload, which tears down any promise
+    that is still awaiting it (seen live: inspector target closed
+    mid-call). So the logout is FIRED, and the login page is confirmed
+    from separate short evals — each reconnects on its own and survives
+    the reload. The API token clear is awaited too (it lags the UI).
+    """
+    for attempt in range(3):
+        try:
+            async with client._inspector() as insp:
+                called = str(
+                    await insp.eval_in_renderer(
+                        '(function(){'
+                        'for (let i = 0; i < 20 && '
+                        '!document.querySelector("#app"); i++) {}'
+                        'const appEl = document.querySelector("#app");'
+                        'if (!appEl) return "NO_APP:" + location.hash;'
+                        'const root = appEl.__vue__;'
+                        'const stack = [root]; let target = null;'
+                        'while (stack.length) { const vm = stack.pop();'
+                        'if (vm && typeof vm.handleLogout === "function") '
+                        '{ target = vm; break; } '
+                        'stack.push(...((vm && vm.$children) || [])'
+                        '.filter(Boolean)); }'
+                        'if (!target) return "NO_LOGOUT_COMPONENT:" '
+                        '+ location.hash;'
+                        # Fire, don't await: the reload it triggers would
+                        # tear the awaiting promise down.
+                        'target.handleLogout(); return "CALLED"; })()'
+                    )
+                )
+                if called != 'CALLED':
+                    return False
+                on_login = False
+                for _ in range(15):
+                    await asyncio.sleep(1.0)
+                    try:
+                        h = str(await insp.eval_in_renderer('location.hash'))
+                    except Exception:  # noqa: BLE001 — mid-reload blip
+                        continue  # each eval reconnects on its own
+                    if h.startswith('#/login'):
+                        on_login = True
+                        break
+                if not on_login:
+                    return False
+            for _ in range(10):  # the API token lags the UI logout
+                if not await client.is_logged_in():
+                    return True
+                await asyncio.sleep(1.0)
+            return False
+        except Exception:  # noqa: BLE001 — reload raced the eval; retry
+            if attempt == 2:
+                return False
+            await asyncio.sleep(2.0)
+    return False
+
+
+async def _running_store_ids(client: RealWenmaiClient) -> set[str]:
+    """GET /QueueRunningStoreList — answered by the shell itself.
+
+    Verified live: a BARE JSON array of open env ids (``[497793]``),
+    empty when none run. Fetched raw because the client's _request
+    only returns dict bodies.
+    """
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(
+                f'{client._base}/QueueRunningStoreList',
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as r:
+                raw = await r.json(content_type=None)
+    except (TimeoutError, aiohttp.ClientError, ValueError):
+        return set()
+    if not isinstance(raw, list):
+        return set()
+    return {str(x.get('id') if isinstance(x, dict) else x) for x in raw}
+
+
+async def _logout_via_client(client: RealWenmaiClient) -> bool:
+    """Log the client out through ITS OWN logout button (the app's
+    handleLogout), so the auto-login scenarios start logged out.
     Test-harness only — never product code."""
     async with client._inspector() as insp:
         result = str(
             await insp.eval_in_renderer(
                 '(async () => {'
-                'const root = document.querySelector("#app").__vue__;'
+                # The window can be mid-reload right after a login or
+                # logout (seen live: #app was null). Wait for the app
+                # root before walking the Vue tree.
+                'for (let i = 0; i < 20 && '
+                '!document.querySelector("#app"); i++) {'
+                'await new Promise(r => setTimeout(r, 500)); }'
+                'const appEl = document.querySelector("#app");'
+                'if (!appEl) return "NO_APP:" + location.hash;'
+                'const root = appEl.__vue__;'
                 'const stack = [root]; let target = null;'
                 'while (stack.length) { const vm = stack.pop();'
                 'if (typeof vm.handleLogout === "function") '
                 '{ target = vm; break; }'
-                'stack.push(...(vm.$children || [])); }'
+                'stack.push(...((vm && vm.$children) || []).filter(Boolean)); }'
                 'if (!target) return "NO_LOGOUT_COMPONENT:" + location.hash;'
                 'await target.handleLogout();'
                 'for (let i = 0; i < 15; i++) {'
@@ -248,15 +339,22 @@ async def _run(client: RealWenmaiClient, cfg: dict, args) -> None:
             except Exception as e:  # noqa: BLE001
                 _record('client not stuck after a failed login', False, repr(e))
 
-    # S: open → CDP reachable → the middle page was clicked (a real
-    # platform page target exists).
+    # S: open → CDP reachable → after_open (the ENGINE's entry-page
+    # hook, driven here exactly as InjectCdpBackend.start does) → a
+    # real platform page target exists.
     opened = await client.open_store(store_ref)
-    ok = await _cdp_ok(opened.cdp_host, opened.cdp_port)
+    ok = False
+    for _ in range(4):  # like the engine's probe: retries, one shot is
+        ok = await _cdp_ok(opened.cdp_host, opened.cdp_port)  # not it
+        if ok:
+            break
+        await asyncio.sleep(1.5)
+    _record('open → CDP', ok, f'port {opened.cdp_port}')
+    await client.after_open(opened)
     pages = await _cdp_pages(opened.cdp_host, opened.cdp_port)
     has_store_page = any(
         str(p.get('url', '')).startswith(('http://', 'https://')) for p in pages
     )
-    _record('open → CDP', ok, f'port {opened.cdp_port}')
     _record(
         'middle page clicked → platform page target',
         has_store_page,
@@ -395,6 +493,10 @@ async def main() -> int:
         help='also log out via the client and verify auto-login',
     )
     args = ap.parse_args()
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(levelname)s %(name)s %(message)s',
+    )
 
     print('=' * 62)
     print('稳卖 (wenmai) live bind/start/read smoke test')

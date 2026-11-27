@@ -49,10 +49,8 @@ import aiohttp
 
 from app.browser.adapters.wenmai_dom import (
     CLICK_OPEN_STORE_JS,
-    LOGIN_HASH_JS,
     MIDDLE_READY_JS,
     fill_enterprise_login_js,
-    is_logged_in_hash,
 )
 from app.browser.adapters.wenmai_win import (
     DEFAULT_API_PORT,
@@ -69,7 +67,10 @@ from app.browser.inject.errors import (
     StoreUnavailable,
     UnsupportedKernel,
 )
-from app.browser.win_inspector import InspectorSession
+from app.browser.win_inspector import (
+    InspectorError,
+    InspectorSession,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -331,27 +332,45 @@ class RealWenmaiClient(InjectClient):
             return
         if not (self._company and self._username and self._password):
             raise LoginRequired()
-        async with self._inspector() as insp:
-            result = str(
-                await insp.eval_in_renderer(
-                    fill_enterprise_login_js(
-                        self._company, self._username, self._password
+        # The login page can be mid-reload when we reach it (a logout
+        # or a failed login reloads the window): NOTAB / NOFIELDS are
+        # transient then, not a client UI change — let it settle and
+        # retry the whole fill a couple of times before failing.
+        result = ''
+        for attempt in (1, 2, 3):
+            try:
+                async with self._inspector() as insp:
+                    result = str(
+                        await insp.eval_in_renderer(
+                            fill_enterprise_login_js(
+                                self._company,
+                                self._username,
+                                self._password,
+                            )
+                        )
                     )
-                )
-            )
-            if result != 'OK':
+            except InspectorError as e:
+                result = f'INSPECTOR: {e}'
+            if result == 'OK':
+                break
+            if attempt == 3:
                 raise LoginRequired(
                     f'enterprise-login form could not be driven: {result}'
                 )
-            for _ in range(30):
-                await asyncio.sleep(1.0)
-                route = await insp.eval_in_renderer(LOGIN_HASH_JS)
-                if is_logged_in_hash(str(route or '')):
-                    return
-            raise LoginRequired(
-                'enterprise login submitted but the client stayed '
-                'logged out (wrong credentials?)'
-            )
+            await asyncio.sleep(3.0)
+        # Poll the API token, NOT the window hash: a successful login
+        # reloads the main window, which tears the inspector's target
+        # down (handshake 400 / socket close — seen live) and made the
+        # hash poll itself the flakiest part of the flow. The token is
+        # the source of truth anyway.
+        for _ in range(30):
+            await asyncio.sleep(1.0)
+            if await self.is_logged_in():
+                return
+        raise LoginRequired(
+            'enterprise login submitted but the client stayed '
+            'logged out (wrong credentials?)'
+        )
 
     async def _user_info(self) -> dict | None:
         """getUserInfo's response dict (token NEVER logged)."""

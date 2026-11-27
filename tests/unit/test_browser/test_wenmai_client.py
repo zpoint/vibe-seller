@@ -472,10 +472,14 @@ async def test_ensure_logged_in_account_mismatch(api):
 
 
 class _FakeInspector:
-    """Renderer evals for the login flow: hash stays #/login until the
-    enterprise form is submitted, then leaves it."""
+    """Renderer evals for the login flow: submitting the enterprise
+    form flips the fake API's login state (the real client's token
+    appears in getUserInfo once the login takes)."""
 
-    def __init__(self):
+    def __init__(self, api, *, logs_in=True, form_result='OK'):
+        self._api = api
+        self._logs_in = logs_in
+        self._form_result = form_result
         self.submitted = False
         self.opened = False
 
@@ -486,24 +490,33 @@ class _FakeInspector:
         pass
 
     async def eval_in_renderer(self, js, **kw):
-        if js == wenmai_dom.LOGIN_HASH_JS:
-            return '#/guide' if self.submitted else '#/login'
         if '企业名称' in js:  # the fill_enterprise_login_js payload
-            self.submitted = True
-            return 'OK'
+            # 'submitted' = the form's 登录 button was clicked, which
+            # only happens when the fields were found and filled.
+            if self._form_result == 'OK':
+                self.submitted = True
+                if self._logs_in:
+                    self._api.logged_out = False
+            return self._form_result
         return None
+
+
+def _patch_login(monkeypatch, insp):
+    monkeypatch.setattr(mod, 'WenmaiProcessLayer', lambda _p=None: _FakeProc())
+    monkeypatch.setattr(mod, 'InspectorSession', lambda _s: insp)
 
 
 async def test_ensure_logged_in_auto_logs_in_via_the_inspector(
     api, monkeypatch
 ):
     api.logged_out = True
-    insp = _FakeInspector()
-    monkeypatch.setattr(mod, 'WenmaiProcessLayer', lambda _p=None: _FakeProc())
-    monkeypatch.setattr(mod, 'InspectorSession', lambda _s: insp)
+    insp = _FakeInspector(api)
+    _patch_login(monkeypatch, insp)
     client = _client(api, {'company': 'acme', 'username': 'u', 'password': 'p'})
     await client.ensure_logged_in()
     assert insp.submitted and insp.opened
+    # The poll confirmed the LOGIN (the API token), not a UI hash.
+    assert await client.is_logged_in() is True
 
 
 async def test_ensure_logged_in_no_creds_raises(api):
@@ -516,21 +529,30 @@ async def test_ensure_logged_in_form_failure_names_what_was_missing(
     api, monkeypatch
 ):
     api.logged_out = True
-
-    class _BrokenForm(_FakeInspector):
-        async def eval_in_renderer(self, js, **kw):
-            if js == wenmai_dom.LOGIN_HASH_JS:
-                return '#/login'
-            if '企业名称' in js:
-                return 'NOFIELDS'
-            return None
-
-    monkeypatch.setattr(mod, 'WenmaiProcessLayer', lambda _p=None: _FakeProc())
-    monkeypatch.setattr(mod, 'InspectorSession', lambda _s: _BrokenForm())
+    insp = _FakeInspector(api, form_result='NOFIELDS')
+    _patch_login(monkeypatch, insp)
     client = _client(api, {'company': 'acme', 'username': 'u', 'password': 'p'})
     with pytest.raises(LoginRequired) as ei:
         await client.ensure_logged_in()
     assert 'NOFIELDS' in str(ei.value)  # pinpointed, not a generic raise
+    assert insp.submitted is False  # never reached the submit
+
+
+async def test_ensure_logged_in_submitted_but_stays_logged_out_raises(
+    api, monkeypatch
+):
+    """A submitted form that never produces a token (wrong password)
+    raises after the bounded poll — the poll watches the API, not the
+    flaky window hash (a successful login reloads the window and tore
+    the inspector's target down; seen live)."""
+    api.logged_out = True
+    insp = _FakeInspector(api, logs_in=False)
+    _patch_login(monkeypatch, insp)
+    client = _client(api, {'company': 'acme', 'username': 'u', 'password': 'p'})
+    with pytest.raises(LoginRequired) as ei:
+        await client.ensure_logged_in()
+    assert 'stayed logged out' in str(ei.value)
+    assert insp.submitted  # the form WAS driven; the login did not take
 
 
 # ── serialization ────────────────────────────────────────────────────
