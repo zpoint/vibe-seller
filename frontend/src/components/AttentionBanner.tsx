@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { useScheduleAttention } from '../hooks/useScheduleAttention'
 import { useTaskAttention } from '../hooks/useTaskAttention'
+import { useIntegrationAttention } from '../hooks/useIntegrationAttention'
 import type { PlanApprovalItem, PlannerQuestionItem, Schedule, WaitingTaskItem } from '../types'
 
 interface Props {
@@ -12,6 +13,8 @@ interface Props {
   onOpenQuestion: (item: PlannerQuestionItem) => void
   /** Open the given schedule's detail view (its plan to approve). */
   onOpenApproval: (item: PlanApprovalItem) => void
+  /** Open Settings → Integrations (a platform to sign in again). */
+  onOpenIntegrations: () => void
 }
 
 const BAR =
@@ -28,15 +31,19 @@ const BAR =
  *      wait only a reply ends (GET /api/tasks/attention);
  *   2. review schedules whose planner asked a question;
  *   3. plan-mode tasks whose plan waits for review (same endpoint);
- *   4. schedule plans waiting for approval.
+ *   4. schedule plans waiting for approval;
+ *   5. a signed-in workplace platform (WeCom, Feishu…) whose sign-in or
+ *      one of whose permissions expired — admins only; a platform
+ *      never signed in is not here (GET /api/integrations/cli/attention).
  *
  * It opens the oldest item of its kind; once the last one is handled,
  * the next kind takes its place. Hidden when nothing waits.
  */
-export function AttentionBanner({ schedules, onOpenTask, onOpenQuestion, onOpenApproval }: Props) {
+export function AttentionBanner({ schedules, onOpenTask, onOpenQuestion, onOpenApproval, onOpenIntegrations }: Props) {
   const { t } = useTranslation()
   const { approvals, questions } = useScheduleAttention(schedules)
   const tasks = useTaskAttention()
+  const platforms = useIntegrationAttention()
   const waiting = tasks.filter(item => item.kind !== 'plan')
   const plans = tasks.filter(item => item.kind === 'plan')
   if (waiting.length > 0) {
@@ -72,6 +79,16 @@ export function AttentionBanner({ schedules, onOpenTask, onOpenQuestion, onOpenA
         <span>{t('planApprovalBanner.message', { count: approvals.length })}</span>
         <span aria-hidden="true">→</span>
         <span className="underline underline-offset-2">{t('planApprovalBanner.action')}</span>
+      </button>
+    )
+  }
+  if (platforms.length > 0) {
+    const name = t(`integrations.cli.platform.${platforms[0].key}`, { defaultValue: platforms[0].title })
+    return (
+      <button type="button" onClick={onOpenIntegrations} className={BAR} data-testid="integration-expired-banner">
+        <span>{t('integrationBanner.message', { name, count: platforms.length })}</span>
+        <span aria-hidden="true">→</span>
+        <span className="underline underline-offset-2">{t('integrationBanner.action')}</span>
       </button>
     )
   }

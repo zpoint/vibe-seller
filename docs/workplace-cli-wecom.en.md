@@ -61,6 +61,23 @@ It is valid for 5 minutes. Click **Connect** on the WeCom row again, or
 **Sign in again** on a platform that is already enabled.
 </details>
 
+<details markdown="1" id="permission-expired"><summary><b>The WeCom row says "Some permissions expired"?</b></summary>
+
+WeCom grants the bot each permission (docs, contacts, messages, mail,
+drive…) for 7 days, each on its own clock; once one expires, the AI
+can't use it. That is WeCom's rule, and using a permission does not
+extend it.
+
+The WeCom row in Settings lists every permission's state. Click
+**Re-authorize** and scan with WeCom to renew, or click **Renew** next to
+one permission to renew just that one. Only the person who scanned to
+connect WeCom can renew. The row refreshes when you come back to the
+Settings page.
+
+When a WeCom authorization expires, a bar at the top of the app also
+tells admins to re-authorize.
+</details>
+
 <details markdown="1"><summary><b>The AI can't message a colleague directly?</b></summary>
 
 The bot can message only the person who scanned, and people who talked

@@ -5,6 +5,9 @@ import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 import { CLI_ERROR_HELP, CLI_NOTICE_HELP, DOCS_HELP } from '../../lib/docsHelp'
 import { DocsHelpLink } from '../ui/DocsHelpLink'
+import { CliPermissions } from './CliPermissions'
+import { useCliPermissions } from '../../hooks/useCliPermissions'
+import { INTEGRATION_ATTENTION_EVENT } from '../../hooks/useIntegrationAttention'
 
 /** Settings → Integrations: the official WeCom / Feishu / DingTalk CLIs,
  *  and Google Workspace's (its own card, same rows).
@@ -95,6 +98,8 @@ interface CliCard {
   needs_setup?: boolean
   /** Said on the row until the platform is enabled (i18n key). */
   notice?: string | null
+  /** Grants capabilities one by one (WeCom): the row lists each one's state. */
+  per_permission?: boolean
 }
 
 /** Where each step of Google's one-time setup is done (Google Cloud
@@ -185,6 +190,7 @@ export function WorkplaceCliPanel({
       const all = Array.isArray(r?.integrations) ? r.integrations : []
       setCards(all.filter((c) => GOOGLE_KEYS.includes(c.key) === google))
       setError(null)
+      window.dispatchEvent(new Event(INTEGRATION_ATTENTION_EVENT))
     } catch (e) {
       setError(errView(e, 'load'))
     } finally {
@@ -343,6 +349,9 @@ function CliRow({
 
   const loginActive = login && inProgress(login)
   const signedIn = !!card.auth?.usable
+  const perms = useCliPermissions(card.key, !!card.per_permission && card.enabled && signedIn, card)
+  // Signed in before (enabled), now the sign-in or a capability expired.
+  const reauth = card.enabled && !!card.auth && (!signedIn || perms.anyExpired)
   const name = t(`integrations.cli.platform.${card.key}`, { defaultValue: card.title })
   // The button on screen once a sign-in ended: "Sign in again" on an
   // enabled platform, otherwise "Connect" (the only one a stopped or
@@ -375,6 +384,10 @@ function CliRow({
               <span className="text-amber-700" data-testid={`cli-needs-signin-${card.key}`}>
                 {t('integrations.cli.enabledNeedsSignIn')}
                 {card.key === 'gws' && <> <DocsHelpLink topic="googleSignInExpired" /></>}
+              </span>
+            ) : perms.anyExpired ? (
+              <span className="text-amber-700" data-testid={`cli-permissions-expired-${card.key}`}>
+                {t('integrations.cli.permissions.someExpired')}
               </span>
             ) : (
               <span className={card.enabled ? 'text-green-700' : ''}>
@@ -410,9 +423,9 @@ function CliRow({
                 onClick={relogin}
                 disabled={!!busy}
                 data-testid={`cli-relogin-${card.key}`}
-                className="px-3 py-1.5 text-sm rounded bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:opacity-40"
+                className={`px-3 py-1.5 text-sm rounded disabled:opacity-40 ${reauth ? 'font-medium bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'}`}
               >
-                {t('integrations.cli.relogin')}
+                {t(reauth ? 'integrations.cli.reauthorize' : 'integrations.cli.relogin')}
               </button>
             )}
             {card.enabled && (
@@ -428,6 +441,8 @@ function CliRow({
           </div>
         )}
       </div>
+
+      <CliPermissions cardKey={card.key} items={perms.items} loading={perms.loading} />
 
       {card.notice && !card.enabled && (
         <p className="text-sm text-amber-700" data-testid={`cli-row-notice-${card.key}`}>

@@ -39,6 +39,7 @@ from app.cli_integrations.base import (
     AuthStatus,
     CliIntegration,
     LoginView,
+    Permission,
     SetupError,
     host_platform,
 )
@@ -180,6 +181,28 @@ async def auth_status(
         return AuthStatus(False, 'error', detail={'error': str(e)})
 
 
+async def check_permissions(
+    integ: CliIntegration, home: Path | None = None
+) -> list[Permission] | None:
+    """Each capability's grant, checked online now — None when there is
+    nothing to check: not a ``per_permission`` platform, not installed,
+    or not signed in at all."""
+    if not integ.per_permission:
+        return None
+    h = _home(home)
+    if not await asyncio.to_thread(
+        paths.is_installed, integ.key, integ.binary, h
+    ):
+        return None
+    if not (await auth_status(integ, h)).usable:
+        return None
+    try:
+        return await integ.permissions(await _runner(integ, h))
+    except Exception:  # a parser surprise must not 500 the page
+        logger.exception('%s permission check failed', integ.key)
+        return None
+
+
 async def status(integ: CliIntegration, home: Path | None = None) -> dict:
     """One card of the Settings page."""
     h = _home(home)
@@ -215,6 +238,9 @@ async def status(integ: CliIntegration, home: Path | None = None) -> dict:
         # The page's form for the one-time setup, and whether the
         # sign-in waits on it now.
         'setup': integ.setup,
+        # Grants (and expires) capabilities one by one: the card asks
+        # ``GET /{key}/permissions`` for each one's state.
+        'per_permission': integ.per_permission,
         'needs_setup': bool(auth is not None and integ.needs_setup(auth)),
         # Something the page says about this platform until it is
         # enabled (``paths.write_notice``).

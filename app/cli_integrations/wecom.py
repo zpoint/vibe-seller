@@ -16,6 +16,7 @@ Login    ``auth init --noninteractive --no-browser --output-qrcode`` binds
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 import re
@@ -27,6 +28,7 @@ from app.cli_integrations.base import (
     CliIntegration,
     LoginStep,
     LoginView,
+    Permission,
     SkillLayout,
 )
 
@@ -41,6 +43,53 @@ _URL = re.compile(r'https?://\S+')
 SKILLS_MAIN = (
     'https://codeload.github.com/WecomTeam/wecom-cli/tar.gz/refs/heads/main'
 )
+
+
+#: One READ-ONLY call per capability WeCom grants the bot on its own.
+#: WeCom grants each for 7 days (developer.work.weixin.qq.com/document/
+#: path/101468), and ``auth show`` keeps saying "authorized" after they
+#: expire — only a real call tells. Never a call that writes or sends.
+PERMISSION_PROBES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ('doc', ('doc', 'search', '--keywords', 'vibe', '--limit', '1')),
+    ('contact', ('contact', 'users', 'search', '--keywords', 'vibe')),
+    ('message', ('message', 'aibot', 'sessions', 'list')),
+    ('mail', ('mail', 'search', '--limit', '1')),
+    ('disk', ('disk', 'files', 'list', '--limit', '1')),
+    ('calendar', ('calendar', 'schedules', 'list')),
+    ('meeting', ('meeting', 'list', '--limit', '1')),
+    ('todo', ('todo', 'list', '--limit', '1')),
+)
+#: "authorization expired": the capability's grant ran out.
+EXPIRED_ERRCODE = 850003
+_RENEW_URL = re.compile(
+    r'https://work\.weixin\.qq\.com/ai/aiHelper/authorizationList\?[^\s)"\\]+'
+)
+
+
+def _first_json(text: str) -> dict | None:
+    """The response object the CLI printed (it may print other lines)."""
+    start = text.find('{')
+    if start < 0:
+        return None
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text[start:])
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def parse_permission(key: str, rc: int, out: str, err: str) -> Permission:
+    """One probe's answer. The reply's data is never kept — only
+    whether the call was allowed."""
+    body = _first_json(out) or _first_json(err)
+    code = body.get('errcode') if body else None
+    if code == EXPIRED_ERRCODE:
+        m = _RENEW_URL.search(str(body.get('help_message') or ''))
+        return Permission(key, 'expired', m.group(0) if m else None)
+    # Allowed: an answer with no error. Unreadable output says nothing.
+    if rc == 0 and body is not None and code in (None, 0):
+        return Permission(key, 'ok')
+    return Permission(key, 'unknown')
 
 
 def _parse_login(line: str, view: LoginView) -> None:
@@ -124,6 +173,22 @@ class WeCom(CliIntegration):
         if state == 'unauthorized':
             return AuthStatus(False, 'not_logged_in')
         return AuthStatus(False, 'error', detail={'error': out[-300:]})
+
+    per_permission = True
+    expired_hint = (
+        ' (WeCom grants each permission for 7 days; an expired one '
+        'answers 「…」使用权限已过期 / "authorization expired", errcode '
+        f'{EXPIRED_ERRCODE})'
+    )
+
+    async def permissions(self, run) -> list[Permission]:
+        async def probe(key: str, args: tuple[str, ...]) -> Permission:
+            rc, out, err = await run(list(args))
+            return parse_permission(key, rc, out, err)
+
+        return list(
+            await asyncio.gather(*(probe(k, a) for k, a in PERMISSION_PROBES))
+        )
 
     def login_steps(self, status: AuthStatus) -> list[LoginStep]:
         # The QR path must sit under the working dir (the CLI sandboxes

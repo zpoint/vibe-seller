@@ -600,6 +600,7 @@ export default function App() {
       onOpenTask={(w) => navigate(taskTarget(w.store_id, w.task_id))}
       onOpenQuestion={(q) => navigate(taskTarget(q.store_id, q.task_id))}
       onOpenApproval={(a) => navigate(scheduleTarget(a.store_id, a.schedule_id))}
+      onOpenIntegrations={() => setSettingsTab('integrations')}
     />
     <div className="flex flex-1 min-h-0">
       {/* Mobile drawer scrim — tap to close the slide-in sidebar. */}

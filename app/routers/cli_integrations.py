@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from app import telemetry
 from app.auth import get_current_user, require_admin
-from app.cli_integrations import download, manager
+from app.cli_integrations import attention, download, manager
 from app.cli_integrations.base import CliIntegration
 from app.cli_integrations.login import login_manager
 from app.cli_integrations.registry import INTEGRATIONS
@@ -65,6 +65,24 @@ async def list_integrations(_user: User = Depends(get_current_user)):
                 'steps': card['login']['steps'],
             }
     return {'integrations': cards}
+
+
+@router.get('/attention')
+async def needs_signing_in_again(user: User = Depends(get_current_user)):
+    """Enabled platforms whose sign-in, or one of whose capabilities,
+    expired — for the bar at the top of the app. Admins only: nobody
+    else can sign a platform in again."""
+    if user.role != 'admin':
+        return {'items': []}
+    return {'items': await attention.attention()}
+
+
+@router.get('/{key}/permissions')
+async def permissions(key: str, _user: User = Depends(get_current_user)):
+    """Each capability's state, checked now with one read-only call
+    apiece (``permissions: null``: the platform has none to check, or is
+    not signed in)."""
+    return {'permissions': await attention.permissions(_integ(key))}
 
 
 @router.post('/{key}/install')

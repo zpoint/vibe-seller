@@ -691,6 +691,28 @@
       "working": "处理中…",
       "downloading": "正在下载，第一次开通可能要等几分钟…",
       "relogin": "重新登录",
+      "reauthorize": "重新授权",
+      "permissions": {
+        "checking": "正在检查各项权限…",
+        "someExpired": "部分权限已过期",
+        "expiredHint": "过期的权限 AI 用不了，点「重新授权」用企业微信扫码续期。",
+        "renewOne": "单独续期",
+        "name": {
+          "doc": "文档",
+          "contact": "通讯录",
+          "message": "消息",
+          "mail": "邮件",
+          "disk": "微盘",
+          "calendar": "日程",
+          "meeting": "会议",
+          "todo": "待办"
+        },
+        "state": {
+          "ok": "可用",
+          "expired": "已过期",
+          "unknown": "检查失败"
+        }
+      },
       "disable": "停用",
       "cancel": "取消",
       "step": "第 {{step}}/{{steps}} 步：",
@@ -1330,6 +1352,10 @@
     "question_one": "{{count}} 个定时任务的 AI 有问题要问你",
     "question_other": "{{count}} 个定时任务的 AI 有问题要问你",
     "answer": "去回答"
+  },
+  "integrationBanner": {
+    "message": "{{name}}授权已过期，需要重新授权",
+    "action": "去重新授权"
   },
   "aiSetup": {
     "prompt": {

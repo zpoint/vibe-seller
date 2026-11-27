@@ -689,6 +689,28 @@
       "working": "Working…",
       "downloading": "Downloading. The first connection can take a few minutes…",
       "relogin": "Sign in again",
+      "reauthorize": "Re-authorize",
+      "permissions": {
+        "checking": "Checking each permission…",
+        "someExpired": "Some permissions expired",
+        "expiredHint": "The AI can’t use an expired permission. Click Re-authorize and scan with WeCom to renew.",
+        "renewOne": "Renew",
+        "name": {
+          "doc": "Docs",
+          "contact": "Contacts",
+          "message": "Messages",
+          "mail": "Mail",
+          "disk": "Drive",
+          "calendar": "Calendar",
+          "meeting": "Meetings",
+          "todo": "To-dos"
+        },
+        "state": {
+          "ok": "OK",
+          "expired": "expired",
+          "unknown": "couldn’t check"
+        }
+      },
       "disable": "Disable",
       "cancel": "Cancel",
       "step": "Step {{step}}/{{steps}}:",
@@ -1328,6 +1350,10 @@
     "question_one": "The AI has a question about {{count}} scheduled task's plan",
     "question_other": "The AI has questions about {{count}} scheduled tasks' plans",
     "answer": "Answer"
+  },
+  "integrationBanner": {
+    "message": "{{name}} authorization has expired",
+    "action": "Re-authorize"
   },
   "aiSetup": {
     "prompt": {
