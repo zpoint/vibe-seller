@@ -394,13 +394,15 @@ def _default_app_paths() -> list[tuple[str, str]]:
 
 
 def _ps_uninstall_entries() -> list[UninstallEntry]:
+    # \* = child keys: Get-ItemProperty on the CONTAINER returns its
+    # own (empty) values, so the pre-fix query found no app from WSL.
     script = (
         "$keys='HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion"
-        "\\Uninstall',"
+        "\\Uninstall\\*',"
         "'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows"
-        "\\CurrentVersion\\Uninstall',"
+        "\\CurrentVersion\\Uninstall\\*',"
         "'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion"
-        "\\Uninstall';"
+        "\\Uninstall\\*';"
         'Get-ItemProperty $keys -ErrorAction SilentlyContinue | '
         'ForEach-Object { '
         '"$($_.DisplayName)`t$($_.InstallLocation)`t'
