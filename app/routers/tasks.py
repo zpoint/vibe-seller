@@ -43,13 +43,13 @@ from app.schemas.task import TaskCreate, TaskResponse, TaskStepResponse
 from app.schemas.user import TaskModeToggle
 from app.subtask_rules import validate_parent_task
 from app.task_delete import delete_task as delete_task_record
+from app.task_finalize import stop_as_failed
 from app.task_launch import schedule_or_run
 from app.task_outcome import apply_outcome, resolve_outcome
 from app.task_runner import (
     TaskHeader,
     build_store_context,
     build_system_extra,
-    check_parent_completion,
     reopen_parent_if_child_active,
 )
 from app.task_runner_exec import execute_planned_task
@@ -565,25 +565,11 @@ async def stop_agent(
         await agent_manager.stop(task_id)
         return {'ok': True, 'task_id': task_id, 'status': task.status}
 
-    # Commit FAILED *before* stopping the agent so that
-    # auto_run_task sees FAILED when it reads the DB after
-    # agent_manager.is_running() flips to False.
-    task.status = TaskStatus.FAILED
-    task.error = 'Stopped by user'
-    task.error_category = 'stopped_by_user'
-    task.updated_at = datetime.now(UTC).isoformat()
-    await db.commit()
-    await event_bus.emit(
-        'task_update',
-        {
-            'task_id': task_id,
-            'status': TaskStatus.FAILED,
-            'error': task.error,
-        },
-    )
-
-    await agent_manager.stop(task_id)
-    await check_parent_completion(task, db)
+    # One writer for every external stop (see
+    # task_finalize.stop_as_failed): the FAILED commit happens before
+    # the agent stop so auto_run_task sees FAILED when it reads the DB
+    # after agent_manager.is_running() flips to False.
+    await stop_as_failed(task_id, 'Stopped by user', 'stopped_by_user')
 
     return {'ok': True, 'task_id': task_id, 'status': 'agent_stopped'}
 

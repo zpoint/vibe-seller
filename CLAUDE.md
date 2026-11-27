@@ -299,6 +299,7 @@ All LLM system prompts live in `app/prompts/*.md`, loaded once at import via `ap
 | `design_system.md` | Base agent instructions (knowledge recall, keeping knowledge correct, `{workspace_guidance}` slot for catalog restriction, subagent rules) |
 | `scheduled_pretask.md` | Injected by `build_system_extra()` when `task.schedule_id` is set (non-catalog) — the cross-run cursor contract (`vibe_seller_get_schedule_state` / `set_schedule_state`) |
 | `waiting_instruction.md` | Wait-condition signaling docs |
+| `browser_failure_rules.md` | Typed browser-start failures + the login-page credential rule (ask the user, never search the disk) |
 | `dual_browser.md` | Ziniao vs Chrome routing (injected by `build_store_context`) |
 | `ticktick_tools.md` | TickTick/Dida365 tool reference — appended when TickTick is connected (`ticktick_context()`) |
 | `vision_setup_breadcrumb.md` | One-line breadcrumb to Settings → AI → Vision when no image key is configured — the same gate that hides the image tool |
@@ -322,13 +323,14 @@ All LLM system prompts live in `app/prompts/*.md`, loaded once at import via `ap
 1. Base prompt (`design_system.md` with `{workspace_guidance}` filled)
 2. Language hint (Chinese/English)
 3. Waiting instruction
-4. Store context OR all-stores context
-5. TickTick integration (if configured), then the custom MCP servers line (if any are enabled — `app/custom_mcp.prompt_note`)
-6. System context (task type, integrations, capabilities)
-7. Vision-setup breadcrumb (only when no image key is configured), scheduled-task / plan-only blocks
-8. Header-derived extra (plan text for execute/woken)
-9. Caller extra context (conversation history, wake trigger)
-10. Store ads note (the last word — a fanout plan is shared), then plugin `system_extra` fragments
+4. Browser failure rules (typed start-error + login-page credential rule)
+5. Store context OR all-stores context
+6. TickTick integration (if configured), then the custom MCP servers line (if any are enabled — `app/custom_mcp.prompt_note`)
+7. System context (task type, integrations, capabilities)
+8. Vision-setup breadcrumb (only when no image key is configured), scheduled-task / plan-only blocks
+9. Header-derived extra (plan text for execute/woken)
+10. Caller extra context (conversation history, wake trigger)
+11. Store ads note (the last word — a fanout plan is shared), then plugin `system_extra` fragments
 
 There is no post-task reflection turn: the agent keeps `knowledge/` and `stores/` correct in-task, after its result is recorded (`design_system.md` § Keeping knowledge correct). Claude Code's own auto-memory is off for every agent (`profiles.disable_auto_memory` env + `autoMemoryEnabled: false` in the launch `--settings`, `app/ai/claude_isolation.py`); `knowledge/` + `stores/` is the only memory.
 
