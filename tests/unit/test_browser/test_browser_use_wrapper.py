@@ -21,6 +21,7 @@ import pytest
 
 from app.browser.manager import write_browser_use_wrapper
 from app.browser.web_wrapper import write_web_browser_use_wrapper
+from app.browser.wrapper import atomic_write_script
 from app.config import WEB_BROWSER_SLUG
 
 
@@ -784,3 +785,43 @@ class TestAntidetectAuxWrapper:
             content = _generate_wrapper(tmp_path, backend=backend).read_text()
             assert 'sed -n' in content
             assert 'aux browser start failed' in content
+
+
+@pytest.mark.unit
+class TestAtomicWriteScript:
+    """atomic_write_script's Windows-lock contract (found live by a real
+    task on native Windows: a cold store's first browser-use call 500s
+    when the server's same-content wrapper rewrite hits WinError 5)."""
+
+    def test_identical_content_is_not_rewritten(self, tmp_path: Path):
+        target = tmp_path / 'browser-use'
+        atomic_write_script(target, 'CONTENT-1\n')
+        first_mtime = target.stat().st_mtime_ns
+        atomic_write_script(target, 'CONTENT-1\n')
+        assert target.read_text() == 'CONTENT-1\n'
+        assert target.stat().st_mtime_ns == first_mtime
+
+    def test_changed_content_is_swapped(self, tmp_path: Path):
+        target = tmp_path / 'browser-use'
+        atomic_write_script(target, 'CONTENT-1\n')
+        atomic_write_script(target, 'CONTENT-2\n')
+        assert target.read_text() == 'CONTENT-2\n'
+
+    def test_a_locked_target_keeps_the_old_file_instead_of_raising(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Windows: os.replace over an executing script raises
+        PermissionError. The writer must keep the old copy (the running
+        wrapper follows the start API's typed port at runtime) instead
+        of failing the browser start with a 500."""
+        target = tmp_path / 'browser-use'
+        atomic_write_script(target, 'OLD\n')
+
+        def _locked_replace(src, dst, *a, **kw):
+            raise PermissionError(5, 'Access is denied', dst)
+
+        monkeypatch.setattr('app.browser.wrapper.os.replace', _locked_replace)
+        atomic_write_script(target, 'NEW\n')  # must not raise
+        # The OLD copy stays; no temp litter.
+        assert target.read_text() == 'OLD\n'
+        assert list(tmp_path.glob('*.tmp')) == []
