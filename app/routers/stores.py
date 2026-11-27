@@ -467,9 +467,10 @@ async def get_store_bookmarks(
 @router.post('/{store_id}/browser/start')
 async def start_browser(
     store_id: str,
-    # Optional so the in-task MCP ``browser`` tool can call this route
-    # directly (``call_route`` supplies no Request); over HTTP FastAPI
-    # always injects the real one.
+    # Optional so the OPERATOR MCP (``app/agent_mcp/tools_stores.py``,
+    # served at ``/api/mcp``) can call this route directly — its
+    # ``call_route`` supplies no Request; over HTTP FastAPI always
+    # injects the real one.
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
@@ -509,9 +510,14 @@ async def start_browser(
         if is_terminal(e):
             # The wrapper names the task it is starting the browser
             # for; a UI-driven start sends no header and only gets the
-            # typed body. The FAILED commit happens before the agent
-            # stop, mirroring the user-stop route.
-            task_id = request.headers.get('X-Vibe-Task', '').strip()
+            # typed body. A direct call from the operator MCP has NO
+            # request at all — guard it, or the typed body would be
+            # replaced by an AttributeError traceback. The FAILED
+            # commit happens before the agent stop, mirroring the
+            # user-stop route.
+            task_id = (
+                request.headers.get('X-Vibe-Task', '') if request else ''
+            ).strip()
             if task_id:
                 await fail_task_for_start_error(
                     task_id, e, store.id, store.name

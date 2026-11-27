@@ -75,9 +75,12 @@ async def fail_task_for_start_error(
     an agent can send too, with any value, since the wrapper's
     credentials live in its env. So the header only SELECTS a task;
     it can never make the route fail one that is not already this
-    store's own live run: the task must exist, be RUNNING/DESIGNING
-    (anything else cannot transition to FAILED), and belong to THIS
-    store. Anything else is ignored — the typed error still answers.
+    store's own live agent run: the task must exist, be RUNNING or
+    DESIGNING (a QUEUED, PLANNED or WAITING task is waiting for its
+    turn or a person, not for a browser — and the state machine
+    would allow FAILED from those, so this is an explicit check, not
+    ``can_transition`` alone), and belong to THIS store. Anything
+    else is ignored — the typed error still answers.
     """
     error = typed_error_text(exc)
     async with async_session() as db:
@@ -85,6 +88,7 @@ async def fail_task_for_start_error(
         if (
             task is None
             or task.store_id != store_id
+            or task.status not in (TaskStatus.RUNNING, TaskStatus.DESIGNING)
             or not can_transition(task.status, TaskStatus.FAILED)
         ):
             return False

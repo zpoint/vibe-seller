@@ -11,12 +11,19 @@ contract is exercised:
   retry is its own layer; the server does not fail the task);
 - a failure WITHOUT a taxonomy code (Ziniao's path) → exactly today's
   plain 500 detail, task keeps RUNNING — Ziniao is not reclassified;
-- the ``X-Vibe-Task`` header only SELECTS this store's own live task:
-  another store's task, or a completed one, is left untouched.
+- the ``X-Vibe-Task`` header only SELECTS this store's own LIVE
+  (RUNNING/DESIGNING) task: another store's task, a completed one, or
+  a same-store task still waiting for its turn (QUEUED / PLANNED /
+  WAITING) is left untouched;
+- the OPERATOR MCP path (``app/agent_mcp/tools_stores.py`` calls the
+  route with no Request) still gets the typed body on a terminal
+  failure — no AttributeError replacing it.
 """
 
 import asyncio
+from datetime import UTC, datetime
 
+from fastapi import HTTPException
 import pytest
 
 from app.browser.inject.errors import (
@@ -30,6 +37,9 @@ from app.browser.inject.errors import (
     StoreUnavailable,
     UnsupportedKernel,
 )
+from app.models.task import Task
+from app.routers import stores as stores_route
+from app.task_states import TaskStatus
 from tests.workflow.conftest import wait_for_task
 from tests.workflow.fake_agent import FakeAgentScenario
 
@@ -274,6 +284,128 @@ class TestHeaderOnlySelectsThisStoresLiveTask:
         )
         assert r.status_code == 500
         assert r.json()['detail']['code'] == 'UNSUPPORTED_KERNEL'
+
+
+class TestOperatorMcpPathHasNoRequest:
+    """R1: the operator MCP calls the route with NO Request object.
+
+    A terminal failure there must still answer the typed body — the
+    unguarded ``request.headers`` read turned it into an
+    AttributeError traceback inside ``except InjectError`` (which the
+    sibling ``except Exception`` does not catch).
+    """
+
+    async def test_terminal_failure_without_request_answers_typed(
+        self,
+        admin_client,
+        install_fake_agent,
+        failing_browser,
+        override_async_session,
+        admin_user,
+    ):
+        store_id = await _create_store(admin_client, 'No Request Store')
+        task_id, gate = await _make_running_task(
+            admin_client, install_fake_agent, store_id
+        )
+        failing_browser(UnsupportedKernel('kernel is Firefox'))
+
+        # Exactly the call app/agent_mcp/tools_stores.py makes: the
+        # store id positionally, db and _user by keyword, NO request.
+        async with override_async_session() as db:
+            with pytest.raises(HTTPException) as ei:
+                await stores_route.start_browser(
+                    store_id, db=db, _user=admin_user
+                )
+        assert ei.value.status_code == 500
+        assert ei.value.detail['code'] == 'UNSUPPORTED_KERNEL'
+        assert ei.value.detail['hint']
+        # No header could be sent, so no task was touched: the run
+        # lives on and completes when its gate opens.
+        data = (await admin_client.get(f'/api/tasks/{task_id}')).json()
+        assert data['status'] == 'running'
+        gate.set()
+        await wait_for_task(admin_client, task_id, 'completed')
+
+
+class TestHeaderOnlySelectsLiveRuns:
+    """R2: a forged header must not fail a task that is not a live
+    agent run, even on the SAME store — the state machine would
+    allow FAILED from QUEUED/PLANNED/WAITING, so the guard is an
+    explicit RUNNING/DESIGNING check, not can_transition alone."""
+
+    async def _make_task_in_status(self, client, store_id, title):
+        r = await client.post(
+            '/api/tasks',
+            json={'title': title, 'store_id': store_id},
+        )
+        return r.json()['id']
+
+    @pytest.mark.parametrize(
+        'status',
+        ['queued', 'planned', 'waiting'],
+    )
+    async def test_waiting_state_task_untouched(
+        self,
+        admin_client,
+        install_fake_agent,
+        failing_browser,
+        override_async_session,
+        status,
+    ):
+        store_id = await _create_store(admin_client, f'Guard {status}')
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            result='settled'
+        )
+        task_id = await self._make_task_in_status(
+            admin_client, store_id, f'sitting at {status}'
+        )
+        # Let the auto-run pipeline finish first (no race with it),
+        # then park the row in the state under test. The state machine
+        # DOES allow FAILED from here — that is exactly why the guard
+        # must not rely on it.
+        await wait_for_task(admin_client, task_id, 'completed')
+        async with override_async_session() as db:
+            row = await db.get(Task, task_id)
+            row.status = TaskStatus(status)
+            row.error = None
+            row.error_category = None
+            row.updated_at = datetime.now(UTC).isoformat()
+            await db.commit()
+
+        failing_browser(UnsupportedKernel('kernel is Firefox'))
+        r = await admin_client.post(
+            f'/api/stores/{store_id}/browser/start',
+            headers={'X-Vibe-Task': task_id},
+        )
+        # The typed error still answers …
+        assert r.status_code == 500
+        assert r.json()['detail']['code'] == 'UNSUPPORTED_KERNEL'
+        # … but the waiting task keeps waiting: not failed, no error.
+        data = (await admin_client.get(f'/api/tasks/{task_id}')).json()
+        assert data['status'] == status
+        assert data['error'] is None
+        assert data['error_category'] is None
+
+    async def test_running_same_store_task_still_fails(
+        self, admin_client, install_fake_agent, failing_browser
+    ):
+        # The guard must not be so tight that the REAL case breaks: a
+        # RUNNING task on this store is still failed. (Residual, per
+        # review: a RUNNING sibling on the same store can be selected
+        # by a forged header — but only a REAL terminal start failure
+        # of that same store provides one, and it would hit the
+        # sibling anyway.)
+        store_id = await _create_store(admin_client, 'Guard running')
+        task_id, gate = await _make_running_task(
+            admin_client, install_fake_agent, store_id
+        )
+        failing_browser(UnsupportedKernel('kernel is Firefox'))
+        await admin_client.post(
+            f'/api/stores/{store_id}/browser/start',
+            headers={'X-Vibe-Task': task_id},
+        )
+        data = await wait_for_task(admin_client, task_id, 'failed')
+        assert data['error'].startswith('[UNSUPPORTED_KERNEL]')
 
 
 class TestUntypedFailureIsZiniaosExactPath:
