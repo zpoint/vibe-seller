@@ -309,3 +309,41 @@ async def test_start_recovers_a_wedged_kernel_then_retries(
     assert info.cdp_port == cdp_version_port
     assert fake.recovered == ['100000000001']  # the recovery ran once
     assert probes['n'] == 2  # and the start was retried
+
+
+async def test_start_surfaces_the_recovery_refusal_typed(
+    cdp_version_port, _mocked_proxy
+):
+    """W5-3, adapter level (the route's typed body is #342's): when
+    the wedged-kernel recovery REFUSES a safe kill (nothing matched
+    the three-check kernel identity — another app may hold the port),
+    WenmaiBackend.start raises the taxonomy CdpUnreachable with the
+    operator hint, and does not retry the launch."""
+
+    probes = {'n': 0}
+
+    async def fail_always(self, host, port):
+        probes['n'] += 1
+        return None  # the engine's verification keeps failing
+
+    class _Refusing(FakeWenmaiClient):
+        def __init__(self, cdp_port):
+            super().__init__(cdp_port=cdp_port)
+            self.recovered: list[str] = []
+
+        async def recover_wedged_env(self, ref, opened):
+            self.recovered.append(ref)
+            raise CdpUnreachable(
+                'the stuck kernel could not be identified for a safe '
+                'kill — close this store in the 稳卖 client and retry'
+            )
+
+    fake = _Refusing(cdp_port=cdp_version_port)
+    backend = WenmaiBackend(client_factory=lambda cfg: fake)
+    with mock.patch.object(InjectCdpBackend, '_cdp_version', new=fail_always):
+        with pytest.raises(CdpUnreachable) as ei:
+            await backend.start(_cfg())
+    assert 'could not be identified for a safe kill' in str(ei.value)
+    assert '稳卖 client' in str(ei.value)  # the operator hint rides along
+    assert fake.recovered == ['100000000001']  # the recovery ran once
+    assert probes['n'] == 1  # and the start was NOT retried

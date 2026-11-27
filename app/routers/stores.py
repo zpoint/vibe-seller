@@ -4,16 +4,20 @@ import json
 import logging
 import shutil
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import store_platforms, telemetry
 from app.auth import get_current_user
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
-from app.browser.inject.errors import InjectError
+from app.browser.inject.errors import InjectError, is_terminal
 from app.browser.launch_guards import BrowserBusyError
 from app.browser.manager import browser_manager
+from app.browser.start_failure import (
+    error_body,
+    fail_task_for_start_error,
+)
 from app.browser.wrapper import remove_browser_use_wrapper
 from app.browser.ziniao_startup import ZiniaoAccountConflictError
 from app.database import get_db
@@ -463,6 +467,11 @@ async def get_store_bookmarks(
 @router.post('/{store_id}/browser/start')
 async def start_browser(
     store_id: str,
+    # Optional so the OPERATOR MCP (``app/agent_mcp/tools_stores.py``,
+    # served at ``/api/mcp``) can call this route directly — its
+    # ``call_route`` supplies no Request; over HTTP FastAPI always
+    # injects the real one.
+    request: Request = None,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
@@ -472,6 +481,16 @@ async def start_browser(
     answering (normal mode, not running, leftovers) it is killed and
     relaunched in WebDriver mode — always, no flag. Old wrappers still
     send ``?force=1``; it is ignored.
+
+    A start failure that carries the inject taxonomy reaches the
+    caller as a TYPED body (``detail.code`` / ``message`` / ``hint``).
+    When the request names the task it serves (the wrapper sends
+    ``X-Vibe-Task``) and the failure is terminal, the task is ended
+    FAILED with the code + category and the agent is stopped — the
+    operator must fix this class of failure, and a bare 500 taught
+    agents to improvise (incident 97db66d2). The header only ever
+    SELECTS a task: it must be this store's own live run, or it is
+    ignored.
     """
     store = await db.get(Store, store_id)
     if not store:
@@ -488,18 +507,22 @@ async def start_browser(
     except ZiniaoAccountConflictError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except InjectError as e:
-        # The vendor's typed taxonomy (LOGIN_REQUIRED, STORE_UNAVAILABLE,
-        # UNSUPPORTED_KERNEL, CDP_UNREACHABLE, …): the same structured
-        # body the vendor enumerate route produces, so C2's typed body
-        # and the docs link reach the user instead of a raw 500.
-        raise HTTPException(
-            status_code=502,
-            detail=json.dumps({
-                'status': e.code.lower(),
-                'message': str(e),
-                'hint': e.hint,
-            }),
-        ) from e
+        if is_terminal(e):
+            # The wrapper names the task it is starting the browser
+            # for; a UI-driven start sends no header and only gets the
+            # typed body. A direct call from the operator MCP has NO
+            # request at all — guard it, or the typed body would be
+            # replaced by an AttributeError traceback. The FAILED
+            # commit happens before the agent stop, mirroring the
+            # user-stop route.
+            task_id = (
+                request.headers.get('X-Vibe-Task', '') if request else ''
+            ).strip()
+            if task_id:
+                await fail_task_for_start_error(
+                    task_id, e, store.id, store.name
+                )
+        raise HTTPException(status_code=500, detail=error_body(e)) from e
     except Exception as e:
         raise HTTPException(
             status_code=500,

@@ -373,7 +373,7 @@ Key behaviors:
 
 **悦互联 (Yuehulian)** is an ixBrowser OEM with **no local automation API**. Instead of HTTP (ziniao), it is driven by injecting a CDP debug port into the client-launched kernel:
 
-- **`inject/`** — shared Route-B engine (`InjectCdpBackend`), the `InjectClient` boundary, and typed operator errors (`CLIENT_NOT_RUNNING` / `LOGIN_REQUIRED` / `ACCOUNT_MISMATCH` / `API_NOT_ENABLED` / `PLAN_REQUIRED` / `STORE_NOT_FOUND` / `STORE_UNAVAILABLE` / `UNSUPPORTED_KERNEL` / `CDP_UNREACHABLE` / `ACCOUNT_CONFLICT` / `IDLE_EXPIRED` / `UNSUPPORTED_PLATFORM`; the new vendor-neutral codes: `ACCOUNT_MISMATCH` — the client is logged into a different account than the saved one, never auto-logged-out; `API_NOT_ENABLED` / `PLAN_REQUIRED` — the client's local API is switched off / behind a paid plan (most vendors gate it, the #1 support case); `STORE_UNAVAILABLE` — the env exists but cannot be opened, carrying the vendor's own message; `UNSUPPORTED_KERNEL` — the env runs a non-Chromium kernel, and its surfaced text carries the stable `[UNSUPPORTED_KERNEL]` token so the UI's docs link keys on it, not on translatable prose). The engine's flow is `ensure_running` → `ensure_logged_in` → login gate → `open_store` → CDP verify (BOTH reachability AND the kernel family: `/json/version`'s `Browser` must be Chromium-family — `Chrome/` / `HeadlessChrome/` / `Chromium/` / `Edg/`, one constant; a non-Chromium kernel can expose a PARTIAL CDP — Firefox's old Remote Agent — which is reachable but not drivable, so the engine closes the store and raises `UNSUPPORTED_KERNEL` before `after_open` or the proxy) → **`after_open`** → `CDPMuxProxy`. `after_open` is an adapter hook (default no-op) for clients whose env opens on an intermediate page that must be clicked through to the real store page — its **ordering constraint** is load-bearing: it runs AFTER CDP is verified but BEFORE the CDPMuxProxy fronts the env, because the proxy's startup cleanup reaps orphan web tabs, so the page the hook produces must exist first (with `keep_last_page` it is kept).
+- **`inject/`** — shared Route-B engine (`InjectCdpBackend`), the `InjectClient` boundary, and typed operator errors (their terminal/transient contract for failed starts: [Failed store-browser starts](#failed-store-browser-starts--the-typed-contract)) (`CLIENT_NOT_RUNNING` / `LOGIN_REQUIRED` / `ACCOUNT_MISMATCH` / `API_NOT_ENABLED` / `PLAN_REQUIRED` / `STORE_NOT_FOUND` / `STORE_UNAVAILABLE` / `UNSUPPORTED_KERNEL` / `CDP_UNREACHABLE` / `ACCOUNT_CONFLICT` / `IDLE_EXPIRED` / `UNSUPPORTED_PLATFORM`; the new vendor-neutral codes: `ACCOUNT_MISMATCH` — the client is logged into a different account than the saved one, never auto-logged-out; `API_NOT_ENABLED` / `PLAN_REQUIRED` — the client's local API is switched off / behind a paid plan (most vendors gate it, the #1 support case); `STORE_UNAVAILABLE` — the env exists but cannot be opened, carrying the vendor's own message; `UNSUPPORTED_KERNEL` — the env runs a non-Chromium kernel, and its surfaced text carries the stable `[UNSUPPORTED_KERNEL]` token so the UI's docs link keys on it, not on translatable prose). The engine's flow is `ensure_running` → `ensure_logged_in` → login gate → `open_store` → CDP verify (BOTH reachability AND the kernel family: `/json/version`'s `Browser` must be Chromium-family — `Chrome/` / `HeadlessChrome/` / `Chromium/` / `Edg/`, one constant; a non-Chromium kernel can expose a PARTIAL CDP — Firefox's old Remote Agent — which is reachable but not drivable, so the engine closes the store and raises `UNSUPPORTED_KERNEL` before `after_open` or the proxy) → **`after_open`** → `CDPMuxProxy`. `after_open` is an adapter hook (default no-op) for clients whose env opens on an intermediate page that must be clicked through to the real store page — its **ordering constraint** is load-bearing: it runs AFTER CDP is verified but BEFORE the CDPMuxProxy fronts the env, because the proxy's startup cleanup reaps orphan web tabs, so the page the hook produces must exist first (with `keep_last_page` it is kept).
 - **`inject/client.py`'s `StoreRef`** — what a vendor's list returns per env: `name` (display), `platform`, and `ref` — the STABLE binding identifier a store is reopened by (an env id; empty means "the name is the ref", so name-keyed clients are unchanged). `available=False` marks an env that exists but cannot be opened (e.g. no device bound), with `unavailable_reason` carrying a TOKEN from a closed vendor-neutral vocabulary (`no_device` / `unsupported_kernel` / `expired` / `disabled` / `other`, constants in the module) that the frontend translates (`browserVendor.unavailable.<token>`) — never vendor-language prose, which leaked one language into the other's UI — and `unavailable_detail` optional free text (the vendor's own words) for a tooltip or fallback.
 - **`adapters/yuehulian_win.py`** — Windows I/O: `ProcessLayer` (locate install — via the shared `win_app_locator.py`, so a custom dir like `D:\悦互联` is found through registry, shortcuts or conventional dirs, and a miss carries `locate_error` into the `ClientNotRunning` message; process matching is a case-insensitive prefix of the located dir plus the legacy `YueHuLian` name; Electron **main** pid, excluding the kernel `chrome.exe`; launch; kernel `--user-data-dir`s; `DevToolsActivePort`) and `InspectorSession` — a thin subclass of the **shared** `app/browser/win_inspector.py` (open the Node inspector via `ELECTRON_RUN_AS_NODE` + `process._debugProcess`; `Runtime.evaluate` incl. `webContents.executeJavaScript`; `require('inspector').close()`), to which any inject-driven adapter can hand just a PowerShell fragment resolving `$exe`. The shared session is machine-safe: one inspector per machine (`MachineLock`), a busy port that serves a session it did not open is refused, and the connected `process.pid` is verified — see its docstring; the yuehulian subclass adds only the spawn-hook install/uninstall helpers.
 - **`adapters/yuehulian_dom.py`** — pure parsing + JS for the renderer's Element-UI UI (UIA is a dead end — accessibility is off): the store table (drops fixed-column duplicate rows), the login-state route hash, the click-Open-by-row JS (scoped to the store's own fixed-right action row — robust to the stateful Open/Opened label and to mixed states), **store-list navigation** (the list is a tags-view tab whose hash stays `#/index`, so it **clicks the menu item**, not the hash), **next-page** JS (the table paginates), and the **团队登录** form-fill JS (`fill_team_login_js` — native-setter + input/change so Element-UI's v-model updates).
@@ -392,6 +392,63 @@ From the CDP endpoint on it reuses `CDPMuxProxy` exactly like the other backends
 - **`adapters/wenmai_win.py`** — the process layer; the WENMAI locator spec lives HERE (vendor knowledge stays in the vendor module), main pid = the 3980 listener owner.
 - **Credentials**: `company` / `username` / `password` (enterprise login), injected into the browser config as **`wenmai_<field>`** by the machine-credential storage — the spec's field keys stay neutral. **One account per machine.**
 - **Platforms**: Windows (native — server, agent, wrapper and browser all on Windows) and WSL (a WSL server driving the Windows client) are supported; a macOS path is in verification. A live smoke (`tests/e2e/wenmai_live_smoke.py`, not in CI) drives the real client through every state; see [docs/wenmai.md](wenmai.md) for the user-facing guide.
+
+## Failed store-browser starts — the typed contract
+
+When a store-browser start fails with an inject-taxonomy error
+(`app/browser/inject/errors.py`), the start route
+(`POST /api/stores/{id}/browser/start`) answers a TYPED body —
+`detail.code` (the stable code), `message`, `hint` — instead of a bare
+`HTTP 500`, and the wrapper prints a typed line the agent can act on.
+A bare 500 taught a task agent to treat the failure as a puzzle and
+SSH into a production machine (incident 97db66d2); this contract makes
+that class of improvising impossible.
+
+**Terminal vs transient** (`is_terminal` in `inject/errors.py`):
+
+- `TERMINAL_CODES` — `UNSUPPORTED_KERNEL`, `STORE_UNAVAILABLE`,
+  `STORE_NOT_FOUND`, `PLAN_REQUIRED`, `API_NOT_ENABLED`,
+  `ACCOUNT_MISMATCH`: only the operator can fix these. The task is
+  ended FAILED with the typed error and the snake-cased code as
+  `error_category` (so the failure banner and its docs link render),
+  and the agent is stopped — through the ONE external-stop writer,
+  `task_finalize.stop_as_failed` (see
+  [docs/tasks.md § Terminal-state writers](tasks.md#terminal-state-writers)).
+- `LOGIN_REQUIRED` is terminal **only without stored credentials**
+  (`LoginRequired.credentials_stored=False`, the default): no stored
+  login means only the operator can fix it. With credentials that
+  were tried and did not take (`credentials_stored=True`, set by the
+  yuehulian client's login attempts), it is NOT terminal: the
+  operator's fix (re-saving them) is not required for a retry to
+  succeed — a slow client or a form needing a second attempt recovers
+  on retry — so ending the task would be wrong.
+- `TRANSIENT_CODES` — `CLIENT_NOT_RUNNING`, `CDP_UNREACHABLE`: the
+  wrapper retries exactly ONCE
+  (`START_TRANSIENT_RETRY_SLEEP_S`), then reports the typed line;
+  the server never fails the task for these.
+
+**The wrapper's line** (`app/browser/wrapper_start.py`): a typed
+failure prints `ERROR: [CODE] <hint>` plus an explicit "report this
+to the user and stop; do NOT investigate the browser client, its
+files or its local API" — even on the second transient failure. A
+body with NO taxonomy code (a backend outside the inject family,
+e.g. Ziniao) prints exactly the pre-contract output: Ziniao's errors
+are never reclassified.
+
+**The `X-Vibe-Task` header**: the wrapper's start POST names the task
+it is starting the browser for, so the server can end that task. The
+header is agent-reachable (the wrapper's credentials live in its
+env), so it only ever SELECTS a task — the task must be THIS store's
+own RUNNING/DESIGNING run or it is ignored (a QUEUED, PLANNED or
+WAITING task is waiting for its turn or a person, not a browser; the
+state machine would allow FAILED from those, hence an explicit check
+in `app/browser/start_failure.py`). The operator MCP
+(`app/agent_mcp/tools_stores.py` at `/api/mcp`) calls the route with
+no Request and no task id: it gets the typed body only.
+
+The deterministic stand-in for tests and repros is the
+`fake_start_vendor` fixture (see
+[docs/testing.md](testing.md#the-fake-start-vendor-fixture)).
 
 ## Browser Lifecycle — idle termination + tab cap
 
