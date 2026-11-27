@@ -947,8 +947,13 @@ def execute_tool_call(name: str, tool_input: dict) -> tuple[bool, str]:
     """
     try:
         if name == 'Bash':
+            runner = (
+                ['cmd', '/c']
+                if sys.platform == 'win32'
+                else ['bash', '-c']
+            )
             proc = subprocess.run(
-                ['bash', '-c', tool_input['command']],
+                runner + [tool_input['command']],
                 capture_output=True,
                 text=True,
                 timeout=30,
