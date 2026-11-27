@@ -599,22 +599,26 @@ def emit_tool_result(tool_use_id: str, output: str, is_error: bool = False):
 
 
 def _resolve_browser_use() -> str:
-    """The browser-use binary the agent would run.
+    """The STORE WRAPPER this task's agent is supposed to run.
 
-    A real CLI gets the store wrapper's dir first on PATH from
+    A real CLI gets the wrapper's dir first on PATH from
     ``build_launch_artifacts`` (``apply_agent_venv_path``) — but a
     MOCK-CLI launch skips that whole artifact build, so the wrapper is
-    not on our PATH. Fall back to the NEWEST wrapper under
+    never on our PATH. Resolving ``shutil.which`` FIRST is wrong even
+    when it finds something: a server started under ``uv run`` (CI)
+    has the venv's bin on PATH, so ``which`` returns the REAL
+    browser-use CLI — the mock then bypasses the store wrapper (and
+    its start contract) entirely, the scenario's task completes, and
+    the e2e asserts on a flow that never ran (the CI failure this
+    fixed). The wrapper comes FIRST — the NEWEST under
     ``$VIBE_HOME/bin/``: the task's own store wrapper is written
     moments before the agent starts, and the mock e2e runs
-    sequentially, so newest-is-ours holds.
+    sequentially, so newest-is-ours holds — with ``which`` only as
+    the fallback when no wrapper exists yet.
     """
     from pathlib import Path
     import shutil
 
-    exe = shutil.which('browser-use')
-    if exe:
-        return exe
     home = os.environ.get('VIBE_HOME')
     if home:
         wrappers = sorted(
@@ -623,9 +627,13 @@ def _resolve_browser_use() -> str:
         )
         if wrappers:
             return str(wrappers[-1])
+    exe = shutil.which('browser-use')
+    if exe:
+        return exe
     raise RuntimeError(
-        'no browser-use found on PATH or under $VIBE_HOME/bin/ — '
-        'the store wrapper was not written before the agent started'
+        'no browser-use wrapper under $VIBE_HOME/bin/ and none on '
+        'PATH — the store wrapper was not written before the agent '
+        'started'
     )
 
 
