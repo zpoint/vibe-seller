@@ -536,6 +536,75 @@ class TestWrapperOwnershipProbe:
             result.stdout
         )
 
+    def test_a_dead_browser_behind_our_mux_still_calls_start(
+        self, tmp_path: Path
+    ):
+        """The probe's second dimension: the mux answers /vibe/instance
+        with OUR id but /json/version 502s (browser dead). The wrapper
+        must treat it as down and go through the start API, never
+        attach to a proxy whose browser is gone."""
+        # Port-aware: on the baked port 9222 the mux answers the
+        # handshake but 502s /json/version (dead browser); on the
+        # start API's fresh port 9226 both answer, so the post-start
+        # poll passes.
+        stub = tmp_path / 'curl-dead-upstream'
+        stub.write_text(
+            '#!/usr/bin/env bash\n'
+            '_body=""\n'
+            '_rc=0\n'
+            'for a in "$@"; do\n'
+            '  case "$a" in\n'
+            '    *":9222/vibe/instance"*)\n'
+            '      _body=\'{"instance": "test-instance"}\';;\n'
+            '    *":9226/vibe/instance"*)\n'
+            '      _body=\'{"instance": "test-instance"}\';;\n'
+            '    *":9222/json/version"*)\n'
+            '      _rc=22;;  # curl -f on a 502\n'
+            '    *browser/start*)\n'
+            '      _body=\'{"ok":true,"proxy_port":9226,'
+            '"instance_id":"test-instance"}\';;\n'
+            '  esac\n'
+            'done\n'
+            '[ "$_rc" -eq 0 ] && printf \'%s\' "$_body"\n'
+            'for a in "$@"; do\n'
+            '  if [ "$a" = "-w" ]; then printf \'\\n200\'; fi\n'
+            'done\n'
+            'exit $_rc\n'
+        )
+        stub.chmod(0o755)
+
+        bin_dir = tmp_path / 'bin'
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+            write_browser_use_wrapper(
+                'test-store',
+                'chrome',
+                9222,
+                store_id='store-1',
+                slug='test-store',
+                instance_id='test-instance',
+            )
+        wrapper = bin_dir / 'test-store' / 'browser-use'
+        content = wrapper.read_text()
+        content = re.sub(
+            r'REAL_BU="[^"]*"',
+            f'REAL_BU="{_stub_real_bu(tmp_path)}"',
+            content,
+        )
+        content = content.replace('curl ', f'"{stub}" ')
+        wrapper.write_text(content)
+
+        result = _run_wrapper(wrapper, env=_env_without_task())
+        assert result.returncode == 0, result.stderr
+        ws = [
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith('BU_CDP_WS=')
+        ]
+        assert len(ws) == 1
+        assert ws[0].startswith('BU_CDP_WS=ws://127.0.0.1:9226/client-'), (
+            result.stdout
+        )
+
     def test_baked_probe_only_fires_when_the_listener_is_ours(
         self, tmp_path: Path
     ):
