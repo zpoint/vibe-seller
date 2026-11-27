@@ -16,7 +16,7 @@ export function TaskErrorNote({
 }: {
   error: string
   category?: string | null
-  onOpenSettings?: (tab: SettingsTab) => void
+  onOpenSettings?: (tab: SettingsTab, anchor?: string) => void
 }) {
   const { t } = useTranslation()
   const help = taskErrorHelp(category, error)
@@ -26,9 +26,9 @@ export function TaskErrorNote({
       {category ? t(`tasks.error_${category}`, text) : text}
       {onOpenSettings && links.map(link => (
         <button
-          key={link.tab}
+          key={`${link.tab}${link.anchor ?? ''}`}
           type="button"
-          onClick={() => onOpenSettings(link.tab)}
+          onClick={() => onOpenSettings(link.tab, link.anchor)}
           data-testid={`task-error-settings-${link.tab}`}
           className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700"
         >

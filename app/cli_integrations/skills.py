@@ -147,7 +147,7 @@ def umbrella_md(
         'Integrations (设置 → 集成) and click "Re-authorize" (重新授权) on '
         f'the {integ.title} row. Include this exact markdown link, which '
         'opens that page (you may translate its text, never its target): '
-        '[Settings → Integrations](#integrations).\n'
+        f'[Settings → Integrations](#integrations-{integ.key}).\n'
         '- If it fails because a permission is missing or restricted, '
         'signing in again does not help: stop and tell the user which '
         f'permission the platform named, and that their {integ.title} '

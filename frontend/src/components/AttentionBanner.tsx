@@ -13,8 +13,8 @@ interface Props {
   onOpenQuestion: (item: PlannerQuestionItem) => void
   /** Open the given schedule's detail view (its plan to approve). */
   onOpenApproval: (item: PlanApprovalItem) => void
-  /** Open Settings → Integrations (a platform to sign in again). */
-  onOpenIntegrations: () => void
+  /** Open Settings → Integrations at *key*'s row (to sign in again). */
+  onOpenIntegrations: (key: string) => void
 }
 
 const BAR =
@@ -85,7 +85,7 @@ export function AttentionBanner({ schedules, onOpenTask, onOpenQuestion, onOpenA
   if (platforms.length > 0) {
     const name = t(`integrations.cli.platform.${platforms[0].key}`, { defaultValue: platforms[0].title })
     return (
-      <button type="button" onClick={onOpenIntegrations} className={BAR} data-testid="integration-expired-banner">
+      <button type="button" onClick={() => onOpenIntegrations(platforms[0].key)} className={BAR} data-testid="integration-expired-banner">
         <span>{t('integrationBanner.message', { name, count: platforms.length })}</span>
         <span aria-hidden="true">→</span>
         <span className="underline underline-offset-2">{t('integrationBanner.action')}</span>

@@ -12,6 +12,7 @@ import { useBrowserVendor } from './hooks/useBrowserVendor'
 import { useBrowserVendors } from './hooks/useBrowserVendors'
 import { useZiniaoAccounts } from './hooks/useZiniaoAccounts'
 import { AttentionBanner } from './components/AttentionBanner'
+import { scrollToSection } from './hooks/useScrollIntoViewOnHash'
 import { useServerInfo } from './hooks/useServerInfo'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useMobileBackStack } from './hooks/useMobileBackStack'
@@ -190,6 +191,12 @@ export default function App() {
   const settingsTab = nav.settingsTab
   const setSettingsTab = (tab: SettingsTab) => {
     navigate({ to: '/settings/$tab', params: { tab: settingsTabToSlug(tab) } })
+  }
+  // A link into Settings that names a section (a platform's row) opens
+  // the tab scrolled to it.
+  const openSettings = (tab: SettingsTab, anchor?: string) => {
+    navigate({ to: '/settings/$tab', params: { tab: settingsTabToSlug(tab) }, hash: anchor })
+    if (anchor) scrollToSection(anchor)
   }
 
   // Selection is URL-derived too: the open task / store / schedule are
@@ -600,7 +607,7 @@ export default function App() {
       onOpenTask={(w) => navigate(taskTarget(w.store_id, w.task_id))}
       onOpenQuestion={(q) => navigate(taskTarget(q.store_id, q.task_id))}
       onOpenApproval={(a) => navigate(scheduleTarget(a.store_id, a.schedule_id))}
-      onOpenIntegrations={() => setSettingsTab('integrations')}
+      onOpenIntegrations={(key) => openSettings('integrations', `cli-${key}`)}
     />
     <div className="flex flex-1 min-h-0">
       {/* Mobile drawer scrim — tap to close the slide-in sidebar. */}
@@ -651,7 +658,7 @@ export default function App() {
       {/* Main content area */}
       {appView === 'tasks' ? (
         <TasksView
-          onOpenSettings={(tab) => { setAppView('settings'); setSettingsTab(tab) }}
+          onOpenSettings={(tab, anchor) => { setAppView('settings'); openSettings(tab, anchor) }}
           isMobile={isMobile} onOpenNav={() => setNavOpen(true)}
           taskPanelActive={!!taskPanelActive} taskPanelTitle={taskPanelTitle}
           tasks={tasks} tasksLoading={tasksLoading} selectedTask={selectedTask} steps={steps}

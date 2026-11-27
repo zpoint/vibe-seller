@@ -7,7 +7,7 @@ import type { Components } from 'react-markdown'
 import { parseUserContent } from '../../lib/userContent'
 import { AttachmentThumbs } from './AttachmentThumbs'
 import type { SettingsTab } from '../../views/SettingsView'
-import { SETTINGS_LINKS } from '../../lib/settingsLinks'
+import { settingsTarget } from '../../lib/settingsLinks'
 
 // Primary agent voice: 16px prose with relaxed leading — the focal
 // point of the stream. Secondary chrome (tools/thinking) stays small
@@ -20,7 +20,7 @@ interface MessageBubbleProps {
   content: string
   // Open a Settings tab. When provided, a SETTINGS_LINKS link renders
   // as an inline CTA button.
-  onOpenSettings?: (tab: SettingsTab) => void
+  onOpenSettings?: (tab: SettingsTab, anchor?: string) => void
 }
 
 /** The user's answers to the agent's questions: each question, then the answer. */
@@ -61,12 +61,12 @@ function MessageBubbleView({ role, content, onOpenSettings }: MessageBubbleProps
 
   const components: Components = {
     a({ href, children, ...props }) {
-      const tab = href ? SETTINGS_LINKS[href] : undefined
-      if (tab && onOpenSettings) {
+      const target = settingsTarget(href)
+      if (target && onOpenSettings) {
         return (
           <button
             type="button"
-            onClick={() => onOpenSettings(tab)}
+            onClick={() => onOpenSettings(target.tab, target.anchor)}
             className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-[14px] font-medium text-indigo-700 hover:bg-indigo-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
           >
             {children}

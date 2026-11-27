@@ -160,9 +160,9 @@ def test_the_agent_sends_the_user_to_re_authorize_never_renews_itself():
         text = _umbrella(integ)
         assert '重新授权' in text and 'Re-authorize' in text, key
         assert 'do not pass on a link from the error' in text, key
-        # The page renders this target as a button to Settings →
-        # Integrations (MessageBubble SETTINGS_LINKS).
-        assert '](#integrations)' in text, key
+        # The page renders this target as a button to the platform's
+        # row in Settings → Integrations (lib/settingsLinks.ts).
+        assert f'](#integrations-{key})' in text, key
     wecom = _umbrella(INTEGRATIONS['wecom'])
     assert '使用权限已过期' in wecom and str(EXPIRED_ERRCODE) in wecom
     assert '使用权限已过期' not in _umbrella(INTEGRATIONS['feishu'])
@@ -200,7 +200,7 @@ async def test_boot_rewrites_an_umbrella_written_by_an_older_release(
     ref = paths.skill_dir('wecom', home) / 'email' / 'references' / 'a.md'
     # As an older release wrote it: no re-authorize link.
     umbrella.write_text(
-        current.replace('[Settings → Integrations](#integrations)', ''),
+        current.replace('[Settings → Integrations](#integrations-wecom)', ''),
         encoding='utf-8',
     )
     ref_before = ref.read_bytes()

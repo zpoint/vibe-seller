@@ -177,7 +177,7 @@ interface ConversationStreamProps {
   questionBannerRef: React.RefObject<HTMLDivElement | null>
   isActive: boolean
   userNearBottom?: React.RefObject<boolean>
-  onOpenSettings?: (tab: SettingsTab) => void
+  onOpenSettings?: (tab: SettingsTab, anchor?: string) => void
 }
 
 // The task result, often a long report: parsed as markdown only when its

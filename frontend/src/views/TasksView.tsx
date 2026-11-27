@@ -108,7 +108,7 @@ export interface TasksViewProps {
   onScheduleUpdated: (schedule: Schedule) => void
   selectedStore: Store | null
   stores: Store[]
-  onOpenSettings?: (tab: SettingsTab) => void
+  onOpenSettings?: (tab: SettingsTab, anchor?: string) => void
 }
 
 export function TasksView({

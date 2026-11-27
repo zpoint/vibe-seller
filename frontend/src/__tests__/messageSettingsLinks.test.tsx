@@ -21,7 +21,16 @@ describe('in-app settings links in an agent message', () => {
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: /设置 → 集成/ }))
-    expect(onOpenSettings).toHaveBeenCalledWith('integrations')
+    expect(onOpenSettings).toHaveBeenCalledWith('integrations', undefined)
+  })
+
+  it("a platform's link opens Integrations at that platform's row", () => {
+    const onOpenSettings = vi.fn()
+    render(
+      <MessageBubble role="assistant" content="[设置 → 集成](#integrations-wecom)" onOpenSettings={onOpenSettings} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /设置 → 集成/ }))
+    expect(onOpenSettings).toHaveBeenCalledWith('integrations', 'cli-wecom')
   })
 
   it('the image-key link still opens Settings → AI', () => {
@@ -30,7 +39,7 @@ describe('in-app settings links in an agent message', () => {
       <MessageBubble role="assistant" content="[Settings → AI → Vision](#vision-setup)" onOpenSettings={onOpenSettings} />,
     )
     fireEvent.click(screen.getByRole('button', { name: /Vision/ }))
-    expect(onOpenSettings).toHaveBeenCalledWith('aiAgent')
+    expect(onOpenSettings).toHaveBeenCalledWith('aiAgent', undefined)
   })
 
   it('any other link stays a link', () => {
@@ -45,16 +54,16 @@ describe('in-app settings links in an agent message', () => {
     const onOpenSettings = vi.fn()
     render(
       <TaskErrorNote
-        error={'企业微信「邮件」权限已过期，请管理员点「重新授权」：[设置 → 集成](#integrations)'}
+        error={'企业微信「邮件」权限已过期，请管理员点「重新授权」：[设置 → 集成](#integrations-wecom)'}
         category="agent_reported"
         onOpenSettings={onOpenSettings}
       />,
     )
     const note = screen.getByTestId('task-error')
-    expect(note.textContent).not.toContain('](#integrations)')
+    expect(note.textContent).not.toContain('](#integrations')
     expect(note.textContent).toContain('设置 → 集成')
     fireEvent.click(screen.getByTestId('task-error-settings-integrations'))
-    expect(onOpenSettings).toHaveBeenCalledWith('integrations')
+    expect(onOpenSettings).toHaveBeenCalledWith('integrations', 'cli-wecom')
   })
 
   it('an error with no settings link renders as before', () => {

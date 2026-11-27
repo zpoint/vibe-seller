@@ -6,7 +6,9 @@ import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 import { CLI_ERROR_HELP, CLI_NOTICE_HELP, DOCS_HELP } from '../../lib/docsHelp'
 import { DocsHelpLink } from '../ui/DocsHelpLink'
 import { CliPermissions } from './CliPermissions'
+import type { CliCard, LoginView, Notice } from './cliTypes'
 import { useCliPermissions } from '../../hooks/useCliPermissions'
+import { useScrollIntoViewOnHash } from '../../hooks/useScrollIntoViewOnHash'
 import { INTEGRATION_ATTENTION_EVENT } from '../../hooks/useIntegrationAttention'
 
 /** Settings → Integrations: the official WeCom / Feishu / DingTalk CLIs,
@@ -20,38 +22,6 @@ import { INTEGRATION_ATTENTION_EVENT } from '../../hooks/useIntegrationAttention
  *  PATH. Each platform is independent — agents see exactly the enabled
  *  ones. The backend owns the flow (`enable_after` finishes it even if
  *  this page is closed mid-login); the page only polls. */
-
-interface LoginView {
-  state: 'starting' | 'waiting' | 'succeeded' | 'failed' | 'cancelled'
-  url: string | null
-  user_code: string | null
-  qr: boolean
-  message: string | null
-  step: number
-  steps: number
-  hint: string | null
-  /** What the person must know about the outcome — several can apply
-   *  (scopes withheld AND a sign-in that cannot renew). Set by the
-   *  server's parsers: an i18n key, its detail and a link to act on. */
-  notices?: Notice[]
-  /** Why the sign-in ended badly when no notice explains it: the
-   *  runner's ``timeout`` or ``enable_failed`` (i18n key). */
-  error?: string | null
-  /** Signed in, and the server is still enabling the platform: the
-   *  outcome is not final yet, so the page keeps polling. */
-  finishing?: boolean
-  /** The approval comes back as a redirect to ``callback`` (a port on
-   *  the server's computer): a browser elsewhere cannot reach it, so the
-   *  page takes the address it ended on and the server relays it. */
-  paste_back?: boolean
-  callback?: string | null
-}
-
-interface Notice {
-  key: string
-  detail: string | null
-  url: string | null
-}
 
 /** Where to read how to act on a notice: the vendor's own guide, or
  *  ours. The link reads ``guideLink.<key>`` (default ``officialGuide``). */
@@ -80,26 +50,6 @@ const FEISHU_SCOPE_FEATURES: Record<string, string> = {
 /** The withheld scopes a ``feishu_missing_scopes`` notice carries. */
 function withheldScopes(n: Notice): string[] {
   return (n.detail ?? '').split(/\s+/).filter(Boolean)
-}
-
-interface CliCard {
-  key: string
-  title: string
-  binary: string
-  homepage: string
-  installed: boolean
-  version: string | null
-  enabled: boolean
-  auth: { usable: boolean; reason: string; identity: string | null } | null
-  login: Partial<LoginView> | null
-  /** The one-time setup a sign-in needs (its form), and whether the
-   *  sign-in waits on it now. */
-  setup?: string | null
-  needs_setup?: boolean
-  /** Said on the row until the platform is enabled (i18n key). */
-  notice?: string | null
-  /** Grants capabilities one by one (WeCom): the row lists each one's state. */
-  per_permission?: boolean
 }
 
 /** Where each step of Google's one-time setup is done (Google Cloud
@@ -350,6 +300,7 @@ function CliRow({
   const loginActive = login && inProgress(login)
   const signedIn = !!card.auth?.usable
   const perms = useCliPermissions(card.key, !!card.per_permission && card.enabled && signedIn, card)
+  useScrollIntoViewOnHash(`cli-${card.key}`)
   // Signed in before (enabled), now the sign-in or a capability expired.
   const reauth = card.enabled && !!card.auth && (!signedIn || perms.anyExpired)
   const name = t(`integrations.cli.platform.${card.key}`, { defaultValue: card.title })
@@ -359,7 +310,7 @@ function CliRow({
   const retryButton = t(card.enabled ? 'integrations.cli.relogin' : 'integrations.cli.connect')
 
   return (
-    <div className="p-3 bg-gray-50 rounded-lg space-y-2" data-testid={`cli-row-${card.key}`}>
+    <div id={`cli-${card.key}`} className="p-3 bg-gray-50 rounded-lg space-y-2" data-testid={`cli-row-${card.key}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium">{name}</p>
