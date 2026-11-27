@@ -1,9 +1,12 @@
-"""Yuehulian (悦互联) anti-detect browser backend — Windows only.
+"""Yuehulian (悦互联) anti-detect browser backend — Windows + macOS.
 
 Yuehulian ships no local automation API (unlike ziniao), so we drive its
 Electron client through a Node inspector + renderer DOM and inject a CDP
 debug port into the launched kernel. From the CDP endpoint onward it is
 identical to the ziniao / chrome backends (CDPMuxProxy → browser-use).
+On Windows the client is driven over PowerShell (WSL-on-Windows works
+through 127.0.0.1); on macOS natively, via the Mac process layer and a
+SIGUSR1-opened inspector (:mod:`yuehulian_mac`).
 
 The engine (:class:`InjectCdpBackend`) holds the generic flow; this file
 is the thin adapter plus the vendor spec (``YUEHULIAN_VENDOR``) the
@@ -27,13 +30,14 @@ from app.browser.vendors import (
 from app.browser.win_app_locator import WinAppSpec
 from app.browser.ziniao_utils import get_platform
 
-# Needs the Windows 悦互联 client. WSL-on-Windows is fine (we drive the
-# Windows side over 127.0.0.1); pure Linux / macOS cannot reach a client.
-_SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl'})
+# Needs the 悦互联 client: the Windows client (native or driven from
+# WSL over 127.0.0.1) or the Mac client (driven natively on macOS).
+# Pure Linux has no client to reach.
+_SUPPORTED_PLATFORMS = frozenset({'windows', 'wsl', 'mac'})
 
 
 def make_client(browser_config: dict) -> InjectClient:
-    """Build the real Windows-driven client (patched to a fake in tests)."""
+    """Build the real platform-driven client (patched to a fake in tests)."""
     return RealYuehulianClient(browser_config)
 
 
@@ -95,7 +99,7 @@ YUEHULIAN_VENDOR = BrowserVendorSpec(
 
 
 class YuehulianBackend(InjectCdpBackend):
-    """Route-B backend for the 悦互联 e-commerce browser (Windows)."""
+    """Route-B backend for the 悦互联 e-commerce browser (Windows/macOS)."""
 
     def __init__(self, client_factory: ClientFactory | None = None):
         # BrowserManager constructs backends with no args (the real
@@ -106,6 +110,7 @@ class YuehulianBackend(InjectCdpBackend):
         platform = get_platform()
         if platform not in _SUPPORTED_PLATFORMS:
             raise UnsupportedPlatform(
-                f'yuehulian is Windows-only; platform is {platform}'
+                f'yuehulian needs the Windows or macOS client; '
+                f'platform is {platform}'
             )
         return await super().start(browser_config)
