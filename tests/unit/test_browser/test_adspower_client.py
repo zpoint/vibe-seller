@@ -9,10 +9,12 @@ v8.9.23). Placeholder data only.
 
 import logging
 import subprocess as sp
+import time
 from unittest import mock
 
 import pytest
 
+from app.browser.adapters import adspower as ads_client
 from app.browser.adapters.adspower import AdsPowerClient
 import app.browser.adapters.adspower_backend as ads_backend
 from app.browser.adapters.adspower_common import KernelProcess
@@ -187,6 +189,48 @@ async def test_is_logged_out_keyed_client_never_logs_out():
     # never a logged-out verdict — verified live (FACTS §c).
     c = AdsPowerClient({'adspower_api_key': _KEY})
     assert c.is_logged_out(200, {'code': -1, 'msg': 'Require api-key'}) is False
+
+
+# ── R16: keyed/keyless "Require api-key" carry different advice ────
+
+
+async def test_keyed_require_api_key_is_sign_in_needed(api):
+    # R16b: the key IS stored and sent, and the API still answers
+    # "Require api-key" — it does not recognize the session. That is
+    # the sign-in-needed shape: LoginRequired with the SAME wording
+    # the store form shows, never the "no API key" text.
+    api.always_require = True
+    c = _client(api)
+    with pytest.raises(LoginRequired) as ei:
+        await c.list_stores()
+    assert ads_client.SIGN_IN_NEEDED_ZH in str(ei.value)
+    assert ads_client.SIGN_IN_NEEDED_EN in str(ei.value)
+    assert '还没有配置' not in str(ei.value)
+
+
+async def test_keyed_require_api_key_start_refuses_before_open(api):
+    # The same shape on the START path: map_error's LoginRequired is
+    # raised before _decide_failed_start can mistake it for a kernel
+    # problem (the raise-early tuple includes it).
+    api.always_require = True
+    c = _client(api)
+    with pytest.raises(LoginRequired) as ei:
+        await c.open_store('kaaaaaa1')
+    assert ads_client.SIGN_IN_NEEDED_ZH in str(ei.value)
+
+
+async def test_keyless_require_api_key_keeps_the_advice(api):
+    # R16a: no key stored → the not-authenticated shape stays
+    # LOGIN_REQUIRED (the shared contract), and the generate-key
+    # advice rides the exception message.
+    c = AdsPowerClient({})  # keyless
+    c._port = api.port
+    c._read_port = lambda: api.port
+    c._proc = FakeProc()
+    with pytest.raises(LoginRequired) as ei:
+        await c.list_stores()
+    assert ads_client.NO_KEY_ADVICE_ZH in str(ei.value)
+    assert ads_client.NO_KEY_ADVICE_EN in str(ei.value)
 
 
 # ── start: happy path, params, idempotence ───────────────────────────
@@ -448,6 +492,8 @@ async def test_ensure_running_headless_when_signed_out(api):
 
 
 async def test_ensure_running_login_required_when_all_fails(api):
+    # R16b: the final refusal carries the sign-in-needed wording —
+    # the SAME text the store form's LoginRequired override shows.
     c = _client(api, shell_running=True)
     c._read_port = lambda: 59999
     c._port = 59999
@@ -456,9 +502,46 @@ async def test_ensure_running_login_required_when_all_fails(api):
         return False
 
     with mock.patch.object(c, '_wait_for_api', side_effect=fail):
-        with pytest.raises(LoginRequired):
+        with pytest.raises(LoginRequired) as ei:
             await c.ensure_running()
     assert c._proc.headless_calls == [_KEY]
+    assert ads_client.SIGN_IN_NEEDED_ZH in str(ei.value)
+    assert ads_client.SIGN_IN_NEEDED_EN in str(ei.value)
+    assert '还没有配置' not in str(ei.value)
+
+
+async def test_ensure_running_always_ends_within_its_budgets(api):
+    # R16: every wait in ensure_running is budget-bounded, so the
+    # whole function ALWAYS ends. Real _wait_for_api (not mocked),
+    # patched budgets (the _fast fixture): API never up, shell up,
+    # headless launch "succeeds" but the API stays down — the worst
+    # case must reach the LoginRequired refusal within the sum of the
+    # budgets (GUI wait skipped: the shell was already up; grace +
+    # headless wait + slack).
+    c = _client(api, shell_running=True)
+    c._read_port = lambda: 59999  # nothing ever answers
+    c._port = 59999
+    budget = c.SIGNED_OUT_GRACE_S + c.HEADLESS_WAIT_S + 3.0  # + slack for polls
+    t0 = time.monotonic()
+    with pytest.raises(LoginRequired):
+        await c.ensure_running()
+    elapsed = time.monotonic() - t0
+    assert elapsed < budget, f'ensure_running took {elapsed:.1f}s'
+    assert c._proc.headless_calls == [_KEY]
+
+
+async def test_ensure_running_launch_failure_is_client_not_running(api):
+    # The no-shell path: nothing to launch (not installed / not
+    # found) → ClientNotRunning, never a hang or a login prompt.
+    c = _client(api, shell_running=False)
+    c._read_port = lambda: 59999
+    c._port = 59999
+    c._proc.locate_error = '没找到 AdsPower：请先安装并打开 AdsPower。'
+    with mock.patch.object(c._proc, 'launch', return_value=False) as launch:
+        with pytest.raises(ClientNotRunning) as ei:
+            await c.ensure_running()
+    assert launch.call_count == 1  # one attempt, no loop
+    assert '没找到' in str(ei.value)
 
 
 async def test_ensure_running_without_key_no_headless(api):

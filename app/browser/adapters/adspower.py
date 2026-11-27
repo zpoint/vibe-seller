@@ -35,15 +35,13 @@ Three AdsPower facts shape this module (all verified live, FACTS.md in
 What the shared :class:`~app.browser.local_api_client.LocalApiClient`
 base cannot express stays here as overrides (the review's list):
 
-- **D4 ``ensure_running``**: probe → launch the GUI (remember-me signs
-  in) → a 30 s grace for a shell someone else just started → a
-  headless instance started with the API key (the documented flags).
-- **D7 failed-start decision**: a code-0 answer with an empty endpoint
-  is ambiguous (a Firefox kernel AND an orphaned SunBrowser of a
-  killed client both answer that way) — kernel process evidence
-  decides, and only THIS profile's process tree is ever killed.
-- **R11 kernel states** (above) and the bounded rate-limit resend
-  (the base retries once; AdsPower's burst window needs up to three).
+- **D4 ``ensure_running``**: probe → launch the GUI (remember-me) →
+  a 30 s grace → headless with the API key.
+- **D7 failed-start decision**: an empty endpoint is ambiguous
+  (Firefox kernel vs orphaned SunBrowser) — kernel process evidence
+  decides; only THIS profile's tree is killed.
+- **R11 kernel states** and the bounded rate-limit resend; **R16**
+  the not-authenticated wordings (``adspower_common``'s constants).
 """
 
 import asyncio
@@ -56,6 +54,11 @@ from urllib.parse import urlsplit
 from app.browser.adapters import adspower_mac, adspower_win
 from app.browser.adapters.adspower_common import (
     DEFAULT_API_PORT,
+    NO_KEY_ADVICE_EN,
+    NO_KEY_ADVICE_ZH,
+    SIGN_IN_NEEDED_EN,
+    SIGN_IN_NEEDED_ZH,
+    UNSUPPORTED_KERNEL_TEXT,
     KernelProcess,
 )
 from app.browser.inject.client import OpenedStore, StoreRef
@@ -269,14 +272,12 @@ class AdsPowerClient(LocalApiClient):
         """Whether a code-0 start response names a FlowerBrowser kernel.
 
         The webdriver path carries the kernel (both shapes recorded
-        live): ``…\\chrome_<N>\\chromedriver.exe`` for SunBrowser
-        vs ``…\\webdriver_flower_<N>\\driver.exe`` (flower_100)
-        and ``…\\flower_<N>\\geckodriver.exe`` (flower_159,
-        today's default). On flower_159 the start SUCCEEDS with a
-        WebDriver-BiDi endpoint that /json/version 404s — the engine
-        would report a generic CdpUnreachable. Deciding here, from
-        the response, refuses the profile with the typed
-        UnsupportedKernel + the plain-language hint instead.
+        live): ``…\\chrome_<N>\\chromedriver.exe`` is SunBrowser;
+        ``…\\webdriver_flower_<N>\\driver.exe`` (flower_100) and
+        ``…\\flower_<N>\\geckodriver.exe`` (flower_159, today's
+        default) are FlowerBrowser — whose BiDi endpoint /json/version
+        404s (a generic CdpUnreachable). Decided here so the refusal
+        is typed, before the engine fronts the endpoint.
         """
         data = (payload or {}).get('data') or {}
         webdriver = str(data.get('webdriver') or '')
@@ -345,15 +346,13 @@ class AdsPowerClient(LocalApiClient):
             return None
         msg = str(payload.get('msg') or '')
         if msg == 'Require api-key':
-            # Reached with a key stored (a keyed client still being told
-            # to send one — a permission problem); the keyless shape is
-            # intercepted as logged-out before map_error.
-            return ApiNotEnabled(
-                'AdsPower 要求 API Key：在 AdsPower 左侧「API & MCP」'
-                '点生成 Key，复制填到 Vibe Seller。/ AdsPower requires '
-                'an API key: generate it under API & MCP and paste it '
-                'into Vibe Seller.'
-            )
+            # A key IS stored and was sent (the keyless shape is
+            # intercepted as logged-out before map_error): the API
+            # does not recognize the session — sign-in needed (R16b).
+            # 'Require api-key' is documented as the no-key-in-request
+            # shape (FACTS §b); the PERMISSION refusal is unverified
+            # live and stays unmapped rather than guessed.
+            return LoginRequired(f'{SIGN_IN_NEEDED_ZH} / {SIGN_IN_NEEDED_EN}')
         if msg.startswith('API Key mismatch'):
             # R8 case C (known issue, not live-tested — no second
             # account): when the CLIENT is signed into a different
@@ -390,6 +389,21 @@ class AdsPowerClient(LocalApiClient):
 
     # ── the shared response path, with AdsPower's two additions ─────
 
+    async def _super_api_call(
+        self, method: str, path: str, json_body: dict | None
+    ) -> tuple[int, object]:
+        """The base's path with the keyless advice attached (R16a).
+
+        The base raises a BARE LoginRequired on the keyless
+        not-authenticated shape (before map_error); the generate-key
+        advice rides the message. A keyed LoginRequired (map_error's
+        sign-in branch) never passes through here.
+        """
+        try:
+            return await super().api_call(method, path, json_body)
+        except LoginRequired:
+            raise LoginRequired(f'{NO_KEY_ADVICE_ZH} / {NO_KEY_ADVICE_EN}')
+
     async def api_call(
         self, method: str, path: str, json_body: dict | None = None
     ) -> tuple[int, object]:
@@ -407,7 +421,7 @@ class AdsPowerClient(LocalApiClient):
         last = None
         for attempt in range(self.RATE_LIMIT_RETRIES + 1):
             try:
-                status, payload = await super().api_call(
+                status, payload = await self._super_api_call(
                     method, path, json_body
                 )
             except ClientNotRunning:
@@ -416,7 +430,7 @@ class AdsPowerClient(LocalApiClient):
                 # The port may have moved (a client restart): re-read
                 # the file once and retry.
                 self._port = await self.discover_port()
-                status, payload = await super().api_call(
+                status, payload = await self._super_api_call(
                     method, path, json_body
                 )
             last = (status, payload)
@@ -489,11 +503,9 @@ class AdsPowerClient(LocalApiClient):
                     return
         if launched and not await asyncio.to_thread(self._proc.shell_running):
             raise ClientNotRunning('the AdsPower client exited')
-        raise LoginRequired(
-            'AdsPower 没有登录，后台启动也没成功：请在 AdsPower 窗口登录'
-            '后点刷新。/ AdsPower is not signed in and the background '
-            'start failed: sign in in the AdsPower window, then refresh.'
-        )
+        # R16b: the same wording the store form shows (the constants
+        # the vendors.adspower.LoginRequired override carries).
+        raise LoginRequired(f'{SIGN_IN_NEEDED_ZH} / {SIGN_IN_NEEDED_EN}')
 
     async def _api_up(self) -> bool:
         """``GET /status`` answers (it needs no key)."""
@@ -585,7 +597,10 @@ class AdsPowerClient(LocalApiClient):
             if isinstance(payload, dict) and payload.get('code') == 0:
                 return data
             err = self.map_error(status, payload)
-            if isinstance(err, ApiNotEnabled | AccountMismatch | StoreNotFound):
+            if isinstance(
+                err,
+                ApiNotEnabled | AccountMismatch | StoreNotFound | LoginRequired,
+            ):
                 raise err
             msg = str(
                 (payload or {}).get('msg') if isinstance(payload, dict) else ''
@@ -728,16 +743,7 @@ class AdsPowerClient(LocalApiClient):
         cannot stop a FlowerBrowser).
         """
         await self.close_store(ref)
-        raise UnsupportedKernel(
-            '这个环境用的是 FlowerBrowser（火狐内核），Vibe Seller '
-            '只能操作 SunBrowser（Chrome 内核）。请在 AdsPower 新建'
-            '一个「浏览器」选 SunBrowser 的环境，再把这家店铺改绑到'
-            '新环境。/ This profile uses the FlowerBrowser (Firefox) '
-            'kernel; only SunBrowser (Chrome-kernel) profiles can be '
-            'driven. Create a new profile with 浏览器 set to '
-            'SunBrowser in AdsPower, then re-bind this store to the '
-            'new profile.'
-        )
+        raise UnsupportedKernel(UNSUPPORTED_KERNEL_TEXT)
 
     @staticmethod
     def _kernels_for(

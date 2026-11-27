@@ -74,6 +74,10 @@ class FakeAdsPowerApi:
         )
         #: The key the API accepts ('' = no security verification).
         self.api_key = 'test-key-123'
+        #: Answer 'Require api-key' even to a correctly-keyed request
+        #: (a client that does not recognize the session — the signed-
+        #: out stand-in for the R16 keyed shape).
+        self.always_require = False
         #: start result overrides per user_id: 'firefox' | 'flower159'
         #: | 'flower100' | 'downloading' | 'not_ready' | None (normal
         #: CDP answer).
@@ -150,7 +154,9 @@ class FakeAdsPowerApi:
             # key at all → Require api-key; a key that is not the
             # signed-in account's → API Key mismatch.
             self.auth_ok = None
-            if not header:
+            if self.always_require:
+                self._auth_error = 'require'
+            elif not header:
                 self._auth_error = 'require'
             elif header != f'Bearer {self.api_key}':
                 self._auth_error = 'mismatch'

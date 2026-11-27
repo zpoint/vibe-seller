@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from app.browser.adapters import adspower as ads_client
 from app.browser.adapters.adspower_backend import ADSPOWER_VENDOR
 
 pytestmark = pytest.mark.unit
@@ -83,3 +84,36 @@ def test_the_prefix_has_the_trailing_dot():
     # The negative control's root cause: without the trailing dot the
     # flat concatenation misses the nested keys.
     assert ADSPOWER_VENDOR.i18n_prefix == 'vendors.adspower.'
+
+
+# ── R16: one wording per meaning, adapter constant = i18n override ──
+
+
+@pytest.mark.parametrize(
+    'locale,const', [('zh', 'SIGN_IN_NEEDED'), ('en', 'SIGN_IN_NEEDED')]
+)
+def test_login_required_is_the_sign_in_wording(locale, const):
+    # R16b: the store form's LoginRequired and the adapter's
+    # ensure_running / keyed-not-authenticated exception message are
+    # ONE wording — the task banner and the form must say the same
+    # thing (the R14 two-texts lesson), and it must NOT be the "no
+    # API key" text (the user concern that started R16).
+    data = json.loads(
+        (_LOCALES / locale / 'translation.json').read_text(encoding='utf-8')
+    )
+    value = _resolve(data, f'{ADSPOWER_VENDOR.i18n_prefix}LoginRequired')
+    assert value == getattr(ads_client, f'{const}_{locale.upper()}')
+    assert '还没有配置' not in value
+    assert 'no API key yet' not in value
+
+
+@pytest.mark.parametrize('locale', ['zh', 'en'])
+def test_no_account_is_the_generate_key_advice(locale):
+    # R16a: the generate-key advice moved to NoAccount (the form's
+    # keyless state) and matches the keyless exception message.
+    data = json.loads(
+        (_LOCALES / locale / 'translation.json').read_text(encoding='utf-8')
+    )
+    value = _resolve(data, f'{ADSPOWER_VENDOR.i18n_prefix}NoAccount')
+    assert value == getattr(ads_client, f'NO_KEY_ADVICE_{locale.upper()}')
+    assert 'API & MCP' in value

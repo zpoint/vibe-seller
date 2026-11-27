@@ -63,8 +63,8 @@ API Key 必须和 AdsPower 客户端里登录的账号对应：一台机器同�
 ## 自动启动与登录
 
 - 客户端没开：Vibe Seller 会自动拉起 AdsPower 客户端。客户端记住了登录（Remember me），拉起后接口就可用。
-- 客户端开着但**没登录**（停在登录页）：Vibe Seller 会用你保存的 API Key 在后台启动一个无窗口的 AdsPower 服务（官方的 `--headless --api-key` 模式）登录，不会动你开着的客户端窗口。都不行时才提示你手动登录。
-- 客户端登录过期：同上，先自动拉起，不行就后台用 Key 启动；还不行会提示「AdsPower 没有登录」。
+- 客户端开着但**没登录**（停在登录页）：Vibe Seller 会用你保存的 API Key 在后台启动一个无窗口的 AdsPower 服务（官方的 `--headless --api-key` 模式）登录，不会动你开着的客户端窗口。都不行时才提示你手动登录（见下面的[「AdsPower 客户端需要登录」](#adspower-客户端需要登录)）。
+- 客户端登录过期：同上，先自动拉起，不行就后台用 Key 启动；还不行会提示「AdsPower 客户端需要登录」。
 - AdsPower 窗口自己的登录（在客户端里手动输入账号密码）有时会要求输入验证码（新设备确认）。**Vibe Seller 不需要这一步**：没登录时它在后台用你的 API Key 启动，不需要验证码。
 
 **说明**：后台启动时，你的 API Key 会出现在 AdsPower 的启动命令行参数里（这是 AdsPower 官方设计的用法，Key 本来就是给它验的）。Key 在 Vibe Seller 里加密保存，除此之外不会出现在日志或接口返回里。
@@ -94,19 +94,43 @@ AdsPower 本地接口的端口**每次启动都可能变**（默认 50325，被�
 
 和其他防关联浏览器一样，AdsPower 店铺的任务也会配一个 Chrome 辅助浏览器，去打开 AdsPower 打不开的物流、海外网站，原理见 [两个浏览器配合使用](store-and-aux-browser.md)。
 
+## AdsPower 客户端需要登录
+
+<a id="sign-in-needed"></a>
+
+提示「AdsPower 客户端需要登录：请打开 AdsPower，用和 API Key 同一个账号登录……」时，说明这台电脑上的 AdsPower 客户端**没有登录**（或登录的不是 API Key 对应的账号），而且用 Key 的后台启动也没能把它带起来。处理办法：
+
+1. 打开 AdsPower 客户端窗口，用**和 API Key 同一个账号**登录；
+2. 如果登录时要求验证码（新设备确认），按提示完成——子账号收不到验证码时见下面的[「子账号收不到验证码（新设备验证）」](#子账号收不到验证码新设备验证)；
+3. 登录完成后，回到 Vibe Seller 点「刷新」或重试任务。
+
+## 子账号收不到验证码（新设备验证）
+
+<a id="verification-code"></a>
+
+用**账号密码创建的内部成员**（子账号）登录 AdsPower 时，如果换了一台电脑（新设备），AdsPower 会要求输入验证码。这个验证码发给的是**成员自己的**邮箱、手机或身份验证器——但内部成员的邮箱是一个虚拟的 `@***.adspower.com` 地址，**收不到真邮件**，所以成员自己往往拿不到验证码。三种解决办法：
+
+1. **只这一次要登录**：管理员打开 AdsPower 的「成员管理」，找到这个成员那一行，「安全管理」一栏点「身份验证器」，复制当前的「验证码」（或生成一个「临时验证码」），把它输入到登录页的「请输入验证码」框里。
+2. **永久解决**：在同一个「身份验证器」对话框里，把「密钥」（或二维码）配到成员自己的验证器 App（如 Google Authenticator）里，以后验证码由成员自己生成。
+3. **整个团队关闭双重验证**（影响所有成员）：管理员在「全局设置 → 账户安全 → 双重验证」里选关闭，或选「低」（只在新设备或 90 天后才要求验证）。
+
+注意：**Vibe Seller 的后台启动不需要这个验证码**——它用你的 API Key 启动，只有你在 AdsPower 窗口里手动登录才会遇到。
+
+官方文档：[成员管理使用常见问题](https://help.adspower.net/docs/cheng-yuan-guan-li-shi-yong-chang-jian-wen-ti) · [双重验证设置](https://help.adspower.net/docs/2faSetting)
+
 ## 常见提示 / 报错
 
 | 界面提示 | 含义 / 怎么办 |
 |---|---|
-| AdsPower 要求 API Key：在 AdsPower 左侧「API & MCP」点生成 Key，复制填到 Vibe Seller。 | 没填 Key。按上面「生成 API Key」操作。 |
+| AdsPower 还没有配置 API Key：在 AdsPower 左侧「API & MCP」点生成 Key，复制填到 Vibe Seller。 | 没填 Key。按上面「生成 API Key」操作。 |
 | AdsPower 不认这个 API Key：Key 要从 AdsPower 当前登录的账号里复制；换过账号或重置过 Key，都要重新填。 | Key 和当前登录的账号不匹配。重新生成 / 复制 Key。 |
-| AdsPower 没有登录，后台启动也没成功：请在 AdsPower 窗口登录后点刷新。 | 客户端停在登录页且后台启动失败。手动登录一次。 |
+| AdsPower 客户端需要登录：请打开 AdsPower，用和 API Key 同一个账号登录，按提示完成验证（如邮箱/短信验证码），然后点刷新或重试任务。 | 客户端没登录（或登录的不是 Key 对应的账号），后台用 Key 启动也没成功。见上面[「AdsPower 客户端需要登录」](#adspower-客户端需要登录)。 |
 | AdsPower 里找不到这个环境：可能被删了，或者没有授权给当前登录的账号。 | 环境被删了，或当前账号没有它的授权。 |
 | 这个环境用的是 FlowerBrowser（火狐内核），Vibe Seller 只能操作 SunBrowser（Chrome 内核）的环境。请在 AdsPower 新建一个「浏览器」选 SunBrowser 的环境，再把这家店铺改绑到新环境。 | 见上面「环境要用 Chrome 内核」：新建 SunBrowser 环境。 |
 | AdsPower 正在下载浏览器内核，下载完再试一次。 | 第一次用某个内核版本，AdsPower 在下载。等一会重试。 |
 | AdsPower 的接口用不了：……（原文）。团队成员需要管理员在团队设置里开通 API 权限。 | 接口被拒（原文会带上 AdsPower 的消息）。一般是权限或套餐问题。 |
 | 没找到 AdsPower：请先安装并打开 AdsPower；如果装在别的位置，请在设置里选一下它的安装位置。 | 没安装，或装在找不到的位置。 |
-| 不支持的平台 | AdsPower 后端只在 Windows（含 WSL-on-Windows）可用。 |
+| 不支持的平台 | AdsPower 后端在 Windows、macOS 和 WSL-on-Windows 可用。 |
 
 ## 凭据存在哪里
 
