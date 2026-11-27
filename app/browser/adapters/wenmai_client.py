@@ -261,17 +261,23 @@ class RealWenmaiClient(LocalApiClient):
     # ── InjectClient hooks the base cannot supply ────────────────────
 
     async def ensure_running(self) -> None:
-        """Up = the API answers AND relays to the main window.
+        """Up = the API answers, relays to the main window, AND the
+        account state is loaded.
 
         The store methods are relayed over a WebSocket to the main
         window's web page, so a launched-but-still-loading client hangs
         them. Readiness is therefore queryEnvV2 answering at all (the
         logged-out shape counts — that IS an answer), not the shell's
-        own endpoints alone.
+        own endpoints alone — PLUS getUserInfo having loaded the
+        account state: a cold-launched client answers queryEnvV2 while
+        getUserInfo is still loading (seen 2/2 in a native run after a
+        client kill: the first browser/start failed typed
+        client_not_running for ~15 s and an immediate retry succeeded).
+        Both gates poll within the same ``relay_timeout_s`` budget.
         """
         if self._port is None:
             self._port = await self.discover_port()
-        if await self._relay_answers():
+        if await self._ready():
             return
         # The shell may be up but its window still loading (a normal
         # launch the API hasn't caught up with): only a dead API means
@@ -285,14 +291,42 @@ class RealWenmaiClient(LocalApiClient):
                 raise ClientNotRunning(detail)
         deadline = time.monotonic() + self.relay_timeout_s
         while time.monotonic() < deadline:
-            if await self._relay_answers():
+            if await self._ready():
                 return
             await asyncio.sleep(self.relay_poll_s)
         raise ClientNotRunning(
-            'client is running but its API never answered '
-            '(the main window did not load); retry, or open the 稳卖 '
-            'client once by hand'
+            'client is running but its API never finished loading '
+            '(the main window or the account state did not come up); '
+            'retry, or open the 稳卖 client once by hand'
         )
+
+    async def _ready(self) -> bool:
+        """Both readiness gates: the relay answers AND the account
+        state is loaded."""
+        return await self._relay_answers() and await self._account_ready()
+
+    async def _account_ready(self) -> bool:
+        """Whether getUserInfo has given a definitive answer yet.
+
+        The two real answers are a token (logged in) and the
+        definitive logged-out shape; while the account state is still
+        loading the client refuses getUserInfo (an error payload, or
+        no answer at all) — neither counts. Decided with the vendor's
+        OWN functions, not ``_user_info`` (whose "no response dict →
+        {}" would read a loading refusal as a logged-out answer):
+        LoginRequired from the call IS the logged-out answer; a
+        returned payload is an answer only when ``map_error`` clears
+        it.
+        """
+        try:
+            status, payload = await self.api_call(
+                'POST', '/getUserInfo', {'method': 'getUserInfo'}
+            )
+        except LoginRequired:
+            return True  # the definitive logged-out answer
+        except ClientNotRunning:
+            return False
+        return self.map_error(status, payload) is None
 
     async def _relay_answers(self) -> bool:
         path, body = self.list_request(0)

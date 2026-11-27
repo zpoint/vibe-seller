@@ -75,6 +75,10 @@ class FakeWenmaiApi:
         #: Delay before a RELAYED method answers (the slow-relay case:
         #: the main window still loading).
         self.slow_relay_s = 0.0
+        #: Cold-boot race (W5-4): queryEnvV2 answers while getUserInfo
+        #: is still loading — it refuses with the generic error shape
+        #: until the account state finishes loading.
+        self.user_info_loading = False
         #: openEnv result overrides per env id: 'unbound' | 'firefox' |
         #: 'unknown' | None (normal).
         self.open_results: dict[int, str] = {}
@@ -230,6 +234,19 @@ class FakeWenmaiApi:
         return web.json_response({'response': {'code': 200, 'msg': 'success'}})
 
     async def _get_user_info(self, method, _body) -> web.Response:
+        if self.user_info_loading:
+            # Cold-boot loading (C4's native run, 2026-11-27): the relay
+            # answers queryEnvV2 while getUserInfo is not ready — the
+            # client refuses it with the generic top-level error shape
+            # (the vendor's own wording, seen live). The contract under
+            # test: anything that is not (a token | the definitive
+            # logged-out shape) is NOT an answer yet.
+            return web.json_response({
+                'method': method,
+                'msg': '未知请求，请检查配置信息！',
+                'status': 'error',
+                'code': '400',
+            })
         if self.logged_out:
             # code 200 STILL means logged out here; the tell is the
             # null token (verified live).

@@ -503,6 +503,50 @@ async def test_ensure_running_negative_control_dead_relay_raises(
         await client.ensure_running()
 
 
+async def test_ensure_running_waits_for_the_account_state(api, monkeypatch):
+    """W5-4 cold-boot race (seen 2/2 in a native run after a client
+    kill): the relay answers queryEnvV2 while getUserInfo is still
+    loading. Readiness must include the account state — ensure_running
+    WAITS past the load and returns only once getUserInfo has a
+    definitive answer, so the login step right after cannot hit the
+    loading window."""
+    api.user_info_loading = True
+    client = _client(api)
+    monkeypatch.setattr(client, 'relay_poll_s', 0.02)
+
+    async def finish_loading():
+        await asyncio.sleep(0.15)  # the cold-boot account load
+        api.user_info_loading = False
+
+    task = asyncio.get_running_loop().create_task(finish_loading())
+    try:
+        await client.ensure_running()
+    finally:
+        await task
+    # It polled getUserInfo through the loading window — the relay-only
+    # shortcut is gone.
+    assert api.call_log.count('getUserInfo') >= 2
+    # And the account state is REALLY loaded at return: the login
+    # step's own getUserInfo (the token read) answers cleanly.
+    assert await client.is_logged_in() is True
+
+
+async def test_ensure_running_times_out_when_user_info_never_loads(
+    api, monkeypatch
+):
+    """Twist: the account state NEVER loads → a typed
+    ClientNotRunning (naming the account state) after the bounded
+    budget — never an infinite wait, never a green light into the
+    login step."""
+    api.user_info_loading = True
+    client = _client(api)
+    monkeypatch.setattr(client, 'relay_poll_s', 0.02)
+    monkeypatch.setattr(client, 'relay_timeout_s', 0.25)
+    with pytest.raises(ClientNotRunning) as excinfo:
+        await client.ensure_running()
+    assert 'account state' in str(excinfo.value)
+
+
 # ── login state + account check ──────────────────────────────────────
 
 
