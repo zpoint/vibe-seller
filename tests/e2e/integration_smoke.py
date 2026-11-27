@@ -712,7 +712,10 @@ def _setup_profile(client: httpx.Client) -> None:
 
 
 def main() -> int:
-    client = httpx.Client(timeout=60)
+    # trust_env=False: this client talks ONLY to our own 127.0.0.1
+    # server — a system proxy (Clash) on the box must not sit between
+    # the driver and its own server (a 502 mid-run, observed)
+    client = httpx.Client(timeout=60, trust_env=False)
     h.login_client(client, _ARGS.base_url)
     _verify_server_ownership()
 

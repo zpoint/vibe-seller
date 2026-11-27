@@ -38,10 +38,11 @@ if (-not $env:MINIMAX_API_KEY) {
   exit 2
 }
 
-# agent CLI + bundled git on PATH (the app's python is never used)
+# agent CLI + bundled git on PATH (the app's python is never
+# used; NOT git\usr\bin — MSYS tools on the agent PATH hang
+# pipe-waiting executors, found by the native proof agent)
 $env:PATH = "$env:LOCALAPPDATA\Programs\VibeSeller\claude;" +
-  "$env:LOCALAPPDATA\Programs\VibeSeller\git\cmd;" +
-  "$env:LOCALAPPDATA\Programs\VibeSeller\git\usr\bin;$env:PATH"
+  "$env:LOCALAPPDATA\Programs\VibeSeller\git\cmd;$env:PATH"
 
 # ── a port we PROVE is ours (up to three candidates) ───────────────
 foreach ($candidate in @($Port, $Port + 1, $Port + 2)) {
