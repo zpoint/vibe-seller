@@ -19,6 +19,8 @@ export const FrontendEvent = {
   AI_SETUP_GUIDE_CLOSED: 'ai_setup_guide_closed',
   AI_SETUP_GUIDE_DOCS_OPENED: 'ai_setup_guide_docs_opened',
   AI_SETUP_COMPLETED: 'ai_setup_completed',
+  KNOWLEDGE_FILE_SAVED: 'knowledge_file_saved',
+  KNOWLEDGE_FILE_CREATED: 'knowledge_file_created',
 } as const
 
 export type FrontendEventName =

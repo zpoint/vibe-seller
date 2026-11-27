@@ -117,7 +117,7 @@ and the reveal endpoint below.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/stores` | List all stores |
-| POST | `/api/stores` | Create a store |
+| POST | `/api/stores` | Create a store. `platforms` / `countries` / `platform_countries` are optional and empty unless given (no default platform or country); `platform_countries` is the stored source and the two flat lists are derived from it (`app/store_platforms.py`) |
 | GET | `/api/stores/{store_id}` | Get store by ID |
 | DELETE | `/api/stores/{store_id}` | Delete a store |
 | POST | `/api/stores/{store_id}/browser/start` | Start (or reuse) the store's browser; the store wrapper calls it lazily. A Ziniao store's client is brought up first — killed and relaunched in WebDriver mode when it is not answering, no flag (old wrappers' `?force=1` is ignored). `503` while Ziniao is still starting or the launch lock is busy (retry), `409` when another Ziniao account is in use. |
@@ -272,7 +272,9 @@ Tools (`tools/call` → `params.name`, `params.arguments`): `list_stores`,
 `browser`, `manage_ziniao_account`, `manage_profile`, `app_settings`,
 `manage_email_account`, `manage_chat_bot`, `manage_ticktick`) — one
 tool per resource with an `action` enum, so the
-list stays usable in a client's context. Every mutating tool calls the
+list stays usable in a client's context. `manage_store` `create`
+records only the platforms and countries it is given: leave them out
+and the store has none (there is no `amazon` / `US` default). Every mutating tool calls the
 REST route handlers, so the task state machine, the plan lifecycle and the
 launch path are the same code the web UI runs. A tool that fails answers
 `isError: true` with the reason; a protocol problem (unknown tool, bad
