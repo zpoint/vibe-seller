@@ -14,7 +14,15 @@ from unittest import mock
 import pytest
 
 from app.browser.inject.client import InjectClient, StoreRef
-from app.browser.inject.errors import ClientNotRunning, LoginRequired
+from app.browser.inject.errors import (
+    AccountMismatch,
+    ApiNotEnabled,
+    ClientNotRunning,
+    LoginRequired,
+    PlanRequired,
+    StoreUnavailable,
+    UnsupportedKernel,
+)
 from app.browser.vendors import (
     CARDINALITY_SINGLE,
     BrowserVendorSpec,
@@ -84,14 +92,18 @@ def fake_vendor(monkeypatch):
     reset_for_tests()
 
 
-def _client_behavior(*, logged_in=True, stores=None, raise_cnr=False) -> None:
+def _client_behavior(
+    *, logged_in=True, stores=None, raise_cnr=False, list_error=None
+) -> None:
     _CLIENT.ensure_running = mock.AsyncMock(
         side_effect=ClientNotRunning() if raise_cnr else None
     )
     _CLIENT.ensure_logged_in = mock.AsyncMock(
         side_effect=None if logged_in else LoginRequired()
     )
-    _CLIENT.list_stores = mock.AsyncMock(return_value=stores or [])
+    _CLIENT.list_stores = mock.AsyncMock(
+        side_effect=list_error, return_value=stores or []
+    )
 
 
 async def test_fake_vendor_appears_in_the_generic_surface(
@@ -152,13 +164,60 @@ async def test_fake_vendor_lists_stores_through_generic_route(
     admin_client, fake_vendor
 ):
     _client_behavior(
-        stores=[StoreRef('fv-a', 'MarketplaceX', 'US'), StoreRef('fv-b')]
+        stores=[
+            StoreRef('fv-a', 'MarketplaceX', 'US', ref='fv-ref-a'),
+            StoreRef('fv-b'),
+            StoreRef('fv-c', available=False, unavailable_reason='no device'),
+        ]
     )
     r = await admin_client.get('/api/browser-vendors/fakevendor/stores')
     assert r.status_code == 200
     body = r.json()
-    assert [s['name'] for s in body] == ['fv-a', 'fv-b']
+    assert [s['name'] for s in body] == ['fv-a', 'fv-b', 'fv-c']
     assert body[0]['platform'] == 'MarketplaceX'
+    # A1: the contract PR's StoreRef fields flow through the generic
+    # asdict serialization untouched — the picker can bind by ref and
+    # grey out an unavailable env.
+    assert body[0]['ref'] == 'fv-ref-a'
+    assert body[1]['ref'] == ''
+    assert body[2]['available'] is False
+    assert body[2]['unavailable_reason'] == 'no device'
+
+
+async def test_fake_vendor_list_error_codes_are_structured(
+    admin_client, fake_vendor
+):
+    """A2: every InjectError the client raises reaches the UI as a
+    structured status (the shared taxonomy lower-cased) with its
+    message — never a 500 and never collapsed into one generic status."""
+    codes = [
+        (AccountMismatch('signed in as other@example.com'), 502),
+        (ApiNotEnabled('api off'), 502),
+        (PlanRequired('plan needed'), 502),
+        (StoreUnavailable('no device bound'), 502),
+        (UnsupportedKernel('firefox kernel'), 502),
+    ]
+    for err, expected in codes:
+        _client_behavior(list_error=err)
+        r = await admin_client.get('/api/browser-vendors/fakevendor/stores')
+        assert r.status_code == expected, (
+            f'{type(err).__name__} → {r.status_code}: {r.text}'
+        )
+        detail = json.loads(r.json()['detail'])
+        assert detail['status'] == type(err).code.lower()
+        assert detail['message']
+
+
+async def test_twist_a_non_taxonomy_error_is_not_laundered(
+    admin_client, fake_vendor
+):
+    """Negative control for the mapping above: the route maps the shared
+    taxonomy, not everything — a bug in a client (a plain RuntimeError)
+    propagates as the server error it is, instead of being laundered
+    into a structured status that would pretend to be actionable."""
+    _client_behavior(list_error=RuntimeError('a client bug'))
+    with pytest.raises(RuntimeError):
+        await admin_client.get('/api/browser-vendors/fakevendor/stores')
 
 
 async def test_fake_vendor_structured_statuses(admin_client, fake_vendor):

@@ -70,9 +70,21 @@ module (+ translations + one docs page), zero shared-code edits" true:
 - wiring: `client_factory` (the `InjectClient` the engine runs),
   `win_app` (the install descriptor the locator serves), an optional
   `client_path_setting`;
-- text: `i18n_prefix` (the generic UI derives `<prefix><Suffix>` string
-  keys) and `docs` (per-topic help links; `test_docs_links.py` checks
-  the URLs).
+- text: `i18n_prefix` (the vendor's string OVERRIDES — the generic UI
+  resolves `<prefix><Suffix>` first, else the shared `browserVendor.<Suffix>`
+  key interpolating `{{vendor}}`, so a new vendor ships only its
+  credential field labels plus the overrides it wants;
+  `test_vendor_ui_strings.py` pins that every key resolves) and `docs`
+  (per-topic help links; `test_docs_links.py` checks the URLs).
+
+The store picker binds a profile by `ref || name` (the stable id the
+vendor's `StoreRef.ref` reports; vendors without one use the name) and
+greys out an env that exists but cannot be opened
+(`StoreRef.available === false`, its `unavailable_reason` shown). The
+generic stores route surfaces every `InjectError` the client raises as
+a structured `{status: <code.lower()>, message}` — the shared taxonomy
+is the whole status space, so a paid gate or an account mismatch
+reaches the UI as itself, never a 500.
 
 `tests/unit/test_no_vendor_literals.py` enforces the invariant: no
 anti-detect vendor key literal in shared code (ziniao grandfathered until

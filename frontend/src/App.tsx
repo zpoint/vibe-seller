@@ -627,6 +627,7 @@ export default function App() {
         fetchBrowserProfiles={ziniao.fetchBrowserProfiles} ziniaoStartingSecs={ziniao.ziniaoStartingSecs}
         vendors={vendors}
         vendorStores={vendorBrowser.stores} vendorError={vendorBrowser.error}
+        vendorErrorMessage={vendorBrowser.errorMessage}
         fetchingVendorStores={vendorBrowser.fetching} fetchVendorStores={vendorBrowser.fetchStores}
         serverPlatform={serverPlatform} serverVersion={serverVersion} installId={installId}
         updateStatus={updateFlow.status} onOpenUpdate={updateFlow.openModal}

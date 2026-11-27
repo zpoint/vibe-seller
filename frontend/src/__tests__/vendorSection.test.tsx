@@ -67,6 +67,7 @@ const renderSection = (over: {
   vendor?: Partial<BrowserVendor>
   stores?: VendorStoreRef[]
   error?: string
+  errorMessage?: string
   fetching?: boolean
   allStores?: Store[]
   lng?: 'en' | 'zh'
@@ -78,6 +79,7 @@ const renderSection = (over: {
         selectedRef="" setSelectedRef={vi.fn()}
         stores={over.stores ?? []}
         error={over.error ?? ''}
+        errorMessage={over.errorMessage}
         fetching={over.fetching ?? false}
         fetchStores={vi.fn()}
         allStores={over.allStores ?? ([] as unknown as Store[])}
@@ -167,6 +169,66 @@ describe('the generic vendor section', () => {
     // And the refusal links the spec's one_account docs section.
     const link = screen.getByTestId('docs-help-link') as HTMLAnchorElement
     expect(link.dataset.topic).toBe('fakeOneAccount')
+  })
+
+  it('binds by ref when the vendor reports one, and by name otherwise', () => {
+    renderSection({
+      stores: [
+        { name: 'Pretty Name', platform: '', remote_env: '', ref: 'env-9' },
+        { name: 'NoRef Store', platform: '', remote_env: '' },
+      ],
+    })
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    const byValue = [...select.options].map(o => [o.value, o.textContent])
+    expect(byValue).toEqual([
+      ['', enTranslation.settings.yuehulianSelectStore],
+      ['env-9', 'Pretty Name'],
+      ['NoRef Store', 'NoRef Store'],
+    ])
+  })
+
+  it('greys out an unavailable env with its reason instead of hiding it', () => {
+    renderSection({
+      stores: [
+        { name: 'Broken', platform: '', remote_env: '', available: false, unavailable_reason: 'no device bound' },
+      ],
+    })
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    const option = select.options[1]
+    expect(option.disabled).toBe(true)
+    expect(option.textContent).toContain('no device bound')
+  })
+
+  it('falls back to the shared browserVendor strings with the vendor name', () => {
+    // A vendor with NO override keys (empty prefix namespace): every
+    // status text comes from the shared browserVendor.* keys with
+    // {{vendor}} interpolated.
+    renderSection({
+      vendor: { i18n_prefix: 'vendors.nosuchkeys' },
+      error: 'fakevendor:plan_required',
+    })
+    expect(screen.getByText(
+      enTranslation.browserVendor.PlanRequired.replace('{{vendor}}', 'FakeVendor'),
+    )).toBeTruthy()
+  })
+
+  it('a vendor override beats the shared string', () => {
+    // The fixture's prefix points at the yuehulian keys, which exist:
+    // the override wins over browserVendor.NoStores.
+    renderSection({ error: 'fakevendor:no_stores' })
+    expect(screen.getByText(enTranslation.settings.yuehulianNoStores)).toBeTruthy()
+  })
+
+  it('a status with no key at all falls back to the backend message', () => {
+    renderSection({ error: 'fakevendor:odd_status', errorMessage: 'the vendor said no' })
+    expect(screen.getByText('the vendor said no')).toBeTruthy()
+  })
+
+  it('without a message either, the load-failed default shows', () => {
+    renderSection({ error: 'fakevendor:odd_status' })
+    expect(screen.getByText(
+      enTranslation.browserVendor.LoadFailed.replace('{{vendor}}', 'FakeVendor'),
+    )).toBeTruthy()
   })
 
   it('renders the strings of the UI language from the same spec prefix', () => {

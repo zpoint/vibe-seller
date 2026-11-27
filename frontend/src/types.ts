@@ -237,6 +237,12 @@ export interface VendorStoreRef {
   name: string;
   platform: string;
   remote_env: string;
+  /** The stable id to bind and reopen by ('' → the name IS the ref). */
+  ref?: string;
+  /** False when the env exists but cannot be opened (greyed out). */
+  available?: boolean;
+  /** Why an unavailable env cannot be opened (shown in the label). */
+  unavailable_reason?: string;
 }
 /** One credential field of a browser vendor's machine login (spec-driven). */
 export interface VendorCredentialField {

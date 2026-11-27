@@ -32,7 +32,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.browser import vendor_creds
-from app.browser.inject.errors import ClientNotRunning, LoginRequired
+from app.browser.inject.errors import (
+    ClientNotRunning,
+    InjectError,
+    LoginRequired,
+)
 from app.browser.vendors import (
     CARDINALITY_SINGLE,
     BrowserVendorSpec,
@@ -72,6 +76,13 @@ async def list_store_refs(spec: BrowserVendorSpec, client, platform: str):
     ``platform`` is passed in (not read here) so the per-vendor compat
     routes keep their own patchable ``get_platform`` seam. Raises
     ``HTTPException``; returns ``list[StoreRef]``.
+
+    Every :class:`~app.browser.inject.errors.InjectError` the client
+    raises becomes ``{"status": <code.lower()>, "message": ...}`` — the
+    shared taxonomy is the whole status space, so a vendor's new error
+    (a paid gate, an account mismatch, an unsupported kernel) reaches
+    the UI as a structured status instead of a 500. ``client_not_running``
+    and ``login_required`` keep their exact historical shapes.
     """
     if platform not in spec.platforms:
         raise HTTPException(
@@ -98,7 +109,16 @@ async def list_store_refs(spec: BrowserVendorSpec, client, platform: str):
             status_code=502,
             detail=json.dumps({'status': 'login_required'}),
         ) from e
-    return await client.list_stores()
+    try:
+        return await client.list_stores()
+    except InjectError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=json.dumps({
+                'status': e.code.lower(),
+                'message': str(e),
+            }),
+        ) from e
 
 
 @router.get('')

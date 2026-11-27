@@ -11,6 +11,7 @@ import pytest
 
 from app.browser import vendor_creds, win_app_locator as wal
 from app.browser.base import antidetect_display_name, is_antidetect
+from app.browser.manager import inject_vendor_store_config
 from app.browser.vendors import (
     CARDINALITY_MULTI,
     CARDINALITY_SINGLE,
@@ -124,6 +125,21 @@ def test_plain_kind_is_not_antidetect(fake_vendor):
 # ── spec registration through the plugin context ────────────────────
 
 
+def test_spec_key_must_match_the_registration_name():
+    """A5: a spec registered under a different name would mean two keys
+    for one vendor (routes key on one, the manager on the other) —
+    refused at registration, not misbehaved at runtime."""
+    ctx = ExtensionContext()
+    with pytest.raises(ValueError, match='does not match'):
+        ctx.register_browser_backend('othername', _FakeBackend, _spec())
+
+
+def test_twist_a_matching_name_registers():
+    ctx = ExtensionContext()
+    ctx.register_browser_backend('fakevendor', _FakeBackend, _spec())
+    assert 'fakevendor' in ctx.vendor_specs
+
+
 def test_registered_spec_is_served(fake_vendor):
     fake_vendor(_spec())
     spec = vendor_spec('fakevendor')
@@ -220,6 +236,46 @@ async def test_twist_missing_required_field_is_not_configured(
     spec = _spec()
     status = await vendor_creds.credentials_status(async_db_session, spec)
     assert status['configured'] is False
+
+
+# ── a store binds by the ref the picker offered ─────────────────────
+
+
+class _StoreRow:
+    """The Store columns the injection reads."""
+
+    def __init__(self, backend: str, browser_oauth: str = ''):
+        self.browser_backend = backend
+        self.browser_oauth = browser_oauth
+
+
+async def test_store_bound_by_ref_reaches_browser_ref(
+    fake_vendor, async_db_session
+):
+    """A1: whatever the picker bound (an env id when the vendor reports
+    one, a name otherwise) rides browser_oauth into browser_ref — the
+    value open_store receives."""
+    fake_vendor(_spec())
+    cfg: dict = {}
+    await inject_vendor_store_config(
+        cfg, _StoreRow('fakevendor', 'fv-ref-9'), async_db_session
+    )
+    assert cfg['browser_ref'] == 'fv-ref-9'
+
+
+async def test_twist_unbindable_backends_get_no_ref(
+    fake_vendor, async_db_session
+):
+    """Negative control: a plain backend (no machine login) and an
+    unknown backend get no browser_ref — the injection is spec-gated,
+    not name-gated."""
+    fake_vendor(_spec())
+    for backend in ('chrome', 'nosuchbackend'):
+        cfg: dict = {}
+        await inject_vendor_store_config(
+            cfg, _StoreRow(backend, 'some-ref'), async_db_session
+        )
+        assert 'browser_ref' not in cfg
 
 
 # ── the locator serves install descriptors from the registry ────────

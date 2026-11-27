@@ -144,8 +144,16 @@ class ExtensionContext:
         :class:`~app.browser.vendors.BrowserVendorSpec` the generic
         routes / UI / manager read, so a plugin-added vendor needs zero
         shared-code edits. Backends without a spec (plain engines) stay
-        registerable exactly as before.
+        registerable exactly as before. The spec's ``key`` must equal
+        the registration name — a mismatch would mean two keys for one
+        vendor (the routes key on one, the manager on the other), so it
+        is refused here rather than misbehaving at runtime.
         """
+        if spec is not None and spec.key != name:
+            raise ValueError(
+                f'spec key {spec.key!r} does not match the registration '
+                f'name {name!r}'
+            )
         self._browser_backends[name] = cls
         if spec is not None:
             self._vendor_specs[name] = spec

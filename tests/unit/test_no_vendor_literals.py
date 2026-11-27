@@ -25,6 +25,10 @@ Grandfathered / compat exemptions (each with a reason):
   ``YuehulianSection`` shim an existing frontend test renders
   (docsHelpLinks.test.tsx) and the restore rule for the /api/yuehulian
   compat alias — both go away with that route.
+* Any vendor key in the in-flight contract PR's files
+  (``_IN_FLIGHT_CONTRACT_FILES``) — #326 still names vendors in
+  docstrings and is dropping them; its files are not this refactor's
+  to edit. Delete the set when #326's vendor-neutral update lands.
 
 A vendor registered through the plugin context is checked automatically
 (the registry is the source of truth), plus ``wenmai`` — in flight on
@@ -63,6 +67,17 @@ _COMPAT_FILES = {
     # makes them vendor-neutral); this refactor must not edit them.
     'app/browser/inject/__init__.py',
     'app/browser/inject/client.py',
+}
+
+# Files owned by the in-flight contract PR (#326) that still name
+# vendors in docstrings/comments. That PR is dropping the names
+# (coordinator review A7); when its vendor-neutral update lands, delete
+# these entries — the test then guards those files like any other.
+_IN_FLIGHT_CONTRACT_FILES = {
+    'app/browser/inject/client.py',
+    'app/browser/inject/engine.py',
+    'app/browser/win_inspector.py',
+    'app/browser/adapters/yuehulian_win.py',
 }
 
 _EXCLUDED_PATHS = ('app/builtin_plugin.py',)
@@ -122,6 +137,8 @@ def find_violations(keys: list[str], files: list[Path]) -> list[str]:
                 continue  # the vendor's own module
             if key == 'yuehulian' and rel in _COMPAT_FILES:
                 continue  # documented compat shim
+            if rel in _IN_FLIGHT_CONTRACT_FILES:
+                continue  # owned by #326 until its vendor-neutral update
             bad.append(f'{rel}: {key}')
     return bad
 

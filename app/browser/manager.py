@@ -173,6 +173,29 @@ def read_mcp_config():
     return {'mcpServers': {}}
 
 
+async def inject_vendor_store_config(
+    browser_config: dict, store, db: AsyncSession
+) -> None:
+    """Spec-driven vendors (registry): the bound profile ref + machine
+    credentials for a store's vendor.
+
+    A ``CARDINALITY_SINGLE`` vendor has one machine login shared by all
+    of its stores — its stored credentials (encrypted) are injected so
+    a logged-out client can be auto-logged-in instead of failing the
+    task — and the store's chosen profile ref (whatever the picker
+    bound, an env id or a name) rides the ``browser_oauth`` column into
+    ``browser_ref``, the value ``open_store`` receives. Ziniao keeps
+    its own branch in the manager (per-account credentials); plain
+    backends have no machine login to inject. See
+    app/browser/vendors.py.
+    """
+    spec = vendor_spec(store.browser_backend)
+    if spec is not None and spec.account_cardinality == CARDINALITY_SINGLE:
+        if store.browser_oauth and spec.lists_profiles:
+            browser_config['browser_ref'] = store.browser_oauth
+        await vendor_creds.inject_vendor_config(browser_config, db, spec)
+
+
 class BrowserManager:
     """Manages browser sessions for all stores.
 
@@ -437,18 +460,7 @@ class BrowserManager:
             if store.browser_oauth:
                 browser_config['browser_oauth'] = store.browser_oauth
 
-        # Spec-driven vendors (registry): a CARDINALITY_SINGLE vendor has
-        # one machine login shared by all of its stores — its stored
-        # credentials (encrypted) are injected so a logged-out client can
-        # be auto-logged-in instead of failing the task, and the store's
-        # chosen profile ref rides the browser_oauth column. Ziniao keeps
-        # its own branch above (per-account credentials); plain backends
-        # have no machine login to inject. See app/browser/vendors.py.
-        spec = vendor_spec(store.browser_backend)
-        if spec is not None and spec.account_cardinality == CARDINALITY_SINGLE:
-            if store.browser_oauth and spec.lists_profiles:
-                browser_config['browser_ref'] = store.browser_oauth
-            await vendor_creds.inject_vendor_config(browser_config, db, spec)
+        await inject_vendor_store_config(browser_config, store, db)
 
         # Allocate unique proxy port — both backends use CDPMuxProxy.
         # Reuse the DB-persisted port if available.

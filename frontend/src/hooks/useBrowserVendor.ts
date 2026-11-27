@@ -9,7 +9,8 @@ import type { VendorStoreRef } from '../types'
  * the generic vendor routes: the dropdown lists the stores the vendor's
  * logged-in client can see via GET /api/browser-vendors/{key}/stores,
  * decoding the backend's structured status into a `<key>:<status>` error
- * string.
+ * string, with the backend's `message` kept alongside (the last resort
+ * of the status-text fallback chain).
  *
  * The key changing (the user picks another backend) resets the state —
  * each vendor's section fetches its own list on mount.
@@ -17,11 +18,13 @@ import type { VendorStoreRef } from '../types'
 export function useBrowserVendor(key: string) {
   const [stores, setStores] = useState<VendorStoreRef[]>([])
   const [error, setError] = useState('')
+  const [errorMessage, setErrorMessage] = useState('')
   const [fetching, setFetching] = useState(false)
 
   useEffect(() => {
     setStores([])
     setError('')
+    setErrorMessage('')
     setFetching(false)
   }, [key])
 
@@ -29,6 +32,7 @@ export function useBrowserVendor(key: string) {
     setFetching(true)
     setStores([])
     setError('')
+    setErrorMessage('')
     try {
       const list = (await api.get(
         `/api/browser-vendors/${key}/stores`,
@@ -38,13 +42,16 @@ export function useBrowserVendor(key: string) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : ''
       let status = 'connect_error'
+      let message = ''
       try {
         const d = JSON.parse(msg)
         if (d?.status) status = d.status
+        if (typeof d?.message === 'string') message = d.message
       } catch {
         /* non-JSON error message — keep connect_error */
       }
       setError(`${key}:${status}`)
+      setErrorMessage(message)
     } finally {
       setFetching(false)
     }
@@ -53,9 +60,10 @@ export function useBrowserVendor(key: string) {
   const reset = () => {
     setStores([])
     setError('')
+    setErrorMessage('')
   }
 
-  return { stores, error, fetching, fetchStores, reset }
+  return { stores, error, errorMessage, fetching, fetchStores, reset }
 }
 
 /**

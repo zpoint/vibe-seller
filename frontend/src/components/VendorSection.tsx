@@ -4,12 +4,20 @@
  * row (for one-account-per-machine vendors, with only a [+]), the
  * credential form (fields from the spec, secrets masked with an eye
  * toggle), and the profile picker (stores from the generic route, with
- * the structured statuses decoded into per-vendor i18n strings).
+ * the structured statuses decoded into text).
  *
- * Every label and status string is derived from the spec's
- * ``i18n_prefix`` — `<prefix><Suffix>` (e.g. `ClientNotRunning`) — so a
- * vendor's strings live under its own prefix and no branch in this file
- * names a vendor.
+ * Every derived string resolves through a fallback chain: the vendor's
+ * own key `<i18n_prefix><Suffix>` first (its override), else the SHARED
+ * `browserVendor.<Suffix>` key interpolating `{{vendor}}` with the
+ * display name — so a new vendor ships only its credential field labels
+ * plus the overrides it wants, and no branch in this file names a
+ * vendor. A status neither key covers falls back to the backend's own
+ * message.
+ *
+ * Profiles bind by `ref || name` (the stable id the vendor reports;
+ * vendors without one use the name), and an env that exists but cannot
+ * be opened (`available === false`) is shown greyed out with its
+ * reason instead of being hidden.
  */
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -34,14 +42,17 @@ const EYE_OFF = (
   <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>
 )
 
+/** The value a profile binds and reopens by. */
+const bindValue = (s: VendorStoreRef) => s.ref || s.name
+
 export function VendorSection(props: {
   vendor: BrowserVendor
   selectedRef: string; setSelectedRef: (v: string) => void
-  stores: VendorStoreRef[]; error: string
+  stores: VendorStoreRef[]; error: string; errorMessage?: string
   fetching: boolean; fetchStores: () => void
   allStores: Store[]
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const v = props.vendor
   const p = props
   const [status, setStatus] = useState<VendorLoginStatus | null>(null)
@@ -51,7 +62,19 @@ export function VendorSection(props: {
   const [busy, setBusy] = useState(false)
   const [formErr, setFormErr] = useState('')
 
-  const i18nKey = (suffix: string) => `${v.i18n_prefix}${suffix}`
+  const zh = (i18n.language || 'en').startsWith('zh')
+  const displayName = zh ? v.display_name_zh : v.display_name_en
+  /** The fallback chain: the vendor's own override, else the shared
+   *  `browserVendor.<Suffix>` key with {{vendor}} interpolated. */
+  const vt = (suffix: string) => {
+    const own = t(`${v.i18n_prefix}${suffix}`, {
+      defaultValue: '', vendor: displayName,
+    })
+    if (own) return own
+    return t(`browserVendor.${suffix}`, {
+      defaultValue: '', vendor: displayName,
+    })
+  }
 
   const refresh = async (thenFetch = false) => {
     try {
@@ -76,7 +99,7 @@ export function VendorSection(props: {
   const hasVendorStores = p.allStores.some(s => s.browser_backend === v.key)
   const openAdd = () => {
     if (hasVendorStores) {
-      setShowForm(false); setFormErr(t(i18nKey('OneAccount'))); return
+      setShowForm(false); setFormErr(vt('OneAccount')); return
     }
     setValues({}); setFormErr(''); setShowForm(true)
   }
@@ -85,7 +108,7 @@ export function VendorSection(props: {
     const missing = v.credential_fields.filter(
       (f) => f.required && !(values[f.key] || '').trim(),
     )
-    if (missing.length > 0) { setFormErr(t(i18nKey('LoginAllRequired'))); return }
+    if (missing.length > 0) { setFormErr(vt('LoginAllRequired')); return }
     setBusy(true); setFormErr('')
     try {
       await api.post(`/api/browser-vendors/${v.key}/credentials`, values)
@@ -99,19 +122,23 @@ export function VendorSection(props: {
       const msg = e instanceof Error ? e.message : String(e)
       let code = ''
       try { const d = JSON.parse(msg); if (d?.status) code = d.status } catch { /* non-JSON */ }
-      setFormErr(code === 'one_account' ? t(i18nKey('OneAccount')) : msg)
+      setFormErr(code === 'one_account' ? vt('OneAccount') : msg)
     } finally { setBusy(false) }
   }
 
   // The docs section that says how to fix what the picker shows.
-  const oneAccount = formErr === t(i18nKey('OneAccount'))
+  const oneAccount = formErr === vt('OneAccount')
+  // A status resolves: the vendor's override key, else the shared
+  // per-code key, else the backend's own message, else the load-failed
+  // default. (no_stores is a UI state, not an error code; connect_error
+  // has neither key nor message.)
   const statusHint = (() => {
     if (!p.error) return ''
     const s = p.error.replace(`${v.key}:`, '')
-    if (['login_required', 'client_not_running', 'no_stores'].includes(s)) {
-      return t(i18nKey(camel(s)))
-    }
-    return t(i18nKey('LoadFailed'))
+    const text = vt(camel(s))
+    if (text) return text
+    if (p.errorMessage) return p.errorMessage
+    return vt('LoadFailed')
   })()
 
   const accountLabel = status?.configured
@@ -119,7 +146,7 @@ export function VendorSection(props: {
         .filter(f => !f.secret)
         .map(f => String(status[f.key] ?? ''))
         .join(' / ')
-    : t(i18nKey('NoAccount'))
+    : vt('NoAccount')
 
   return (
     <div className="mb-2 space-y-2">
@@ -147,7 +174,7 @@ export function VendorSection(props: {
             )
           ))}
           <div className="flex gap-1">
-            <button type="button" onClick={save} disabled={busy} className="px-2 py-1 bg-indigo-600 text-white rounded text-xs disabled:opacity-50">{busy ? t(i18nKey('LoginSaving')) : t('common.save')}</button>
+            <button type="button" onClick={save} disabled={busy} className="px-2 py-1 bg-indigo-600 text-white rounded text-xs disabled:opacity-50">{busy ? vt('LoginSaving') : t('common.save')}</button>
             <button type="button" onClick={() => { setShowForm(false); setFormErr('') }} className="px-2 py-1 bg-gray-200 rounded text-xs">{t('common.cancel')}</button>
           </div>
         </div>
@@ -169,7 +196,7 @@ export function VendorSection(props: {
       ) : status?.configured && p.fetching ? (
         <div className="flex flex-col items-center justify-center py-6 px-4 bg-indigo-50 rounded-lg border border-indigo-200">
           <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-          <p className="text-sm font-medium text-indigo-700">{t(i18nKey('Loading'))}</p>
+          <p className="text-sm font-medium text-indigo-700">{vt('Loading')}</p>
         </div>
       ) : p.stores.length > 0 ? (
         <select
@@ -177,10 +204,17 @@ export function VendorSection(props: {
           onChange={e => p.setSelectedRef(e.target.value)}
           className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs bg-white"
         >
-          <option value="">{t(i18nKey('SelectStore'))}</option>
+          <option value="">{vt('SelectStore')}</option>
           {p.stores.map(s => (
-            <option key={s.name} value={s.name}>
+            <option
+              key={bindValue(s)}
+              value={bindValue(s)}
+              disabled={s.available === false}
+            >
               {s.name}{s.platform ? ` (${s.platform} ${s.remote_env})` : ''}
+              {s.available === false && s.unavailable_reason
+                ? ` — ${s.unavailable_reason}`
+                : ''}
             </option>
           ))}
         </select>

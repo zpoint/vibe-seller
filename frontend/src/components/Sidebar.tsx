@@ -61,6 +61,7 @@ interface SidebarProps {
   vendors: BrowserVendor[] | null
   vendorStores: VendorStoreRef[]
   vendorError: string
+  vendorErrorMessage?: string
   fetchingVendorStores: boolean
   fetchVendorStores: () => void
   serverPlatform: ServerPlatform | null; serverVersion: string; installId: string
@@ -114,7 +115,8 @@ export function Sidebar(props: SidebarProps) {
     ziniaoBrowsers, selectedBrowserOauth, setSelectedBrowserOauth,
     fetchingBrowsers, browserFetchError, setBrowserFetchError,
     fetchBrowserProfiles, ziniaoStartingSecs,
-    vendors, vendorStores, vendorError, fetchingVendorStores, fetchVendorStores,
+    vendors, vendorStores, vendorError, vendorErrorMessage,
+    fetchingVendorStores, fetchVendorStores,
     serverPlatform, serverVersion, installId,
     updateStatus, onOpenUpdate,
     showAddAccount, setShowAddAccount, showAccountPassword, setShowAccountPassword,
@@ -251,6 +253,7 @@ export function Sidebar(props: SidebarProps) {
               fetchBrowserProfiles={fetchBrowserProfiles} ziniaoStartingSecs={ziniaoStartingSecs}
               vendors={vendors}
               vendorStores={vendorStores} vendorError={vendorError}
+              vendorErrorMessage={vendorErrorMessage}
               fetchingVendorStores={fetchingVendorStores} fetchVendorStores={fetchVendorStores}
               serverPlatform={serverPlatform}
               showAddAccount={showAddAccount} setShowAddAccount={setShowAddAccount}
@@ -331,7 +334,7 @@ function StoreCreationForm(props: {
   fetchBrowserProfiles: (accountId: string) => void
   ziniaoStartingSecs: number; serverPlatform: ServerPlatform | null
   vendors: BrowserVendor[] | null
-  vendorStores: VendorStoreRef[]; vendorError: string
+  vendorStores: VendorStoreRef[]; vendorError: string; vendorErrorMessage?: string
   fetchingVendorStores: boolean; fetchVendorStores: () => void
   showAddAccount: boolean; setShowAddAccount: (v: boolean) => void
   showAccountPassword: boolean; setShowAccountPassword: React.Dispatch<React.SetStateAction<boolean>>
@@ -427,6 +430,7 @@ function StoreCreationForm(props: {
           setSelectedRef={p.setSelectedBrowserOauth}
           stores={p.vendorStores}
           error={p.vendorError}
+          errorMessage={p.vendorErrorMessage}
           fetching={p.fetchingVendorStores}
           fetchStores={p.fetchVendorStores}
           allStores={p.stores}

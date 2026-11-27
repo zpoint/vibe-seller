@@ -572,6 +572,26 @@
     "ziniaoStartFailed": "Ziniao didn't start.",
     "ziniaoAccountConflict": "Another Ziniao account is in use on this computer."
   },
+  "browserVendor": {
+    "NoAccount": "No account configured",
+    "OneAccount": "This browser allows one account per machine. Delete every store created with it before changing the account.",
+    "LoginAllRequired": "Please fill in every field before saving.",
+    "LoginSaving": "Saving...",
+    "SelectStore": "Select a store...",
+    "Loading": "Loading...",
+    "LoginRequired": "Log into the {{vendor}} client first, then click Refresh.",
+    "ClientNotRunning": "Couldn't start the {{vendor}} client — open it manually (or check it's installed), then click Refresh.",
+    "NoStores": "No stores visible for the current login.",
+    "LoadFailed": "Couldn't load stores — check the client and try again.",
+    "AccountMismatch": "The client is signed into a different account than the saved one. Log out in the client, or re-save the matching credentials.",
+    "ApiNotEnabled": "The client's local API is switched off. Enable it in {{vendor}}'s settings (look for API / automation / local API), then click Refresh.",
+    "PlanRequired": "{{vendor}}'s local API requires a paid plan. Upgrade the account (or pick a plan that includes API access), then retry.",
+    "StoreUnavailable": "The store exists but cannot be opened right now — the message says why.",
+    "UnsupportedKernel": "This store doesn't use a Chrome kernel, so it can't be automated. Switch its kernel to Chrome in the client.",
+    "StoreNotFound": "Store not found — check the name, or that it is visible to this login.",
+    "CdpUnreachable": "The store opened but couldn't be reached — retry; if it persists the client version may be incompatible.",
+    "UnsupportedPlatform": "This browser doesn't support this system."
+  },
   "integrations": {
     "gws": {
       "title": "Google Workspace",
