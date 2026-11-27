@@ -16,7 +16,7 @@ Ziniao setup, the fields to fill in, the error messages and the WSL step all hav
 
 - ["无权限通过 webdriver 登录" when binding a store](ziniao.en.md#无权限通过-webdriver-登录-when-binding-a-store)
 - ["检测到您在新终端登录" when binding a store](ziniao.en.md#检测到您在新终端登录-when-binding-a-store)
-- [The extra ziniao_webdriver.bat step on Windows (WSL)](ziniao.en.md#windows-wsl-getting-ziniao-into-developer-mode-ziniao_webdriverbat)
+- [The extra ziniao_webdriver.bat step on WSL](ziniao.en.md#windows-wsl-getting-ziniao-into-developer-mode-ziniao_webdriverbat)
 
 ## Cost & model choice
 
