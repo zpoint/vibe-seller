@@ -29,7 +29,13 @@ import urllib.request
 
 from packaging.version import Version
 
-from app import bundle, claude_cli_install, login_autostart, uv_tool
+from app import (
+    bundle,
+    claude_cli_install,
+    login_autostart,
+    server_env,
+    uv_tool,
+)
 from app.platform import (
     collect_agent_descendants,
     find_pid_listening_on_port,
@@ -237,6 +243,8 @@ def _cmd_start(args: argparse.Namespace) -> int:
     host: str = args.host
     port: int = args.port
 
+    server_env.export_port(port)
+
     # Foreground path — for dev / log-watching. uvicorn auto-reload
     # also requires the main thread, so --dev implies --foreground.
     # `import uvicorn` is lazy on purpose: `vibe-seller stop` and
@@ -271,31 +279,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
     # daemon ends up importing the source tree instead of itself.
     daemon_cwd = _vibe_home()
 
-    # install.sh runs `fix_npm_permissions` which puts `npm install
-    # -g` payloads (claude CLI in particular) into ~/.npm-global/bin/
-    # and writes the matching `export PATH=...` into the user's
-    # shell rc file. But a user who runs the documented two-liner
-    #
-    #     curl -sSL .../install.sh | bash
-    #     vibe-seller start
-    #
-    # in the same shell session has not yet sourced that rc edit,
-    # so without this prepend the daemon starts with the old PATH,
-    # the agent's `claude` spawn raises FileNotFoundError on the
-    # first task, and `vibe-seller start` looks healthy until you
-    # actually try to do anything. Prepending here makes the daemon
-    # find claude regardless of shell rc state.
-    env = os.environ.copy()
-    # Force UTF-8 text I/O for the daemon and every child it spawns
-    # (agent, browser-use). Windows defaults to cp1252, which raises
-    # UnicodeEncodeError on the non-ASCII (e.g. '→') in prompts and the
-    # generated browser-use wrapper. This makes open()/write_text/
-    # read_text default to UTF-8 process-wide, fixing the bug class
-    # rather than one call site at a time.
-    env['PYTHONUTF8'] = '1'
-    npm_global_bin = Path.home() / '.npm-global' / 'bin'
-    if npm_global_bin.is_dir():
-        env['PATH'] = f'{npm_global_bin}{os.pathsep}{env.get("PATH", "")}'
+    env = server_env.daemon_env()
 
     # Open the log under `with` so ruff is happy; the OS dups the fd
     # into the Popen child, so closing the parent handle right after
