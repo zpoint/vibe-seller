@@ -27,7 +27,9 @@ $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 Set-Location $Root
-$Out = Join-Path $env:TEMP "vibe-smoke-$Port"
+# Under the CLONE, not %TEMP%: every native-Windows artifact of the
+# smoke lives inside codes\<clone> (the coordinator's placement rule).
+$Out = Join-Path $Root "smoke-out-$Port"
 $Home_ = Join-Path $Out 'home'
 $Py = "$Root\.venv\Scripts\python.exe"
 
