@@ -25,6 +25,7 @@ kernel's browser GUID (the ``webSocketDebuggerUrl`` tail of
 upstream.
 """
 
+import asyncio
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -91,12 +92,20 @@ class _Kernel:
 class _StaleClient(InjectClient):
     """Records closes; ``open_port`` is the endpoint the vendor's open
     answers with (its existing kernel when the profile is open — the
-    attach contract)."""
+    attach contract). ``was_open`` implements ``env_was_open`` (None =
+    no signal, the default client); ``fail_after_open`` makes
+    ``after_open`` raise, a vendor failure AFTER the open — what
+    #349's start-failure funnel cleans up."""
 
     def __init__(self):
         self.open_port = 0
         self.opens: list[str] = []
         self.closed: list[str] = []
+        self.was_open: bool | None = None
+        self.fail_after_open: Exception | None = None
+
+    async def env_was_open(self, ref: str) -> bool | None:
+        return self.was_open
 
     async def ensure_running(self) -> None:
         return None
@@ -110,6 +119,10 @@ class _StaleClient(InjectClient):
     async def open_store(self, ref: str) -> OpenedStore:
         self.opens.append(ref)
         return OpenedStore('127.0.0.1', self.open_port)
+
+    async def after_open(self, opened: OpenedStore) -> None:
+        if self.fail_after_open is not None:
+            raise self.fail_after_open
 
     async def close_store(self, ref: str) -> None:
         self.closed.append(ref)
@@ -372,10 +385,15 @@ async def test_dead_endpoint_reported_open_is_refused_visibly(tmp_path):
     for an "open" profile but did NOT declare ``reopens_hand_opened``:
     the engine refuses the start with ``CdpUnreachable`` (the
     documented contract: an env whose debug endpoint never answers is
-    never driven) instead of closing a listing it cannot prove holds
-    no live kernel. The failure is visible — the start route answers
-    HTTP 500 'Failed to start browser: … never answered' — and
-    retrying re-runs open_store; it never destroys a live window."""
+    never driven; the start route answers HTTP 500 'Failed to start
+    browser: … never answered'). Since #349's start-failure funnel
+    (kept, ownership-routed — REVIEW-MAIN-349 case (a)), the env the
+    vendor just "opened" for us is then CLOSED: this client has no
+    ``env_was_open`` signal (unknown ⇒ treated as ours), and a
+    just-opened env whose CDP never answered is exactly the wedge the
+    funnel exists to clear. A vendor whose open ATTACHES to a live
+    hand-opened env is the protected case — pinned by the
+    ``test_failed_start_*funnel*`` tests below."""
     ours = _Kernel('opened-by-server')
     client = _StaleClient()
     client.open_port = ours.port
@@ -386,12 +404,111 @@ async def test_dead_endpoint_reported_open_is_refused_visibly(tmp_path):
             ours.stop()  # died mid-task; the client keeps the row Open
             await backend.stop(BrowserSessionInfo())
             # open_store hands back the dead endpoint again — the
-            # engine refuses to drive it.
+            # engine refuses to drive it, and the funnel clears the
+            # wedged (assumed-ours) env.
             with pytest.raises(CdpUnreachable):
                 await _backend(client).start(_cfg())
-        assert client.closed == []
+        assert client.closed == ['store-a']
     finally:
         ours.stop()
+
+
+# ── #349 integration: the start-failure funnel is ownership-aware ───
+#
+# REVIEW-MAIN-349.md: main's _abandon_open_env closes the env on ANY
+# failed start — including one that ATTACHED to an env the user
+# opened by hand. Routed through the ONE predicate: attached → close
+# nothing vendor-side; spawned → closed (the funnel's wedge cleanup).
+
+
+async def test_failed_start_after_our_open_closes_env(tmp_path):
+    """Case (a): the open SPAWNED the kernel (the vendor's
+    env_was_open says it was not running) and the start then fails —
+    the funnel closes the env (Browser.close + close_store) and stops
+    our half-started proxy, and the ORIGINAL error propagates. This
+    is #349's contract, kept by the ownership routing."""
+    ours = _Kernel('spawned-by-open')
+    client = _StaleClient()
+    client.open_port = ours.port
+    client.was_open = False  # the vendor spawned it for our open
+    backend = _backend(client)
+    closer = _recording_close(backend)
+    try:
+        with _mocked_proxy(tmp_path) as proxy:
+            # A post-open failure DEEP in the funnel's coverage: the
+            # proxy never comes up.
+            proxy.return_value.start = mock.AsyncMock(
+                side_effect=RuntimeError('proxy bind failed')
+            )
+            with pytest.raises(RuntimeError, match='proxy bind'):
+                await backend.start(_cfg())
+        assert closer.await_count == 1  # OUR kernel was closed...
+        assert closer.await_args.args == ('127.0.0.1', ours.port)
+        assert client.closed == ['store-a']  # ...and the env
+        assert proxy.return_value.stop.await_count == 1  # our proxy
+    finally:
+        ours.stop()
+
+
+async def test_failed_start_after_attach_closes_nothing_of_the_users(
+    tmp_path,
+):
+    """Case (b): the open ATTACHED to an env that was already open
+    (env_was_open True — a profile the user opened by hand) and the
+    start then fails: no Browser.close, no close_store — only our own
+    half-started proxy is stopped, and the original error
+    propagates."""
+    hand = _Kernel('opened-by-hand')
+    client = _StaleClient()
+    client.open_port = hand.port
+    client.was_open = True  # the vendor attached
+    backend = _backend(client)
+    closer = _recording_close(backend)
+    try:
+        with _mocked_proxy(tmp_path) as proxy:
+            proxy.return_value.start = mock.AsyncMock(
+                side_effect=RuntimeError('proxy bind failed')
+            )
+            with pytest.raises(RuntimeError, match='proxy bind'):
+                await backend.start(_cfg())
+        assert closer.await_count == 0  # the user's kernel untouched
+        assert client.closed == []  # ...and their env
+        assert proxy.return_value.stop.await_count == 1  # ours stopped
+    finally:
+        hand.stop()
+
+
+async def test_cancelled_start_after_attach_closes_nothing_of_the_users(
+    tmp_path,
+):
+    """Case (c): the same attach, CANCELLED mid-start (a task stop or
+    a server shutdown reaching the start): the funnel catches the
+    cancellation, closes nothing of the user's, stops our proxy, and
+    the cancellation propagates."""
+
+    hand = _Kernel('opened-by-hand')
+    client = _StaleClient()
+    client.open_port = hand.port
+    client.was_open = True
+    backend = _backend(client)
+    closer = _recording_close(backend)
+    try:
+        with _mocked_proxy(tmp_path) as proxy:
+
+            async def slow_start():
+                await asyncio.sleep(30)  # cancelled in here
+
+            proxy.return_value.start = slow_start
+            task = asyncio.create_task(backend.start(_cfg()))
+            await asyncio.sleep(0.3)  # let it reach the proxy start
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert closer.await_count == 0
+        assert client.closed == []
+        assert proxy.return_value.stop.await_count == 1
+    finally:
+        hand.stop()
 
 
 def test_yuehulian_is_the_reopens_declarer():
