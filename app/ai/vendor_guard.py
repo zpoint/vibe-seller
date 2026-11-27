@@ -488,7 +488,13 @@ def vendor_guard_deny(
     """
     if not isinstance(tool_input, dict):
         return None
-    masked = tuple(str(p) for p in (task_dir,) if p)
+    # Masked out of the command before the home rules run: the task's
+    # own workspace, and (the mailbox retry's answer) its own mailbox
+    # db files under <home>/data — the one data-dir reads that are
+    # legitimate, exactly source_guard's ``readable`` contract.
+    masked = tuple(
+        str(p) for p in (task_dir, *readable) if p
+    )
     prefix = task_id[:8] if task_id else ''
 
     def deny(kind: str, reason: str, detail: str) -> str:

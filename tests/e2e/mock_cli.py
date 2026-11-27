@@ -1063,7 +1063,7 @@ def _guard_replay_calls() -> list[dict]:
             'label': 'forwarder-socat',
             'tool': 'Bash',
             'input': {
-                'command': 'socat tcp-listen:17797,fork tcp:127.0.0.1:7777'
+                'command': 'socat tcp-listen:17797,fork tcp:127.0.0.1:17777'
             },
         },
         {
@@ -1072,7 +1072,7 @@ def _guard_replay_calls() -> list[dict]:
             'input': {
                 'command': 'python3 -c "import socket; s=socket.socket();'
                 " s.bind(('127.0.0.1', 17797));"
-                " s.connect(('127.0.0.1', 7777))\""
+                " s.connect(('127.0.0.1', 17777))\""
             },
         },
         {

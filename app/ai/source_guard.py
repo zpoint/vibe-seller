@@ -64,18 +64,21 @@ def _spellings(d: Path) -> tuple[str, ...]:
 
 
 # A protected path in a shell command, ending at a path boundary — so
-# ``…/app`` is caught but ``…/apple`` is not.
+# ``…/app`` is caught but ``…/apple`` is not. The boundary includes
+# BOTH separators: on Windows the paths carry backslashes, and without
+# ``\\`` in the set ``C:\…\app\ai\…`` never matched mid-path (found on
+# the native-Windows C3 run: every non-`cd` deny silently passed).
 _PROTECTED_IN_CMD = re.compile(
     '(?:'
     + '|'.join(re.escape(s) for d in PROTECTED_DIRS for s in _spellings(d))
-    + r""")(?=$|[/\s'";|&)])"""
+    + r""")(?=$|[/\\\s'";|&)])"""
 )
 
 _ROOT_IN_CMD = (
     re.compile(
         '(?:'
         + '|'.join(re.escape(s) for s in _spellings(_ROOT))
-        + r""")(?!/\.venv(?=$|[/\s'";|&)]))(?=$|[/\s'";|&)])"""
+        + r""")(?![/\\]\.venv(?=$|[/\\\s'";|&)]))(?=$|[/\\\s'";|&)])"""
     )
     if _ROOT
     else None

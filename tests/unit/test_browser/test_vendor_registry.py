@@ -7,11 +7,17 @@ behaviour pairs with a twist: flip the spec (unregister / change a field)
 and the opposite must hold.
 """
 
+import logging
+
 import pytest
 
 from app.browser import vendor_creds, win_app_locator as wal
 from app.browser.base import antidetect_display_name, is_antidetect
 from app.browser.manager import inject_vendor_store_config
+from app.browser.vendor_rules import (
+    CARDINALITY_NONE,
+    validate_spec,
+)
 from app.browser.vendors import (
     CARDINALITY_MULTI,
     CARDINALITY_SINGLE,
@@ -381,8 +387,6 @@ class TestPrivateDataDeclaration:
     next vendor PRs must declare theirs); plain browsers are exempt."""
 
     def test_undeclared_antidetect_vendor_warns(self, fake_vendor, caplog):
-        import logging
-
         with caplog.at_level(logging.WARNING):
             fake_vendor(
                 _spec(
@@ -397,22 +401,11 @@ class TestPrivateDataDeclaration:
         assert 'private_paths/local_ports' in caplog.text
 
     def test_declared_vendor_does_not_warn(self, fake_vendor, caplog):
-        import logging
-
         with caplog.at_level(logging.WARNING):
             fake_vendor(_spec(key='declared', private_paths=('SomeData',)))
         assert 'declares no private_paths' not in caplog.text
 
     def test_plain_browser_is_exempt(self, caplog):
-        import logging
-
-        from app.browser.vendor_rules import (
-            CARDINALITY_NONE,
-            KIND_PLAIN,
-            validate_spec,
-        )
-        from app.browser.vendors import BrowserVendorSpec
-
         with caplog.at_level(logging.WARNING):
             validate_spec(
                 BrowserVendorSpec(
