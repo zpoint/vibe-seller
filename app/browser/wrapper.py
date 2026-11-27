@@ -268,9 +268,7 @@ def write_browser_use_wrapper(
 
     # Auto-start arm + typed failure reporting: C2's contract, built
     # in its own module (see app/browser/wrapper_start.py) so this
-    # file's liveness-probe side stays C1's to edit. The probe reads
-    # the wrapper's runtime $CDP_HTTP (the baked port can be
-    # reallocated by the start call and followed).
+    # file's liveness-probe side stays C1's to edit.
     _start_failure_fn = _START_FAILURE_FN
     auto_start_block = _auto_start_block(
         slug=slug,

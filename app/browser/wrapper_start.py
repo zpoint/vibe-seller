@@ -128,17 +128,6 @@ def auto_start_block(
                 fi
                 if [ "$_start_http" -ge 200 ] 2>/dev/null \\
                    && [ "$_start_http" -lt 300 ] 2>/dev/null; then
-                  # The server may have REALLOCATED the proxy port
-                  # (the baked one was foreign): follow the typed
-                  # proxy_port the start API hands back — same
-                  # pattern as the aux arm following its ws
-                  # endpoint (PR C1).
-                  _vs_port=$(printf '%s' "$_start_resp" | sed -n 's/.*"proxy_port"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p' | head -1)
-                  case "$_vs_port" in
-                    ''|*[!0-9]*) ;;
-                    *) PROXY_PORT="$_vs_port"
-                       CDP_HTTP="http://{LOCALHOST}:$PROXY_PORT" ;;
-                  esac
                   break
                 fi
                 # Failed. A TRANSIENT taxonomy code (client just coming
