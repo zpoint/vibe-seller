@@ -60,6 +60,7 @@ DESIGN_SYSTEM_PROMPT_AUTO: str = re.sub(
 SCHEDULED_PRETASK_PROMPT: str = _load('scheduled_pretask.md')
 EXTRACTION_PROMPT: str = _load('event_extraction.md')
 WAITING_INSTRUCTION_PROMPT: str = _load('waiting_instruction.md')
+BROWSER_FAILURE_RULES_PROMPT: str = _load('browser_failure_rules.md')
 DUAL_BROWSER_PROMPT: str = _load('dual_browser.md')
 TICKTICK_TOOLS_PROMPT: str = _load('ticktick_tools.md')
 WORKSPACE_ASSISTANT_PROMPT: str = _load('workspace_assistant.md')

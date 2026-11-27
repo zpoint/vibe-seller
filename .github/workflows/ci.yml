@@ -209,6 +209,11 @@ jobs:
           uv pip install -e ".[dev]"
           # pytest-playwright is dev-only — used by UI tests only
           uv pip install pytest-playwright
+          # E2E fixture: a fake browser vendor whose start fails with a
+          # chosen inject-taxonomy code (registered through the real
+          # plugin entry point; inert unless FAKE_START_VENDOR is set
+          # on the server). See tests/e2e/fixtures/fake_start_vendor/.
+          uv pip install -e tests/e2e/fixtures/fake_start_vendor
 
       # Playwright is dev-only — needed for UI tests (pytest-playwright)
       - name: Install Playwright browsers (UI tests only)
@@ -263,6 +268,9 @@ jobs:
           # keeps it offline + deterministic (same flag the e2e-test
           # job sets).
           VISION_FAKE: '1'
+          # E2E fixture opt-in (see the install step): registers the
+          # fake-start browser backend on this server only.
+          FAKE_START_VENDOR: '1'
         run: |
           mkdir -p logs
           BACKEND_PORT=7777 MOCK_CLI=tests/e2e/mock_cli.py \
@@ -301,6 +309,9 @@ jobs:
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
           MOCK_CLI: tests/e2e/mock_cli.py
+          # So the browser-start-failure e2e can assert the
+          # terminal-stop line in the server's own log.
+          MOCK_SERVER_LOG: logs/mock_server_stdout.log
         run: >
           uv run pytest tests/e2e/test_conversation_ui.py
           tests/e2e/test_task_usage_ui.py
@@ -323,6 +334,7 @@ jobs:
           tests/e2e/test_workplace_expiry_ui.py
           tests/e2e/test_update_failure_ui.py
           tests/e2e/test_guard_replay.py --e2e -v
+          tests/e2e/test_browser_start_failure_mock.py --e2e -v
           --log-cli-level=INFO
 
       - name: Stop mock CLI server

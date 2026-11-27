@@ -38,7 +38,7 @@ from app.task_runner import (
     park_waiting_for_pending_question,
     park_waiting_for_text_only_response,
 )
-from app.task_states import TaskStatus, assert_transition
+from app.task_states import TaskStatus, assert_transition, can_transition
 
 logger = logging.getLogger(__name__)
 
@@ -431,6 +431,55 @@ async def _finalize_terminal_state_impl(
             'task_update',
             {'task_id': task_id, 'status': TaskStatus.COMPLETED},
         )
+
+
+async def stop_as_failed(
+    task_id: str, error: str, category: str | None
+) -> bool:
+    """THE writer for an EXTERNAL stop of a live task.
+
+    Two callers end a task from OUTSIDE its own run — the user's Stop
+    (``POST /api/tasks/{id}/agent/stop``) and a terminal
+    browser-start failure (``app/browser/start_failure.py``). Both go
+    through here so a terminal status has exactly two writers, by
+    role: the run's OWN outcome → :func:`finalize_terminal_state`;
+    an external stop → this function. Nothing else writes one.
+
+    Order matters: the FAILED commit happens FIRST, so the run's own
+    finalizer (``finalize_terminal_state``) sees a terminal status and
+    bails instead of overwriting; then the ``task_update`` event, the
+    agent stop, and a parent waiting on children is re-checked.
+    Returns True when the task was failed here; False when its status
+    no longer allows it (the caller's guard selected the task; this
+    is the race-closing second guard).
+    """
+    async with async_session() as db:
+        task = await db.get(Task, task_id)
+        if task is None or not can_transition(task.status, TaskStatus.FAILED):
+            return False
+        task.status = TaskStatus.FAILED
+        task.error = error
+        task.error_category = category
+        task.updated_at = datetime.now(UTC).isoformat()
+        await db.commit()
+        await event_bus.emit(
+            'task_update',
+            {
+                'task_id': task_id,
+                'status': TaskStatus.FAILED,
+                'error': error,
+                'error_category': category,
+            },
+        )
+        await agent_manager.stop(task_id)
+        # The reaping that used to live in the stop route moved here
+        # with the single-writer refactor: every process the agent
+        # left behind (nohup / ssh -f / setsid escape the process
+        # group stop above) dies here, on BOTH external-stop paths —
+        # the user's Stop and a terminal browser-start failure.
+        asyncio.create_task(reap_task_processes(task_id))
+        await check_parent_completion(task, db)
+    return True
 
 
 async def check_parent_after_run(task_id: str) -> None:

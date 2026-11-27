@@ -44,6 +44,52 @@ Chrome 后端由 Playwright 为这个店铺拉起一个独立档案，不需要�
 
 WSL 部署还有第四种后端 `winchrome`：以 systemd 服务方式运行在 WSL2 里的 Vibe Seller 弹不出 Chrome 窗口，这时可以改用 Windows 原生 Chrome（由任务计划程序拉起，窗口可见，人工登录时可以操作）。它不在店铺表单里选择，而是在部署时设置，步骤见 [Windows 部署指南](windows-setup.md) 的「Browser automation — native Windows Chrome」一节。
 
+## 任务打不开店铺：报错速查
+
+任务开始时会先打开店铺所在的浏览器，打不开时任务会直接失败，页面上会显示一条红色横幅说明原因（AI 也会收到同样的提示并被停下，不会自己乱试）。按横幅上写的话对号入座：
+
+<details markdown="1" id="error-login-required"><summary><b>「浏览器客户端处于未登录状态」</b></summary>
+
+店铺所在的浏览器客户端（紫鸟、悦互联这类软件）被退出登录了，而且没有保存过的登录信息可以自动登回。在本机打开这个客户端，手动登录一次，然后重试任务即可。
+
+</details>
+
+<details markdown="1" id="error-client-not-running"><summary><b>「浏览器客户端没有在运行」</b></summary>
+
+店铺所在的浏览器客户端没开，或者刚好还在启动中。打开它再重试任务；如果反复出现，重启一次客户端。
+
+</details>
+
+<details markdown="1" id="error-account-mismatch"><summary><b>「客户端登录的账号和保存的不一致」</b></summary>
+
+客户端现在登录的账号，和当初绑定店铺时保存的账号不是同一个（比如同事换过账号）。在客户端里退出当前登录，登回当初绑定的那个账号；或者删掉这个店铺重新绑定现在的账号。
+
+</details>
+
+<details markdown="1" id="error-api-not-enabled"><summary><b>「客户端的本地接口没有开启」</b></summary>
+
+这类客户端自带一个给自动化用的「本地接口」，默认多半是关着的。在客户端的设置里找到 API / 自动化 / local API 相关的开关打开，然后重试任务。
+
+</details>
+
+<details markdown="1" id="error-plan-required"><summary><b>「客户端的本地接口需要付费套餐」</b></summary>
+
+这家浏览器的本地接口是付费功能，当前账号的套餐不含它。到官网给账号升级（或换一个含接口权限的套餐），然后重试任务。
+
+</details>
+
+<details markdown="1" id="error-store-unavailable"><summary><b>「客户端打开了这个店铺，但提示无法使用」</b></summary>
+
+店铺在客户端里存在，但打不开——比如没有绑定设备、店铺过期或被停用。横幅和报错文字里会写客户端的原话；到客户端里找到这个店铺，按它的提示处理后重试。
+
+</details>
+
+<details markdown="1" id="error-store-not-found"><summary><b>「客户端里找不到这个店铺」</b></summary>
+
+绑定时的店铺在客户端里已经不存在了（被删掉，或者当前登录的账号看不到它）。确认店铺还在客户端里、当前账号能看到它；不在的话，删掉 Vibe Seller 里的这个店铺重新绑定。
+
+</details>
+
 ## 各浏览器配置指南
 
 - [紫鸟：开通与常见报错](ziniao.md) —— 开通开发者模式、绑定、报错、WSL 启动器、凭据存储。
