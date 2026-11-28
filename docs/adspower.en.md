@@ -28,14 +28,19 @@ in the client first (see
 
 ## Paid plan and API permission
 
-AdsPower's local API requires a **paid plan**; team members do not
-have API permission by default — an admin must grant it in the team
-settings (super admins have it by default). If API calls fail with a
-permission error, ask your team admin to enable the "API" permission.
+AdsPower's local API requires a **paid plan**. Team members have no
+API permission by default (super admins have it): your team admin opens
+**Team → Team Management → Member Management → User Groups** in the
+AdsPower client's left menu, ticks the "API" feature permission for
+your member group and confirms. Do the same when an API call reports a
+permission error.
 
 A sub-account sees only the profiles **authorized to it**: an empty
-profile list usually means "not authorized", not broken. Assign the
-profiles in AdsPower's team management.
+profile list usually means "not authorized", not broken — your team
+admin opens **Team → Team Management → Member Management** in the
+AdsPower client, finds the sub-account, clicks **Edit**, ticks the
+groups it should use under **Authorized groups** and confirms (the
+profiles must be in those groups first).
 
 ## Generate the API key
 
@@ -131,8 +136,8 @@ Official docs: [Members](https://help.adspower.com/docs/members) ·
 
 This machine's AdsPower does not have that kernel installed, and it
 does not download it by itself. Open the AdsPower app and download
-that kernel in its settings (the kernel-management page), or switch
-the profile to an already-installed kernel version.
+that kernel in its settings (the kernel-management page); or pick an
+already-installed version in the "Browser" field when creating a profile.
 
 </details>
 
@@ -165,11 +170,11 @@ See the [developer guide](dev-guide.md) for the encryption details.
 | Message | Meaning / what to do |
 |---|---|
 | AdsPower has no API key yet: open API & MCP in AdsPower, generate a key and paste it into Vibe Seller. | No key saved. See "Generate the API key". |
-| AdsPower doesn't accept this API key: copy the key of the account currently signed in to AdsPower (under API & MCP) and re-paste it into Vibe Seller; re-paste it after any account or key change. | The key does not match the signed-in account. Re-copy it. |
+| AdsPower doesn't accept this API key: copy the key of the account currently signed in to AdsPower (under API & MCP) and re-paste it into Vibe Seller; re-paste it after any account or key change. | The key does not match the signed-in account: copy the current account's key in the AdsPower client under "API & MCP" and paste it into the store again. |
 | The AdsPower client needs you to sign in: open AdsPower, sign in with the account the API key belongs to, finish the verification it asks for (an email/SMS code), then refresh or retry the task. | The client is not signed in. See ["The AdsPower client needs you to sign in"](#the-adspower-client-needs-you-to-sign-in). |
-| AdsPower can't find this profile: it may have been deleted, or isn't authorised for the signed-in account. Check that, then retry. | The profile was deleted, or this account lacks authorization for it. |
+| AdsPower can't find this profile: it may have been deleted, or isn't authorised for the signed-in account. Check that, then retry. | The profile was deleted, or this account lacks authorization: your team admin ticks the profile's group under the sub-account's "Authorized groups" in Member Management (see above). |
 | This profile uses the FlowerBrowser (Firefox) kernel; Vibe Seller can only drive SunBrowser (Chrome kernel) profiles. Create a new profile with 浏览器 set to SunBrowser in AdsPower, then re-bind this store to it. | The profile uses the Firefox kernel. Create a SunBrowser profile and re-bind the store to it (see the warning box above). |
 | AdsPower is downloading the browser kernel; retry once it finishes. | First use of a kernel version; AdsPower is downloading it. Wait and retry. |
-| AdsPower's API is unavailable: team members need their admin to grant API access in the team settings. Check that, then refresh. | The API refused the call (the vendor text is included). Usually a permission or plan issue. |
-| Could not find AdsPower: install and open it first; if it is installed elsewhere, pick its install location in Settings, then refresh. | Not installed, or installed somewhere undetectable. |
+| AdsPower's API is unavailable: team members need their admin to grant API access in the team settings. Check that, then refresh. | The API refused the call (the vendor text is included). Your team admin grants the "API" feature permission to your member group under Member Management → User Groups; if it still fails, check the plan. |
+| Could not find AdsPower: install and open it first; if it is installed elsewhere, pick its install location in Settings, then refresh. | Not installed, or installed somewhere undetectable: install and open AdsPower first; if it sits in a custom folder, pick that folder in Vibe Seller's Settings, then refresh. |
 | This browser doesn't support this system. | The AdsPower backend supports Windows and macOS; WSL is also supported. |
