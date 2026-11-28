@@ -51,7 +51,7 @@ With "security verification" on, every API call needs an API key
 2. Confirm the API status shows **Success**.
 3. Click **"Generate Key"** and copy the key.
 
-Two things to remember:
+Note:
 
 - **The key belongs to the account currently signed in to AdsPower.**
   Signing into a different account invalidates the old key ("API Key
