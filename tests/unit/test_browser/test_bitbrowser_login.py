@@ -609,3 +609,40 @@ async def test_credentials_twist_planted_leak_is_caught(caplog):
             'planted %s', 'sentinel-secret-pass'
         )
     assert 'sentinel-secret-pass' in caplog.text
+
+
+# ── macOS main-process bundle-name detection ─────────────────────────
+
+
+def _fake_ps_output(monkeypatch, text):
+    result = type('Result', (), {'stdout': text})()
+    monkeypatch.setattr(bl.subprocess, 'run', lambda *a, **k: result)
+
+
+def test_mac_main_pid_accepts_chinese_bundle_name(monkeypatch):
+    """The official Chinese-named client resolves to its main pid."""
+    _fake_ps_output(
+        monkeypatch,
+        '4321 /Applications/比特浏览器.app/Contents/MacOS/比特浏览器\n',
+    )
+    assert bl._mac_main_pid() == 4321
+
+
+def test_mac_main_pid_keeps_english_bundle_path_detection(monkeypatch):
+    """The existing English bundle-path detection still works."""
+    _fake_ps_output(
+        monkeypatch,
+        '1234 /Applications/BitBrowser.app/Contents/MacOS/BitBrowser\n',
+    )
+    assert bl._mac_main_pid() == 1234
+
+
+def test_mac_main_pid_negative_control_unrelated_app(monkeypatch):
+    """An unrelated app and an Electron helper are not the client."""
+    _fake_ps_output(
+        monkeypatch,
+        '111 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n'
+        '222 /Applications/比特浏览器.app/Contents/MacOS/比特浏览器 '
+        '--type=renderer\n',
+    )
+    assert bl._mac_main_pid() is None
