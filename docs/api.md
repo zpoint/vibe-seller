@@ -1,6 +1,6 @@
 # API Routes
 
-All routes prefixed with `/api/`. When `auth_required` is enabled (see Settings), all routes except `/api/auth/status`, `/api/auth/login`, `/api/health`, and `/api/sse` require JWT auth via httpOnly cookie. When `auth_required` is disabled (default), all routes return the default admin user without authentication.
+All routes prefixed with `/api/`. When `auth_required` is enabled (see Settings), all routes except `/api/auth/status`, `/api/auth/login`, and `/api/health` require JWT auth via httpOnly cookie. In particular, anonymous consumers cannot open the `/api/sse` event stream when auth is required. When `auth_required` is disabled (default), all routes return the default admin user without authentication.
 
 A request may also carry a personal API token (`vst_…`) as `Authorization: Bearer vst_…`. Such a token is always checked against the token table — an unknown, revoked or expired one is a **401 even when `auth_required` is off**. Any other bearer value keeps the JWT/cookie behaviour described above.
 
@@ -729,7 +729,7 @@ never echoes the URL back to the client.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/sse` | SSE stream of all real-time events |
+| GET | `/api/sse` | Authenticated SSE stream of all real-time events; anonymous requests are rejected when `auth_required` is enabled |
 
 Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api/events` for event tracking.
 

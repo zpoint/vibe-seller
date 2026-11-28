@@ -27,6 +27,8 @@ export interface DraftStore {
   stash: (taskId: string, msg: UnsentMessage) => void
   /** Take (and forget) the failed send kept for `taskId`. */
   takeStash: (taskId: string) => UnsentMessage | undefined
+  /** Drop the visible draft and every per-task stash at a session boundary. */
+  reset: () => void
 }
 
 export function createDraftStore(initial = ''): DraftStore {
@@ -49,6 +51,11 @@ export function createDraftStore(initial = ''): DraftStore {
       const msg = unsent.get(taskId)
       unsent.delete(taskId)
       return msg
+    },
+    reset: () => {
+      value = ''
+      unsent.clear()
+      listeners.forEach(l => l())
     },
   }
 }

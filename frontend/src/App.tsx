@@ -8,6 +8,7 @@ import { MobileMenuButton } from './components/MobileMenuButton'
 import { useWsFiles } from './hooks/useWsFiles'
 import { useUpdateFlow } from './hooks/useUpdateFlow'
 import { useSessionKeepalive } from './hooks/useSessionKeepalive'
+import { useSessionBoundary } from './hooks/useSessionBoundary'
 import { useBrowserVendor } from './hooks/useBrowserVendor'
 import { useBrowserVendors } from './hooks/useBrowserVendors'
 import { useZiniaoAccounts } from './hooks/useZiniaoAccounts'
@@ -27,10 +28,9 @@ import { useSSE } from './hooks/useSSE'
 import { createDraftStore } from './lib/draftStore'
 import { parseNav, settingsTabToSlug, listTarget, scheduleTarget, taskTarget } from './lib/route'
 import { resolveLanding } from './lib/landing'
-import { registerUserHash, unregisterUserHash } from './lib/telemetry'
 import { useTaskOpener } from './hooks/useTaskOpener'
 import { useTaskActions } from './hooks/useTaskActions'
-import { api, AUTH_EXPIRED_EVENT, uploadTaskAttachment } from './api'
+import { api, uploadTaskAttachment } from './api'
 import { createStore as createStoreHandler } from './handlers/createStore'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
@@ -43,13 +43,7 @@ import type { Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, 
 export default function App() {
   const { t } = useTranslation()
 
-  // Auth state
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
-  const [authChecked, setAuthChecked] = useState(false)
   const { serverPlatform, serverVersion, installId } = useServerInfo()
-  const [loginIdentifier, setLoginIdentifier] = useState('')
-  const [loginPassword, setLoginPassword] = useState('')
-  const [loginError, setLoginError] = useState('')
 
   // View + settings-tab are now URL-derived (TanStack Router), not
   // useState — so every section has its own address (Back / deep-link /
@@ -100,10 +94,6 @@ export default function App() {
   // Ziniao account state (hooks/useZiniaoAccounts)
   const ziniao = useZiniaoAccounts()
   const { selectedZiniaoAccountId, setSelectedZiniaoAccountId, setZiniaoBrowsers, selectedBrowserOauth, setSelectedBrowserOauth, loadZiniaoAccounts } = ziniao
-  // Browser vendors: registry metadata (backend options, credential
-  // schema) + the selected vendor's store list (generic picker state,
-  // replacing the per-vendor hooks).
-  const vendors = useBrowserVendors(currentUser?.id ?? null)
   const vendorBrowser = useBrowserVendor(newStoreBackend)
   const [showCreateTask, setShowCreateTask] = useState(false)
   const aiGate = useAiSetupGate()
@@ -121,6 +111,12 @@ export default function App() {
   const [chatDraft] = useState(() => createDraftStore())
   const setChatInput = chatDraft.set
   const [chatAttachments, setChatAttachments] = useState<StagedAttachment[]>([])
+  // One in-flight guard per task: a send on B is not blocked by A's.
+  const sendingRefs = useRef(new Map<string, { current: boolean }>())
+  const sendingRefFor = (id: string) => {
+    if (!sendingRefs.current.has(id)) sendingRefs.current.set(id, { current: false })
+    return sendingRefs.current.get(id)!
+  }
   const [conversationItems, setConversationItems] = useState<ConversationItem[]>([])
   const questionBannerRef = useRef<HTMLDivElement>(null)
   const [debugMode, setDebugMode] = useState(false)
@@ -220,41 +216,40 @@ export default function App() {
   // Sub-tabs flip INSIDE the current scope (listTarget) — a store is
   // never dropped; the flat pair is only the all-stores one.
   const setTaskSubTab = (tab: 'onetime' | 'scheduled') => navigate(listTarget(routeStoreId, tab === 'scheduled'))
-  const [authRequired, setAuthRequired] = useState(false)
+  const {
+    currentUser, setCurrentUser, authChecked, authRequired, setAuthRequired,
+    loginIdentifier, setLoginIdentifier, loginPassword, setLoginPassword,
+    loginError, handleLogin, handleLogout,
+  } = useSessionBoundary({
+    t, navigate, taskOpener, ziniao, vendorBrowser, chatDraft,
+    inFlightTasksKeyRef, inFlightScheduleIdRef, sendingRefs, createStoreInFlight,
+    setters: {
+      navOpen: setNavOpen, stores: setStores, selectedStore: setSelectedStore, showAllTasks: setShowAllTasks,
+      tasks: setTasks, tasksLoading: setTasksLoading, selectedTask: setSelectedTask,
+      steps: setSteps, screenshots: setScreenshots, logs: setLogs,
+      newStoreName: setNewStoreName, newStoreBackend: setNewStoreBackend, showCreateStore: setShowCreateStore,
+      creatingStore: setCreatingStore, createStoreError: setCreateStoreError, showCreateTask: setShowCreateTask,
+      agentMessages: setAgentMessages, todoItems: setTodoItems, pendingQuestions: setPendingQuestions,
+      selectedAnswers: setSelectedAnswers, otherInputs: setOtherInputs, showOtherInput: setShowOtherInput,
+      chatAttachments: setChatAttachments, conversationItems: setConversationItems, debugMode: setDebugMode,
+      profiles: setProfiles, selectedProfileId: setSelectedProfileId, showProfileModal: setShowProfileModal,
+      editingProfile: setEditingProfile, wsAssistantActive: setWsAssistantActive,
+      wsAssistantMessages: setWsAssistantMessages, wsAssistantRunning: setWsAssistantRunning,
+      wsStructured: setWsStructured, wsSelectedFile: setWsSelectedFile, wsFileContent: setWsFileContent,
+      wsEditorContent: setWsEditorContent, wsEditorDirty: setWsEditorDirty, wsSaving: setWsSaving,
+      wsExpandedStores: setWsExpandedStores, wsExpandedSkills: setWsExpandedSkills,
+      wsNewFileName: setWsNewFileName, wsNewFileSection: setWsNewFileSection, wsSyncMeta: setWsSyncMeta,
+      wsSyncing: setWsSyncing, wsSkillsSyncing: setWsSkillsSyncing, wsFileHistory: setWsFileHistory,
+      wsShowHistory: setWsShowHistory, wsPreviewCommit: setWsPreviewCommit, wsPreviewContent: setWsPreviewContent,
+      showProxy: setShowProxy, newStoreProxyServer: setNewStoreProxyServer, newStoreProxyBypass: setNewStoreProxyBypass,
+      schedules: setSchedules, selectedSchedule: setSelectedSchedule, scheduleTasks: setScheduleTasks,
+      showCreateSchedule: setShowCreateSchedule, emailAccounts: setEmailAccounts, allUsers: setAllUsers,
+      showAddUser: setShowAddUser, newUserForm: setNewUserForm,
+    },
+  })
 
-  // Any 401 from the shared API client fires this — we drop the
-  // session client-side so the LoginPage renders immediately. One
-  // listener covers every page/button instead of each caller doing
-  // its own redirect.
-  useEffect(() => {
-    const onExpired = () => {
-      setCurrentUser(null)
-      // Land on '/' (not /tasks): re-login resolves the landing like a fresh open.
-      navigate({ to: '/', replace: true })
-      setSelectedTask(null)
-      setSelectedSchedule(null)
-    }
-    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired)
-    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired)
-  }, [])
-
-  // Auth check on mount — first check if auth is required
-  useEffect(() => {
-    fetch('/api/auth/status')
-      .then(r => r.json())
-      .then(({ auth_required }) => {
-        setAuthRequired(auth_required)
-        return fetch('/api/auth/me', { credentials: 'include' })
-          .then(r => { if (!r.ok) throw new Error(); return r.json() })
-          .then(u => { setCurrentUser(u); setAuthChecked(true); void registerUserHash(u.id); if (u.default_profile_id) setSelectedProfileId(u.default_profile_id); setDebugMode(u.debug_mode ?? false) })
-          .catch(() => {
-            if (auth_required) { setCurrentUser(null); setAuthChecked(true) }
-            else { setCurrentUser(null); setAuthChecked(true) }
-          })
-      })
-      .catch(() => { setCurrentUser(null); setAuthChecked(true) })
-  }, [])
-
+  // Registry metadata reloads with the auth identity (PR #364).
+  const vendors = useBrowserVendors(currentUser?.id ?? null)
   const updateFlow = useUpdateFlow(currentUser)
 
   // Roll the session forward on activity and bounce to login on idle
@@ -493,12 +488,6 @@ export default function App() {
       await api.post(`/api/tasks/${selectedTask.id}/image/confirm`, { request_id: requestId, action, prompt, model, added_references: addedReferences })
     } catch { /* the tool call will time out server-side if unresolved */ }
   }
-  // One in-flight guard per task: a send on B is not blocked by A's.
-  const sendingRefs = useRef(new Map<string, { current: boolean }>())
-  const sendingRefFor = (id: string) => {
-    if (!sendingRefs.current.has(id)) sendingRefs.current.set(id, { current: false })
-    return sendingRefs.current.get(id)!
-  }
   const sendChatMessage = () =>
     sendChatMessageHandler({
       api, selectedTask, chatInput: chatDraft.get(), attachments: chatAttachments,
@@ -533,13 +522,6 @@ export default function App() {
   const toggleStoreExpanded = (slug: string) => { setWsExpandedStores(prev => { const next = new Set(prev); if (next.has(slug)) next.delete(slug); else next.add(slug); return next }) }
   const toggleSkillExpanded = (slug: string) => { setWsExpandedSkills(prev => { const next = new Set(prev); if (next.has(slug)) next.delete(slug); else next.add(slug); return next }) }
 
-  // ─── Auth helpers ──────────────────────────────────
-  const handleLogin = async () => { setLoginError(''); try { const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: loginIdentifier, password: loginPassword }), credentials: 'include' }); if (!r.ok) { setLoginError(t('auth.invalidCredentials')); return }; const u = await r.json(); setCurrentUser(u); void registerUserHash(u.id); if (u.default_profile_id) setSelectedProfileId(u.default_profile_id); setDebugMode(u.debug_mode ?? false); setLoginIdentifier(''); setLoginPassword('') } catch { setLoginError(t('auth.invalidCredentials')) } }
-  // Reset session-scoped selection so the next login starts clean.
-  // Logout is not a chosen destination: return to '/' (like AUTH_EXPIRED)
-  // so the next login resolves the landing, not All Stores.
-  const handleLogout = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); unregisterUserHash(); setCurrentUser(null); setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSelectedSchedule(null); navigate({ to: '/', replace: true }) }
-
   // ─── Settings helpers ──────────────────────────────
   const createUser = async () => { if (!newUserForm.username.trim() || !newUserForm.password.trim()) return; try { await api.post('/api/users', { ...newUserForm, email: newUserForm.email.trim() || undefined }); setNewUserForm({ username: '', email: '', password: '', role: 'member' }); setShowAddUser(false); await loadUsers() } catch { /* ignore */ } }
   const deleteUser = async (userId: string, username: string) => { if (!confirm(t('settings.confirmDeleteUser', { username }))) return; try { await api.del(`/api/users/${userId}`); await loadUsers() } catch { /* ignore */ } }
@@ -551,6 +533,7 @@ export default function App() {
 
   // SSE
   useSSE({
+    enabled: authChecked && !!currentUser,
     selectedTaskId: selectedTask?.id, appView,
     selectedStoreId: selectedStore?.id ?? null,
     showAllTasks: showAllScope,

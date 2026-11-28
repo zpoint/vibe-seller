@@ -31,6 +31,8 @@ export interface BrowserProfilesDeps {
   setZiniaoStartingSecs: React.Dispatch<React.SetStateAction<number>>
   /** Pause between "still starting" answers (injected by tests). */
   sleep?: (ms: number) => Promise<void>
+  /** Session/hook generation guard, combined with latestFetch below. */
+  isCurrent?: () => boolean
 }
 
 /** Ask again this soon after a "starting" answer. */
@@ -75,7 +77,7 @@ export async function fetchBrowserProfiles(
     setBrowserFetchError, setZiniaoStartingSecs,
   } = deps
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)))
-  const current = () => seq === latestFetch
+  const current = () => seq === latestFetch && (deps.isCurrent?.() ?? true)
   setFetchingBrowsers(true); setZiniaoBrowsers([]); setSelectedBrowserOauth('')
   setBrowserFetchError(''); setZiniaoStartingSecs(0)
   const began = Date.now()
