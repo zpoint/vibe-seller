@@ -24,7 +24,7 @@ vendor's own site:
 | Chrome | The system's own Chrome / Chromium (launched by Playwright) | Running a single store yourself; public-web work | macOS / Linux / WSLg | Built in, no install | — | [Stores & Browsers → Creating a store](stores.en.md#creating-a-store) |
 | Ziniao | Third-party anti-detect browser (developer / WebDriver mode, driven over CDP) | One team managing many accounts; strict risk control | Windows / macOS / Linux, plus WSL | [ziniao.com](https://www.ziniao.com) · [download](https://www.ziniao.com/download) | Register an enterprise account → BOSS enables developer mode on the [Open Platform](https://open.ziniao.com/docSupport?docId=99) and ticks WebDriver login for the sub-account | [Ziniao setup](ziniao.en.md) |
 | Yuehulian | Chinese anti-detect e-commerce browser | One team managing many accounts | Windows / macOS / WSL | [kj.chinafic.com](https://kj.chinafic.com/) · client download on the site | Register an enterprise account → create sub-accounts and grant store permissions in the console (team login = team name + sub-account + password) | [Yuehulian setup](yuehulian.en.md) |
-| BitBrowser | Chinese anti-detect browser (driven over its local API) | One team managing many accounts (Windows, macOS); the free plan works | Windows, macOS, plus WSL | [bitbrowser.net](https://www.bitbrowser.net/) · [download](https://www.bitbrowser.net/download/) | Register an account (10 profiles on the free plan); sub-accounts need profiles authorized by the main account | [BitBrowser setup](bitbrowser.en.md) |
+| BitBrowser | Chinese anti-detect browser | One team managing many accounts; the free plan works | Windows and macOS; WSL is also supported | [bitbrowser.net](https://www.bitbrowser.net/) · [download](https://www.bitbrowser.net/download/) | Register an account (10 profiles on the free plan); sub-accounts need profiles authorized by the main account | [BitBrowser setup](bitbrowser.en.md) |
 
 > WSL deployments also have a fourth backend, `winchrome` (set at deployment, not a
 > choice in the store form) — see the end of "Which browser backend?".
@@ -57,13 +57,11 @@ signs in to its client itself, on **Windows and macOS, plus WSL**; a machine kee
 auto-signs-in when the session expires. Download, team-account creation,
 binding and errors: [Yuehulian: Setup Guide](yuehulian.en.md).
 
-BitBrowser is an anti-detect browser driven through its own local API,
-on **Windows and macOS, plus WSL**. Vibe Seller can store the BitBrowser
-account and password and auto-signs-in when the session expires (one
-account can be signed in on one computer at a time); the API port and
-token are read from its settings automatically. Download, binding and
-errors: [BitBrowser: Setup
-Guide](bitbrowser.en.md).
+BitBrowser is an anti-detect browser, on **Windows and macOS; WSL is
+also supported**. Vibe Seller can store the BitBrowser account and
+password and signs in again when the session expires (one account on one
+computer at a time). Download, binding and errors:
+[BitBrowser: Setup Guide](bitbrowser.en.md).
 
 The Chrome backend has Playwright bring up a profile dedicated to the
 store — no extra software, and no handing the system an anti-detect
@@ -147,7 +145,7 @@ if not, delete the store in Vibe Seller and bind it again.
 - [Ziniao: Setup & Common Errors](ziniao.en.md) — enable developer mode,
   binding, errors, the WSL launcher, credential storage.
 - [BitBrowser: Setup Guide](bitbrowser.en.md) — download, sign in once,
-  binding, port and token read automatically, Windows and macOS.
+  binding, Windows and macOS.
 - [Yuehulian: Setup Guide](yuehulian.en.md) — download, create a team
   account, binding, one account per machine, auto-login, Windows and
   macOS plus WSL.
