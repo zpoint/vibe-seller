@@ -156,7 +156,12 @@ async def store_auth_url(
         raise HTTPException(status_code=404, detail='Store not found')
 
     try:
-        body = await ads_client.auth_url(db, store_id, region=region)
+        body = await ads_client.auth_url(
+            db,
+            store_id,
+            region=region,
+            browser_backend=store.browser_backend,
+        )
     except ads_client.AdsServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

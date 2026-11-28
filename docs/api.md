@@ -850,17 +850,23 @@ message (`frontend/src/uploadLimits.ts`).
 ## `ads.py` — Amazon Ads API service
 
 A store can be bound to the hosted ads service; vibe-seller holds no Amazon
-credential. Nothing is configured: the service address is a constant in
-`app/ads_client.py`, and the installation registers itself with the service
-(`POST /installations`) the first time the stores are synced. The key it
-gets is stored encrypted and never returned. Amazon stores only.
+credential. Production defaults to `https://listwizard.cloud/ads-api` with
+no environment configuration. `VIBE_DEMO_MODE=1` instead defaults to the
+local stand-in at `http://127.0.0.1:7791`; `VIBE_ADS_SERVICE_URL` can select
+another test service, but demo mode rejects the live `listwizard.cloud`
+host at startup. The installation registers itself (`POST /installations`)
+the first time the stores are synced. Registration carries `environment`
+(`test` in demo mode, otherwise `production`) and, in demo mode, an optional
+`VIBE_TEST_RUN_ID` (1–64 ASCII letters/digits/dots/underscores/hyphens,
+starting alphanumeric; an opaque run label, never a machine or user name).
+The returned key is stored encrypted and never returned. Amazon stores only.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/ads/config` | Whether this installation has registered (`configured`); never the key |
 | POST | `/api/ads/stores/sync` | Register if needed, upload the stores and record which are authorized; write an authorized store's marketplaces back onto its `platforms` / `countries` / `platform_countries` (add only). Also how a deployment learns a consent finished; pulls the skill once a store is authorized |
 | POST | `/api/ads/stores/{id}/unbind` | Revoke one store's authorization (admin only). Body `{"purge": bool}`: also delete its ad history, unless another installation still manages the same Amazon ads account (`kept_shared`). Removes the skill when no store is left authorized |
-| GET | `/api/ads/stores/{id}/auth-url` | A consent link for the store (admin only) |
+| GET | `/api/ads/stores/{id}/auth-url` | A consent link for the store (admin only). The service call includes the store's actual `browser_backend` and the app's `client_version`; a service-supplied non-secret `attempt_id` is returned unchanged, and older responses without it remain valid |
 | POST | `/api/ads/call` | The agent's one door (MCP tool `vibe_seller_ads_call`); the key is added here, never seen by the agent |
 
 `/api/ads/call`:

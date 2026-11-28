@@ -18,7 +18,14 @@ const mockApi = vi.hoisted(() => ({
 }))
 vi.mock('../api', () => ({ api: mockApi }))
 
+const mockSendEvent = vi.hoisted(() => vi.fn())
+vi.mock('../lib/telemetry', async (orig) => ({
+  ...(await orig<typeof import('../lib/telemetry')>()),
+  sendEvent: (...args: unknown[]) => mockSendEvent(...args),
+}))
+
 import { AmazonAdsPanel } from '../components/settings/AmazonAdsPanel'
+import { FrontendEvent } from '../lib/telemetryEvents'
 
 const i18nTestInstance = i18n.createInstance()
 i18nTestInstance.use(initReactI18next).init({
@@ -64,6 +71,10 @@ describe('AmazonAdsPanel', () => {
     expect(screen.getByText('Shop A')).toBeTruthy()
     expect(screen.getByText('Shop B')).toBeTruthy()
     expect(screen.getByText('SA · AE')).toBeTruthy()
+    expect(mockSendEvent).not.toHaveBeenCalledWith(
+      FrontendEvent.ADS_STORE_BIND_RECHECKED,
+      expect.anything(),
+    )
   })
 
   it('is a card like every other integration', async () => {
@@ -170,6 +181,7 @@ describe('AmazonAdsPanel recheck', () => {
   async function openAuthLink(
     storeId: string,
     openIn: 'browser' | 'ziniao' = 'browser',
+    attemptId: string | null = 'attempt-test-123',
   ) {
     mockApi.get.mockImplementation((url: string) => {
       if (url === `/api/ads/stores/${storeId}/auth-url`)
@@ -177,6 +189,7 @@ describe('AmazonAdsPanel recheck', () => {
           url: 'https://amazon.example/ap/oa?consent=1',
           expires_in: 1800,
           open_in: openIn,
+          ...(attemptId ? { attempt_id: attemptId } : {}),
         })
       return Promise.resolve({})
     })
@@ -215,6 +228,14 @@ describe('AmazonAdsPanel recheck', () => {
     expect(note.textContent).toBe(enTranslation.ads.noAdPermission)
     // A failure is said as a failure, in the failure colour.
     expect(note.className).toContain('text-red-600')
+    expect(mockSendEvent).toHaveBeenCalledWith(
+      FrontendEvent.ADS_STORE_BIND_RECHECKED,
+      {
+        attempt_id: 'attempt-test-123',
+        result: 'no_profiles',
+        open_in: 'browser',
+      },
+    )
   })
 
   it('says the service failed when the consent did not complete', async () => {
@@ -230,6 +251,14 @@ describe('AmazonAdsPanel recheck', () => {
     const note = await screen.findByTestId('ads-check-note')
     expect(note.textContent).toBe(enTranslation.ads.consentFailed)
     expect(note.className).toContain('text-red-600')
+    expect(mockSendEvent).toHaveBeenCalledWith(
+      FrontendEvent.ADS_STORE_BIND_RECHECKED,
+      {
+        attempt_id: 'attempt-test-123',
+        result: 'failed',
+        open_in: 'browser',
+      },
+    )
   })
 
   it('still asks to finish the consent when the service sends no field', async () => {
@@ -241,6 +270,14 @@ describe('AmazonAdsPanel recheck', () => {
     expect(note.textContent).toBe(enTranslation.ads.notYetAuthorized)
     // Not completed is also said in the failure colour.
     expect(note.className).toContain('text-red-600')
+    expect(mockSendEvent).toHaveBeenCalledWith(
+      FrontendEvent.ADS_STORE_BIND_RECHECKED,
+      {
+        attempt_id: 'attempt-test-123',
+        result: 'not_yet_authorized',
+        open_in: 'browser',
+      },
+    )
   })
 
   it('ignores a consent outcome older than the link it explains', async () => {
@@ -289,5 +326,58 @@ describe('AmazonAdsPanel recheck', () => {
     )
     // The consent link section closes on success.
     await waitFor(() => expect(screen.queryByTestId('ads-auth-link')).toBeNull())
+    expect(mockSendEvent).toHaveBeenCalledWith(
+      FrontendEvent.ADS_STORE_BIND_RECHECKED,
+      {
+        attempt_id: 'attempt-test-123',
+        result: 'bound',
+        open_in: 'browser',
+      },
+    )
+  })
+
+  it('reports which browser a not-yet-authorized recheck used', async () => {
+    renderPanel()
+    await openAuthLink('s2', 'ziniao')
+    syncAnswers([NOT_AUTHORIZED[0]])
+    fireEvent.click(screen.getByTestId('ads-recheck'))
+    await screen.findByTestId('ads-check-note')
+    expect(mockSendEvent).toHaveBeenCalledWith(
+      FrontendEvent.ADS_STORE_BIND_RECHECKED,
+      {
+        attempt_id: 'attempt-test-123',
+        result: 'not_yet_authorized',
+        open_in: 'ziniao',
+      },
+    )
+  })
+
+  it('omits attempt_id for a link from an older service', async () => {
+    renderPanel()
+    await openAuthLink('s2', 'browser', null)
+    syncAnswers([NOT_AUTHORIZED[0]])
+    fireEvent.click(screen.getByTestId('ads-recheck'))
+    await screen.findByTestId('ads-check-note')
+    expect(mockSendEvent).toHaveBeenCalledWith(
+      FrontendEvent.ADS_STORE_BIND_RECHECKED,
+      { result: 'not_yet_authorized', open_in: 'browser' },
+    )
+  })
+
+  it('does not turn a failed recheck request into a consent outcome', async () => {
+    renderPanel()
+    await openAuthLink('s2')
+    mockApi.post.mockImplementation((url: string) => {
+      if (url === '/api/ads/stores/sync') return Promise.reject(new Error('offline'))
+      return Promise.resolve({ stores: [], kept_shared: [] })
+    })
+    fireEvent.click(screen.getByTestId('ads-recheck'))
+    const note = await screen.findByTestId('ads-check-note')
+    expect(note.textContent).toBe(enTranslation.ads.notYetAuthorized)
+    expect(screen.getByText('offline')).toBeTruthy()
+    expect(mockSendEvent).not.toHaveBeenCalledWith(
+      FrontendEvent.ADS_STORE_BIND_RECHECKED,
+      expect.anything(),
+    )
   })
 })
