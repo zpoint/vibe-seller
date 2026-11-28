@@ -579,6 +579,10 @@
     "ziniaoStartingFor": "Starting Ziniao… {{secs}}s so far (can take up to 4 minutes).",
     "ziniaoStartFailed": "Ziniao didn't start.",
     "ziniaoAccountConflict": "Another Ziniao account is in use on this computer.",
+    "wenmaiCompany": "Company name",
+    "wenmaiUsername": "Company username",
+    "wenmaiPassword": "Company password",
+    "wenmaiLoginRequired": "Could not auto-sign-in to Wenmai — check that the company name / username / password saved here are correct (the client can sign in by hand), then Refresh.",
     "bitbrowserUsername": "BitBrowser account",
     "bitbrowserPassword": "BitBrowser password"
   },

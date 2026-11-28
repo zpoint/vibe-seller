@@ -29,6 +29,10 @@ from app.browser.adapters.bitbrowser import (
     BITBROWSER_VENDOR,
     BitBrowserBackend,
 )
+from app.browser.adapters.wenmai import (
+    WENMAI_VENDOR,
+    WenmaiBackend,
+)
 from app.browser.adapters.yuehulian import (
     YUEHULIAN_VENDOR,
     YuehulianBackend,
@@ -105,6 +109,7 @@ class BuiltinPlugin(Plugin):
         ctx.register_browser_backend(
             'adspower', AdsPowerBackend, ADSPOWER_VENDOR
         )
+        ctx.register_browser_backend('wenmai', WenmaiBackend, WENMAI_VENDOR)
         ctx.register_browser_backend(
             'bitbrowser', BitBrowserBackend, BITBROWSER_VENDOR
         )

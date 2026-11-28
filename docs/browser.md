@@ -13,6 +13,7 @@ BrowserBackend (abstract)         BrowserManager (singleton)
     ├── ZiniaoBackend                 anti-detect, HTTP API → CDP proxy
     └── InjectCdpBackend              anti-detect, no API → inject CDP port
           ├── YuehulianBackend        悦互联 (Windows/WSL + macOS)
+          ├── WenmaiBackend           稳卖 (Windows + WSL + macOS)
           └── BitBrowserBackend       比特浏览器 (Windows/macOS, WSL-on-Windows)
 
 All backends front their browser with CDPMuxProxy for shared access and
@@ -25,6 +26,10 @@ renderer DOM and plants `--remote-debugging-port` into the launched kernel
 store window keeps rendering and agent screenshots don't hang
 (see the yuehulian section below). Downstream of the CDP endpoint they are
 identical.
+
+**WenmaiBackend** (稳卖) is the inject family's hybrid — an HTTP-driven
+client with inspector only for what the API cannot do; see its section
+below and [docs/wenmai.md](wenmai.md).
 
 Agent interaction: browser-use CLI wrapper scripts at
 ~/.vibe-seller/bin/{slug}/browser-use (not MCP)
@@ -411,6 +416,16 @@ Key behaviors:
 - **`adapters/yuehulian_client.py`** — `RealYuehulianClient` composing the above. `ensure_logged_in` drives the 团队登录 form when logged out (no-op if already in; `LoginRequired` on missing creds / un-driveable form / a submit that never logs in). The form fill is **polled past a transient NOFIELDS** — the login tab's inputs render asynchronously after the tab click (seen live on the Mac client; a latent race on Windows too), so the same JS is retried a few times before giving up. `list_stores` navigates to the list then **pages through** collecting every store; `open_store` pages to the store's row, installs the spawn-hook (adds `--remote-debugging-port=0`, and on every kernel spawn `--disable-backgrounding-occluded-windows` — without it Chromium stops producing frames for a minimized/covered window and `Page.captureScreenshot` hangs), clicks Open, waits for the intercepted kernel's `--user-data-dir`, then reads a **fresh** (mtime-guarded) `DevToolsActivePort` (OS-aware: a native-Windows server reads `C:\…` directly, WSL reads `/mnt/…`). An already-open store reports a clear `CDP_UNREACHABLE`, not a misleading not-found. When the client still lists the store as **Opened** (an env left over from a client that was closed or crashed with it open, or one a person opened by hand — neither has a debug port), `open_store` closes it with the client's own batch **close browser** (only that row ticked, the selection read back until it settles, the confirm dialog accepted) and opens it again, so the next browser use recovers by itself. On top of that recovery, if the reopened kernel still cannot write its `DevToolsActivePort` because an **orphaned kernel** (a client killed with SIGKILL leaves its kernel re-parented, holding the env's singleton lock — macOS) still holds the profile, the process layer terminates leftover kernels for that env's dir (a no-op returning `[]` on Windows) and opens it once more. The platform's I/O layers are picked in two small seams (`_process_layer` / `_inspector_session`). Rows are matched by a cell reading **exactly** the store name, and every drive of the client GUI (list, login, open, close) takes one lock (`_ui_lock`), so store setup's list and a task's open never interleave on the same window.
 
 From the CDP endpoint on it reuses `CDPMuxProxy` exactly like the other backends, and it is routed through the anti-detect prompt path (`is_antidetect`) like ziniao — minus ziniao's credential auto-fill (yuehulian envs are session-persisted). **One login per machine, auto-signed-in**: the team-login credential is configured in the create-store form (the 悦互联团队登录 section, like ziniao's add-account) and `InjectCdpBackend.start()` / the enumerate endpoint call `ensure_logged_in()` so a logged-out client is signed in automatically (`InjectClient`'s default is a no-op, so ziniao is unaffected). Store selection comes from `GET /api/yuehulian/stores`; the **aux** browser is a login-less Chromium like ziniao's; agent prompts name the actual product (悦互联), never "Ziniao". **Windows (incl. WSL-on-Windows) and macOS**; refused elsewhere (plain Linux) at runtime and hidden in the UI there. A live smoke (`tests/e2e/yuehulian_live_smoke.py`, not in CI) drives the real client through every state.
+
+### `adapters/wenmai*.py` — Wenmai Backend (Route B hybrid; Windows native + WSL + macOS)
+
+**稳卖 (Wenmai)** is the inject family's hybrid: its client ships a **local HTTP API** (Express, **port 3980**, running on every launch), so list / open / close go over HTTP like ziniao's — no GUI scraping, no port injection — with the vendor's documented **0.5 s rate limit** honoured by a per-loop serialised gate. The kernel's OWN debug endpoint comes back from `openEnv` (`selenium`): even a store a person opened by hand has one, and opening an already-open store returns the SAME pid and port, so nothing is ever closed and reopened. The **Node inspector** (the shared `app/browser/win_inspector.py`) is used only for what the API cannot do: the **enterprise login form** (the official API has no password login — the cloud login response is encrypted; the phone tab has an image captcha) and the store-entry middle page's 打开店铺 click (over CDP, after open).
+
+- **`adapters/wenmai_client.py`** — `RealWenmaiClient`: `is_logged_out` (ONE function — the docs claim 401; the real shapes are a top-level `status:"error"` envelope and `getUserInfo` code 200 with `token: null`) and `map_error` (ONE function to the shared taxonomy). `open_store` verifies the returned endpoint answers and recovers a wedged env (the client can pick a debug port in a Windows reserved range; the kernel's bind silently fails and closeEnv does not clear it): closeEnv → re-open → kill exactly the kernel matching all three of the port flag, the 稳卖 kernel exe path and this store's env id in `--user-data-dir` — nothing else on the machine is ever touched. A **Firefox-kernel env raises `UnsupportedKernel`** (no `webdriverPath` in the openEnv response; and the engine's Chromium-family check catches one that does expose a partial CDP).
+- **`adapters/wenmai_dom.py`** — pure JS: the enterprise login fill (placeholder-matched, native-setter + input events), the middle-page click + readiness probe (matched by the middlePage PATH, never a hardcoded extension id).
+- **`adapters/wenmai_win.py`** — the process layer; the WENMAI locator spec lives HERE (vendor knowledge stays in the vendor module), main pid = the 3980 listener owner.
+- **Credentials**: `company` / `username` / `password` (enterprise login), injected into the browser config as **`wenmai_<field>`** by the machine-credential storage — the spec's field keys stay neutral. **One account per machine.**
+- **Platforms**: Windows (native — server, agent, wrapper and browser all on Windows), WSL (a WSL server driving the Windows client) and macOS are supported. A live smoke (`tests/e2e/wenmai_live_smoke.py`, not in CI) drives the real client through every state; see [docs/wenmai.md](wenmai.md) for the user-facing guide.
 
 ## Failed store-browser starts — the typed contract
 
