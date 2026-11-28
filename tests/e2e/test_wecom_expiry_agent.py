@@ -122,7 +122,7 @@ def test_an_expired_permission_sends_the_user_to_re_authorize(
 
     page = authenticated_page
     page.goto(f'{base}/tasks/{task["id"]}')
-    button = page.get_by_role('button', name='Settings → Integrations').or_(
+    button = page.get_by_test_id('settings-link-integrations').or_(
         page.get_by_test_id('task-error-settings-integrations')
     )
     expect(button.first).to_be_visible(timeout=20000)

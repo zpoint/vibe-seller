@@ -24,6 +24,7 @@ export function MarkdownLink({ href, children, onOpenSettings, node, ...props }:
     return (
       <button
         type="button"
+        data-testid={`settings-link-${target.tab}`}
         onClick={() => onOpenSettings(target.tab, target.anchor)}
         className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-[14px] font-medium text-indigo-700 hover:bg-indigo-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
       >

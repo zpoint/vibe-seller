@@ -8,6 +8,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MessageBubble } from '../components/conversation/MessageBubble'
+import { MarkdownLink } from '../components/conversation/MarkdownLink'
 import { TaskErrorNote } from '../components/TaskErrorNote'
 import { createRef } from 'react'
 import { I18nextProvider } from 'react-i18next'
@@ -34,6 +35,17 @@ describe('in-app settings links in an agent message', () => {
       <MessageBubble role="assistant" content="[设置 → 集成](#integrations-wecom)" onOpenSettings={onOpenSettings} />,
     )
     fireEvent.click(screen.getByRole('button', { name: /设置 → 集成/ }))
+    expect(onOpenSettings).toHaveBeenCalledWith('integrations', 'cli-wecom')
+  })
+
+  it("a settings button's target does not depend on the agent's label language", () => {
+    const onOpenSettings = vi.fn()
+    render(
+      <MarkdownLink href="#integrations-wecom" onOpenSettings={onOpenSettings}>
+        设置 → 集成
+      </MarkdownLink>,
+    )
+    fireEvent.click(screen.getByTestId('settings-link-integrations'))
     expect(onOpenSettings).toHaveBeenCalledWith('integrations', 'cli-wecom')
   })
 
