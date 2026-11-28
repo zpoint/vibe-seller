@@ -747,6 +747,11 @@ BITBROWSER_VENDOR = BrowserVendorSpec(
     client_kind=CLIENT_LOCAL_API,
     i18n_prefix='vendors.bitbrowser',
     docs={
+        'setup': VendorDocsLink(
+            topic='bitbrowserSetup',
+            zh='https://docs.vibe-sellers.com/bitbrowser/',
+            en='https://docs.vibe-sellers.com/en/bitbrowser/',
+        ),
         'errors': VendorDocsLink(
             topic='bitbrowserErrors',
             zh=('https://docs.vibe-sellers.com/bitbrowser/#常见提示--报错'),

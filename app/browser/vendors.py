@@ -53,7 +53,7 @@ Text:
     ``i18n_prefix`` — the generic UI derives its string keys as
     ``<prefix><Suffix>`` (e.g. ``'settings.<vendor>'`` +
     ``'ClientNotRunning'``), so a vendor's strings live under its own
-    prefix. ``docs`` — per-topic help links (``'errors'``,
+    prefix. ``docs`` — per-topic help links (``'setup'``, ``'errors'``,
     ``'one_account'``) with the topic label the UI shows and the full
     zh/en URLs; ``tests/unit/test_docs_links.py`` checks the URLs against
     ``docs/`` because they live in ``app/*.py`` source.

@@ -36,6 +36,7 @@ from app.browser.vendors import (
     KIND_PLAIN,
     PICKER_NONE,
     BrowserVendorSpec,
+    VendorDocsLink,
 )
 from app.config import LOCALHOST
 from app.workspace.manager import VIBE_SELLER_DIR
@@ -54,6 +55,13 @@ CHROME_VENDOR = BrowserVendorSpec(
     kind=KIND_PLAIN,
     account_cardinality=CARDINALITY_NONE,
     picker_kind=PICKER_NONE,
+    docs={
+        'setup': VendorDocsLink(
+            topic='chromeSetup',
+            zh='https://docs.vibe-sellers.com/stores/#新建店铺',
+            en='https://docs.vibe-sellers.com/en/stores/#creating-a-store',
+        ),
+    },
 )
 
 

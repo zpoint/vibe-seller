@@ -89,7 +89,8 @@ module (+ translations + one docs page), zero shared-code edits" true:
   key interpolating `{{vendor}}`, so a new vendor ships only its
   credential field labels plus the overrides it wants;
   `test_vendor_ui_strings.py` pins that every key resolves) and `docs`
-  (per-topic help links; `test_docs_links.py` checks the URLs).
+  (per-topic `setup` / `errors` / `one_account` help links;
+  `test_docs_links.py` checks the URLs).
 
 For a `single` vendor WITH `credential_fields`,
 `vendor_account_lock(vendor.key)` is a per-vendor `LoopLock` shared by

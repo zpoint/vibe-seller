@@ -17,6 +17,12 @@ export interface DocsHelp {
 }
 
 export const DOCS_HELP = {
+  /** Task scopes and where each kind is created, for the top help button. */
+  taskScopes: {
+    zh: 'https://docs.vibe-sellers.com/using-tasks/#任务的两种范围在哪里创建决定了它能做什么',
+    en: 'https://docs.vibe-sellers.com/en/using-tasks/#two-scopes-where-you-create-a-task-decides-what-it-can-do',
+  },
+
   // ── Ziniao (store setup, task errors) ──
   ziniaoNoPermission: {
     zh: 'https://docs.vibe-sellers.com/ziniao/#报错无权限通过-webdriver-登录',

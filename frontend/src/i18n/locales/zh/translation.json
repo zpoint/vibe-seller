@@ -55,6 +55,7 @@
   "onboarding": {
     "title": "新手引导",
     "replay": "查看新手引导",
+    "taskDocs": "任务指南",
     "skip": "跳过",
     "back": "上一步",
     "next": "下一步",
@@ -413,6 +414,7 @@
   },
   "settings": {
     "title": "设置",
+    "browserSetupGuide": "浏览器配置指引",
     "userManagement": "用户管理",
     "users": "用户",
     "newUser": "新建用户",
