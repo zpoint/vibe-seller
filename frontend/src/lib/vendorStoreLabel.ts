@@ -22,10 +22,10 @@
  */
 import type { VendorStoreRef } from '../types'
 
-export function vendorStoreOptionLabel(
+export function vendorStoreOptionLabelParts(
   s: Pick<VendorStoreRef, 'name' | 'platform' | 'remote_env' | 'ref'>,
   unavailableReason = '',
-): string {
+): { parts: string[]; reason: string } {
   const ref = s.ref || ''
   const nameListed = !ref || ref === s.name
   const parts = nameListed
@@ -35,6 +35,14 @@ export function vendorStoreOptionLabel(
   for (const part of parts) {
     if (part && !kept.includes(part)) kept.push(part)
   }
-  const label = kept.join(' · ')
-  return unavailableReason ? `${label} — ${unavailableReason}` : label
+  return { parts: kept, reason: unavailableReason }
+}
+
+export function vendorStoreOptionLabel(
+  s: Pick<VendorStoreRef, 'name' | 'platform' | 'remote_env' | 'ref'>,
+  unavailableReason = '',
+): string {
+  const { parts, reason } = vendorStoreOptionLabelParts(s, unavailableReason)
+  const label = parts.join(' · ')
+  return reason ? `${label} — ${reason}` : label
 }

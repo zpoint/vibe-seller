@@ -72,12 +72,13 @@ const renderSection = (over: {
   fetching?: boolean
   allStores?: Store[]
   lng?: 'en' | 'zh'
+  selectedRef?: string
 } = {}) =>
   render(
     <I18nextProvider i18n={i18nFor(over.lng ?? 'en')}>
       <VendorSection
         vendor={{ ...fakeVendor, ...over.vendor }}
-        selectedRef="" setSelectedRef={vi.fn()}
+        selectedRef={over.selectedRef ?? ''} setSelectedRef={vi.fn()}
         stores={over.stores ?? []}
         error={over.error ?? ''}
         errorMessage={over.errorMessage}
@@ -279,6 +280,17 @@ describe('the generic vendor section', () => {
     expect(option.title).toBe('机器 A 未绑定')
   })
 
+  it('an unavailable row with no detail falls back to its full label as the tooltip', () => {
+    renderSection({
+      stores: [
+        { name: 'Bare', platform: '', remote_env: '', available: false,
+          unavailable_reason: 'expired' },
+      ],
+    })
+    const option = (screen.getByRole('combobox') as HTMLSelectElement).options[1]
+    expect(option.title).toBe('Bare — expired')
+  })
+
   it('an unknown token falls back to the detail, then the generic string', () => {
     renderSection({
       stores: [
@@ -362,6 +374,68 @@ describe('the generic vendor section', () => {
   it('renders the strings of the UI language from the same spec prefix', () => {
     renderSection({ error: 'fakevendor:no_stores', lng: 'zh' })
     expect(screen.getByText(zhTranslation.settings.yuehulianNoStores)).toBeTruthy()
+  })
+})
+
+describe('the selected row line under the picker (option A)', () => {
+  // Two same-named rows that only their ref tells apart — the closed
+  // select cannot, the 已选 line can.
+  const sameName = [
+    { name: '示例甲1店-长名称演示', platform: 'host.example.com',
+      remote_env: '', ref: 'kaaaaaa1' },
+    { name: '示例甲1店-长名称演示', platform: 'host.example.com',
+      remote_env: '', ref: 'kaaaaaa2' },
+  ]
+
+  it('(a) selecting the SECOND same-named row names its ref', () => {
+    renderSection({ stores: sameName, selectedRef: 'kaaaaaa2' })
+    const parts = screen.getAllByTestId('vendor-selected-part')
+    expect(parts.map(p => p.textContent)).toEqual([
+      '示例甲1店-长名称演示', 'host.example.com', 'kaaaaaa2',
+    ])
+  })
+
+  it('(a-zh) the line speaks the UI language', () => {
+    renderSection({ stores: sameName, selectedRef: 'kaaaaaa1', lng: 'zh' })
+    const line = screen.getByTestId('vendor-selected-line')
+    expect(line.textContent).toContain('已选：')
+    expect(screen.getAllByTestId('vendor-selected-part').map(p => p.textContent))
+      .toEqual(['示例甲1店-长名称演示', 'host.example.com', 'kaaaaaa1'])
+  })
+
+  it('(b) the line appears only while a row is selected', () => {
+    const first = renderSection({ stores: sameName })
+    expect(screen.queryByTestId('vendor-selected-line')).toBeNull()
+    first.unmount()
+    renderSection({ stores: sameName, selectedRef: 'kaaaaaa1' })
+    expect(screen.getByTestId('vendor-selected-line')).toBeTruthy()
+  })
+
+  it('(c) a selectable option carries the full label as its tooltip; a no-detail unavailable row falls back to it', () => {
+    renderSection({
+      stores: [
+        { name: 'hidden', platform: 'www.amazon.com',
+          remote_env: '#4 美国站 (分组)', ref: 'p0000001' },
+        { name: '示例乙1店', platform: '', remote_env: '',
+          available: false, unavailable_reason: 'expired' },
+      ],
+    })
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    expect(select.options[1].title).toBe('#4 美国站 (分组) · www.amazon.com · p0000001')
+    expect(select.options[2].title).toBe('示例乙1店 — expired')
+  })
+
+  it('(d) each label part is its own element — the line wraps at the separators, never mid-word', () => {
+    renderSection({ stores: sameName, selectedRef: 'kaaaaaa2' })
+    const parts = screen.getAllByTestId('vendor-selected-part')
+    expect(parts).toHaveLength(3)
+    for (const p of parts) {
+      // An inline-block moves whole to the next line; a part longer
+      // than the column may still wrap inside itself (overflow-wrap
+      // anywhere on that span only).
+      expect(p.className).toContain('inline-block')
+      expect((p as HTMLElement).style.overflowWrap).toBe('anywhere')
+    }
   })
 })
 
