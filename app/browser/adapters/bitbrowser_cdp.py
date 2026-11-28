@@ -125,3 +125,18 @@ async def activate_target(opened: OpenedStore, target: dict) -> None:
     await browser_ws_call(
         opened, 'Target.activateTarget', {'targetId': _target_id(target)}
     )
+
+
+async def navigate_target(opened: OpenedStore, target: dict, url: str) -> None:
+    """Navigate an existing blank tab to the store URL."""
+    attached = await browser_ws_call(
+        opened,
+        'Target.attachToTarget',
+        {'targetId': _target_id(target), 'flatten': True},
+    )
+    session_id = (attached or {}).get('sessionId', '')
+    await browser_ws_call(
+        opened,
+        'Page.navigate',
+        {'url': url, 'sessionId': session_id},
+    )

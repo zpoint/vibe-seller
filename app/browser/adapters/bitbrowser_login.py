@@ -206,12 +206,15 @@ _PROBE_JS = """(() => {
     const t = (b.innerText || '').trim();
     return t === '登录' || t === 'Login' || t === '登录/Login';
   });
+  const captcha = document.querySelector(
+    '[class*="captcha" i], [id*="captcha" i], ' +
+    '[class*="slider" i], [id*="slider" i]');
   const err = document.querySelector(
     '.q-field__messages, .error, [class*=error]');
   return JSON.stringify({
     url: location.href,
     hasUser: !!user, hasPass: !!pass, hasSubmit: !!submit,
-    hasCodeField: !!code,
+    hasCodeField: !!code || !!captcha,
     errorText: err ? (err.innerText || '').trim().slice(0, 80) : '',
   });
 })()"""
@@ -271,9 +274,14 @@ _CLASSIFY_JS = """(() => {
   const t = document.body.innerText;
   const codeInput = Array.from(document.querySelectorAll('input'))
     .find(i => (i.placeholder || '').match(/验证码|代码|code/i));
-  if (codeInput) return 'VERIFY';
+  const captcha = document.querySelector(
+    '[class*="captcha" i], [id*="captcha" i], ' +
+    '[class*="slider" i], [id*="slider" i]');
+  if (codeInput || captcha ||
+      /拖动.{0,12}(滑块|验证)|滑块.{0,12}拖动|slide to verify|captcha/i
+      .test(t)) return 'VERIFY';
   if (/密码错误|账号或密码|incorrect|invalid.*(password|account)/i
-      .test(t)) return 'WRONGCREDS';
+      .test(t) || /用户名或密码不正确/.test(t)) return 'WRONGCREDS';
   return 'UNKNOWN';
 })()"""
 

@@ -52,6 +52,7 @@ from app.browser.adapters.bitbrowser_cdp import (
     activate_target as _activate_target,
     close_target as _close_target,
     is_http_page as _is_http_page,
+    navigate_target as _navigate_target,
     page_targets as _cdp_page_targets,
     platform_hostname,
     preferred_tab as _preferred,
@@ -63,6 +64,9 @@ from app.browser.adapters.bitbrowser_launch import (
     mac_app_descriptor,
     port_from_address,
     read_client_config,
+)
+from app.browser.adapters.bitbrowser_status import (
+    env_was_open as _status_env_was_open,
 )
 from app.browser.base import BrowserSessionInfo
 from app.browser.inject.client import (
@@ -137,19 +141,30 @@ _NO_CREDENTIALS_HINT = (
     '比特浏览器未登录且没有保存的账号密码。请在设置里填写比特浏览器账号和'
     '密码，或在比特浏览器里手动登录'
 )
+_API_NOT_ENABLED_HINT = (
+    '请在比特浏览器 → 设置 → Local API 里检查「鉴权控制」，再重试任务。'
+)
+_UNSUPPORTED_KERNEL_HINT = (
+    '这个窗口用的不是 Chrome（Chromium）内核，任务无法打开它；在比特浏览器'
+    '里把这个窗口的内核切换为 Chrome（指纹 → 内核）后重试'
+)
+
+
+_WRONG_CREDENTIALS_HINT = '比特浏览器账号或密码不对，请在设置里重新填写'
+_VERIFICATION_HINT = (
+    '需要在比特浏览器里完成登录验证（短信/邮箱/二次验证），完成后重试'
+)
+_AUTO_LOGIN_FAILED_PREFIX = (
+    '自动登录没有成功，请手动打开比特浏览器登录一次，然后重试任务'
+)
 
 
 def _form_failure_hint(code: str) -> str:
     if code == 'WRONGCREDS':
-        return '比特浏览器账号或密码不对，请在设置里重新填写'
+        return _WRONG_CREDENTIALS_HINT
     if code == 'VERIFY':
-        return (
-            '需要在比特浏览器里完成登录验证（短信/邮箱/二次验证），完成后重试'
-        )
-    return (
-        '自动登录没有成功，请手动打开比特浏览器登录一次，然后重试任务'
-        f'（{code}）'
-    )
+        return _VERIFICATION_HINT
+    return f'{_AUTO_LOGIN_FAILED_PREFIX}（{code}）'
 
 
 # The cloud-served "unknown id" message (observed live on /browser/open
@@ -190,6 +205,7 @@ class BitBrowserClient(LocalApiClient):
     # client will open a workbench tab beside it (the profile's
     # workbench setting — a missing field means expected).
     _platform_host: str = ''
+    _platform_url: str = ''
     _expects_workbench: bool = True
     # The most recent logged-out message (stashed by is_logged_out;
     # '' when never seen logged out).
@@ -430,10 +446,7 @@ class BitBrowserClient(LocalApiClient):
         if status == 403 and 'x-api-key' in str(payload.get('msg')):
             # The recorded 鉴权控制 body. The vendor's own recovery:
             # check the toggle in the client's settings, then retry.
-            return ApiNotEnabled(
-                '请在比特浏览器 → 设置 → Local API 里检查「鉴权控制」，'
-                '再重试任务。'
-            )
+            return ApiNotEnabled(_API_NOT_ENABLED_HINT)
         msg = str(payload.get('msg') or '')
         if _NOT_FOUND_MARK in msg:
             return StoreNotFound(msg)
@@ -443,6 +456,10 @@ class BitBrowserClient(LocalApiClient):
             # kernel) — never swallow it into a generic failure.
             return StoreUnavailable(msg)
         return None
+
+    async def env_was_open(self, ref: str) -> bool:
+        """Whether this profile was already open (never None)."""
+        return await _status_env_was_open(self, ref)
 
     # ── open: the kernel check runs before the open call ────────────
 
@@ -476,16 +493,20 @@ class BitBrowserClient(LocalApiClient):
         # it (the workbench profile setting: 'disable' never shows one;
         # a missing field means the client default — shown).
         self._platform_host = platform_hostname(data.get('platform'))
+        platform_url = str(data.get('platform') or '')
+        self._platform_url = (
+            platform_url
+            if '://' in platform_url
+            else f'https://{platform_url}'
+            if platform_url
+            else ''
+        )
         self._expects_workbench = str(data.get('workbench') or '') != 'disable'
         if core != 'chrome':
             # The message's prefix is quoted verbatim in the docs error
             # tables (docs/bitbrowser.md / .en.md § 常见提示 / 报错 /
             # Common statuses / errors), which gloss it in English.
-            raise UnsupportedKernel(
-                '这个窗口用的不是 Chrome（Chromium）内核，任务无法打开'
-                '它；在比特浏览器里把这个窗口的内核切换为 Chrome'
-                '（指纹 → 内核）后重试'
-            )
+            raise UnsupportedKernel(_UNSUPPORTED_KERNEL_HINT)
         return await super().open_store(ref)
 
     # ── the workbench tab: closed over CDP, never by profile edits ──
@@ -563,14 +584,35 @@ class BitBrowserClient(LocalApiClient):
                 opened, _preferred(store_tabs, self._platform_host)
             )
         else:
-            logger.warning(
-                'bitbrowser env on %s:%s: no store tab appeared within '
-                '%.0f s; continuing (a lone workbench tab is never '
-                'closed — that would close the browser)',
-                opened.cdp_host,
-                opened.cdp_port,
-                self.after_open_deadline_s,
+            blank = next(
+                (
+                    page
+                    for page in pages or []
+                    if str(page.get('url', '')) == 'about:blank'
+                ),
+                None,
             )
+            if blank is not None and self._platform_url:
+                # A blank-only browser is not a usable task browser. Take
+                # it to the profile's own platform page instead of
+                # leaving the agent to discover what is missing.
+                logger.warning(
+                    'bitbrowser env on %s:%s: only about:blank appeared; '
+                    'navigating it to the store page',
+                    opened.cdp_host,
+                    opened.cdp_port,
+                )
+                await _navigate_target(opened, blank, self._platform_url)
+                await _activate_target(opened, blank)
+            else:
+                logger.warning(
+                    'bitbrowser env on %s:%s: no store tab appeared within '
+                    '%.0f s; continuing (a lone workbench tab is never '
+                    'closed — that would close the browser)',
+                    opened.cdp_host,
+                    opened.cdp_port,
+                    self.after_open_deadline_s,
+                )
 
     # ── launch the client when it is not running ────────────────────
 
@@ -717,6 +759,11 @@ BITBROWSER_VENDOR = BrowserVendorSpec(
     client_factory=make_client,
     win_app=BITBROWSER_WIN_APP,
     client_path_setting='bitbrowser_client_path',
+    # C3: the client uses this directory name for both its install and
+    # its data tree on Windows and macOS. Browser profiles (Cookies,
+    # Login Data, History), config.json and db.sqlite all live below it.
+    private_paths=('BitBrowser',),
+    local_ports=(54345,),
 )
 
 

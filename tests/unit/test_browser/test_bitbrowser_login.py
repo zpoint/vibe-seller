@@ -514,6 +514,40 @@ def test_classify_regex_has_no_bare_not_found():
         assert mark in bl._CLASSIFY_JS
 
 
+def test_classify_matches_the_observed_wrong_credentials_message():
+    """The vendor also says 「用户名或密码不正确」 (observed live); the
+    old regex missed it and fell through to UNKNOWN."""
+    assert '用户名或密码不正确' in bl._CLASSIFY_JS
+
+
+def test_slider_captcha_detection_covers_both_login_phases():
+    """Captcha is refused both before submit and when classifying the
+    failed attempt — never solved or reloaded away."""
+    for source in (bl._PROBE_JS, bl._CLASSIFY_JS):
+        assert 'captcha' in source.lower()
+        assert 'slider' in source.lower()
+    assert 'slide to verify' in bl._CLASSIFY_JS
+    assert '滑块' in bl._CLASSIFY_JS
+
+
+async def test_slider_captcha_is_verification_not_unknown(
+    tmp_path, monkeypatch
+):
+    """A captcha after the submit maps to the hand-verification hint,
+    not UNKNOWN and not another automated attempt."""
+    session = FakeLoginSession(
+        probe=LOGIN_PAGE_PROBE, fill='OK', classify='VERIFY'
+    )
+    client = await _login_client(
+        tmp_path, monkeypatch, session=session, poll_success=False
+    )
+    with pytest.raises(LoginRequired) as exc:
+        await client.ensure_logged_in()
+    assert '登录验证' in str(exc.value)
+    assert session.open_count == 2  # one fill attempt + one classify
+    assert session.closed
+
+
 # ── credentials never leak ───────────────────────────────────────────
 
 

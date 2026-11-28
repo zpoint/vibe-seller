@@ -18,6 +18,7 @@ import logging
 
 import pytest
 
+from app.ai import vendor_guard
 import app.browser.adapters.bitbrowser as bb
 from app.browser.adapters.bitbrowser import (
     BITBROWSER_VENDOR,
@@ -1064,3 +1065,147 @@ async def test_native_windows_reads_appdata_from_the_env(monkeypatch, tmp_path):
     client = bb.BitBrowserClient({})
     assert await client.discover_port() == 54347
     assert called == []
+
+
+# ── C4: the hand-opened attach signal ────────────────────────────────
+
+
+async def test_env_was_open_running_profile_is_true():
+    routes = _default_routes()
+    routes[('POST', '/browser/pids/all')] = (
+        200,
+        {'success': True, 'data': {'100000000001': 4242}},
+    )
+    server = await _serve(routes)
+    client = _client(server.port)
+    assert await client.env_was_open('100000000001') is True
+
+
+async def test_env_was_open_closed_profile_is_false():
+    routes = _default_routes()
+    routes[('POST', '/browser/pids/all')] = (
+        200,
+        {'success': True, 'data': {'100000000002': 4242}},
+    )
+    server = await _serve(routes)
+    client = _client(server.port)
+    assert await client.env_was_open('100000000001') is False
+
+
+@pytest.mark.parametrize(
+    'payload',
+    [
+        {'success': False, 'msg': 'status unavailable'},
+        {'success': True, 'data': None},
+        'gateway error',
+    ],
+)
+async def test_env_was_open_status_error_raises(payload):
+    """Unknown status must never return None: a wrong guess could close
+    a profile the user opened by hand."""
+    routes = _default_routes()
+    routes[('POST', '/browser/pids/all')] = (200, payload)
+    server = await _serve(routes)
+    client = _client(server.port)
+    with pytest.raises(StoreUnavailable):
+        await client.env_was_open('100000000001')
+
+
+async def test_env_was_open_negative_control_has_no_none_fallback():
+    """The three answers are True, False or an exception — never the
+    base's unimplemented None."""
+    routes = _default_routes()
+    routes[('POST', '/browser/pids/all')] = (
+        200,
+        {'success': True, 'data': {}},
+    )
+    server = await _serve(routes)
+    client = _client(server.port)
+    answer = await client.env_was_open('100000000001')
+    assert answer is False
+    assert answer is not None
+
+
+# ── C3: the vendor private-data declaration ──────────────────────────
+
+
+def test_spec_declares_private_paths_and_local_ports():
+    assert 'BitBrowser' in bb.BITBROWSER_VENDOR.private_paths
+    assert 54345 in bb.BITBROWSER_VENDOR.local_ports
+
+
+def test_guard_denies_the_declared_vendor_data_dir(monkeypatch):
+    monkeypatch.setattr(
+        vendor_guard,
+        'registered_vendor_specs',
+        lambda: {'bitbrowser': bb.BITBROWSER_VENDOR},
+    )
+    path = (
+        '/mnt/c/Users/u/AppData/Roaming/BitBrowser/'
+        'BrowserCache/100000000001/probe-state.dat'
+    )
+    reason = vendor_guard.vendor_guard_deny(
+        'Read', {'file_path': path}, task_id='1a2b3c4d5e6f7a8b9c0d'
+    )
+    assert reason is not None and 'private data' in reason
+
+
+def test_guard_negative_control_unrelated_dir_is_not_a_vendor_path(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        vendor_guard,
+        'registered_vendor_specs',
+        lambda: {'bitbrowser': bb.BITBROWSER_VENDOR},
+    )
+    path = '/mnt/c/Users/u/AppData/Roaming/OtherBrowser/probe-state.dat'
+    assert (
+        vendor_guard.vendor_guard_deny(
+            'Read', {'file_path': path}, task_id='1a2b3c4d5e6f7a8b9c0d'
+        )
+        is None
+    )
+
+
+def test_guard_denies_the_declared_local_api_port(monkeypatch):
+    monkeypatch.setattr(
+        vendor_guard,
+        'registered_vendor_specs',
+        lambda: {'bitbrowser': bb.BITBROWSER_VENDOR},
+    )
+    reason = vendor_guard.vendor_guard_deny(
+        'Bash',
+        {'command': 'curl -s http://127.0.0.1:54345/browser/list'},
+        task_id='1a2b3c4d5e6f7a8b9c0d',
+    )
+    assert reason is not None and '54345' in reason
+
+
+# ── after_open: an about:blank-only browser is not ready ─────────────
+
+
+async def test_after_open_navigates_a_blank_only_browser_to_the_store():
+    cdp = FakeCDP(pages=[_page('about:blank', 'blank1')])
+    await cdp.start()
+    _servers.append(cdp)
+    client = _client(1)
+    client.after_open_delay_s = 0.05
+    client.after_open_deadline_s = 0.2
+    client._platform_url = 'https://www.amazon.com/'
+    await client.after_open(OpenedStore('127.0.0.1', cdp.port))
+    navigated = [p for m, p in cdp.commands if m == 'Page.navigate']
+    assert [p.get('url') for p in navigated] == ['https://www.amazon.com/']
+    assert _activated_ids(cdp) == ['blank1']
+
+
+async def test_after_open_blank_negative_control_without_platform_url():
+    """Without a known platform URL, no navigation is invented."""
+    cdp = FakeCDP(pages=[_page('about:blank', 'blank1')])
+    await cdp.start()
+    _servers.append(cdp)
+    client = _client(1)
+    client.after_open_delay_s = 0.05
+    client.after_open_deadline_s = 0.2
+    client._platform_url = ''
+    await client.after_open(OpenedStore('127.0.0.1', cdp.port))
+    assert not [c for c in cdp.commands if c[0] == 'Page.navigate']
