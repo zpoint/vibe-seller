@@ -17,23 +17,24 @@
  * Profiles bind by `ref || name` (the stable id the vendor reports;
  * vendors without one use the name), and an env that exists but cannot
  * be opened (`available === false`) is shown greyed out with its
- * reason instead of being hidden.
+ * reason instead of being hidden. Each option's label comes from ONE
+ * pure builder, `vendorStoreOptionLabel` (lib/vendorStoreLabel): a row
+ * listed by name shows the store name first, a row with an opaque ref
+ * shows display · platform · ref — decided only from the row's fields.
  */
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
+import { vendorStoreOptionLabel, vendorStoreOptionLabelParts } from '../lib/vendorStoreLabel'
 import { DocsHelpLink } from './ui/DocsHelpLink'
 import type { BrowserVendor, Store, VendorStoreRef } from '../types'
+import { camelCase, vendorText } from '../lib/vendorText'
 
 /** The machine-login status: configured + the non-secret field values. */
 interface VendorLoginStatus {
   configured: boolean
   [field: string]: unknown
 }
-
-/** camelCase('client_not_running') → 'ClientNotRunning'. */
-const camel = (s: string) =>
-  s.split('_').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('')
 
 const EYE_ON = (
   <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0020 10c-1.796-4.667-6-8-10-8a9.864 9.864 0 00-4.512 1.074L3.707 2.293zM10 15a9.864 9.864 0 004.512-1.074L13.06 12.474A3 3 0 017.526 6.94L5.534 4.948A7.966 7.966 0 002 10c1.194 3.1 3.672 5.457 6.676 6.725L10 15zm2.121-4.879A1 1 0 0010 9l-.707-.707A1 1 0 0010 11l2.121-2.121-.707-.707.707.707z" clipRule="evenodd" /></svg>
@@ -64,17 +65,10 @@ export function VendorSection(props: {
 
   const zh = (i18n.language || 'en').startsWith('zh')
   const displayName = zh ? v.display_name_zh : v.display_name_en
-  /** The fallback chain: the vendor's own override, else the shared
+  /** The fallback chain (one copy, in lib/vendorText — shared with the
+   *  task error banner): the vendor's own override, else the shared
    *  `browserVendor.<Suffix>` key with {{vendor}} interpolated. */
-  const vt = (suffix: string) => {
-    const own = t(`${v.i18n_prefix}${suffix}`, {
-      defaultValue: '', vendor: displayName,
-    })
-    if (own) return own
-    return t(`browserVendor.${suffix}`, {
-      defaultValue: '', vendor: displayName,
-    })
-  }
+  const vt = (suffix: string) => vendorText(t, v, displayName, suffix)
 
   /** Why a greyed-out env cannot be opened: the contract's stable
    *  token translated via the shared browserVendor.unavailable.<token>
@@ -170,18 +164,24 @@ export function VendorSection(props: {
   const statusHint = (() => {
     if (!p.error) return ''
     const s = p.error.replace(`${v.key}:`, '')
-    const text = vt(camel(s))
+    const text = vt(camelCase(s))
     if (text) return text
     if (p.errorMessage) return p.errorMessage
     return vt('LoadFailed')
   })()
 
-  const accountLabel = status?.configured
-    ? v.credential_fields
-        .filter(f => !f.secret)
-        .map(f => String(status[f.key] ?? ''))
-        .join(' / ')
-    : vt('NoAccount')
+  // The account row's label. A configured login shows its non-secret
+  // field values; a vendor whose fields are ALL secret (nothing may be
+  // shown) says just 已配置/Configured instead of an empty bar — no
+  // part of the key is ever displayed.
+  const accountLabel = !status?.configured
+    ? vt('NoAccount')
+    : (() => {
+        const shown = v.credential_fields
+          .filter(f => !f.secret)
+          .map(f => String(status[f.key] ?? ''))
+        return shown.length > 0 ? shown.join(' / ') : vt('Configured')
+      })()
 
   return (
     <div className="mb-2 space-y-2">
@@ -237,6 +237,7 @@ export function VendorSection(props: {
           <p className="text-sm font-medium text-indigo-700">{vt('Loading')}</p>
         </div>
       ) : p.stores.length > 0 ? (
+        <>
         <select
           value={p.selectedRef}
           onChange={e => p.setSelectedRef(e.target.value)}
@@ -244,25 +245,74 @@ export function VendorSection(props: {
         >
           <option value="">{vt('SelectStore')}</option>
           {p.stores.map(s => {
-            // Only the non-empty parts inside the parentheses: a row
-            // with a platform but no remote_env must not render a
-            // stray space before ')'.
-            const meta = [s.platform, s.remote_env].filter(Boolean).join(' ')
+            // Option A: a SELECTABLE option's tooltip is its full
+            // label, so a row the closed select truncates can still be
+            // read. An UNAVAILABLE row keeps the vendor's own detail
+            // as its tooltip (the #346 behaviour — the detail is
+            // always the tooltip), falling back to the full label
+            // only when the detail is empty; those rows can never be
+            // selected, so they never reach the 已选 line.
+            const disabled = s.available === false
+            const full = vendorStoreOptionLabel(
+              s,
+              disabled ? unavailableLabel(s) : '',
+            )
+            const title = disabled ? (s.unavailable_detail || full) : full
             return (
-            <option
-              key={bindValue(s)}
-              value={bindValue(s)}
-              disabled={s.available === false}
-              title={s.available === false ? s.unavailable_detail || undefined : undefined}
-            >
-              {s.name}{meta ? ` (${meta})` : ''}
-              {s.available === false && unavailableLabel(s)
-                ? ` — ${unavailableLabel(s)}`
-                : ''}
-            </option>
+              <option
+                key={bindValue(s)}
+                value={bindValue(s)}
+                disabled={disabled}
+                title={title}
+              >
+                {full}
+              </option>
             )
           })}
         </select>
+        {(() => {
+          // The chosen row, named by its FULL label (the same builder
+          // as the options — one source, no second rule): the closed
+          // select truncates, this line tells same-named rows apart.
+          // Hidden while nothing is selected.
+          const sel = p.stores.find(s => bindValue(s) === p.selectedRef)
+          if (!sel) return null
+          const { parts, reason } = vendorStoreOptionLabelParts(
+            sel,
+            sel.available === false ? unavailableLabel(sel) : '',
+          )
+          return (
+            <p className="text-[11px] text-gray-500 leading-relaxed mt-0.5" data-testid="vendor-selected-line">
+              <span className="mr-1">{vt('Selected')}</span>
+              {/* Each label part is its own inline-block: the line
+                  wraps at the ' · ' separators, never mid-word — a
+                  part moves whole to the next line. A single part
+                  longer than the column may still wrap inside itself
+                  (overflow-wrap anywhere on that span only). */}
+              {parts.map((part, i) => (
+                <span key={i}>
+                  {i > 0 && <span className="mr-0.5">·</span>}
+                  <span
+                    data-testid="vendor-selected-part"
+                    className="inline-block max-w-full"
+                    style={{ overflowWrap: 'anywhere' }}
+                  >{part}</span>
+                </span>
+              ))}
+              {reason && (
+                <span>
+                  <span className="mx-0.5">—</span>
+                  <span
+                    data-testid="vendor-selected-part"
+                    className="inline-block max-w-full"
+                    style={{ overflowWrap: 'anywhere' }}
+                  >{reason}</span>
+                </span>
+              )}
+            </p>
+          )
+        })()}
+        </>
       ) : null}
     </div>
   )

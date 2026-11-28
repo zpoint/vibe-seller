@@ -82,7 +82,7 @@ Spreadsheet**, search the product type (e.g. "charger" → **Select**
 the matching type), choose the language, make sure the TARGET
 marketplace's checkbox is ticked, and **Generate Spreadsheet**.
 `bh_download_template.py` (SKILL.md, helper step 1) does all of this and
-reads the tick back; the steps below are for when it can't. The file lands in `~/.vibe-seller/downloads/<slug>/`
+reads the tick back; the steps below are for when it can't. The file lands in `$VIBE_STORE_DOWNLOADS/`
 (a macro-enabled `.xlsm`).
 
 > **Leave the other marketplaces' checkboxes as they are.** A bundled
@@ -159,7 +159,7 @@ reads the tick back; the steps below are for when it can't. The file lands in `~
 ## 2. Inspect
 
 ```bash
-$PY $S/listing_bulk.py inspect ~/.vibe-seller/downloads/<slug>/TEMPLATE.xlsm
+$PY $S/listing_bulk.py inspect $VIBE_STORE_DOWNLOADS/TEMPLATE.xlsm
 # one field's detail (columns / required / accepted values):
 $PY $S/listing_bulk.py inspect TEMPLATE.xlsm --field variation_theme
 ```
@@ -299,7 +299,7 @@ partialupdate: re-submit the child with the new `parent_sku` /
 # Write under the store downloads dir: the browser must read
 # the .txt to upload it, and Ziniao's Chrome can't read /tmp.
 $PY $S/listing_bulk.py fill TEMPLATE.xlsm --spec SPEC.json \
-    --out ~/.vibe-seller/downloads/<slug>/out.xlsm
+    --out $VIBE_STORE_DOWNLOADS/out.xlsm
 ```
 
 `fill` prints a warning (never fails) for an enum value not in the
@@ -311,7 +311,7 @@ reject on.
 ## 4. Upload the `.txt` + read the processing report
 
 Upload the `.txt` that `fill` wrote, not the `.xlsm` (an openpyxl-saved
-`.xlsm` is rejected 90502 FATAL), from `~/.vibe-seller/downloads/<slug>/`
+`.xlsm` is rejected 90502 FATAL), from `$VIBE_STORE_DOWNLOADS/`
 so the browser can read it. Use `bh_upload_flatfile.py` (SKILL.md, helper
 step 2): it stages the file through the file-chooser intercept, clicks
 Submit twice, and records the batch. If you have to upload by hand, the
@@ -331,7 +331,7 @@ root:
 
 ```bash
 SC_HOST=sellercentral.amazon.<tld> BATCH_ID=<id> \
-DOWNLOADS_DIR=~/.vibe-seller/downloads/<slug> \
+DOWNLOADS_DIR=$VIBE_STORE_DOWNLOADS \
 browser-use < $S/bh_fetch_report.py
 $PY $S/listing_bulk.py parse-feedback <report__batch<id>> --batch-id <id>
 ```

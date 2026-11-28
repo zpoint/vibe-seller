@@ -5,7 +5,7 @@
  * per-vendor branch anywhere. A FAKE vendor exercises both; the negative
  * controls flip one spec field and assert the opposite outcome.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 import i18n from 'i18next'
@@ -13,6 +13,7 @@ import enTranslation from '../i18n/locales/en/translation.json'
 import zhTranslation from '../i18n/locales/zh/translation.json'
 import { VendorSection } from '../components/VendorSection'
 import { vendorBackendOptions } from '../lib/vendorOptions'
+import { api } from '../api'
 import type { BrowserVendor, Store, VendorStoreRef } from '../types'
 
 vi.mock('../api', () => ({
@@ -71,12 +72,13 @@ const renderSection = (over: {
   fetching?: boolean
   allStores?: Store[]
   lng?: 'en' | 'zh'
+  selectedRef?: string
 } = {}) =>
   render(
     <I18nextProvider i18n={i18nFor(over.lng ?? 'en')}>
       <VendorSection
         vendor={{ ...fakeVendor, ...over.vendor }}
-        selectedRef="" setSelectedRef={vi.fn()}
+        selectedRef={over.selectedRef ?? ''} setSelectedRef={vi.fn()}
         stores={over.stores ?? []}
         error={over.error ?? ''}
         errorMessage={over.errorMessage}
@@ -147,8 +149,33 @@ describe('the generic vendor section', () => {
     const select = screen.getByRole('combobox') as HTMLSelectElement
     expect([...select.options].map(o => o.textContent)).toEqual([
       enTranslation.settings.yuehulianSelectStore,
-      'fv-a (MarketplaceX US)',
+      'fv-a · US · MarketplaceX',
       'fv-b',
+    ])
+  })
+
+  it('renders the picker options through the shared label builder', () => {
+    // The picker's label rule lives in ONE place
+    // (lib/vendorStoreLabel), decided only from the row's fields:
+    // listed by name → name first; opaque ref → display · platform ·
+    // ref.
+    renderSection({
+      stores: [
+        { name: 'hidden name', platform: 'www.amazon.com',
+          remote_env: '#4 美国站 (分组)', ref: 'p0000001' },
+        // 悦互联's shape: no ref — the row lists by its NAME, which
+        // leads the label (optB).
+        { name: '示例甲1店', platform: 'www.amazon.com',
+          remote_env: '#4 美国站 (分组)', ref: '' },
+        { name: 'fv-noref', platform: '', remote_env: '' },
+      ],
+    })
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    expect([...select.options].map(o => o.textContent)).toEqual([
+      enTranslation.settings.yuehulianSelectStore,
+      '#4 美国站 (分组) · www.amazon.com · p0000001',
+      '示例甲1店 · #4 美国站 (分组) · www.amazon.com',
+      'fv-noref',
     ])
   })
 
@@ -231,7 +258,7 @@ describe('the generic vendor section', () => {
     const byValue = [...select.options].map(o => [o.value, o.textContent])
     expect(byValue).toEqual([
       ['', enTranslation.settings.yuehulianSelectStore],
-      ['env-9', 'Pretty Name'],
+      ['env-9', 'Pretty Name · env-9'],
       ['NoRef Store', 'NoRef Store'],
     ])
   })
@@ -246,11 +273,22 @@ describe('the generic vendor section', () => {
     const option = (screen.getByRole('combobox') as HTMLSelectElement).options[1]
     // The label shows the TRANSLATED token, never the raw token or the
     // vendor-language detail.
-    expect(option.textContent).toContain(' — no device bound')
+    expect(option.textContent).toBe('Broken — no device bound')
     expect(option.textContent).not.toContain('no_device')
     expect(option.textContent).not.toContain('机器 A 未绑定')
     // The vendor's own words ride the tooltip.
     expect(option.title).toBe('机器 A 未绑定')
+  })
+
+  it('an unavailable row with no detail falls back to its full label as the tooltip', () => {
+    renderSection({
+      stores: [
+        { name: 'Bare', platform: '', remote_env: '', available: false,
+          unavailable_reason: 'expired' },
+      ],
+    })
+    const option = (screen.getByRole('combobox') as HTMLSelectElement).options[1]
+    expect(option.title).toBe('Bare — expired')
   })
 
   it('an unknown token falls back to the detail, then the generic string', () => {
@@ -272,7 +310,7 @@ describe('the generic vendor section', () => {
     expect(option.textContent).toContain(' — cannot open right now')
   })
 
-  it('an empty remote_env renders no stray space in the option label', () => {
+  it('drops empty label parts with no dangling separator', () => {
     renderSection({
       stores: [
         { name: 'test1', platform: 'amazon.com', remote_env: '' },
@@ -283,9 +321,9 @@ describe('the generic vendor section', () => {
     const select = screen.getByRole('combobox') as HTMLSelectElement
     expect([...select.options].map(o => o.textContent)).toEqual([
       enTranslation.settings.yuehulianSelectStore,
-      'test1 (amazon.com)',   // no stray space before ')'
-      'test2 (US)',
-      'test3',                // both empty: no parentheses at all
+      'test1 · amazon.com',   // no separator where the platform would be
+      'test2 · US',           // listed by name: the name leads, env follows
+      'test3',                // both empty: the name alone
     ])
   })
 
@@ -298,7 +336,7 @@ describe('the generic vendor section', () => {
     const select = screen.getByRole('combobox') as HTMLSelectElement
     const option = select.options[1]
     expect(option.disabled).toBe(true)
-    expect(option.textContent).toContain(' — expired')
+    expect(option.textContent).toContain('Broken — expired')
   })
 
   it('falls back to the shared browserVendor strings with the vendor name', () => {
@@ -336,5 +374,111 @@ describe('the generic vendor section', () => {
   it('renders the strings of the UI language from the same spec prefix', () => {
     renderSection({ error: 'fakevendor:no_stores', lng: 'zh' })
     expect(screen.getByText(zhTranslation.settings.yuehulianNoStores)).toBeTruthy()
+  })
+})
+
+describe('the selected row line under the picker (option A)', () => {
+  // Two same-named rows that only their ref tells apart — the closed
+  // select cannot, the 已选 line can.
+  const sameName = [
+    { name: '示例甲1店-长名称演示', platform: 'host.example.com',
+      remote_env: '', ref: 'kaaaaaa1' },
+    { name: '示例甲1店-长名称演示', platform: 'host.example.com',
+      remote_env: '', ref: 'kaaaaaa2' },
+  ]
+
+  it('(a) selecting the SECOND same-named row names its ref', () => {
+    renderSection({ stores: sameName, selectedRef: 'kaaaaaa2' })
+    const parts = screen.getAllByTestId('vendor-selected-part')
+    expect(parts.map(p => p.textContent)).toEqual([
+      '示例甲1店-长名称演示', 'host.example.com', 'kaaaaaa2',
+    ])
+  })
+
+  it('(a-zh) the line speaks the UI language', () => {
+    renderSection({ stores: sameName, selectedRef: 'kaaaaaa1', lng: 'zh' })
+    const line = screen.getByTestId('vendor-selected-line')
+    expect(line.textContent).toContain('已选：')
+    expect(screen.getAllByTestId('vendor-selected-part').map(p => p.textContent))
+      .toEqual(['示例甲1店-长名称演示', 'host.example.com', 'kaaaaaa1'])
+  })
+
+  it('(b) the line appears only while a row is selected', () => {
+    const first = renderSection({ stores: sameName })
+    expect(screen.queryByTestId('vendor-selected-line')).toBeNull()
+    first.unmount()
+    renderSection({ stores: sameName, selectedRef: 'kaaaaaa1' })
+    expect(screen.getByTestId('vendor-selected-line')).toBeTruthy()
+  })
+
+  it('(c) a selectable option carries the full label as its tooltip; a no-detail unavailable row falls back to it', () => {
+    renderSection({
+      stores: [
+        { name: 'hidden', platform: 'www.amazon.com',
+          remote_env: '#4 美国站 (分组)', ref: 'p0000001' },
+        { name: '示例乙1店', platform: '', remote_env: '',
+          available: false, unavailable_reason: 'expired' },
+      ],
+    })
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    expect(select.options[1].title).toBe('#4 美国站 (分组) · www.amazon.com · p0000001')
+    expect(select.options[2].title).toBe('示例乙1店 — expired')
+  })
+
+  it('(d) each label part is its own element — the line wraps at the separators, never mid-word', () => {
+    renderSection({ stores: sameName, selectedRef: 'kaaaaaa2' })
+    const parts = screen.getAllByTestId('vendor-selected-part')
+    expect(parts).toHaveLength(3)
+    for (const p of parts) {
+      // An inline-block moves whole to the next line; a part longer
+      // than the column may still wrap inside itself (overflow-wrap
+      // anywhere on that span only).
+      expect(p.className).toContain('inline-block')
+      expect((p as HTMLElement).style.overflowWrap).toBe('anywhere')
+    }
+  })
+})
+
+describe('the account row of an all-secret vendor', () => {
+  // A vendor whose credential fields are ALL secret (e.g. an API key):
+  // once configured there is nothing that may be shown, so the row says
+  // 已配置/Configured — never a part of the key.
+  const secretOnly: BrowserVendor = {
+    ...fakeVendor,
+    key: 'secretvendor',
+    credential_fields: [
+      { key: 'api_key', label_i18n: 'settings.adspowerApiKey', secret: true, required: true },
+    ],
+  }
+  const defaultStatus = { configured: true, team_name: 'acme', subaccount: 'ops' }
+  const mockStatus = (s: object) =>
+    vi.mocked(api.get).mockImplementation(async () => s as never)
+
+  afterEach(() => mockStatus(defaultStatus))
+
+  it('shows Configured once saved, and no part of the key', async () => {
+    mockStatus({ configured: true, api_key: 'sk-live-1234' })
+    renderSection({ vendor: secretOnly })
+    expect(await screen.findByText('Configured')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('sk-live-1234')
+    expect(document.body.textContent).not.toContain('1234')
+  })
+
+  it('says 已配置 in Chinese', async () => {
+    mockStatus({ configured: true, api_key: 'sk-live-1234' })
+    renderSection({ vendor: secretOnly, lng: 'zh' })
+    expect(await screen.findByText('已配置')).toBeTruthy()
+  })
+
+  it('keeps today\'s empty state when not configured', async () => {
+    mockStatus({ configured: false })
+    renderSection({ vendor: secretOnly })
+    expect(await screen.findByText('No account configured')).toBeTruthy()
+  })
+
+  it('a vendor with non-secret fields still shows their values', async () => {
+    mockStatus(defaultStatus)
+    renderSection({ vendor: fakeVendor })
+    expect(await screen.findByText('acme / ops')).toBeTruthy()
   })
 })

@@ -33,6 +33,7 @@ from app.ai.agent_proxy import (
     launch_settings,
 )
 from app.ai.claude_backend_hooks import _HookMixin
+from app.ai.claude_backend_mcp import _McpSdkMixin
 from app.ai.claude_backend_persist import _PersistMixin
 from app.ai.claude_backend_stream import _StreamMixin
 from app.ai.claude_backend_subagents import _SubagentMixin
@@ -45,7 +46,6 @@ from app.ai.claude_backend_utils import (
     apply_agent_venv_path as apply_agent_venv_path,  # re-export
     permission_mode_for_agent,
     resolve_claude_binary,
-    sdk_initialize_request,
     task_mcp_flags,
 )
 from app.ai.claude_isolation import (
@@ -62,19 +62,15 @@ from app.ai.profiles import (
     preset_id_for_env,
 )
 from app.ai.usage_meter import UsageMeter
-from app.auth import create_token
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
-from app.browser.manager import (
-    atomic_write_json,
-    read_mcp_config,
-)
+from app.browser.downloads import store_downloads_dir
 from app.browser.process_utils import kill_with_escalation, taskkill_tree
-from app.config import AI_BOT_USER_ID, BACKEND_PORT, BASE_DIR
 from app.custom_mcp import load_launch_servers
 from app.database import async_session
 from app.env_options import Options
 from app.models.task import Task
 from app.platform import IS_WINDOWS, find_processes_by_pattern
+from app.task_reaper import arm_agent_job, win_spawn_creationflags
 from app.workspace.manager import (
     VIBE_SELLER_DIR,
     workspace_manager,
@@ -84,7 +80,12 @@ logger = logging.getLogger(__name__)
 
 
 class AgentSession(
-    _HookMixin, _StreamMixin, _PersistMixin, _SubagentMixin, _TurnLifecycleMixin
+    _HookMixin,
+    _StreamMixin,
+    _PersistMixin,
+    _SubagentMixin,
+    _TurnLifecycleMixin,
+    _McpSdkMixin,
 ):
     """Manages a single claude -p subprocess for a task."""
 
@@ -398,6 +399,17 @@ class AgentSession(
         # Pass task ID for multi-client CDP proxy isolation
         env['VIBE_TASK_ID'] = self.task_id
 
+        # The store's download dir, RESOLVED for this server's VIBE_HOME.
+        # The one path an agent must never guess from a doc: hardcoded
+        # default-home spellings sent a test task's agent into another
+        # server's home on a multi-home machine (it mkdir'd the dir and
+        # repointed Page.setDownloadBehavior there). The CDP mux now
+        # rewrites any outside pin, but the agent should also KNOW the
+        # right dir: skills and scripts reference this variable, and the
+        # store context in the system prompt spells the same path.
+        if self.store_slug:
+            env['VIBE_STORE_DOWNLOADS'] = store_downloads_dir(self.store_slug)
+
         # Pin Claude Code's TaskList directory to a per-task path
         # (default is session UUID, which is regenerated per spawn
         # and unreachable from follow-up sessions). The Stop-hook
@@ -421,6 +433,9 @@ class AgentSession(
         # isolated group is what `_force_kill` signals via
         # `os.killpg` so the whole subtree (claude → MCP server →
         # tools) tears down atomically.
+        # On Windows `nohup`-style children escape the group kill:
+        # spawn frozen into this task's job object, then resume, so
+        # task-end reaping (app/task_reaper.py) reaches them too.
         self._proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
@@ -430,7 +445,9 @@ class AgentSession(
             env=env,
             cwd=str(ws_dir) if ws_dir.exists() else None,
             start_new_session=True,
+            creationflags=win_spawn_creationflags(),
         )
+        await arm_agent_job(self.task_id, self._proc.pid)
 
         # Start readers FIRST so we can process responses to
         # SDK initialize and user messages as they arrive.
@@ -475,56 +492,6 @@ class AgentSession(
             'type': 'user',
             'message': {'role': 'user', 'content': prompt},
         })
-
-    async def _send_sdk_initialize(self):
-        """Send SDK control request to configure hooks."""
-        await self._send_stdin(sdk_initialize_request('plan_then_execute'))
-
-    async def _send_sdk_initialize_auto(self):
-        """Send SDK hooks for auto mode (see sdk_initialize_request)."""
-        await self._send_stdin(sdk_initialize_request('auto'))
-
-    async def _register_vibe_seller_mcp(self, ws_dir):
-        """Register the vibe-seller MCP server in .mcp.json."""
-        try:
-            # Always the AI-bot identity (seeded by init_db), never an
-            # admin-role fallback: this token is handed to an agent
-            # process, and app/interactive_only.py keys on its role.
-            token = create_token(AI_BOT_USER_ID, 'ai_bot')
-
-            mcp_config = read_mcp_config()
-            servers = mcp_config.get('mcpServers', {})
-            active = {
-                name: cfg
-                for name, cfg in servers.items()
-                if name != 'vibe-seller'  # re-added below
-            }
-            active['vibe-seller'] = {
-                'command': sys.executable,
-                'args': [
-                    '-m',
-                    'app.mcp_server',
-                    '--token',
-                    token,
-                    '--port',
-                    str(BACKEND_PORT),
-                    '--task-id',
-                    self.task_id,
-                ],
-                'cwd': str(BASE_DIR),
-            }
-            mcp_config['mcpServers'] = active
-            atomic_write_json(ws_dir / '.mcp.json', mcp_config)
-        except Exception:
-            logger.exception('Failed to register vibe-seller MCP')
-            # Fallback: write empty config so --strict-mcp-config
-            # still blocks global servers.
-            try:
-                fallback = ws_dir / '.mcp.json'
-                if not fallback.exists():
-                    atomic_write_json(fallback, {'mcpServers': {}})
-            except Exception:
-                logger.exception('Fallback .mcp.json write also failed')
 
     async def _send_stdin(self, msg: dict, *, label: str = 'stdin') -> bool:
         """Write a JSON message to stdin; True = reached a live pipe

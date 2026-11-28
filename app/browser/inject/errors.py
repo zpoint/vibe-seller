@@ -29,8 +29,21 @@ class ClientNotRunning(InjectError):
 
 
 class LoginRequired(InjectError):
+    """The client is logged out and could not be logged in.
+
+    ``credentials_stored`` says whether the vendor had stored
+    credentials to try (the task layer decides terminality from it):
+    with none stored only the operator can fix this, so the task
+    ends FAILED; with credentials that did not take, a retry may
+    still succeed, so the run continues (see ``is_terminal``).
+    """
+
     code = 'LOGIN_REQUIRED'
     hint = 'Log into the client on this machine, then retry / refresh.'
+
+    def __init__(self, message: str = '', *, credentials_stored: bool = False):
+        super().__init__(message)
+        self.credentials_stored = credentials_stored
 
 
 class AccountMismatch(InjectError):
@@ -133,3 +146,45 @@ class IdleExpired(InjectError):
 class UnsupportedPlatform(InjectError):
     code = 'UNSUPPORTED_PLATFORM'
     hint = 'This backend is Windows-only (incl. WSL on Windows).'
+
+
+# ── Terminality policy (consumed by the task layer) ────────────────
+#
+# A TERMINAL start failure cannot be fixed from inside the task —
+# only the operator can (switch the kernel, log the client in, pay
+# for the API plan, re-bind the store). The server records the code
+# and message on the task, stops the agent and ends the task FAILED,
+# so the failure banner and its docs link render and the agent never
+# treats the error as a puzzle to solve (incident 97db66d2: a bare
+# HTTP 500 made an agent SSH into a production machine).
+#
+# TRANSIENT failures are worth exactly one retry from the wrapper
+# (the client may just be coming up); past that the agent gets the
+# typed line but the task is not failed server-side.
+TERMINAL_CODES = frozenset({
+    'UNSUPPORTED_KERNEL',
+    'STORE_UNAVAILABLE',
+    'STORE_NOT_FOUND',
+    'PLAN_REQUIRED',
+    'API_NOT_ENABLED',
+    'ACCOUNT_MISMATCH',
+})
+
+TRANSIENT_CODES = frozenset({
+    'CLIENT_NOT_RUNNING',
+    'CDP_UNREACHABLE',
+})
+
+
+def is_terminal(exc: 'InjectError') -> bool:
+    """Does this start failure end the task (operator-only fix)?
+
+    LOGIN_REQUIRED is terminal only when the vendor had NO stored
+    credentials to try; with credentials that failed to log in, a
+    retry can still succeed. Unknown codes default to NOT terminal —
+    the failure reaches the agent as a typed line, and only codes the
+    taxonomy explicitly declares terminal stop the task.
+    """
+    if isinstance(exc, LoginRequired):
+        return not exc.credentials_stored
+    return exc.code in TERMINAL_CODES

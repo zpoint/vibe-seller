@@ -56,6 +56,14 @@ YUEHULIAN_WIN_APP = WinAppSpec(
 # sub-account / password, stored encrypted by the generic machine-scope
 # credential storage), stores listed through the client's GUI, and the
 # spec-driven docs links for the UI's help links.
+#
+# private_paths (agent guard): the kernel browser profiles live in a
+# dir the client NAMES ``YueHuLianData`` wherever it installs (its own
+# code matches that name, not a path), and the install dir is
+# ``YueHuLian`` / 悦互联 — both are declared as distinctive directory
+# names so every spelling (C:\, /mnt/c, quoted, globbed) matches. No
+# local_ports: the client has no local API (it is driven through the
+# Node inspector, and 9229 is denied for agents by the guard itself).
 YUEHULIAN_VENDOR = BrowserVendorSpec(
     key='yuehulian',
     display_name_en='Yuehulian',
@@ -63,6 +71,7 @@ YUEHULIAN_VENDOR = BrowserVendorSpec(
     kind=KIND_ANTIDETECT,
     platforms=_SUPPORTED_PLATFORMS,
     account_cardinality=CARDINALITY_SINGLE,
+    private_paths=('YueHuLianData', 'YueHuLian', '悦互联'),
     credential_fields=(
         VendorCredentialField('team_name', 'settings.yuehulianTeamName'),
         VendorCredentialField('subaccount', 'settings.yuehulianSubaccount'),
@@ -93,6 +102,13 @@ YUEHULIAN_VENDOR = BrowserVendorSpec(
             ),
         ),
     },
+    # C4: yuehulian's stop path genuinely must close-and-reopen. Its
+    # client keeps listing an env as Opened after the kernel died (a
+    # crash, or all-profiles closed through the client), and only the
+    # client's own close clears that state — attaching to the stale
+    # row reopens nothing. Its docs describe close-and-reopen as
+    # intended behaviour.
+    reopens_hand_opened=True,
     client_factory=make_client,
     win_app=YUEHULIAN_WIN_APP,
     client_path_setting='yuehulian_client_path',

@@ -26,6 +26,7 @@ import pytest
 import app.ai.agent_proxy as agent_proxy
 import app.ai.claude_backend as cb_mod
 from app.ai.claude_backend import AgentSession
+import app.ai.claude_backend_mcp as mcp_mod
 from app.ai.claude_backend_utils import mcp_launch_flags
 from app.ai.claude_isolation import (
     claude_global_config_path,
@@ -242,14 +243,14 @@ def _patch_launch(monkeypatch, tmp_path, claude_home, load_global):
         'app.ai.profiles.ProfileManager.get_load_global_mcp',
         staticmethod(lambda pid: load_global),
     )
-    monkeypatch.setattr(cb_mod, 'read_mcp_config', lambda: {'mcpServers': {}})
+    monkeypatch.setattr(mcp_mod, 'read_mcp_config', lambda: {'mcpServers': {}})
     monkeypatch.setattr(cb_mod, 'async_session', _fake_db_session())
     monkeypatch.setattr(
-        cb_mod,
+        mcp_mod,
         'atomic_write_json',
         lambda path, data: path.write_text(json.dumps(data)),
     )
-    monkeypatch.setattr(cb_mod, 'create_token', lambda *a: 'fake-token')
+    monkeypatch.setattr(mcp_mod, 'create_token', lambda *a: 'fake-token')
     monkeypatch.setattr(
         agent_proxy, 'proxy_refuses', AsyncMock(return_value=True)
     )

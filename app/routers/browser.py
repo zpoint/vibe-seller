@@ -69,7 +69,7 @@ async def start_web_browser(
     store browsers.
     """
     try:
-        await browser_manager.start_web_session(db)
+        port = await browser_manager.start_web_session(db)
     except BrowserBusyError as e:
         # Busy is not broken — see the same branch in stores.py.
         raise HTTPException(status_code=503, detail=str(e)) from e
@@ -78,7 +78,13 @@ async def start_web_browser(
             status_code=500,
             detail=f'Failed to start web browser: {e}',
         ) from e
-    return {'ok': True}
+    # Typed fields so the web wrapper can follow a reallocated proxy
+    # port (PR C1 — same contract as the store start route).
+    return {
+        'ok': True,
+        'proxy_port': port,
+        'instance_id': browser_manager.instance_id,
+    }
 
 
 @router.post('/api/stores/{store_id}/browser/aux/start')

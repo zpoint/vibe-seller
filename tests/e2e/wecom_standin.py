@@ -7,8 +7,8 @@ runs; ``renew`` also changes the stored sign-in, as a fresh scan does.
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
+import tempfile
 import time
 
 from app.cli_integrations import paths, skills
@@ -16,6 +16,10 @@ from app.cli_integrations.registry import INTEGRATIONS
 
 STANDIN = Path(__file__).with_name('fake_wecom_cli.py')
 VERSION = '1.3.4'
+# The Windows stand-in needs a real wecom-cli.exe (the integration
+# runner spawns it, and the agent's shell resolves it by name); the
+# console-script fixture builds one through pip.
+EXE_FIXTURE = Path(__file__).with_name('fixtures') / 'fake-wecom-cli'
 _MINIMAL_SUBS = {
     'shared': {
         'SKILL.md': b'---\nname: wecomcli-shared\ndescription: Shared.\n---\n'
@@ -23,15 +27,76 @@ _MINIMAL_SUBS = {
 }
 
 
+def install_executable(source: Path, destination: Path) -> None:
+    """Atomically replace *destination* with an executable *source*.
+
+    A previous test's server may still be executing the old file. Opening
+    that inode for writing raises ETXTBSY; replacing its directory entry
+    does not. The temporary file lives in the same directory, so
+    ``os.replace`` is atomic, and it is closed before the swap.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(
+        dir=destination.parent, prefix=f'.{destination.name}.'
+    )
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, 'wb') as out:
+            out.write(source.read_bytes())
+            out.flush()
+            os.fsync(out.fileno())
+        temporary.chmod(0o755)
+        os.replace(temporary, destination)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _install_windows_exe(dest: Path) -> None:
+    """Build a genuine ``wecom-cli.exe`` for this venv, at *dest*.
+
+    ``pip install -e`` of the fixture creates the console-script shim
+    in this venv's ``Scripts/`` — a real PE that launches this venv's
+    python and runs the stand-in's ``main``. Copying it into the
+    integration's version dir satisfies both the runner (it executes
+    the exe) and the agent (its shell resolves ``wecom-cli`` to it) —
+    through the same atomic replacement, so a still-executing previous
+    exe never raises ETXTBSY.
+    """
+    import subprocess
+
+    built = subprocess.run(
+        [
+            sys.executable,
+            '-m',
+            'pip',
+            'install',
+            '-q',
+            '-e',
+            str(EXE_FIXTURE),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if built.returncode != 0:
+        raise RuntimeError(
+            f'building the wecom-cli shim failed:\n{built.stderr[-800:]}'
+        )
+    shim = Path(sys.executable).parent / 'wecom-cli.exe'
+    if not shim.is_file():
+        raise RuntimeError(f'pip built no wecom-cli.exe at {shim}')
+    install_executable(shim, dest)
+
+
 def install(home: Path, *, subs: dict | None = None) -> None:
-    if sys.platform == 'win32':
-        raise RuntimeError('the stand-in is a shebang script')
     integ = INTEGRATIONS['wecom']
     vdir = paths.version_dir('wecom', VERSION, home)
     vdir.mkdir(parents=True, exist_ok=True)
     exe = vdir / paths.exe_name(integ.binary)
-    shutil.copyfile(STANDIN, exe)
-    exe.chmod(0o755)
+    if sys.platform == 'win32':
+        _install_windows_exe(exe)
+    else:
+        install_executable(STANDIN, exe)
     paths.write_manifest(
         'wecom', {'version': VERSION, 'source': 'e2e stand-in'}, home
     )

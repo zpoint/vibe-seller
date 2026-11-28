@@ -5,6 +5,7 @@ expected substrings are present/absent in the assembled prompt.
 """
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-testing-only')
@@ -39,8 +40,10 @@ from app.prompts import (
     CATALOG_RESTRICTION_PROMPT_L2,
     DESIGN_SYSTEM_PROMPT,
     DESIGN_SYSTEM_PROMPT_AUTO,
+    WAITING_INSTRUCTION_PROMPT,
 )
 from app.task_runner import (
+    BROWSER_FAILURE_RULES_PROMPT,
     VISION_SETUP_BREADCRUMB,
     PromptBundle,
     TaskHeader,
@@ -252,6 +255,64 @@ def no_store_task():
 # ── Tests ────────────────────────────────────────────────────
 
 
+class TestBrowserFailureRules:
+    """The browser-failure rules block rides along EVERY task prompt.
+
+    A typed store-browser start failure must reach the agent as
+    "report and stop", and a login page with no saved credentials as
+    "ask the user" — never "search the disk" (incident 97db66d2).
+    Both modes, store and no-store: the wrapper line and login pages
+    are not store-specific.
+    """
+
+    @pytest.mark.asyncio
+    async def test_block_present_auto_mode(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
+        )
+        assert BROWSER_FAILURE_RULES_PROMPT in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_block_present_plan_mode(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.DESIGN, store_emails=TEST_EMAILS
+        )
+        assert BROWSER_FAILURE_RULES_PROMPT in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_block_present_no_store(self, _patch_async_session, task):
+        bundle = await build_system_extra(task, None, header=TaskHeader.AUTO)
+        assert BROWSER_FAILURE_RULES_PROMPT in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_block_after_waiting_instruction(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
+        )
+        # Assembly order: waiting instruction, then the browser rules.
+        assert bundle.system_extra.index(
+            WAITING_INSTRUCTION_PROMPT
+        ) < bundle.system_extra.index(BROWSER_FAILURE_RULES_PROMPT)
+
+    @pytest.mark.asyncio
+    async def test_block_states_both_rules(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
+        )
+        body = bundle.system_extra
+        assert 'ERROR: [CODE]' in body
+        assert 'AskUserQuestion' in body
+        assert 'Never search the disk' in body
+
+
 class TestVisionSetupBreadcrumb:
     """The vision-setup breadcrumb is injected ONLY when image
     generation is unconfigured — the same condition under which
@@ -379,6 +440,77 @@ class TestAutoStoreTask:
         )
         assert '<slug>' not in bundle.system_extra
         assert 'test-store-alpha' in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_store_context_spells_resolved_paths(
+        self, _patch_async_session, task, store, monkeypatch
+    ):
+        """Wrapper + download dirs reach the agent RESOLVED for this
+        server's home, never as a hardcoded default-home path.
+
+        A live agent followed the old `~/.vibe-seller/...` spelling
+        into ANOTHER server's home on a multi-home machine (mkdir +
+        Page.setDownloadBehavior override). The store context is the
+        one place the resolved path is spelled; skills refer to
+        $VIBE_STORE_DOWNLOADS instead.
+        """
+        monkeypatch.setattr(
+            'app.browser.downloads.DOWNLOADS_DIR',
+            Path('/srv/custom-home/downloads'),
+        )
+        monkeypatch.setattr(
+            'app.task_runner_context.BROWSER_USE_BIN_DIR',
+            Path('/srv/custom-home/bin'),
+        )
+        bundle = await build_system_extra(
+            task,
+            store,
+            header=TaskHeader.AUTO,
+            store_emails=TEST_EMAILS,
+        )
+        assert '/srv/custom-home/downloads/test-store-alpha/' in (
+            bundle.system_extra
+        )
+        assert '/srv/custom-home/bin/test-store-alpha/browser-use' in (
+            bundle.system_extra
+        )
+        assert '$VIBE_STORE_DOWNLOADS' in bundle.system_extra
+        assert '~/.vibe-seller' not in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_antidetect_store_context_spells_resolved_paths(
+        self, _patch_async_session, task, monkeypatch
+    ):
+        """Same contract for the antidetect (Ziniao-style) variant of
+        the store context — both branches spell the resolved paths."""
+        task.store_id = 'store-z'
+        monkeypatch.setattr(
+            'app.browser.downloads.DOWNLOADS_DIR',
+            Path('/srv/custom-home/downloads'),
+        )
+        monkeypatch.setattr(
+            'app.task_runner_context.BROWSER_USE_BIN_DIR',
+            Path('/srv/custom-home/bin'),
+        )
+        ziniao_store = Store(
+            id='store-z',
+            name='Ziniao Store',
+            slug='ziniao-store',
+            browser_backend='ziniao',
+            browser_config='{"headless": true}',
+            platforms='["amazon"]',
+            countries='["US"]',
+        )
+        bundle = await build_system_extra(
+            task,
+            ziniao_store,
+            header=TaskHeader.AUTO,
+            store_emails=TEST_EMAILS,
+        )
+        assert '/srv/custom-home/downloads/ziniao-store/' in (
+            bundle.system_extra
+        )
+        assert '~/.vibe-seller' not in bundle.system_extra
 
     @pytest.mark.asyncio
     async def test_mode_is_auto(self, _patch_async_session, task, store):

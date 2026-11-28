@@ -313,7 +313,9 @@ Persistent per-account email storage with background sync and SMTP send capabili
 
 ## Browser & Task Concurrency
 
-**Concurrent per-store execution**: Multiple tasks for the same store can run concurrently (up to the proxy's `max_clients` connection limit, default 16 per CDPMuxProxy instance) when they share the same platform/country. The `CDPMuxProxy` provides per-task isolation within a single browser session via request ID rewriting and session-based event routing. Tasks that share the same platform but target different countries are queued since Ziniao needs to switch country; all other combinations run concurrently.
+**Concurrent per-store execution**: Multiple tasks for the same store can run concurrently (up to the proxy's `max_clients` connection limit, default 16 per CDPMuxProxy instance) when they share the same platform/country.
+
+The `CDPMuxProxy` provides per-task isolation within a single browser session via request ID rewriting and session-based event routing. Tasks that share the same platform but target different countries are queued since Ziniao needs to switch country; all other combinations run concurrently.
 
 **What holds an agent slot**: an agent that can make progress. A slot (`MAX_AGENT_CONCURRENCY`, Settings → max agent concurrency) is taken when the agent launches and given back when its process exits. A wait on a person is bounded: an `AskUserQuestion` left unanswered for `VIBE_QUESTION_ANSWER_TIMEOUT_S` stops the agent and parks the task in WAITING, and that frees the slot. See [tasks.md § WAITING with a pending question](tasks.md#waiting-with-a-pending-question).
 
@@ -481,6 +483,8 @@ Yuehulian is a second supported anti-detect client, joining Ziniao — but **Win
 **Enumerate / open.** The Store-form dropdown and a task's store-open list/select via `GET /api/yuehulian/stores`. The store list is a tags-view **tab**, not identified by the URL hash, so the backend shows it by **clicking its menu item** (not setting the hash) before scraping, and it is **paginated** — every page is collected for the dropdown, and a store on page 2/3 is still found and opened. A store the client still lists as **Opened** with nothing of ours running it (the client was closed or crashed with it open, or a person opened it) is closed through the client's own batch **close browser** and opened again — a task whose client went away mid-run recovers on its next browser use. Every drive of the client GUI is serialised (one lock), and rows are matched by exact store name. The **aux** browser is a login-less Chromium (its own `/browser/aux/start`), like Ziniao's — independent of the team login. Agent-facing prompts name the actual product (悦互联), never "Ziniao" (`antidetect_display_name`). A live smoke (`tests/e2e/yuehulian_live_smoke.py`, not in CI) exercises all of this against the real client. Full mechanism: [browser.md § Yuehulian Backend](browser.md).
 
 ## CDP Proxy Architecture
+
+**Download-pin enforcement** (`cdp_mux_routing._route_client_message`): when the store's download dir is pinned, a client's `Browser.setDownloadBehavior` OR `Page.setDownloadBehavior` is answered locally with Chrome's success shape and NEVER forwarded — Chrome ties the browser-wide download behaviour to the DevTools session that last set it, and the daemon relay scopes client calls to mortal page sessions, so forwarding (even path-rewritten) would let a tab's death reset the pin (harness lane F2). The pin itself is sent sessionless from the mux's root session on the first upstream connect and every reconnect; `Browser.download*` events stay fanned out to all clients. Without a pin, calls are forwarded unchanged. See [docs/browser.md § Download path override](browser.md).
 
 Each Ziniao store gets a stable CDP multiplexing proxy (`app/browser/cdp_mux_proxy.py`) that listens on `127.0.0.1:{proxy_port}` and connects upstream (WebSocket) to the actual Ziniao `debuggingPort` (which changes on each `startBrowser` call). On WSL, the proxy connects to the Windows gateway IP instead of localhost. The browser-use wrapper's `BU_CDP_WS` env var (0.13; was `--cdp-url`) always points to the stable proxy port with a per-task client ID.
 
@@ -918,3 +922,64 @@ drives the user's installed Chrome — no bundled browser. Built on a
 GitHub-hosted `windows-latest` runner
 (`.github/workflows/windows-installer.yml`); see
 `installer/windows/README.md`.
+
+## Agent guard layers (`ai/agent_lateral_guard.py` + friends)
+
+Three server-side layers keep a task agent inside its lane. They are
+interception of our own tool calls, **not a sandbox** — the agent
+runs as the same OS user with a full shell — so the deny lists are
+best-effort against a determined agent; what they buy is that the
+observed runaway behaviours cannot happen by accident, and that
+deliberate evasion is loud.
+
+- **Pre-tool deny** (`app/ai/vendor_guard.py` +
+  `app/ai/agent_lateral_guard.py`, chained in
+  `app/ai/tool_call_guards.py`): vendor-declared `private_paths` and
+  `local_ports`, browser-profile databases, CDP/inspector/vendor
+  ports that are not the task's own, ssh & remote access, foreign
+  `/proc/<pid>` reads and system-wide process listings (the
+  self-scoped forms `bash_safety` recommends stay allowed),
+  OS-settings mutation (registry / `netsh` / `setx` / `schtasks` /
+  hosts / `networksetup` / `defaults write` / rc-file writes),
+  agent-built port forwarders (`socat` listen, `netsh portproxy`,
+  firewall rules, bind+connect one-liners — in Bash text and in
+  written file content), the store wrappers under `bin/`
+  (READ-never, EXECUTE-always — they embed a task-scoped JWT), any
+  vibe-seller home that is not the task's own (the default-named
+  family plus `vibe_seller.db` / `profiles.json` in absolute paths),
+  and the task's own home beyond its workspace (`data/`,
+  `profiles.json`, `r/`, `vendors/`, other sessions' `bh-tmp`).
+  Every deny is logged server-side with the tool_use id.
+- **The ONE normal form** (`normalize_path_text` in
+  `agent_lateral_guard.py`): every home-family matcher runs against
+  text and spellings normalised the same way — separators to `/`
+  with runs collapsed, Windows-way case folding, and home-variable
+  expansion covering `~` (bare and slashed), `$HOME`, `${HOME}`,
+  `"$HOME"`, `$USERPROFILE`, `%USERPROFILE%`, the PowerShell
+  `$env:USERPROFILE` / `${env:USERPROFILE}` / `$env:HOMEPATH` forms,
+  and the MSYS drive form `/c/Users/...` → `c:/users/...` (Claude
+  Code's Bash on Windows is Git-Bash). `cd_home_relative`
+  (best-effort, same command line only): after a `cd`/`pushd` to the
+  bare user home, a later bare `.vibe-seller` token is treated as
+  home-relative. Documented limit: a cd in one Bash call and the
+  read in the next is out of reach, as is a cd into a subdirectory.
+- **Output tripwire** (`app/ai/output_tripwire.py`): a tool RESULT
+  carrying a vendor private path or a vibe-seller server-state path
+  (paths only — no key formats, no content signatures) stops the
+  task FAILED with error category `security_tripwire`. The guard's
+  own deny messages never trip it (refused tool_use ids are
+  skipped).
+- **Task-end reaping** (`app/task_reaper.py`): on any terminal state
+  or external stop (both go through `task_finalize.stop_as_failed`),
+  every process whose environment carries the task's `VIBE_TASK_ID`
+  is reaped however it was detached — procfs scan on Linux/WSL,
+  `ps eww` on macOS, per-task Windows job objects.
+  `stop.sh --scoped` reaps the same leftovers for its own
+  `VIBE_HOME` only.
+
+Test surface: `tests/unit/test_vendor_guard.py` (every runaway
+spelling, every separator spelling × every deny category, the
+no-false-positive corpus), `tests/unit/test_task_reaper.py`,
+`tests/unit/test_stop_sh.py`, the tier-1 replay
+`tests/e2e/test_guard_replay.py`, and
+`tests/workflow/test_wf_stop_as_failed_reap.py`.

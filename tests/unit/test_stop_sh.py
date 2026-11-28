@@ -375,3 +375,76 @@ def _pid_alive(pid: int) -> bool:
         timeout=10,
     ).stdout.strip()
     return bool(out) and not out.startswith('Z')
+
+
+def _spawn_home_leftover(home: str, task_id: str):
+    """A detached leftover of an instance: setsid (escapes the group,
+    like the incident's nohup/ssh -f children) carrying its
+    instance's VIBE_HOME and a task marker."""
+    return subprocess.Popen(
+        ['setsid', 'sh', '-c', 'exec sleep 300'],
+        env={**_child_env(), 'VIBE_HOME': home, 'VIBE_TASK_ID': task_id},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _proc_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        with open(f'/proc/{pid}/stat') as fh:
+            return fh.read().rsplit(')', 1)[1].split()[0] != 'Z'
+    except (ProcessLookupError, OSError):
+        return False
+
+
+def test_scoped_reaps_its_own_homes_leftovers_only(tmp_path):
+    """The Mac addendum: a detached browser-use daemon / agent leftover
+    carrying this instance's VIBE_HOME survives the server stop on the
+    tree snapshot alone — --scoped must reap it by environment, and
+    never another instance's."""
+    scene = _Scene()
+    try:
+        port = _free_port()
+        home_a = tmp_path / 'home-a'
+        home_b = tmp_path / 'home-b'
+        home_a.mkdir()
+        home_b.mkdir()
+        child_file = tmp_path / 'child.pid'
+        env = _faked_argv0_env()
+        env['VIBE_HOME'] = str(home_a)
+        server = scene.add(
+            subprocess.Popen(
+                [
+                    'uvicorn app.main:app',
+                    str(_fake_server_script(tmp_path)),
+                    str(port),
+                    str(child_file),
+                    sys.executable,
+                ],
+                executable=sys.executable,
+                env=env,
+            )
+        )
+        _wait_port_listening(port)
+
+        mine = scene.add(_spawn_home_leftover(str(home_a), 'task-a-123'))
+        other = scene.add(_spawn_home_leftover(str(home_b), 'task-b-456'))
+        time.sleep(0.3)
+        assert _proc_alive(mine.pid) and _proc_alive(other.pid)
+
+        result = _run_stop(port, '--scoped')
+        assert result.returncode == 0, result.stderr
+
+        _wait_dead([server])
+        deadline = time.time() + 10
+        while _proc_alive(mine.pid) and time.time() < deadline:
+            time.sleep(0.05)
+        assert not _proc_alive(mine.pid), (
+            'a leftover of THIS home survived the scoped stop'
+        )
+        assert _proc_alive(other.pid), (
+            "another instance's leftover was reaped by this stop"
+        )
+    finally:
+        scene.close()

@@ -73,6 +73,7 @@ subcommand CLI and its flags. The two interfaces:
 | Invocation | `browser-use open <url>` (subcommands) | `browser-harness <<'PY' … PY` (heredoc code-eval) or `browser-harness -c '…'` |
 | Connection | `--cdp-url ws://…` flag | `BU_CDP_URL` / `BU_CDP_WS` env var |
 | Session | `--session NAME` flag | `BU_NAME` env var |
+| Downloads dir | (implicit) | `VIBE_STORE_DOWNLOADS` env var (resolved for this server's `VIBE_HOME`; the CDP mux pins + enforces it) |
 | Actions | `open`/`state`/`click`/`input`/`eval`/… subcommands | pre-imported Python helpers: `new_tab()`, `page_info()`, `wait_for_load()`, `click()`, `start_remote_daemon(name)`, … |
 | Profile / headed | `--profile` / `--headed` flags | env / daemon options |
 

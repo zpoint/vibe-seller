@@ -168,6 +168,157 @@ async def test_after_open_not_called_when_cdp_never_answers(
     _mocked_proxy.return_value.start.assert_not_called()
 
 
+# ── a failed start closes the env it opened ──────────────────────────
+
+
+async def test_cdp_never_answers_closes_the_env_it_opened(
+    cdp_version_port, tmp_path, _mocked_proxy
+):
+    """The bug this pins (seen live: a Firefox/BiDi env survived with 11
+    processes): an open that succeeds but whose CDP never answers raised
+    CdpUnreachable WITHOUT closing — the store window outlived the task.
+    Every post-open failure must close the env the open created."""
+    client = _RecordingClient(cdp_port=cdp_version_port)
+    with (
+        pytest.raises(errors_mod.CdpUnreachable),
+        mock.patch.object(
+            InjectCdpBackend,
+            '_cdp_version',
+            new=mock.AsyncMock(return_value=None),
+        ),
+        mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
+    ):
+        await _backend(client).start(_cfg())
+    # The env the open created was closed again: open → close, and
+    # nothing else (no entry page, no proxy).
+    assert client.events == ['ensure_running', 'open', 'close']
+    _mocked_proxy.return_value.start.assert_not_called()
+
+
+class _FailingCloseClient(_RecordingClient):
+    """A vendor whose close call itself fails (client already gone)."""
+
+    async def close_store(self, ref: str) -> None:
+        self.events.append('close')
+        raise RuntimeError('vendor close failed')
+
+
+async def test_cdp_unreachable_is_never_masked_by_a_failed_close(
+    cdp_version_port, tmp_path, _mocked_proxy
+):
+    """The cleanup is best-effort: a close_store that itself fails is
+    logged and swallowed — the caller still sees the ORIGINAL
+    CdpUnreachable, never the cleanup error."""
+    client = _FailingCloseClient(cdp_port=cdp_version_port)
+    with (
+        pytest.raises(errors_mod.CdpUnreachable),
+        mock.patch.object(
+            InjectCdpBackend,
+            '_cdp_version',
+            new=mock.AsyncMock(return_value=None),
+        ),
+        mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
+    ):
+        await _backend(client).start(_cfg())
+    # The close was ATTEMPTED (and its failure swallowed): the original
+    # error is what surfaced above.
+    assert client.events == ['ensure_running', 'open', 'close']
+
+
+class _FailingAfterOpenClient(_RecordingClient):
+    """A vendor whose entry step dies (the intermediate page changed)."""
+
+    async def after_open(self, opened: OpenedStore) -> None:
+        self.events.append('after_open')
+        raise RuntimeError('entry page click failed')
+
+
+async def test_after_open_failure_closes_the_env(
+    cdp_version_port, tmp_path, _mocked_proxy
+):
+    """The cleanup is one funnel, not a per-branch patch: ANY post-open
+    failure — here the vendor's entry step — closes the env and
+    re-raises the original error."""
+    client = _FailingAfterOpenClient(cdp_port=cdp_version_port)
+    cdp_probe = mock.AsyncMock(return_value={'Browser': 'Chrome/135.0.0.0'})
+    with (
+        pytest.raises(RuntimeError, match='entry page click failed'),
+        mock.patch.object(InjectCdpBackend, '_cdp_version', new=cdp_probe),
+        mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
+    ):
+        await _backend(client).start(_cfg())
+    assert client.events == [
+        'ensure_running',
+        'open',
+        'after_open',
+        'close',
+    ]
+    _mocked_proxy.return_value.start.assert_not_called()
+
+
+class _HangingAfterOpenClient(_RecordingClient):
+    """A vendor entry step that never finishes on its own (slow page)."""
+
+    def __init__(self, cdp_port: int):
+        super().__init__(cdp_port=cdp_port)
+        self.entered = asyncio.Event()
+
+    async def after_open(self, opened: OpenedStore) -> None:
+        self.events.append('after_open')
+        self.entered.set()
+        await asyncio.Event().wait()  # never completes
+
+
+async def test_a_cancelled_start_still_closes_the_env(
+    cdp_version_port, tmp_path, _mocked_proxy
+):
+    """Cancellation is a post-open failure like any other (review R1-1):
+    a task stop or a server shutdown lands mid-entry-step — the env the
+    open created is closed, and the CancelledError still propagates.
+    The cleanup stays best-effort: a second cancel during it would
+    simply end it."""
+    client = _HangingAfterOpenClient(cdp_version_port)
+    backend = _backend(client)
+    cdp_probe = mock.AsyncMock(return_value={'Browser': 'Chrome/135.0.0.0'})
+    with (
+        mock.patch.object(InjectCdpBackend, '_cdp_version', new=cdp_probe),
+        mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
+    ):
+        task = asyncio.create_task(backend.start(_cfg()))
+        await client.entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert client.events == [
+        'ensure_running',
+        'open',
+        'after_open',
+        'close',
+    ]
+    _mocked_proxy.return_value.start.assert_not_called()
+
+
+async def test_proxy_start_failure_stops_the_half_started_proxy(
+    cdp_version_port, tmp_path, _mocked_proxy
+):
+    """The proxy arm of the funnel (review R1-2): a proxy that fails to
+    start (its port taken) is stopped, the env is closed, and the
+    ORIGINAL error propagates."""
+    client = _RecordingClient(cdp_port=cdp_version_port)
+    _mocked_proxy.return_value.start = mock.AsyncMock(
+        side_effect=OSError('proxy port taken')
+    )
+    cdp_probe = mock.AsyncMock(return_value={'Browser': 'Chrome/135.0.0.0'})
+    with (
+        pytest.raises(OSError, match='proxy port taken'),
+        mock.patch.object(InjectCdpBackend, '_cdp_version', new=cdp_probe),
+        mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
+    ):
+        await _backend(client).start(_cfg())
+    _mocked_proxy.return_value.stop.assert_awaited_once()
+    assert client.events == ['ensure_running', 'open', 'after_open', 'close']
+
+
 async def test_after_open_default_is_a_no_op(
     cdp_version_port, tmp_path, _mocked_proxy
 ):

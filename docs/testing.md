@@ -146,6 +146,25 @@ What an owned server deliberately takes from the shared install, and why:
   the CLI exists only in the shared home, so without this no agent on an
   owned server can start.
 
+## Parallel test servers: separate CDP port ranges
+
+Two test servers on one machine are safe on any ports (every proxy
+port is bind-before-use with an ownership handshake — see
+docs/browser.md § `manager.py`), but they still walk the same
+preferred range, so a store opened on one can bump the other off its
+preferred port. Give each its own range instead of queueing:
+
+```bash
+VIBE_CDP_PROXY_BASE=9500 ./start.sh 7851   # stores start at 9500
+```
+
+`VIBE_CDP_PROXY_BASE` (1024–65000) applies to store, web and aux proxy
+ports alike; a server never hands out a port below its base. Garbage or
+out-of-range values warn and fall back to the default; unset behaves
+exactly as before. Dev-machine lane conventions: bitbrowser 9400–9419,
+wenmai 9420–9439, yhl 9440–9459, adspower 9460–9479, c2 9480–9499,
+c1 9500+.
+
 ## Stopping a test server
 
 Stop a test/demo/e2e server on a side port with
@@ -304,6 +323,45 @@ Configurable via `FakeAgentScenario` (fields: `plan`, `result`, `todos`, `should
 - `ask_question` — a REAL `AskUserQuestion` (`{'request_id', 'questions'}`), raised right before the result and waited on with the product's own bounded wait (`app.ai.question_wait`): answered → result (`result_from_answer` makes it `Chose: <answer>`); unanswered past `VIBE_QUESTION_ANSWER_TIMEOUT_S` → a `QuestionPark` and a stopped-CLI exit, leaving the WAITING write to the orchestrator; a scheduled fire → declined (`app.ai.question_policy`), result suffixed ` (question declined)`. `ask_again_after_answer`, `park_exit_delay` cover the second-question and answer-vs-park races. Note `wait_for_task(...)` also returns on FAILED — assert the status you waited for.
 
 **Critical rule**: Don't mock away critical pipelines (like `_auto_run_task`) — use FakeAgent instead.
+
+## The fake start vendor fixture
+
+`tests/e2e/fixtures/fake_start_vendor/` is a tiny installable package
+(test-only, never shipped) that registers ONE browser backend,
+`fakestart`, whose `start()` raises the inject-taxonomy error the
+server environment names. It is how the C2 tier-1 e2e
+(`tests/e2e/test_browser_start_failure_mock.py`) and the banner repros
+drive a full server into any terminal browser-start failure state
+without a real vendor client.
+
+- **Install**: `uv pip install -e tests/e2e/fixtures/fake_start_vendor`
+  — the e2e-mock-cli CI job does this in its dependency step. The
+  package registers through the real `vibe_seller.plugins` entry-point
+  group, so no shared code names it.
+- **`FAKE_START_VENDOR=1`** on the SERVER env opts the backend in
+  (without it the package sits installed and invisible — verified by
+  the registry staying unchanged). The CI mock server sets it.
+- **`FAKE_START_VENDOR_CODE`** picks the raised code (default
+  `UNSUPPORTED_KERNEL`; any taxonomy code, or `OK` for a clean start);
+  `FAKE_START_VENDOR_MESSAGE` overrides the message.
+- **`MOCK_SERVER_LOG`** points a test at the server's stdout log, so
+  it can assert server-log lines (the tier-1 test asserts the
+  `terminal browser-start failure` marker). CI sets it to
+  `logs/mock_server_stdout.log`.
+- The mock-CLI marker **`[[MOCK_STORE_BROWSER]]`** in a task's title
+  or description makes `tests/e2e/mock_cli.py` EXECUTE the store's
+  browser-use wrapper for real (a mock launch skips
+  `build_launch_artifacts`, which is what puts the wrapper on a real
+  CLI's PATH — the marker's resolver falls back to the newest wrapper
+  under the server's vibe home's `bin/`, resolving that home exactly
+  like the server does: `$VIBE_HOME`, else the default
+  `~/.vibe-seller`, because the server never writes the variable back
+  into the child's environment) and then carry on with follow-up
+  work, proving whether the agent was stopped mid-call.
+
+Remember `BACKEND_PORT`: a server not started by `start.sh` must
+export it (see the rule in the lane docs), or the wrapper's start
+callbacks target 7777.
 
 ## Fake Anthropic server
 

@@ -7,6 +7,7 @@ Covers all failure modes where Ziniao/CDP state gets out of sync:
 """
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import json
 import socket
 import threading
 from unittest import mock
@@ -41,13 +42,29 @@ def _unused_port() -> int:
 
 
 class _OkHandler(BaseHTTPRequestHandler):
-    """Returns 200 for /json/version."""
+    """Answers like this manager's own CDPMuxProxy would.
+
+    Since PR C1 a "healthy" proxy is not enough — the manager's
+    liveness check is an OWNERSHIP check, so the fake must serve
+    /vibe/instance with the probing manager's instance id (set on the
+    class before the server starts) to read as alive-and-ours.
+    """
+
+    instance_id = ''
+
+    def _json(self, payload: dict):
+        body = json.dumps(payload).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-Length', '2')
-        self.end_headers()
-        self.wfile.write(b'{}')
+        if self.path.split('?', 1)[0] == '/vibe/instance':
+            self._json({'instance': self.instance_id})
+            return
+        self._json({})
 
     def log_message(self, *a):
         pass
@@ -85,18 +102,36 @@ class TestCdpAlive:
     @pytest.mark.asyncio
     async def test_false_for_dead_port(self):
         """Port with nothing listening → False."""
+        mgr = BrowserManager()
         port = _unused_port()
-        assert await BrowserManager._cdp_alive(port) is False
+        assert await mgr._cdp_alive(port) is False
 
     @pytest.mark.asyncio
-    async def test_true_for_live_port(self):
-        """HTTP server returning 200 → True."""
+    async def test_true_for_live_own_proxy(self):
+        """A listener answering /vibe/instance with OUR id → True."""
+        mgr = BrowserManager()
+        _OkHandler.instance_id = mgr.instance_id
         server = HTTPServer(('127.0.0.1', 0), _OkHandler)
         port = server.server_address[1]
         t = threading.Thread(target=server.serve_forever, daemon=True)
         t.start()
         try:
-            assert await BrowserManager._cdp_alive(port) is True
+            assert await mgr._cdp_alive(port) is True
+        finally:
+            server.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_false_for_a_foreign_listener(self):
+        """A healthy listener of ANOTHER instance is not ours to reuse —
+        the cross-attach bug this check exists for."""
+        mgr = BrowserManager()
+        _OkHandler.instance_id = 'some-other-server'
+        server = HTTPServer(('127.0.0.1', 0), _OkHandler)
+        port = server.server_address[1]
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        try:
+            assert await mgr._cdp_alive(port) is False
         finally:
             server.shutdown()
 
@@ -161,7 +196,7 @@ class TestStartSessionDetectsDeadCdp:
         dead_port = _unused_port()
 
         mgr._active_sessions[store.id] = BrowserSessionInfo()
-        mgr._proxy_ports[store.id] = dead_port
+        mgr.ports.ports[store.id] = dead_port
 
         fake_session = _make_fake_session()
         fake_db = mock.AsyncMock()
@@ -198,17 +233,19 @@ class TestStartSessionDetectsDeadCdp:
 
     @pytest.mark.asyncio
     async def test_live_cdp_reuses_session(self):
-        """Session 'running' and CDP alive → no restart."""
+        """Session 'running' and CDP alive (OUR instance answering) →
+        no restart."""
         mgr = BrowserManager()
         store = _make_fake_store()
 
+        _OkHandler.instance_id = mgr.instance_id
         server = HTTPServer(('127.0.0.1', 0), _OkHandler)
         port = server.server_address[1]
         t = threading.Thread(target=server.serve_forever, daemon=True)
         t.start()
 
         mgr._active_sessions[store.id] = BrowserSessionInfo()
-        mgr._proxy_ports[store.id] = port
+        mgr.ports.ports[store.id] = port
 
         fake_session = _make_fake_session()
         fake_db = mock.AsyncMock()
@@ -280,7 +317,7 @@ class TestDeadCdpCleanupToleratesStopError:
         dead_port = _unused_port()
 
         mgr._active_sessions[store.id] = BrowserSessionInfo()
-        mgr._proxy_ports[store.id] = dead_port
+        mgr.ports.ports[store.id] = dead_port
 
         bad_backend = mock.AsyncMock()
         bad_backend.stop = mock.AsyncMock(
