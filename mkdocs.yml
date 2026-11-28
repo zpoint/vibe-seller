@@ -126,9 +126,10 @@ plugins:
             Schedules: 定时任务
             Knowledge & Skills: 知识库与 Skill
             FAQ: 常见问题
-            "Ziniao: Setup & Common Errors": 紫鸟：开通与常见报错
+            "Ziniao: Setup Guide": 紫鸟：配置指南
             "Yuehulian: Setup Guide": 悦互联：配置指南
             "AdsPower: Setup Guide": AdsPower：配置指南
+            "Wenmai: Setup Guide": 稳卖：配置指南
             Cost & Model Choice: 费用与模型选择
             Login & Accounts: 登录与账号
             Deployment & Data: 部署与数据
@@ -206,7 +207,7 @@ nav:
       - Browsers:
           - Browsers Overview: browsers.md
           - Store Browser & Auxiliary Browser: store-and-aux-browser.md
-          - "Ziniao: Setup & Common Errors": ziniao.md
+          - "Ziniao: Setup Guide": ziniao.md
           - "Yuehulian: Setup Guide": yuehulian.md
           - "AdsPower: Setup Guide": adspower.md
           - "Wenmai: Setup Guide": wenmai.md

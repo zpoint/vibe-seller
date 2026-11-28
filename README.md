@@ -3,7 +3,7 @@
 <h1 align="center">Vibe Seller</h1>
 
 <p align="center">
-  <b>跨境卖家的 AI 自动化框架（支持亚马逊、Noon、美客多、千牛等平台，紫鸟、悦互联、比特、AdsPower、稳卖、Chrome 等浏览器），自由接入任意大模型</b><br/>
+  <b>跨境卖家的 AI 自动化框架（支持亚马逊、Noon、美客多、千牛等平台，紫鸟、悦互联、比特浏览器、AdsPower、稳卖、Chrome 等浏览器），自由接入任意大模型</b><br/>
   支持 macOS、Linux、Windows（原生安装包）· 全程本地部署，代码和数据都在你自己机器上 · 兼容 Claude / DeepSeek / GLM / Qwen / Kimi / MiniMax 等主流模型
 </p>
 
@@ -65,7 +65,7 @@ flowchart LR
 相比常见的自动化工具，Vibe Seller 更贴近卖家的实际工作方式，也更贴近当前 AI 真正能做好的水平：从设计上就由 AI 驱动，内置 Skill，多店铺隔离，全程本地部署。浏览器操作基于 [browser-use](https://github.com/browser-use/browser-use)，而不是靠截图猜坐标——比让 AI 从零摸索页面快得多，也省 token 得多。
 
 - **开箱即用，无需引导**——亚马逊（全站点）、Noon 等平台内置 Skill，覆盖卖家真正需要的操作：报表与对账单导出、Listing 上架与更新、广告调优。创建任务后，系统自动打开这家店的浏览器，AI 直接上手操作，通常一次就能完成，不需要逐步引导。
-- **不挑浏览器**——**紫鸟、悦互联、比特、AdsPower、稳卖**等防关联浏览器和**普通 Chrome** 都是一等公民，可以按店铺分别选择。AI 通过 CDP 直接控制浏览器里已登录的店铺环境，不是用 Playwright 驱动裸 Chrome，也不是按界面坐标点击，因此风控风险低、运行稳定。各自的下载、配置与选型见 [浏览器](https://docs.vibe-sellers.com/browsers/)。
+- **不挑浏览器**——**紫鸟、悦互联、比特浏览器、AdsPower、稳卖**等防关联浏览器和**普通 Chrome** 都是一等公民，可以按店铺分别选择。AI 通过 CDP 直接控制浏览器里已登录的店铺环境，不是用 Playwright 驱动裸 Chrome，也不是按界面坐标点击，因此风控风险低、运行稳定。各自的下载、配置与选型见 [浏览器](https://docs.vibe-sellers.com/browsers/)。
 - **模型可自由切换**——底层使用 Claude Code CLI，凡是兼容 Anthropic 协议的供应商都能接入：**Claude、DeepSeek、Kimi、MiniMax、智谱 GLM、通义千问**。在设置里切换即可，不需要改代码；API Key 由你自己充值。
 - **没有 SaaS 绑定**——代码在你机器上，数据在你硬盘里，不需要注册账号。
 - **可审计**——每一步操作、每条 Prompt、每张截图都有日志，可以回放，出了问题能追溯原因。
@@ -90,7 +90,7 @@ vibe-seller start
 装好之后三步跑通第一个任务，图文步骤见 [快速开始](https://docs.vibe-sellers.com/quickstart/)：
 
 1. **配置 AI**：进入<kbd>设置 › AI</kbd>，点<kbd>添加模型</kbd>，选服务商、粘贴 API 密钥，点<kbd>创建</kbd>。还没有 Key？第一次用推荐 DeepSeek，各家怎么申请见 [配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/)；
-2. **新建店铺**：点<kbd>+ 新建店铺</kbd>，店铺用的是紫鸟、悦互联、比特、AdsPower 或稳卖，就选对应的浏览器；都没有就选 Chrome。用紫鸟的话，先让主账号开通权限，见 [紫鸟：开通前提](https://docs.vibe-sellers.com/ziniao/#开通前提开发者模式与-webdriver-登录)；
+2. **新建店铺**：点<kbd>+ 新建店铺</kbd>，店铺用的是紫鸟、悦互联、比特浏览器、AdsPower 或稳卖，就选对应的浏览器；都没有就选 Chrome。用紫鸟的话，先让主账号开通权限，见 [紫鸟：开通前提](https://docs.vibe-sellers.com/ziniao/#开通前提开发者模式与-webdriver-登录)；
 3. **创建任务**：选中店铺，点<kbd>+ 新建任务</kbd>，用一句话写清要做的事，比如“导出过去 7 天的销售报表”，点<kbd>创建并运行</kbd>。
 
 ## 能干什么
@@ -119,7 +119,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 | | |
 |---|---|
 | **入门** | [安装](https://docs.vibe-sellers.com/install/) · [快速开始](https://docs.vibe-sellers.com/quickstart/) · [配置 AI 模型](https://docs.vibe-sellers.com/llm-keys/) · [核心概念](https://docs.vibe-sellers.com/concepts/) |
-| **浏览器** | [浏览器总览](https://docs.vibe-sellers.com/browsers/) · [店铺浏览器与辅助浏览器](https://docs.vibe-sellers.com/store-and-aux-browser/) · [紫鸟：开通与常见报错](https://docs.vibe-sellers.com/ziniao/) · [悦互联：配置指南](https://docs.vibe-sellers.com/yuehulian/) |
+| **浏览器** | [浏览器总览](https://docs.vibe-sellers.com/browsers/) · [店铺浏览器与辅助浏览器](https://docs.vibe-sellers.com/store-and-aux-browser/) · [紫鸟：配置指南](https://docs.vibe-sellers.com/ziniao/) · [悦互联：配置指南](https://docs.vibe-sellers.com/yuehulian/) · [AdsPower：配置指南](https://docs.vibe-sellers.com/adspower/) · [稳卖：配置指南](https://docs.vibe-sellers.com/wenmai/) |
 | **集成** | [集成总览](https://docs.vibe-sellers.com/integrations/) · [MCP 接入](https://docs.vibe-sellers.com/mcp/) · [广告 API 绑定](https://docs.vibe-sellers.com/ads-api/) · [邮件](https://docs.vibe-sellers.com/email/) · [群机器人](https://docs.vibe-sellers.com/chat-bots/) · [企业微信 / 飞书 / 钉钉](https://docs.vibe-sellers.com/workplace-cli/) · [滴答清单 / TickTick](https://docs.vibe-sellers.com/ticktick/) · [Google Workspace](https://docs.vibe-sellers.com/google-workspace/) |
 | **使用示例** | [全部示例](https://docs.vibe-sellers.com/examples/) · [每天把重要邮件发到企业微信](https://docs.vibe-sellers.com/example-email-wecom/) · [分析广告 ACOS 并执行优化](https://docs.vibe-sellers.com/example-ads-acos/) · [每周巡检 Listing](https://docs.vibe-sellers.com/example-listing-check/) · [每月导出销售报表](https://docs.vibe-sellers.com/example-daily-report/) · [用 Codex 导出紫鸟店铺财务数据进行分析](https://docs.vibe-sellers.com/example-mcp/) |
 | **使用指南** | [店铺与浏览器](https://docs.vibe-sellers.com/stores/) · [任务](https://docs.vibe-sellers.com/using-tasks/) · [定时任务](https://docs.vibe-sellers.com/schedules/) · [知识库与 Skill](https://docs.vibe-sellers.com/knowledge/) |
@@ -147,7 +147,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 ## 支持的平台
 
 国内外的电商平台——亚马逊、Noon、美客多、千牛（淘宝 / 天猫）、速卖通、Shopee、TikTok Shop……
-**只要能在浏览器里操作，Vibe Seller 就能用。** 它本质上是 **AI + 店铺浏览器（紫鸟、悦互联、比特、AdsPower、稳卖等防关联
+**只要能在浏览器里操作，Vibe Seller 就能用。** 它本质上是 **AI + 店铺浏览器（紫鸟、悦互联、比特浏览器、AdsPower、稳卖等防关联
 浏览器，或普通 Chrome）+ 内置工具**：AI 像你一样打开店铺的后台和前台，点击、查看、填写、下载。
 
 亚马逊和 Noon 的内置工具最多：

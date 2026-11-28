@@ -1,8 +1,10 @@
 ---
-description: 紫鸟接入 Vibe Seller 的一页说明：开通前提（开发者模式与 WebDriver 登录）、绑定时要填什么、两条常见报错怎么处理、WSL 的启动器步骤，以及凭据存在哪里。
+description: 紫鸟接入 Vibe Seller 的一页说明：开通前提（开发者模式与 WebDriver 登录）、绑定时要填什么、WSL 的启动器步骤，以及常见提示 / 报错（含凭据存在哪里）。
 ---
 
-# 紫鸟：开通与常见报错
+<a id="紫鸟配置指南"></a>
+
+# 紫鸟：配置指南 {#紫鸟开通与常见报错}
 
 紫鸟是第三方防关联浏览器，Vibe Seller 通过它的开发者模式（WebDriver）以 CDP 直接控制它，不同紫鸟账号之间的浏览器指纹互相隔离，适合平台风控严格的店铺。第一次接入紫鸟，需要主账号（BOSS 账号）在紫鸟一侧做两步一次性开通。
 
@@ -13,7 +15,7 @@ description: 紫鸟接入 Vibe Seller 的一页说明：开通前提（开发者
 **怎么看这一页：**
 
 - **第一次接入**：先看 [开通前提](#开通前提开发者模式与-webdriver-登录)，让主账号开通两项权限；再看 [绑定时要填什么](#绑定时要填什么) 和 [选择紫鸟账号时会重新打开紫鸟](#选择紫鸟账号时会重新打开紫鸟)，然后去新建店铺。
-- **绑定时报错**：按提示文字找对应的一节——[「无权限通过 webdriver 登录」](#报错无权限通过-webdriver-登录)、[「检测到您在新终端登录」](#报错检测到您在新终端登录)。
+- **绑定时报错**：按提示文字到底部 [常见提示 / 报错](#常见提示--报错) 里对号入座——[「无权限通过 webdriver 登录」](#报错无权限通过-webdriver-登录)、[「检测到您在新终端登录」](#报错检测到您在新终端登录)。
 - **Vibe Seller 装在 WSL 里**：再看 [让紫鸟进入开发者模式（ziniao_webdriver.bat）](#windowswsl让紫鸟进入开发者模式ziniao_webdriverbat)。
 - 其余几节（装在哪个目录、凭据存在哪里）是细节，用到时再看。
 
@@ -57,28 +59,6 @@ description: 紫鸟接入 Vibe Seller 的一页说明：开通前提（开发者
 
 重新打开通常需要几秒到一两分钟，页面会显示已等待的时间，完成后店铺列表自动出现。紫鸟已经在开发者模式下运行时不会重启。WSL 上 Vibe Seller 不会自动关闭紫鸟，按[启动器步骤](#windowswsl让紫鸟进入开发者模式ziniao_webdriverbat)操作。
 
-## 报错：「无权限通过 webdriver 登录」
-
-原因是主账号（BOSS）还没有给子账号开通 WebDriver 登录权限。按照[紫鸟官方指南](https://open.ziniao.com/docSupport?docId=99#%E7%AC%AC%E4%B8%80%E6%AD%A5%EF%BC%9A%E7%99%BB%E5%BD%95%E5%BC%80%E6%94%BE%E5%B9%B3%E5%8F%B0%E6%8E%A7%E5%88%B6%E5%8F%B00)，在开放平台控制台里勾选 WebDriver 登录选项：
-
-![紫鸟开放平台——勾选 WebDriver 登录](images/ziniao_webdriver_login.png)
-
-只需要主账号操作一次。保存后子账号就能通过 WebDriver 登录，回到 Vibe Seller 点击「刷新」即可绑上店铺。
-
-界面上对应的提示是紫鸟返回的原文（例如「无权限通过webdriver登录」），没有原文时是「此账号未开通 WebDriver 权限。」和「需要由 BOSS 主账号在开发者控制台中开启 WebDriver。」。提示下方有「查看解决办法」链接，打开的就是这一节；旁边的「如何开通 WebDriver」按钮直接打开上面那份紫鸟官方指南。
-
-## 报错：「检测到您在新终端登录」
-
-这是紫鸟的新设备检测：这个账号第一次在这台电脑上登录，紫鸟要求先人工批准一次。照下面做：
-
-1. **退出紫鸟**：在任务栏（Mac 是菜单栏 / 程序坞）右键紫鸟图标，选择退出；
-2. **自己双击打开紫鸟**：这样打开的是平时手动用的紫鸟，而不是 Vibe Seller 启动的那个；
-3. **手动登录同一个账号**：紫鸟会提示这是新设备，按提示提交审批；
-4. **让主账号（BOSS）批准**：在紫鸟后台把这台设备批准；
-5. **确认能正常登录**后，回到 Vibe Seller 点「刷新」。
-
-之后这台电脑就被紫鸟信任了，不会再出现这个提示。
-
 ## WSL：让紫鸟进入开发者模式（ziniao_webdriver.bat） {#windowswsl让紫鸟进入开发者模式ziniao_webdriverbat}
 
 紫鸟装在 Windows 一侧，Vibe Seller 运行在 WSL 里。WSL 无法跨越虚拟机边界重启 Windows 上的紫鸟，因此需要在 Windows 侧使用启动器：
@@ -91,7 +71,35 @@ description: 紫鸟接入 Vibe Seller 的一页说明：开通前提（开发者
 
 任务开始执行时，如果紫鸟还没有就绪，报错文案是「紫鸟未运行，请在 Windows 上下载并运行 ziniao_webdriver.bat，然后重试。」。紫鸟开着但不是开发者模式时，Vibe Seller 会自动帮你关掉它，但 WSL 这一侧没法重新打开，需要你再双击一次 `.bat`。完整的 Windows + WSL2 部署（含这个后端）见 [Windows 部署指南](windows-setup.md)。
 
-## 装在哪个目录都能找到（Windows）
+## 常见提示 / 报错
+
+<details markdown="1" id="报错无权限通过-webdriver-登录"><summary><b>报错：「无权限通过 webdriver 登录」</b></summary>
+
+原因是主账号（BOSS）还没有给子账号开通 WebDriver 登录权限。按照[紫鸟官方指南](https://open.ziniao.com/docSupport?docId=99#%E7%AC%AC%E4%B8%80%E6%AD%A5%EF%BC%9A%E7%99%BB%E5%BD%95%E5%BC%80%E6%94%BE%E5%B9%B3%E5%8F%B0%E6%8E%A7%E5%88%B6%E5%8F%B00)，在开放平台控制台里勾选 WebDriver 登录选项：
+
+![紫鸟开放平台——勾选 WebDriver 登录](images/ziniao_webdriver_login.png)
+
+只需要主账号操作一次。保存后子账号就能通过 WebDriver 登录，回到 Vibe Seller 点击「刷新」即可绑上店铺。
+
+界面上对应的提示是紫鸟返回的原文（例如「无权限通过webdriver登录」），没有原文时是「此账号未开通 WebDriver 权限。」和「需要由 BOSS 主账号在开发者控制台中开启 WebDriver。」。提示下方有「查看解决办法」链接，打开的就是这一节；旁边的「如何开通 WebDriver」按钮直接打开上面那份紫鸟官方指南。
+
+</details>
+
+<details markdown="1" id="报错检测到您在新终端登录"><summary><b>报错：「检测到您在新终端登录」</b></summary>
+
+这是紫鸟的新设备检测：这个账号第一次在这台电脑上登录，紫鸟要求先人工批准一次。照下面做：
+
+1. **退出紫鸟**：在任务栏（Mac 是菜单栏 / 程序坞）右键紫鸟图标，选择退出；
+2. **自己双击打开紫鸟**：这样打开的是平时手动用的紫鸟，而不是 Vibe Seller 启动的那个；
+3. **手动登录同一个账号**：紫鸟会提示这是新设备，按提示提交审批；
+4. **让主账号（BOSS）批准**：在紫鸟后台把这台设备批准；
+5. **确认能正常登录**后，回到 Vibe Seller 点「刷新」。
+
+之后这台电脑就被紫鸟信任了，不会再出现这个提示。
+
+</details>
+
+<details markdown="1" id="装在哪个目录都能找到windows"><summary><b>装在哪个目录都能找到（Windows）</b></summary>
 
 Windows 上 Vibe Seller 需要拿到 `ziniao.exe` 的完整路径才能带参启动它。默认装在 `C:\Program Files\ziniao` 自然没问题；装到别处（比如 `D:\紫鸟\ziniao`、带空格或中文的目录、其他盘）也一样能找到——查找顺序是：
 
@@ -102,7 +110,9 @@ Windows 上 Vibe Seller 需要拿到 `ziniao.exe` 的完整路径才能带参启
 
 以上每一项都会校验找到的确实是 `ziniao.exe`（绝不会把卸载器当成客户端）。如果全都找不到，报错会列出搜索过的位置；此时**手动从快捷方式打开一次紫鸟再重试**（下次启动会记下它的安装位置），或者重装到默认目录。
 
-## 凭据存在哪里
+</details>
+
+<details markdown="1" id="凭据存在哪里"><summary><b>凭据存在哪里</b></summary>
 
 全部保存在你本地的 `~/.vibe-seller/data/vibe_seller.db`（SQLite）里。不会上传，遥测通道也不会带走。
 
@@ -111,3 +121,13 @@ Windows 上 Vibe Seller 需要拿到 `ziniao.exe` 的完整路径才能带参启
 - 如果以后看到「无法解密已保存的密码…」（例如数据库被复制到了另一台机器），在「编辑紫鸟账号」里重新输入一遍密码即可。
 
 想看具体加密实现可以查阅 [开发者指南](dev-guide.md)。
+
+</details>
+
+| 界面提示 | 含义 / 怎么办 |
+|---|---|
+| 此账号未开通 WebDriver 权限。 | 主账号还没给子账号开通 WebDriver 登录。见上面[「无权限通过 webdriver 登录」](#报错无权限通过-webdriver-登录)。 |
+| 系统检测到您在新终端登录，请人工打开紫鸟进行登录验证后回到本系统重试。 | 紫鸟的新设备检测，需要人工批准一次。见上面[「检测到您在新终端登录」](#报错检测到您在新终端登录)。 |
+| 紫鸟未运行或未处于 WebDriver 模式。 | WSL 上需要运行启动器。见上面 [WSL：让紫鸟进入开发者模式](#windowswsl让紫鸟进入开发者模式ziniao_webdriverbat)。 |
+| 紫鸟未运行，请在 Windows 上下载并运行 ziniao_webdriver.bat，然后重试。 | 同上：双击运行 `ziniao_webdriver.bat` 后重试。 |
+| 无法启动紫鸟，请在 Windows 上下载并运行 ziniao_webdriver.bat。 | 同上。 |
