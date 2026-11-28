@@ -1,12 +1,12 @@
 ---
-description: Stores and browsers — what a store is, how to create one, how to pick between Ziniao and Chrome, and how a store's browser keeps its logins. Ziniao setup and errors have their own page.
+description: Stores and browsers — what a store is, how to create one, how to choose a browser backend, and how a store's browser keeps its logins. Each browser has its own setup guide.
 ---
 
 # Stores & Browsers
 
 A store is Vibe Seller's smallest unit of work: **one shop on one platform**. Each store brings its own browser, its own memory and its own mailbox links — the AI working in store A can't see anything belonging to store B, and it can never share a login across them.
 
-Using Ziniao? Read [Ziniao: Setup & Common Errors](ziniao.en.md) first. Using Yuehulian? Read [Yuehulian: Setup Guide](yuehulian.en.md) first.
+For backend choices and setup, see [Browsers Overview](browsers.en.md) and [Per-browser setup guides](browsers.en.md#per-browser-setup-guides).
 
 ## What belongs to a store
 
