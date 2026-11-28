@@ -71,25 +71,26 @@ afterEach(() => {
 })
 
 describe('create-store setup guides', () => {
-  it('shows the selected browser guide and switches it with the backend', async () => {
+  it('shows setup guides only for anti-detect backends and switches them with the vendor', async () => {
     const picker = await openStoreForm()
-    const guide = screen.getByTestId('docs-help-link') as HTMLAnchorElement
-    expect(guide.textContent).toContain(en.settings.browserSetupGuide)
-    expect(guide.href).toBe(new URL(VENDORS[0].docs.setup.en).href)
+    expect(screen.queryByTestId('docs-help-link')).toBeNull()
 
     fireEvent.change(picker, { target: { value: 'ziniao' } })
+    const guide = screen.getByTestId('docs-help-link') as HTMLAnchorElement
+    expect(guide.textContent).toContain(en.settings.browserSetupGuide)
     expect(guide.href).toBe(new URL(VENDORS[1].docs.setup.en).href)
     fireEvent.change(picker, { target: { value: 'wenmai' } })
     expect(guide.href).toBe(new URL(VENDORS[2].docs.setup.en).href)
   })
 
   it('uses the Chinese guide label and URL after switching the UI language', async () => {
-    await openStoreForm()
+    const picker = await openStoreForm()
+    fireEvent.change(picker, { target: { value: 'ziniao' } })
     fireEvent.click(screen.getByRole('button', { name: '中文' }))
     const guide = screen.getByTestId('docs-help-link') as HTMLAnchorElement
     await waitFor(() => {
       expect(guide.textContent).toContain(zh.settings.browserSetupGuide)
-      expect(guide.href).toBe(new URL(VENDORS[0].docs.setup.zh).href)
+      expect(guide.href).toBe(new URL(VENDORS[1].docs.setup.zh).href)
     })
   })
 
