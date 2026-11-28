@@ -15,7 +15,9 @@ description: AdsPower 接入 Vibe Seller 的一页说明：下载安装、API �
 1. 打开 <https://www.adspower.net/download>，下载你电脑系统对应的客户端（Windows 或 macOS，AdsPower Global）并安装。装在哪个目录都可以，Vibe Seller 会自己找到；实在找不到时你可以在设置里手动指定安装位置。
 2. 安装后至少手动启动并登录一次，确认账号正常、能看到你的环境列表。
 
-AdsPower 客户端没开时，Vibe Seller 会自动打开它；客户端没登录时，任务会提示你先在客户端里登录（见[AdsPower 客户端需要登录](#adspower-客户端需要登录)）。请保持这台电脑的防火墙开启。
+AdsPower 客户端没开时，Vibe Seller 会自动打开它；客户端没登录时，任务会提示你先在客户端里登录（见[AdsPower 客户端需要登录](#adspower-客户端需要登录)）。
+
+!!! tip "请保持这台电脑的防火墙开启。"
 
 ## 付费套餐与 API 权限
 
@@ -102,9 +104,10 @@ API Key 必须和 AdsPower 客户端里登录的账号对应：一台机器同�
 <details>
 <summary>凭据存在哪里？</summary>
 
-API Key 保存在你本地的 `~/.vibe-seller/data/vibe_seller.db`（SQLite），加密存储（Fernet），密钥从本机安装派生；接口不会把 Key 明文返回给前端。因为是机器级的（一个 AdsPower 登录），所有 AdsPower 店铺共用这一个 Key。想看具体加密实现见 [开发者指南](dev-guide.md)。
+API Key 保存在你本地的 `~/.vibe-seller/data/vibe_seller.db`（SQLite），加密存储，密钥从本机安装派生；接口不会把 Key 明文返回给前端。因为是机器级的（一个 AdsPower 登录），所有 AdsPower 店铺共用这一个 Key。想看具体加密实现见 [开发者指南](dev-guide.md)。
 
-另外注意：**AdsPower 自己会把 API Key 明文写进它的日志文件**（在本机的 `%APPDATA%\adspower_global` 目录下）。如果这台电脑多人使用，请把该目录当作敏感文件对待；必要时在「API & MCP」里重置 Key。
+!!! warning "AdsPower 会把 API Key 写进它的日志"
+    AdsPower 自己会把 API Key 明文写进它的日志文件（在本机的 `%APPDATA%\adspower_global` 目录下）。如果这台电脑多人使用，请把该目录当作敏感文件对待；必要时在「API & MCP」里重置 Key。
 
 </details>
 
@@ -118,4 +121,4 @@ API Key 保存在你本地的 `~/.vibe-seller/data/vibe_seller.db`（SQLite）�
 | AdsPower 正在下载浏览器内核，下载完再试一次。 | 第一次用某个内核版本，AdsPower 在下载。等一会重试。 |
 | AdsPower 的接口用不了：团队成员需要管理员在团队设置里开通 API 权限。请检查后再点刷新。 | 接口被拒（原文会带上 AdsPower 的消息）。一般是权限或套餐问题。 |
 | 没找到 AdsPower：请先安装并打开 AdsPower；如果装在别的位置，请在设置里选一下它的安装位置，然后点刷新。 | 没安装，或装在找不到的位置。 |
-| 这个浏览器不支持当前系统。 | AdsPower 后端在 Windows、macOS 和 WSL-on-Windows 可用。 |
+| 这个浏览器不支持当前系统。 | AdsPower 后端支持 Windows、macOS，也支持 WSL。 |

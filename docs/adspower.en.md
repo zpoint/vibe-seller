@@ -9,7 +9,7 @@ store is bound, Vibe Seller drives it through AdsPower's
 own local API and uses it to open your profiles for tasks; you don't
 need to operate the client by hand.
 
-**The AdsPower backend works on Windows and macOS (WSL is also supported).**
+**The AdsPower backend supports Windows and macOS; WSL is also supported.**
 
 Not using AdsPower? Skip this page. Vibe Seller supports other
 browsers too; see [Browsers](browsers.md).
@@ -27,7 +27,7 @@ When the AdsPower client is not running, Vibe Seller opens it
 automatically; when it is not signed in, the task tells you to sign in
 in the client first (see
 ["The AdsPower client needs you to sign in"](#the-adspower-client-needs-you-to-sign-in)).
-Keep this computer's firewall on.
+!!! tip "Keep this computer's firewall on."
 
 ## Paid plan and API permission
 
@@ -152,15 +152,16 @@ by the task as-is, never closed.
 <summary>Where are credentials stored?</summary>
 
 The API key is stored in your local `~/.vibe-seller/data/vibe_seller.db`
-(SQLite), Fernet-encrypted with a key derived from this machine's
+(SQLite), encrypted with a key derived from this machine's
 installation; the API never returns it in plaintext. It is
 machine-level (one AdsPower login), shared by every AdsPower store.
 See the [developer guide](dev-guide.md) for the encryption details.
 
-Also note: **AdsPower itself writes the API key into its own log
-files** (under `%APPDATA%\adspower_global` on this machine). If the
-computer is shared, treat that folder as sensitive and reset the key
-under "API & MCP" when needed.
+!!! warning "AdsPower writes the API key into its logs"
+    AdsPower itself writes the API key into its own log files (under
+    `%APPDATA%\adspower_global` on this machine). If the computer is
+    shared, treat that folder as sensitive and reset the key under
+    "API & MCP" when needed.
 
 </details>
 
@@ -174,4 +175,4 @@ under "API & MCP" when needed.
 | AdsPower is downloading the browser kernel; retry once it finishes. | First use of a kernel version; AdsPower is downloading it. Wait and retry. |
 | AdsPower's API is unavailable: team members need their admin to grant API access in the team settings. Check that, then refresh. | The API refused the call (the vendor text is included). Usually a permission or plan issue. |
 | Could not find AdsPower: install and open it first; if it is installed elsewhere, pick its install location in Settings, then refresh. | Not installed, or installed somewhere undetectable. |
-| This browser doesn't support this system. | The AdsPower backend works on Windows, macOS and WSL-on-Windows. |
+| This browser doesn't support this system. | The AdsPower backend supports Windows and macOS; WSL is also supported. |

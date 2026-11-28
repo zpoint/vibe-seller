@@ -1,5 +1,5 @@
 ---
-description: Yuehulian in Vibe Seller — download and install (Windows / macOS), create a team account, what to fill in when binding, one account per machine, auto-login, Windows and macOS plus WSL, and where credentials are stored.
+description: Yuehulian in Vibe Seller — download and install (Windows / macOS), create a team account, what to fill in when binding, one account per machine, auto-login, the supported platforms, and where credentials are stored.
 ---
 
 # Yuehulian: Setup Guide
@@ -10,7 +10,7 @@ store is bound, Vibe Seller opens and signs in to the Yuehulian client
 itself and uses it to open your stores for tasks; you don't need to
 operate the client by hand.
 
-**The Yuehulian backend supports Windows and macOS, plus WSL.**
+**The Yuehulian backend supports Windows and macOS; WSL is also supported.**
 
 Not using Yuehulian? Skip this page. Vibe Seller supports other browsers too; see [Browsers](browsers.md).
 
