@@ -20,7 +20,11 @@ from app.browser.start_failure import (
     error_body,
     fail_task_for_start_error,
 )
-from app.browser.vendors import CARDINALITY_SINGLE, vendor_spec
+from app.browser.vendors import (
+    CARDINALITY_SINGLE,
+    PROFILES_ACCOUNT,
+    vendor_spec,
+)
 from app.browser.wrapper import remove_browser_use_wrapper
 from app.browser.ziniao_startup import ZiniaoAccountConflictError
 from app.database import get_db
@@ -153,6 +157,38 @@ async def list_stores(
     return [_to_response(s) for s in stores]
 
 
+async def _refuse_duplicate_binding(
+    db: AsyncSession, data: StoreCreate
+) -> None:
+    """One external browser profile maps to at most one local store.
+
+    The caller holds _STORE_NAMES, so the check and insert are serialized
+    with every other create. Account-scoped vendors include that account in
+    the identity; machine-login vendors are scoped by backend alone.
+    """
+    external = (data.browser_oauth or '').strip()
+    if not external:
+        return
+    spec = vendor_spec(data.browser_backend)
+    conditions = [
+        Store.browser_backend == data.browser_backend,
+        Store.browser_oauth == external,
+    ]
+    if spec and spec.profiles_scope == PROFILES_ACCOUNT:
+        conditions.append(Store.ziniao_account_id == data.ziniao_account_id)
+    existing = (
+        await db.execute(select(Store.name).where(*conditions).limit(1))
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f'This browser profile is already bound to store {existing!r}. '
+                'Select a different profile or delete the existing store first.'
+            ),
+        )
+
+
 @router.post('', response_model=StoreResponse)
 async def create_store(
     data: StoreCreate,
@@ -200,6 +236,7 @@ async def create_store(
                 }),
             )
         await _refuse_taken_slug(db, data.name)
+        await _refuse_duplicate_binding(db, data)
         pc = store_platforms.merge_declared(
             {},
             data.platforms or None,
