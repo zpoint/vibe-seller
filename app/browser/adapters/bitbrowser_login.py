@@ -451,8 +451,17 @@ def _mac_main_pid() -> int | None:
         timeout=15,
         check=False,
     ).stdout
+    # The official client has both an English and a Chinese bundle name;
+    # keep matching by bundle path (never by a process's display name).
+    bundle_markers = (
+        'BitBrowser.app/Contents/MacOS',
+        '比特浏览器.app/Contents/MacOS',
+    )
     for line in out.splitlines():
-        if 'BitBrowser.app/Contents/MacOS' in line and '--type=' not in line:
+        if (
+            any(marker in line for marker in bundle_markers)
+            and '--type=' not in line
+        ):
             try:
                 return int(line.strip().split()[0])
             except (ValueError, IndexError):
