@@ -14,7 +14,7 @@ Vibe Seller 通过 CDP（Chrome 底层远程控制协议）驱动**真实浏览�
 |---|---|---|---|---|---|---|
 | Chrome | 系统自带 Chrome / Chromium（Playwright 拉起） | 单店自用、公开网页任务 | macOS / Linux / WSLg | 系统自带，无需安装 | — | [店铺与浏览器 → 新建店铺](stores.md#新建店铺) |
 | 紫鸟 Ziniao | 第三方防关联浏览器（开发者模式 / WebDriver，CDP 驱动） | 一个团队管多账号、平台风控严格 | Windows / macOS / Linux，也支持 WSL | [ziniao.com](https://www.ziniao.com) · [下载](https://www.ziniao.com/download) | 官网注册企业账号 → 主账号在[开放平台](https://open.ziniao.com/docSupport?docId=99)开通开发者模式、给子账号勾选 WebDriver 登录 | [紫鸟配置指南](ziniao.md) |
-| AdsPower | 防关联浏览器（份额前列，本地 API 接入） | 一个团队管多账号 | Windows、macOS，也支持 WSL | [adspower.net](https://www.adspower.net/download) | 付费套餐 + 生成 API Key（API & MCP 页），环境要用 SunBrowser 内核 | [AdsPower配置指南](adspower.md) |
+| AdsPower | 防关联浏览器（本地 API 接入） | 一个团队管多账号 | Windows、macOS，也支持 WSL | [adspower.net](https://www.adspower.net/download) | 付费套餐 + 生成 API Key（API & MCP 页），环境要用 SunBrowser 内核 | [AdsPower配置指南](adspower.md) |
 | 悦互联 YueHuLian | 国产电商防关联浏览器 | 一个团队管多账号 | Windows / macOS / WSL | [kj.chinafic.com](https://kj.chinafic.com/) · 官网「客户端下载」 | 官网注册企业账号 → 控制台开子账号、分配店铺权限（团队登录 = 团队名称 + 子账号 + 密码） | [悦互联配置指南](yuehulian.md) |
 
 > WSL 部署还有第四种后端 `winchrome`（部署时设置，不在店铺表单里选），见下文「选哪个浏览器后端」末段。

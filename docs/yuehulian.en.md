@@ -10,9 +10,7 @@ store is bound, Vibe Seller opens and signs in to the Yuehulian client
 itself and uses it to open your stores for tasks; you don't need to
 operate the client by hand.
 
-**The Yuehulian backend supports Windows and macOS, plus WSL.** On plain
-Linux the option does not appear in the "Browser Backend" dropdown — the
-Yuehulian client has no Linux build.
+**The Yuehulian backend supports Windows and macOS, plus WSL.**
 
 Not using Yuehulian? Skip this page. Vibe Seller supports other browsers too; see [Browsers](browsers.md).
 

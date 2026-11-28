@@ -4,9 +4,9 @@ description: AdsPower 接入 Vibe Seller 的一页说明：下载安装、API �
 
 # AdsPower：配置指南
 
-[AdsPower](https://www.adspower.net) 是一款防关联浏览器（国内份额前列，本页对应 **AdsPower Global** 国际版客户端）。绑定后，Vibe Seller 通过它自带的本地接口（Local API）打开你的店铺环境执行任务，不需要你手动操作客户端。
+[AdsPower](https://www.adspower.net) 是一款防关联浏览器。绑定后，Vibe Seller 通过它自带的本地接口（Local API）打开你的店铺环境执行任务，不需要你手动操作客户端。
 
-**AdsPower 后端支持 Windows、macOS，也支持 WSL**。其他平台上这个选项不会出现在「浏览器后端」下拉里。
+**AdsPower 后端支持 Windows、macOS，也支持 WSL**。
 
 不用 AdsPower 的话，这一页可以跳过。Vibe Seller 还支持其他浏览器，见 [浏览器](browsers.md)。
 

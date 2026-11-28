@@ -4,15 +4,12 @@ description: AdsPower in Vibe Seller — download and install, API permission, g
 
 # AdsPower: Setup Guide
 
-[AdsPower](https://www.adspower.net) is an anti-detect browser (one of
-the largest by market share; this page covers the **AdsPower Global**
-client). Once a store is bound, Vibe Seller drives it through AdsPower's
+[AdsPower](https://www.adspower.net) is an anti-detect browser. Once a
+store is bound, Vibe Seller drives it through AdsPower's
 own local API and uses it to open your profiles for tasks; you don't
 need to operate the client by hand.
 
-**The AdsPower backend works on Windows and macOS (WSL is also
-supported).** On other platforms the option does not appear in the
-"Browser Backend" dropdown.
+**The AdsPower backend works on Windows and macOS (WSL is also supported).**
 
 Not using AdsPower? Skip this page. Vibe Seller supports other
 browsers too; see [Browsers](browsers.md).
