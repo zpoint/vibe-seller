@@ -30,6 +30,7 @@ gives — see ``_note_skill_version``).
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass
 import json
 import logging
@@ -37,25 +38,61 @@ import os
 import re
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy import select
 
 from app import telemetry
+from app.config import DEMO_MODE
 from app.models.app_settings import AppSettings
 from app.models.store import Store
 from app.utils.crypto import decrypt_password, encrypt_password
 
 logger = logging.getLogger(__name__)
 
-#: The ads service every deployment binds to. A constant, not a setting:
-#: there is one service, and a host field is one more thing a person can
-#: type wrong into a form whose only effect is to send their store list
-#: somewhere else. The environment can point it at a stand-in, which is
-#: how the end-to-end tests run a real agent against a fake service.
-SERVICE_URL = (
-    os.environ.get('VIBE_ADS_SERVICE_URL') or 'https://listwizard.cloud/ads-api'
-)
+#: Production needs no configuration. Demo mode defaults to the established
+#: local stand-in and may never register an installation with the live
+#: service. The environment can still point either mode at another service;
+#: the demo/live combination is the one unsafe exception.
+PRODUCTION_SERVICE_URL = 'https://listwizard.cloud/ads-api'
+DEMO_SERVICE_URL = 'http://127.0.0.1:7791'
+
+
+def resolve_service_url(environ: Mapping[str, str] | None = None) -> str:
+    """Resolve the ads service without relying on module import state.
+
+    Tests pass an environment mapping directly, so covering a combination
+    never reloads this module (and its process-wide registration lock).
+    """
+    env = os.environ if environ is None else environ
+    demo = env.get('VIBE_DEMO_MODE', '').lower() in ('1', 'true', 'yes')
+    configured = env.get('VIBE_ADS_SERVICE_URL') or ''
+    if demo and configured:
+        try:
+            hostname = urlsplit(configured).hostname
+        except ValueError:
+            hostname = None
+        production_host = urlsplit(PRODUCTION_SERVICE_URL).hostname
+        is_production = (
+            hostname
+            and production_host
+            and (
+                hostname.lower() == production_host
+                or hostname.lower().endswith('.' + production_host)
+            )
+        )
+        if is_production:
+            raise ValueError(
+                'VIBE_DEMO_MODE cannot use the production ads service. '
+                'Leave VIBE_ADS_SERVICE_URL unset for the local '
+                f'stand-in at {DEMO_SERVICE_URL}, or point it at another '
+                'test service.'
+            )
+    return configured or (DEMO_SERVICE_URL if demo else PRODUCTION_SERVICE_URL)
+
+
+SERVICE_URL = resolve_service_url()
 
 KEY_KEY = 'ads_service_api_key_enc'
 
@@ -154,6 +191,25 @@ async def _credentials(session) -> tuple[str, str]:
     return SERVICE_URL, await _register(session)
 
 
+# An opaque CI/test-run label, never a hostname, account name, or free-form
+# description. Keeping it short and character-bounded also makes it safe to
+# use in service-side logs and database indexes.
+_TEST_RUN_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
+
+
+def _registration_details(test_run_id: str | None) -> dict[str, str]:
+    details = {'environment': 'test' if DEMO_MODE else 'production'}
+    if DEMO_MODE and test_run_id:
+        if not _TEST_RUN_ID_RE.fullmatch(test_run_id):
+            raise AdsServiceError(
+                'Invalid VIBE_TEST_RUN_ID: use 1-64 ASCII letters, digits, '
+                'dots, underscores, or hyphens, starting with a letter or '
+                'digit. Use an opaque test-run id, not a machine or user name.'
+            )
+        details['test_run_id'] = test_run_id
+    return details
+
+
 async def _register(session) -> str:
     """Mint this installation's key with the service, once, and keep it.
 
@@ -166,13 +222,17 @@ async def _register(session) -> str:
         key = await session.get(AppSettings, KEY_KEY)
         if key and key.value:
             return decrypt_password(key.value)
+        details = _registration_details(os.environ.get('VIBE_TEST_RUN_ID'))
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             try:
                 response = await client.post(
                     f'{SERVICE_URL}/installations',
                     # The id shown under the version: what a person quotes
                     # to support, and what the service files us under.
-                    json={'installation_id': telemetry.stable_install_id()},
+                    json={
+                        'installation_id': telemetry.stable_install_id(),
+                        **details,
+                    },
                 )
             except httpx.RequestError as exc:
                 raise AdsServiceError(
@@ -422,11 +482,18 @@ def _json_list(raw: str | None) -> list[str]:
     return [str(v) for v in value] if isinstance(value, list) else []
 
 
-async def auth_url(session, store_id: str, region: str = 'EU') -> dict:
+async def auth_url(
+    session, store_id: str, region: str = 'EU', *, browser_backend: str
+) -> dict:
     return await call(
         session,
         '/auth-url',
-        params={'local_id': store_id, 'region': region},
+        params={
+            'local_id': store_id,
+            'region': region,
+            'browser_backend': browser_backend,
+            'client_version': telemetry.APP_VERSION,
+        },
     )
 
 

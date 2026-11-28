@@ -15,7 +15,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from app import ads_client, ads_path_guard, ads_skill
+from app import ads_client, ads_path_guard, ads_skill, telemetry
 from app.models.store import Store
 from app.routers import ads as ads_router
 
@@ -68,6 +68,7 @@ def bound(monkeypatch):
             return {
                 'url': 'https://amazon.example/ap/oa?...',
                 'expires_in': 1800,
+                'attempt_id': 'attempt-test-123',
             }
         return {'rows': []}
 
@@ -95,7 +96,14 @@ class TestAuthUrl:
         )
         body = response.json()
         assert body['open_in'] == 'ziniao'
+        assert body['attempt_id'] == 'attempt-test-123'
         assert 'url' in body
+        assert bound[-1]['params'] == {
+            'local_id': test_store.id,
+            'region': 'EU',
+            'browser_backend': 'ziniao',
+            'client_version': telemetry.APP_VERSION,
+        }
 
     async def test_a_chrome_store_opens_the_link_directly(
         self, authenticated_client, async_db_session, test_store, bound
@@ -107,6 +115,8 @@ class TestAuthUrl:
             f'/api/ads/stores/{test_store.id}/auth-url'
         )
         assert response.json()['open_in'] == 'browser'
+        assert bound[-1]['params']['browser_backend'] == 'chrome'
+        assert bound[-1]['params']['client_version'] == telemetry.APP_VERSION
 
     async def test_unknown_store_is_404(self, authenticated_client, bound):
         response = await authenticated_client.get(
@@ -304,6 +314,7 @@ class TestLastConsent:
             f'/api/ads/stores/{test_store.id}/auth-url'
         )
         assert link.status_code == 200 and link.json()['url']
+        assert 'attempt_id' not in link.json()
 
         # The person finishes the consent on the service's domain; the
         # recheck's next sync is what finds the store bound.

@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 import { LONG_TIMEOUT_MS } from '../../lib/requestDeadline'
 import { DocsHelpLink } from '../ui/DocsHelpLink'
+import { sendEvent } from '../../lib/telemetry'
+import { FrontendEvent } from '../../lib/telemetryEvents'
 
 /** How the service says the store's last Amazon consent ended. Amazon
  *  accepts a consent from a login with no Ads access and hands back zero
@@ -26,6 +28,9 @@ interface AdsStoreRow {
 interface AuthUrlResponse {
   url: string
   expires_in: number
+  /** Non-secret correlation id for this consent attempt. Older services
+   *  omit it; the recheck outcome does not depend on it. */
+  attempt_id?: string
   /** 'ziniao' when the consent link must be opened inside the
    *  anti-detect browser's store window — that is where the seller's
    *  own Amazon session lives. Opening it anywhere else authorizes
@@ -77,7 +82,7 @@ export function AmazonAdsPanel() {
     }
   }
 
-  const refresh = async (): Promise<AdsStoreRow[]> => {
+  const refresh = async (): Promise<AdsStoreRow[] | null> => {
     setError(null)
     try {
       // Nothing to configure: the first sync registers this installation
@@ -91,7 +96,7 @@ export function AmazonAdsPanel() {
     } finally {
       setLoaded(true)
     }
-    return []
+    return null
   }
 
   /** "I've authorized it": look now, and say what we found. The consent
@@ -109,23 +114,38 @@ export function AmazonAdsPanel() {
     setBusy(true); setCheckNote(null)
     try {
       const rows = await refresh()
+      if (rows === null) {
+        // A transport failure is not evidence that Amazon has not
+        // authorized the store. Keep the existing panel error and note,
+        // but do not turn it into a consent outcome.
+        setCheckNote('notYetAuthorized')
+        return
+      }
       const storeRows = rows.filter(r => r.local_id === link.storeId)
       const markets = storeRows
         .filter(r => r.authorized)
         .map(r => r.marketplace)
         .filter(Boolean)
         .sort()
+      let result: LastConsent['result'] | 'not_yet_authorized'
       if (markets.length) {
+        result = 'bound'
         setLink(null)
         setMessage(t('ads.authorizedDone', { store: link.store, markets: markets.join(' · ') }))
-        return
+      } else {
+        const consent = consentAfter(storeRows, link.mintedAt)
+        result = consent?.result ?? 'not_yet_authorized'
+        setCheckNote(
+          consent?.result === 'no_profiles' ? 'noAdPermission'
+          : consent?.result === 'failed' ? 'consentFailed'
+          : 'notYetAuthorized',
+        )
       }
-      const consent = consentAfter(storeRows, link.mintedAt)
-      setCheckNote(
-        consent?.result === 'no_profiles' ? 'noAdPermission'
-        : consent?.result === 'failed' ? 'consentFailed'
-        : 'notYetAuthorized',
-      )
+      sendEvent(FrontendEvent.ADS_STORE_BIND_RECHECKED, {
+        ...(link.attempt_id ? { attempt_id: link.attempt_id } : {}),
+        result,
+        open_in: link.open_in,
+      })
     } finally {
       setBusy(false)
     }

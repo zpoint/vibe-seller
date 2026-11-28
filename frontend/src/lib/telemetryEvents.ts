@@ -21,6 +21,7 @@ export const FrontendEvent = {
   AI_SETUP_COMPLETED: 'ai_setup_completed',
   KNOWLEDGE_FILE_SAVED: 'knowledge_file_saved',
   KNOWLEDGE_FILE_CREATED: 'knowledge_file_created',
+  ADS_STORE_BIND_RECHECKED: 'ads_store_bind_rechecked',
 } as const
 
 export type FrontendEventName =

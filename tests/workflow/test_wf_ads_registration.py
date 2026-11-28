@@ -186,8 +186,64 @@ class TestRegistration:
 
         assert info['install_id']
         assert service.registered_as == [
-            {'installation_id': info['install_id']}
+            {
+                'installation_id': info['install_id'],
+                'environment': 'production',
+            }
         ]
+
+    async def test_demo_registration_marks_the_test_environment_and_run(
+        self, authenticated_client, service, monkeypatch
+    ):
+        monkeypatch.setattr(ads_client, 'DEMO_MODE', True)
+        monkeypatch.setenv('VIBE_TEST_RUN_ID', 'ci-20261128-a1b2c3')
+        info = (await authenticated_client.get('/api/system/info')).json()
+
+        response = await authenticated_client.post('/api/ads/stores/sync')
+
+        assert response.status_code == 200
+        assert service.registered_as == [
+            {
+                'installation_id': info['install_id'],
+                'environment': 'test',
+                'test_run_id': 'ci-20261128-a1b2c3',
+            }
+        ]
+
+    async def test_demo_registration_omits_an_unset_test_run_id(
+        self, authenticated_client, service, monkeypatch
+    ):
+        monkeypatch.setattr(ads_client, 'DEMO_MODE', True)
+        monkeypatch.delenv('VIBE_TEST_RUN_ID', raising=False)
+
+        response = await authenticated_client.post('/api/ads/stores/sync')
+
+        assert response.status_code == 200
+        [registration] = service.registered_as
+        assert registration['environment'] == 'test'
+        assert 'test_run_id' not in registration
+
+    @pytest.mark.parametrize(
+        'run_id', ['machine name', 'user@example.com', 'a' * 65, '/tmp/run']
+    )
+    async def test_an_invalid_test_run_id_never_reaches_the_service(
+        self,
+        authenticated_client,
+        async_db_session,
+        service,
+        monkeypatch,
+        run_id,
+    ):
+        monkeypatch.setattr(ads_client, 'DEMO_MODE', True)
+        monkeypatch.setenv('VIBE_TEST_RUN_ID', run_id)
+
+        response = await authenticated_client.post('/api/ads/stores/sync')
+
+        assert response.status_code == 400
+        assert 'Invalid VIBE_TEST_RUN_ID' in response.json()['detail']
+        assert run_id not in response.json()['detail']
+        assert service.registrations == 0
+        assert not await _stored_key(async_db_session)
 
     async def test_the_install_id_is_stable(self, authenticated_client):
         first = (await authenticated_client.get('/api/system/info')).json()
