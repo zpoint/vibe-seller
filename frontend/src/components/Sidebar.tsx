@@ -15,6 +15,7 @@ import { VendorSection } from './VendorSection'
 import { ZiniaoSection } from './StorePickers'
 import { UpdateChip } from './UpdateChip'
 import { DocsHelpLink } from './ui/DocsHelpLink'
+import { FeedbackButton } from './ui/FeedbackButton'
 import { docsHelpUrl } from '../lib/docsHelp'
 
 interface SidebarProps {
@@ -213,6 +214,7 @@ export function Sidebar(props: SidebarProps) {
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.992.54-.992 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             </a>
+            <FeedbackButton version={serverVersion} platform={serverPlatform || undefined} />
             <LanguageSwitcher />
             {currentUser.role === 'admin' && (
               <button data-testid="nav-settings" onClick={() => setAppView('settings')} className="p-1 text-gray-400 hover:text-gray-700 whitespace-nowrap shrink-0" title={t('settings.title')}>
