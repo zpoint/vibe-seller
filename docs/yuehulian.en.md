@@ -1,5 +1,5 @@
 ---
-description: Yuehulian in Vibe Seller — download and install (Windows / macOS), create a team account, what to fill in when binding, one account per machine, auto-login, Windows and macOS plus WSL, and where credentials are stored.
+description: Yuehulian in Vibe Seller — download and install (Windows / macOS), create a team account, what to fill in when binding, one account per machine, auto-login, and common statuses / errors (including where credentials are stored).
 ---
 
 # Yuehulian: Setup Guide
@@ -10,11 +10,11 @@ store is bound, Vibe Seller opens and signs in to the Yuehulian client
 itself and uses it to open your stores for tasks; you don't need to
 operate the client by hand.
 
-**The Yuehulian backend supports Windows and macOS, plus WSL.** On plain
-Linux the option does not appear in the "Browser Backend" dropdown — the
-Yuehulian client has no Linux build.
+**The Yuehulian backend supports Windows and macOS; WSL is also
+supported.**
 
-Not using Yuehulian? Skip this page. Vibe Seller supports other browsers too; see [Browsers](browsers.md).
+Not using Yuehulian? Skip this page. Vibe Seller supports other
+browsers too; see [Browsers](browsers.md).
 
 ## Download and install
 
@@ -70,7 +70,7 @@ bind it in the same form, just like Ziniao:
    hit "**Create**".
 
 The password is encrypted on this machine and the API never returns it to
-the frontend (see "Where credentials are stored" below).
+the frontend (see ["Where credentials are stored"](#where-credentials-are-stored) below).
 
 ## One account per machine
 
@@ -98,34 +98,55 @@ back in with your stored team login, so a task is never stranded on "not
 logged in". You don't have to sign in to the Yuehulian client by hand each
 time — just configure the team login once.
 
-## Two browsers working together
-
-Like a Ziniao store, a Yuehulian store's tasks also get a Chrome auxiliary
-browser for the logistics / overseas sites Yuehulian can't open. See
-[two browsers working together](store-and-aux-browser.en.md).
-
-## Closing Yuehulian while a task runs
-
-Nothing to do by hand. The next time the task uses the browser, Vibe Seller reopens the Yuehulian client, signs in and opens the store again. A client that was closed forcibly often still marks the store as open (its button reads Opened); Vibe Seller then closes it with the client's own "close browser" first, and opens it again.
-
-Likewise, if you opened a store in the Yuehulian client yourself, a task that needs that store's browser closes it and opens it again (so Vibe Seller can drive it). A task that doesn't use the browser leaves it alone.
-
 ## Common statuses / errors
 
-| UI message | Meaning / what to do |
+<details markdown="1" id="not-logged-in"><summary><b>"Not logged in — log into the 悦互联 client, then Refresh"</b></summary>
+
+No team login configured, or auto-login didn't take. Check the team name
+/ sub-account / password in "+", and that the client can log in by hand,
+then hit Refresh.
+
+</details>
+
+<details markdown="1" id="couldnt-start-the-client"><summary><b>"Couldn't start the 悦互联 client — open it manually (or check it's installed), then Refresh"</b></summary>
+
+Vibe Seller couldn't find / launch the client. Open the Yuehulian client
+manually, or confirm it's installed per ["Download and
+install"](#download-and-install), then hit Refresh.
+
+</details>
+
+<details markdown="1" id="no-stores-visible"><summary><b>"No stores visible for this login"</b></summary>
+
+This sub-account has no stores yet, or no store permissions. Confirm in
+the Yuehulian admin that the sub-account can see stores.
+
+</details>
+
+<details markdown="1" id="closed-the-client-mid-task"><summary><b>Closed Yuehulian while a task runs, or opened a store by hand</b></summary>
+
+Nothing to do: the next browser use reopens the client and signs in; a
+store you opened by hand is closed and reopened when a task needs it.
+
+</details>
+
+<details markdown="1" id="where-credentials-are-stored"><summary><b>Where credentials are stored</b></summary>
+
+The team login (team name / sub-account / password) is saved in your
+local `~/.vibe-seller/data/vibe_seller.db` (SQLite). The password is
+encrypted, with a key derived from this machine's install, and is only
+decrypted in memory at the moment of auto-login; the API never returns
+the password to the frontend. Because a machine has exactly one
+Yuehulian account, this credential is machine-level and shared by all
+Yuehulian stores. For the encryption details see the [developer
+guide](dev-guide.md).
+
+</details>
+
+| Message | Meaning / what to do |
 |---|---|
-| Not logged in — log into the 悦互联 client, then Refresh | No team login configured, or auto-login didn't take. Check the team name / sub-account / password in "+", and that the client can log in by hand. |
-| Couldn't start the 悦互联 client — open it manually (or check it's installed), then Refresh | Vibe Seller couldn't find / launch the client. Open the Yuehulian client manually, or confirm it's installed per "Download and install". |
-| No stores visible for this login | This sub-account has no stores yet, or no store permissions. Confirm in the Yuehulian admin that the sub-account can see stores. |
-| Yuehulian supports only one account per machine… | See "One account per machine" above. |
-| Unsupported platform | The Yuehulian backend is only available on Windows, macOS or WSL. |
-
-## Where credentials are stored
-
-The team login (team name / sub-account / password) is saved in your local
-`~/.vibe-seller/data/vibe_seller.db` (SQLite). The password is encrypted,
-with a key derived from this machine's install, and is only decrypted in
-memory at the moment of auto-login; the API never returns it to the
-frontend. Because a machine has exactly one Yuehulian account, this
-credential is machine-level and shared by all Yuehulian stores. For the
-encryption details see the [developer guide](dev-guide.md).
+| Not logged in — log into the 悦互联 client, then Refresh. | See ["Not logged in"](#not-logged-in) above. |
+| Couldn't start the 悦互联 client — open it manually (or check it's installed), then Refresh. | See ["Couldn't start the client"](#couldnt-start-the-client) above. |
+| No stores visible for this login. | See ["No stores visible"](#no-stores-visible) above. |
+| 悦互联 supports only one account per machine. Delete all 悦互联 stores in Settings, then add the new account. | See ["One account per machine"](#one-account-per-machine) above. |
+| This browser doesn't support this system. | The Yuehulian backend is only available on Windows, macOS or WSL. |
