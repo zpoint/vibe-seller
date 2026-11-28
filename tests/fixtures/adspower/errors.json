@@ -1,0 +1,45 @@
+{
+  "require_api_key": {
+    "code": -1,
+    "msg": "Require api-key"
+  },
+  "api_key_mismatch": {
+    "code": -1,
+    "msg": "API Key mismatch. Please replace it"
+  },
+  "rate_limited": {
+    "code": -1,
+    "msg": "Too many request per second, please check"
+  },
+  "invalid_id": {
+    "code": -1,
+    "msg": "invalid disordered id"
+  },
+  "not_open": {
+    "code": -1,
+    "msg": "User_id is not open"
+  },
+  "kernel_downloading": {
+    "code": -1,
+    "msg": "SunBrowser 156 is updating, waiting for download."
+  },
+  "kernel_not_ready": {
+    "code": -1,
+    "msg": "SunBrowser 156 is not ready,please to download!"
+  },
+  "local_active_empty": {
+    "code": 0,
+    "msg": "success",
+    "data": {
+      "list": []
+    }
+  },
+  "status_ok": {
+    "code": 0,
+    "msg": "success"
+  },
+  "startup_timeout": {
+    "code": -1,
+    "msg": "Browser execution startup timeout"
+  }
+}
