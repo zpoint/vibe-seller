@@ -12,7 +12,7 @@ description: AdsPower 接入 Vibe Seller 的一页说明：下载安装、API �
 
 ## 下载与安装
 
-1. 打开 <https://www.adspower.net/download>，下载 Windows 客户端（AdsPower Global）并安装。装在哪个目录都可以，Vibe Seller 会自己找到；实在找不到时你可以在设置里手动指定安装位置。
+1. 打开 <https://www.adspower.net/download>，下载你电脑系统对应的客户端（Windows 或 macOS，AdsPower Global）并安装。装在哪个目录都可以，Vibe Seller 会自己找到；实在找不到时你可以在设置里手动指定安装位置。
 2. 安装后至少手动启动并登录一次，确认账号正常、能看到你的环境列表。
 
 AdsPower 客户端没开时，Vibe Seller 会自动打开它；客户端没登录时，任务会提示你先在客户端里登录（见[AdsPower 客户端需要登录](#adspower-客户端需要登录)）。请保持这台电脑的防火墙开启。
@@ -61,7 +61,7 @@ API Key 必须和 AdsPower 客户端里登录的账号对应：一台机器同�
 <summary>提示「AdsPower 客户端需要登录」怎么办？</summary>
 <a id="sign-in-needed"></a>
 
-说明这台电脑上的 AdsPower 客户端**没有登录**（或登录的不是 API Key 对应的账号）。处理办法：
+说明这台电脑上的 AdsPower 客户端**没有登录**。处理办法：
 
 1. 打开 AdsPower 客户端窗口，用**和 API Key 同一个账号**登录；
 2. 如果登录时要求验证码（新设备确认），按提示完成——子账号收不到验证码时见[「子账号收不到验证码（新设备验证）」](#子账号收不到验证码新设备验证)；
@@ -111,11 +111,11 @@ API Key 保存在你本地的 `~/.vibe-seller/data/vibe_seller.db`（SQLite）�
 | 界面提示 | 含义 / 怎么办 |
 |---|---|
 | AdsPower 还没有配置 API Key：在 AdsPower 左侧「API & MCP」点生成 Key，复制填到 Vibe Seller。 | 没填 Key。按上面「生成 API Key」操作。 |
-| AdsPower 不认这个 API Key：Key 要从 AdsPower 当前登录的账号里复制；换过账号或重置过 Key，都要重新填。 | Key 和当前登录的账号不匹配。重新生成 / 复制 Key。 |
+| AdsPower 不认这个 API Key：请在 AdsPower 左侧「API & MCP」复制当前登录账号的 Key，重新填到 Vibe Seller；换过账号或重置过 Key 都要重填。 | Key 和当前登录的账号不匹配。重新生成 / 复制 Key。 |
 | AdsPower 客户端需要登录：请打开 AdsPower，用和 API Key 同一个账号登录，按提示完成验证（如邮箱/短信验证码），然后点刷新或重试任务。 | 客户端没登录。见上面[「AdsPower 客户端需要登录」](#adspower-客户端需要登录)。 |
-| AdsPower 里找不到这个环境：可能被删了，或者没有授权给当前登录的账号。 | 环境被删了，或当前账号没有它的授权。 |
+| AdsPower 里找不到这个环境：可能被删了，或者没有授权给当前登录的账号。请检查后再试。 | 环境被删了，或当前账号没有它的授权。 |
 | 这个环境用的是 FlowerBrowser（火狐内核），Vibe Seller 只能操作 SunBrowser（Chrome 内核）的环境。请在 AdsPower 新建一个「浏览器」选 SunBrowser 的环境，再把这家店铺改绑到新环境。 | 环境用的是火狐内核。新建一个 SunBrowser 环境并把店铺改绑过去（见上面的警告框）。 |
 | AdsPower 正在下载浏览器内核，下载完再试一次。 | 第一次用某个内核版本，AdsPower 在下载。等一会重试。 |
-| AdsPower 的接口用不了：……（原文）。团队成员需要管理员在团队设置里开通 API 权限。 | 接口被拒（原文会带上 AdsPower 的消息）。一般是权限或套餐问题。 |
-| 没找到 AdsPower：请先安装并打开 AdsPower；如果装在别的位置，请在设置里选一下它的安装位置。 | 没安装，或装在找不到的位置。 |
-| 不支持的平台 | AdsPower 后端在 Windows、macOS 和 WSL-on-Windows 可用。 |
+| AdsPower 的接口用不了：团队成员需要管理员在团队设置里开通 API 权限。请检查后再点刷新。 | 接口被拒（原文会带上 AdsPower 的消息）。一般是权限或套餐问题。 |
+| 没找到 AdsPower：请先安装并打开 AdsPower；如果装在别的位置，请在设置里选一下它的安装位置，然后点刷新。 | 没安装，或装在找不到的位置。 |
+| 这个浏览器不支持当前系统。 | AdsPower 后端在 Windows、macOS 和 WSL-on-Windows 可用。 |

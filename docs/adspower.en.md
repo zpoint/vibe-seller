@@ -16,8 +16,8 @@ browsers too; see [Browsers](browsers.md).
 
 ## Download and install
 
-1. Open <https://www.adspower.net/download>, download the Windows
-   client (AdsPower Global) and install it. Any install folder works —
+1. Open <https://www.adspower.net/download>, download the client for
+   your system (Windows or macOS, AdsPower Global) and install it. Any install folder works —
    Vibe Seller finds it; if it ever can't, you can point the setting
    at the install location by hand.
 2. Launch and sign in to the client at least once, so you can confirm
@@ -84,8 +84,7 @@ The API key must match the account signed in to the AdsPower client: one AdsPowe
 <summary>"The AdsPower client needs you to sign in" — what to do?</summary>
 <a id="sign-in-needed"></a>
 
-The AdsPower client on this machine is **not signed in** (or is signed
-into an account other than the one the API key belongs to). What to
+The AdsPower client on this machine is **not signed in**. What to
 do:
 
 1. Open the AdsPower client window and sign in with **the account the
@@ -168,11 +167,11 @@ under "API & MCP" when needed.
 | Message | Meaning / what to do |
 |---|---|
 | AdsPower has no API key yet: open API & MCP in AdsPower, generate a key and paste it into Vibe Seller. | No key saved. See "Generate the API key". |
-| The key must come from the account currently signed into AdsPower; re-copy it after an account or key change. | The key does not match the signed-in account. Re-copy it. |
+| AdsPower doesn't accept this API key: copy the key of the account currently signed in to AdsPower (under API & MCP) and re-paste it into Vibe Seller; re-paste it after any account or key change. | The key does not match the signed-in account. Re-copy it. |
 | The AdsPower client needs you to sign in: open AdsPower, sign in with the account the API key belongs to, finish the verification it asks for (an email/SMS code), then refresh or retry the task. | The client is not signed in. See ["The AdsPower client needs you to sign in"](#the-adspower-client-needs-you-to-sign-in). |
-| AdsPower does not know this profile: deleted, or not authorized for the signed-in account. | The profile was deleted, or this account lacks authorization for it. |
-| This profile uses the FlowerBrowser (Firefox) kernel… | The profile uses the Firefox kernel. Create a SunBrowser profile and re-bind the store to it (see the warning box above). |
+| AdsPower can't find this profile: it may have been deleted, or isn't authorised for the signed-in account. Check that, then retry. | The profile was deleted, or this account lacks authorization for it. |
+| This profile uses the FlowerBrowser (Firefox) kernel; Vibe Seller can only drive SunBrowser (Chrome kernel) profiles. Create a new profile with 浏览器 set to SunBrowser in AdsPower, then re-bind this store to it. | The profile uses the Firefox kernel. Create a SunBrowser profile and re-bind the store to it (see the warning box above). |
 | AdsPower is downloading the browser kernel; retry once it finishes. | First use of a kernel version; AdsPower is downloading it. Wait and retry. |
-| AdsPower refused the call: … (vendor text). Team members need their admin to grant API permission. | The API refused the call (the vendor text is included). Usually a permission or plan issue. |
-| Could not find AdsPower… | Not installed, or installed somewhere undetectable. |
-| Unsupported platform | The AdsPower backend works on Windows, macOS and WSL-on-Windows. |
+| AdsPower's API is unavailable: team members need their admin to grant API access in the team settings. Check that, then refresh. | The API refused the call (the vendor text is included). Usually a permission or plan issue. |
+| Could not find AdsPower: install and open it first; if it is installed elsewhere, pick its install location in Settings, then refresh. | Not installed, or installed somewhere undetectable. |
+| This browser doesn't support this system. | The AdsPower backend works on Windows, macOS and WSL-on-Windows. |

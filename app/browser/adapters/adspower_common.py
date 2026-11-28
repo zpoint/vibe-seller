@@ -145,3 +145,10 @@ def kernels_for(kernels: list[KernelProcess], ref: str) -> list[KernelProcess]:
         if segment.rsplit('\\', 1)[-1].startswith(prefix):
             out.append(k)
     return out
+
+
+#: The kernel-downloading refusal (a task's StoreUnavailable message).
+KERNEL_DOWNLOADING_ZH = 'AdsPower 正在下载浏览器内核，下载完再试一次。'
+KERNEL_DOWNLOADING_EN = (
+    'AdsPower is downloading the browser kernel; retry once it finishes.'
+)

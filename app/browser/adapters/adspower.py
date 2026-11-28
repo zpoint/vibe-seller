@@ -52,6 +52,7 @@ from urllib.parse import quote, urlsplit
 from app.browser.adapters import adspower_mac, adspower_win
 from app.browser.adapters.adspower_common import (
     DEFAULT_API_PORT,
+    KERNEL_DOWNLOADING_ZH,
     NO_KEY_ADVICE_EN,
     NO_KEY_ADVICE_ZH,
     SIGN_IN_NEEDED_EN,
@@ -632,8 +633,7 @@ class AdsPowerClient(LocalApiClient):
                 'version), then retry.'
             )
         raise StoreUnavailable(
-            'AdsPower 正在下载浏览器内核，下载完再试一次。'
-            f'({last_msg or "download timed out"})'
+            f'{KERNEL_DOWNLOADING_ZH}({last_msg or "download timed out"})'
         )
 
     async def _decide_failed_start(
