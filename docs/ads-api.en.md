@@ -82,7 +82,7 @@ Open the copied link **in Ziniao (or the browser this store uses)**, sign in as 
 
 > ⚠ Check the seller account you are signed in to is this store's — otherwise the wrong account gets bound to it. The consent binds whichever account is signed in there, and a wrong one looks exactly like a success.
 
-Sign in as the store's seller, approve, and wait for the success page. The consent page uses Vibe Seller's service-provider domain registered with Amazon; use the domain in the current authorization link.
+Sign in as the store's seller, approve, and wait for the success page. The consent page is on listwizard.cloud — the service-provider domain Vibe Seller registered with Amazon.
 
 If Ziniao refuses to show the page, saying it "may contain content that does not comply with laws, regulations and policies", see [Ziniao blocks the consent page](#ziniao-blocked).
 
@@ -110,7 +110,7 @@ Once bound, **just create ad tasks on that store as usual** — e.g. “Take a l
 
 ![Ziniao blocking the consent page](images/ads_ziniao_blocked.png)
 
-The consent page's service-provider domain is still going through its ICP filing, and Ziniao blocks it until the filing is done. Ask Ziniao's human support to allowlist the domain in your current authorization link:
+The consent page's domain, listwizard.cloud, is still going through its ICP filing, and Ziniao blocks it until the filing is done. Ask Ziniao's human support to allowlist the domain:
 
 1. In the Ziniao client, click **客服** (Support) at the bottom left, then **在线咨询** (online chat; staffed 9:00–22:00 China time).
 
@@ -124,10 +124,10 @@ The consent page's service-provider domain is still going through its ICP filing
 
     ![Send 人工, then click 联系人工客服](images/ziniao_support_human.png){ width="640" }
 
-4. Send the agent the domain from your current authorization link (the part from `https://` through the first `/`), followed by this message ("This is the ERP service we use, but it can't be reached — please allowlist it"):
+4. Send the agent this line, as is ("https://listwizard.cloud/ is the ERP service we use, but it can't be reached — please allowlist it"):
 
     ```text
-    这是我们使用的ERP服务，但是无法访问，帮我们加白
+    https://listwizard.cloud/ 是我们使用的ERP服务，但是无法访问，帮我们加白
     ```
 
     ![What to send the agent (illustration)](images/ziniao_support_message.png){ width="640" }
