@@ -8,6 +8,7 @@ import { SkillItem } from './SkillItem'
 import { StoreFilesSection } from './WorkspaceStoreSections'
 import { api } from '../api'
 import { vendorBackendOptions } from '../lib/vendorOptions'
+import { findStoreNameCollision } from '../lib/storeNameCollision'
 import type { Store, AuthUser, AppView, ServerPlatform, UpdateStatus, WsStructured, BrowserVendor, VendorStoreRef, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 import { InstallIdBadge } from './InstallIdBadge'
 import { VendorSection } from './VendorSection'
@@ -34,6 +35,9 @@ interface SidebarProps {
   showCreateStore: boolean
   setShowCreateStore: (v: boolean) => void
   createStore: () => void
+  creatingStore: boolean
+  createStoreError: string
+  setCreateStoreError: (v: string) => void
   newStoreName: string
   setNewStoreName: (v: string) => void
   newStoreBackend: string
@@ -108,6 +112,7 @@ export function Sidebar(props: SidebarProps) {
     currentUser, appView, setAppView, handleLogout, authRequired,
     stores, selectedStore, showAllTasks, selectStore, selectAllTasks,
     showCreateStore, setShowCreateStore, createStore,
+    creatingStore, createStoreError, setCreateStoreError,
     newStoreName, setNewStoreName, newStoreBackend, setNewStoreBackend,
     showProxy, setShowProxy,
     newStoreProxyServer, setNewStoreProxyServer, newStoreProxyBypass, setNewStoreProxyBypass,
@@ -263,6 +268,8 @@ export function Sidebar(props: SidebarProps) {
               createZiniaoAccount={createZiniaoAccount} updateZiniaoAccount={updateZiniaoAccount}
               deleteZiniaoAccount={deleteZiniaoAccount}
               createStore={createStore} setShowCreateStore={setShowCreateStore}
+              creatingStore={creatingStore} createStoreError={createStoreError}
+              setCreateStoreError={setCreateStoreError}
               isAdmin={currentUser?.role === 'admin'}
               stores={stores}
             />
@@ -344,6 +351,8 @@ function StoreCreationForm(props: {
   createZiniaoAccount: () => void; updateZiniaoAccount: () => void
   deleteZiniaoAccount: (id: string) => void
   createStore: () => void; setShowCreateStore: (v: boolean) => void
+  creatingStore: boolean; createStoreError: string
+  setCreateStoreError: (v: string) => void
   isAdmin: boolean
   stores: Store[]
 }) {
@@ -363,12 +372,17 @@ function StoreCreationForm(props: {
   const genericVendor = activeVendor && activeVendor.picker_kind === 'generic' && activeVendor.lists_profiles
     ? activeVendor
     : null
+  const collision = findStoreNameCollision(p.newStoreName, p.stores)
+  const collisionError = collision
+    ? t('settings.storeNameCollision', { name: collision.store.name, slug: collision.slug })
+    : ''
+  const createError = collisionError || p.createStoreError
   return (
     <div className="px-3 pb-3">
       <input
         value={p.newStoreName}
-        onChange={e => p.setNewStoreName(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && p.newStoreBackend === 'chrome' && p.createStore()}
+        onChange={e => { p.setNewStoreName(e.target.value); p.setCreateStoreError('') }}
+        onKeyDown={e => e.key === 'Enter' && !p.creatingStore && !collision && p.newStoreBackend === 'chrome' && p.createStore()}
         placeholder={t('settings.storeName') + '...'}
         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2"
         autoFocus
@@ -376,9 +390,12 @@ function StoreCreationForm(props: {
       {!p.newStoreName.trim() && (
         <p className="text-xs text-amber-600 mb-1">{t('settings.enterStoreNameFirst')}</p>
       )}
+      {createError && (
+        <p role="alert" className="text-[11px] text-red-600 mb-2 break-words">{createError}</p>
+      )}
       <select
         value={p.newStoreBackend}
-        onChange={e => p.setNewStoreBackend(e.target.value)}
+        onChange={e => { p.setNewStoreBackend(e.target.value); p.setCreateStoreError('') }}
         disabled={!p.newStoreName.trim()}
         className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 bg-white ${!p.newStoreName.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
@@ -441,12 +458,16 @@ function StoreCreationForm(props: {
           const nameEmpty = !p.newStoreName.trim()
           const ziniaoIncomplete = p.newStoreBackend === 'ziniao' && (!p.selectedZiniaoAccountId || !p.selectedBrowserOauth || p.fetchingBrowsers || !!p.browserFetchError)
           const vendorIncomplete = !!genericVendor && (!p.selectedBrowserOauth || p.fetchingVendorStores || !!p.vendorError)
-          const disabled = nameEmpty || ziniaoIncomplete || vendorIncomplete
+          const disabled = nameEmpty || !!collision || p.creatingStore || ziniaoIncomplete || vendorIncomplete
           return <button
             onClick={p.createStore}
             disabled={disabled}
-            className={`px-3 py-1 rounded text-sm ${disabled ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
-          >{t('common.create')}</button>
+            aria-busy={p.creatingStore}
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded text-sm ${disabled ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
+          >
+            {p.creatingStore && <span data-testid="store-create-spinner" aria-hidden="true" className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />}
+            {p.creatingStore ? t('settings.creatingStore') : t('common.create')}
+          </button>
         })()}
         <button onClick={() => p.setShowCreateStore(false)} className="px-3 py-1 bg-gray-300 rounded text-sm">{t('common.cancel')}</button>
       </div>

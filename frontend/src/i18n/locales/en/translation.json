@@ -441,6 +441,8 @@
     "yuehulianLoginSaving": "Saving...",
     "yuehulianLoginAllRequired": "Team name, sub-account and password are all required.",
     "createStoreFailed": "Couldn't create store: {{msg}}",
+    "creatingStore": "Creating…",
+    "storeNameCollision": "This name conflicts with “{{name}}”: both use “{{slug}}” for the store's files. Choose a different name.",
     "ziniaoLoading": "Loading store profiles...",
     "ziniaoConnectError": "Ziniao is not running or not in WebDriver mode.",
     "ziniaoDownloadLauncher": "Download ziniao_webdriver.bat",

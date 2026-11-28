@@ -30,7 +30,8 @@ import { resolveLanding } from './lib/landing'
 import { registerUserHash, unregisterUserHash } from './lib/telemetry'
 import { useTaskOpener } from './hooks/useTaskOpener'
 import { useTaskActions } from './hooks/useTaskActions'
-import { api, AUTH_EXPIRED_EVENT, storeCreateError, uploadTaskAttachment } from './api'
+import { api, AUTH_EXPIRED_EVENT, uploadTaskAttachment } from './api'
+import { createStore as createStoreHandler } from './handlers/createStore'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
@@ -86,6 +87,15 @@ export default function App() {
   const [newStoreName, setNewStoreName] = useState('')
   const [newStoreBackend, setNewStoreBackend] = useState('chrome')
   const [showCreateStore, setShowCreateStore] = useState(false)
+  const [creatingStore, setCreatingStore] = useState(false)
+  const [createStoreError, setCreateStoreError] = useState('')
+  // State disables the button; the ref also closes the same-tick gap before
+  // React re-renders, so Enter + click can never issue two POSTs.
+  const createStoreInFlight = useRef(false)
+  const setCreateStoreOpen = (open: boolean) => {
+    setShowCreateStore(open)
+    setCreateStoreError('')
+  }
 
   // Ziniao account state (hooks/useZiniaoAccounts)
   const ziniao = useZiniaoAccounts()
@@ -411,24 +421,15 @@ export default function App() {
   // (a profile-listing vendor other than ziniao, which keeps its own).
   const genericVendor = vendors?.find(v => v.key === newStoreBackend
     && v.picker_kind === 'generic' && v.lists_profiles) ?? null
-  const createStore = async () => {
-    if (!newStoreName.trim()) return
-    if (newStoreBackend === 'ziniao' && (!selectedZiniaoAccountId || !selectedBrowserOauth)) { alert(t('settings.ziniaoSelectProfile')); return }
-    if (genericVendor && !selectedBrowserOauth) { alert(t(`${genericVendor.i18n_prefix}SelectStore`)); return }
-    const body: Record<string, unknown> = { name: newStoreName, browser_backend: newStoreBackend }
-    if (newStoreBackend === 'ziniao') { body.ziniao_account_id = selectedZiniaoAccountId; body.browser_oauth = selectedBrowserOauth }
-    if (genericVendor) { body.browser_oauth = selectedBrowserOauth }
-    if (newStoreBackend === 'chrome' && (newStoreProxyServer.trim() || newStoreProxyBypass.trim())) {
-      const bc: Record<string, string> = {}
-      if (newStoreProxyServer.trim()) bc.proxy_server = newStoreProxyServer.trim()
-      if (newStoreProxyBypass.trim()) bc.proxy_bypass = newStoreProxyBypass.trim()
-      body.browser_config = bc
-    }
-    try { await api.post('/api/stores', body) }
-    catch (e) { alert(storeCreateError(e, t)); return }
-    setNewStoreName(''); setNewStoreBackend('chrome'); setSelectedZiniaoAccountId(''); setZiniaoBrowsers([]); setSelectedBrowserOauth(''); vendorBrowser.reset()
-    setShowProxy(false); setNewStoreProxyServer(''); setNewStoreProxyBypass(''); setShowCreateStore(false); await loadStores()
-  }
+  const createStore = () => createStoreHandler({
+    api, stores, newStoreName, newStoreBackend, genericVendor, selectedZiniaoAccountId,
+    selectedBrowserOauth, newStoreProxyServer, newStoreProxyBypass, createStoreInFlight,
+    setCreatingStore, setCreateStoreError, t, loadStores,
+    onCreated: () => {
+      setNewStoreName(''); setNewStoreBackend('chrome'); setSelectedZiniaoAccountId(''); setZiniaoBrowsers([]); setSelectedBrowserOauth(''); vendorBrowser.reset()
+      setShowProxy(false); setNewStoreProxyServer(''); setNewStoreProxyBypass(''); setShowCreateStore(false)
+    },
+  })
 
   // Load a store's (or all-stores') task LIST. List-only — the open task
   // is owned by its route effect, so this must not touch it (raced with
@@ -623,7 +624,8 @@ export default function App() {
         currentUser={currentUser} appView={appView} setAppView={setAppView} handleLogout={handleLogout} authRequired={authRequired}
         stores={stores} selectedStore={selectedStore} showAllTasks={showAllScope}
         selectStore={selectStore} selectAllTasks={selectAllTasks}
-        showCreateStore={showCreateStore} setShowCreateStore={setShowCreateStore} createStore={createStore}
+        showCreateStore={showCreateStore} setShowCreateStore={setCreateStoreOpen} createStore={createStore}
+        creatingStore={creatingStore} createStoreError={createStoreError} setCreateStoreError={setCreateStoreError}
         newStoreName={newStoreName} setNewStoreName={setNewStoreName}
         newStoreBackend={newStoreBackend} setNewStoreBackend={setNewStoreBackend}
         showProxy={showProxy} setShowProxy={setShowProxy}
