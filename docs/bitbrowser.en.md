@@ -12,7 +12,7 @@ Not using BitBrowser? Skip this page; Vibe Seller supports other browsers too â€
 
 ## Download and install
 
-1. Open the [download page](https://www.bitbrowser.net/download/), download the client for your system (Windows / Mac) and install it. Any install folder works â€” Vibe Seller finds it on its own.
+1. Open the [download page](https://www.bitbrowser.net/download/), download the client for your system (Windows / Mac) and install it.
 2. Start and sign in once by hand to confirm the account works and you can see your profiles. After that Vibe Seller launches the client and signs in again when the session expires.
 
 ## Create an account (if needed)

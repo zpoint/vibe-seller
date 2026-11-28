@@ -12,7 +12,7 @@ description: 比特浏览器接入 Vibe Seller 的一页说明：下载安装、
 
 ## 下载与安装
 
-1. 打开官网 [下载页](https://www.bitbrowser.net/download/)，下载对应系统的客户端（Windows / Mac）并安装；装在哪个目录都可以，Vibe Seller 会自己找到它。
+1. 打开官网 [下载页](https://www.bitbrowser.net/download/)，下载对应系统的客户端（Windows / Mac）并安装。
 2. 安装后至少手动启动并登录一次，确认账号正常、能看到你的窗口列表。之后 Vibe Seller 会自动拉起，登录过期时会自动登回。
 
 ## 创建账号（需要的话）
