@@ -186,7 +186,7 @@ export function useSessionBoundary(d: SessionBoundaryDeps) {
 
   useEffect(() => {
     const onExpired = () => {
-      // Anonymous registry probes can 401; only a real live session expires.set
+      // Anonymous registry probes can 401; only a real live session expires.
       if (currentUserRef.current) endSession()
     }
     window.addEventListener(AUTH_EXPIRED_EVENT, onExpired)
