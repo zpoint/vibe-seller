@@ -95,6 +95,11 @@ ADSPOWER_VENDOR = BrowserVendorSpec(
     # (the CDP-range and connect-context rules).
     local_ports=(DEFAULT_API_PORT,),
     docs={
+        'setup': VendorDocsLink(
+            topic='adspowerSetup',
+            zh='https://docs.vibe-sellers.com/adspower/',
+            en='https://docs.vibe-sellers.com/en/adspower/',
+        ),
         'errors': VendorDocsLink(
             topic='adspowerErrors',
             zh='https://docs.vibe-sellers.com/adspower/#常见提示--报错',

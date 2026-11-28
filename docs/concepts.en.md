@@ -23,11 +23,11 @@ The task is the centre: the **store** decides which logged-in browser it can use
 
 ## Store
 
-One store = one logged-in browser + one memory. The login is either a Ziniao browser profile or a dedicated Chrome instance Vibe Seller keeps just for it; the memory is a folder of markdown files.
+One store = one logged-in browser + one memory. The login lives in the store's chosen backend — Ziniao, AdsPower, Yuehulian, Wenmai, BitBrowser, or a dedicated Chrome instance Vibe Seller keeps just for it; the memory is a folder of markdown files.
 
 An agent works inside its own store's browser and never borrows another store's login, and writes that clearly belong to another store get rejected — so Store A's hard-won experience doesn't leak into Store B's notes. Three stores can run at the same time without interfering.
 
-Choosing between the two backends: [Which browser backend](browsers.en.md#which-browser-backend); which credentials Ziniao needs and where they live: [Ziniao: Setup & Common Errors](ziniao.en.md); how parallel stores are arranged: [Running several stores at once](stores.en.md#running-several-stores-at-once).
+Choosing a backend and each vendor's credentials/setup: [Which browser backend](browsers.en.md#which-browser-backend) and [Per-browser setup guides](browsers.en.md#per-browser-setup-guides); how parallel stores are arranged: [Running several stores at once](stores.en.md#running-several-stores-at-once).
 
 ## Task
 
@@ -37,10 +37,10 @@ There are two scopes — the only choice you need to think about up front. Pick 
 
 | | Task bound to a store | Task created under **All Stores** |
 |---|---|---|
-| Which browser | That store's own logged-in browser (Ziniao profile / its own Chrome) | A generic Chrome with no store logged in — public pages only |
+| Which browser | That store's own logged-in browser, from the backend you bound | A generic Chrome with no store logged in — public pages only |
 | Good for | Work inside one shop: ad tuning, listings, report exports, stock checks | Cross-store and public-web work: tracking shipments, looking things up, comparing shops |
 | Opening a seller console | Do it directly | Not allowed — it splits the work into **sub-tasks**, each bound to one store, which use that store's login |
-| Execution mode | Follows your default (a fresh install defaults to **Auto**) | Always **Review plan first** — can't be turned off |
+| Execution mode | Follows your default (Auto by default) | Follows your default (Auto by default) |
 | Where notes are written | That store's own folder | Shared cross-store knowledge, then each sub-task writes back to its own store |
 
 The app says it itself: "This is the cross-store task list. These tasks have a general web browser for public pages (search, tracking/logistics) plus email and messaging — but not a specific store's backend."

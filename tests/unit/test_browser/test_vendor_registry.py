@@ -29,6 +29,7 @@ from app.browser.vendors import (
     BrowserVendorSpec,
     VendorCredentialField,
     VendorDocsLink,
+    registered_vendor_specs,
     vendor_spec,
 )
 from app.browser.win_app_locator import WinAppSpec
@@ -103,6 +104,26 @@ def fake_vendor(monkeypatch):
 
 
 # ── base helpers read the registry ──────────────────────────────────
+
+
+def test_every_selectable_vendor_has_bilingual_setup_guide():
+    """The create-store picker must offer docs for every backend option."""
+    reset_for_tests()
+    specs = registered_vendor_specs()
+    expected = {
+        'chrome',
+        'ziniao',
+        'yuehulian',
+        'adspower',
+        'wenmai',
+        'bitbrowser',
+    }
+    assert expected <= specs.keys()
+    for key in expected:
+        link = specs[key].docs['setup']
+        assert link.zh.startswith('https://docs.vibe-sellers.com/')
+        assert link.en.startswith('https://docs.vibe-sellers.com/en/')
+    reset_for_tests()
 
 
 def test_is_antidetect_reads_the_registry(fake_vendor):

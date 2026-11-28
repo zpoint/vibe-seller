@@ -55,6 +55,14 @@
   "onboarding": {
     "title": "Getting started",
     "replay": "Show guide",
+    "taskDocs": "Tasks guide",
+    "feedbackTitle": "Contact us",
+    "feedbackSubject": "Vibe Seller feedback",
+    "feedbackBodyPrompt": "Describe your issue:",
+    "version": "Version",
+    "platform": "Platform",
+    "unknown": "Unknown",
+    "feedbackFallback": "Please email zp0int@qq.com. Include this version and platform information, then describe your issue:",
     "skip": "Skip",
     "back": "Back",
     "next": "Next",
@@ -411,6 +419,7 @@
   },
   "settings": {
     "title": "Settings",
+    "browserSetupGuide": "Browser setup guide",
     "userManagement": "User Management",
     "users": "Users",
     "newUser": "New User",

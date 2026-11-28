@@ -82,6 +82,11 @@ YUEHULIAN_VENDOR = BrowserVendorSpec(
     lists_profiles=True,
     i18n_prefix='settings.yuehulian',
     docs={
+        'setup': VendorDocsLink(
+            topic='yuehulianSetup',
+            zh='https://docs.vibe-sellers.com/yuehulian/',
+            en='https://docs.vibe-sellers.com/en/yuehulian/',
+        ),
         'errors': VendorDocsLink(
             topic='yuehulianErrors',
             zh='https://docs.vibe-sellers.com/yuehulian/#常见提示--报错',

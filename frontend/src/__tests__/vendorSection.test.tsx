@@ -199,18 +199,18 @@ describe('the generic vendor section', () => {
     expect(screen.getByText(enTranslation.settings.yuehulianLoading)).toBeTruthy()
   })
 
-  it('refuses [+] while one of the vendor\'s stores is bound (one account per machine)', async () => {
+  it('disables [+] with a tooltip while bound, without an unsolicited error', async () => {
     const allStores = [{ browser_backend: 'fakevendor' }] as unknown as Store[]
     renderSection({ allStores })
-    const add = screen.getByTitle(enTranslation.settings.addAccount) as HTMLButtonElement
+    const add = screen.getByRole('button', { name: enTranslation.settings.addAccount }) as HTMLButtonElement
     expect(add.disabled).toBe(true)
+    expect(add.title).toBe(enTranslation.settings.yuehulianOneAccount)
     fireEvent.click(add)
-    expect(screen.getByText(enTranslation.settings.yuehulianOneAccount)).toBeTruthy()
-    // The form did NOT open.
+    // No error appears before the user actually does anything; the form
+    // stays closed and the explanation is available on the disabled button.
+    expect(screen.queryByText(enTranslation.settings.yuehulianOneAccount)).toBeNull()
     expect(screen.queryByPlaceholderText(enTranslation.settings.yuehulianTeamName)).toBeNull()
-    // And the refusal links the spec's one_account docs section.
-    const link = screen.getByTestId('docs-help-link') as HTMLAnchorElement
-    expect(link.dataset.topic).toBe('fakeOneAccount')
+    expect(screen.queryByTestId('docs-help-link')).toBeNull()
   })
 
   it('create → delete → re-add opens an empty form, never the old account', async () => {
@@ -244,7 +244,7 @@ describe('the generic vendor section', () => {
     // [+] cannot open the form.
     const allStores = [{ browser_backend: 'fakevendor' }] as unknown as Store[]
     const bound = renderSection({ allStores })
-    const disabledAdd = screen.getByTitle(enTranslation.settings.addAccount) as HTMLButtonElement
+    const disabledAdd = screen.getByRole('button', { name: enTranslation.settings.addAccount }) as HTMLButtonElement
     expect(disabledAdd.disabled).toBe(true)
     bound.unmount()
 

@@ -25,6 +25,7 @@ from app.browser.vendors import (
     PICKER_CUSTOM,
     PROFILES_ACCOUNT,
     BrowserVendorSpec,
+    VendorDocsLink,
 )
 from app.browser.win_app_locator import WinAppSpec
 from app.browser.ziniao_processes import clear_singleton_locks
@@ -73,6 +74,13 @@ ZINIAO_VENDOR = BrowserVendorSpec(
     win_app=ZINIAO_WIN_APP,
     private_paths=('ziniao', '紫鸟', '紫鸟浏览器'),
     local_ports=(16851,),
+    docs={
+        'setup': VendorDocsLink(
+            topic='ziniaoSetup',
+            zh='https://docs.vibe-sellers.com/ziniao/',
+            en='https://docs.vibe-sellers.com/en/ziniao/',
+        ),
+    },
 )
 
 # updateCore downloads all browser kernels. Run it once per process,

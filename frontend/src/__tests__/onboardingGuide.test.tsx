@@ -16,6 +16,7 @@ import { bootApp } from '../test/appHarness'
 import { GUIDE_SEEN_KEY } from '../hooks/useOnboardingGuide'
 import { sendEvent } from '../lib/telemetry'
 import { FrontendEvent } from '../lib/telemetryEvents'
+import { DOCS_HELP } from '../lib/docsHelp'
 import zh from '../i18n/locales/zh/translation.json'
 import en from '../i18n/locales/en/translation.json'
 
@@ -115,15 +116,15 @@ describe('first-run guide seen-state', () => {
     expect(screen.queryByTestId(GUIDE_ID)).toBeNull()
   })
 
-  it('replay neither writes nor clears the key', async () => {
+  it('the top help opens task docs without replaying the guide or changing the key', async () => {
     const stamp = '2026-01-01T00:00:00+00:00'
     localStorage.setItem(GUIDE_SEEN_KEY, stamp)
     await boot()
     await screen.findByText('Example task')
-    fireEvent.click(screen.getByTestId('nav-guide'))
-    const g = await screen.findByTestId(GUIDE_ID)
-    expect(g).toHaveTextContent('Step 1 of 3')
-    fireEvent.click(within(g).getByRole('button', { name: 'Close' }))
+    const link = screen.getByTestId('nav-guide') as HTMLAnchorElement
+    expect(link.href).toBe(new URL(DOCS_HELP.taskScopes.en).href)
+    expect(link.target).toBe('_blank')
+    fireEvent.click(link)
     expect(screen.queryByTestId(GUIDE_ID)).toBeNull()
     expect(seenValue()).toBe(stamp)
   })
@@ -269,15 +270,13 @@ describe('guide usage events', () => {
     expect(calls(FrontendEvent.GUIDE_CLOSED)).toEqual([{ via: 'done', step: 3 }])
   })
 
-  it('replay fires shown{replay}; the X fires closed{close, step 1}', async () => {
+  it('the top docs link does not emit a replay event', async () => {
     localStorage.setItem(GUIDE_SEEN_KEY, '2026-01-01T00:00:00+00:00')
     await boot()
     await screen.findByText('Example task')
     fireEvent.click(screen.getByTestId('nav-guide'))
-    await screen.findByTestId(GUIDE_ID)
-    expect(calls(FrontendEvent.GUIDE_SHOWN)).toEqual([{ trigger: 'replay' }])
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
-    expect(calls(FrontendEvent.GUIDE_CLOSED)).toEqual([{ via: 'close', step: 1 }])
+    expect(calls(FrontendEvent.GUIDE_SHOWN)).toHaveLength(0)
+    expect(screen.queryByTestId(GUIDE_ID)).toBeNull()
   })
 
   it('the in-card language switch fires switched{to} per click', async () => {

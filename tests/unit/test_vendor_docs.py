@@ -59,6 +59,18 @@ def test_every_antidetect_vendor_has_a_docs_page():
     assert not missing, 'Vendors without a docs page:\n' + '\n'.join(missing)
 
 
+def test_concepts_covers_all_backends_and_auto_default():
+    """The concepts page must not be frozen to Ziniao/Chrome or forced review."""
+    zh = (DOCS / 'concepts.md').read_text(encoding='utf-8')
+    en = (DOCS / 'concepts.en.md').read_text(encoding='utf-8')
+    assert 'browsers.md#各浏览器配置指南' in zh
+    assert 'browsers.en.md#per-browser-setup-guides' in en
+    assert '固定「先审方案」，不能关闭' not in zh
+    assert "Always **Review plan first** — can't be turned off" not in en
+    assert '| 执行模式 | 跟随你的默认设置（默认自动执行） |' in zh
+    assert '| Execution mode | Follows your default (Auto by default) |' in en
+
+
 def test_generic_picker_vendors_link_their_own_errors_page():
     broken = []
     for spec in _antidetect_specs():

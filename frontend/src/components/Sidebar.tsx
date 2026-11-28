@@ -14,6 +14,9 @@ import { InstallIdBadge } from './InstallIdBadge'
 import { VendorSection } from './VendorSection'
 import { ZiniaoSection } from './StorePickers'
 import { UpdateChip } from './UpdateChip'
+import { DocsHelpLink } from './ui/DocsHelpLink'
+import { FeedbackButton } from './ui/FeedbackButton'
+import { docsHelpUrl } from '../lib/docsHelp'
 
 interface SidebarProps {
   // Mobile drawer control (desktop leaves these at defaults)
@@ -107,7 +110,7 @@ interface SidebarProps {
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const {
     isMobile, navOpen, closeNav,
     currentUser, appView, setAppView, handleLogout, authRequired,
@@ -201,9 +204,17 @@ export function Sidebar(props: SidebarProps) {
             {serverVersion && <span className="text-[10px] text-gray-400 min-w-0 truncate" title={`Server: ${serverVersion}`}>v{serverVersion.slice(0, 14)}</span>}
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <button data-testid="nav-guide" onClick={guide.replay} className="p-1 text-gray-400 hover:text-indigo-600 whitespace-nowrap shrink-0" title={t('onboarding.replay')}>
+            <a
+              data-testid="nav-guide"
+              href={docsHelpUrl('taskScopes', i18n.language)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1 text-gray-400 hover:text-indigo-600 whitespace-nowrap shrink-0"
+              title={t('onboarding.taskDocs')}
+            >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.992.54-.992 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            </button>
+            </a>
+            <FeedbackButton version={serverVersion} platform={serverPlatform || undefined} />
             <LanguageSwitcher />
             {currentUser.role === 'admin' && (
               <button data-testid="nav-settings" onClick={() => setAppView('settings')} className="p-1 text-gray-400 hover:text-gray-700 whitespace-nowrap shrink-0" title={t('settings.title')}>
@@ -375,6 +386,7 @@ function StoreCreationForm(props: {
   const genericVendor = activeVendor && activeVendor.picker_kind === 'generic' && activeVendor.lists_profiles
     ? activeVendor
     : null
+  const setupDocs = activeVendor?.docs?.setup
   const collision = findStoreNameCollision(p.newStoreName, p.stores)
   const collisionError = collision
     ? t('settings.storeNameCollision', { name: collision.store.name, slug: collision.slug })
@@ -400,6 +412,7 @@ function StoreCreationForm(props: {
         value={p.newStoreBackend}
         onChange={e => { p.setNewStoreBackend(e.target.value); p.setCreateStoreError('') }}
         disabled={!p.newStoreName.trim()}
+        aria-label={t('tasks.browserBackend')}
         className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 bg-white ${!p.newStoreName.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
         {options.map(v => (
@@ -408,6 +421,11 @@ function StoreCreationForm(props: {
           </option>
         ))}
       </select>
+      {setupDocs && (
+        <div className="-mt-1 mb-2">
+          <DocsHelpLink urls={setupDocs} label={t('settings.browserSetupGuide')} />
+        </div>
+      )}
       {p.newStoreBackend === 'chrome' && (
         <div className="mb-2">
           <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer mb-1">

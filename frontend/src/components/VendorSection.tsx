@@ -220,10 +220,11 @@ export function VendorSection(props: {
     }
   }
 
-  // A bound store disables [+] rather than letting the user open a form
-  // whose save must fail. Keep the reason and its docs link visible.
-  const accountError = formErr || (hasVendorStores ? vt('OneAccount') : '')
-  const oneAccount = accountError === vt('OneAccount')
+  // A bound store disables [+] and puts the reason on its tooltip. Do not
+  // show an unsolicited error merely because the picker has bound stores;
+  // real backend/refusal errors still render below.
+  const accountError = formErr
+  const oneAccount = formErr === vt('OneAccount')
   // A status resolves: the vendor's override key, else the shared
   // per-code key, else the backend's own message, else the load-failed
   // default. (no_stores is a UI state, not an error code; connect_error
@@ -260,7 +261,7 @@ export function VendorSection(props: {
         <div className="min-w-0 flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs bg-gray-50 truncate">
           {accountLabel}
         </div>
-        <button type="button" onClick={() => (showForm ? setShowForm(false) : openAdd())} disabled={hasVendorStores} title={t('settings.addAccount')} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm rounded border border-gray-300 text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed">+</button>
+        <button type="button" onClick={() => (showForm ? setShowForm(false) : openAdd())} disabled={hasVendorStores} aria-label={t('settings.addAccount')} title={hasVendorStores ? vt('OneAccount') : t('settings.addAccount')} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm rounded border border-gray-300 text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed">+</button>
       </div>
       )}
       {needsAccount && showForm && (

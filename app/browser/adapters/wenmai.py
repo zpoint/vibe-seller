@@ -81,6 +81,11 @@ WENMAI_VENDOR = BrowserVendorSpec(
     client_kind=CLIENT_LOCAL_API,
     i18n_prefix='settings.wenmai',
     docs={
+        'setup': VendorDocsLink(
+            topic='wenmaiSetup',
+            zh='https://docs.vibe-sellers.com/wenmai/',
+            en='https://docs.vibe-sellers.com/en/wenmai/',
+        ),
         'errors': VendorDocsLink(
             topic='wenmaiErrors',
             zh='https://docs.vibe-sellers.com/wenmai/#常见提示--报错',
