@@ -543,7 +543,12 @@ browser-use 0.13 (`browser_harness`) spawns each daemon as
 **PID FILE** — `<BH_RUNTIME_DIR>/bu-<BU_NAME>.pid` (+ `.sock`) — with the
 session name in the `BU_NAME` env var, **not** in argv. So the reaper
 reads identity from the pid files (portable; avoids macOS
-`psutil.environ()` `AccessDenied`). The pid *record* has two shapes on
+`psutil.environ()` `AccessDenied`). On POSIX, `BH_RUNTIME_DIR` stays at
+`$VIBE_HOME/r` when even the maximum 64-character session's socket fits
+macOS's 104-byte `sun_path` (including the NUL). A longer home falls back
+to a private deterministic `/tmp/vs-<hash>` directory; `iter_pidfiles()`
+then scans both the new and old directories, so upgrading cannot orphan
+existing daemons. The pid *record* has two shapes on
 live browser-use versions — a plain integer (what our wrapper-spawned
 daemons write: the wrapper always exports `BU_CDP_WS`, so upstream takes
 its non-local spawn branch) and the spawn-lock JSON

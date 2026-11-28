@@ -336,7 +336,11 @@ function CliRow({
                 {card.key === 'gws' && <> <DocsHelpLink topic="googleSignInExpired" /></>}
               </span>
             ) : expiry.expired === true ? (
-              <span className="text-amber-700" data-testid={`cli-expired-${card.key}`}>
+              <span
+                className="text-amber-700"
+                data-testid={`cli-expired-${card.key}`}
+                data-state="expired"
+              >
                 {t('integrations.cli.expired')}
               </span>
             ) : (

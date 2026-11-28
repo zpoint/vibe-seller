@@ -72,3 +72,19 @@ class TestIterPidfiles:
         )
         got = {name: pid for name, pid, _pf, _sock in iter_pidfiles()}
         assert got == {'store-a1b2c3d4': 111, 'store-aux': 222}
+
+    def test_reads_the_pre_fallback_runtime_after_a_long_home_move(
+        self, tmp_path, monkeypatch
+    ):
+        current = tmp_path / 'current'
+        legacy = tmp_path / 'legacy'
+        current.mkdir()
+        legacy.mkdir()
+        (current / 'bu-store-a1b2c3d4.pid').write_text('111')
+        (legacy / 'bu-old-b2c3d4e5.pid').write_text('222')
+        monkeypatch.setattr('app.browser.bh_daemons.BH_RUNTIME_DIR', current)
+        monkeypatch.setattr(
+            'app.browser.bh_daemons.BH_LEGACY_RUNTIME_DIR', legacy
+        )
+        got = {name: pid for name, pid, _pf, _sock in iter_pidfiles()}
+        assert got == {'store-a1b2c3d4': 111, 'old-b2c3d4e5': 222}
