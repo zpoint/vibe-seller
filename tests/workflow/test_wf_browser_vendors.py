@@ -8,11 +8,13 @@ route — with zero shared-code edits. The negative control is the same
 calls without the registration: the vendor is simply absent (404).
 """
 
+import asyncio
 import json
 from unittest import mock
 
 import pytest
 
+from app.browser import vendor_creds
 from app.browser.inject.client import InjectClient, StoreRef
 from app.browser.inject.errors import (
     AccountMismatch,
@@ -31,6 +33,7 @@ from app.browser.vendors import (
     registered_vendor_specs,
     vendor_spec,
 )
+from app.models.app_settings import AppSettings
 from app.models.store import Store
 import app.plugins as plugins_mod
 from app.plugins import ExtensionContext, Plugin, reset_for_tests
@@ -178,6 +181,190 @@ async def test_fake_vendor_one_account_refusal(admin_client, fake_vendor):
     )
     assert r.status_code == 400
     assert json.loads(r.json()['detail'])['status'] == 'one_account'
+
+
+async def test_single_vendor_create_delete_readd_starts_without_old_account(
+    admin_client, fake_vendor
+):
+    """Deleting the last bound store removes the old machine login.
+
+    The create -> delete -> re-add journey must therefore expose no old
+    non-secret account value, must delete the encrypted secret row too,
+    and must accept a genuinely fresh account afterwards.
+    """
+    await _save_credentials(admin_client, 'fakevendor', 'old')
+    created = await admin_client.post(
+        '/api/stores',
+        json={'name': 'fv-lifecycle', 'browser_backend': 'fakevendor'},
+    )
+    assert created.status_code == 200
+    store_id = created.json()['id']
+
+    refused = await _save_credentials(admin_client, 'fakevendor', 'blocked')
+    assert refused.status_code == 400
+
+    deleted = await admin_client.delete(f'/api/stores/{store_id}')
+    assert deleted.status_code == 200
+    status = (
+        await admin_client.get('/api/browser-vendors/fakevendor/credentials')
+    ).json()
+    assert status['configured'] is False
+    assert status['acct'] == ''
+    assert 'password' not in status
+    async with tasks_mod.async_session() as db:
+        assert await db.get(AppSettings, 'fakevendor_acct') is None
+        assert await db.get(AppSettings, 'fakevendor_password') is None
+
+    readded = await _save_credentials(admin_client, 'fakevendor', 'fresh')
+    assert readded.status_code == 200
+    status = (
+        await admin_client.get('/api/browser-vendors/fakevendor/credentials')
+    ).json()
+    assert status['configured'] is True
+    assert status['acct'] == 'fresh-acct'
+
+
+async def test_single_vendor_credentials_remain_until_last_store_deleted(
+    admin_client, fake_vendor
+):
+    """One remaining store still owns the login; only the last deletion
+    clears it, so another store can never be orphaned mid-cleanup."""
+    await _save_credentials(admin_client, 'fakevendor', 'first')
+    store_ids = []
+    for name in ('fv-one', 'fv-two'):
+        created = await admin_client.post(
+            '/api/stores',
+            json={'name': name, 'browser_backend': 'fakevendor'},
+        )
+        assert created.status_code == 200
+        store_ids.append(created.json()['id'])
+
+    assert (
+        await admin_client.delete(f'/api/stores/{store_ids[0]}')
+    ).status_code == 200
+    status = (
+        await admin_client.get('/api/browser-vendors/fakevendor/credentials')
+    ).json()
+    assert status['configured'] is True
+    assert status['acct'] == 'first-acct'
+    refused = await _save_credentials(admin_client, 'fakevendor', 'second')
+    assert refused.status_code == 400
+
+    assert (
+        await admin_client.delete(f'/api/stores/{store_ids[1]}')
+    ).status_code == 200
+    status = (
+        await admin_client.get('/api/browser-vendors/fakevendor/credentials')
+    ).json()
+    assert status['configured'] is False
+    assert status['acct'] == ''
+
+
+async def test_create_racing_last_delete_revalidates_account(
+    admin_client, fake_vendor, monkeypatch
+):
+    """A create that read the old login cannot commit after its cleanup.
+
+    The cleanup barrier makes the race deterministic without sleeps. On
+    unfixed code the create finishes while cleanup is paused; on fixed
+    code its before-lock snapshot fires while it waits for the delete.
+    """
+    await _save_credentials(admin_client, 'fakevendor', 'old')
+    created = await admin_client.post(
+        '/api/stores',
+        json={'name': 'fv-race-old', 'browser_backend': 'fakevendor'},
+    )
+    old_store_id = created.json()['id']
+
+    clear_entered = asyncio.Event()
+    release_clear = asyncio.Event()
+    create_snapshotted = asyncio.Event()
+    real_clear = vendor_creds.clear_credentials
+    real_snapshot = vendor_creds.credential_snapshot
+
+    async def paused_clear(db, spec):
+        clear_entered.set()
+        await release_clear.wait()
+        await real_clear(db, spec)
+
+    async def watched_snapshot(db, spec):
+        snapshot = await real_snapshot(db, spec)
+        create_snapshotted.set()
+        return snapshot
+
+    monkeypatch.setattr(
+        'app.routers.stores.vendor_creds.clear_credentials', paused_clear
+    )
+    monkeypatch.setattr(
+        'app.routers.stores.vendor_creds.credential_snapshot',
+        watched_snapshot,
+    )
+
+    delete_task = asyncio.create_task(
+        admin_client.delete(f'/api/stores/{old_store_id}')
+    )
+    await clear_entered.wait()
+    create_task = asyncio.create_task(
+        admin_client.post(
+            '/api/stores',
+            json={'name': 'fv-race-new', 'browser_backend': 'fakevendor'},
+        )
+    )
+    snapshot_wait = asyncio.create_task(create_snapshotted.wait())
+    # Negative control: without locking/revalidation there is no snapshot,
+    # so the CREATE finishes and releases this wait instead.
+    await asyncio.wait(
+        {create_task, snapshot_wait},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    snapshot_wait.cancel()
+    await asyncio.gather(snapshot_wait, return_exceptions=True)
+    release_clear.set()
+    deleted, raced_create = await asyncio.gather(delete_task, create_task)
+
+    assert deleted.status_code == 200
+    assert raced_create.status_code == 409
+    assert json.loads(raced_create.json()['detail'])['status'] == (
+        'account_changed'
+    )
+    stores = (await admin_client.get('/api/stores')).json()
+    assert [store['name'] for store in stores] == []
+    status = (
+        await admin_client.get('/api/browser-vendors/fakevendor/credentials')
+    ).json()
+    assert status['configured'] is False
+
+
+async def test_ziniao_last_store_delete_keeps_its_account(admin_client):
+    """The cleanup is cardinality-gated: Ziniao's multi-account records
+    are independent of store rows and survive its last store deletion."""
+    account = await admin_client.post(
+        '/api/ziniao-accounts',
+        json={
+            'name': 'multi-account',
+            'company': 'acme',
+            'username': 'operator',
+            'password': 'pw',
+        },
+    )
+    assert account.status_code == 200
+    account_id = account.json()['id']
+    created = await admin_client.post(
+        '/api/stores',
+        json={
+            'name': 'ziniao-lifecycle',
+            'browser_backend': 'ziniao',
+            'ziniao_account_id': account_id,
+            'browser_oauth': 'profile-ref',
+        },
+    )
+    assert created.status_code == 200
+
+    deleted = await admin_client.delete(f'/api/stores/{created.json()["id"]}')
+    assert deleted.status_code == 200
+    accounts = (await admin_client.get('/api/ziniao-accounts')).json()
+    assert [row['id'] for row in accounts] == [account_id]
+    assert accounts[0]['username'] == 'operator'
 
 
 async def test_fake_vendor_lists_stores_through_generic_route(

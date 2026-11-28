@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 import json
 import logging
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import store_platforms, telemetry
 from app.auth import get_current_user
+from app.browser import vendor_creds
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
 from app.browser.inject.errors import InjectError, is_terminal
 from app.browser.launch_guards import BrowserBusyError
@@ -18,6 +20,7 @@ from app.browser.start_failure import (
     error_body,
     fail_task_for_start_error,
 )
+from app.browser.vendors import CARDINALITY_SINGLE, vendor_spec
 from app.browser.wrapper import remove_browser_use_wrapper
 from app.browser.ziniao_startup import ZiniaoAccountConflictError
 from app.database import get_db
@@ -156,7 +159,46 @@ async def create_store(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    async with _STORE_NAMES:
+    spec = vendor_spec(data.browser_backend)
+    managed_spec = (
+        spec
+        if spec
+        and spec.account_cardinality == CARDINALITY_SINGLE
+        and spec.credential_fields
+        else None
+    )
+    before = (
+        await vendor_creds.credential_snapshot(db, managed_spec)
+        if managed_spec
+        else None
+    )
+    if managed_spec:
+        # SQLite starts a read transaction on the first SELECT. End it
+        # before waiting, or the revalidation SELECT could reuse a stale
+        # snapshot after another request commits its account change.
+        await db.rollback()
+    async with AsyncExitStack() as stack:
+        if managed_spec:
+            # Serialize with last-store deletion and credential replacement.
+            # Revalidation preserves the existing unconfigured-create API:
+            # only a create whose account changed in flight is refused.
+            await stack.enter_async_context(
+                vendor_creds.vendor_account_lock(managed_spec.key)
+            )
+        await stack.enter_async_context(_STORE_NAMES)
+        if managed_spec and before != await vendor_creds.credential_snapshot(
+            db, managed_spec
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=json.dumps({
+                    'status': 'account_changed',
+                    'message': (
+                        'The vendor account changed during store creation; '
+                        'select the store again.'
+                    ),
+                }),
+            )
         await _refuse_taken_slug(db, data.name)
         pc = store_platforms.merge_declared(
             {},
@@ -354,6 +396,30 @@ async def delete_store(
     store = await db.get(Store, store_id)
     if not store:
         return {'ok': True}
+    spec = vendor_spec(store.browser_backend)
+    if (
+        spec
+        and spec.account_cardinality == CARDINALITY_SINGLE
+        and spec.credential_fields
+    ):
+        # The identifying read above must not pin SQLite's transaction
+        # snapshot while this request waits. Re-read inside the lock before
+        # any cleanup write: a competing create/save now either commits
+        # first (and is seen) or runs after this whole deletion.
+        await db.rollback()
+        async with vendor_creds.vendor_account_lock(spec.key):
+            return await _delete_store(store_id, delete_files, db)
+    return await _delete_store(store_id, delete_files, db)
+
+
+async def _delete_store(
+    store_id: str,
+    delete_files: bool,
+    db: AsyncSession,
+):
+    store = await db.get(Store, store_id)
+    if not store:
+        return {'ok': True}
 
     # Block if active tasks
     active_count = (
@@ -424,7 +490,30 @@ async def delete_store(
         except (ValueError, TypeError):
             age_days = None
 
+    spec = vendor_spec(store.browser_backend)
+    managed_spec = (
+        spec
+        if spec
+        and spec.account_cardinality == CARDINALITY_SINGLE
+        and spec.credential_fields
+        else None
+    )
     await db.delete(store)
+    if managed_spec:
+        # A single-account login belongs to this vendor's bound stores.
+        # Once the last one is gone no store still owns that login, so
+        # remove it in the same transaction. The public route holds the
+        # per-vendor lock across this count and the credential cleanup.
+        await db.flush()
+        remaining = (
+            await db.execute(
+                select(func.count(Store.id)).where(
+                    Store.browser_backend == store.browser_backend
+                )
+            )
+        ).scalar() or 0
+        if remaining == 0:
+            await vendor_creds.clear_credentials(db, managed_spec)
     await db.commit()
 
     telemetry.send(

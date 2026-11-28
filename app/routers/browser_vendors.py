@@ -135,7 +135,8 @@ async def get_vendor_credentials(
     _user: User = Depends(get_current_user),
 ):
     """Whether the vendor's machine login is configured + the non-secret
-    fields (never the secrets) so the form can show/prefill them."""
+    fields (never the secrets) for the account row. The add form starts
+    empty rather than prefilling these values."""
     spec = _require_spec(key)
     if not spec.credential_fields:
         raise HTTPException(
@@ -181,15 +182,18 @@ async def save_vendor_credentials(
             status_code=400,
             detail=f'{names} are all required',
         )
-    if (
-        spec.account_cardinality == CARDINALITY_SINGLE
-        and await vendor_store_count(db, spec.key) > 0
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail=json.dumps({'status': 'one_account'}),
-        )
-    await vendor_creds.save_credentials(db, spec, data)
+    async with vendor_creds.vendor_account_lock(spec.key):
+        # The bound-store check and save are one serialized lifecycle
+        # operation with store create/last-delete, not a check-then-race.
+        if (
+            spec.account_cardinality == CARDINALITY_SINGLE
+            and await vendor_store_count(db, spec.key) > 0
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=json.dumps({'status': 'one_account'}),
+            )
+        await vendor_creds.save_credentials(db, spec, data)
     return {'ok': True}
 
 

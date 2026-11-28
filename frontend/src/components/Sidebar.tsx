@@ -68,6 +68,7 @@ interface SidebarProps {
   vendorErrorMessage?: string
   fetchingVendorStores: boolean
   fetchVendorStores: () => void
+  resetVendorStores: () => void
   serverPlatform: ServerPlatform | null; serverVersion: string; installId: string
   // In-app update (footer chip; clicking opens the update modal)
   updateStatus: UpdateStatus | null
@@ -121,7 +122,7 @@ export function Sidebar(props: SidebarProps) {
     fetchingBrowsers, browserFetchError, setBrowserFetchError,
     fetchBrowserProfiles, ziniaoStartingSecs,
     vendors, vendorStores, vendorError, vendorErrorMessage,
-    fetchingVendorStores, fetchVendorStores,
+    fetchingVendorStores, fetchVendorStores, resetVendorStores,
     serverPlatform, serverVersion, installId,
     updateStatus, onOpenUpdate,
     showAddAccount, setShowAddAccount, showAccountPassword, setShowAccountPassword,
@@ -260,6 +261,7 @@ export function Sidebar(props: SidebarProps) {
               vendorStores={vendorStores} vendorError={vendorError}
               vendorErrorMessage={vendorErrorMessage}
               fetchingVendorStores={fetchingVendorStores} fetchVendorStores={fetchVendorStores}
+              resetVendorStores={resetVendorStores}
               serverPlatform={serverPlatform}
               showAddAccount={showAddAccount} setShowAddAccount={setShowAddAccount}
               showAccountPassword={showAccountPassword} setShowAccountPassword={setShowAccountPassword}
@@ -343,6 +345,7 @@ function StoreCreationForm(props: {
   vendors: BrowserVendor[] | null
   vendorStores: VendorStoreRef[]; vendorError: string; vendorErrorMessage?: string
   fetchingVendorStores: boolean; fetchVendorStores: () => void
+  resetVendorStores: () => void
   showAddAccount: boolean; setShowAddAccount: (v: boolean) => void
   showAccountPassword: boolean; setShowAccountPassword: React.Dispatch<React.SetStateAction<boolean>>
   editingAccountId: string; setEditingAccountId: (v: string) => void
@@ -450,6 +453,7 @@ function StoreCreationForm(props: {
           errorMessage={p.vendorErrorMessage}
           fetching={p.fetchingVendorStores}
           fetchStores={p.fetchVendorStores}
+          resetStores={p.resetVendorStores}
           allStores={p.stores}
         />
       )}

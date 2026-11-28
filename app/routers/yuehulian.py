@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
+from app.browser import vendor_creds
 from app.browser.adapters import yuehulian_creds
 from app.browser.adapters.yuehulian import YUEHULIAN_VENDOR
 from app.browser.adapters.yuehulian_client import RealYuehulianClient
@@ -68,14 +69,15 @@ async def save_yuehulian_credentials(
             status_code=400,
             detail='team_name, subaccount and password are all required',
         )
-    if await vendor_store_count(db, 'yuehulian') > 0:
-        raise HTTPException(
-            status_code=400,
-            detail=json.dumps({'status': 'one_account'}),
+    async with vendor_creds.vendor_account_lock('yuehulian'):
+        if await vendor_store_count(db, 'yuehulian') > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=json.dumps({'status': 'one_account'}),
+            )
+        await yuehulian_creds.save_credentials(
+            db, data.team_name, data.subaccount, data.password
         )
-    await yuehulian_creds.save_credentials(
-        db, data.team_name, data.subaccount, data.password
-    )
     return {'ok': True}
 
 

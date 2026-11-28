@@ -138,6 +138,26 @@ describe('storeCreateError', () => {
     expect(storeCreateError(e, t)).toBe('settings.createStoreFailed:{"msg":"boom"}')
   })
 
+  it('shows the human message for an account_changed race', () => {
+    const message =
+      'The vendor account changed during store creation; select the store again.'
+    const e = Object.assign(
+      new Error(JSON.stringify({ status: 'account_changed', message })),
+      { status: 409 },
+    )
+    expect(storeCreateError(e, t)).toBe(
+      `settings.createStoreFailed:${JSON.stringify({ msg: message })}`
+    )
+  })
+
+  it('leaves other structured JSON errors verbatim', () => {
+    const detail = JSON.stringify({ status: 'one_account', message: 'raw detail' })
+    const e = Object.assign(new Error(detail), { status: 409 })
+    expect(storeCreateError(e, t)).toBe(
+      `settings.createStoreFailed:${JSON.stringify({ msg: detail })}`
+    )
+  })
+
   it('tolerates a non-Error / missing message', () => {
     expect(storeCreateError({}, t)).toBe('settings.createStoreFailed:{"msg":""}')
   })

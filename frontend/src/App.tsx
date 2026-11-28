@@ -639,6 +639,7 @@ export default function App() {
         vendorStores={vendorBrowser.stores} vendorError={vendorBrowser.error}
         vendorErrorMessage={vendorBrowser.errorMessage}
         fetchingVendorStores={vendorBrowser.fetching} fetchVendorStores={vendorBrowser.fetchStores}
+        resetVendorStores={vendorBrowser.reset}
         serverPlatform={serverPlatform} serverVersion={serverVersion} installId={installId}
         updateStatus={updateFlow.status} onOpenUpdate={updateFlow.openModal}
         showAddAccount={ziniao.showAddAccount} setShowAddAccount={ziniao.setShowAddAccount}

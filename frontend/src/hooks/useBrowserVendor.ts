@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
 import { useBrowserVendors } from './useBrowserVendors'
@@ -20,6 +20,14 @@ export function useBrowserVendor(key: string) {
   const [error, setError] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [fetching, setFetching] = useState(false)
+  const generation = useRef(0)
+  const currentKey = useRef(key)
+  if (currentKey.current !== key) {
+    // Invalidate an old vendor's in-flight list during render, before any
+    // child effect can start the new vendor's fetch.
+    currentKey.current = key
+    generation.current += 1
+  }
 
   useEffect(() => {
     setStores([])
@@ -29,6 +37,7 @@ export function useBrowserVendor(key: string) {
   }, [key])
 
   const fetchStores = async () => {
+    const request = ++generation.current
     setFetching(true)
     setStores([])
     setError('')
@@ -37,9 +46,11 @@ export function useBrowserVendor(key: string) {
       const list = (await api.get(
         `/api/browser-vendors/${key}/stores`,
       )) as VendorStoreRef[]
+      if (request !== generation.current) return
       setStores(list)
       if (list.length === 0) setError(`${key}:no_stores`)
     } catch (e) {
+      if (request !== generation.current) return
       const msg = e instanceof Error ? e.message : ''
       let status = 'connect_error'
       let message = ''
@@ -53,14 +64,16 @@ export function useBrowserVendor(key: string) {
       setError(`${key}:${status}`)
       setErrorMessage(message)
     } finally {
-      setFetching(false)
+      if (request === generation.current) setFetching(false)
     }
   }
 
   const reset = () => {
+    generation.current += 1
     setStores([])
     setError('')
     setErrorMessage('')
+    setFetching(false)
   }
 
   return { stores, error, errorMessage, fetching, fetchStores, reset }

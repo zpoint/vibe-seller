@@ -37,13 +37,23 @@ const handleResponse = async (r: Response) => {
 // Friendly message for a failed store-create (POST /api/stores). Shows the
 // backend detail verbatim — a create 409 names the existing store whose
 // folder slug collides (distinct display names can reduce to the same
-// on-disk slug), which a generic "name taken" hid. Pure (no alert) so the
-// UI layer decides how to surface it.
+// on-disk slug), which a generic "name taken" hid. The account-changed race
+// is the one structured detail: show its human message instead of raw JSON.
+// Pure (no alert) so the UI layer decides how to surface it.
 export function storeCreateError(
   e: unknown,
   t: (k: string, o?: Record<string, unknown>) => string,
 ): string {
-  const msg = e instanceof Error ? e.message : ''
+  const raw = e instanceof Error ? e.message : ''
+  let msg = raw
+  try {
+    const detail = JSON.parse(raw)
+    if (detail?.status === 'account_changed' && typeof detail.message === 'string') {
+      msg = detail.message
+    }
+  } catch {
+    // Ordinary backend details are already plain text and stay verbatim.
+  }
   return t('settings.createStoreFailed', { msg })
 }
 
