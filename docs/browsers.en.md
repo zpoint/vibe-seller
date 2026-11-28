@@ -25,6 +25,7 @@ vendor's own site:
 | Ziniao | Third-party anti-detect browser (developer / WebDriver mode, driven over CDP) | One team managing many accounts; strict risk control | Windows / macOS / Linux, plus WSL | [ziniao.com](https://www.ziniao.com) · [download](https://www.ziniao.com/download) | Register an enterprise account → BOSS enables developer mode on the [Open Platform](https://open.ziniao.com/docSupport?docId=99) and ticks WebDriver login for the sub-account | [Ziniao setup](ziniao.en.md) |
 | AdsPower | Anti-detect browser (API-key integration) | One team managing many accounts | Windows and macOS (WSL also supported) | [adspower.net](https://www.adspower.net/download) | Paid plan + generate an API key (API & MCP page); profiles must use the SunBrowser kernel | [AdsPower setup](adspower.en.md) |
 | Yuehulian | Chinese anti-detect e-commerce browser | One team managing many accounts | Windows / macOS / WSL | [kj.chinafic.com](https://kj.chinafic.com/) · client download on the site | Register an enterprise account → create sub-accounts and grant store permissions in the console (team login = team name + sub-account + password) | [Yuehulian setup](yuehulian.en.md) |
+| Wenmai (稳卖) | Anti-detect e-commerce browser | One team managing many accounts | Windows / macOS, plus WSL | [wenmai-ai.com](https://www.wenmai-ai.com) | Create an enterprise sub-account in the client and authorise stores (enterprise login = company + username + password); each store needs a device bound | [Wenmai setup](wenmai.en.md) |
 
 > WSL deployments also have a fourth backend, `winchrome` (set at deployment, not a
 > choice in the store form) — see the end of "Which browser backend?".
@@ -37,14 +38,14 @@ Before you bind a store, open its settings in the anti-detect browser and set th
 
 ## Which browser backend?
 
-| | Ziniao (Browser Backend) | Yuehulian (Browser Backend) | Chrome |
-|---|---|---|---|
-| What it is | A third-party anti-detect fingerprint browser; driven over CDP through its developer (WebDriver) mode | A Chinese anti-detect e-commerce browser; Vibe Seller opens and signs in to its client itself | The system's own Chrome / Chromium, launched by Playwright with a profile dedicated to this store |
-| Good for | One team managing many accounts that must not share fingerprints; strict risk control | One team managing many accounts | Running a single store yourself, no extra software; public-web work |
-| What you need | A Ziniao enterprise account whose BOSS enabled developer mode | A Yuehulian team account (team + sub-account + password) | Nothing extra; on a headless Linux box you need a virtual display such as Xvfb |
-| Where logins live | Inside Ziniao's own profile — Vibe Seller only opens and drives it | Inside the Yuehulian client (Vibe Seller auto-signs-in) | In this store's own Chrome profile directory, kept across tasks |
-| Several stores at once | A machine can connect to only one Ziniao account at a time | One Yuehulian account per machine (stricter: a second account can't even be added) | No such limit |
-| Platforms | Windows / macOS / Linux, plus WSL; WSL needs a one-line `.bat` launcher (see [Ziniao: Setup & Common Errors](ziniao.en.md)) | Windows / macOS / WSL | macOS / Linux, plus WSL (WSLg); under a Windows service, use native Windows Chrome instead (next paragraph) |
+| | Ziniao (Browser Backend) | Yuehulian (Browser Backend) | Wenmai (Browser Backend) | Chrome |
+|---|---|---|---|---|
+| What it is | A third-party anti-detect fingerprint browser; driven over CDP through its developer (WebDriver) mode | A Chinese anti-detect e-commerce browser; Vibe Seller opens and signs in to its client itself | An anti-detect e-commerce browser with a built-in local API; Vibe Seller opens stores through it | The system's own Chrome / Chromium, launched by Playwright with a profile dedicated to this store |
+| Good for | One team managing many accounts that must not share fingerprints; strict risk control | One team managing many accounts | One team managing many accounts | Running a single store yourself, no extra software; public-web work |
+| What you need | A Ziniao enterprise account whose BOSS enabled developer mode | A Yuehulian team account (team + sub-account + password) | A Wenmai enterprise account (company + username + password); each store needs a device bound | Nothing extra; on a headless Linux box you need a virtual display such as Xvfb |
+| Where logins live | Inside Ziniao's own profile — Vibe Seller only opens and drives it | Inside the Yuehulian client (Vibe Seller auto-signs-in) | Inside the Wenmai client (Vibe Seller auto-signs-in) | In this store's own Chrome profile directory, kept across tasks |
+| Several stores at once | A machine can connect to only one Ziniao account at a time | One Yuehulian account per machine (stricter: a second account can't even be added) | One Wenmai account per machine | No such limit |
+| Platforms | Windows / macOS / Linux, plus WSL; WSL needs a one-line `.bat` launcher (see [Ziniao: Setup & Common Errors](ziniao.en.md)) | Windows / macOS / WSL | Windows / macOS / WSL | macOS / Linux, plus WSL (WSLg); under a Windows service, use native Windows Chrome instead (next paragraph) |
 
 Ziniao is a third-party anti-detect browser; Vibe Seller drives it over CDP
 through its developer (WebDriver) mode. Fingerprints are isolated between
@@ -58,6 +59,8 @@ auto-signs-in when the session expires. Download, team-account creation,
 binding and errors: [Yuehulian: Setup Guide](yuehulian.en.md).
 
 AdsPower is integrated with an API key you generate, and it works on **Windows and macOS; WSL is also supported**. The key must belong to the account signed in to the client. Download, key generation, binding, the kernel requirement and errors: [AdsPower: Setup Guide](adspower.en.md).
+
+Wenmai is an anti-detect browser; Vibe Seller opens and signs in to its client itself, on **Windows and macOS; WSL is also supported** — one account per machine with auto-login, and every store needs a device bound in Wenmai. Download, enterprise-account creation, binding and errors: [Wenmai: Setup Guide](wenmai.en.md).
 
 The Chrome backend has Playwright bring up a profile dedicated to the
 store — no extra software, and no handing the system an anti-detect

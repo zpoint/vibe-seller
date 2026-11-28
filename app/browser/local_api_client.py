@@ -496,9 +496,13 @@ def _read_text_best_effort(path: str) -> str:
 
 
 async def _json_or_text(resp) -> object:
+    # content_type=None: vendor APIs routinely mislabel JSON bodies —
+    # 稳卖's relayed POST endpoints answer Content-Type text/html with a
+    # JSON body (verified live), and the strict parse made every call
+    # "a string payload" → logged-out detection and parsing failed.
     try:
-        return await resp.json()
-    except (aiohttp.ContentTypeError, ValueError):
+        return await resp.json(content_type=None)
+    except ValueError:
         return await resp.text()
 
 

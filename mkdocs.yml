@@ -209,6 +209,7 @@ nav:
           - "Ziniao: Setup & Common Errors": ziniao.md
           - "Yuehulian: Setup Guide": yuehulian.md
           - "AdsPower: Setup Guide": adspower.md
+          - "Wenmai: Setup Guide": wenmai.md
       - Integrations:
           - Overview: integrations.md
           - Amazon Ads API: ads-api.md
