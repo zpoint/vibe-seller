@@ -103,7 +103,7 @@ export default function App() {
   // Browser vendors: registry metadata (backend options, credential
   // schema) + the selected vendor's store list (generic picker state,
   // replacing the per-vendor hooks).
-  const vendors = useBrowserVendors()
+  const vendors = useBrowserVendors(currentUser?.id ?? null)
   const vendorBrowser = useBrowserVendor(newStoreBackend)
   const [showCreateTask, setShowCreateTask] = useState(false)
   const aiGate = useAiSetupGate()

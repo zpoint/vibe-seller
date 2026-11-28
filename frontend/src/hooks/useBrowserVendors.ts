@@ -26,7 +26,7 @@ function fetchVendors(): Promise<BrowserVendor[]> {
   return cache
 }
 
-export function useBrowserVendors() {
+export function useBrowserVendors(authKey?: string | null) {
   const [vendors, setVendors] = useState<BrowserVendor[] | null>(null)
   useEffect(() => {
     let alive = true
@@ -36,6 +36,9 @@ export function useBrowserVendors() {
     return () => {
       alive = false
     }
-  }, [])
+    // An anonymous 401 resolves to [] and clears the promise cache. The
+    // caller's auth identity changing (notably login) must start a fresh
+    // fetch, or the backend picker stays empty until a full page reload.
+  }, [authKey])
   return vendors
 }
