@@ -26,6 +26,7 @@ vendor's own site:
 | AdsPower | Anti-detect browser (API-key integration) | One team managing many accounts | Windows and macOS (WSL also supported) | [adspower.net](https://www.adspower.net/download) | Paid plan + generate an API key (API & MCP page); profiles must use the SunBrowser kernel | [AdsPower setup](adspower.en.md) |
 | Yuehulian | Chinese anti-detect e-commerce browser | One team managing many accounts | Windows / macOS / WSL | [kj.chinafic.com](https://kj.chinafic.com/) · client download on the site | Register an enterprise account → create sub-accounts and grant store permissions in the console (team login = team name + sub-account + password) | [Yuehulian setup](yuehulian.en.md) |
 | Wenmai (稳卖) | Anti-detect e-commerce browser | One team managing many accounts | Windows / macOS, plus WSL | [wenmai-ai.com](https://www.wenmai-ai.com) | Create an enterprise sub-account in the client and authorise stores (enterprise login = company + username + password); each store needs a device bound | [Wenmai setup](wenmai.en.md) |
+| BitBrowser | Chinese anti-detect browser | One team managing many accounts; the free plan works | Windows and macOS; WSL is also supported | [bitbrowser.net](https://www.bitbrowser.net/) · [download](https://www.bitbrowser.net/download/) | Register an account (10 profiles on the free plan); sub-accounts need profiles authorized by the main account | [BitBrowser setup](bitbrowser.en.md) |
 
 > WSL deployments also have a fourth backend, `winchrome` (set at deployment, not a
 > choice in the store form) — see the end of "Which browser backend?".
@@ -61,6 +62,12 @@ binding and errors: [Yuehulian: Setup Guide](yuehulian.en.md).
 AdsPower is integrated with an API key you generate, and it works on **Windows and macOS; WSL is also supported**. The key must belong to the account signed in to the client. Download, key generation, binding, the kernel requirement and errors: [AdsPower: Setup Guide](adspower.en.md).
 
 Wenmai is an anti-detect browser; Vibe Seller opens and signs in to its client itself, on **Windows and macOS; WSL is also supported** — one account per machine with auto-login, and every store needs a device bound in Wenmai. Download, enterprise-account creation, binding and errors: [Wenmai: Setup Guide](wenmai.en.md).
+
+BitBrowser is an anti-detect browser, on **Windows and macOS; WSL is
+also supported**. Vibe Seller can store the BitBrowser account and
+password and signs in again when the session expires (one account on one
+computer at a time). Download, binding and errors:
+[BitBrowser: Setup Guide](bitbrowser.en.md).
 
 The Chrome backend has Playwright bring up a profile dedicated to the
 store — no extra software, and no handing the system an anti-detect
@@ -143,6 +150,8 @@ if not, delete the store in Vibe Seller and bind it again.
 
 - [Ziniao: Setup & Common Errors](ziniao.en.md) — enable developer mode,
   binding, errors, the WSL launcher, credential storage.
+- [BitBrowser: Setup Guide](bitbrowser.en.md) — download, sign in once,
+  binding, Windows and macOS.
 - [Yuehulian: Setup Guide](yuehulian.en.md) — download, create a team
   account, binding, one account per machine, auto-login, Windows and
   macOS plus WSL.

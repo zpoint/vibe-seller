@@ -584,7 +584,9 @@
     "wenmaiCompany": "企业名称",
     "wenmaiUsername": "企业用户名",
     "wenmaiPassword": "企业密码",
-    "wenmaiLoginRequired": "未能自动登录稳卖——请检查这里保存的企业名称 / 用户名 / 密码是否正确（客户端能手动登录），再点「刷新」。"
+    "wenmaiLoginRequired": "未能自动登录稳卖——请检查这里保存的企业名称 / 用户名 / 密码是否正确（客户端能手动登录），再点「刷新」。",
+    "bitbrowserUsername": "比特浏览器账号",
+    "bitbrowserPassword": "比特浏览器密码"
   },
   "browserVendor": {
     "NoAccount": "还未配置账号",
@@ -1587,6 +1589,12 @@
     }
   },
   "vendors": {
+    "bitbrowserSelectStore": "选择窗口...",
+    "bitbrowserLoading": "加载中...",
+    "bitbrowserLoginRequired": "未登录——请先在比特浏览器客户端登录（登录一次即可），再点「刷新」。",
+    "bitbrowserClientNotRunning": "无法自动启动比特浏览器客户端——请先手动打开（或确认已安装），再点「刷新」。",
+    "bitbrowserNoStores": "该登录身份下没有可见窗口——子账号需要主账号在「员工管理」里授权窗口。",
+    "bitbrowserLoadFailed": "加载窗口列表失败，请重试。",
     "adspower": {
       "apiKey": "API Key",
       "LoginRequired": "AdsPower 客户端需要登录：请打开 AdsPower，用和 API Key 同一个账号登录，按提示完成验证（如邮箱/短信验证码），然后点刷新或重试任务。",

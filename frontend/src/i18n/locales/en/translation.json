@@ -582,7 +582,9 @@
     "wenmaiCompany": "Company name",
     "wenmaiUsername": "Company username",
     "wenmaiPassword": "Company password",
-    "wenmaiLoginRequired": "Could not auto-sign-in to Wenmai — check that the company name / username / password saved here are correct (the client can sign in by hand), then Refresh."
+    "wenmaiLoginRequired": "Could not auto-sign-in to Wenmai — check that the company name / username / password saved here are correct (the client can sign in by hand), then Refresh.",
+    "bitbrowserUsername": "BitBrowser account",
+    "bitbrowserPassword": "BitBrowser password"
   },
   "browserVendor": {
     "NoAccount": "No account configured",
@@ -1585,6 +1587,12 @@
     }
   },
   "vendors": {
+    "bitbrowserSelectStore": "Select a profile...",
+    "bitbrowserLoading": "Loading...",
+    "bitbrowserLoginRequired": "Not logged in — sign in to the BitBrowser client once (that is enough), then Refresh.",
+    "bitbrowserClientNotRunning": "Could not start the BitBrowser client — open it by hand (or check the install), then Refresh.",
+    "bitbrowserNoStores": "No visible profiles for this login — a sub-account needs profiles authorized by the main account.",
+    "bitbrowserLoadFailed": "Failed to load the profile list; please retry.",
     "adspower": {
       "apiKey": "API Key",
       "LoginRequired": "The AdsPower client needs you to sign in: open AdsPower, sign in with the account the API key belongs to, finish the verification it asks for (an email/SMS code), then refresh or retry the task.",

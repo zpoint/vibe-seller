@@ -25,6 +25,10 @@ from app.browser.adapters.adspower_backend import (
     ADSPOWER_VENDOR,
     AdsPowerBackend,
 )
+from app.browser.adapters.bitbrowser import (
+    BITBROWSER_VENDOR,
+    BitBrowserBackend,
+)
 from app.browser.adapters.wenmai import (
     WENMAI_VENDOR,
     WenmaiBackend,
@@ -106,6 +110,9 @@ class BuiltinPlugin(Plugin):
             'adspower', AdsPowerBackend, ADSPOWER_VENDOR
         )
         ctx.register_browser_backend('wenmai', WenmaiBackend, WENMAI_VENDOR)
+        ctx.register_browser_backend(
+            'bitbrowser', BitBrowserBackend, BITBROWSER_VENDOR
+        )
         # The /api/yuehulian compat aliases (see app/routers/yuehulian.py)
         # are a vendor contribution: mounting them here keeps main.py
         # vendor-neutral. They go away with that compat route.
