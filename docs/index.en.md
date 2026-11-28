@@ -184,7 +184,7 @@ description to copy, the settings screenshots and the finished result — see
 | | |
 |---|---|
 | **Getting started** | [Installation](install.en.md) · [Quickstart](quickstart.en.md) · [Configure AI Models](llm-keys.en.md) · [Core Concepts](concepts.en.md) |
-| **Browsers** | [Browsers Overview](browsers.en.md) · [Store Browser & Auxiliary Browser](store-and-aux-browser.en.md) · [Ziniao: Setup Guide](ziniao.en.md) · [Yuehulian: Setup Guide](yuehulian.en.md) · [AdsPower: Setup Guide](adspower.en.md) · [Wenmai: Setup Guide](wenmai.en.md) |
+| **Browsers** | [Browsers Overview](browsers.en.md) · [Ziniao: Setup Guide](ziniao.en.md) · [Yuehulian: Setup Guide](yuehulian.en.md) · [AdsPower: Setup Guide](adspower.en.md) · [Wenmai: Setup Guide](wenmai.en.md) |
 | **Integrations** | [Overview](integrations.en.md) · [MCP setup](mcp.en.md) · [Amazon Ads API](ads-api.en.md) · [Email](email.en.md) · [Chat bots](chat-bots.en.md) · [WeCom / Feishu / DingTalk](workplace-cli.en.md) · [TickTick / Dida365](ticktick.en.md) · [Google Workspace](google-workspace.en.md) |
 | **Examples** | [All Examples](examples.en.md) · [Daily email digest to WeCom](example-email-wecom.en.md) · [Analyse ad ACOS and apply fixes](example-ads-acos.en.md) · [Weekly listing check](example-listing-check.en.md) · [Monthly sales report](example-daily-report.en.md) · [Export a Ziniao store's finances with Codex](example-mcp.en.md) |
 | **User guide** | [Stores & Browsers](stores.en.md) · [Tasks](using-tasks.en.md) · [Schedules](schedules.en.md) · [Knowledge & Skills](knowledge.en.md) |

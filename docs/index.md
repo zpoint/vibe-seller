@@ -123,7 +123,7 @@ Vibe Seller 是一个 **AI 自动化框架**，浏览器只是它的工具之一
 | | |
 |---|---|
 | **入门** | [安装](install.md) · [快速开始](quickstart.md) · [配置 AI 模型](llm-keys.md) · [核心概念](concepts.md) |
-| **浏览器** | [浏览器总览](browsers.md) · [店铺浏览器与辅助浏览器](store-and-aux-browser.md) · [紫鸟：配置指南](ziniao.md) · [悦互联：配置指南](yuehulian.md) · [AdsPower：配置指南](adspower.md) · [稳卖：配置指南](wenmai.md) |
+| **浏览器** | [浏览器总览](browsers.md) · [紫鸟：配置指南](ziniao.md) · [悦互联：配置指南](yuehulian.md) · [AdsPower：配置指南](adspower.md) · [稳卖：配置指南](wenmai.md) |
 | **集成** | [集成总览](integrations.md) · [MCP 接入](mcp.md) · [广告 API 绑定](ads-api.md) · [邮件](email.md) · [群机器人](chat-bots.md) · [企业微信 / 飞书 / 钉钉](workplace-cli.md) · [滴答清单 / TickTick](ticktick.md) · [Google Workspace](google-workspace.md) |
 | **使用示例** | [全部示例](examples.md) · [每天把重要邮件发到企业微信](example-email-wecom.md) · [分析广告 ACOS 并执行优化](example-ads-acos.md) · [每周巡检 Listing](example-listing-check.md) · [每月导出销售报表](example-daily-report.md) · [用 Codex 导出紫鸟店铺财务数据进行分析](example-mcp.md) |
 | **使用指南** | [店铺与浏览器](stores.md) · [任务](using-tasks.md) · [定时任务](schedules.md) · [知识库与 Skill](knowledge.md) |
