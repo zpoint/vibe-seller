@@ -94,8 +94,7 @@ describe('create-store setup guides', () => {
   })
 
   it('still opens the form when a vendor has no docs metadata', async () => {
-    vi.resetModules()
-    const legacyVendor = [{ ...VENDORS[0], docs: {} }]
+    const legacyVendor = [{ ...VENDORS[0], docs: undefined as unknown as BrowserVendor['docs'] }]
     const picker = await openStoreForm(legacyVendor)
     expect(picker).toBeInTheDocument()
     expect(screen.queryByTestId('docs-help-link')).toBeNull()

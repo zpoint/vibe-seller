@@ -26,6 +26,12 @@ function fetchVendors(): Promise<BrowserVendor[]> {
   return cache
 }
 
+export function resetBrowserVendorsCacheForTests(): void {
+  // App tests boot several independent backends in one process. Do not let
+  // an earlier fixture's successful registry response leak into the next.
+  cache = null
+}
+
 export function useBrowserVendors(authKey?: string | null) {
   const [vendors, setVendors] = useState<BrowserVendor[] | null>(null)
   useEffect(() => {

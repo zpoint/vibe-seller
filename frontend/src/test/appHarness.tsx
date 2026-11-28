@@ -15,6 +15,7 @@
  */
 import { act, render } from '@testing-library/react'
 import { beforeAll, vi } from 'vitest'
+import { resetBrowserVendorsCacheForTests } from '../hooks/useBrowserVendors'
 import type { Task } from '../types'
 import { makeTask } from './factories'
 
@@ -65,6 +66,7 @@ export function longTranscript(
 }
 
 export async function bootApp(opts: BootOptions = {}) {
+  resetBrowserVendorsCacheForTests()
   const task = makeTask({
     id: 'task-1', store_id: null, status: 'completed', title: 'Example task',
     ...opts.task,
