@@ -100,7 +100,7 @@ time — just configure the team login once.
 
 Like a Ziniao store, a Yuehulian store's tasks also get a Chrome auxiliary
 browser for the logistics / overseas sites Yuehulian can't open. See
-[two browsers working together](store-and-aux-browser.en.md).
+[two browsers working together](browsers.en.md#store-browser--auxiliary-browser).
 
 ## Closing Yuehulian while a task runs
 

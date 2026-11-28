@@ -112,7 +112,6 @@ plugins:
             Core Concepts: 核心概念
             Browsers: 浏览器
             Browsers Overview: 浏览器总览
-            Store Browser & Auxiliary Browser: 店铺浏览器与辅助浏览器
             Examples: 使用示例
             All Examples: 全部示例
             Daily Email Digest to WeCom: 每天把重要邮件发到企业微信
@@ -206,7 +205,6 @@ nav:
           - Keep It Running 24/7: always-on.md
       - Browsers:
           - Browsers Overview: browsers.md
-          - Store Browser & Auxiliary Browser: store-and-aux-browser.md
           - "Ziniao: Setup Guide": ziniao.md
           - "Yuehulian: Setup Guide": yuehulian.md
           - "AdsPower: Setup Guide": adspower.md
