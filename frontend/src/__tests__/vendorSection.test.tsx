@@ -263,7 +263,7 @@ describe('the generic vendor section', () => {
     ])
   })
 
-  it('translates the unavailability token; the tooltip carries the full label', () => {
+  it('translates the unavailability token and puts the detail in the tooltip', () => {
     renderSection({
       stores: [
         { name: 'Broken', platform: '', remote_env: '', available: false,
@@ -276,9 +276,19 @@ describe('the generic vendor section', () => {
     expect(option.textContent).toBe('Broken — no device bound')
     expect(option.textContent).not.toContain('no_device')
     expect(option.textContent).not.toContain('机器 A 未绑定')
-    // Option A: the tooltip is the option's FULL label (here with the
-    // translated reason), so a truncated row can still be read.
-    expect(option.title).toBe('Broken — no device bound')
+    // The vendor's own words ride the tooltip.
+    expect(option.title).toBe('机器 A 未绑定')
+  })
+
+  it('an unavailable row with no detail falls back to its full label as the tooltip', () => {
+    renderSection({
+      stores: [
+        { name: 'Bare', platform: '', remote_env: '', available: false,
+          unavailable_reason: 'expired' },
+      ],
+    })
+    const option = (screen.getByRole('combobox') as HTMLSelectElement).options[1]
+    expect(option.title).toBe('Bare — expired')
   })
 
   it('an unknown token falls back to the detail, then the generic string', () => {
@@ -401,7 +411,7 @@ describe('the selected row line under the picker (option A)', () => {
     expect(screen.getByTestId('vendor-selected-line')).toBeTruthy()
   })
 
-  it('(c) every option carries the full label as its tooltip', () => {
+  it('(c) a selectable option carries the full label as its tooltip; a no-detail unavailable row falls back to it', () => {
     renderSection({
       stores: [
         { name: 'hidden', platform: 'www.amazon.com',

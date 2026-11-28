@@ -245,18 +245,25 @@ export function VendorSection(props: {
         >
           <option value="">{vt('SelectStore')}</option>
           {p.stores.map(s => {
-            // The full label rides every option's tooltip, so a row
-            // the closed select truncates can still be read.
+            // Option A: a SELECTABLE option's tooltip is its full
+            // label, so a row the closed select truncates can still be
+            // read. An UNAVAILABLE row keeps the vendor's own detail
+            // as its tooltip (the #346 behaviour — the detail is
+            // always the tooltip), falling back to the full label
+            // only when the detail is empty; those rows can never be
+            // selected, so they never reach the 已选 line.
+            const disabled = s.available === false
             const full = vendorStoreOptionLabel(
               s,
-              s.available === false ? unavailableLabel(s) : '',
+              disabled ? unavailableLabel(s) : '',
             )
+            const title = disabled ? (s.unavailable_detail || full) : full
             return (
               <option
                 key={bindValue(s)}
                 value={bindValue(s)}
-                disabled={s.available === false}
-                title={full}
+                disabled={disabled}
+                title={title}
               >
                 {full}
               </option>
