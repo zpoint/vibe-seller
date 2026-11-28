@@ -384,7 +384,7 @@ function StoreCreationForm(props: {
   const genericVendor = activeVendor && activeVendor.picker_kind === 'generic' && activeVendor.lists_profiles
     ? activeVendor
     : null
-  const setupDocs = activeVendor?.docs.setup
+  const setupDocs = activeVendor?.docs?.setup
   const collision = findStoreNameCollision(p.newStoreName, p.stores)
   const collisionError = collision
     ? t('settings.storeNameCollision', { name: collision.store.name, slug: collision.slug })

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { bootApp } from '../test/appHarness'
+import i18n from '../i18n'
 import type { BrowserVendor } from '../types'
 import en from '../i18n/locales/en/translation.json'
 import zh from '../i18n/locales/zh/translation.json'
@@ -51,14 +52,16 @@ const VENDORS = [
   }),
 ]
 
-async function openStoreForm() {
+async function openStoreForm(vendors = VENDORS) {
+  localStorage.setItem('vibe-seller-language', 'en')
+  await i18n.changeLanguage('en')
   await bootApp({
     guideSeen: true,
-    route: url => url === '/api/browser-vendors' ? VENDORS : undefined,
+    route: url => url === '/api/browser-vendors' ? vendors : undefined,
   })
   fireEvent.click(await screen.findByRole('button', { name: '+ New Store' }))
   const picker = await screen.findByRole('combobox', { name: en.tasks.browserBackend })
-  await waitFor(() => expect(picker.children).toHaveLength(VENDORS.length))
+  await waitFor(() => expect(picker.children).toHaveLength(vendors.length))
   return picker
 }
 
@@ -88,5 +91,13 @@ describe('create-store setup guides', () => {
       expect(guide.textContent).toContain(zh.settings.browserSetupGuide)
       expect(guide.href).toBe(new URL(VENDORS[0].docs.setup.zh).href)
     })
+  })
+
+  it('still opens the form when a vendor has no docs metadata', async () => {
+    vi.resetModules()
+    const legacyVendor = [{ ...VENDORS[0], docs: {} }]
+    const picker = await openStoreForm(legacyVendor)
+    expect(picker).toBeInTheDocument()
+    expect(screen.queryByTestId('docs-help-link')).toBeNull()
   })
 })
