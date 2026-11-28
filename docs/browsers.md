@@ -14,6 +14,7 @@ Vibe Seller 通过 CDP（Chrome 底层远程控制协议）驱动**真实浏览�
 |---|---|---|---|---|---|---|
 | Chrome | 系统自带 Chrome / Chromium（Playwright 拉起） | 单店自用、公开网页任务 | macOS / Linux / WSLg | 系统自带，无需安装 | — | [店铺与浏览器 → 新建店铺](stores.md#新建店铺) |
 | 紫鸟 Ziniao | 第三方防关联浏览器（开发者模式 / WebDriver，CDP 驱动） | 一个团队管多账号、平台风控严格 | Windows / macOS / Linux，也支持 WSL | [ziniao.com](https://www.ziniao.com) · [下载](https://www.ziniao.com/download) | 官网注册企业账号 → 主账号在[开放平台](https://open.ziniao.com/docSupport?docId=99)开通开发者模式、给子账号勾选 WebDriver 登录 | [紫鸟配置指南](ziniao.md) |
+| AdsPower | 防关联浏览器（API Key 接入） | 一个团队管多账号 | Windows、macOS，也支持 WSL | [adspower.net](https://www.adspower.net/download) | 付费套餐 + 生成 API Key（API & MCP 页），环境要用 SunBrowser 内核 | [AdsPower配置指南](adspower.md) |
 | 悦互联 YueHuLian | 国产电商防关联浏览器 | 一个团队管多账号 | Windows / macOS / WSL | [kj.chinafic.com](https://kj.chinafic.com/) · 官网「客户端下载」 | 官网注册企业账号 → 控制台开子账号、分配店铺权限（团队登录 = 团队名称 + 子账号 + 密码） | [悦互联配置指南](yuehulian.md) |
 | 稳卖 WenMai | 电商防关联浏览器 | 一个团队管多账号 | Windows / macOS，也支持 WSL | [wenmai-ai.com](https://www.wenmai-ai.com) | 客户端里开企业子账号、授权店铺（企业登录 = 企业名称 + 用户名 + 密码），店铺要绑定设备 | [稳卖配置指南](wenmai.md) |
 
@@ -40,6 +41,8 @@ Vibe Seller 通过 CDP（Chrome 底层远程控制协议）驱动**真实浏览�
 不同紫鸟账号之间的浏览器指纹互相隔离，适合平台风控严格的店铺。要开通什么、报错怎么处理，见 [紫鸟：开通与常见报错](ziniao.md)。
 
 悦互联和紫鸟一样是防关联浏览器，Vibe Seller 会自动打开并登录它的客户端，**支持 Windows、macOS，也支持 WSL**；一台机器只保留一个悦互联账号，登录过期会自动登回。下载、创建团队账号、绑定、报错见 [悦互联：配置指南](yuehulian.md)。
+
+AdsPower 通过 API Key 接入：Vibe Seller 用你生成的 Key 驱动它，**支持 Windows、macOS，也支持 WSL**；Key 必须属于客户端里登录的那个账号。下载、生成 Key、绑定、内核要求、报错见 [AdsPower：配置指南](adspower.md)。
 
 稳卖也是防关联浏览器，Vibe Seller 会自动打开并登录它的客户端，**支持 Windows、macOS，也支持 WSL**；同样一台机器一个账号、自动登录，每个店铺还要在稳卖里绑定设备。下载、创建企业账号、绑定、报错见 [稳卖：配置指南](wenmai.md)。
 
@@ -96,6 +99,7 @@ WSL 部署还有第四种后端 `winchrome`：以 systemd 服务方式运行在 
 ## 各浏览器配置指南
 
 - [紫鸟：开通与常见报错](ziniao.md) —— 开通开发者模式、绑定、报错、WSL 启动器、凭据存储。
+- [AdsPower：配置指南](adspower.md) —— 下载、生成 API Key、绑定、环境要用 SunBrowser 内核、自动启动。
 - [悦互联：配置指南](yuehulian.md) —— 下载、创建团队账号、绑定、一台机器一个账号、自动登录。
 - [稳卖：配置指南](wenmai.md) —— 下载、创建企业账号并授权店铺、绑定设备、绑定、一台机器一个账号、自动登录。
 - Chrome —— 无需额外配置，新建店铺时浏览器后端选「Chrome」即可，见 [店铺与浏览器 → 新建店铺](stores.md#新建店铺)。

@@ -21,6 +21,10 @@ from app.ai.stop_gates import (
     ad_coverage,
     listing_upload_gate as upload_verdict,
 )
+from app.browser.adapters.adspower_backend import (
+    ADSPOWER_VENDOR,
+    AdsPowerBackend,
+)
 from app.browser.adapters.wenmai import (
     WENMAI_VENDOR,
     WenmaiBackend,
@@ -97,6 +101,9 @@ class BuiltinPlugin(Plugin):
         ctx.register_browser_backend('ziniao', ZiniaoBackend, ZINIAO_VENDOR)
         ctx.register_browser_backend(
             'yuehulian', YuehulianBackend, YUEHULIAN_VENDOR
+        )
+        ctx.register_browser_backend(
+            'adspower', AdsPowerBackend, ADSPOWER_VENDOR
         )
         ctx.register_browser_backend('wenmai', WenmaiBackend, WENMAI_VENDOR)
         # The /api/yuehulian compat aliases (see app/routers/yuehulian.py)

@@ -128,6 +128,7 @@ plugins:
             FAQ: 常见问题
             "Ziniao: Setup & Common Errors": 紫鸟：开通与常见报错
             "Yuehulian: Setup Guide": 悦互联：配置指南
+            "AdsPower: Setup Guide": AdsPower：配置指南
             Cost & Model Choice: 费用与模型选择
             Login & Accounts: 登录与账号
             Deployment & Data: 部署与数据
@@ -207,6 +208,7 @@ nav:
           - Store Browser & Auxiliary Browser: store-and-aux-browser.md
           - "Ziniao: Setup & Common Errors": ziniao.md
           - "Yuehulian: Setup Guide": yuehulian.md
+          - "AdsPower: Setup Guide": adspower.md
           - "Wenmai: Setup Guide": wenmai.md
       - Integrations:
           - Overview: integrations.md

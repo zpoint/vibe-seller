@@ -607,6 +607,70 @@ the install locator all pick the vendor up from the registry. A plain
 (non-vendor) engine backend is still `BrowserBackend` from `base.py`,
 registered the same way with `spec=None`.
 
+## § AdsPower
+
+`app/browser/adapters/adspower.py` — the textbook
+`LocalApiClient` vendor (list / start / stop on `127.0.0.1:<port>`
+with a Bearer API key). `AdsPowerClient(LocalApiClient)` sets the
+uniform parts as class attributes (`vendor_key`, `auth='bearer'`,
+`auth_field='api_key'`, `min_interval_s=1.2`, GET paths with the query
+strings embedded in `list_request` / `open_request` /
+`close_request`) and `next_page` (page until a short page). The whole
+vendor declaration is the `ADSPOWER_VENDOR` `BrowserVendorSpec` in
+`adspower_backend.py` (single account, one `api_key` credential field,
+platforms {windows, mac, wsl}, the docs links, the `win_app`
+descriptor); the thin `AdsPowerBackend` engine wrapper lives beside it;
+the platform layers (win / mac / common) sit behind the ONE picker
+`_platform_layer_module()`.
+
+What the base cannot express stays as vendor overrides (each
+unit-tested in `tests/unit/test_browser/test_adspower_*.py`):
+
+- **Port discovery**: the client writes its CURRENT base URL to its
+  own `local_api` file (`%APPDATA%\adspower_global\cwd_global\
+  source\local_api` on Windows, `~/Library/Application Support/...`
+  on macOS); the default 50325 is only used when free (Hyper-V/WSL
+  port exclusions can reserve it forever), so `discover_port` reads
+  the file (via `to_thread`) and `api_call` re-reads it ONCE when a
+  call cannot connect (the port changes on every client launch). An
+  explicitly configured `api_port` pins the whole machinery to
+  probe-only.
+- **D4 `ensure_running`**: probe `/status` → launch the GUI
+  (remember-me signs in) → a 30 s grace for a shell someone else just
+  started → a headless instance started with the API key (the
+  documented `--headless=true --api-key=<key>` flags; the key rides
+  the environment on Windows — never the PowerShell script text — and
+  argv only on macOS). The GUI is never killed; the two coexist.
+- **D7 failed-start decision**: a code-0 answer with an empty
+  endpoint is ambiguous (a Firefox kernel AND an orphaned SunBrowser
+  of a killed client both answer that way) — kernel process evidence
+  (`--user-data-dir` names the profile) decides, and only THAT
+  profile's process tree is ever killed. The list carries no kernel
+  field, so the picker cannot grey Firefox profiles out; the ENGINE's
+  P9 check refuses a non-Chromium endpoint at open.
+- **R11 kernel states**: `is updating` (a download IS running —
+  Windows GUI, ready in ~40 s) polls the full budget with the
+  「正在下载」 hint; `is not ready` (the kernel is MISSING — nothing
+  downloads it from a background session, verified on macOS) polls
+  briefly and fails with the actionable 「打开 AdsPower 下载内核」
+  hint naming the kernel. A poll that saw `is updating` at any point
+  keeps the downloading hint (the GUI shape is updating → not ready
+  → ready).
+- **The bounded rate-limit resend**: AdsPower rate-limits with HTTP
+  200 + a `code:-1` body (`is_rate_limited` override); `api_call`
+  re-sends up to three rounds beyond the base's single retry.
+- **The not-authenticated shape** (`Require api-key`, no key stored)
+  raises LOGIN_REQUIRED per the shared contract — AdsPower has no
+  session-expiry shape (a still-valid key keeps working signed out);
+  "the client is signed out entirely" is decided at the process level
+  in `ensure_running`. The generate-a-key advice lives in the
+  `vendors.adspower.LoginRequired` i18n override; a keyed client's
+  `API Key mismatch` maps to `AccountMismatch`.
+
+Contract fixture: `tests/unit/test_browser/local_api_vendors/
+adspower.py` (the B9 convention — never edit the shared
+`local_api_contract.py`).
+
 ## Planned Backends
 
 - **Custom CDP**: Connect to any browser already exposing a CDP endpoint. Start/stop are no-ops.

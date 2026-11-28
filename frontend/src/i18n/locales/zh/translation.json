@@ -1585,5 +1585,27 @@
         "liveBare": "正在查看技能"
       }
     }
+  },
+  "vendors": {
+    "adspower": {
+      "apiKey": "API Key",
+      "LoginRequired": "AdsPower 客户端需要登录：请打开 AdsPower，用和 API Key 同一个账号登录，按提示完成验证（如邮箱/短信验证码），然后点刷新或重试任务。",
+      "AccountMismatch": "AdsPower 不认这个 API Key：请在 AdsPower 左侧「API & MCP」复制当前登录账号的 Key，重新填到 Vibe Seller；换过账号或重置过 Key 都要重填。",
+      "ApiNotEnabled": "AdsPower 的接口用不了：团队成员需要管理员在团队设置里开通 API 权限。请检查后再点刷新。",
+      "StoreNotFound": "AdsPower 里找不到这个环境：可能被删了，或者没有授权给当前登录的账号。请检查后再试。",
+      "UnsupportedKernel": "这个环境用的是 FlowerBrowser（火狐内核），Vibe Seller 只能操作 SunBrowser（Chrome 内核）的环境。请在 AdsPower 新建一个「浏览器」选 SunBrowser 的环境，再把这家店铺改绑到新环境。",
+      "StoreUnavailable": "这个环境暂时打不开。如果提示还没有浏览器内核，请打开 AdsPower 客户端，在设置里下载该内核后重试。",
+      "SelectStore": "选择环境...",
+      "Loading": "加载中…",
+      "LoadFailed": "环境列表加载失败，请点刷新重试。",
+      "NoAccount": "AdsPower 还没有配置 API Key：在 AdsPower 左侧「API & MCP」点生成 Key，复制填到 Vibe Seller。",
+      "OneAccount": "一台机器只支持一个 AdsPower 账号（Key 必须和它对应）。要换账号，请先删除所有 AdsPower 店铺。",
+      "LoginAllRequired": "请填写 API Key。",
+      "LoginSaving": "正在保存…",
+      "unavailable": {
+        "unsupported_kernel": "FlowerBrowser（火狐）内核，无法操作"
+      },
+      "ClientNotRunning": "没找到 AdsPower：请先安装并打开 AdsPower；如果装在别的位置，请在设置里选一下它的安装位置，然后点刷新。"
+    }
   }
 }
