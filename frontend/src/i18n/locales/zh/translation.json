@@ -443,6 +443,8 @@
     "yuehulianLoginSaving": "保存中...",
     "yuehulianLoginAllRequired": "团队名称、子账号和密码均必填。",
     "createStoreFailed": "创建店铺失败：{{msg}}",
+    "creatingStore": "创建中…",
+    "storeNameCollision": "这个名称与已有店铺「{{name}}」冲突：两者用于保存店铺文件的名称都是「{{slug}}」。请换一个名称。",
     "ziniaoLoading": "正在加载店铺列表...",
     "ziniaoConnectError": "紫鸟未运行或未处于 WebDriver 模式。",
     "ziniaoDownloadLauncher": "下载 ziniao_webdriver.bat",
