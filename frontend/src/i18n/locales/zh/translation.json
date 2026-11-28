@@ -597,6 +597,16 @@
     "LoginRequired": "请先在{{vendor}}客户端里登录，再点「刷新」。",
     "ClientNotRunning": "没能自动打开{{vendor}}客户端——请先手动打开（或确认已安装），再点「刷新」。",
     "NoStores": "当前登录的账号下没有可见的店铺。",
+    "task": {
+      "LoginRequired": "店铺的{{vendor}}客户端没有登录。请在本机打开{{vendor}}客户端并登录，然后点「重试」。",
+      "ClientNotRunning": "{{vendor}}客户端没有在运行。请在本机启动{{vendor}}客户端，然后点「重试」。",
+      "StoreUnavailable": "{{vendor}}客户端打开了这个店铺，但提示现在用不了。请到{{vendor}}客户端里查看这个店铺的状态，处理好后点「重试」。",
+      "StoreNotFound": "{{vendor}}客户端里找不到这个店铺。请确认这个店铺还在{{vendor}}客户端里、当前登录的账号能看到它，然后点「重试」。",
+      "UnsupportedKernel": "这个店铺在{{vendor}}客户端里用的不是 Chrome 内核，没法自动化。请在{{vendor}}客户端里把该店铺的内核切换为 Chrome，然后点「重试」。",
+      "AccountMismatch": "{{vendor}}客户端当前登录的账号和这个店铺绑定的不一致。请在{{vendor}}客户端里切换到对应的账号，然后点「重试」。",
+      "PlanRequired": "{{vendor}}客户端的本地接口需要付费套餐。请给{{vendor}}账号开通带接口权限的套餐，然后点「重试」。",
+      "ApiNotEnabled": "{{vendor}}客户端的本地接口没有开启。请在{{vendor}}客户端的设置里打开（找 API / 自动化 / local API 相关开关），然后点「重试」。"
+    },
     "unavailable": {
       "no_device": "未绑定设备",
       "unsupported_kernel": "不是 Chrome 内核",

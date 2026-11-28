@@ -1,28 +1,66 @@
 import { useTranslation } from 'react-i18next'
 import { taskErrorHelp } from '../lib/docsHelp'
+import { camelCase, vendorText } from '../lib/vendorText'
 import { DocsHelpLink } from './ui/DocsHelpLink'
 import { settingsLinksIn } from '../lib/settingsLinks'
 import type { SettingsTab } from '../views/SettingsView'
 import { useIntegrationAttention } from '../hooks/useIntegrationAttention'
+import type { BrowserVendor } from '../types'
 
 /** Why a task failed, under its header: the sentence for its error
  *  category (the raw error when it has none), the launcher download when
  *  WSL could not reach Ziniao, the docs section that says how to fix it
  *  when the docs have one, and — when the agent linked a Settings page
- *  (an expired workplace sign-in: #integrations) — a button to it. */
+ *  (an expired workplace sign-in: #integrations) — a button to it.
+ *
+ *  When the task's store uses a REGISTRY vendor, the sentence speaks
+ *  THAT vendor — the same vendor-first chain the settings vendor panel
+ *  uses (lib/vendorText), so an API-key vendor never tells the user to
+ *  add a saved login it does not have — and the help link goes to the
+ *  vendor's own errors page when its spec declares one. Non-vendor
+ *  stores (plain browsers, no store) keep the shared category text and
+ *  link exactly as before. */
 export function TaskErrorNote({
   error,
   category,
+  vendor,
   onOpenSettings,
 }: {
   error: string
   category?: string | null
+  vendor?: BrowserVendor | null
   onOpenSettings?: (tab: SettingsTab, anchor?: string) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const help = taskErrorHelp(category, error)
   const { text, links } = settingsLinksIn(error)
   const platforms = useIntegrationAttention()
+  // Only a vendor with its own text namespace (a non-empty
+  // i18n_prefix) makes the banner speak vendor-first. Plain browsers
+  // and legacy backends sit in the registry without one — they keep
+  // the shared category text and link exactly as before.
+  const speakingVendor = vendor && vendor.i18n_prefix ? vendor : null
+  // The vendor's display name in the UI's language — the {{vendor}}
+  // slot of the shared browserVendor.* keys.
+  const zh = (i18n.language || 'en').startsWith('zh')
+  // Task context: the banner may only name what the task view offers
+  // (「重试」), never a store-form button — and only a category the
+  // vendor-start taxonomy covers resolves vendor-first at all, so an
+  // AI-provider failure (billing, rate limit, …) keeps its generic
+  // text and link.
+  const vendorSentence = speakingVendor && category
+    ? vendorText(
+        t,
+        speakingVendor,
+        zh ? speakingVendor.display_name_zh : speakingVendor.display_name_en,
+        camelCase(category),
+        'task',
+      )
+    : ''
+  const sentence = vendorSentence || (category ? t(`tasks.error_${category}`, text) : text)
+  // The vendor's own errors page goes with the vendor's own sentence —
+  // a vendor store's billing failure keeps the billing doc link.
+  const vendorDocs = vendorSentence ? speakingVendor?.docs.errors : undefined
   // The agent may say "re-authorize" in prose without writing the link.
   // Offer it only for an enabled platform the server says is expired,
   // and only when this error names that platform and says it expired.
@@ -39,7 +77,7 @@ export function TaskErrorNote({
         ? t('integrationBanner.taskError', {
             name: t(`integrations.cli.platform.${named.key}`, { defaultValue: named.title }),
           })
-        : category ? t(`tasks.error_${category}`, text) : text}
+        : sentence}
       {onOpenSettings && links.map(link => (
         <button
           key={`${link.tab}${link.anchor ?? ''}`}
@@ -55,7 +93,9 @@ export function TaskErrorNote({
       {error.includes('/api/ziniao/launcher') && (
         <a href="/api/ziniao/launcher" download className="ml-2 inline-block px-2 py-0.5 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoDownloadLauncher')}</a>
       )}
-      {help && <DocsHelpLink topic={help} className="ml-2" />}
+      {vendorDocs
+        ? <DocsHelpLink urls={vendorDocs} className="ml-2" />
+        : help && <DocsHelpLink topic={help} className="ml-2" />}
     </div>
   )
 }
