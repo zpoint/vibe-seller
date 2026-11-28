@@ -73,10 +73,19 @@ def resolve_service_url(environ: Mapping[str, str] | None = None) -> str:
             hostname = urlsplit(configured).hostname
         except ValueError:
             hostname = None
-        if hostname and hostname.lower() == 'listwizard.cloud':
+        production_host = urlsplit(PRODUCTION_SERVICE_URL).hostname
+        is_production = (
+            hostname
+            and production_host
+            and (
+                hostname.lower() == production_host
+                or hostname.lower().endswith('.' + production_host)
+            )
+        )
+        if is_production:
             raise ValueError(
-                'VIBE_DEMO_MODE cannot use the live listwizard.cloud ads '
-                'service. Leave VIBE_ADS_SERVICE_URL unset for the local '
+                'VIBE_DEMO_MODE cannot use the production ads service. '
+                'Leave VIBE_ADS_SERVICE_URL unset for the local '
                 f'stand-in at {DEMO_SERVICE_URL}, or point it at another '
                 'test service.'
             )

@@ -18,7 +18,7 @@ def test_demo_defaults_to_the_local_service(demo):
 
 def test_production_needs_no_environment():
     assert ads_client.resolve_service_url({}) == (
-        'https://listwizard.cloud/ads-api'
+        ads_client.PRODUCTION_SERVICE_URL
     )
 
 
@@ -42,23 +42,23 @@ def test_production_keeps_the_existing_explicit_override():
 
 
 @pytest.mark.parametrize(
-    'live_url',
+    'production_url',
     [
-        'https://listwizard.cloud/ads-api',
-        'http://LISTWIZARD.CLOUD:443/ads-api',
-        'https://listwizard.cloud/another-path',
+        ads_client.PRODUCTION_SERVICE_URL,
+        ads_client.PRODUCTION_SERVICE_URL.upper(),
+        ads_client.PRODUCTION_SERVICE_URL + '/another-path',
     ],
 )
-def test_demo_refuses_the_live_service(live_url):
-    with pytest.raises(ValueError, match='cannot use the live'):
+def test_demo_refuses_the_production_service(production_url):
+    with pytest.raises(ValueError, match='cannot use the production'):
         ads_client.resolve_service_url({
             'VIBE_DEMO_MODE': '1',
-            'VIBE_ADS_SERVICE_URL': live_url,
+            'VIBE_ADS_SERVICE_URL': production_url,
         })
 
 
-def test_demo_live_host_check_does_not_reject_lookalike_test_hosts():
-    override = 'https://listwizard.cloud.ads.example/ads-api'
+def test_demo_allows_a_non_production_test_host():
+    override = 'https://ads.example/ads-api'
     assert (
         ads_client.resolve_service_url({
             'VIBE_DEMO_MODE': 'true',

@@ -64,14 +64,9 @@ VIBE_HOME=~/.vibe-seller-e2e VIBE_DEMO_MODE=1 VIBE_SELLER_TELEMETRY=0 \
 VIBE_EXTERNAL_SYNC=off VIBE_GITHUB_MAIN_SYNC=off ./start.sh 7799
 ```
 
-Demo mode defaults the ads service to the local stand-in at
-`http://127.0.0.1:7791`; set `VIBE_ADS_SERVICE_URL` only to use a
-different test service. Demo mode refuses an explicit live
-`listwizard.cloud` URL at startup, so a test installation can never
-register there by accident. Production needs no ads-service environment
-variable and still uses `https://listwizard.cloud/ads-api`. The ads e2e
-serve their stand-in on that port themselves. For a manual run, start one
-with `python -m tests.e2e.fake_ads_service`.
+Always set `VIBE_DEMO_MODE=1` for a test server: ads defaults to the local
+stand-in and the production service is refused. Start the stand-in with
+`python -m tests.e2e.fake_ads_service`. Production needs no ads override.
 
 ## Code Style
 

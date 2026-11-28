@@ -850,11 +850,11 @@ message (`frontend/src/uploadLimits.ts`).
 ## `ads.py` — Amazon Ads API service
 
 A store can be bound to the hosted ads service; vibe-seller holds no Amazon
-credential. Production defaults to `https://listwizard.cloud/ads-api` with
-no environment configuration. `VIBE_DEMO_MODE=1` instead defaults to the
-local stand-in at `http://127.0.0.1:7791`; `VIBE_ADS_SERVICE_URL` can select
-another test service, but demo mode rejects the live `listwizard.cloud`
-host at startup. The installation registers itself (`POST /installations`)
+credential. Production needs no environment configuration.
+`VIBE_DEMO_MODE=1` instead defaults to the local stand-in at
+`http://127.0.0.1:7791`; `VIBE_ADS_SERVICE_URL` can select another test
+service, but demo mode rejects the production service at startup. The
+installation registers itself (`POST /installations`)
 the first time the stores are synced. Registration carries `environment`
 (`test` in demo mode, otherwise `production`) and, in demo mode, an optional
 `VIBE_TEST_RUN_ID` (1–64 ASCII letters/digits/dots/underscores/hyphens,
