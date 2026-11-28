@@ -110,7 +110,14 @@ def test_every_selectable_vendor_has_bilingual_setup_guide():
     """The create-store picker must offer docs for every backend option."""
     reset_for_tests()
     specs = registered_vendor_specs()
-    expected = {'chrome', 'ziniao', 'yuehulian', 'adspower', 'wenmai', 'bitbrowser'}
+    expected = {
+        'chrome',
+        'ziniao',
+        'yuehulian',
+        'adspower',
+        'wenmai',
+        'bitbrowser',
+    }
     assert expected <= specs.keys()
     for key in expected:
         link = specs[key].docs['setup']
