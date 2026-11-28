@@ -127,7 +127,10 @@ def test_contract_discovery_finds_the_real_vendor():
         found.extend(
             attr for attr in vars(mod).values() if is_contract_vendor(attr)
         )
-    assert found == [BitBrowserClient]
+    # Other real vendors may share the adapter package (AdsPower is on
+    # main too). This contract requires BitBrowser to be discovered; it
+    # must not turn their presence into a failure.
+    assert BitBrowserClient in found
 
 
 # The Windows app locator's exe pick for this vendor's install dir.
