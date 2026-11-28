@@ -150,9 +150,9 @@ by `src/lib/route.ts` `parseNav()`. Routes: `/` (landing), `/tasks`,
 
 ## Auth expiry handling
 
-`api.ts` exports `AUTH_EXPIRED_EVENT` (`'auth:expired'`). Every wrapper method (`get` / `post` / `put` / `patch` / `del`) inspects the response: a 401 dispatches the event on `window` and throws `Error('unauthorized')`. `App.tsx` listens for the event once on mount, clears `currentUser` + the selected task/schedule and navigates to `/`, which causes `LoginPage` to render — and re-login then resolves the landing like a fresh open (first store, or `/tasks` with none).
+`api.ts` exports `AUTH_EXPIRED_EVENT` (`'auth:expired'`). Every wrapper method (`get` / `post` / `put` / `patch` / `del`) captures the current monotonic auth generation. A 401 dispatches the event only when that generation is still current, then throws `Error('unauthorized')`; a delayed 401 from an older login therefore cannot expire a newly authenticated user.
 
-This makes "any button on any page redirects to login when the JWT cookie has expired" a property of the shared `api` client, not of each caller. New views/handlers automatically inherit the behavior — they only need to use `api.*` instead of raw `fetch`. Raw `fetch` calls (e.g., the `/api/auth/status` probe at startup, `handleLogin`) deliberately bypass the redirect path because they execute *before* the user is logged in.
+`hooks/useSessionBoundary.ts` owns the listener and the single teardown used by explicit logout, auth expiry, and an actual user-id change. It clears session-sensitive tasks, conversations, drafts, forms, Ziniao selections, and workspace state, then navigates to `/` for the normal landing flow. **State resets only at those three boundaries — never for navigation, same-user updates, or opening/closing forms.** Same-user tasks, drafts, inputs, and workspace edits are preserved. Raw `fetch` calls such as the startup `/api/auth/status` probe and `handleLogin` deliberately bypass the shared redirect path because they run before login.
 
 ## Responsiveness
 
@@ -324,7 +324,7 @@ missing from those maps has no docs section yet and shows no link.
 
 ## SSE Integration
 
-`useSSE` hook in `hooks/useSSE.ts` connects to `/api/sse` and dispatches events:
+`useSSE` in `hooks/useSSE.ts` connects to `/api/sse` only while the session is authenticated and enabled; anonymous/auth-loading renders do not open a stream. Logout or auth expiry closes the stream and disables late events, while same-user navigation keeps one continuous connection. It dispatches these events:
 
 | Event | Handler |
 |-------|---------|

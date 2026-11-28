@@ -21,6 +21,8 @@ function _finalizeThinking(items: ConversationItem[]): ConversationItem[] {
 }
 
 interface UseSSEParams {
+  /** Anonymous/auth-loading renders must not open a private event stream. */
+  enabled?: boolean
   selectedTaskId: string | undefined
   appView: string
   /** Currently-selected store id, or null for "All stores" / no store view. */
@@ -50,8 +52,8 @@ interface UseSSEParams {
 }
 
 export function useSSE({
+  enabled = true,
   selectedTaskId,
-  appView,
   selectedStoreId = null,
   showAllTasks = false,
   setTasks,
@@ -93,8 +95,11 @@ export function useSSE({
   useEffect(() => { loadTasksRef.current = loadTasks }, [loadTasks])
 
   useEffect(() => {
+    if (!enabled) return
+    let active = true
     const es = new EventSource('/api/sse')
     es.onmessage = (e) => {
+      if (!active) return
       try {
         const data = JSON.parse(e.data)
         if (data.type === 'ping') return
@@ -676,7 +681,12 @@ export function useSSE({
         }
       } catch { /* ignore */ }
     }
-    return () => es.close()
+    return () => {
+      active = false
+      es.onmessage = null
+      es.close()
+    }
+  // Selection/callback refs keep this connection stable for the whole session.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appView])
+  }, [enabled])
 }

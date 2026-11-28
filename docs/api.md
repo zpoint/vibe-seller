@@ -1,6 +1,6 @@
 # API Routes
 
-All routes prefixed with `/api/`. When `auth_required` is enabled (see Settings), all routes except `/api/auth/status`, `/api/auth/login`, `/api/health`, and `/api/sse` require JWT auth via httpOnly cookie. When `auth_required` is disabled (default), all routes return the default admin user without authentication.
+All routes prefixed with `/api/`. When `auth_required` is enabled (see Settings), all routes except `/api/auth/status`, `/api/auth/login`, and `/api/health` require JWT auth via httpOnly cookie. In particular, anonymous consumers cannot open the `/api/sse` event stream when auth is required. When `auth_required` is disabled (default), all routes return the default admin user without authentication.
 
 A request may also carry a personal API token (`vst_…`) as `Authorization: Bearer vst_…`. Such a token is always checked against the token table — an unknown, revoked or expired one is a **401 even when `auth_required` is off**. Any other bearer value keeps the JWT/cookie behaviour described above.
 
@@ -119,7 +119,7 @@ and the reveal endpoint below.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/stores` | List all stores |
-| POST | `/api/stores` | Create a store. `platforms` / `countries` / `platform_countries` are optional and empty unless given (no default platform or country); `platform_countries` is the stored source and the two flat lists are derived from it (`app/store_platforms.py`). For a single-account vendor with stored credentials, creation revalidates the credential snapshot under the per-vendor account lock and returns `409 {"status":"account_changed","message":"..."}` without creating a store if the account changed in flight; select the profile again. |
+| POST | `/api/stores` | Create a store. `platforms` / `countries` / `platform_countries` are optional and empty unless given (no default platform or country); `platform_countries` is the stored source and the two flat lists are derived from it (`app/store_platforms.py`). For a single-account vendor with stored credentials, creation revalidates the credential snapshot under the per-vendor account lock and returns `409 {"status":"account_changed","message":"..."}` without creating a store if the account changed in flight; select the profile again. An external browser profile (`browser_oauth`) can bind only one store per identity: backend plus `ziniao_account_id` for account-scoped vendors, or backend alone for machine-login vendors. A duplicate create returns `409` with a plain-text `detail` naming the existing store; different external ids and different accounts for account-scoped vendors remain valid. Existing duplicate rows are not deleted or migrated; clean them up manually. |
 | GET | `/api/stores/{store_id}` | Get store by ID |
 | DELETE | `/api/stores/{store_id}` | Delete a store. Deleting a single-account vendor's LAST bound store also deletes its registry-declared stored credentials in the same transaction; unrelated client settings and multi-account vendor accounts are preserved. |
 | POST | `/api/stores/{store_id}/browser/start` | Start (or reuse) the store's browser; the store wrapper calls it lazily. A Ziniao store's client is brought up first — killed and relaunched in WebDriver mode when it is not answering, no flag (old wrappers' `?force=1` is ignored). `503` while Ziniao is still starting or the launch lock is busy (retry), `409` when another Ziniao account is in use. |
@@ -729,7 +729,7 @@ never echoes the URL back to the client.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/sse` | SSE stream of all real-time events |
+| GET | `/api/sse` | Authenticated SSE stream of all real-time events; anonymous requests are rejected when `auth_required` is enabled |
 
 Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api/events` for event tracking.
 
