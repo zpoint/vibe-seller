@@ -587,6 +587,7 @@
     "LoginAllRequired": "Please fill in every field before saving.",
     "LoginSaving": "Saving...",
     "SelectStore": "Select a store...",
+    "Selected": "Selected:",
     "Loading": "Loading...",
     "LoginRequired": "Log into the {{vendor}} client first, then click Refresh.",
     "ClientNotRunning": "Couldn't start the {{vendor}} client — open it manually (or check it's installed), then click Refresh.",
