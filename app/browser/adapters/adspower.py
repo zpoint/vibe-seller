@@ -2,8 +2,7 @@
 
 AdsPower is the textbook local-API vendor: list / start / stop /
 active / local-active on ``http://127.0.0.1:<port>`` with a Bearer API
-key, and even login has a documented command-line form (headless with
-the key). No GUI injection, no Electron inspector, no ``after_open`` —
+key. No GUI injection, no Electron inspector, no ``after_open`` —
 the start call is made with ``ip_tab=0&open_tabs=0`` so the browser
 opens straight on the profile's platform URL (verified live). From the
 CDP endpoint onward it is identical to the ziniao / chrome backends
@@ -26,7 +25,8 @@ Three AdsPower facts shape this module (all verified live, FACTS.md in
 - **The API key must belong to the account signed into the client.**
   A key of a different team member answers ``API Key mismatch`` (an
   ``AccountMismatch``). Signed out entirely, the API answers nothing —
-  the Local API only starts at login (GUI or headless-with-key).
+  the Local API only starts at login (R22: Vibe Seller never starts
+  the headless form; a signed-out client needs a human sign-in).
 - **Kernel states differ**: ``is updating`` (a download IS running,
   ready in ~40 s on Windows GUI) vs ``is not ready`` (the kernel is
   MISSING and nothing downloads it from a background session — seen
@@ -34,8 +34,9 @@ Three AdsPower facts shape this module (all verified live, FACTS.md in
 
 What the shared :class:`~app.browser.local_api_client.LocalApiClient`
 base cannot express stays here as overrides (the review's list):
-- **D4 ``ensure_running``**: probe → launch the GUI (remember-me) →
-  a 30 s grace → headless with the API key.
+- **D4 ``ensure_running`` (R22)**: probe → launch the GUI
+  (remember-me) → a signed-out shell refuses with the sign-in text
+  (NO headless fallback — the user's option (a), 2026-11-28).
 - **D7 failed-start decision**: an empty endpoint is ambiguous
   (Firefox kernel vs orphaned SunBrowser) — kernel process evidence
   decides; only THIS profile's tree is killed.
@@ -118,14 +119,9 @@ class AdsPowerClient(LocalApiClient):
     # ── vendor constants the base has no attribute for ──────────────
     #: user/list's documented maximum page size (shrinkable in tests).
     LIST_PAGE_SIZE = 100
-    #: Bounded waits for the launched GUI / headless service.
+    #: Bounded wait for the launched GUI (remember-me sign-in + the
+    #: node service need time before the Local API listens).
     GUI_WAIT_S = 90.0
-    HEADLESS_WAIT_S = 45.0
-    #: Grace for a shell SOMEONE ELSE just started (the user, Windows
-    #: autostart): remember-me sign-in + the node service need time
-    #: before the Local API listens. Only after this does "shell up,
-    #: API down" mean signed out (R3).
-    SIGNED_OUT_GRACE_S = 30.0
     LAUNCH_POLL_S = 2.5
     #: Kernel download: first use of a kernel version downloads it
     #: ("SunBrowser NNN is updating" / "is not ready").
@@ -151,8 +147,8 @@ class AdsPowerClient(LocalApiClient):
     #: ~40 s); poll bounded, hint says "downloading, retry".
     MSG_KERNEL_UPDATING = 'is updating'
     #: ``is not ready`` — the kernel is MISSING and, verified live on
-    #: macOS (2026-11-27), nothing downloads it from a background/
-    #: headless session even after minutes of retries. Poll briefly,
+    #: macOS (2026-11-27), nothing downloads it in the background even
+    #: after minutes of retries. Poll briefly,
     #: then fail with the actionable hint (open AdsPower and get the
     #: kernel, or re-pin the profile in the client).
     MSG_KERNEL_NOT_READY = 'is not ready'
@@ -425,15 +421,18 @@ class AdsPowerClient(LocalApiClient):
     # ── the InjectClient contract (vendor overrides) ────────────────
 
     async def ensure_running(self) -> None:
-        """D4: probe → launch the GUI → grace → headless-with-key.
+        """D4 (R22): probe → launch the GUI → sign-in needed.
 
         (1) /status answers → done. (2) no GUI shell → launch it
-        (remember-me signs in) and wait. (3) the shell runs but the
-        API never came up (m1: a signed-out GUI — the Local API only
-        starts at login): a 30 s grace for a shell someone else just
-        started, then a headless instance with the API key (the GUI
-        is NOT killed; they coexist). (4) still nothing →
-        LoginRequired when the shell is up, else ClientNotRunning.
+        (remember-me signs in) and wait GUI_WAIT_S → up = done; a
+        failed launch, or a shell that exited, → ClientNotRunning.
+        (3) the shell runs but the API never came up (m1: a signed-out
+        GUI — the Local API only starts at login) → LoginRequired
+        with the sign-in text. R22 (the user's option (a),
+        2026-11-28): NO headless fallback, ever — a headless
+        instance's Local API listens on ALL interfaces and enforces
+        no key (verified live), so Vibe Seller never starts one; a
+        signed-out client needs a human sign-in.
         """
         if await self._api_up():
             return
@@ -446,7 +445,6 @@ class AdsPowerClient(LocalApiClient):
             raise ClientNotRunning(
                 f'the AdsPower local API on port {self._port} is not answering'
             )
-        launched = False
         if not await asyncio.to_thread(self._proc.shell_running):
             launched = await asyncio.to_thread(self._proc.launch)
             if not launched:
@@ -456,32 +454,15 @@ class AdsPowerClient(LocalApiClient):
                 )
             if await self._wait_for_api(self.GUI_WAIT_S):
                 return
-        # The Local API never came up. If the shell runs, that MAY be
-        # the signed-out state (m1) — but a shell someone else started
-        # moments ago (the user, Windows autostart) is still signing in
-        # (remember-me + node service take a while), so give it a
-        # bounded grace before concluding (R3: no needless headless
-        # instance, no second node service, no port-file churn).
-        if self._auth_value and await asyncio.to_thread(
-            self._proc.shell_running
-        ):
-            if not launched and await self._wait_for_api(
-                self.SIGNED_OUT_GRACE_S
-            ):
-                return
-            logger.info(
-                'adspower GUI is up but its API is not (signed out?); '
-                'starting a headless instance with the API key'
-            )
-            if await asyncio.to_thread(
-                self._proc.launch_headless, self._auth_value
-            ):
-                if await self._wait_for_api(self.HEADLESS_WAIT_S):
-                    return
-        if launched and not await asyncio.to_thread(self._proc.shell_running):
-            raise ClientNotRunning('the AdsPower client exited')
-        # R16b: the same wording the store form shows (the constants
-        # the vendors.adspower.LoginRequired override carries).
+            if not await asyncio.to_thread(self._proc.shell_running):
+                raise ClientNotRunning('the AdsPower client exited')
+        # The shell runs but the API never came up: signed out (m1).
+        # R16b/R22: the same wording the store form shows — a human
+        # signs in; nothing is spawned.
+        logger.info(
+            'adspower GUI is up but its API is not (signed out?); '
+            'refusing with the sign-in text (R22: no headless)'
+        )
         raise LoginRequired(f'{SIGN_IN_NEEDED_ZH} / {SIGN_IN_NEEDED_EN}')
 
     async def _api_up(self) -> bool:
@@ -508,7 +489,7 @@ class AdsPowerClient(LocalApiClient):
 
         AdsPower has no logged-out API shape and no password-login
         endpoint — :meth:`ensure_running` is what handles "not signed
-        in" (headless with the key), and a key that does not match the
+        in" (the sign-in refusal, R22), and a key that does not match the
         signed-in account surfaces as ``AccountMismatch`` on the first
         real call.
         """

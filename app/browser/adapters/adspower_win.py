@@ -5,12 +5,11 @@ Windows side over 127.0.0.1). Blocking functions; call via
 ``asyncio.to_thread``.
 
 Unlike 悦互联/稳卖 there is no GUI injection at all (R2): every flow —
-list, open, close, even login (headless mode) — goes through the
-client's local HTTP API or its documented command-line flags. What
+list, open, close — goes through the client's local HTTP API. What
 remains Windows-specific:
 
-- install discovery + launching the exe (GUI, or headless with the API
-  key when the GUI is not signed in — the documented flags);
+- install discovery + launching the exe (the GUI; R22 — no headless
+  form is ever started);
 - reading the ``local_api`` file that names the CURRENT Local API port
   (the port is effectively random: the default 50325 is only used when
   free, and e.g. Hyper-V/WSL port exclusions can make it permanently
@@ -27,7 +26,6 @@ Validated live 2026-11-27, client v8.9.23 (Electron 35.4.0).
 
 import logging
 import os
-import subprocess
 
 from app.browser import win_app_locator as win_locator
 from app.browser.adapters.adspower_common import (
@@ -45,43 +43,6 @@ logger = logging.getLogger(__name__)
 _PS = ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command']
 _UTF8 = '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;'
 
-
-def _run_ps_env(script: str, env: dict) -> str:
-    """Run PowerShell with an extra ENVIRONMENT (vendor-local, R4).
-
-    The shared :func:`win_app_locator.run_powershell` takes no ``env``;
-    rather than widen the shared helper, this vendor-local twin runs
-    scripts that depend on an injected variable (the headless API key).
-    It never logs the command or the script: a ``TimeoutExpired``
-    stringifies the full command line and a PS parse error echoes the
-    offending line, so nothing that could carry the script reaches a
-    log — the key itself is only in the environment, never the script.
-    """
-    try:
-        proc = subprocess.run(
-            [*_PS, _UTF8 + script],
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            timeout=30.0,
-            check=False,
-            env=env,
-        )
-    except (OSError, subprocess.TimeoutExpired) as e:
-        # Type name only: TimeoutExpired's str() is the full command.
-        logger.warning('powershell call failed (%s)', type(e).__name__)
-        return ''
-    stderr = (proc.stderr or '').strip()
-    if proc.returncode != 0 or stderr:
-        logger.warning(
-            'powershell exited rc=%s: %s', proc.returncode, stderr[:300]
-        )
-    return proc.stdout or ''
-
-
-#: Install discovery for THIS vendor, declared here (not in the shared
-#: locator) per R1 — vendor knowledge lives in the vendor module.
 ADSPOWER_SPEC = WinAppSpec(
     key='adspower',
     display_name='AdsPower',
@@ -94,13 +55,9 @@ ADSPOWER_SPEC = WinAppSpec(
 #: Get-Process -Name form).
 SHELL_PROCESS_NAME = 'AdsPower Global'
 
-_APPDATA_PS = "[Environment]::GetFolderPath('ApplicationData')"
-
 # R6: resolving APPDATA from WSL spawns PowerShell on EVERY discovery
-# (each ensure_running + each 2.5 s poll). The folder does not move —
-# cache the non-empty answer for the process lifetime. A failure is
-# never cached (retry next time). A dict holder instead of a module
-# global rebinding: no ``global`` statement, and tests can reset it.
+# poll while a client launches; the answer is cached per process.
+_APPDATA_PS = "[Environment]::GetFolderPath('ApplicationData')"
 _APPDATA_CACHE: dict[str, str] = {}
 
 
@@ -229,47 +186,6 @@ class AdsPowerProcessLayer:
         esc = exe.replace("'", "''")
         script = f"Start-Process -FilePath '{esc}';'ok'"
         return _run_ps(script).strip().endswith('ok')
-
-    def launch_headless(self, api_key: str) -> bool:
-        """Start a headless instance that logs in with the API key.
-
-        The vendor's documented flags (``--headless=true
-        --api-key=<key>``); ``--api-port`` is omitted on purpose: the
-        port is discovered through the ``local_api`` file afterwards
-        (50325 may be reserved, e.g. by Hyper-V).
-
-        The key travels in the ENVIRONMENT (``VS_ADSPOWER_KEY``), never
-        in the PowerShell script text: a ``TimeoutExpired`` logs the
-        full command line and a PS parse error echoes the offending
-        line, so script text must stay key-free (R4). Under WSL an env
-        var only crosses the interop boundary when listed in
-        ``WSLENV`` — appended for this one call; native Windows
-        inherits it directly. The key IS on the AdsPower process's own
-        command line by the vendor's design, which the docs page says
-        plainly.
-        """
-        exe = self.exe_path()
-        if not exe or not api_key:
-            return False
-        esc = exe.replace("'", "''")
-        # -WindowStyle Hidden: no console window flashes on the desktop.
-        script = (
-            f"Start-Process -FilePath '{esc}' "
-            "-ArgumentList '--headless=true',"
-            '("--api-key=" + $env:VS_ADSPOWER_KEY)'
-            " -WindowStyle Hidden;'ok'"
-        )
-        env = dict(os.environ)
-        env['VS_ADSPOWER_KEY'] = api_key
-        if os.name != 'nt':  # WSL: let the var cross the interop.
-            wsl_env = env.get('WSLENV') or ''
-            if 'VS_ADSPOWER_KEY' not in wsl_env.split(':'):
-                env['WSLENV'] = (
-                    f'{wsl_env}:VS_ADSPOWER_KEY'
-                    if wsl_env
-                    else 'VS_ADSPOWER_KEY'
-                )
-        return _run_ps_env(script, env).strip().endswith('ok')
 
     def shell_running(self) -> bool:
         """Whether any AdsPower shell process exists (signed in or not).

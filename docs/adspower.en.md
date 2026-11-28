@@ -99,27 +99,21 @@ See [Browsers → Stores must use the Chrome kernel](browsers.en.md#stores-must-
 
 ## Auto-start and sign-in
 
-- Client not running: Vibe Seller launches the AdsPower client. The
-  client remembers the sign-in, so the API is available right after.
+- Client not running: Vibe Seller launches the AdsPower client (the
+  GUI). The client remembers the sign-in, so the API is available
+  right after.
 - Client running but **signed out** (sitting on its login page): Vibe
-  Seller starts a windowless AdsPower service in the background with
-  your saved API key (the vendor's documented `--headless --api-key`
-  mode); your open client window is left untouched. Only when that
-  also fails are you asked to sign in by hand (see
-  ["The AdsPower client needs you to sign in"](#the-adspower-client-needs-you-to-sign-in)).
+  Seller does not sign in for you — it shows
+  ["The AdsPower client needs you to sign in"](#the-adspower-client-needs-you-to-sign-in)
+  and someone has to sign in once in the AdsPower window.
 - Signing in through the AdsPower window itself (typing the account
   password in the client) can ask for a verification code (a
-  new-device check). **Vibe Seller does not need that step**: when
-  AdsPower is not signed in, it starts it in the background with
-  your API key — no code needed.
-- Expired sign-in: same flow; the final error says the AdsPower
-  client needs you to sign in.
+  new-device check); for a sub-account that cannot receive the code,
+  see ["A sub-account never receives the verification code"](#a-sub-account-never-receives-the-verification-code).
 
-**Note**: when Vibe Seller starts AdsPower in the background, your
-API key appears in AdsPower's launch command line (that is the
-vendor's own design — the key exists to authenticate it). The key is
-stored encrypted in Vibe Seller and appears nowhere else — not in
-logs, not in API responses.
+**Security note**: AdsPower's own client serves its local API on
+**all network interfaces** (that is AdsPower's design, not Vibe
+Seller's) — keep this machine's firewall on.
 
 ## The API port is discovered automatically
 
@@ -170,8 +164,8 @@ get a plain Chrome auxiliary browser for sites AdsPower cannot open
 When you see "The AdsPower client needs you to sign in: open AdsPower,
 sign in with the account the API key belongs to…", the AdsPower client
 on this machine is **not signed in** (or is signed into an account
-other than the one the API key belongs to), and the background start
-with the key could not bring it up either. What to do:
+other than the one the API key belongs to), so its API never came up.
+What to do:
 
 1. Open the AdsPower client window and sign in with **the account the
    API key belongs to**;
@@ -204,9 +198,9 @@ Three ways out:
    device or after 90 days) — under Global settings → Account
    security → Two-factor verification.
 
-Note: **Vibe Seller's background start never asks for this code** — it
-starts AdsPower with your API key; only signing in inside the AdsPower
-app does.
+Note: only a **human signing in inside the AdsPower window** meets
+this code — Vibe Seller never signs in on your behalf, so meeting it
+means someone needs to complete that sign-in in the client.
 
 Official docs: [Members](https://help.adspower.com/docs/members) ·
 [Two-factor authentication](https://help.adspower.com/docs/two_factor_authentication)
@@ -217,7 +211,7 @@ Official docs: [Members](https://help.adspower.com/docs/members) ·
 |---|---|
 | AdsPower has no API key yet: open API & MCP in AdsPower, generate a key and paste it into Vibe Seller. | No key saved. See "Generate the API key". |
 | The key must come from the account currently signed into AdsPower; re-copy it after an account or key change. | The key does not match the signed-in account. Re-copy it. |
-| The AdsPower client needs you to sign in: open AdsPower, sign in with the account the API key belongs to, finish the verification it asks for (an email/SMS code), then refresh or retry the task. | The client is not signed in (or not as the key's account) and the background start with the key failed. See ["The AdsPower client needs you to sign in"](#the-adspower-client-needs-you-to-sign-in). |
+| The AdsPower client needs you to sign in: open AdsPower, sign in with the account the API key belongs to, finish the verification it asks for (an email/SMS code), then refresh or retry the task. | The client is not signed in (or not as the key's account), so its API never came up. See ["The AdsPower client needs you to sign in"](#the-adspower-client-needs-you-to-sign-in). |
 | AdsPower does not know this profile: deleted, or not authorized for the signed-in account. | The profile was deleted, or this account lacks authorization for it. |
 | This profile uses the FlowerBrowser (Firefox) kernel… | See "Profiles must use the Chrome kernel": create a SunBrowser profile. |
 | AdsPower is downloading the browser kernel; retry once it finishes. | First use of a kernel version; AdsPower is downloading it. Wait and retry. |

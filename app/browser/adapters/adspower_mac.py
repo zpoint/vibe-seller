@@ -11,10 +11,9 @@ flags. What remains macOS-specific:
 
 - install discovery + launching, through the SHARED
   :mod:`app.browser.mac_app_locator` (PR #330): the GUI via the
-  locator's ``launch`` (``open``), headless by EXECUTING the bundle's
-  inner exe directly and detached — ``open --args`` only passes args
-  when the app is not already running, and headless is started
-  precisely when the GUI shell IS running (sitting at its login page);
+  locator's ``launch`` (``open``). R22: the headless form is never
+  started (the user's option (a)); a signed-out client refuses with
+  the sign-in text;
 - the ``local_api`` file (the port discovery source) under
   ``~/Library/Application Support`` — the layout is the vendor's
   Linux/Windows one, confirmed for macOS in §B;
@@ -39,7 +38,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import subprocess
 
 import psutil
 
@@ -188,40 +186,6 @@ class MacAdsPowerLayer:
             mac_locator.launch(located)
         except RuntimeError as e:
             logger.warning('adspower GUI launch failed: %s', e)
-            return False
-        return True
-
-    def launch_headless(self, api_key: str) -> bool:
-        """Start a headless instance that logs in with the API key.
-
-        The bundle's inner exe is executed DIRECTLY and detached
-        (``start_new_session=True``): ``open --args`` drops its flags
-        when the app is already running, and headless is started
-        precisely when the GUI shell is (sitting at its login page) —
-        the two coexist, exactly like the Windows side (FACTS §d).
-        The key is only ever in the argv (the vendor's own design,
-        documented); it never appears in a log line or an error.
-        """
-        exe = self.exe_path()
-        if not exe or not api_key:
-            return False
-        try:
-            subprocess.Popen(
-                [
-                    exe,
-                    '--headless=true',
-                    f'--api-key={api_key}',
-                ],
-                start_new_session=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-            )
-        except OSError as e:
-            # Type + errno only — the argv carries the key.
-            logger.warning(
-                'adspower headless launch failed (%s)', type(e).__name__
-            )
             return False
         return True
 

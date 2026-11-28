@@ -1,12 +1,11 @@
 """The AdsPower macOS layer (unit tests on Linux, seams everywhere).
 
 §A of ADDENDUM-2: the layer is chosen by platform; the mac local_api
-path; launch paths (GUI via the shared locator's open, headless by
-exec'ing the bundle exe — with the key redacted); kernel evidence and
-the per-profile tree kill through psutil; the platform gate.
+path; the launch path (GUI via the shared locator's open — R22: no
+headless form is ever started); kernel evidence and the per-profile
+tree kill through psutil; the platform gate.
 """
 
-import logging
 from unittest import mock
 
 import pytest
@@ -68,7 +67,7 @@ def test_read_port_missing_file_is_none(monkeypatch, tmp_path):
     assert mac_mod.read_local_api_port() is None
 
 
-# ── launch: GUI via the locator, headless by exec'ing the exe ─────
+# ── launch: GUI via the locator ────────────────────────────────────
 
 
 def _located(
@@ -111,48 +110,6 @@ def test_gui_launch_failure_is_false(monkeypatch):
 
     monkeypatch.setattr(mac_mod.mac_locator, 'launch', boom)
     assert mac_mod.MacAdsPowerLayer().launch() is False
-
-
-def test_headless_execs_the_bundle_exe_detached(monkeypatch, caplog):
-    # A-addendum-2: open --args drops flags when the app already runs,
-    # so headless EXECUTES exe_path directly, detached. The key is in
-    # the argv (vendor design, documented) and nowhere else.
-    caplog.set_level(logging.DEBUG)
-    popens = []
-    monkeypatch.setattr(
-        mac_mod.mac_locator, 'locate', lambda spec, **kw: _located()
-    )
-
-    class FakePopen:
-        def __init__(self, argv, **kw):
-            popens.append((argv, kw))
-
-    monkeypatch.setattr(mac_mod.subprocess, 'Popen', FakePopen)
-    assert mac_mod.MacAdsPowerLayer().launch_headless('mac-key-789')
-    ((argv, kw),) = popens
-    assert argv == [
-        '/Applications/AdsPower Global.app/Contents/MacOS/AdsPower Global',
-        '--headless=true',
-        '--api-key=mac-key-789',
-    ]
-    assert kw['start_new_session'] is True  # detached
-    assert 'mac-key-789' not in caplog.text
-
-
-def test_headless_launch_failure_never_logs_the_key(monkeypatch, caplog):
-    # The OSError branch logs the TYPE only — the argv (with the key)
-    # must never reach a log line.
-    caplog.set_level(logging.DEBUG)
-    monkeypatch.setattr(
-        mac_mod.mac_locator, 'locate', lambda spec, **kw: _located()
-    )
-
-    def boom(argv, **kw):
-        raise OSError('spawn mac-key-789 failed')
-
-    monkeypatch.setattr(mac_mod.subprocess, 'Popen', boom)
-    assert mac_mod.MacAdsPowerLayer().launch_headless('mac-key-789') is False
-    assert 'mac-key-789' not in caplog.text
 
 
 # ── kernel evidence (psutil) and the per-profile tree kill ─────────

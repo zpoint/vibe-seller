@@ -153,43 +153,6 @@ def test_launch_script_uses_the_located_exe(monkeypatch):
     ]
 
 
-def test_headless_script_carries_documented_flags(monkeypatch):
-    # The vendor's documented flags only — no --api-port (the port is
-    # discovered through the local_api file; 50325 may be reserved).
-    # R2: the key itself is NOT in the script; it arrives through the
-    # environment (the client tests pin the logging contract).
-    seen = []
-    monkeypatch.setattr(
-        win_mod,
-        '_run_ps_env',
-        lambda s, env: seen.append((s, env)) or 'ok',
-    )
-    layer = AdsPowerProcessLayer()
-    monkeypatch.setattr(
-        layer,
-        'exe_path',
-        lambda: (
-            r'C:\Program Files\AdsPower Global'
-            r'\AdsPower Global.exe'
-        ),
-    )
-    assert layer.launch_headless('k3') is True
-    ((script, env),) = seen
-    assert "'--headless=true'" in script
-    assert '$env:VS_ADSPOWER_KEY' in script
-    assert 'k3' not in script
-    assert env['VS_ADSPOWER_KEY'] == 'k3'
-    assert '--api-port' not in script
-    assert '-WindowStyle Hidden' in script
-
-
-def test_headless_negative_control_no_key(monkeypatch):
-    monkeypatch.setattr(win_mod, '_run_ps', lambda *a, **k: 'ok')
-    layer = AdsPowerProcessLayer()
-    monkeypatch.setattr(layer, 'exe_path', lambda: r'C:\x\e.exe')
-    assert layer.launch_headless('') is False
-
-
 # ── the descriptor (R1: vendor knowledge lives here) ───────────────
 
 
