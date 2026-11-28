@@ -1141,8 +1141,7 @@ def test_guard_denies_the_declared_vendor_data_dir(monkeypatch):
         lambda: {'bitbrowser': bb.BITBROWSER_VENDOR},
     )
     path = (
-        '/mnt/c/Users/u/AppData/Roaming/BitBrowser/'
-        'BrowserCache/100000000001/probe-state.dat'
+        '~/AppData/Roaming/BitBrowser/BrowserCache/100000000001/probe-state.dat'
     )
     reason = vendor_guard.vendor_guard_deny(
         'Read', {'file_path': path}, task_id='1a2b3c4d5e6f7a8b9c0d'
@@ -1158,7 +1157,7 @@ def test_guard_negative_control_unrelated_dir_is_not_a_vendor_path(
         'registered_vendor_specs',
         lambda: {'bitbrowser': bb.BITBROWSER_VENDOR},
     )
-    path = '/mnt/c/Users/u/AppData/Roaming/OtherBrowser/probe-state.dat'
+    path = '~/AppData/Roaming/OtherBrowser/probe-state.dat'
     assert (
         vendor_guard.vendor_guard_deny(
             'Read', {'file_path': path}, task_id='1a2b3c4d5e6f7a8b9c0d'
