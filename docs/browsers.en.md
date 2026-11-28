@@ -23,6 +23,7 @@ vendor's own site:
 |---|---|---|---|---|---|---|
 | Chrome | The system's own Chrome / Chromium (launched by Playwright) | Running a single store yourself; public-web work | macOS / Linux / WSLg | Built in, no install | — | [Stores & Browsers → Creating a store](stores.en.md#creating-a-store) |
 | Ziniao | Third-party anti-detect browser (developer / WebDriver mode, driven over CDP) | One team managing many accounts; strict risk control | Windows / macOS / Linux, plus WSL | [ziniao.com](https://www.ziniao.com) · [download](https://www.ziniao.com/download) | Register an enterprise account → BOSS enables developer mode on the [Open Platform](https://open.ziniao.com/docSupport?docId=99) and ticks WebDriver login for the sub-account | [Ziniao setup](ziniao.en.md) |
+| AdsPower | Anti-detect browser (API-key integration) | One team managing many accounts | Windows and macOS (WSL also supported) | [adspower.net](https://www.adspower.net/download) | Paid plan + generate an API key (API & MCP page); profiles must use the SunBrowser kernel | [AdsPower setup](adspower.en.md) |
 | Yuehulian | Chinese anti-detect e-commerce browser | One team managing many accounts | Windows / macOS / WSL | [kj.chinafic.com](https://kj.chinafic.com/) · client download on the site | Register an enterprise account → create sub-accounts and grant store permissions in the console (team login = team name + sub-account + password) | [Yuehulian setup](yuehulian.en.md) |
 
 > WSL deployments also have a fourth backend, `winchrome` (set at deployment, not a
@@ -55,6 +56,8 @@ Yuehulian is an anti-detect browser like Ziniao. Vibe Seller opens and
 signs in to its client itself, on **Windows and macOS, plus WSL**; a machine keeps a single Yuehulian account and
 auto-signs-in when the session expires. Download, team-account creation,
 binding and errors: [Yuehulian: Setup Guide](yuehulian.en.md).
+
+AdsPower is integrated with an API key you generate, and it works on **Windows and macOS; WSL is also supported**. The key must belong to the account signed in to the client. Download, key generation, binding, the kernel requirement and errors: [AdsPower: Setup Guide](adspower.en.md).
 
 The Chrome backend has Playwright bring up a profile dedicated to the
 store — no extra software, and no handing the system an anti-detect

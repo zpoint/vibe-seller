@@ -6,7 +6,7 @@ description: 悦互联接入 Vibe Seller 的一页说明：下载安装（Window
 
 悦互联（YueHuLian）是一款国产电商防关联浏览器（[官网](https://kj.chinafic.com/)）。绑定后，Vibe Seller 会自动打开并登录悦互联客户端，再用它打开你的店铺执行任务，不需要你手动操作客户端。
 
-**悦互联后端支持 Windows、macOS，也支持 WSL**。纯 Linux 上这个选项不会出现在「浏览器后端」下拉里——悦互联客户端没有 Linux 版。
+**悦互联后端支持 Windows、macOS，也支持 WSL**。
 
 不用悦互联的话，这一页可以跳过。Vibe Seller 还支持其他浏览器，见 [浏览器](browsers.md)。
 

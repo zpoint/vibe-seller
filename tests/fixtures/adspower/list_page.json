@@ -1,0 +1,54 @@
+{
+  "code": 0,
+  "msg": "Success",
+  "data": {
+    "list": [
+      {
+        "serial_number": "1",
+        "user_id": "kaaaaaa1",
+        "name": "demo-store",
+        "group_id": "110000000001",
+        "group_name": "acme",
+        "domain_name": "https://www.amazon.com",
+        "username": "",
+        "remark": "",
+        "created_time": "1795745501",
+        "ip": "203.0.113.10",
+        "ip_country": "cn",
+        "password": "",
+        "last_open_time": "1795745521",
+        "user_proxy_config": {"proxy_soft": "no_proxy"},
+        "ipchecker": "ip2location",
+        "fakey": "",
+        "fbcc_proxy_acc_id": "",
+        "sys_app_cate_id": "0",
+        "fbcc_user_tag": [],
+        "platform_account": []
+      },
+      {
+        "serial_number": "2",
+        "user_id": "kaaaaaa2",
+        "name": "demo-firefox",
+        "group_id": "110000000001",
+        "group_name": "acme",
+        "domain_name": "",
+        "username": "",
+        "remark": "",
+        "created_time": "1795746654",
+        "ip": "",
+        "ip_country": "",
+        "password": "",
+        "last_open_time": "0",
+        "user_proxy_config": {"proxy_soft": "no_proxy"},
+        "ipchecker": "ip2location",
+        "fakey": "",
+        "fbcc_proxy_acc_id": "",
+        "sys_app_cate_id": "0",
+        "fbcc_user_tag": [],
+        "platform_account": []
+      }
+    ],
+    "page": 1,
+    "page_size": 2
+  }
+}

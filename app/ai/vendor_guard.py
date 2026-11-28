@@ -342,8 +342,8 @@ def dir_name_hits(text: str) -> list[tuple[str, str]]:
                 pat == name
                 or name in pat
                 or (
-                    # a glob naming a FRAGMENT of the dir (``*adspower*``
-                    # for ``adspower_global``); the length floor keeps a
+                    # a glob naming a FRAGMENT of the dir (``*guardtest*``
+                    # for ``guardtest_data``); the length floor keeps a
                     # one-letter glob from naming every vendor
                     len(pat) >= 4 and pat in name
                 )
