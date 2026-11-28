@@ -6,7 +6,7 @@
  * controls flip one spec field and assert the opposite outcome.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 import i18n from 'i18next'
 import enTranslation from '../i18n/locales/en/translation.json'
@@ -31,6 +31,14 @@ function i18nFor(lng: 'en' | 'zh') {
   })
   return inst
 }
+
+afterEach(() => {
+  vi.clearAllMocks()
+  vi.mocked(api.get).mockImplementation(
+    async () => ({ configured: true, team_name: 'acme', subaccount: 'ops' }),
+  )
+  vi.mocked(api.post).mockImplementation(async () => ({ ok: true }))
+})
 
 /** A fake vendor in the registry's own shape — the invariant's probe. */
 const fakeVendor: BrowserVendor = {
@@ -112,13 +120,18 @@ describe('backend options from the registry', () => {
 })
 
 describe('the generic vendor section', () => {
-  it('shows the machine login and the add form from the spec fields', async () => {
+  it('shows the machine login and an empty add form from the spec fields', async () => {
     renderSection()
     expect(await screen.findByText('acme / ops')).toBeTruthy()
-    fireEvent.click(screen.getByTitle(enTranslation.settings.addAccount))
-    expect(screen.getByPlaceholderText(enTranslation.settings.yuehulianTeamName)).toBeTruthy()
-    expect(screen.getByPlaceholderText(enTranslation.settings.yuehulianSubaccount)).toBeTruthy()
-    expect(screen.getByPlaceholderText(enTranslation.settings.yuehulianPassword)).toBeTruthy()
+    const add = screen.getByTitle(enTranslation.settings.addAccount) as HTMLButtonElement
+    expect(add.disabled).toBe(false)
+    fireEvent.click(add)
+    const fields = [
+      enTranslation.settings.yuehulianTeamName,
+      enTranslation.settings.yuehulianSubaccount,
+      enTranslation.settings.yuehulianPassword,
+    ].map(label => screen.getByPlaceholderText(label) as HTMLInputElement)
+    expect(fields.map(field => field.value)).toEqual(['', '', ''])
   })
 
   it('decodes each structured status into the spec-prefixed string', () => {
@@ -189,13 +202,153 @@ describe('the generic vendor section', () => {
   it('refuses [+] while one of the vendor\'s stores is bound (one account per machine)', async () => {
     const allStores = [{ browser_backend: 'fakevendor' }] as unknown as Store[]
     renderSection({ allStores })
-    fireEvent.click(screen.getByTitle(enTranslation.settings.addAccount))
+    const add = screen.getByTitle(enTranslation.settings.addAccount) as HTMLButtonElement
+    expect(add.disabled).toBe(true)
+    fireEvent.click(add)
     expect(screen.getByText(enTranslation.settings.yuehulianOneAccount)).toBeTruthy()
     // The form did NOT open.
     expect(screen.queryByPlaceholderText(enTranslation.settings.yuehulianTeamName)).toBeNull()
     // And the refusal links the spec's one_account docs section.
     const link = screen.getByTestId('docs-help-link') as HTMLAnchorElement
     expect(link.dataset.topic).toBe('fakeOneAccount')
+  })
+
+  it('create → delete → re-add opens an empty form, never the old account', async () => {
+    let credentials: Record<string, unknown> = {
+      configured: true, team_name: 'acme', subaccount: 'ops',
+    }
+    vi.mocked(api.get).mockImplementation(async () => credentials)
+    vi.mocked(api.post).mockImplementation(async (_url, data) => {
+      const values = data as Record<string, string>
+      credentials = { configured: true, ...values }
+      return { ok: true }
+    })
+
+    const created = renderSection()
+    expect(await screen.findByText('acme / ops')).toBeTruthy()
+    fireEvent.click(screen.getByTitle(enTranslation.settings.addAccount))
+    fireEvent.change(screen.getByPlaceholderText(enTranslation.settings.yuehulianTeamName), {
+      target: { value: 'fresh-team' },
+    })
+    fireEvent.change(screen.getByPlaceholderText(enTranslation.settings.yuehulianSubaccount), {
+      target: { value: 'fresh-user' },
+    })
+    fireEvent.change(screen.getByPlaceholderText(enTranslation.settings.yuehulianPassword), {
+      target: { value: 'fresh-password' },
+    })
+    fireEvent.click(screen.getByText(enTranslation.common.save))
+    expect(await screen.findByText('fresh-team / fresh-user')).toBeTruthy()
+    created.unmount()
+
+    // The account was used to create a store. While that store exists,
+    // [+] cannot open the form.
+    const allStores = [{ browser_backend: 'fakevendor' }] as unknown as Store[]
+    const bound = renderSection({ allStores })
+    const disabledAdd = screen.getByTitle(enTranslation.settings.addAccount) as HTMLButtonElement
+    expect(disabledAdd.disabled).toBe(true)
+    bound.unmount()
+
+    // Deleting that last store cleared every credential row server-side.
+    credentials = { configured: false, team_name: '', subaccount: '' }
+    renderSection()
+    expect(await screen.findByText('No account configured')).toBeTruthy()
+    fireEvent.click(screen.getByTitle(enTranslation.settings.addAccount))
+    const fields = [
+      enTranslation.settings.yuehulianTeamName,
+      enTranslation.settings.yuehulianSubaccount,
+      enTranslation.settings.yuehulianPassword,
+    ].map(label => screen.getByPlaceholderText(label) as HTMLInputElement)
+    expect(fields.map(field => field.value)).toEqual(['', '', ''])
+    expect(document.body.textContent).not.toContain('acme / ops')
+    expect(document.body.textContent).not.toContain('fresh-team / fresh-user')
+  })
+
+  it('a resident section clears stale state on the last-store transition', async () => {
+    let credentials: Record<string, unknown> = {
+      configured: true, team_name: 'acme', subaccount: 'ops',
+    }
+    vi.mocked(api.get).mockImplementation(async () => credentials)
+    const setSelectedRef = vi.fn()
+    const fetchStores = vi.fn()
+    const resetStores = vi.fn()
+    const translation = i18nFor('en')
+    const profile = { name: 'old-profile', platform: '', remote_env: '', ref: 'old-ref' }
+    const ui = (allStores: Store[]) => (
+      <I18nextProvider i18n={translation}>
+        <VendorSection
+          vendor={fakeVendor}
+          selectedRef="old-ref" setSelectedRef={setSelectedRef}
+          stores={[profile]} error="" fetching={false}
+          fetchStores={fetchStores} resetStores={resetStores}
+          allStores={allStores}
+        />
+      </I18nextProvider>
+    )
+    const bound = [{ browser_backend: 'fakevendor' }] as unknown as Store[]
+    const view = render(ui(bound))
+    expect(await screen.findByText('acme / ops')).toBeTruthy()
+    expect(fetchStores).toHaveBeenCalledTimes(1)
+
+    // StoresPanel deletes the last store while this exact component stays
+    // mounted. The parent has not yet rerendered its profile props.
+    credentials = { configured: false, team_name: '', subaccount: '' }
+    view.rerender(ui([]))
+    expect(await screen.findByText('No account configured')).toBeTruthy()
+    expect(setSelectedRef).toHaveBeenLastCalledWith('')
+    expect(resetStores).toHaveBeenCalled()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2))
+    // The unconfigured account must not trigger another profile fetch or a
+    // credential-refresh effect loop.
+    expect(fetchStores).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByTitle(enTranslation.settings.addAccount))
+    const fields = [
+      enTranslation.settings.yuehulianTeamName,
+      enTranslation.settings.yuehulianSubaccount,
+      enTranslation.settings.yuehulianPassword,
+    ].map(label => screen.getByPlaceholderText(label) as HTMLInputElement)
+    expect(fields.map(field => field.value)).toEqual(['', '', ''])
+  })
+
+  it('switching vendors resets form values and secret visibility without remounting', async () => {
+    const setSelectedRef = vi.fn()
+    const resetStores = vi.fn()
+    const translation = i18nFor('en')
+    const otherVendor = { ...fakeVendor, key: 'othervendor' }
+    const ui = (vendor: BrowserVendor) => (
+      <I18nextProvider i18n={translation}>
+        <VendorSection
+          vendor={vendor}
+          selectedRef="old-ref" setSelectedRef={setSelectedRef}
+          stores={[]} error="" fetching={false}
+          fetchStores={vi.fn()} resetStores={resetStores}
+          allStores={[]}
+        />
+      </I18nextProvider>
+    )
+    const view = render(ui(fakeVendor))
+    expect(await screen.findByText('acme / ops')).toBeTruthy()
+    fireEvent.click(screen.getByTitle(enTranslation.settings.addAccount))
+    const team = screen.getByPlaceholderText(enTranslation.settings.yuehulianTeamName)
+    const password = screen.getByPlaceholderText(enTranslation.settings.yuehulianPassword) as HTMLInputElement
+    fireEvent.change(team, { target: { value: 'shared-user' } })
+    fireEvent.change(password, { target: { value: 'shared-password' } })
+    fireEvent.click(password.parentElement?.querySelector('button') as HTMLButtonElement)
+    expect(password.type).toBe('text')
+
+    view.rerender(ui(otherVendor))
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/browser-vendors/othervendor/credentials'))
+    expect(setSelectedRef).toHaveBeenLastCalledWith('')
+    expect(resetStores).toHaveBeenCalled()
+    expect(screen.queryByPlaceholderText(enTranslation.settings.yuehulianTeamName)).toBeNull()
+
+    fireEvent.click(screen.getByTitle(enTranslation.settings.addAccount))
+    const freshTeam = screen.getByPlaceholderText(enTranslation.settings.yuehulianTeamName) as HTMLInputElement
+    const freshPassword = screen.getByPlaceholderText(enTranslation.settings.yuehulianPassword) as HTMLInputElement
+    expect(freshTeam.value).toBe('')
+    expect(freshPassword.value).toBe('')
+    expect(freshPassword.type).toBe('password')
   })
 
   it('a credential-less single vendor has no account row and fetches on mount', async () => {

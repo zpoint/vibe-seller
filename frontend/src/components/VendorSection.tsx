@@ -22,7 +22,7 @@
  * listed by name shows the store name first, a row with an opaque ref
  * shows display · platform · ref — decided only from the row's fields.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
 import { vendorStoreOptionLabel, vendorStoreOptionLabelParts } from '../lib/vendorStoreLabel'
@@ -51,6 +51,7 @@ export function VendorSection(props: {
   selectedRef: string; setSelectedRef: (v: string) => void
   stores: VendorStoreRef[]; error: string; errorMessage?: string
   fetching: boolean; fetchStores: () => void
+  resetStores?: () => void
   allStores: Store[]
 }) {
   const { t, i18n } = useTranslation()
@@ -62,6 +63,9 @@ export function VendorSection(props: {
   const [showSecret, setShowSecret] = useState(false)
   const [busy, setBusy] = useState(false)
   const [formErr, setFormErr] = useState('')
+  const [profilesStale, setProfilesStale] = useState(false)
+  const statusRequest = useRef(0)
+  const formGeneration = useRef(0)
 
   const zh = (i18n.language || 'en').startsWith('zh')
   const displayName = zh ? v.display_name_zh : v.display_name_en
@@ -99,33 +103,86 @@ export function VendorSection(props: {
   const hasCredentialFields = v.credential_fields.length > 0
   const needsAccount = v.account_cardinality === 'single' && hasCredentialFields
 
+  const hasVendorStores = p.allStores.some(s => s.browser_backend === v.key)
+  const previousVendorKey = useRef(v.key)
+  const previousBinding = useRef({ key: v.key, bound: hasVendorStores })
+
+  const resetAccountView = (clearSelection: boolean) => {
+    // Invalidate reads/saves started for the old account before clearing
+    // anything. Their continuations must not refill this vendor's state.
+    statusRequest.current += 1
+    formGeneration.current += 1
+    setStatus(null)
+    setShowForm(false)
+    setValues({})
+    setShowSecret(false)
+    setBusy(false)
+    setFormErr('')
+    setProfilesStale(true)
+    if (clearSelection) {
+      p.setSelectedRef('')
+      p.resetStores?.()
+    }
+  }
+
   const refresh = async (thenFetch = false) => {
+    const request = ++statusRequest.current
     try {
       const s = (await api.get(
         `/api/browser-vendors/${v.key}/credentials`,
       )) as VendorLoginStatus
+      if (request !== statusRequest.current) return
       setStatus(s)
-      if (thenFetch && s.configured) p.fetchStores()
-    } catch { /* unsupported / not configured — leave null */ }
+      if (thenFetch && s.configured) {
+        setProfilesStale(false)
+        p.fetchStores()
+      }
+    } catch { /* unsupported / not configured — leave the reset state */ }
   }
-  // Auto-load stores when a stored login is configured — like ziniao
-  // fetching profiles on account-select; no separate "Load" button. A
-  // vendor that stores nothing fetches on mount directly.
+
+  // Auto-load on mount/vendor change. A vendor change is also a full
+  // account-form reset: this component is intentionally not keyed in the
+  // resident Sidebar, so no value or revealed secret may cross vendors.
   useEffect(() => {
+    const vendorChanged = previousVendorKey.current !== v.key
+    previousVendorKey.current = v.key
+    if (vendorChanged) resetAccountView(true)
     if (hasCredentialFields) void refresh(true)
-    else void p.fetchStores()
-    // Mount/key-change only: refresh and fetchStores are recreated
-    // every render; depending on them would refetch endlessly.
+    else {
+      setProfilesStale(false)
+      void p.fetchStores()
+    }
+    // Mount/key-change only: these functions are recreated every render;
+    // depending on them would refetch endlessly.
+    return () => {
+      statusRequest.current += 1
+      formGeneration.current += 1
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v.key])
 
-  // One account per machine, like ziniao's picker but with only [+]:
-  // adding OVERWRITES the single account. If any of this vendor's stores
-  // is bound it belongs to the current account, so [+] is blocked —
-  // surfaced the moment it's clicked — until the user deletes those
-  // stores. There is no separate edit/delete; re-adding via [+] is how
-  // you change the account.
-  const hasVendorStores = p.allStores.some(s => s.browser_backend === v.key)
+  // StoresPanel stays mounted beside this form. Its last-store deletion
+  // clears the account server-side, so invalidate the resident account,
+  // profiles and selection before re-reading credentials. A vendor change
+  // with a different bound-state is NOT a deletion transition.
+  useEffect(() => {
+    const previous = previousBinding.current
+    previousBinding.current = { key: v.key, bound: hasVendorStores }
+    if (
+      previous.key === v.key &&
+      previous.bound &&
+      !hasVendorStores &&
+      needsAccount
+    ) {
+      resetAccountView(true)
+      void refresh(true)
+    }
+    // Transition-only: refresh/reset identities must not retrigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v.key, hasVendorStores, needsAccount])
+
+  // One account per machine: bound stores disable [+]. Every newly opened
+  // form starts empty, never from the old account's displayed fields.
   const openAdd = () => {
     if (hasVendorStores) {
       setShowForm(false); setFormErr(vt('OneAccount')); return
@@ -139,24 +196,34 @@ export function VendorSection(props: {
     )
     if (missing.length > 0) { setFormErr(vt('LoginAllRequired')); return }
     setBusy(true); setFormErr('')
+    const generation = formGeneration.current
     try {
       await api.post(`/api/browser-vendors/${v.key}/credentials`, values)
+      if (generation !== formGeneration.current) return
       setShowForm(false)
       setValues(prev => ({
         ...prev,
         ...Object.fromEntries(v.credential_fields.filter(f => f.secret).map(f => [f.key, ''])),
       }))
+      setProfilesStale(true)
+      p.setSelectedRef('')
+      p.resetStores?.()
       await refresh(true)
     } catch (e) {
+      if (generation !== formGeneration.current) return
       const msg = e instanceof Error ? e.message : String(e)
       let code = ''
       try { const d = JSON.parse(msg); if (d?.status) code = d.status } catch { /* non-JSON */ }
       setFormErr(code === 'one_account' ? vt('OneAccount') : msg)
-    } finally { setBusy(false) }
+    } finally {
+      if (generation === formGeneration.current) setBusy(false)
+    }
   }
 
-  // The docs section that says how to fix what the picker shows.
-  const oneAccount = formErr === vt('OneAccount')
+  // A bound store disables [+] rather than letting the user open a form
+  // whose save must fail. Keep the reason and its docs link visible.
+  const accountError = formErr || (hasVendorStores ? vt('OneAccount') : '')
+  const oneAccount = accountError === vt('OneAccount')
   // A status resolves: the vendor's override key, else the shared
   // per-code key, else the backend's own message, else the load-failed
   // default. (no_stores is a UI state, not an error code; connect_error
@@ -193,7 +260,7 @@ export function VendorSection(props: {
         <div className="min-w-0 flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs bg-gray-50 truncate">
           {accountLabel}
         </div>
-        <button type="button" onClick={() => (showForm ? setShowForm(false) : openAdd())} title={t('settings.addAccount')} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm rounded border border-gray-300 text-indigo-600 hover:bg-indigo-50">+</button>
+        <button type="button" onClick={() => (showForm ? setShowForm(false) : openAdd())} disabled={hasVendorStores} title={t('settings.addAccount')} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm rounded border border-gray-300 text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed">+</button>
       </div>
       )}
       {needsAccount && showForm && (
@@ -217,9 +284,9 @@ export function VendorSection(props: {
           </div>
         </div>
       )}
-      {formErr && (
+      {accountError && (
         <p className="text-[11px] text-red-600">
-          {formErr}
+          {accountError}
           {oneAccount && v.docs.one_account && <> <DocsHelpLink urls={v.docs.one_account} /></>}
         </p>
       )}
@@ -236,7 +303,7 @@ export function VendorSection(props: {
           <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
           <p className="text-sm font-medium text-indigo-700">{vt('Loading')}</p>
         </div>
-      ) : p.stores.length > 0 ? (
+      ) : !profilesStale && p.stores.length > 0 ? (
         <>
         <select
           value={p.selectedRef}

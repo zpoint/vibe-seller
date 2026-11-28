@@ -119,9 +119,9 @@ and the reveal endpoint below.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/stores` | List all stores |
-| POST | `/api/stores` | Create a store. `platforms` / `countries` / `platform_countries` are optional and empty unless given (no default platform or country); `platform_countries` is the stored source and the two flat lists are derived from it (`app/store_platforms.py`) |
+| POST | `/api/stores` | Create a store. `platforms` / `countries` / `platform_countries` are optional and empty unless given (no default platform or country); `platform_countries` is the stored source and the two flat lists are derived from it (`app/store_platforms.py`). For a single-account vendor with stored credentials, creation revalidates the credential snapshot under the per-vendor account lock and returns `409 {"status":"account_changed","message":"..."}` without creating a store if the account changed in flight; select the profile again. |
 | GET | `/api/stores/{store_id}` | Get store by ID |
-| DELETE | `/api/stores/{store_id}` | Delete a store |
+| DELETE | `/api/stores/{store_id}` | Delete a store. Deleting a single-account vendor's LAST bound store also deletes its registry-declared stored credentials in the same transaction; unrelated client settings and multi-account vendor accounts are preserved. |
 | POST | `/api/stores/{store_id}/browser/start` | Start (or reuse) the store's browser; the store wrapper calls it lazily. A Ziniao store's client is brought up first — killed and relaunched in WebDriver mode when it is not answering, no flag (old wrappers' `?force=1` is ignored). `503` while Ziniao is still starting or the launch lock is busy (retry), `409` when another Ziniao account is in use. |
 
 ## `tasks.py` — Task Management
@@ -749,8 +749,8 @@ plugin can add one with zero core edits):
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/browser-vendors` | Every registered vendor's UI metadata (display names, kind, platforms, credential schema, docs links). No secrets. |
-| GET | `/api/browser-vendors/{key}/credentials` | Whether the vendor's machine login is configured + the non-secret fields (never the secret). |
-| POST | `/api/browser-vendors/{key}/credentials` | Save the machine login (secrets Fernet-encrypted). A one-account-per-machine vendor refuses with `400 {"status":"one_account"}` while any of its stores is bound. |
+| GET | `/api/browser-vendors/{key}/credentials` | Whether the vendor's machine login is configured + the non-secret fields for its account row (never the secret). The add-account form starts empty rather than prefilling these values. |
+| POST | `/api/browser-vendors/{key}/credentials` | Save the machine login (secrets Fernet-encrypted), serialized with store create/delete by the per-vendor account lock. A one-account-per-machine vendor refuses with `400 {"status":"one_account"}` while any of its stores is bound. |
 | GET | `/api/browser-vendors/{key}/stores` | Profiles the vendor's logged-in client can see. Structured statuses: `400 unsupported_platform`, `502 client_not_running` / `login_required`. |
 
 The old `/api/yuehulian/*` routes remain as thin aliases over the same

@@ -91,6 +91,19 @@ module (+ translations + one docs page), zero shared-code edits" true:
   `test_vendor_ui_strings.py` pins that every key resolves) and `docs`
   (per-topic help links; `test_docs_links.py` checks the URLs).
 
+For a `single` vendor WITH `credential_fields`,
+`vendor_account_lock(vendor.key)` is a per-vendor `LoopLock` shared by
+store creation, store deletion, and both the generic and legacy credential
+save routes. Creation snapshots the opaque stored (still encrypted) values
+before waiting for that lock and revalidates them after acquiring it; if
+the account changed in flight it creates nothing and returns
+`409 {status: "account_changed", message}` so the user selects the profile
+again. Deleting the vendor's LAST bound store deletes only its declared
+credential fields in the same database transaction as the store delete;
+unrelated settings such as the client path survive. `multi` / `none`
+vendors and `single` vendors without stored credential fields do not enter
+this account lifecycle.
+
 The store picker binds a profile by `ref || name` (the stable id the
 vendor's `StoreRef.ref` reports; vendors without one use the name) and
 greys out an env that exists but cannot be opened

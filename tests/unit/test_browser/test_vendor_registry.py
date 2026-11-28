@@ -8,6 +8,7 @@ and the opposite must hold.
 """
 
 import logging
+from unittest import mock
 
 import pytest
 
@@ -32,8 +33,10 @@ from app.browser.vendors import (
 )
 from app.browser.win_app_locator import WinAppSpec
 from app.models.app_settings import AppSettings
+from app.models.store import Store
 import app.plugins as plugins_mod
 from app.plugins import ExtensionContext, Plugin, reset_for_tests
+import app.routers.stores as stores_route
 
 pytestmark = pytest.mark.unit
 
@@ -305,6 +308,75 @@ async def test_twist_missing_required_field_is_not_configured(
     spec = _spec()
     status = await vendor_creds.credentials_status(async_db_session, spec)
     assert status['configured'] is False
+
+
+async def test_last_store_delete_rolls_back_store_and_credentials_together(
+    fake_vendor, async_db_session, monkeypatch
+):
+    """Default (production-style) SQLite isolation: if credential cleanup
+    fails after the store flush, rollback restores BOTH writes.
+
+    Workflow's AUTOCOMMIT engine cannot pin this transaction boundary; the
+    shared unit fixture deliberately uses SQLAlchemy's default isolation.
+    """
+    spec = fake_vendor(
+        _spec(
+            fields=(
+                VendorCredentialField('acct', 'vendors.fakevendor.acct'),
+                VendorCredentialField(
+                    'password', 'vendors.fakevendor.password', secret=True
+                ),
+            )
+        )
+    )
+    await vendor_creds.save_credentials(
+        async_db_session, spec, {'acct': 'acme', 'password': 'pw'}
+    )
+    store = Store(name='atomic-delete', browser_backend='fakevendor')
+    async_db_session.add(store)
+    await async_db_session.commit()
+    store_id = store.id
+    encrypted_before = (
+        await async_db_session.get(AppSettings, 'fakevendor_password')
+    ).value
+    monkeypatch.setattr(
+        stores_route.browser_manager,
+        'stop_session',
+        mock.AsyncMock(return_value=None),
+    )
+
+    real_clear = vendor_creds.clear_credentials
+
+    async def fail_clear(db, cleared_spec):
+        # Exercise deletion of BOTH rows before the failure; merely raising
+        # before cleanup would not test their restoration.
+        await real_clear(db, cleared_spec)
+        raise RuntimeError('injected credential cleanup failure')
+
+    monkeypatch.setattr(
+        stores_route.vendor_creds, 'clear_credentials', fail_clear
+    )
+    with pytest.raises(RuntimeError, match='injected credential cleanup'):
+        await stores_route.delete_store(
+            store_id,
+            db=async_db_session,
+            _user=mock.Mock(),
+        )
+    # FastAPI closes the request session on the exception, which rolls back
+    # its open transaction. Do the same explicitly for this direct call.
+    await async_db_session.rollback()
+    assert await async_db_session.get(Store, store_id) is not None
+    status = await vendor_creds.credentials_status(async_db_session, spec)
+    assert status['configured'] is True
+    assert status['acct'] == 'acme'
+    acct_row = await async_db_session.get(AppSettings, 'fakevendor_acct')
+    password_row = await async_db_session.get(
+        AppSettings, 'fakevendor_password'
+    )
+    assert acct_row is not None
+    assert acct_row.value == 'acme'
+    assert password_row is not None
+    assert password_row.value == encrypted_before
 
 
 # ── a store binds by the ref the picker offered ─────────────────────

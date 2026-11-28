@@ -13,11 +13,23 @@ The browser manager and the generic enumerate route both inject through
 :func:`inject_vendor_config` so the keys + crypto live in one place.
 """
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.browser.vendors import BrowserVendorSpec, VendorCredentialField
+from app.loop_lock import LoopLock
 from app.models.app_settings import AppSettings
 from app.utils.crypto import decrypt_password, encrypt_password
+
+# One lock per vendor, not one global account lock: unrelated vendors can
+# create/delete stores and replace logins independently. LoopLock keeps the
+# per-vendor lock usable by each test's event loop as well as the server loop.
+_ACCOUNT_LOCKS: dict[str, LoopLock] = {}
+
+
+def vendor_account_lock(key: str) -> LoopLock:
+    """The shared create/delete/credential-save lock for one vendor."""
+    return _ACCOUNT_LOCKS.setdefault(key, LoopLock())
 
 
 def _setting_key(spec: BrowserVendorSpec, field: VendorCredentialField) -> str:
@@ -37,6 +49,34 @@ async def _set(db: AsyncSession, key: str, value: str) -> None:
         db.add(AppSettings(key=key, value=value))
 
 
+async def credential_snapshot(
+    db: AsyncSession, spec: BrowserVendorSpec
+) -> dict[str, str]:
+    """Opaque stored credential values for create-time revalidation.
+
+    Secrets stay encrypted and never leave this internal comparison. The
+    client install path is intentionally not part of the account identity.
+    """
+    out: dict[str, str] = {}
+    for f in spec.credential_fields:
+        value = await _get(db, _setting_key(spec, f))
+        if value:
+            out[f.key] = value
+    return out
+
+
+async def clear_credentials(db: AsyncSession, spec: BrowserVendorSpec) -> None:
+    """Delete every stored credential field without committing.
+
+    The store-deletion route calls this in the same transaction as the
+    last store's delete. Other settings (for example a client install
+    path) are not account credentials and deliberately remain.
+    """
+    keys = [_setting_key(spec, f) for f in spec.credential_fields]
+    if keys:
+        await db.execute(delete(AppSettings).where(AppSettings.key.in_(keys)))
+
+
 async def save_credentials(
     db: AsyncSession, spec: BrowserVendorSpec, values: dict[str, str]
 ) -> None:
@@ -51,8 +91,8 @@ async def save_credentials(
 async def credentials_status(db: AsyncSession, spec: BrowserVendorSpec) -> dict:
     """Whether the machine login is configured + the non-secret fields.
 
-    Secret fields are never included — the Settings form can show/prefill
-    only what this returns.
+    Secret fields are never included. The account row can show these
+    non-secret values; the add-account form always starts empty.
     """
     out: dict = {'configured': True}
     for f in spec.credential_fields:
