@@ -210,7 +210,7 @@ nav:
           - "Yuehulian: Setup Guide": yuehulian.md
           - "AdsPower: Setup Guide": adspower.md
           - "Wenmai: Setup Guide": wenmai.md
-          - "BitBrowser: Setup Guide": bitbrowser.md
+          - "比特浏览器：配置指南": bitbrowser.md
       - Integrations:
           - Overview: integrations.md
           - Amazon Ads API: ads-api.md
