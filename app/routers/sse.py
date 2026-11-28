@@ -1,15 +1,17 @@
 import asyncio
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 
+from app.auth import get_current_user
 from app.events.bus import event_bus
+from app.models.user import User
 
 router = APIRouter(prefix='/api/sse', tags=['sse'])
 
 
 @router.get('')
-async def sse_events():
+async def sse_events(_user: User = Depends(get_current_user)):
     queue = event_bus.subscribe()
 
     async def stream():

@@ -113,5 +113,5 @@ export async function bootApp(opts: BootOptions = {}) {
       for (const es of sources) es.onmessage?.({ data: JSON.stringify(data) } as MessageEvent)
     })
   }
-  return { ...view, task, fetchMock, emit, router }
+  return { ...view, task, fetchMock, emit, router, sources }
 }

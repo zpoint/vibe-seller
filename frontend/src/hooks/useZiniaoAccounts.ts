@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { api } from '../api'
 import { fetchBrowserProfiles as fetchBrowserProfilesHandler } from '../handlers/fetchBrowserProfiles'
 import type { ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
@@ -7,7 +7,8 @@ const EMPTY_ACCOUNT = { name: '', company: '', username: '', password: '' }
 
 /**
  * Ziniao account + browser-profile state for the sidebar's store and
- * account forms. Moved out of App.tsx unchanged (line limit).
+ * account forms. Saved accounts stay installation-wide; reset only drops
+ * this browser session's sensitive UI state and invalidates its responses.
  */
 export function useZiniaoAccounts() {
   const [ziniaoAccounts, setZiniaoAccounts] = useState<ZiniaoAccount[]>([])
@@ -21,29 +22,63 @@ export function useZiniaoAccounts() {
   const [showAccountPassword, setShowAccountPassword] = useState(false)
   const [editingAccountId, setEditingAccountId] = useState('')
   const [newAccount, setNewAccount] = useState(EMPTY_ACCOUNT)
+  const generation = useRef(0)
 
-  const loadZiniaoAccounts = async () => { try { setZiniaoAccounts(await api.get('/api/ziniao-accounts')) } catch { /* ignore */ } }
+  const loadZiniaoAccounts = async () => {
+    const request = generation.current
+    try {
+      const accounts = await api.get('/api/ziniao-accounts')
+      if (request === generation.current) setZiniaoAccounts(accounts)
+    } catch { /* ignore */ }
+  }
   const createZiniaoAccount = async () => {
     if (!newAccount.company.trim() || !newAccount.username.trim() || !newAccount.password.trim()) return
+    const request = generation.current
     await api.post('/api/ziniao-accounts', { ...newAccount, name: newAccount.name.trim() || newAccount.company.trim() })
+    if (request !== generation.current) return
     setNewAccount(EMPTY_ACCOUNT); setShowAddAccount(false); await loadZiniaoAccounts()
   }
   const updateZiniaoAccount = async () => {
     if (!editingAccountId || !newAccount.company.trim() || !newAccount.username.trim()) return
+    const request = generation.current
+    const accountId = editingAccountId
     const body: Record<string, string> = { company: newAccount.company, username: newAccount.username, name: newAccount.name.trim() || newAccount.company.trim() }
     if (newAccount.password.trim()) body.password = newAccount.password
-    await api.put(`/api/ziniao-accounts/${editingAccountId}`, body)
+    await api.put(`/api/ziniao-accounts/${accountId}`, body)
+    if (request !== generation.current) return
     setNewAccount(EMPTY_ACCOUNT); setEditingAccountId(''); setShowAddAccount(false); setBrowserFetchError('')
     await loadZiniaoAccounts()
-    if (selectedZiniaoAccountId === editingAccountId) fetchBrowserProfiles(editingAccountId)
+    if (selectedZiniaoAccountId === accountId) fetchBrowserProfiles(accountId)
   }
   const deleteZiniaoAccount = async (accountId: string) => {
+    const request = generation.current
     await api.del(`/api/ziniao-accounts/${accountId}`)
+    if (request !== generation.current) return
     if (selectedZiniaoAccountId === accountId) { setSelectedZiniaoAccountId(''); setZiniaoBrowsers([]); setBrowserFetchError('') }
     await loadZiniaoAccounts()
   }
   const browserProfilesDeps = { api, setFetchingBrowsers, setZiniaoBrowsers, setSelectedBrowserOauth, setBrowserFetchError, setZiniaoStartingSecs }
-  const fetchBrowserProfiles = (accountId: string) => fetchBrowserProfilesHandler(accountId, browserProfilesDeps)
+  const fetchBrowserProfiles = (accountId: string) => {
+    const request = generation.current
+    return fetchBrowserProfilesHandler(accountId, {
+      ...browserProfilesDeps,
+      isCurrent: () => request === generation.current,
+    })
+  }
+  const reset = () => {
+    generation.current += 1
+    setZiniaoAccounts([])
+    setSelectedZiniaoAccountId('')
+    setZiniaoBrowsers([])
+    setSelectedBrowserOauth('')
+    setFetchingBrowsers(false)
+    setBrowserFetchError('')
+    setZiniaoStartingSecs(0)
+    setShowAddAccount(false)
+    setShowAccountPassword(false)
+    setEditingAccountId('')
+    setNewAccount(EMPTY_ACCOUNT)
+  }
 
   return {
     ziniaoAccounts, selectedZiniaoAccountId, setSelectedZiniaoAccountId,
@@ -52,6 +87,6 @@ export function useZiniaoAccounts() {
     showAddAccount, setShowAddAccount, showAccountPassword, setShowAccountPassword,
     editingAccountId, setEditingAccountId, newAccount, setNewAccount,
     loadZiniaoAccounts, createZiniaoAccount, updateZiniaoAccount, deleteZiniaoAccount,
-    fetchBrowserProfiles,
+    fetchBrowserProfiles, reset,
   }
 }

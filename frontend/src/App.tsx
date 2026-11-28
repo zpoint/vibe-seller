@@ -30,7 +30,7 @@ import { resolveLanding } from './lib/landing'
 import { registerUserHash, unregisterUserHash } from './lib/telemetry'
 import { useTaskOpener } from './hooks/useTaskOpener'
 import { useTaskActions } from './hooks/useTaskActions'
-import { api, AUTH_EXPIRED_EVENT, uploadTaskAttachment } from './api'
+import { api, advanceAuthGeneration, AUTH_EXPIRED_EVENT, uploadTaskAttachment } from './api'
 import { createStore as createStoreHandler } from './handlers/createStore'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
@@ -45,6 +45,8 @@ export default function App() {
 
   // Auth state
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
+  const currentUserRef = useRef<AuthUser | null>(null)
+  currentUserRef.current = currentUser
   const [authChecked, setAuthChecked] = useState(false)
   const { serverPlatform, serverVersion, installId } = useServerInfo()
   const [loginIdentifier, setLoginIdentifier] = useState('')
@@ -222,20 +224,72 @@ export default function App() {
   const setTaskSubTab = (tab: 'onetime' | 'scheduled') => navigate(listTarget(routeStoreId, tab === 'scheduled'))
   const [authRequired, setAuthRequired] = useState(false)
 
+  // One boundary for explicit logout, expiry, and a real user-id change.
+  // Nothing here runs for navigation, same-user object updates, or forms.
+  const resetSessionState = () => {
+    advanceAuthGeneration()
+    taskOpener.retire()
+    ziniao.reset()
+    vendorBrowser.reset()
+    inFlightTasksKeyRef.current = null
+    inFlightScheduleIdRef.current = null
+    sendingRefs.current.clear()
+    createStoreInFlight.current = false
+    chatDraft.reset()
+    setLoginIdentifier(''); setLoginPassword(''); setLoginError('')
+    setNavOpen(false)
+    setStores([]); setSelectedStore(null); setShowAllTasks(true)
+    setTasks([]); setTasksLoading(false); setSelectedTask(null)
+    setSteps([]); setScreenshots({}); setLogs([])
+    setNewStoreName(''); setNewStoreBackend('chrome'); setShowCreateStore(false)
+    setCreatingStore(false); setCreateStoreError('')
+    setShowCreateTask(false); setAgentMessages([]); setTodoItems([])
+    setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({})
+    setChatAttachments([]); setConversationItems([]); setDebugMode(false)
+    setProfiles([]); setSelectedProfileId('default'); setShowProfileModal(false); setEditingProfile(undefined)
+    setWsAssistantActive(false); setWsAssistantMessages([]); setWsAssistantRunning(false)
+    setWsStructured(null); setWsSelectedFile(null); setWsFileContent(''); setWsEditorContent(''); setWsEditorDirty(false)
+    setWsSaving(false); setWsExpandedStores(new Set()); setWsExpandedSkills(new Set())
+    setWsNewFileName(''); setWsNewFileSection(null); setWsSyncMeta(null); setWsSyncing(false); setWsSkillsSyncing(false)
+    setWsFileHistory([]); setWsShowHistory(false); setWsPreviewCommit(null); setWsPreviewContent('')
+    setShowProxy(false); setNewStoreProxyServer(''); setNewStoreProxyBypass('')
+    setSchedules([]); setSelectedSchedule(null); setScheduleTasks([]); setShowCreateSchedule(false)
+    setEmailAccounts([]); setAllUsers([]); setShowAddUser(false)
+    setNewUserForm({ username: '', email: '', password: '', role: 'member' })
+  }
+  const endSession = () => {
+    resetSessionState()
+    unregisterUserHash()
+    currentUserRef.current = null
+    setCurrentUser(null)
+    navigate({ to: '/', replace: true })
+  }
+  const applyAuthenticatedUser = (u: AuthUser) => {
+    const previous = currentUserRef.current
+    if (previous?.id !== u.id) {
+      if (previous) resetSessionState()
+      advanceAuthGeneration()
+    }
+    currentUserRef.current = u
+    setCurrentUser(u)
+    void registerUserHash(u.id)
+    if (u.default_profile_id) setSelectedProfileId(u.default_profile_id)
+    setDebugMode(u.debug_mode ?? false)
+  }
+
   // Any 401 from the shared API client fires this — we drop the
   // session client-side so the LoginPage renders immediately. One
   // listener covers every page/button instead of each caller doing
   // its own redirect.
   useEffect(() => {
     const onExpired = () => {
-      setCurrentUser(null)
-      // Land on '/' (not /tasks): re-login resolves the landing like a fresh open.
-      navigate({ to: '/', replace: true })
-      setSelectedTask(null)
-      setSelectedSchedule(null)
+      // Anonymous registry probes can 401; only a real live session expires.
+      if (currentUserRef.current) endSession()
     }
     window.addEventListener(AUTH_EXPIRED_EVENT, onExpired)
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired)
+  // The listener owns the session boundary; identity lives in currentUserRef.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Auth check on mount — first check if auth is required
@@ -246,13 +300,15 @@ export default function App() {
         setAuthRequired(auth_required)
         return fetch('/api/auth/me', { credentials: 'include' })
           .then(r => { if (!r.ok) throw new Error(); return r.json() })
-          .then(u => { setCurrentUser(u); setAuthChecked(true); void registerUserHash(u.id); if (u.default_profile_id) setSelectedProfileId(u.default_profile_id); setDebugMode(u.debug_mode ?? false) })
+          .then(u => { applyAuthenticatedUser(u); setAuthChecked(true) })
           .catch(() => {
             if (auth_required) { setCurrentUser(null); setAuthChecked(true) }
             else { setCurrentUser(null); setAuthChecked(true) }
           })
       })
       .catch(() => { setCurrentUser(null); setAuthChecked(true) })
+  // Initial authentication only; later logins call applyAuthenticatedUser.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const updateFlow = useUpdateFlow(currentUser)
@@ -534,11 +590,30 @@ export default function App() {
   const toggleSkillExpanded = (slug: string) => { setWsExpandedSkills(prev => { const next = new Set(prev); if (next.has(slug)) next.delete(slug); else next.add(slug); return next }) }
 
   // ─── Auth helpers ──────────────────────────────────
-  const handleLogin = async () => { setLoginError(''); try { const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: loginIdentifier, password: loginPassword }), credentials: 'include' }); if (!r.ok) { setLoginError(t('auth.invalidCredentials')); return }; const u = await r.json(); setCurrentUser(u); void registerUserHash(u.id); if (u.default_profile_id) setSelectedProfileId(u.default_profile_id); setDebugMode(u.debug_mode ?? false); setLoginIdentifier(''); setLoginPassword('') } catch { setLoginError(t('auth.invalidCredentials')) } }
-  // Reset session-scoped selection so the next login starts clean.
-  // Logout is not a chosen destination: return to '/' (like AUTH_EXPIRED)
-  // so the next login resolves the landing, not All Stores.
-  const handleLogout = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); unregisterUserHash(); setCurrentUser(null); setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSelectedSchedule(null); navigate({ to: '/', replace: true }) }
+  const loginInFlight = useRef(false)
+  const handleLogin = async () => {
+    // Synchronous guard closes Enter + click before React can rerender.
+    if (loginInFlight.current) return
+    loginInFlight.current = true
+    setLoginError('')
+    try {
+      const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: loginIdentifier, password: loginPassword }), credentials: 'include' })
+      if (!r.ok) { setLoginError(t('auth.invalidCredentials')); return }
+      const u = await r.json()
+      applyAuthenticatedUser(u)
+      setLoginIdentifier(''); setLoginPassword('')
+    } catch {
+      setLoginError(t('auth.invalidCredentials'))
+    } finally {
+      loginInFlight.current = false
+    }
+  }
+  // Clear locally even if the server is unreachable; B cannot start login
+  // until the old cookie-clearing response has settled.
+  const handleLogout = async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }) } catch { /* local logout still proceeds */ }
+    endSession()
+  }
 
   // ─── Settings helpers ──────────────────────────────
   const createUser = async () => { if (!newUserForm.username.trim() || !newUserForm.password.trim()) return; try { await api.post('/api/users', { ...newUserForm, email: newUserForm.email.trim() || undefined }); setNewUserForm({ username: '', email: '', password: '', role: 'member' }); setShowAddUser(false); await loadUsers() } catch { /* ignore */ } }
@@ -551,6 +626,7 @@ export default function App() {
 
   // SSE
   useSSE({
+    enabled: authChecked && !!currentUser,
     selectedTaskId: selectedTask?.id, appView,
     selectedStoreId: selectedStore?.id ?? null,
     showAllTasks: showAllScope,

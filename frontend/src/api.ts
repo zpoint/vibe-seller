@@ -12,9 +12,19 @@ import { FrontendEvent } from './lib/telemetryEvents'
 
 export const AUTH_EXPIRED_EVENT = 'auth:expired'
 
-const handleResponse = async (r: Response) => {
+// Monotonic session boundary: a response may expire only the generation in
+// which its request started. Raw login/logout endpoints advance this through
+// App so a delayed 401 from A can never sign out a newly authenticated B.
+let authGeneration = 0
+export function advanceAuthGeneration(): void {
+  authGeneration += 1
+}
+
+const handleResponse = async (r: Response, requestGeneration: number) => {
   if (r.status === 401) {
-    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+    if (requestGeneration === authGeneration) {
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+    }
     throw new Error('unauthorized')
   }
   if (!r.ok) {
@@ -71,13 +81,17 @@ async function request(
   opts?: RequestOptions,
 ) {
   const ms = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const requestGeneration = authGeneration
   const ctrl = new AbortController()
   let timedOut = false
   const timer = setTimeout(() => { timedOut = true; ctrl.abort() }, ms)
   try {
     // The deadline covers the body too: a server can send headers and
     // then stall mid-body.
-    return await handleResponse(await fetch(url, { ...init, signal: ctrl.signal }))
+    return await handleResponse(
+      await fetch(url, { ...init, signal: ctrl.signal }),
+      requestGeneration,
+    )
   } catch (e) {
     const status = (e as { status?: number })?.status
     const kind = timedOut ? 'timeout'
