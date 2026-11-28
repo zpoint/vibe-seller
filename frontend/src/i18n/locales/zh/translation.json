@@ -593,6 +593,7 @@
     "LoginAllRequired": "请把每一项都填好再保存。",
     "LoginSaving": "保存中...",
     "SelectStore": "选择店铺...",
+    "Selected": "已选：",
     "Loading": "加载中...",
     "LoginRequired": "请先在{{vendor}}客户端里登录，再点「刷新」。",
     "ClientNotRunning": "没能自动打开{{vendor}}客户端——请先手动打开（或确认已安装），再点「刷新」。",
