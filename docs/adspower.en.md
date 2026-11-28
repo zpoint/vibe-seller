@@ -17,9 +17,7 @@ browsers too; see [Browsers](browsers.md).
 ## Download and install
 
 1. Open <https://www.adspower.net/download>, download the client for
-   your system (Windows or macOS, AdsPower Global) and install it. Any install folder works —
-   Vibe Seller finds it; if it ever can't, you can point the setting
-   at the install location by hand.
+   your system (Windows or macOS, AdsPower Global) and install it.
 2. Launch and sign in to the client at least once, so you can confirm
    the account works and your profile list shows up.
 
@@ -27,7 +25,6 @@ When the AdsPower client is not running, Vibe Seller opens it
 automatically; when it is not signed in, the task tells you to sign in
 in the client first (see
 ["The AdsPower client needs you to sign in"](#the-adspower-client-needs-you-to-sign-in)).
-!!! tip "Keep this computer's firewall on."
 
 ## Paid plan and API permission
 

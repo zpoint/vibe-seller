@@ -12,12 +12,10 @@ description: AdsPower 接入 Vibe Seller 的一页说明：下载安装、API �
 
 ## 下载与安装
 
-1. 打开 <https://www.adspower.net/download>，下载你电脑系统对应的客户端（Windows 或 macOS，AdsPower Global）并安装。装在哪个目录都可以，Vibe Seller 会自己找到；实在找不到时你可以在设置里手动指定安装位置。
+1. 打开 <https://www.adspower.net/download>，下载你电脑系统对应的客户端（Windows 或 macOS，AdsPower Global）并安装。
 2. 安装后至少手动启动并登录一次，确认账号正常、能看到你的环境列表。
 
 AdsPower 客户端没开时，Vibe Seller 会自动打开它；客户端没登录时，任务会提示你先在客户端里登录（见[AdsPower 客户端需要登录](#adspower-客户端需要登录)）。
-
-!!! tip "请保持这台电脑的防火墙开启。"
 
 ## 付费套餐与 API 权限
 
