@@ -15,13 +15,11 @@ Not using BitBrowser? Skip this page; Vibe Seller supports other browsers too �
 1. Open the [download page](https://www.bitbrowser.net/download/), download the client for your system (Windows / Mac) and install it.
 2. Start and sign in once by hand to confirm the account works and you can see your profiles. After that Vibe Seller launches the client and signs in again when the session expires.
 
-## Create an account (if needed)
-
-An existing BitBrowser account works directly; a sub-account is recommended. To create one:
+## Create a sub-account
 
 1. As the admin, open **员工管理 → 成员** (Users → Members) and create a sub-account.
 2. Authorise the profiles this sub-account may operate. It sees only its own profiles and those authorised by the main account; with none authorised, Vibe Seller lists no profiles.
-3. Write down its **username and password** — that is what you fill into Vibe Seller.
+3. Write down the sub-account's **username and password** — that is what you fill into Vibe Seller.
 
 !!! warning "Stores must use a Chrome kernel"
 
