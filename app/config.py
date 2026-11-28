@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import secrets
 
+from app.browser.runtime_dir import browser_runtime_dir
 from app.env_options import Options
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -142,12 +143,15 @@ DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 # without any cmdline/env scraping (portable; avoids macOS's
 # ``psutil.environ()`` AccessDenied).
 #
-# Kept SHORT on purpose: macOS caps AF_UNIX ``sun_path`` at 104 bytes and
-# the socket path is ``<BH_RUNTIME_DIR>/bu-<BU_NAME>.sock``. The
-# browser-harness default (~/.config/browser-harness/runtime) is long
-# enough to overflow that for longer store slugs, so we override it.
-BH_RUNTIME_DIR = VIBE_SELLER_DIR / 'r'
-BH_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+# Bounded for macOS's 104-byte AF_UNIX ``sun_path`` (including its NUL),
+# even with browser-use's maximum 64-character BU_NAME. Existing installs
+# keep $VIBE_HOME/r when that fits. A longer home falls back to a private,
+# deterministic short path; the reaper also scans the old directory so an
+# upgrade cannot orphan daemons created by the previous release.
+BH_RUNTIME_DIR = browser_runtime_dir(VIBE_SELLER_DIR)
+BH_LEGACY_RUNTIME_DIR = VIBE_SELLER_DIR / 'r'
+if BH_RUNTIME_DIR == BH_LEGACY_RUNTIME_DIR:
+    BH_LEGACY_RUNTIME_DIR = None
 BH_TMP_DIR = VIBE_SELLER_DIR / 'bh-tmp'
 BH_TMP_DIR.mkdir(parents=True, exist_ok=True)
 

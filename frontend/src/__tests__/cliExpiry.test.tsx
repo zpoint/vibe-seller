@@ -50,7 +50,9 @@ describe('WeCom authorization expiry on the integrations row', () => {
   it('expired: says so once and leads with Re-authorize', async () => {
     route(true)
     renderPanel()
-    expect((await screen.findByTestId('cli-expired-wecom')).textContent).toBe(cli.expired)
+    const expired = await screen.findByTestId('cli-expired-wecom')
+    expect(expired.textContent).toBe(cli.expired)
+    expect(expired.getAttribute('data-state')).toBe('expired')
     expect(screen.getByTestId('cli-expiry-hint-wecom').textContent).toContain(cli.expiredHint)
     const button = screen.getByTestId('cli-relogin-wecom')
     expect(button.textContent).toBe(cli.reauthorize)

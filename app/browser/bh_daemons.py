@@ -22,7 +22,7 @@ from pathlib import Path
 import re
 
 from app.browser.process_utils import kill_with_escalation
-from app.config import BH_RUNTIME_DIR
+from app.config import BH_LEGACY_RUNTIME_DIR, BH_RUNTIME_DIR
 from app.platform import find_processes_by_pattern, kill_process
 
 logger = logging.getLogger(__name__)
@@ -63,17 +63,23 @@ def iter_pidfiles() -> Iterator[tuple[str, int | None, Path, Path]]:
     ``pid`` is None when the file is unreadable/corrupt. Callers decide
     whether a pid is live before acting on it.
     """
-    runtime = BH_RUNTIME_DIR
-    if not runtime.is_dir():
-        return
-    for pf in sorted(runtime.glob('bu-*.pid')):
-        bu_name = pf.name[len('bu-') : -len('.pid')]
-        sock = pf.with_suffix('.sock')
-        try:
-            pid = parse_pid_record(pf.read_text())
-        except OSError:
-            pid = None
-        yield bu_name, pid, pf, sock
+    runtimes = [BH_RUNTIME_DIR]
+    if (
+        BH_LEGACY_RUNTIME_DIR is not None
+        and BH_LEGACY_RUNTIME_DIR != BH_RUNTIME_DIR
+    ):
+        runtimes.append(BH_LEGACY_RUNTIME_DIR)
+    for runtime in runtimes:
+        if not runtime.is_dir():
+            continue
+        for pf in sorted(runtime.glob('bu-*.pid')):
+            bu_name = pf.name[len('bu-') : -len('.pid')]
+            sock = pf.with_suffix('.sock')
+            try:
+                pid = parse_pid_record(pf.read_text())
+            except OSError:
+                pid = None
+            yield bu_name, pid, pf, sock
 
 
 def unlink_quiet(*paths: Path) -> None:
